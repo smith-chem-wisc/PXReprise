@@ -312,6 +312,7 @@ classes:
       score: {range: float, description: "Search-engine score."}
       delta_score: {range: float, description: "Score difference to the next-best candidate."}
       q_value: {range: float, minimum_value: 0, maximum_value: 1, required: true, description: "False discovery rate q-value (0-1)."}
+      q_value_notch: {range: float, minimum_value: 0, maximum_value: 1, description: "q-value within the match's notch (mass-offset bin). Producers that accept a match on both q-values report counts that cannot be reproduced from q_value alone."}
       pep: {range: float, minimum_value: 0, maximum_value: 1, description: "Posterior error probability (0-1)."}
       pep_q_value: {range: float, minimum_value: 0, maximum_value: 1, description: "q-value computed from PEP."}
       mass_error_ppm: {range: float, description: "Precursor mass error in ppm."}
@@ -336,7 +337,9 @@ classes:
       peptidoform: {required: true, description: "ProForma 2 string with UNIMOD accessions."}
       base_sequence: {required: true, description: "Unmodified amino-acid sequence."}
       best_q_value: {range: float, minimum_value: 0, maximum_value: 1, description: "Lowest q-value among the supporting PSMs."}
+      best_q_value_notch: {range: float, minimum_value: 0, maximum_value: 1, description: "Lowest notch q-value among the supporting PSMs."}
       best_pep: {range: float, minimum_value: 0, maximum_value: 1, description: "Lowest PEP among the supporting PSMs."}
+      target_decoy: {range: TargetDecoy, required: true, description: "Target, decoy or contaminant. Decoy peptidoforms are kept so a caller can recompute FDR."}
       n_psms: {range: integer, description: "Number of PSMs supporting this row."}
       protein_group_id: {range: ProteinGroup, description: "Protein group the peptidoform was assigned to."}
       protein_accessions: {range: Protein, multivalued: true, description: "All protein accessions the peptide maps to."}
@@ -351,6 +354,7 @@ classes:
       dataset_id: {range: Dataset, required: true, description: "Dataset this row belongs to (ProteomeXchange accession)."}
       protein_accessions: {range: Protein, multivalued: true, required: true, description: "All protein accessions the peptide maps to."}
       genes: {multivalued: true, description: "Gene names of the member proteins."}
+      target_decoy: {range: TargetDecoy, description: "Target, decoy or contaminant, as the producer classified the group."}
       q_value: {range: float, minimum_value: 0, maximum_value: 1, description: "Protein-group q-value."}
       sequence_coverage: {range: float, minimum_value: 0, maximum_value: 1, description: "Fraction of the sequence covered (0-1)."}
       unique_peptides: {range: integer, description: "Number of peptides unique to this group."}
@@ -507,7 +511,7 @@ classes:
     description: Every modification the search considered for a dataset (P1; J8 mass-silent checks).
     attributes:
       dataset_id: {range: Dataset, required: true, description: "Dataset this row belongs to (ProteomeXchange accession)."}
-      modification: {range: uriorcurie, required: true, description: "UNIMOD accession where one exists."}
+      modification: {range: uriorcurie, description: "UNIMOD accession, absent for a modification that has none (metal adducts, engine-specific entries). `name` always identifies it."}
       name: {required: true, description: "Modification name as the search engine lists it."}
       residues: {required: true, description: "Residues or termini it was allowed on."}
       usage: {range: ModUsage, required: true, description: "Fixed, variable, GPTMD candidate or glycan."}

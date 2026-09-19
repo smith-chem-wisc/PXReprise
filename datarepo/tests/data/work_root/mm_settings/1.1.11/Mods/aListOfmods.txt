@@ -1,0 +1,34 @@
+Fixed modifications
+ID   Carbamidomethyl on C
+TG   C
+PP   Anywhere.
+CF   H3 C2 N O
+DR   Unimod; 4.
+//
+ID   Oxidation on M
+TG   M
+PP   Anywhere.
+CF   O1
+DR   Unimod; 35.
+//
+ID   Hydroxylation
+TG   K or N
+PP   Anywhere.
+CF   O1
+DR   Unimod; 35.
+//
+ID   Ammonia loss
+TG   C or N
+PP   Anywhere.
+DR   Unimod; 385.
+//
+ID   Deamidation
+TG   N or Q
+PP   Anywhere.
+DR   Unimod; 7.
+//
+ID   Calcium
+TG   D or E
+PP   Anywhere.
+MM   37.946941
+//

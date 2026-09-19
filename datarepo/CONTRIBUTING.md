@@ -1,7 +1,7 @@
 # Contributing to dataRepo
 
-Thanks for helping. dataRepo is in its design phase, so the most useful contributions right now are
-schema reviews and benchmark questions the schema can't yet answer.
+Thanks for helping. dataRepo is early, so the most useful contributions right now are schema reviews,
+benchmark questions the schema can't yet answer, and producer file formats the ingester mishandles.
 
 ## Ground rules
 
@@ -13,7 +13,12 @@ schema reviews and benchmark questions the schema can't yet answer.
    new number needs a `definition_id` from the project that owns its meaning.
 4. **Missing is not zero.** Never write 0 for "not measured".
 5. **No data in this repo.** Bundles, releases and DOIs belong to an instance (decision D8).
-   `examples/` holds only tiny, illustrative fixtures.
+   `examples/` and `tests/data/` hold only tiny fixtures.
+6. **Parsing producer formats belongs to pyMzLib.** If the ingester reads a producer file itself, the
+   reason must be recorded in `src/datarepo/readers.py` and in the bundle's reader log, along with the
+   request that would let the in-house code be deleted.
+7. **Never invent an identifier.** An unresolved modification, an unmatched run or a protein group
+   the producer did not build is reported as a finding, not filled in with a plausible guess.
 
 ## Making a schema change
 
@@ -28,14 +33,34 @@ linkml-lint --config .linkmllint.yaml schema/datarepo.yaml
 linkml-lint --config .linkmllint.yaml schema/study/aging.yaml
 linkml-validate -s schema/datarepo.yaml -C Bundle examples/minimal_bundle.yaml
 
-# 3. regenerate the reference docs and commit them with the change
+# 3. regenerate the reference docs AND the ingester's Arrow schemas, and commit them
 python tools/build_docs.py
+python tools/build_tables.py
 
-# 4. note the change under "Unreleased" in CHANGELOG.md
+# 4. if the change affects what the ingester writes, regenerate the example bundle (needs pyMzLib)
+python tools/build_example_bundle.py
+
+# 5. note the change under "Unreleased" in CHANGELOG.md
 ```
 
-CI runs the same checks. It also confirms that `examples/invalid/` still **fails** validation, and that
-`docs/schema/` matches the schema.
+CI runs the same checks. It also confirms that `examples/invalid/` still **fails** validation, that
+`docs/schema/` and `src/datarepo/_tables.py` match the schema, and that real ingester output
+(`examples/ingested_bundle.yaml`) validates.
+
+## Working on the ingester
+
+```bash
+pip install -e . -r requirements-dev.txt
+pip install pymzlib          # parses .psmtsv; `datarepo doctor` says whether its bridge is built
+pytest -q -rs                # tests that parse .psmtsv skip without the bridge
+```
+
+`tests/data/` is a miniature producing instance: a manifest with relative roots, real MetaMorpheus
+`.psmtsv` rows trimmed from PXD036557, and hand-made FlashLFQ tables whose edge cases are the ones
+that matter (a zero intensity, a `NotDetected` cell, a q-value of exactly zero, a decoy group, a
+contaminant group). Add to it rather than mocking a reader.
+
+Read [docs/ingest.md](docs/ingest.md) first; it says what each rule is for.
 
 If a change affects which benchmark questions can be answered, update
 [`design/SCHEMA_COVERAGE.md`](design/SCHEMA_COVERAGE.md).

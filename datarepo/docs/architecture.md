@@ -16,6 +16,27 @@ proposal, with its reasoning and the research behind it, is [`design/FRAMEWORK.m
 | D7 | **Open questions** are tracked with defaults in [`design/OPEN_QUESTIONS.md`](../design/OPEN_QUESTIONS.md). Work proceeds on the defaults. |
 | D8 | **Code, not data.** This repo ships software. The producing project hosts the data instance: bundles, releases, DOIs and the deployed service. |
 
+## Built
+
+**Ingest (layer 1)** is implemented: `datarepo ingest` turns one dataset's pipeline output into one
+immutable, content-addressed Parquet bundle. Reference: [`ingest.md`](ingest.md).
+
+The parts of the proposal below that it settled in practice:
+
+- **The manifest is the contract.** The ingester reads the producing instance's `manifest.yaml`
+  rather than scanning its work root, so which run is canonical and whether it may be loaded is the
+  producer's recorded decision (aging thread 006).
+- **Parquet columns come from the schema.** `tools/build_tables.py` generates the Arrow schemas from
+  `schema/datarepo.yaml`, so there is no second column list to drift.
+- **Bundles are content-addressed.** The directory name hashes the inputs, the schema version and
+  the ingester version, which makes re-ingest idempotent and makes a cited bundle safe.
+- **Every bundle recounts itself** against the producer's own totals, and a disagreement becomes a
+  finding rather than a silent difference.
+- **Nothing is written that does not hold together.** Foreign keys are checked before the write.
+
+Still to build, in order: the DuckDB catalog (`datarepo build`), the Python client and MCP server,
+then REST and the deploy package.
+
 ## Proposed (not yet locked, gap G1)
 
 ```

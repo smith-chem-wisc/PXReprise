@@ -1,0 +1,86 @@
+{
+ "schema": "aging-provenance/2",
+ "stage": "search_metamorpheus",
+ "started_utc": "2026-09-18T00:00:00+00:00",
+ "finished_utc": "2026-09-18T00:10:00+00:00",
+ "host": {
+  "node": "test"
+ },
+ "pipeline": {
+  "repo": "trishorts/aging",
+  "commit": "0000000000000000000000000000000000000000"
+ },
+ "params_file": {
+  "path": "params.json",
+  "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+ },
+ "params": {
+  "metamorpheus_version": "1.1.11",
+  "tasks": [
+   "Calibration",
+   "Gptmd",
+   "Search"
+  ]
+ },
+ "tools": {
+  "MetaMorpheus": {
+   "release": "1.1.11"
+  }
+ },
+ "roots": {
+  "work_root": "tests\\data\\work_root"
+ },
+ "resources": {
+  "wall_s": 60.0,
+  "peak_rss_gib": 1.0
+ },
+ "inputs": [
+  {
+   "path": "run_test/PXD999999/04_search/tasks/2_GptmdTask.toml",
+   "root": "work_root",
+   "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  {
+   "path": "run_test/PXD999999/04_search/tasks/3_SearchTask.toml",
+   "root": "work_root",
+   "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  {
+   "path": "db/test_human.xml",
+   "root": "work_root",
+   "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  }
+ ],
+ "outputs": [],
+ "exit_code": 0,
+ "success": true,
+ "id_rate": {
+  "psms_1pct": 9,
+  "ms2": 300,
+  "rate": 0.03
+ },
+ "mbr": {
+  "definition": "QuantProject DEF-QC-MBR v1",
+  "mbr_rows": 10,
+  "mbr_kept": 4,
+  "msms_peaks": 6,
+  "kept_over_msms": 0.667,
+  "mbr_fdr_threshold": 0.01
+ },
+ "flags": [
+  "low_id_rate: 9/300 = 3.0% of MS2 identified (S3)",
+  "no_design_file: none written"
+ ],
+ "upstream": [
+  {
+   "stage": "qc_spectra",
+   "path": "run_test/PXD999999/02b_qc/provenance.json",
+   "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+   "stage": "fetch",
+   "path": "run_test/PXD999999/02_fetch/provenance.json",
+   "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  }
+ ]
+}

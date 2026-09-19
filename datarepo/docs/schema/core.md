@@ -240,6 +240,7 @@ QPX view: `psm` (table-level; column mapping not yet verified).
 | `score` | `float` |  | Search-engine score. |
 | `delta_score` | `float` |  | Score difference to the next-best candidate. |
 | `q_value` | `float` | yes | False discovery rate q-value (0-1). (range 0..1) |
+| `q_value_notch` | `float` |  | q-value within the match's notch (mass-offset bin). Producers that accept a match on both q-values report counts that cannot be reproduced from q_value alone. (range 0..1) |
 | `pep` | `float` |  | Posterior error probability (0-1). (range 0..1) |
 | `pep_q_value` | `float` |  | q-value computed from PEP. (range 0..1) |
 | `mass_error_ppm` | `float` |  | Precursor mass error in ppm. |
@@ -268,7 +269,9 @@ QPX view: `feature` (table-level; column mapping not yet verified).
 | `peptidoform` | `string` | yes | ProForma 2 string with UNIMOD accessions. |
 | `base_sequence` | `string` | yes | Unmodified amino-acid sequence. |
 | `best_q_value` | `float` |  | Lowest q-value among the supporting PSMs. (range 0..1) |
+| `best_q_value_notch` | `float` |  | Lowest notch q-value among the supporting PSMs. (range 0..1) |
 | `best_pep` | `float` |  | Lowest PEP among the supporting PSMs. (range 0..1) |
+| `target_decoy` | [TargetDecoy](#targetdecoy) | yes | Target, decoy or contaminant. Decoy peptidoforms are kept so a caller can recompute FDR. |
 | `n_psms` | `integer` |  | Number of PSMs supporting this row. |
 | `protein_group_id` | [ProteinGroup](#proteingroup) |  | Protein group the peptidoform was assigned to. |
 | `protein_accessions` | [Protein](#protein) [ ] |  | All protein accessions the peptide maps to. |
@@ -287,6 +290,7 @@ QPX view: `pg` (table-level; column mapping not yet verified).
 | `dataset_id` | [Dataset](#dataset) | yes | Dataset this row belongs to (ProteomeXchange accession). |
 | `protein_accessions` | [Protein](#protein) [ ] | yes | All protein accessions the peptide maps to. |
 | `genes` | `string` [ ] |  | Gene names of the member proteins. |
+| `target_decoy` | [TargetDecoy](#targetdecoy) |  | Target, decoy or contaminant, as the producer classified the group. |
 | `q_value` | `float` |  | Protein-group q-value. (range 0..1) |
 | `sequence_coverage` | `float` |  | Fraction of the sequence covered (0-1). (range 0..1) |
 | `unique_peptides` | `integer` |  | Number of peptides unique to this group. |
@@ -466,7 +470,7 @@ Every modification the search considered for a dataset (P1; J8 mass-silent check
 | Column | Type | Req | Meaning |
 |---|---|---|---|
 | `dataset_id` | [Dataset](#dataset) | yes | Dataset this row belongs to (ProteomeXchange accession). |
-| `modification` | `uriorcurie` | yes | UNIMOD accession where one exists. |
+| `modification` | `uriorcurie` |  | UNIMOD accession, absent for a modification that has none (metal adducts, engine-specific entries). `name` always identifies it. |
 | `name` | `string` | yes | Modification name as the search engine lists it. |
 | `residues` | `string` | yes | Residues or termini it was allowed on. |
 | `usage` | [ModUsage](#modusage) | yes | Fixed, variable, GPTMD candidate or glycan. |

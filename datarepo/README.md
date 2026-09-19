@@ -10,8 +10,9 @@ in how many datasets, and show me the spectra"*. People can use it too, but agen
 [![CI](https://github.com/trishorts/dataRepo/actions/workflows/ci.yml/badge.svg)](https://github.com/trishorts/dataRepo/actions/workflows/ci.yml)
 [![Code: MIT](https://img.shields.io/badge/code-MIT-blue.svg)](LICENSE)
 
-> **Status: design phase (v0, pre-alpha).** The schema is drafted and validated. It hasn't been locked,
-> and there is no ingester or server yet. Expect breaking changes. See the [roadmap](#roadmap).
+> **Status: v0, pre-alpha.** The schema is drafted and validated but not locked, and `datarepo ingest`
+> is the only working command. There is no query catalog and no server yet. Expect breaking changes.
+> See the [roadmap](#roadmap).
 
 ---
 
@@ -52,8 +53,12 @@ maps and metric definitions come from the projects that own them ([ownership](#w
 | [`docs/schema/core.md`](docs/schema/core.md) | **Schema reference**: every table, column, type and vocabulary, plus a relationship diagram. Generated. |
 | [`docs/schema/study-aging.md`](docs/schema/study-aging.md) | Reference for the aging layer. Generated. |
 | [`docs/architecture.md`](docs/architecture.md) | How the pieces fit, and which parts are decided vs. proposed |
-| [`examples/`](examples/) | A minimal valid bundle, plus an invalid one that must fail |
+| [`examples/`](examples/) | A minimal valid bundle, real ingester output, and an invalid one that must fail |
+| [`src/datarepo/`](src/datarepo/) | The **ingester**: `datarepo ingest` turns a producer's run into a Parquet bundle |
+| [`docs/ingest.md`](docs/ingest.md) | **Ingester reference**: the manifest contract, what it reads, what it writes, how counts reconcile |
+| [`tests/`](tests/) | Test suite with a miniature producing instance in `tests/data/` |
 | [`tools/build_docs.py`](tools/build_docs.py) | Regenerates `docs/schema/` from the schema |
+| [`tools/build_tables.py`](tools/build_tables.py) | Regenerates the ingester's Arrow schemas from the schema |
 | [`design/`](design/) | Working design notes: framework proposal, input inventory, coverage map, open questions, cross-project threads |
 | [`lit/`](lit/) | Background research on AI-ready platforms and proteomics resources |
 
@@ -93,12 +98,19 @@ That's why age isn't a column on `Sample`.
 
 ## Quick start
 
-You need Python 3.10+.
+You need Python 3.11+.
 
 ```bash
 python -m venv .venv
 # Windows: .venv\Scripts\activate    Linux/macOS: source .venv/bin/activate
-pip install -r requirements-dev.txt
+pip install -e . -r requirements-dev.txt
+pip install pymzlib           # parses the producer's .psmtsv files
+
+# Ingest one dataset from a producing instance's manifest
+datarepo doctor                                                   # can this machine ingest?
+datarepo manifest  /path/to/instance/manifest.yaml                # what does it offer?
+datarepo ingest    /path/to/instance/manifest.yaml PXD036557 -v   # build the bundle
+datarepo inspect   /path/to/store/PXD036557/<bundle-id>           # what did it build?
 
 # Lint the schemas
 linkml-lint --config .linkmllint.yaml schema/datarepo.yaml
@@ -107,9 +119,15 @@ linkml-lint --config .linkmllint.yaml schema/study/aging.yaml
 # Validate a bundle (YAML or JSON) against the core schema
 linkml-validate -s schema/datarepo.yaml -C Bundle examples/minimal_bundle.yaml
 
-# Regenerate the reference docs after changing a schema
+# Regenerate the generated files after changing a schema (CI rejects stale ones)
 python tools/build_docs.py
+python tools/build_tables.py
+
+# Tests. Those that parse .psmtsv skip when pyMzLib's mzLib bridge is not built.
+pytest -q -rs
 ```
+
+Full ingester reference: **[docs/ingest.md](docs/ingest.md)**.
 
 LinkML also generates JSON Schema, Pydantic models and SQL DDL from the same file, e.g.
 `gen-json-schema schema/datarepo.yaml` or `gen-pydantic schema/datarepo.yaml`.
@@ -144,8 +162,8 @@ The agent tools will be scored against the same set, following the pattern used 
 | Step | Deliverable | Status |
 |---|---|---|
 | 0 | Benchmark questions + schema v0 | **Done (draft):** schema validated; 166 of 168 questions have a home |
-| 1 | `datarepo ingest` for aging's first datasets → Parquet | Next |
-| 2 | `datarepo build` → DuckDB catalog | |
+| 1 | `datarepo ingest` for aging's first datasets → Parquet | **Done:** 16 tables, USIs, reconciliation against the producer's counts ([docs](docs/ingest.md)) |
+| 2 | `datarepo build` → DuckDB catalog | Next |
 | 3 | Python client + local MCP server (stdio) | |
 | 4 | REST API, static site, Docker Compose package | |
 | 5 | Production deployment by the instance owner; v0.1 release with DOI | |

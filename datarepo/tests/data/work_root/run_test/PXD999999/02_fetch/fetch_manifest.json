@@ -1,0 +1,28 @@
+{
+ "accession": "PXD999999",
+ "rest_raw_count": 2,
+ "ftp_raw_count": 2,
+ "files": [
+  {
+   "file": "/work/QE-002106_GM1_a.raw",
+   "name": "QE-002106_GM1_a.raw",
+   "pride_size_bytes": 1000,
+   "local_size_bytes": 1000,
+   "pride_checksum": "sha1-0",
+   "sha256": "sha256-0",
+   "category": "RAW"
+  },
+  {
+   "file": "/work/QE-002107_GM1_b.raw",
+   "name": "QE-002107_GM1_b.raw",
+   "pride_size_bytes": 1000,
+   "local_size_bytes": 1000,
+   "pride_checksum": "sha1-1",
+   "sha256": "sha256-1",
+   "category": "RAW"
+  }
+ ],
+ "sdrf": [
+  "metadata/PXD999999.sdrf.tsv"
+ ]
+}

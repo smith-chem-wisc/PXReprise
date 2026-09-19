@@ -1,0 +1,21 @@
+ID   Methionine (R)-sulfoxide
+AC   PTM-0480
+TG   Methionine.
+PP   Anywhere.
+MM   15.994915
+DR   Unimod; 35.
+//
+ID   N6-acetyllysine
+AC   PTM-0190
+TG   Lysine.
+PP   Anywhere.
+MM   42.010565
+DR   Unimod; 1.
+//
+ID   Phosphoserine
+AC   PTM-0250
+TG   Serine.
+PP   Anywhere.
+MM   79.966331
+DR   Unimod; 21.
+//

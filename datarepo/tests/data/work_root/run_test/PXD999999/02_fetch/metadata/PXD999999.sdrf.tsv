@@ -1,0 +1,3 @@
+source name	characteristics[organism]	characteristics[organism part]	characteristics[disease]	characteristics[biological replicate]	assay name	comment[label]	comment[instrument]	comment[technical replicate]	comment[fraction identifier]	comment[data file]
+PXD999999-Sample-1	Homo sapiens	not available	not available	1	QE-002106_GM1_a	NT=label free sample;AC=MS:1002038	NT=Q Exactive Plus;AC=MS:1002634	1	1	QE-002106_GM1_a.raw
+PXD999999-Sample-2	Homo sapiens	not available	not available	2	QE-002107_GM1_b	NT=label free sample;AC=MS:1002038	NT=Q Exactive Plus;AC=MS:1002634	1	1	QE-002107_GM1_b.raw
