@@ -1,0 +1,93 @@
+# A minimal, ILLUSTRATIVE bundle: one dataset, one sample, one run, one PSM, one quant value.
+# Shape and identifiers follow the schema; the numbers are made up, except the two PSM counts
+# (from aging's PXD036557 run, which disagree; see SUSPICIOUS.md S21).
+# Validate:  linkml-validate -s schema/datarepo.yaml -C Bundle examples/minimal_bundle.yaml
+datasets:
+  - dataset_id: PXD036557
+    title: Example dataset (illustrative)
+    organisms: ["NCBITaxon:9606"]
+    acquisition: DDA
+    quant_method: label_free
+    labelling: none
+    enrichment: [none]
+    instrument_vendor: Thermo
+    axis_source: discover
+    search_engine: MetaMorpheus
+    search_engine_version: 1.1.11
+    sdrf_status: trusted
+samples:
+  - sample_id: "PXD036557:donor01"
+    dataset_id: PXD036557
+    source_name: donor01
+    organism: "NCBITaxon:9606"
+    sex: "PATO:0000383"
+    material_type: cell culture
+    condition: HGPS
+runs:
+  - run_id: "PXD036557:file01"
+    dataset_id: PXD036557
+    file_name: file01.raw
+    fragmentation: [HCD]
+    qc_pass: true
+assays:
+  - assay_id: "PXD036557:file01:label_free"
+    run_id: "PXD036557:file01"
+    channel: label_free
+    sample_id: "PXD036557:donor01"
+proteins:
+  - protein_accession: P02545
+    gene: LMNA
+    organism: "NCBITaxon:9606"
+    source_db: uniprot
+psms:
+  - psm_id: "PXD036557:file01:12345:1"
+    run_id: "PXD036557:file01"
+    scan: 12345
+    usi: "mzspec:PXD036557:file01:scan:12345:LQEELDLK/2"
+    peptidoform: LQEELDLK
+    base_sequence: LQEELDLK
+    precursor_charge: 2
+    q_value: 0.001
+    target_decoy: target
+    protein_accessions: [P02545]
+definitions:
+  - definition_id: DEF-QUANT-APEX
+    version: v1
+    owner_project: QuantProject
+    text: Placeholder so the example validates; the real text lives in QuantProject's register.
+  - definition_id: DEF-PSM-1PCT-RESULTS
+    version: v0
+    owner_project: aging
+    text: Placeholder. PSM count at 1% FDR as printed in results.txt.
+  - definition_id: DEF-PSM-1PCT-PROVENANCE
+    version: v0
+    owner_project: aging
+    text: Placeholder. psms_1pct from provenance.json id_rate.
+quant_values:
+  - assay_id: "PXD036557:file01:label_free"
+    feature_type: peptidoform
+    feature_id: "PXD036557:LQEELDLK"
+    value: 12345.6
+    detection_type: MSMS
+    definition_id: DEF-QUANT-APEX
+metrics:
+  - scope: dataset
+    scope_id: PXD036557
+    name: psms_1pct
+    value: 26582
+    definition_id: DEF-PSM-1PCT-RESULTS
+    source: results.txt
+  - scope: dataset
+    scope_id: PXD036557
+    name: psms_1pct
+    value: 27958
+    definition_id: DEF-PSM-1PCT-PROVENANCE
+    source: provenance.json
+findings:
+  - finding_id: "PXD036557:no_design_file"
+    dataset_id: PXD036557
+    code: no_design_file
+    severity: warning
+    status: open
+    message: No experimental design file, so each raw file is treated as its own biological replicate.
+    source: provenance flags

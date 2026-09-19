@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: >-
+  If you use dataRepo, please cite it as below. Data served by an instance has its own
+  citation (the instance's release DOI); cite both.
+title: "dataRepo: software for an AI-ready repository of reanalyzed public proteomics data"
+type: software
+# Credit line is open question U3 in design/OPEN_QUESTIONS.md; replace once confirmed.
+authors:
+  - name: "NCEMS Aging Proteome Working Group"
+repository-code: "https://github.com/trishorts/dataRepo"
+license: MIT
+version: 0.0.1
+date-released: "2026-09-19"
+keywords:
+  - proteomics
+  - reanalysis
+  - PRIDE
+  - LinkML
+  - MCP
+  - AI-ready data
+  - aging
