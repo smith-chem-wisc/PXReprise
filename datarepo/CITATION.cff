@@ -4,7 +4,7 @@ message: >-
   citation (the instance's release DOI); cite both.
 title: "dataRepo: software for an AI-ready repository of reanalyzed public proteomics data"
 type: software
-# Credit line is open question U3 in design/OPEN_QUESTIONS.md; replace once confirmed.
+# Credit line confirmed by the user 2026-09-19 (U3).
 authors:
   - name: "NCEMS Aging Proteome Working Group"
 repository-code: "https://github.com/trishorts/dataRepo"
