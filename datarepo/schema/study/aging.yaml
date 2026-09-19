@@ -1,0 +1,85 @@
+# aging study layer, v0 (STUB, 2026-09-19). Proposed by dataRepo to show the plug-in pattern (U5);
+# aging owns the content (D6, aging D1) and should confirm or replace every column here.
+#
+# The rule: a study layer ADDS tables keyed on core identifiers (sample_id, dataset_id, feature_id)
+# and never alters a core table. Everything the core stores stays usable by a non-aging consumer.
+
+id: https://w3id.org/datarepo/study/aging
+name: datarepo_aging
+title: dataRepo aging study layer
+version: 0.0.1
+license: https://creativecommons.org/licenses/by/4.0/
+
+prefixes:
+  linkml: https://w3id.org/linkml/
+  datarepo: https://w3id.org/datarepo/core/
+  aging: https://w3id.org/datarepo/study/aging/
+  UBERON: http://purl.obolibrary.org/obo/UBERON_
+  GO: http://purl.obolibrary.org/obo/GO_
+
+default_prefix: aging
+default_range: string
+
+imports:
+  - linkml:types
+  - ../datarepo
+
+classes:
+
+  SampleAge:
+    description: >-
+      Normalized age of one sample. Normalizer: SdrfAge (sdrf/mzLib #1326); dataRepo only stores it.
+      Only ~160 of 1,236 curated SDRFs carry a real age (aging G12), so absence is common and is NA.
+    attributes:
+      sample_id: {range: Sample, required: true}
+      age_raw: {required: true, description: "The SDRF value verbatim."}
+      age_years: {range: float, description: "Normalized to years. NA when not parseable."}
+      age_is_lower_bound: {range: boolean, description: "e.g. '65+' or '>80'."}
+      age_is_range: {range: boolean}
+      normalizer_version: {required: true}
+
+  AgeEffect:
+    description: >-
+      Estimated association of one feature with age in one dataset under one model (aging stage 7,
+      R/msqrob2). feature_type + feature_id point into core tables.
+    attributes:
+      dataset_id: {range: Dataset, required: true}
+      feature_type: {range: FeatureType, required: true}
+      feature_id: {required: true}
+      model_definition_id: {range: Definition, required: true}
+      estimate: {range: float}
+      standard_error: {range: float}
+      p_value: {range: float}
+      q_value: {range: float}
+      n_samples: {range: integer}
+
+  OrganelleAgeSummary:
+    description: Meta-analytic age effect per compartment across datasets (precomputed from AgeEffect).
+    attributes:
+      compartment: {range: uriorcurie, required: true, description: "GO-CC term, from go's map."}
+      organism_part: {range: uriorcurie, description: "UBERON; NA = all tissues."}
+      model_definition_id: {range: Definition, required: true}
+      n_datasets: {range: integer, required: true}
+      n_proteins: {range: integer}
+      estimate: {range: float}
+      standard_error: {range: float}
+      q_value: {range: float}
+      heterogeneity_i2: {range: float}
+
+  ClockModel:
+    description: A trained age clock (R9, aging's stage after stage 7).
+    attributes:
+      clock_id: {identifier: true}
+      definition_id: {range: Definition, required: true}
+      feature_level: {description: "protein, ptm_site, proteoform, mixed (N1)."}
+      training_datasets: {range: Dataset, multivalued: true}
+      cv_mae_years: {range: float}
+      heldout_mae_years: {range: float}
+      heldout_datasets: {range: Dataset, multivalued: true}
+
+  ClockFeature:
+    attributes:
+      clock_id: {range: ClockModel, required: true}
+      feature_type: {range: FeatureType, required: true}
+      feature_id: {required: true}
+      weight: {range: float, required: true}

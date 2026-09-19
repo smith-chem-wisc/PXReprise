@@ -1,0 +1,514 @@
+# dataRepo core schema, v0 (DRAFT, 2026-09-19). Not locked: FRAMEWORK.md (G1) is still a proposal.
+#
+# Scope rule (U5 default, G10): this core knows nothing about aging. It holds the search + quant
+# results of any bottom-up reanalysis of public proteomics datasets. A study layer (e.g.
+# schema/study/aging.yaml) ADDS tables keyed on core identifiers and never alters a core table.
+#
+# Rules carried from aging and FRAMEWORK §3:
+#   - Missing is NA, never 0.
+#   - Every stored number that has a producer-defined meaning carries a definition_id (owner's DEF-*).
+#   - One peptidoform notation everywhere: ProForma 2 with UNIMOD accessions.
+#   - Format is a QPX-compatible superset (D4). `qpx_view` annotations mark the tables that map to a
+#     QPX view. Column-level QPX mapping is NOT yet checked against a QPX release; see design/SCHEMA_V0.md.
+#   - Scope columns are real columns from v0 (D5, DATAREPO-2): organism, acquisition, quant_method,
+#     labelling, enrichment, instrument_vendor.
+#   - dataRepo stores; it never computes science. Tables marked `producer` are filled from that
+#     project's output as-is.
+
+id: https://w3id.org/datarepo/core
+name: datarepo
+title: dataRepo core schema
+version: 0.0.1
+license: https://creativecommons.org/licenses/by/4.0/
+description: >-
+  Generic core schema for an AI-ready repository of reanalyzed public proteomics datasets:
+  datasets, samples, runs, PSMs, peptidoforms, protein groups, PTM sites and stoichiometry,
+  glycopeptides, inferred proteoforms, long-format quantities, annotations, definitions,
+  provenance and releases.
+
+prefixes:
+  linkml: https://w3id.org/linkml/
+  datarepo: https://w3id.org/datarepo/core/
+  NCBITaxon: http://purl.obolibrary.org/obo/NCBITaxon_
+  UBERON: http://purl.obolibrary.org/obo/UBERON_
+  CL: http://purl.obolibrary.org/obo/CL_
+  MONDO: http://purl.obolibrary.org/obo/MONDO_
+  EFO: http://www.ebi.ac.uk/efo/EFO_
+  PATO: http://purl.obolibrary.org/obo/PATO_
+  GO: http://purl.obolibrary.org/obo/GO_
+  UNIMOD: http://www.unimod.org/obo/unimod.obo#UNIMOD_
+  MS: http://purl.obolibrary.org/obo/MS_
+  uniprot: http://purl.uniprot.org/uniprot/
+  pride: https://www.ebi.ac.uk/pride/archive/projects/
+
+default_prefix: datarepo
+default_range: string
+
+imports:
+  - linkml:types
+
+# ---------------------------------------------------------------------------------------------
+# Enums
+# ---------------------------------------------------------------------------------------------
+enums:
+  Acquisition:
+    permissible_values:
+      DDA:
+      DIA:
+      PRM:
+      mixed:
+  QuantMethod:
+    description: How abundance is read out. The reagent detail goes in `labelling`.
+    permissible_values:
+      label_free:
+      isobaric:
+        description: TMT, iTRAQ.
+      metabolic:
+        description: SILAC, 15N, NeuCode.
+      none:
+        description: Identification only.
+  Labelling:
+    description: Label reagent (aging 003 axis). `TMT` carries its plex in Dataset.labelling_plex.
+    permissible_values:
+      none:
+      SILAC:
+      pulse_SILAC:
+      N15:
+      NeuCode:
+      TMT:
+      iTRAQ:
+  Enrichment:
+    description: Enrichment before MS (aging 003 axis). A dataset can have several.
+    permissible_values:
+      none:
+      phospho:
+      acetyl:
+      ubiquitin_GG:
+      succinyl:
+      glyco:
+      other:
+  AxisSource:
+    description: Where a dataset-axis value came from, until aging's provenance carries it (DATAREPO-2).
+    permissible_values:
+      provenance:
+        description: Written explicitly by the producing pipeline. The target state.
+      sdrf:
+      discover:
+        description: Inferred from PRIDE metadata at discovery.
+      curated:
+  TargetDecoy:
+    permissible_values:
+      target:
+      decoy:
+      contaminant:
+  DetectionType:
+    permissible_values:
+      MSMS:
+      MBR:
+      imputed:
+        description: Never produced by dataRepo; allowed only if a producer writes it and marks it.
+      not_detected:
+  FeatureType:
+    description: What a QuantValue or effect row is about.
+    permissible_values:
+      peptidoform:
+      protein_group:
+      ptm_site:
+      glycopeptide:
+      proteoform:
+      protein:
+  GlycanType:
+    permissible_values:
+      N:
+      O:
+      N_and_O:
+        description: One peptide carrying both (combined N+O search).
+  GlycoLocalizationLevel:
+    description: MetaMorpheus O-Pair style levels; confirm names with the producer (R16).
+    permissible_values:
+      level_1:
+      level_1b:
+      level_2:
+      level_3:
+  Severity:
+    permissible_values:
+      info:
+      warning:
+      error:
+  FindingStatus:
+    permissible_values:
+      open:
+      resolved:
+      wont_fix:
+  ChangeType:
+    permissible_values:
+      added:
+      removed:
+      reprocessed:
+      annotation_updated:
+      schema_changed:
+
+# ---------------------------------------------------------------------------------------------
+# Classes
+# ---------------------------------------------------------------------------------------------
+classes:
+
+  # ---- releases & catalog -------------------------------------------------------------------
+  Release:
+    description: One immutable, citable release (D2). R2.
+    attributes:
+      release_id: {identifier: true, description: "Semantic version, e.g. 0.1.0."}
+      date: {range: date, required: true}
+      doi: {range: uriorcurie}
+      schema_version: {required: true}
+      qpx_version: {description: "QPX release this bundle is compatible with (D4).", required: true}
+      notes:
+
+  ReleaseChange:
+    description: "Changelog row: what changed for one dataset between releases (R2, question A7)."
+    attributes:
+      release_id: {range: Release, required: true}
+      dataset_id: {range: Dataset, required: true}
+      change_type: {range: ChangeType, required: true}
+      reason: {required: true}
+
+  DatasetCandidate:
+    description: >-
+      Discovery census row: every screened accession with its inclusion verdict (R1). Producer:
+      the reanalysis project (aging). Answers "why is PXDn not here?".
+    attributes:
+      census_version: {required: true}
+      accession: {required: true, pattern: "^(PXD|MSV|JPST|IPX)[0-9]+$"}
+      included: {range: boolean, required: true}
+      exclusion_reason:
+      definition_id: {range: Definition}
+
+  Dataset:
+    description: One reanalyzed public dataset.
+    annotations: {qpx_view: dataset}
+    attributes:
+      dataset_id: {identifier: true, pattern: "^(PXD|MSV|JPST|IPX)[0-9]+$"}
+      title:
+      organisms: {range: uriorcurie, multivalued: true, required: true, description: "NCBITaxon IDs."}
+      acquisition: {range: Acquisition, required: true}
+      quant_method: {range: QuantMethod, required: true}
+      labelling: {range: Labelling, required: true}
+      labelling_plex: {range: integer, description: "e.g. 16 for TMTpro 16-plex."}
+      enrichment: {range: Enrichment, multivalued: true, required: true}
+      instrument_vendor:
+      instruments: {multivalued: true, description: "PSI-MS instrument names or IDs."}
+      axis_source: {range: AxisSource, required: true, description: "Where the six axes above came from."}
+      submission_type:
+      search_engine: {required: true}
+      search_engine_version: {required: true}
+      pipeline_repo:
+      pipeline_commit:
+      searches: {multivalued: true, description: "Search kinds run on this dataset: standard, gptmd, glyco_N, glyco_O, glyco_NO."}
+      first_release_id: {range: Release}
+      latest_release_id: {range: Release}
+
+  Sample:
+    description: >-
+      One biological sample, from the SDRF. Generic columns only. Study-specific columns (e.g. age)
+      live in study-layer tables keyed on sample_id.
+    annotations: {qpx_view: sample}
+    attributes:
+      sample_id: {identifier: true, description: "<dataset_id>:<SDRF source name>"}
+      dataset_id: {range: Dataset, required: true}
+      source_name: {required: true, description: "SDRF source name. Also the donor key for longitudinal designs (R10)."}
+      organism: {range: uriorcurie, required: true}
+      sex: {range: uriorcurie, description: "PATO term."}
+      organism_part: {range: uriorcurie, description: "UBERON term."}
+      cell_type: {range: uriorcurie, description: "CL term."}
+      disease: {range: uriorcurie, description: "MONDO or EFO term; PATO:0000461 for normal."}
+      condition:
+      biological_replicate: {range: integer}
+      timepoint: {description: "Longitudinal timepoint label if the SDRF has one (R10)."}
+
+  SampleCharacteristic:
+    description: Every SDRF characteristic, kept verbatim, so nothing is lost to the curated columns.
+    attributes:
+      sample_id: {range: Sample, required: true}
+      name: {required: true, description: "SDRF column, e.g. characteristics[age]."}
+      value: {required: true}
+      term: {range: uriorcurie}
+
+  Run:
+    description: One raw file.
+    annotations: {qpx_view: run}
+    attributes:
+      run_id: {identifier: true, description: "<dataset_id>:<file name without extension>"}
+      dataset_id: {range: Dataset, required: true}
+      file_name: {required: true}
+      sha256:
+      pride_checksum_sha1:
+      fraction: {range: integer}
+      technical_replicate: {range: integer}
+      fragmentation: {multivalued: true, description: "HCD, EThcD, ETD… (T10)."}
+      ms2_spectra: {range: integer}
+      run_minutes: {range: float}
+      qc_pass: {range: boolean}
+      psms_at_1pct: {range: integer, description: "As reported by the producer; see definition_id (S21)."}
+      id_rate: {range: float}
+      definition_id: {range: Definition}
+
+  Assay:
+    description: >-
+      One (run, channel) measurement of one sample. Label-free: one assay per run, channel
+      "label_free". TMT: one per reporter channel. The unit every quantity attaches to (D5).
+    attributes:
+      assay_id: {identifier: true, description: "<run_id>:<channel>"}
+      run_id: {range: Run, required: true}
+      channel: {required: true}
+      sample_id: {range: Sample, required: true}
+
+  # ---- identifications ----------------------------------------------------------------------
+  Psm:
+    description: One peptide-spectrum match.
+    annotations: {qpx_view: psm}
+    attributes:
+      psm_id: {identifier: true, description: "<run_id>:<scan>:<rank>"}
+      run_id: {range: Run, required: true}
+      scan: {range: integer, required: true}
+      usi: {required: true, description: "mzspec:<PXD>:<file>:scan:<n>:<ProForma>/<z>. Resolvable via PRIDE PROXI."}
+      peptidoform: {required: true}
+      base_sequence: {required: true}
+      precursor_charge: {range: integer, required: true}
+      precursor_mz: {range: float}
+      retention_time_min: {range: float}
+      score: {range: float}
+      delta_score: {range: float}
+      q_value: {range: float, required: true}
+      pep: {range: float}
+      pep_q_value: {range: float}
+      mass_error_ppm: {range: float}
+      target_decoy: {range: TargetDecoy, required: true}
+      protein_accessions: {range: Protein, multivalued: true}
+      ambiguity_level:
+      localization_score: {range: float}
+      search: {description: "Which search produced it (standard, gptmd, glyco_*)."}
+
+  Peptidoform:
+    description: One peptidoform in one dataset (best evidence across runs).
+    annotations: {qpx_view: feature}
+    attributes:
+      peptidoform_id: {identifier: true, description: "<dataset_id>:<ProForma>"}
+      dataset_id: {range: Dataset, required: true}
+      peptidoform: {required: true}
+      base_sequence: {required: true}
+      best_q_value: {range: float}
+      best_pep: {range: float}
+      n_psms: {range: integer}
+      protein_group_id: {range: ProteinGroup}
+      protein_accessions: {range: Protein, multivalued: true}
+      is_unique: {range: boolean, description: "Maps to exactly one protein (R11, mzLib REQ-MZLIB-1)."}
+      is_isoform_specific: {range: boolean, description: "Distinguishes one isoform (O-section questions)."}
+
+  ProteinGroup:
+    description: One protein group in one dataset.
+    annotations: {qpx_view: pg}
+    attributes:
+      protein_group_id: {identifier: true, description: "<dataset_id>:<sorted accessions joined by ;>"}
+      dataset_id: {range: Dataset, required: true}
+      protein_accessions: {range: Protein, multivalued: true, required: true}
+      genes: {multivalued: true}
+      q_value: {range: float}
+      sequence_coverage: {range: float}
+      unique_peptides: {range: integer}
+      shared_peptides: {range: integer}
+
+  Protein:
+    description: One UniProt entry (isoforms are separate rows).
+    attributes:
+      protein_accession: {identifier: true}
+      canonical_accession: {range: Protein, description: "Self for canonical entries."}
+      gene:
+      organism: {range: uriorcurie, required: true}
+      length: {range: integer}
+      uniprot_release:
+
+  # ---- PTMs, glyco, proteoforms -------------------------------------------------------------
+  PtmSite:
+    description: One modified residue on one protein in one dataset, from PSM evidence.
+    attributes:
+      ptm_site_id: {identifier: true, description: "<dataset_id>:<accession>:<residue><position>:<UNIMOD>"}
+      dataset_id: {range: Dataset, required: true}
+      protein_accession: {range: Protein, required: true}
+      position: {range: integer, required: true}
+      residue: {required: true}
+      modification: {range: uriorcurie, required: true, description: "UNIMOD accession."}
+      localization_score: {range: float}
+      n_psms: {range: integer}
+      best_q_value: {range: float}
+
+  PtmStoichiometry:
+    description: >-
+      Modified fraction of one site in one assay (R7). Producer: MetaMorpheus PTM stoichiometry
+      (paper submitted); definition on the QuantProject register. Stored as produced.
+    attributes:
+      ptm_site_id: {range: PtmSite, required: true}
+      assay_id: {range: Assay, required: true}
+      modified_fraction: {range: float, minimum_value: 0, maximum_value: 1}
+      n_modified_peptidoforms: {range: integer, required: true}
+      n_unmodified_peptidoforms: {range: integer, required: true}
+      uncertainty: {range: float, description: "Form (SE, CI half-width) set by definition_id."}
+      definition_id: {range: Definition, required: true}
+
+  Glycopeptide:
+    description: >-
+      One glycopeptide identification (R16). Glycans are stored as COMPOSITIONS, never structures
+      (trap J9). Quant goes in QuantValue with feature_type glycopeptide.
+    attributes:
+      glycopeptide_id: {identifier: true}
+      dataset_id: {range: Dataset, required: true}
+      peptidoform: {required: true}
+      protein_accession: {range: Protein, required: true}
+      glycosite_positions: {range: integer, multivalued: true}
+      glycan_type: {range: GlycanType, required: true}
+      glycan_composition: {required: true, description: "e.g. HexNAc(4)Hex(5)NeuAc(2)."}
+      localization_level: {range: GlycoLocalizationLevel}
+      q_value: {range: float}
+      n_psms: {range: integer}
+
+  ProteoformInference:
+    description: >-
+      A proteoform INFERRED from bottom-up evidence (R7b; no top-down data). Sites on different
+      peptides are not evidence of one molecule (trap J16): `sites_on_one_peptide` says whether any
+      single peptide carries them all.
+    attributes:
+      proteoform_id: {identifier: true}
+      dataset_id: {range: Dataset, required: true}
+      protein_accession: {range: Protein, required: true}
+      proforma: {required: true, description: "Full-protein ProForma of the inferred form."}
+      supporting_peptidoforms: {range: Peptidoform, multivalued: true, required: true}
+      sites_on_one_peptide: {range: boolean, required: true}
+      inference_confidence: {range: float, required: true}
+      definition_id: {range: Definition, required: true}
+
+  # ---- quantities ---------------------------------------------------------------------------
+  QuantValue:
+    description: >-
+      One quantity of one feature in one assay. Long format (D5). Missing = no row or NA, never 0.
+    annotations: {qpx_view: feature}
+    attributes:
+      assay_id: {range: Assay, required: true}
+      feature_type: {range: FeatureType, required: true}
+      feature_id: {required: true, description: "ID in the table named by feature_type."}
+      value: {range: float}
+      detection_type: {range: DetectionType}
+      pip_q_value: {range: float, description: "FlashLFQ MBR peak q (PIP Q-Value)."}
+      definition_id: {range: Definition, required: true, description: "e.g. apex intensity (aging D13)."}
+
+  # ---- annotations & reference sets (stored, owned elsewhere) -------------------------------
+  AnnotationSource:
+    description: A versioned annotation set from its owner (go's organelle map, UniProt, half-lives…).
+    attributes:
+      source_id: {identifier: true}
+      owner_project: {required: true}
+      version: {required: true}
+      doi: {range: uriorcurie}
+
+  ProteinLocalization:
+    description: Protein → compartment, as supplied by `go` (REQ-GO-2..10). Never computed here.
+    attributes:
+      protein_accession: {range: Protein, required: true}
+      compartment: {range: uriorcurie, required: true, description: "GO-CC term."}
+      organelle_label: {required: true}
+      evidence:
+      source_id: {range: AnnotationSource, required: true}
+
+  ProteinAnnotation:
+    description: >-
+      Any other per-protein fact from an owner (R6: half-life with tissue/organism, ELLP,
+      genome of origin, complex membership; R5 orthologs). Key/value so new facts need no schema change.
+    attributes:
+      protein_accession: {range: Protein, required: true}
+      key: {required: true}
+      value: {required: true}
+      qualifier: {description: "e.g. tissue or organism a half-life was measured in."}
+      source_id: {range: AnnotationSource, required: true}
+
+  FeatureSet:
+    description: A curated, versioned list of proteins or features (R8 reference panels).
+    attributes:
+      feature_set_id: {identifier: true}
+      name: {required: true}
+      version: {required: true}
+      owner_project: {required: true}
+      doi: {range: uriorcurie}
+      description:
+
+  FeatureSetMember:
+    attributes:
+      feature_set_id: {range: FeatureSet, required: true}
+      feature_type: {range: FeatureType, required: true}
+      feature_id: {required: true}
+      role: {description: "e.g. weight or direction, as the owner defines it."}
+
+  # ---- trust --------------------------------------------------------------------------------
+  Definition:
+    description: A metric definition, copied from its owning register (QuantProject DEF-*, etc.).
+    attributes:
+      definition_id: {identifier: true}
+      version: {required: true}
+      owner_project: {required: true}
+      text: {required: true}
+      url: {range: uriorcurie}
+
+  ProvenanceRecord:
+    description: One pipeline stage for one dataset, flattened from provenance.json (original kept).
+    attributes:
+      dataset_id: {range: Dataset, required: true}
+      stage: {required: true}
+      provenance_schema: {required: true, description: "e.g. aging-provenance/2."}
+      started_utc: {range: datetime}
+      finished_utc: {range: datetime}
+      pipeline_repo:
+      pipeline_commit:
+      params_sha256:
+      tools_json: {description: "The tools block, verbatim JSON."}
+      original_path: {required: true, description: "Path of the stored provenance.json in the bundle."}
+      original_sha256: {required: true}
+
+  Finding:
+    description: A flag on a dataset or run (low_id_rate, no_design_file, a SUSPICIOUS.md entry…).
+    attributes:
+      finding_id: {identifier: true}
+      dataset_id: {range: Dataset, required: true}
+      run_id: {range: Run}
+      code: {required: true}
+      severity: {range: Severity, required: true}
+      status: {range: FindingStatus, required: true}
+      message: {required: true}
+      source: {required: true, description: "provenance flags, SUSPICIOUS.md S<n>, …"}
+
+  # ---- container (validation only) ----------------------------------------------------------
+  Bundle:
+    tree_root: true
+    description: A release bundle, for validating example data. Parquet files hold one table each.
+    attributes:
+      releases: {range: Release, multivalued: true, inlined_as_list: true}
+      release_changes: {range: ReleaseChange, multivalued: true, inlined_as_list: true}
+      dataset_candidates: {range: DatasetCandidate, multivalued: true, inlined_as_list: true}
+      datasets: {range: Dataset, multivalued: true, inlined_as_list: true}
+      samples: {range: Sample, multivalued: true, inlined_as_list: true}
+      sample_characteristics: {range: SampleCharacteristic, multivalued: true, inlined_as_list: true}
+      runs: {range: Run, multivalued: true, inlined_as_list: true}
+      assays: {range: Assay, multivalued: true, inlined_as_list: true}
+      psms: {range: Psm, multivalued: true, inlined_as_list: true}
+      peptidoforms: {range: Peptidoform, multivalued: true, inlined_as_list: true}
+      protein_groups: {range: ProteinGroup, multivalued: true, inlined_as_list: true}
+      proteins: {range: Protein, multivalued: true, inlined_as_list: true}
+      ptm_sites: {range: PtmSite, multivalued: true, inlined_as_list: true}
+      ptm_stoichiometry: {range: PtmStoichiometry, multivalued: true, inlined_as_list: true}
+      glycopeptides: {range: Glycopeptide, multivalued: true, inlined_as_list: true}
+      proteoform_inferences: {range: ProteoformInference, multivalued: true, inlined_as_list: true}
+      quant_values: {range: QuantValue, multivalued: true, inlined_as_list: true}
+      annotation_sources: {range: AnnotationSource, multivalued: true, inlined_as_list: true}
+      protein_localizations: {range: ProteinLocalization, multivalued: true, inlined_as_list: true}
+      protein_annotations: {range: ProteinAnnotation, multivalued: true, inlined_as_list: true}
+      feature_sets: {range: FeatureSet, multivalued: true, inlined_as_list: true}
+      feature_set_members: {range: FeatureSetMember, multivalued: true, inlined_as_list: true}
+      definitions: {range: Definition, multivalued: true, inlined_as_list: true}
+      provenance_records: {range: ProvenanceRecord, multivalued: true, inlined_as_list: true}
+      findings: {range: Finding, multivalued: true, inlined_as_list: true}
