@@ -87,6 +87,26 @@ enums:
       succinyl:
       glyco:
       other:
+  SdrfStatus:
+    description: How far the dataset's SDRF could be trusted (P4).
+    permissible_values:
+      trusted:
+      repaired:
+      config_fallback:
+        description: No usable SDRF; design came from the pipeline's config.
+      absent:
+  ModUsage:
+    description: How a modification entered the search (P1).
+    permissible_values:
+      fixed:
+      variable:
+      gptmd:
+        description: Candidate list for GPTMD discovery.
+      glycan:
+  MetricScope:
+    permissible_values:
+      dataset:
+      run:
   AxisSource:
     description: Where a dataset-axis value came from, until aging's provenance carries it (DATAREPO-2).
     permissible_values:
@@ -201,6 +221,9 @@ classes:
       submission_type:
       search_engine: {required: true}
       search_engine_version: {required: true}
+      search_database: {description: "Protein database name and release, e.g. UniProt human reviewed 2026_03 + isoforms (G10)."}
+      search_database_sha256:
+      sdrf_status: {range: SdrfStatus}
       pipeline_repo:
       pipeline_commit:
       searches: {multivalued: true, description: "Search kinds run on this dataset: standard, gptmd, glyco_N, glyco_O, glyco_NO."}
@@ -221,7 +244,10 @@ classes:
       organism_part: {range: uriorcurie, description: "UBERON term."}
       cell_type: {range: uriorcurie, description: "CL term."}
       disease: {range: uriorcurie, description: "MONDO or EFO term; PATO:0000461 for normal."}
-      condition:
+      condition: {description: "Free-text condition, e.g. HGPS, caloric restriction (B7, I4)."}
+      material_type: {description: "SDRF material type: tissue, cell culture, body fluid… (B8)."}
+      cell_line:
+      individual_id: {description: "SDRF characteristics[individual]. Same donor across samples = longitudinal (B11, R10)."}
       biological_replicate: {range: integer}
       timepoint: {description: "Longitudinal timepoint label if the SDRF has one (R10)."}
 
@@ -248,9 +274,8 @@ classes:
       ms2_spectra: {range: integer}
       run_minutes: {range: float}
       qc_pass: {range: boolean}
-      psms_at_1pct: {range: integer, description: "As reported by the producer; see definition_id (S21)."}
-      id_rate: {range: float}
-      definition_id: {range: Definition}
+      instrument_model:
+      acquisition_datetime: {range: datetime, description: "From the raw file header (J14 batch/date checks, H4)."}
 
   Assay:
     description: >-
@@ -287,6 +312,12 @@ classes:
       ambiguity_level:
       localization_score: {range: float}
       search: {description: "Which search produced it (standard, gptmd, glyco_*)."}
+      missed_cleavages: {range: integer}
+      nonspecific_termini: {range: integer, minimum_value: 0, maximum_value: 2, description: "Termini not matching the protease (L3 truncation)."}
+      start_residue: {range: integer}
+      end_residue: {range: integer}
+      matched_ion_series: {description: "Producer's annotated fragment list, verbatim (F7; full evidence is R14)."}
+      matched_ion_count: {range: integer}
 
   Peptidoform:
     description: One peptidoform in one dataset (best evidence across runs).
@@ -325,7 +356,9 @@ classes:
       gene:
       organism: {range: uriorcurie, required: true}
       length: {range: integer}
+      source_db: {required: true, description: "uniprot, or the custom database that supplied it (e.g. progerin, D8)."}
       uniprot_release:
+      is_contaminant: {range: boolean}
 
   # ---- PTMs, glyco, proteoforms -------------------------------------------------------------
   PtmSite:
@@ -397,6 +430,7 @@ classes:
       value: {range: float}
       detection_type: {range: DetectionType}
       pip_q_value: {range: float, description: "FlashLFQ MBR peak q (PIP Q-Value)."}
+      mbr_kept: {range: boolean, description: "Passes the producer's MBR filter (QuantProject DEF-MBR-KEPT)."}
       definition_id: {range: Definition, required: true, description: "e.g. apex intensity (aging D13)."}
 
   # ---- annotations & reference sets (stored, owned elsewhere) -------------------------------
@@ -425,6 +459,7 @@ classes:
       protein_accession: {range: Protein, required: true}
       key: {required: true}
       value: {required: true}
+      position: {range: integer, description: "Set for residue-level facts, e.g. predicted deamidation rate (L2)."}
       qualifier: {description: "e.g. tissue or organism a half-life was measured in."}
       source_id: {range: AnnotationSource, required: true}
 
@@ -446,6 +481,28 @@ classes:
       role: {description: "e.g. weight or direction, as the owner defines it."}
 
   # ---- trust --------------------------------------------------------------------------------
+  Metric:
+    description: >-
+      One producer-defined number about a dataset or run (PSM count at 1% FDR, ID rate, contaminant
+      share…). Long, so two producers' versions of one number sit side by side with their
+      definitions (S21) and new QC metrics need no schema change.
+    attributes:
+      scope: {range: MetricScope, required: true}
+      scope_id: {required: true, description: "dataset_id or run_id."}
+      name: {required: true}
+      value: {range: float}
+      definition_id: {range: Definition, required: true}
+      source: {required: true, description: "File the number came from, e.g. provenance.json id_rate, results.txt."}
+
+  SearchModification:
+    description: Every modification the search considered for a dataset (P1; J8 mass-silent checks).
+    attributes:
+      dataset_id: {range: Dataset, required: true}
+      modification: {range: uriorcurie, required: true, description: "UNIMOD accession where one exists."}
+      name: {required: true}
+      residues: {required: true}
+      usage: {range: ModUsage, required: true}
+
   Definition:
     description: A metric definition, copied from its owning register (QuantProject DEF-*, etc.).
     attributes:
@@ -467,6 +524,10 @@ classes:
       pipeline_commit:
       params_sha256:
       tools_json: {description: "The tools block, verbatim JSON."}
+      params_json: {description: "The params block, verbatim JSON."}
+      wall_seconds: {range: float}
+      peak_rss_gib: {range: float}
+      resources_json: {description: "The resources block, verbatim JSON (G9)."}
       original_path: {required: true, description: "Path of the stored provenance.json in the bundle."}
       original_sha256: {required: true}
 
@@ -512,3 +573,5 @@ classes:
       definitions: {range: Definition, multivalued: true, inlined_as_list: true}
       provenance_records: {range: ProvenanceRecord, multivalued: true, inlined_as_list: true}
       findings: {range: Finding, multivalued: true, inlined_as_list: true}
+      metrics: {range: Metric, multivalued: true, inlined_as_list: true}
+      search_modifications: {range: SearchModification, multivalued: true, inlined_as_list: true}

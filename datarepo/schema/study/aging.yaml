@@ -46,6 +46,7 @@ classes:
       dataset_id: {range: Dataset, required: true}
       feature_type: {range: FeatureType, required: true}
       feature_id: {required: true}
+      response: {required: true, description: "What changes with age: abundance, modified_fraction (K1, K13), isoform_ratio (O4), glycoform_fraction (T3)."}
       model_definition_id: {range: Definition, required: true}
       estimate: {range: float}
       standard_error: {range: float}
@@ -57,7 +58,9 @@ classes:
     description: Meta-analytic age effect per compartment across datasets (precomputed from AgeEffect).
     attributes:
       compartment: {range: uriorcurie, required: true, description: "GO-CC term, from go's map."}
+      organism: {range: uriorcurie, required: true, description: "NCBITaxon (D14)."}
       organism_part: {range: uriorcurie, description: "UBERON; NA = all tissues."}
+      response: {required: true}
       model_definition_id: {range: Definition, required: true}
       n_datasets: {range: integer, required: true}
       n_proteins: {range: integer}
@@ -83,3 +86,16 @@ classes:
       feature_type: {range: FeatureType, required: true}
       feature_id: {required: true}
       weight: {range: float, required: true}
+
+  AgeMapping:
+    description: >-
+      Cross-species age to life stage (R4). aging stage 7 owns it as a versioned, definition-backed
+      lookup; dataRepo stores it.
+    attributes:
+      organism: {range: uriorcurie, required: true}
+      age_from: {range: float, required: true}
+      age_to: {range: float, required: true}
+      age_unit: {required: true}
+      life_stage: {required: true}
+      human_equivalent_years: {range: float}
+      definition_id: {range: Definition, required: true}
