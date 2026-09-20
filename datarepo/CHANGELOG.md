@@ -4,6 +4,42 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [0.6.0] - 2026-09-20
+
+### Added
+- **The study layer is instantiated** (G19). `schema/study/aging.yaml` goes from a stub to eight
+  real tables, generated into `STUDY_TABLES` by `tools/build_tables.py` exactly as the core's are,
+  and created by `datarepo build`. `age_effects`, `age_effect_refusals` and `age_effect_meta` are
+  transcribed column-for-column from `aging:DEF-AGE-EFFECT v1` and `-META v1`; `sample_ages`,
+  `organelle_age_summaries`, `clock_models`, `clock_features` and `age_mappings` carry their
+  not-yet-definition-backed status in their own descriptions.
+- Enums `AgeResponse`, `AgeEstimator`, `QuantBasis`, `ModelForm` and `FitRefusal`, each carrying in
+  its description the benchmark question that forces it to exist.
+- `integrity.STUDY_COMPOSITE_IDENTIFIERS`: every study table's natural key, declared while the
+  tables are empty, with a test that fails on a study table having no key. `quant_values` shipped
+  with none and a duplicated source row wrote one measurement three times.
+- Catalog tables are listed with `kind = 'study:<layer>'`, so a caller can tell a layer's tables
+  from the core's.
+
+### Changed
+- `CATALOG_VERSION` 1 → **2**, and `catalog_id` now hashes each study layer's version. A change to
+  what `build` writes must re-id catalogs and must **not** re-id bundles that hold byte-identical
+  rows from an unchanged ingest path. Same principle as `manifest.CONTENT_FIELDS`, one level up.
+- **`bundle_id` is hashed on `bundle.INGESTER_VERSION`, not on `__version__`.** The package version
+  moves for reasons a bundle cannot see -- 0.6.0 is entirely a `build` change -- and hashing it
+  would have re-identified every bundle in every store for rows that are byte-identical. The new
+  constant is bumped in the same commit as any change to what an ingest reads, parses, derives or
+  writes, and it lags `__version__` on purpose. Verified: the three real datasets re-ingest to the
+  same bundle ids they had on 0.5.0, and two tests pin both directions. `bundle.json` records both
+  versions, because they answer different questions.
+
+### Note
+- **Every study table is empty and will stay empty until a producer delivers rows.** Nothing in the
+  ingest path writes them; how they arrive is DATAREPO-20. Creating them anyway is the deliverable:
+  aging's benchmark distinguishes `NO_TABLE` from `EMPTY_TABLE`, and the 46 questions that need an
+  age effect scored the first. Section D's own query -- do organelles age at different rates --
+  now parses, joins `protein_localizations` and returns nothing.
+
 ## [0.5.0] - 2026-09-20
 
 ### Changed

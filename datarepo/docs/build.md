@@ -103,6 +103,43 @@ The direction matters and it is the grain rule doing its work: store at the grai
 was made at, and coarsen in a view. The reverse -- storing the merged row and hoping nobody needed
 the split -- is not recoverable.
 
+### The study layer
+
+A **study layer** adds tables keyed on core identifiers and never alters a core table (U5). The core
+schema knows nothing about aging, so another reanalysis project could use it unchanged; the
+aging-specific tables live in `schema/study/aging.yaml` and are generated into `STUDY_TABLES`
+separately from `TABLES`.
+
+| Table | Grain | Definition |
+|---|---|---|
+| `age_effects` | (dataset, feature, response, estimator, quant_basis, model_form, stratum) | `aging:DEF-AGE-EFFECT v1` |
+| `age_effect_refusals` | one row per fit **not** performed, with the reason | `aging:DEF-AGE-EFFECT v1` §5 |
+| `age_effect_meta` | (feature, response, estimator, quant_basis, stratum, tissue, acquisition, quant_method) | `aging:DEF-AGE-EFFECT-META v1` |
+| `sample_ages` | one row per sample | not yet definition-backed |
+| `organelle_age_summaries`, `clock_models`, `clock_features`, `age_mappings` | — | not yet definition-backed |
+
+**Every one of them is empty, and the catalog creates them anyway.** Nothing in the ingest path
+writes them: an age effect is the output of a modelling stage that runs long after a search, and how
+those rows reach a bundle is an open question rather than a guess (DATAREPO-20). Creating the tables
+regardless is the point — `NO_TABLE` and `EMPTY_TABLE` are different answers, and only the second
+one says *this repository can hold that, and holds none of it*. The query section D asks — do
+organelles age at different rates — now parses, joins and returns nothing:
+
+```sql
+SELECT pl.compartment, count(*) AS n, median(ae.beta) AS median_beta
+FROM age_effects ae
+JOIN protein_localizations pl ON pl.protein_accession = ae.feature_id
+WHERE ae.response = 'abundance' AND ae.q_value <= 0.05 AND ae.stratum = 'all'
+GROUP BY 1 ORDER BY median_beta;
+```
+
+**A study layer's version is part of the catalog's identity, and not part of a bundle's.** Adding a
+column to `age_effects` must give a different catalog id, because the catalog holds something
+different; it must *not* give a different bundle id, because the bundles hold byte-identical rows
+from an unchanged ingest path. `CATALOG_VERSION` and `STUDY_VERSIONS` are in `catalog_id` and not in
+`BundleWriter.bundle_id`, which is why adding this whole layer re-identified every catalog and not
+one bundle.
+
 ### Cross-dataset tables
 
 A bundle can answer "what is in this dataset". Only the catalog can answer "which datasets have this
