@@ -117,7 +117,7 @@ metrics:
   scope_id: PXD999999
   name: ms2
   value: 300.0
-  definition_id: PROVISIONAL:MS2-COUNT
+  definition_id: aging:DEF-MS2
   source: provenance.json id_rate.ms2
 - scope: dataset
   scope_id: PXD999999

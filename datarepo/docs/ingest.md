@@ -163,6 +163,23 @@ copy of the column list.
 - **References must resolve.** Before anything is written, every foreign key and every
   `QuantValue.feature_id` is checked against the table it names. A dangling reference stops the
   write — it is an ingester bug, not a property of the data.
+- **Identifiers are unique, with one lossless escape.** A producer can write the same row twice:
+  MetaMorpheus wrote one protein group three times in PXD027318, byte-identical in every column.
+  Rows that share an identifier **and are identical in every column** are collapsed to one, because
+  the copies carry nothing the kept row does not; the collapse is recorded in `bundle.json` under
+  `collapsed_duplicates` and raised as a `collapsed_duplicate_rows` finding. Rows that share an
+  identifier and **differ anywhere** still stop the write: the producer is then saying two
+  different things about one thing, and that is not the ingester's to resolve.
+  `psms` and `findings` are excluded from the collapse on purpose — a row there is an observation
+  and the number of rows is itself a reported number, so a duplicate `psm_id` is an ingester bug to
+  fix rather than a duplicate to absorb. `quant_values` is included and matters most: it has no
+  identifier of its own, so three identical group rows became three identical quantities per run
+  and a caller summing intensities would have read the group as three times as abundant.
+- **A per-file number stays per file.** The contaminant intensity share is defined per raw file
+  (`QuantProject:DEF-QC-9`) and is written one `Metric` row per run. The producer's median, min and
+  max ride along at dataset scope under names that say they are summaries, so nothing forces a
+  caller to recompute them and nothing lets a caller mistake one for the measurement. On PXD036557
+  the dataset figure is 7.0% and the per-file values run 2.6% to 18.9%, grouped by cell line.
 
 ## Reconciliation: how you know the bundle is faithful
 
@@ -243,6 +260,8 @@ null for MetaMorpheus files in 0.1.x (DATAREPO-12). When it is populated, this c
 | `count_mismatch` | warning | A count disagrees with the producer's summary. |
 | `unresolved_modifications` | warning | A modification has neither a UNIMOD accession nor a mass. |
 | `unmatched_runs` | warning | A run the search reported is not a deposited file. |
+| `collapsed_duplicate_rows` | info | The producer wrote a row more than once, identical in every column; the copies were dropped. |
+| `metric_conflict` | warning | One metric reached the bundle from two sources under one definition, and they disagree. |
 
 The producer's own flags arrive as findings too, keeping their original text.
 
