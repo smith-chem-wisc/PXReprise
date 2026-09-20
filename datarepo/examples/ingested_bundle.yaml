@@ -339,6 +339,8 @@ psms:
   delta_score: 21.192
   q_value: 0.000369
   q_value_notch: 0.000378
+  notch: '0'
+  notch_ambiguous: false
   pep: 0.0
   pep_q_value: 0.00021872265966754156
   mass_error_ppm: -0.75
@@ -364,6 +366,8 @@ psms:
   delta_score: 21.127
   q_value: 0.000369
   q_value_notch: 0.000378
+  notch: '0'
+  notch_ambiguous: false
   pep: 5.960464477539063e-08
   pep_q_value: 0.0007272727272727272
   mass_error_ppm: -0.41
@@ -389,6 +393,8 @@ psms:
   delta_score: 20.337
   q_value: 0.000369
   q_value_notch: 0.000378
+  notch: '0'
+  notch_ambiguous: false
   pep: 0.0
   pep_q_value: 0.00021872265966754156
   mass_error_ppm: -1.38
@@ -413,6 +419,8 @@ psms:
   delta_score: 20.337
   q_value: 0.000369
   q_value_notch: 0.000378
+  notch: '0'
+  notch_ambiguous: false
   pep: 0.0
   pep_q_value: 0.00021872265966754156
   mass_error_ppm: -0.54
@@ -437,6 +445,8 @@ psms:
   delta_score: 20.251
   q_value: 0.000369
   q_value_notch: 0.000378
+  notch: '0'
+  notch_ambiguous: false
   pep: 0.0
   pep_q_value: 0.00021872265966754156
   mass_error_ppm: -0.89

@@ -109,7 +109,7 @@ invalid quantities into the repository under a status that says not to.
 | `provenance.json` (search + its declared upstream stages) | dataRepo | `ProvenanceRecord`, `Metric`, `Finding` |
 | `fetch_manifest.json` | dataRepo | `Run` (file names, SHA-256, archive checksum) |
 | `qc_report.json` | dataRepo | `Run` (MS2 count, length, dissociation, QC verdict), `Metric` |
-| `*.sdrf.tsv` | dataRepo | `Sample`, `SampleCharacteristic`, `Assay` |
+| `*.sdrf.tsv` | **pyMzLib** | `Sample`, `SampleCharacteristic`, `Assay` |
 | `AllPSMs.psmtsv`, `AllPeptides.psmtsv` | **pyMzLib** | `Psm`, `Peptidoform`, `Protein`, `PtmSite` |
 | `AllQuantifiedPeptides.tsv`, `AllQuantifiedProteinGroups.tsv`, `AllQuantifiedPeaks.tsv` | dataRepo | `QuantValue`, `ProteinGroup` |
 | the executed task `.toml` files | dataRepo | `SearchModification` |
@@ -120,6 +120,13 @@ pyMzLib owns producer file formats. Where dataRepo reads one itself it is becaus
 cannot, and `bundle.json`'s `readers` block records the reason for every such file, so the in-house
 code is deletable rather than permanent. See the table in
 [`src/datarepo/readers.py`](../src/datarepo/readers.py).
+
+That deletion has now happened once. dataRepo read `*.sdrf.tsv` itself because pyMzLib's *generic*
+projection joined header and cells with `;`, which SDRF values contain themselves, so the columns
+could not be recovered (DATAREPO-13). pyMzLib 0.1.1 answers that with a dedicated `pymzlib.sdrf`
+module; on the real PXD036557 file it agrees with the deleted code cell for cell, including all 144
+cells containing a `;`. Note that the generic `read_records()` path is unchanged and still lossy on
+an SDRF, so `readers.read_sdrf` calls `pymzlib.sdrf.read` specifically.
 
 ## What it writes
 
@@ -164,24 +171,36 @@ bundle recounts itself and compares with what the producer reported.
 
 ```
 $ datarepo ingest … PXD036557 -v
-  MISMATCH psms_target_1pct: bundle 26594 vs producer 26582 (results.txt: All target PSMs …)
+  ok       psms_target_1pct: 26582
   ok       peptidoforms_target_1pct: 5541
   ok       protein_groups_1pct: 1652
   ok       runs: 18
   ok       ms2_spectra: 266402
 ```
 
-The counts use the **producer's own acceptance rule** — target, and both `q_value` and
-`q_value_notch` at or below 1% — because a count taken under a different rule would differ for a
-reason that says nothing about whether the ingest was faithful.
+The counts use the **producer's own acceptance rule** — target, both `q_value` and `q_value_notch`
+at or below 1%, **and a notch that actually resolved** — because a count taken under a different rule
+would differ for a reason that says nothing about whether the ingest was faithful.
+
+That last clause is the one nobody guesses. A search that cannot settle on one notch writes its
+candidates separated by `|`, and the producer does not count such a match even though both its
+q-values pass. On PXD036557 it is worth exactly 12 PSMs out of 26,594, and applying it is what turns
+the last mismatch into agreement. Every PSM stores the notch verbatim in `Psm.notch` and the
+conclusion in `Psm.notch_ambiguous`, so the exclusion can be audited rather than trusted:
+
+```sql
+SELECT psm_id, notch FROM psms WHERE notch_ambiguous;
+-- PXD036557:QE-002106_GM1_a:42808:2   0.00000|1.00290
+```
 
 A mismatch is never fatal and never hidden. It goes into `bundle.json` and becomes a `Finding` on the
 dataset, because some mismatches are real and already known, and carrying them with their
 explanation is the repository's job.
 
-> **Known residual (PXD036557):** the PSM total is 12 higher than `results.txt`, 0.05%. The peptide
-> and protein-group totals match exactly under the same rule. The exact predicate behind aging's
-> `DEF-PSM-1PCT v1` is asked as DATAREPO-14.
+> **Closed (PXD036557):** the PSM total used to be 12 higher than `results.txt`. aging gave the
+> missing clause of `DEF-PSM-1PCT v1` in thread 008 — the unresolved notch — and all five checks now
+> agree. The bundle written before that clause existed is still on disk and still citable; it was
+> written against schema 0.0.1 and says so.
 
 ## USIs
 

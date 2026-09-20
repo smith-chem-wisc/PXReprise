@@ -18,7 +18,7 @@
 id: https://w3id.org/datarepo/core
 name: datarepo
 title: dataRepo core schema
-version: 0.0.1
+version: 0.0.2
 license: https://creativecommons.org/licenses/by/4.0/
 description: >-
   Generic core schema for an AI-ready repository of reanalyzed public proteomics datasets:
@@ -313,6 +313,8 @@ classes:
       delta_score: {range: float, description: "Score difference to the next-best candidate."}
       q_value: {range: float, minimum_value: 0, maximum_value: 1, required: true, description: "False discovery rate q-value (0-1)."}
       q_value_notch: {range: float, minimum_value: 0, maximum_value: 1, description: "q-value within the match's notch (mass-offset bin). Producers that accept a match on both q-values report counts that cannot be reproduced from q_value alone."}
+      notch: {description: "The producer's notch assignment, verbatim. A search that leaves it unresolved reports several candidates separated by '|', and that text is the evidence for notch_ambiguous."}
+      notch_ambiguous: {range: boolean, description: "The notch never resolved to one value. Producers exclude these from their headline identification count even though both q-values pass, so a count taken without this column cannot be reproduced (aging DEF-PSM-1PCT v1)."}
       pep: {range: float, minimum_value: 0, maximum_value: 1, description: "Posterior error probability (0-1)."}
       pep_q_value: {range: float, minimum_value: 0, maximum_value: 1, description: "q-value computed from PEP."}
       mass_error_ppm: {range: float, description: "Precursor mass error in ppm."}

@@ -7,6 +7,44 @@ each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **`datarepo build`** (`src/datarepo/catalog.py`): an instance's Parquet bundles into one DuckDB
+  catalog. The manifest is the contract here as it is for ingest, so a withdrawn dataset is refused
+  with the producer's reason and a dataset with several bundles is pinned (`--bundle`) or taken
+  newest (`--latest`) rather than guessed. Tables are materialised so the catalog is one movable
+  file; every schema table exists even when empty; every row carries `dataset_id` and `bundle_id`.
+- Catalog views `psms_1pct`, `peptidoforms_1pct` and `protein_groups_1pct`, which apply the
+  producing search engine's acceptance rule once so the catalog's headline numbers are the numbers
+  the bundle reconciled. A test asserts the SQL and the ingester's Python agree.
+- Cross-dataset tables `dataset_overview`, `protein_index`, `protein_datasets` and `peptide_index`,
+  plus point-lookup indexes. `protein_index` reports both `n_datasets` and `n_datasets_1pct`,
+  because `proteins` is the search's protein list rather than its answer.
+- Catalogs are content-addressed on their bundles, the schema version and the builder version, so
+  rebuilding from the same bundles is a no-op. Row counts, uniqueness and references are re-checked
+  against the bundle manifests before anything is served, and the build stages to a temporary file
+  so a failure leaves the previous catalog serving.
+- `datarepo catalog` and `datarepo query` (read-only SQL, `table`/`tsv`/`json`).
+- Catalog reference (`docs/build.md`).
+- `Psm.notch` and `Psm.notch_ambiguous`. A search that cannot resolve a match's notch writes its
+  candidates separated by `|`, and the producer excludes such a match from its headline count even
+  though both q-values pass (aging thread 008, `DEF-PSM-1PCT v1`).
+
+### Changed
+- **`*.sdrf.tsv` is now read by pyMzLib**, not by dataRepo. The in-house read existed because
+  pyMzLib's generic projection joined header and cells with `;`, which SDRF values contain
+  themselves; `pymzlib.sdrf.read` (0.1.1) fixes that and agrees with the deleted code cell for cell
+  on real data. SDRF characteristics are copied by position, so a repeated column name is kept
+  rather than overwritten.
+- The reconciliation predicate applies the notch clause, which closes the last count mismatch:
+  PXD036557 now reconciles on all five checks (26,582 PSMs, 5,541 peptidoforms, 1,652 protein
+  groups, 18 runs, 266,402 MS2).
+- The `readers` extra installs **`mzlib`**, the distribution pyMzLib actually publishes. It was
+  declared as `pymzlib`, which is the import name and does not exist on PyPI, so the extra could
+  never resolve. Released wheels carry the mzLib bridge, so `PYMZLIB_BRIDGE` is needed only against
+  a source checkout; CI installs the wheel and runs the `.psmtsv` tests instead of skipping them.
+- Schema version 0.0.1 → **0.0.2** (the two `Psm` notch columns). A catalog refuses bundles from a
+  different schema version, so bundles written at 0.0.1 must be re-ingested to be loaded.
+
+### Added (0.1.0 groundwork)
 - **`datarepo ingest`** (`src/datarepo/`): one dataset's pipeline output to one immutable Parquet
   bundle. Reads the producing instance's `manifest.yaml` as its contract and refuses any dataset the
   producer did not mark `include`. Parses `.psmtsv` through pyMzLib, translates MetaMorpheus

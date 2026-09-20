@@ -55,7 +55,7 @@ accession from two datasets would be indistinguishable.
 
 | View | Rule |
 |---|---|
-| `psms_1pct` | target, `q_value` ≤ 0.01 **and** `q_value_notch` ≤ 0.01 where there is one |
+| `psms_1pct` | target, `q_value` ≤ 0.01, `q_value_notch` ≤ 0.01 where there is one, **and** a notch that resolved |
 | `peptidoforms_1pct` | the same, on `best_q_value` / `best_q_value_notch` |
 | `protein_groups_1pct` | anything not a decoy — **contaminants count** — with `q_value` ≤ 0.01 |
 
@@ -63,7 +63,13 @@ The rule is MetaMorpheus's and it is not guessable, so it is applied once here r
 in every query. It is the same rule the ingester counts by when a bundle reconciles itself against
 `results.txt`, and a test asserts the SQL and the Python agree, so the two cannot drift. Counting
 through these views is what makes the catalog's headline numbers the same numbers the bundle
-reconciled: 26,594 PSMs, 5,541 peptides and 1,652 protein groups for PXD036557.
+reconciled: 26,582 PSMs, 5,541 peptides and 1,652 protein groups for PXD036557.
+
+The notch clause is the one a caller would never write unaided. A search that cannot settle on one
+notch reports its candidates separated by `|`, and the producer excludes such a match from its
+headline count even though both q-values pass. `psms.notch` holds that text and
+`psms.notch_ambiguous` holds the conclusion, so `WHERE notch_ambiguous` shows you exactly what the
+view dropped.
 
 ### Cross-dataset tables
 
@@ -96,8 +102,9 @@ columns such as `protein_accessions` cannot carry a DuckDB index; the derived ta
 | `catalog_checks` | every check the build ran, and its result |
 
 `catalog_bundles.reconciliation_ok` carries a bundle's known mismatches forward rather than hiding
-them. PXD036557's 12-PSM difference from `results.txt` shows up here as a flagged bundle, and
-`datarepo catalog` prints it, so a catalog never looks cleaner than the data it was built from.
+them: a bundle whose own counts disagreed with its producer is flagged here, `datarepo catalog`
+names the check that failed, and a catalog therefore never looks cleaner than the data it was built
+from. PXD036557 was flagged this way until its 12-PSM difference was explained and closed.
 
 ## Checks, and what a failure means
 
