@@ -471,6 +471,8 @@ ptm_sites:
   position: 52
   residue: C
   modification: UNIMOD:4
+  target_decoy: target
+  best_ambiguity_level: '1'
   n_psms: 1
   best_q_value: 0.000369
 - ptm_site_id: PXD999999:O75396:C70:UNIMOD:4
@@ -479,6 +481,8 @@ ptm_sites:
   position: 70
   residue: C
   modification: UNIMOD:4
+  target_decoy: target
+  best_ambiguity_level: '1'
   n_psms: 1
   best_q_value: 0.000369
 - ptm_site_id: PXD999999:O75396:C75:UNIMOD:4
@@ -487,6 +491,8 @@ ptm_sites:
   position: 75
   residue: C
   modification: UNIMOD:4
+  target_decoy: target
+  best_ambiguity_level: '1'
   n_psms: 1
   best_q_value: 0.000369
 - ptm_site_id: PXD999999:P04406:C247:UNIMOD:4
@@ -495,6 +501,8 @@ ptm_sites:
   position: 247
   residue: C
   modification: UNIMOD:4
+  target_decoy: target
+  best_ambiguity_level: '1'
   n_psms: 1
   best_q_value: 0.000369
 - ptm_site_id: PXD999999:P04844:Q124:UNIMOD:7
@@ -503,6 +511,8 @@ ptm_sites:
   position: 124
   residue: Q
   modification: UNIMOD:7
+  target_decoy: target
+  best_ambiguity_level: '1'
   n_psms: 1
   best_q_value: 0.000369
 quant_values:

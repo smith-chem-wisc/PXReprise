@@ -18,7 +18,7 @@
 id: https://w3id.org/datarepo/core
 name: datarepo
 title: dataRepo core schema
-version: 0.0.2
+version: 0.0.3
 license: https://creativecommons.org/licenses/by/4.0/
 description: >-
   Generic core schema for an AI-ready repository of reanalyzed public proteomics datasets:
@@ -378,14 +378,16 @@ classes:
   PtmSite:
     description: One modified residue on one protein in one dataset, from PSM evidence.
     attributes:
-      ptm_site_id: {identifier: true, description: "<dataset_id>:<accession>:<residue><position>:<UNIMOD>"}
+      ptm_site_id: {identifier: true, description: "<dataset_id>:<accession>:<residue><position>:<UNIMOD>. The residue is load-bearing and must not be dropped to 'simplify' the key: one UNIMOD accession covers several chemistries on different residues (UNIMOD:7 is deamidation on N and on Q and citrullination on R; UNIMOD:35 is hydroxylation on K/N/P and oxidation on M), so a key without it merges them."}
       dataset_id: {range: Dataset, required: true, description: "Dataset this row belongs to (ProteomeXchange accession)."}
       protein_accession: {range: Protein, required: true, description: "UniProt (or custom-database) accession, isoform suffix kept."}
       position: {range: integer, required: true, description: "Residue position in the protein (1-based)."}
       residue: {required: true, description: "Modified amino acid (one-letter code), or N-term / C-term."}
       modification: {range: uriorcurie, required: true, description: "UNIMOD accession."}
-      localization_score: {range: float, description: "Producer's modification-localization score."}
-      n_psms: {range: integer, description: "Number of PSMs supporting this row."}
+      target_decoy: {range: TargetDecoy, description: "Target or contaminant, from the supporting PSMs. Contaminant sites are kept because they are real measurements of real molecules and are used as a process control, but they are not the sample, so a caller filters on this rather than having the decision made for them."}
+      best_ambiguity_level: {description: "Lowest producer ambiguity level among the PSMs that placed this site (1 < 2A < 2B < 2C < 2D < 3 < 4 < 5). Sites are emitted at any level, because the producer's occupancy population applies no level filter. `best_ambiguity_level = '1' AND target_decoy = 'target'` selects exactly the site set a level-1, target-only derivation produces -- but n_psms and best_q_value on those rows count all the evidence, so they are not the same numbers that derivation would report."}
+      localization_score: {range: float, description: "Producer's modification-localization score. Null for an ordinary GPTMD hit, which MetaMorpheus does not localize -- absence here means the producer computed none, not that the site is unlocalized, and a caller asking whether a site is confidently localized should be refused rather than given an empty cell."}
+      n_psms: {range: integer, description: "Accepted PSMs that placed this site, at any ambiguity level and including contaminant PSMs. This is evidence depth for the site, and it is the measure the producer's occupancy denominator is built from, so it deliberately counts more broadly than a level-1 target-only view would."}
       best_q_value: {range: float, minimum_value: 0, maximum_value: 1, description: "Lowest q-value among the supporting PSMs."}
 
   PtmStoichiometry:
