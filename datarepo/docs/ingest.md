@@ -248,6 +248,38 @@ did the search (`Mods/*.txt`, `Data/ptmlist.txt`), which pins it to the version 
 This translation is a stop-gap. pyMzLib's `psmtsv` records already have a `pro_forma` field; it is
 null for MetaMorpheus files in 0.1.x (DATAREPO-12). When it is populated, this code goes.
 
+**The registry reads mzLib's resource files, and mzLib's own loader is the authority over them.**
+Reading `Mods/*.txt` and `Data/ptmlist.txt` is not the same as asking the loader: the loader also
+carries `Data/unimod.xml`, and it resolves a name by `Unimod` first, then `UniProt`, then
+MetaMorpheus's own list. Ours does not read `unimod.xml` at all. Measured against mzLib 1.0.591's
+loader output (`QuantProject/design/reference/IdWithMotif-to-Unimod.1.0.591.tsv`, 3,139 names): the
+two agree on every one of the 100 names that has actually reached `ptm_sites` in the three ingested
+datasets, and on 635 names overall; 57 more the loader resolves and this registry returns null for;
+2,445 it has no entry for at all. Two names resolve to a **different** accession -- `Decarboxylation
+on D` and `on E`, where `Mods.txt` cross-references `UNIMOD:914` (methylmalonylation on serine) and
+the loader gives `1915` -- and neither has fired in any dataset. Replacing this registry with the
+loader's own table is gap G26.
+
+## Sites, and why the key is not the accession
+
+`ptm_site_id` is `<dataset_id>:<accession>:<residue><position>:<modification_name>`, and the last
+component is the engine's own name for the modification, not its UNIMOD accession.
+
+A key ending in the accession cannot be formed for a modification that has none, so those sites were
+not written as nulls -- they were not written. The evidence survived at PSM and peptidoform level,
+where the id comes from the sequence, and disappeared at site level. Across the three ingested
+datasets that cost **42 sites over 10 chemistries** (195 PSMs), of which only one chemistry was ever
+named in a finding; the other nine resolved to a mass but not an accession, so they left no trace at
+all. `GG (Ubiquitination Site) on K` -- the diGly remnant, i.e. bottom-up ubiquitination itself --
+has no cross-reference in mzLib 1.0.591, so on a diGly dataset the loss would have been the subject
+of the experiment.
+
+One chemistry can reach a dataset under two names (`Phosphorylation on S` from the search's
+variable-mod list, `Phosphoserine on S` from a UniProt annotation), so this key is **finer** than an
+accession-keyed one: 5 sites in 35,615 split. Nothing is lost -- the `ptm_sites_by_chemistry` view
+groups them back, and doing so reproduces the accession-keyed table exactly, `n_psms` summing and
+`best_q_value` taking the minimum, on all 35,568 groups of the three ingested datasets, with zero mismatches.
+
 ## Findings a bundle can carry
 
 | Code | Severity | Meaning |
@@ -258,7 +290,7 @@ null for MetaMorpheus files in 0.1.x (DATAREPO-12). When it is populated, this c
 | `sdrf_skeleton` | warning | The deposited SDRF has no biological annotation at all. |
 | `no_sdrf` | warning | No SDRF; each run was given a synthetic, unannotated sample. |
 | `count_mismatch` | warning | A count disagrees with the producer's summary. |
-| `unresolved_modifications` | warning | A modification has neither a UNIMOD accession nor a mass. |
+| `unresolved_modifications` | warning | A modification has neither a UNIMOD accession nor a mass. Its `ptm_sites` rows exist and carry `modification_name`, with `modification` null. |
 | `unmatched_runs` | warning | A run the search reported is not a deposited file. |
 | `collapsed_duplicate_rows` | info | The producer wrote a row more than once, identical in every column; the copies were dropped. |
 | `metric_conflict` | warning | One metric reached the bundle from two sources under one definition, and they disagree. |

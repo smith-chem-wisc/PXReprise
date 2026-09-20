@@ -104,7 +104,8 @@ findings:
   status: open
   message: '3 modification(s) could not be mapped to a UNIMOD accession or a mass, and are carried in
     ProForma as [Info:...] tags: UniProt:N-acetylalanine on A, UniProt:N-acetylglutamate on E, UniProt:N6,N6-dimethyllysine
-    on K. Queries by modification will not find them.'
+    on K. Their ptm_sites rows exist and carry modification_name, with modification null, so a query by
+    name finds them and a query by UNIMOD accession will not.'
   source: datarepo ingest
 metrics:
 - scope: dataset
@@ -465,55 +466,58 @@ psms:
   start_residue: 1322
   end_residue: 1355
 ptm_sites:
-- ptm_site_id: PXD999999:O75396:C52:UNIMOD:4
+- ptm_site_id: PXD999999:O75396:C52:Carbamidomethyl on C
   dataset_id: PXD999999
   protein_accession: O75396
   position: 52
   residue: C
   modification: UNIMOD:4
+  modification_name: Carbamidomethyl on C
   target_decoy: target
   best_ambiguity_level: '1'
   n_psms: 1
   best_q_value: 0.000369
-- ptm_site_id: PXD999999:O75396:C70:UNIMOD:4
+- ptm_site_id: PXD999999:O75396:C70:Carbamidomethyl on C
   dataset_id: PXD999999
   protein_accession: O75396
   position: 70
   residue: C
   modification: UNIMOD:4
+  modification_name: Carbamidomethyl on C
   target_decoy: target
   best_ambiguity_level: '1'
   n_psms: 1
   best_q_value: 0.000369
-- ptm_site_id: PXD999999:O75396:C75:UNIMOD:4
+- ptm_site_id: PXD999999:O75396:C75:Carbamidomethyl on C
   dataset_id: PXD999999
   protein_accession: O75396
   position: 75
   residue: C
   modification: UNIMOD:4
+  modification_name: Carbamidomethyl on C
   target_decoy: target
   best_ambiguity_level: '1'
   n_psms: 1
   best_q_value: 0.000369
-- ptm_site_id: PXD999999:P04406:C247:UNIMOD:4
+- ptm_site_id: PXD999999:P00761:K77:N6,N6-dimethyllysine on K
   dataset_id: PXD999999
-  protein_accession: P04406
-  position: 247
-  residue: C
-  modification: UNIMOD:4
-  target_decoy: target
+  protein_accession: P00761
+  position: 77
+  residue: K
+  modification_name: N6,N6-dimethyllysine on K
+  target_decoy: contaminant
   best_ambiguity_level: '1'
-  n_psms: 1
+  n_psms: 2
   best_q_value: 0.000369
-- ptm_site_id: PXD999999:P04844:Q124:UNIMOD:7
+- ptm_site_id: PXD999999:P00761:K97:N6,N6-dimethyllysine on K
   dataset_id: PXD999999
-  protein_accession: P04844
-  position: 124
-  residue: Q
-  modification: UNIMOD:7
-  target_decoy: target
+  protein_accession: P00761
+  position: 97
+  residue: K
+  modification_name: N6,N6-dimethyllysine on K
+  target_decoy: contaminant
   best_ambiguity_level: '1'
-  n_psms: 1
+  n_psms: 2
   best_q_value: 0.000369
 quant_values:
 - assay_id: PXD999999:QE-002106_GM1_a:label_free

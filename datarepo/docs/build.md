@@ -82,6 +82,27 @@ headline count even though both q-values pass. `psms.notch` holds that text and
 `psms.notch_ambiguous` holds the conclusion, so `WHERE notch_ambiguous` shows you exactly what the
 view dropped.
 
+### A view that coarsens a grain, rather than applying a rule
+
+| View | Grain | Rows (3 datasets) |
+|---|---|---|
+| `ptm_sites_by_chemistry` | one row per (protein, position, residue, chemistry) | 35,610 over 35,615 stored |
+
+`ptm_sites` is keyed on the search engine's own name for a modification, because that is the only
+key every site can form -- a chemistry with no UNIMOD cross-reference has no accession to key on,
+and keying on one deleted those sites outright. One chemistry can arrive under two names, though
+(`Phosphorylation on S` from the search's variable-mod list, `Phosphoserine on S` from a UniProt
+annotation), so the stored table is one row finer than a chemistry-level table at 5 sites in 35,615.
+
+This view is where they come back together, and it is the only place that merge happens. Grouping
+this way reproduces the accession-keyed table exactly -- `n_psms` summing, `best_q_value` taking the
+minimum -- on all 35,568 groups, zero mismatches. A site with no UNIMOD term groups on its name
+instead, so two different unmapped chemistries on one residue stay two rows.
+
+The direction matters and it is the grain rule doing its work: store at the grain the measurement
+was made at, and coarsen in a view. The reverse -- storing the merged row and hoping nobody needed
+the split -- is not recoverable.
+
 ### Cross-dataset tables
 
 A bundle can answer "what is in this dataset". Only the catalog can answer "which datasets have this
