@@ -22,7 +22,7 @@ producer's work root                          bundle store
 python -m venv .venv
 # Windows: .venv\Scripts\activate    Linux/macOS: source .venv/bin/activate
 pip install -e .
-pip install pymzlib            # parses the producer's .psmtsv files
+pip install mzlib              # pyMzLib: parses the producer's .psmtsv files
 datarepo doctor                # says whether this machine can ingest
 ```
 
@@ -31,14 +31,16 @@ datarepo doctor                # says whether this machine can ingest
 ```
 datarepo 0.1.0  schema 0.0.1
   pyarrow          25.0.1
+  duckdb           1.5.5
   pymzlib          0.1.1
-  mzLib bridge     …/mzlib-bridge.exe
+  mzLib bridge     …/site-packages/pymzlib/_dotnet/win-x64/mzlib-bridge.exe
 ready
 ```
 
-If it reports the bridge as unavailable, build it in the pyMzLib checkout and point
-`PYMZLIB_BRIDGE` at the executable. There is no in-house fallback for `.psmtsv`, by design:
-parsing producer file formats belongs to pyMzLib.
+pyMzLib's wheels are per-platform and carry the mzLib bridge inside them, so on a released version
+nothing has to be built and `PYMZLIB_BRIDGE` is not needed. It is needed only against a source
+checkout, which ships no bridge; `doctor` says so, and points at the path it looked in. There is no
+in-house fallback for `.psmtsv`, by design: parsing producer file formats belongs to pyMzLib.
 
 ## Run it
 

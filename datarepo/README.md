@@ -104,13 +104,18 @@ You need Python 3.11+.
 python -m venv .venv
 # Windows: .venv\Scripts\activate    Linux/macOS: source .venv/bin/activate
 pip install -e . -r requirements-dev.txt
-pip install pymzlib           # parses the producer's .psmtsv files
+pip install mzlib             # pyMzLib: parses the producer's .psmtsv files
 
 # Ingest one dataset from a producing instance's manifest
 datarepo doctor                                                   # can this machine ingest?
 datarepo manifest  /path/to/instance/manifest.yaml                # what does it offer?
 datarepo ingest    /path/to/instance/manifest.yaml PXD036557 -v   # build the bundle
 datarepo inspect   /path/to/store/PXD036557/<bundle-id>           # what did it build?
+
+# Build the query catalog over every bundle, then ask it something
+datarepo build     /path/to/instance/manifest.yaml                # one DuckDB file
+datarepo catalog   /path/to/instance/catalog.duckdb               # what went into it?
+datarepo query     /path/to/instance/catalog.duckdb "SELECT * FROM dataset_overview"
 
 # Lint the schemas
 linkml-lint --config .linkmllint.yaml schema/datarepo.yaml

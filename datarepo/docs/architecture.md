@@ -34,8 +34,25 @@ The parts of the proposal below that it settled in practice:
   finding rather than a silent difference.
 - **Nothing is written that does not hold together.** Foreign keys are checked before the write.
 
-Still to build, in order: the DuckDB catalog (`datarepo build`), the Python client and MCP server,
-then REST and the deploy package.
+**Catalog (layer 2)** is implemented: `datarepo build` loads an instance's bundles into one DuckDB
+file that answers across datasets. Reference: [`build.md`](build.md).
+
+The parts of the proposal below that it settled in practice:
+
+- **The manifest is the contract here too.** A dataset the producer has withdrawn is refused even
+  though its bundle is still on disk, and a dataset with several bundles is never guessed at: the
+  build pins one or stops.
+- **The catalog is derived, never the product.** It is one movable file built from the bundles and
+  safe to delete, and it is content-addressed on them, so rebuilding is a no-op.
+- **The producer's acceptance rule is applied once.** `psms_1pct`, `peptidoforms_1pct` and
+  `protein_groups_1pct` are views, so the catalog's headline numbers are the numbers the bundle
+  reconciled rather than a second opinion.
+- **Cross-dataset indexes are the point.** `protein_index`, `protein_datasets` and `peptide_index`
+  answer "which datasets have this", which no single bundle can.
+- **Nothing is served that does not hold together.** Row counts, uniqueness and references are
+  re-checked against the bundle manifests, and a failed build leaves the previous catalog serving.
+
+Still to build, in order: the Python client and MCP server, then REST and the deploy package.
 
 ## Proposed (not yet locked, gap G1)
 
