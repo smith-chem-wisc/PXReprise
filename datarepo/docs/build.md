@@ -13,7 +13,7 @@ datarepo query   /path/to/instance/catalog.duckdb "SELECT * FROM dataset_overvie
 
 The default output is `<store>/../catalog.duckdb`, which for the aging instance is
 `F:/aging_data/repo/catalog.duckdb`. `--out` puts it anywhere, which is how a release freezes one
-into `releases/<version>/`.
+into `releases/<version>/` beside the frozen manifest.
 
 ## The manifest is still the contract
 
@@ -33,9 +33,20 @@ datarepo build manifest.yaml --latest                      # newest bundle per d
 datarepo build manifest.yaml --bundle PXD036557=6fea2187   # this exact one (prefixes are fine)
 ```
 
-With neither flag and more than one candidate, it stops and lists them. `--bundle` is what a release
-uses: it names the exact bundles the citations were checked against, so the catalog can be rebuilt
-identically later.
+With neither flag and more than one candidate, it stops and lists them.
+
+**A release must pin.** `--release <version>` requires every dataset to carry a `--bundle` pin and
+refuses `--latest` outright, rather than merely defaulting to pinning:
+
+```bash
+datarepo build manifest.yaml PXD036557 \
+  --bundle PXD036557=84ca279df425c0a2 \
+  --release v0.1 --out .../releases/v0.1/catalog.duckdb
+```
+
+A release that can silently pick up a later re-ingest is not a release (aging thread 011), and the
+failure it would cause is invisible — the catalog builds cleanly and says something different from
+what was cited. `--release` is also recorded in `catalog_meta.notes`.
 
 ## What it writes
 

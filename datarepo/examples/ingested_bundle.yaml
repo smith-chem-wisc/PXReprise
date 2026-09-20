@@ -40,7 +40,19 @@ definitions:
   version: v1
   owner_project: aging
   text: 'Target PSMs at 1% FDR, as MetaMorpheus''s results.txt summary line reports them: ''All target
-    PSMs with q-value <= 0.01''. Target PSMs only. This is the canonical PSM count.'
+    PSMs with q-value <= 0.01''. Target PSMs only. This is the canonical PSM count. Four conditions, all
+    required (aging thread 011): Decoy/Contaminant/Target == ''T'', QValue <= 0.01, QValue Notch <= 0.01,
+    and notch_ambiguous == false (aging:DEF-PSM-NOTCH-AMBIGUOUS). The fourth is not inferable from the
+    written file alone, which is why a count taken without it comes out high.'
+- definition_id: aging:DEF-PSM-NOTCH-AMBIGUOUS
+  version: v1
+  owner_project: aging
+  text: A PSM is notch-ambiguous when the Notch cell of AllPSMs.psmtsv contains a '|' separator, i.e.
+    MetaMorpheus wrote more than one notch hypothesis for the match. For such a PSM, SpectralMatch.ResolveAllAmbiguities
+    leaves the in-memory PsmFdrInfo.QValueNotch unresolved at > 1, while PsmTsvWriter.AddMatchScoreData
+    writes the MINIMUM notch q-value across hypotheses. The written 'QValue Notch' can therefore pass
+    a threshold the counted one fails, which is why aging:DEF-PSM-1PCT needs this condition as well as
+    the two q-values.
 - definition_id: aging:DEF-PSM-FDRENGINE
   version: v1
   owner_project: aging
@@ -59,12 +71,6 @@ definitions:
   text: 'Match-between-runs quality block as the pipeline records it: rows attempted, rows kept at the
     MBR FDR threshold, MS/MS-anchored peaks, and the kept-over-MSMS ratio. Copied from the provenance
     record that names this definition.'
-- definition_id: PROVISIONAL:PEPTIDE-INTENSITY
-  version: v0
-  owner_project: dataRepo (provisional)
-  text: PROVISIONAL, not an owner's definition. FlashLFQ's per-run peptide intensity as written in AllQuantifiedPeptides.tsv,
-    stored verbatim. Awaiting QuantProject's definition of the summarisation from peak apexes to a peptide
-    intensity (DATAREPO-11).
 findings:
 - finding_id: PXD999999:low_id_rate
   dataset_id: PXD999999
