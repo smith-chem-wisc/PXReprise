@@ -118,12 +118,15 @@ separately from `TABLES`.
 | `sample_ages` | one row per sample | not yet definition-backed |
 | `organelle_age_summaries`, `clock_models`, `clock_features`, `age_mappings` | — | not yet definition-backed |
 
-**Every one of them is empty, and the catalog creates them anyway.** Nothing in the ingest path
-writes them: an age effect is the output of a modelling stage that runs long after a search, and how
-those rows reach a bundle is an open question rather than a guess (DATAREPO-20). Creating the tables
-regardless is the point — `NO_TABLE` and `EMPTY_TABLE` are different answers, and only the second
-one says *this repository can hold that, and holds none of it*. The query section D asks — do
-organelles age at different rates — now parses, joins and returns nothing:
+**They are empty unless a delivery is loaded, and the catalog creates them either way.** Nothing in
+the *ingest* path writes them: an age effect is the output of a modelling stage that runs long after
+a search, so it arrives by its own route -- `datarepo study`, which writes a separate study bundle
+that `build --study` loads (see **[docs/study.md](study.md)**, DATAREPO-20(a)).
+
+Creating the tables regardless of whether anything filled them is the point -- `NO_TABLE` and
+`EMPTY_TABLE` are different answers, and only the second one says *this repository can hold that,
+and holds none of it*. The query section D asks -- do organelles age at different rates -- parses
+and joins whether or not a delivery is loaded:
 
 ```sql
 SELECT pl.compartment, count(*) AS n, median(ae.beta) AS median_beta
@@ -132,6 +135,13 @@ JOIN protein_localizations pl ON pl.protein_accession = ae.feature_id
 WHERE ae.response = 'abundance' AND ae.q_value <= 0.05 AND ae.stratum = 'all'
 GROUP BY 1 ORDER BY median_beta;
 ```
+
+**Loading a delivery is opt-in, and it moves the catalog id.** `--study aging=<bundle-id>` pins one;
+`--study-latest aging` takes the newest and is refused with `--release`. A build that names no layer
+gets the empty tables, and says which deliveries were on offer. A catalog built with age effects and
+one built without them answer 46 benchmark questions differently, so they cannot share an id.
+Loading one also adds `study-unique` and `study-reference` checks, and records the delivery in
+`catalog_study_bundles`. Full reference: **[docs/study.md](study.md)**.
 
 **A study layer's version is part of the catalog's identity, and not part of a bundle's.** Adding a
 column to `age_effects` must give a different catalog id, because the catalog holds something

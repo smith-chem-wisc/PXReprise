@@ -4,6 +4,63 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [0.7.0] - 2026-09-21
+
+### Added
+- **`datarepo study`: how a study layer's rows actually reach the repository** (DATAREPO-20(a)).
+  An `age_effect` is the output of a modelling stage that runs long after a search, so it cannot
+  arrive the way a PSM does. It now arrives as its own **study bundle** -- separately
+  content-addressed, under `<store>/_study/<layer>/<bundle-id>/` -- written from a `study.yaml`
+  delivery manifest that names one file per table. `.parquet`, `.tsv` and `.csv`, with the delimiter
+  taken from the extension rather than sniffed, and list columns split on `;` in text formats.
+  Reference: **[docs/study.md](docs/study.md)**; a worked, tested delivery is in
+  `examples/study_delivery/`.
+- **`datarepo build --study <layer>=<id>` / `--study-latest <layer>`** loads a delivery beside the
+  search bundles. Study bundles are **opt-in**: a build that names no layer gets the empty tables it
+  has had since 0.6.0, and now says which deliveries were on offer. `--study-latest` is refused with
+  `--release`, for the reason D11 refuses `--latest` for datasets.
+- Every study row carries `study_layer` and `study_bundle_id`. Deliberately not the core's
+  `dataset_id` / `bundle_id`: a study bundle spans datasets, and an `age_effect_meta` row is pooled
+  across several by construction, so stating one would be false.
+- `catalog_study_bundles`, and two new check kinds refused at build time: `study-unique` (no table
+  repeats its declared key) and `study-reference` (`age_effects.dataset_id` and
+  `age_effect_refusals.dataset_id` name datasets the catalog holds, `sample_ages.sample_id` a sample
+  it holds, `clock_features.clock_id` a clock it holds). An age effect for a dataset the catalog
+  lacks is **refused, not dropped** -- section D's answer would otherwise come back smaller than the
+  delivery supports, with nothing to say why.
+- `integrity.STUDY_REFERENCES`, and `study.STUDY_CONTENT_FIELDS` / `STUDY_NON_CONTENT_FIELDS` with a
+  test that fails on an unclassified manifest field -- the same discipline as
+  `manifest.CONTENT_FIELDS`, one object over.
+- `datarepo inspect` summarises a study bundle as well as a search bundle.
+
+### Changed
+- `CATALOG_VERSION` 2 -> **3**, and `catalog_id` now hashes the loaded study bundle ids. A catalog
+  built with a delivery of age effects and one built without it answer 46 of aging's benchmark
+  questions differently; sharing an id would make them indistinguishable to anyone citing one.
+- `bundle.table_from_rows` is now a thin wrapper over `bundle.rows_to_table`, so a study layer's
+  rows go through **exactly** the core's coercion and its two refusals. That is what makes
+  `DEF-AGE-EFFECT v1`'s rules enforced rather than documented: a `beta` with no `se` is a write
+  error, and a refused fit has nowhere to put a null `beta` because it has a table of its own.
+- `study.STUDY_INGESTER_VERSION` (0.1.0) is the only version in a study bundle's content hash --
+  a third instance of the same rule, separate from `bundle.INGESTER_VERSION` and `__version__`
+  because the three paths move independently.
+
+### Unchanged on purpose
+- **`bundle.INGESTER_VERSION` stays 0.5.0 and no search bundle id moves.** Nothing in the ingest
+  path reads, parses, derives or writes anything differently, and the whole reason a study bundle is
+  a separate object is that delivering a model result must never force a re-ingest. A test asserts
+  it byte for byte; verified end to end on the fixture dataset, whose bundle id is unchanged.
+- **Two columns are deliberately unchecked, and their absence is the point.** `feature_id` resolves
+  against nothing (DATAREPO-20(c) asks what a feature's cross-dataset identity even is, and a
+  foreign key written now would freeze a guess with the authority of a constraint), and
+  `definition_id` is not resolved against `definitions` (whether a study layer's definitions land in
+  a search bundle is unsettled).
+
+### Note
+- **This is the default from thread 022 section 2a, built while the question is still open** (D7).
+  aging has not replied. If they want a different hand-over, the reader changes; the bundle and
+  catalog contracts do not.
+
 ## [0.6.0] - 2026-09-20
 
 ### Added

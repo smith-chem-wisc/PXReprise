@@ -96,6 +96,12 @@ The core knows nothing about any one study. A **study layer** adds tables keyed 
 adds `SampleAge`, `AgeEffect`, `OrganelleAgeSummary`, `ClockModel`/`ClockFeature` and `AgeMapping`.
 That's why age isn't a column on `Sample`.
 
+A study layer's rows arrive by their own route. An age effect is the output of a modelling stage
+that runs long after a search, so it cannot come from `datarepo ingest`: the producer delivers it
+with **[`datarepo study`](docs/study.md)** as a separately content-addressed study bundle, and
+`datarepo build --study` loads it beside the search bundles. Delivering a model result therefore
+never re-identifies a search bundle somebody has cited.
+
 ## Quick start
 
 You need Python 3.11+.
@@ -112,8 +118,13 @@ datarepo manifest  /path/to/instance/manifest.yaml                # what does it
 datarepo ingest    /path/to/instance/manifest.yaml PXD036557 -v   # build the bundle
 datarepo inspect   /path/to/store/PXD036557/<bundle-id>           # what did it build?
 
+# Deliver a study layer's model results (age effects, sample ages) as a study bundle
+datarepo study     /path/to/stage7/study.yaml                     # write the delivery
+datarepo inspect   /path/to/store/_study/aging/<bundle-id>        # what did it write?
+
 # Build the query catalog over every bundle, then ask it something
 datarepo build     /path/to/instance/manifest.yaml                # one DuckDB file
+datarepo build     /path/to/instance/manifest.yaml --study aging=<bundle-id>
 datarepo catalog   /path/to/instance/catalog.duckdb               # what went into it?
 datarepo query     /path/to/instance/catalog.duckdb "SELECT * FROM dataset_overview"
 
@@ -128,11 +139,12 @@ linkml-validate -s schema/datarepo.yaml -C Bundle examples/minimal_bundle.yaml
 python tools/build_docs.py
 python tools/build_tables.py
 
-# Tests. Those that parse .psmtsv skip when pyMzLib's mzLib bridge is not built.
+# Tests. Those that parse .psmtsv skip when pyMzLib is not installed (`pip install mzlib`).
 pytest -q -rs
 ```
 
-Full ingester reference: **[docs/ingest.md](docs/ingest.md)**.
+Full references: **[docs/ingest.md](docs/ingest.md)**, **[docs/study.md](docs/study.md)**,
+**[docs/build.md](docs/build.md)**.
 
 LinkML also generates JSON Schema, Pydantic models and SQL DDL from the same file, e.g.
 `gen-json-schema schema/datarepo.yaml` or `gen-pydantic schema/datarepo.yaml`.
@@ -168,7 +180,8 @@ The agent tools will be scored against the same set, following the pattern used 
 |---|---|---|
 | 0 | Benchmark questions + schema v0 | **Done (draft):** schema validated; 166 of 168 questions have a home |
 | 1 | `datarepo ingest` for aging's first datasets → Parquet | **Done:** 16 tables, USIs, reconciliation against the producer's counts ([docs](docs/ingest.md)) |
-| 2 | `datarepo build` → DuckDB catalog | Next |
+| 1b | `datarepo study` → study bundle for a layer's model results | **Done:** DATAREPO-20(a)'s default, loaded by `build --study` ([docs](docs/study.md)) |
+| 2 | `datarepo build` → DuckDB catalog | **Done:** materialised tables, acceptance views, cross-dataset indexes ([docs](docs/build.md)) |
 | 3 | Python client + local MCP server (stdio) | |
 | 4 | REST API, static site, Docker Compose package | |
 | 5 | Production deployment by the instance owner; v0.1 release with DOI | |

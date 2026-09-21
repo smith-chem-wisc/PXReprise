@@ -1,0 +1,41 @@
+# A worked study delivery: what a producer hands over so `datarepo study` can write a study bundle.
+#
+# Copy this folder, replace the .tsv files with your modelling stage's output, and run:
+#
+#     datarepo study examples/study_delivery/study.yaml --store /path/to/store
+#
+# The rows here are about the `tests/data` fixture dataset, so the whole thing loads end to end
+# without a real store. Reference: docs/study.md. This is DATAREPO-20(a)'s recorded default (D7),
+# not a contract aging has agreed to.
+
+study_manifest_version: 1
+
+# Which layer's schema the rows are written against. `schema/study/aging.yaml` generates it.
+layer: aging
+
+# Who produced the delivery, and a label for this particular hand-over. Both are recorded in
+# study.json and NEITHER is in the content hash: rewording a label must not re-identify rows that
+# are byte-identical.
+instance: ncems-aging
+delivery: stage7-example
+
+# The same store the search bundles live in. The study bundle lands under `<store>/_study/aging/`,
+# beside the dataset directories rather than among them. Relative, so this example is self-contained;
+# a production delivery uses the instance's absolute store, e.g. F:/aging_data/repo/store.
+store: ../../.tmp-example-store
+
+# One file per table, columns named as the schema names them. `.parquet`, `.tsv` or `.csv`; the
+# delimiter comes from the extension and is never sniffed. In a text file a list column splits on
+# `;` -- which is what carries `age_effect_meta.dataset_ids`.
+#
+# Deliver only the tables you have. A table you omit stays empty, and an empty table is an answer:
+# aging's benchmark distinguishes NO_TABLE from EMPTY_TABLE.
+tables:
+  age_effects: age_effects.tsv
+  age_effect_refusals: age_effect_refusals.tsv
+  sample_ages: sample_ages.tsv
+
+notes: >
+  Two protein-group abundance effects and one refused fit, plus the two sample ages that would have
+  supported them. The refusal is `too_few_distinct_ages`, which is DEF-AGE-EFFECT v1 section 5's
+  rule working as intended: no row in age_effects, and nowhere to write a null beta.

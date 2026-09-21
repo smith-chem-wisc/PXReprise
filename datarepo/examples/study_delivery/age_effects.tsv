@@ -1,0 +1,3 @@
+dataset_id	feature_type	feature_id	response	estimator	quant_basis	model_form	stratum	beta	se	ci_low	ci_high	p_value	q_value	n_samples	n_observed	n_missing	age_min	age_max	age_span_years	n_age_lower_bound	covariates	normalization	method	method_version	n_covering_psms_median	intensity_is_floor_frac	mbr_kept_frac	definition_id
+PXD999999	protein_group	O75390	abundance	intensity	mbr_included	linear	all	-0.21	0.04				0.004	2					41		sex	none	statsmodels.ols	0.14.1				aging:DEF-AGE-EFFECT
+PXD999999	protein_group	O75396	abundance	intensity	mbr_included	linear	all	0.08	0.03				0.31	2					41		sex	none	statsmodels.ols	0.14.1				aging:DEF-AGE-EFFECT
