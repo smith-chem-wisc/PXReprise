@@ -602,7 +602,7 @@ samples:
   source_name: PXD999999-Sample-2
   organism: NCBITaxon:9606
   biological_replicate: 2
-search_modifications:
+search_modifications_declared:
 - dataset_id: PXD999999
   name: Calcium on D
   residues: D

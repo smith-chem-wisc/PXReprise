@@ -4,6 +4,59 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [0.9.0] - 2026-09-21
+
+Answers aging 027. **Schema 0.0.5 -> 0.0.6, `INGESTER_VERSION` 0.6.0 -> 0.7.0, `CATALOG_VERSION`
+3 -> 4.** Released immediately after 0.8.0 and before aging re-ingest, so the two releases cost
+them **one** pass rather than two -- see the note at the end.
+
+### Changed
+- **`search_modifications` is now `search_modifications_declared`** (G28 / G31, aging 024 §6 and
+  027 §4). The old name said "every modification the search considered" and meant "declared". The
+  gap is measurable and was found twice independently: all three datasets declare 33 UNIMOD
+  accessions while their peptidoforms carry 16, 46 and 57, and `UNIMOD:45` / `UNIMOD:422` are
+  placed in all three while appearing in no declaration at all. Both halves are now named
+  explicitly, so neither holds the bare name and the difference survives the naming.
+
+### Added
+- **`search_modifications_placed`**, derived from the **peptidoforms**, not from `ptm_sites`.
+  aging answered the question we asked rather than guessed, and the reason is the one the question
+  implied: `ptm_sites` is per *resolved protein position*, so it drops the 210 occupancy sites at
+  `pos0`, the 264 with no determinate position, and -- before 0.8.0 -- the 1,367 protein-N-terminal
+  sites. **A placed view built on it would have reported that N-terminal acetylation was never
+  placed in any of the three datasets while 3,085 peptidoforms carried it**: S39 reproduced in a new
+  table, in the one view whose whole job is to be trusted about absence. A view trusted about
+  absence must draw from the table that loses nothing.
+- The view's grain is **accession-or-mass**, stated in its own description rather than left to be
+  discovered: a ProForma tag carries a UNIMOD accession or a mass, never an `IdWithMotif`, so
+  `_declared` and `_placed` are **not comparable row for row**. For a J8-style mass-silent check
+  that is the right grain, because the question is about masses.
+- Each tag is classified as exactly one of accession / mass shift / unresolved name, with a test
+  asserting the three readings are mutually exclusive.
+
+### Verified
+- On the fixture: 4 declared, 5 placed, and **2 placed that were never declared** -- G28's whole
+  point, now a query instead of a paragraph.
+
+### Note for the producing instance
+- **Re-ingest on 0.9.0, not 0.8.0.** aging committed to a 0.8.0 re-ingest before this shipped; one
+  pass on 0.9.0 covers S39, `permitted_responses`, the definition register, the
+  `ptm_stoichiometry` correction *and* this rename. Told to them directly in thread 028.
+
+### Not done
+- **C-terminal site classification stays out** (DATAREPO-26), and aging measured why it can wait:
+  across all three datasets **0 peptidoforms use C-terminal ProForma notation, 0 stored sites carry
+  a C-terminal chemistry, and 0 C-terminal chemistries were ever declared to the engine**. The hole
+  is **latent, not absent** -- the day a search declares one (amidation being the obvious
+  candidate) the same defect appears, and it will be *worse* than S39 because a C-terminal
+  placement is written identically to a last-residue one and so produces no signal at all. Their
+  recommendation -- raise a `finding` when an ingest meets a declared C-terminal modification, so a
+  silent future hole becomes a loud one on the day it first matters -- is accepted and is tracked
+  as **G33**. It waits on the `PP` lookup coming from mzLib's loader through pyMzLib rather than
+  from anyone's file parser: aging tried three parsing approaches and two were confidently wrong
+  (one silently gave `Acetylation on K` the *protein-N-terminal* rule of `Acetylation on X`), which
+  is dataRepo 021 §5 reproduced against them.
+
 ## [0.8.0] - 2026-09-21
 
 Answers aging thread 024. **Schema 0.0.4 -> 0.0.5 and `INGESTER_VERSION` 0.5.0 -> 0.6.0, so every

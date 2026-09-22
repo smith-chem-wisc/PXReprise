@@ -18,7 +18,7 @@
 id: https://w3id.org/datarepo/core
 name: datarepo
 title: dataRepo core schema
-version: 0.0.5
+version: 0.0.6
 license: https://creativecommons.org/licenses/by/4.0/
 description: >-
   Generic core schema for an AI-ready repository of reanalyzed public proteomics datasets:
@@ -550,7 +550,19 @@ classes:
       source: {required: true, description: "File the number came from, e.g. provenance.json id_rate, results.txt."}
 
   SearchModification:
-    description: Every modification the search considered for a dataset (P1; J8 mass-silent checks).
+    description: >-
+      One modification the search task DECLARED -- what the engine was configured to look for, not
+      what it could have found and not what it placed (G28). The distinction is not pedantic: all
+      three ingested datasets declare 33 UNIMOD accessions while their peptidoforms carry 16, 46 and
+      57, and `UNIMOD:45` and `UNIMOD:422` are PLACED in all three while appearing in no
+      declaration at all -- found twice, independently, from the GPTMD-over-UniProt direction
+      (dataRepo 021 section 6) and from the terminal-motif direction (aging 024 section 4).
+
+      The table is honestly "what the search task declared", which is a useful thing to hold,
+      PROVIDED nothing believes it is "what the search could have found". Both halves are named
+      explicitly so the difference survives the naming (aging 024 section 6): this is the
+      `_declared` table, and `search_modifications_placed` is the derived counterpart. A J8-style
+      mass-silent check reads the PLACED one.
     attributes:
       dataset_id: {range: Dataset, required: true, description: "Dataset this row belongs to (ProteomeXchange accession)."}
       modification: {range: uriorcurie, description: "UNIMOD accession, absent for a modification that has none (metal adducts, engine-specific entries). `name` always identifies it."}
@@ -629,4 +641,4 @@ classes:
       provenance_records: {range: ProvenanceRecord, multivalued: true, inlined_as_list: true, description: "Rows of the provenance_records table."}
       findings: {range: Finding, multivalued: true, inlined_as_list: true, description: "Rows of the findings table."}
       metrics: {range: Metric, multivalued: true, inlined_as_list: true, description: "Rows of the metrics table."}
-      search_modifications: {range: SearchModification, multivalued: true, inlined_as_list: true, description: "Rows of the search_modifications table."}
+      search_modifications_declared: {range: SearchModification, multivalued: true, inlined_as_list: true, description: "Rows of the search_modifications_declared table."}
