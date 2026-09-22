@@ -4,6 +4,50 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [0.13.0] - 2026-09-22
+
+**`INGESTER_VERSION` 0.8.0 -> 0.9.0, so every bundle re-ids and a re-ingest is owed.** No schema
+change. One defect, found while checking a claim before making it publicly.
+
+### Fixed
+- **A collapsed producer column was zipped positionally, and every accession after the first lost
+  its value.** MetaMorpheus writes ONE entry when all proteins on a row share it:
+
+  ```
+  Accession     = P60709|P63261
+  Organism Name = Homo sapiens        <- one entry for two proteins, not a missing one
+  ```
+
+  `protein_rows` read `organism_parts[j]`, so `P63261` got an empty string. On aging's four-dataset
+  catalog that cost **2,678 uniprot proteins, 4,523 decoys and 9 contaminants** their species --
+  in 0.11.0, the release whose entire purpose was handling species correctly. `Gene Name` collapses
+  the same way and was affected too (62 rows in 60,000, against 2,062 for organism).
+- The same assumption in `add_group_proteins`, where a short gene list could put one protein's gene
+  symbol on another.
+
+### The rule, for the case that stays ambiguous
+`_per_accession` takes three branches. Counts match -> zip positionally. One entry, many
+accessions -> broadcast, because the producer collapsed it *precisely because they agree*.
+**Anything else (3 accessions, 2 genes) -> NULL for all of them**, never a positional guess: the
+alignment is genuinely unknown, and a real gene symbol on the wrong protein reads as a fact where
+a null reads as "not recorded". Where the choice is a guess or a null, only the null cannot be
+quoted back as evidence.
+
+### How it was found, which is the part worth keeping
+Not by a test and not by the two rounds of agent review, which both missed it. It surfaced because
+a thread to aging was about to assert *"MetaMorpheus wrote no species for these seven
+accessions"* -- a claim about **another project's output** -- and a claim like that should not be
+made without reading their file. Their file had the species. A GitHub issue against MetaMorpheus
+was one step from being filed for a defect introduced here the day before.
+
+**A claim about someone else's output is a claim to verify at the source, not from your own
+parse of it.**
+
+### Verified
+- 346 tests (3 new, each on a real collapsed row from aging's data).
+- The seven "speciesless" contaminants resolve: `A2I7N2` is *Bos taurus*, `Q9Z2K1` is
+  *Mus musculus*, the amylases are *Homo sapiens*.
+
 ## [0.12.0] - 2026-09-22
 
 **No schema change, no `INGESTER_VERSION` change -- no bundle moves and no re-ingest is owed.**
