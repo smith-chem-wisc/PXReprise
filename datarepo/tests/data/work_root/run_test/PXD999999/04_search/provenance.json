@@ -48,7 +48,12 @@
   {
    "path": "db/test_human.xml",
    "root": "work_root",
-   "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+   "sha256": "89fb8c7a1140939de96ca740ab818deedd70063d00ac3789976908eec8d8ad6d"
+  },
+  {
+   "path": "db/test_contaminants.xml",
+   "root": "work_root",
+   "sha256": "2bdb09e718a43e7dfb1123d79586fe9e84bf5197a3d20e0a27ebca0ca9073950"
   }
  ],
  "outputs": [],

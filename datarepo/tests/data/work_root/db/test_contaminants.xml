@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Test fixture: the entries of MetaMorpheusContaminants.xml (1.1.10) that the fixture PSMs name as contaminants. -->
+<uniprot xmlns="http://uniprot.org/uniprot">
+<entry>
+  <accession>P00761</accession>
+  <sequence>FPTDDDDKIVGGYTCAANSIPYQVSLNSGSHFCGGSLINSQWVVSAAHCYKSRIQVRLGEHNIDVLEGNEQFINAAKIITHPNFNGNTLDNDIMLIKLSSPATLNSRVATVSLPRSCAAAGTECLISGWGNTKSSGSSYPSLLQCLKAPVLSDSSCKSSYPGQITGNMICVGFLEGGKDSCQGDSGGPVVCNGQLQGIVSWGYGCAQKNKPGVYTKVCNYVNWIQQTIAAN</sequence>
+</entry>
+</uniprot>

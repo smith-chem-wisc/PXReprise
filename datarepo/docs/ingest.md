@@ -115,6 +115,17 @@ invalid quantities into the repository under a status that says not to.
 | the executed task `.toml` files | dataRepo | `SearchModification` |
 | `results.txt` | dataRepo | `Metric`, and the numbers the ingest reconciles against |
 | the searching MetaMorpheus install's `Mods/`, `Data/ptmlist.txt` | dataRepo | UNIMOD accessions for ProForma |
+| every protein database in the search provenance's `inputs` (UniProt `.xml`, `.fasta`) | dataRepo | `PtmSite.position` and `site_type` |
+
+**PTM site positions come from the searched sequences, not from the psmtsv's spans** (0.15.0,
+DATAREPO-32). MetaMorpheus writes `Start and End Residues In Full Sequence` de-duplicated -- one
+span per distinct position, one per occurrence of a repeated peptide -- so it cannot be paired with
+the accession list, even when the two happen to have the same length. The ingest finds each
+peptide in each member protein instead, the way MetaMorpheus's occupancy code does, and emits a site
+per occurrence. Each database's sha256 is checked against the one the search recorded, and a
+mismatch stops the ingest. The databases are hashed into the bundle id but never copied into it.
+A single-accession PSM whose protein cannot be found still uses its own spans, since no pairing is
+involved. Anything else that cannot be placed is counted in the `unplaced_ptm_sites` finding.
 
 pyMzLib owns producer file formats. Where dataRepo reads one itself it is because pyMzLib 0.1.x
 cannot, and `bundle.json`'s `readers` block records the reason for every such file, so the in-house
@@ -317,6 +328,47 @@ modification is on the last residue or on the C-terminus, and the mod file's `PP
 by `modlist`. Guessing would move existing ids on no evidence, so those rows stay `residue` -- which
 is what they have always effectively been. Asked as DATAREPO-26.
 
+## Reproducing a bundle
+
+A bundle id is a hash of every input, the schema version and `INGESTER_VERSION`, so **two sites
+get the same bundle id exactly when they would write the same rows**. To reproduce one:
+
+1. **Check out the commit that wrote it.** `bundle.json`'s `ingester.ingest_path` is the
+   `INGESTER_VERSION`; build from a commit that carries it, never from a working tree (see
+   `CLAUDE.md`: an id hashed on a version that exists in no commit is reproducible by nobody).
+2. **Have every file in `bundle.json`'s `sources`, byte-identical.** Each entry has its sha256.
+   Since 0.15.0 that includes **every protein database the search used**, under
+   `protein_database:<file name>`, found at the path the search provenance recorded. For aging's
+   instance there are two per dataset: the UniProt proteome under `F:/aging_data/db/`, and
+   `MetaMorpheusContaminants.xml` **from the MetaMorpheus install that ran the search** -- which is
+   not under the data root and has to be kept with it.
+3. **Install `lxml` or not, as you like.** The two XML parsers are tested to read identically; `lxml`
+   is only faster (15 s against 47 s on a 1 GB proteome).
+
+**If a database is missing, the ingest does not fail.** It writes the bundle anyway, and the
+result is not the same bundle:
+
+- sites on single-accession PSMs are still placed, from the producer's own spans;
+- sites for shared peptides on proteins it cannot see are **not written** and are counted in the
+  `unplaced_ptm_sites` finding, which names the missing file;
+- the missing database is absent from `sources`, so **the bundle id differs** -- which is
+  correct, because the rows do.
+
+A database that is present but **differs** from the searched one (wrong sha256) stops the ingest.
+
+**Verifying positions.** Every ingest checks each site's residue against its sequence and records
+the result in `bundle.json` under `protein_databases.site_residue_check`; any wrong residue or
+out-of-range position raises `ptm_site_residue_mismatch`. To check a bundle you did not build,
+independently of that bookkeeping:
+
+```
+python tools/verify_ptm_sites.py <store> [PXD...]                              # 0.15.0+ bundles
+python tools/verify_ptm_sites.py <store> --db <proteome.xml> --db <contaminants.xml>   # older bundles
+```
+
+It exits 1 on any failure. Against aging's 0.9.0 bundles it fails (PXD036557: 29 wrong residues,
+4 beyond length; PXD023381: 28 and 1), which is DATAREPO-32. Against 0.15.0 it passes.
+
 ## Findings a bundle can carry
 
 | Code | Severity | Meaning |
@@ -329,6 +381,8 @@ is what they have always effectively been. Asked as DATAREPO-26.
 | `count_mismatch` | warning | A count disagrees with the producer's summary. |
 | `unresolved_modifications` | warning | A modification has neither a UNIMOD accession nor a mass. Its `ptm_sites` rows exist and carry `modification_name`, with `modification` null. |
 | `unmatched_runs` | warning | A run the search reported is not a deposited file. |
+| `ptm_site_residue_mismatch` | warning | A written site names a residue that is not at its position in the searched sequence, or lies beyond the protein. Should never fire; it is the self-check for DATAREPO-32. |
+| `unplaced_ptm_sites` | warning | Some (PSM, protein) pairs got no `ptm_sites` row because the stored peptide is not in that protein's sequence (typically a level 4/5 PSM whose protein carries a different candidate peptide), the protein has no sequence in the searched databases, or a database was missing. Counts are in `bundle.json` under `protein_databases`. |
 | `collapsed_duplicate_rows` | info | The producer wrote a row more than once, identical in every column; the copies were dropped. |
 | `metric_conflict` | warning | One metric reached the bundle from two sources under one definition, and they disagree. |
 

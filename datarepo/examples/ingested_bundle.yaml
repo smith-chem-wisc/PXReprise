@@ -29,7 +29,7 @@ datasets:
   search_engine: MetaMorpheus
   search_engine_version: 1.1.11
   search_database: test_human.xml
-  search_database_sha256: eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+  search_database_sha256: 89fb8c7a1140939de96ca740ab818deedd70063d00ac3789976908eec8d8ad6d
   sdrf_status: trusted
   pipeline_repo: trishorts/aging
   pipeline_commit: '0000000000000000000000000000000000000000'
@@ -301,7 +301,7 @@ provenance_records:
   peak_rss_gib: 1.0
   resources_json: '{"peak_rss_gib": 1.0, "wall_s": 60.0}'
   original_path: sources/provenance_04_search.json
-  original_sha256: 94744bc9c6ed388db3e72f5c8f599b1d9a1c1e1649ac0aefb23271d4f585c46f
+  original_sha256: 267bc6ad448214fdb30a47fcfded85488c2011b20016e2b9eb0a8900c98b334b
 - dataset_id: PXD999999
   stage: qc_spectra
   provenance_schema: aging-provenance/2

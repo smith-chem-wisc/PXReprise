@@ -4,6 +4,71 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [0.15.0] - 2026-09-22
+
+**`INGESTER_VERSION` 0.9.0 -> 0.10.0, so every bundle re-ids and a re-ingest is owed.** aging
+study layer 0.2.0 -> 0.3.0, `STUDY_INGESTER_VERSION` 0.3.0 -> 0.4.0. Core schema (0.0.7) is
+unchanged. Answers DATAREPO-32 (aging 043) and closes G44.
+
+### Fixed
+- **`ptm_sites` put a shared peptide's modifications at the wrong protein positions.**
+  `ptm_site_rows` paired the psmtsv's `Start and End Residues In Full Sequence` with its
+  `Accession` list by index, falling back to the first span. MetaMorpheus writes that column
+  **de-duplicated** -- `P60709|P63261|Q6S8J3` beside `[216 to 238]|[916 to 938]` -- and once per
+  occurrence of a repeated peptide, so no index pairing is right, including when the two lists
+  happen to be the same length. aging measured the result on their ten-dataset catalog: 2,266 sites
+  at positions no alignment supports, 2,166 real sites missing, 1,452 naming a residue not at that
+  position, 297 beyond the protein's length (gamma-actin carrying POTE-E's numbering). **All at
+  ambiguity levels carrying protein ambiguity, none at level 1**, which is why the level filter hid
+  it and why release v0.1 (cut under that filter) is unaffected. Sites are now placed by finding
+  the peptide in each member protein of the searched database and emitting every occurrence, as
+  MetaMorpheus's occupancy code does. `site_type`'s initiator-methionine test reads the residue
+  before the peptide from the same sequence, because `Previous Residue` is collapsed the same way.
+- **Decoy `Protein.organism_name` is NULL** (G44). MetaMorpheus wrote a species for some reversed
+  decoys and not others: 11,804 of 11,804 decoys had none in PXD024803, but only 149 of 7,157 in
+  PXD023381, so the rest carried a species name.
+
+### Added
+- The ingest reads **every protein database in the search provenance's `inputs`**
+  (`sources/protein_db.py`; UniProt XML and FASTA, accession and sequence only), checks each
+  against the sha256 the search recorded, and **stops on a mismatch**. They are hashed into the
+  bundle id under `protein_database:<file name>` and never copied into the bundle.
+- Finding **`unplaced_ptm_sites`**, with counts in `bundle.json` under `protein_databases`: pairs
+  that could not be placed are counted rather than guessed.
+- **Every ingest checks its own sites**: each written site's residue against its position in the searched sequence, recorded in `bundle.json` as `protein_databases.site_residue_check`, with a `ptm_site_residue_mismatch` finding on any failure. The check aging ran from outside to find this now runs on the path that cannot be skipped.
+- **`tools/verify_ptm_sites.py`**: the same check from the written Parquet, for a bundle you did not build. `--db` checks bundles built before 0.15.0, and it fails on aging's current 0.9.0 bundles (PXD036557: 29 wrong residues, 4 beyond length).
+- **`docs/ingest.md` "Reproducing a bundle"**: the inputs that must be byte-identical, now including both searched databases, and what happens when one is missing.
+- `lxml` in the `readers` extra; the standard-library fallback is tested to read identically.
+- **`age_effect_refusals.organism`** (NCBITaxon, required, denormalised, outside the key), as on
+  `age_effects` (aging 042 section 2).
+- The test fixture carries two small databases cut from the real ones, so the suite exercises
+  alignment end to end.
+
+### Verified, on all ten of aging's datasets (scratch store, not aging's)
+Every target site checked against the searched sequence by `tools/verify_ptm_sites.py`:
+
+| | 0.9.0 (aging's current bundles) | 0.15.0 |
+|---|---|---|
+| residue at its position | 103,551 | **105,482** |
+| wrong residue | 1,674 | **0** |
+| position beyond the protein | 344 | **1** (see below) |
+
+Residue-level target site keys: 89,300 agree, 1,711 only in 0.9.0 (misplaced), 1,847 only in
+0.15.0 (recovered). 7,510 (PSM, protein) pairs are unplaced, and in the three datasets classified
+(PXD036557, PXD050351, PXD067622) **every one** is a level 4/5 PSM whose protein carries a
+different candidate peptide from the stored one. Row counts in every other table are unchanged,
+and every reconciliation check gives the same result as on 0.9.0.
+
+**The one remaining failure is not this defect.** It is the corpus's first **C-terminal**
+modification, `KPVADYFL-[UNIMOD:34]` in PXD050351: the ProForma parse leaves the `-` in
+`base_sequence` (3 PSMs, 2 peptidoforms) and the site is written with residue `-` at the
+protein's length + 1. aging's DATAREPO-26 answer called this hole latent; it is now real, the
+0.9.0 bundle carries it too, and the new self-check is what surfaced it (G51).
+
+### Changed
+- An ingest now takes about 20 seconds longer: parsing a 1 GB UniProt XML takes 15 s with `lxml`, or
+  47 s with the standard library if `lxml` is not installed.
+
 ## [0.14.0] - 2026-09-22
 
 **aging study layer 0.1.0 -> 0.2.0, `STUDY_INGESTER_VERSION` 0.2.0 -> 0.3.0.** Core schema

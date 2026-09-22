@@ -1,4 +1,4 @@
-# aging study layer, v0.2.0 (2026-09-22; v0.1.0 2026-09-20).
+# aging study layer, v0.3.0 (2026-09-22; v0.2.0 earlier the same day; v0.1.0 2026-09-20).
 #
 # The rule (U5): a study layer ADDS tables keyed on core identifiers and never alters a core table.
 # Everything the core stores stays usable by a non-aging consumer, and a second study layer can sit
@@ -23,7 +23,7 @@ description: >-
   effects and their refusals, the cross-dataset pooled effect, organelle-level summaries, age clocks
   and cross-species age mapping. aging owns the content; every table is keyed on core identifiers and
   no core table is altered.
-version: 0.2.0
+version: 0.3.0
 license: https://creativecommons.org/licenses/by/4.0/
 
 prefixes:
@@ -188,6 +188,7 @@ classes:
       feature to name.
     attributes:
       dataset_id: {range: Dataset, required: true, description: "Dataset the fit would have run within."}
+      organism: {range: uriorcurie, required: true, description: "NCBITaxon term of the organism the fit would have run over. REQUIRED and denormalised, as on `age_effects` (aging 042 section 2): a refusal row is what someone reads when asking why there is no mouse estimate for a feature, and if answering that needs a join back to `datasets` it will sometimes be answered wrongly. Not part of the key, because `dataset_id` already is."}
       feature_type: {range: FeatureType, description: "Null for a dataset-level refusal such as no_age_metadata."}
       feature_id: {description: "Null for a dataset-level refusal such as no_age_metadata."}
       response: {range: AgeResponse, required: true, description: "The response that was not fitted."}
