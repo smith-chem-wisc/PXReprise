@@ -4,6 +4,96 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [0.11.0] - 2026-09-22
+
+**Schema 0.0.6 -> 0.0.7 and `INGESTER_VERSION` 0.7.0 -> 0.8.0, so every bundle must be
+re-ingested.** Two ingest defects and one round of MCP fixes, all of them found by pointing two
+agents at the 0.10.0 server -- one answering aging's benchmark questions under the no-source-
+reading constraint, one trying to break it.
+
+### The measurement that prompted all of it
+On aging's top 10 plus seven simpler questions: **5 answered, 5 correctly refused as "no data",
+7 near-misses, 0 outright wrong.** The agent never emitted a falsehood, but seven questions had a
+live path to one and it avoided them only by reading `describe` carefully first. **D15's bar was
+not met**, and is not claimed met now -- it will be re-run.
+
+### Fixed (ingest -- these reach written rows)
+- **`producer_counts` applied the PSM notch-resolution rule to peptidoforms, and MetaMorpheus
+  does not.** aging's 008 scoped that clause to PSMs; we generalised it, and the docstring
+  asserted it "costs nothing on peptidoforms" -- measured on PXD036557 alone, where it is 0. On
+  both larger datasets it costs exactly 3, which made **PXD032202's `count_mismatch` finding
+  entirely spurious** (21,771 accepted against the producer's 21,771) and gave PXD027318's the
+  wrong magnitude and direction. The catalog's `peptidoforms_1pct` view never had the clause, so
+  the two paths disagreed -- which D10 says they cannot. The test asserting it checked PSMs only.
+  Now `require_resolved_notch` is explicit at both call sites, and the agreement test covers
+  peptidoforms. Asked of aging as DATAREPO-27.
+- **Every contaminant protein was labelled *Homo sapiens*.** All 339 in aging's catalog read
+  `NCBITaxon:9606`: porcine trypsin, bovine albumin (identified at q = 0 in all three datasets),
+  horse cytochrome c, E. coli lacZ. The dataset's organism was written first and MetaMorpheus's
+  per-accession `organism_name` consulted only as a fallback -- which, for a manifest that names
+  an organism, is never. "No non-human proteins were identified" was a falsehood the tools
+  supported. `Protein.organism` is now the taxon of the database the entry came FROM (NULL for
+  contaminant and decoy entries), and new `Protein.organism_name` carries the producer's species
+  string verbatim. **No name-to-taxon mapping happens here** (D1): that is a reference resource
+  this project does not own, logged as G36.
+- `Protein.organism` was `required: true`, and that is what made it wrong. **A required column
+  with no true value gets a false one.** It is now optional.
+
+### Fixed (the MCP server)
+- **`datarepo_sql` now returns `tables_touched`, and `empty_tables` when any of them is empty.**
+  Six of the seven near-misses reduce to this: every "this table is empty, do not answer from it"
+  guard lived in `describe` and `search`, the two tools an agent may skip, and was absent from the
+  one `describe`'s own `next` block points at. A join over two empty tables returned `rows: []`
+  with an empty envelope. Tables are parsed out of DuckDB's own serialization of the statement, so
+  aliases, CTEs and subqueries are seen through and a name in a string literal is not a table.
+  **A fourth tool would have to be chosen; an envelope field cannot be skipped** -- which is the
+  benchmark agent's argument, and the answer to D12's open question: **no fourth tool.**
+- **Provenance is validated against `catalog_bundles` instead of trusted from a column name.**
+  `SELECT 'deadbeefdeadbeef' AS bundle_id, count(*) FROM protein_groups_1pct` had a bundle id that
+  exists in no catalog returned as the provenance of 8,055 real rows. Unknown ids now fall back to
+  the whole catalog and are listed as unrecognised. A *real* id aliased into a result cannot be
+  caught by validation, so the wording no longer overstates: it says the ids **appear in the rows**
+  and points at `tables_touched`.
+- **`search` provenance no longer under-accounts.** It took `dataset_ids_1pct` in preference to
+  `dataset_ids`, so a hit reading `n_datasets: 3` came back naming two bundles. Both lists now.
+- **Per-column non-null counts**, in both detail modes (60 ms for 31 columns over 1.2M rows).
+  `searched_but_empty` fires on `rows == 0`, so a table with rows and a 100%-NULL column was
+  invisible to it -- and that is the common case here: aging's `samples` holds 57 rows with
+  `organism_part`, `cell_type`, `disease`, `condition` and `cell_line` entirely NULL, and
+  `peptidoforms.is_isoform_specific` is NULL on all 394,255 rows while `describe` advertises it as
+  the column that answers isoform questions.
+- **`search` names the columns it matched**, and flags the ones that are all NULL. `rows: 57,
+  hits: 0` read as a considered negative; it is not one when the five columns matched against hold
+  nothing.
+- **A protein NAME query now says names are not searchable.** There is no name or description
+  column in the schema, so `cytochrome c oxidase` returned `rows: 38002, hits: 0` with no caveat
+  while COX4I1 and COX19 sat in the table.
+- **The derived layer is documented** (`catalog.DERIVED_DOCS`, beside the SQL that builds it).
+  `describe('protein_index')` returned `one_row_is: null` and zero column meanings -- in the
+  tables `search` answers from. An undocumented column gets read as whatever its name suggests,
+  which is how `n_datasets_1pct` became "identified at 1% FDR": it counts peptide-OR-protein-level
+  acceptance, and 879 of 9,130 pairs it counts are absent from `protein_groups_1pct`. A test fails
+  if a derived table or view has no entry -- the `manifest.CONTENT_FIELDS` shape.
+- The `_1pct` views now state the rule they apply, which the `sql` tool description had been
+  promising and nothing printed.
+- **A study layer with no delivery is reported as present and empty**, not absent. `study_layers:
+  []` read as "there is no study layer" and contradicted `describe('tables')`, which marked the
+  same eight tables `kind: study:aging`.
+- `quant_values.value`'s description now says it holds **several incommensurable quantities**
+  separable only by `definition_id` -- intensities (median 1.2e6) and spectral counts (median 3)
+  in one column. An agent took a median across it and reported a spurious million-fold LMNA
+  difference between two of aging's datasets. The grain rule (U8) broken inside a single column.
+
+### Verified
+- 337 tests (18 new), all passing; end-to-end over real stdio unchanged.
+- Every fix above has a test named for the wrong answer it prevents.
+
+### Held, under attack
+The sandbox. `ATTACH`, `read_csv_auto`, `glob`, multi-statement, `CREATE`, `COPY TO` and
+`INSTALL` all refused; the watchdog fired and the connection survived; both caps flagged. **No row
+of non-catalog data reached a result.** The red team's verdict on it was HOLDS, and the remaining
+risk was entirely in the derived layer rather than in SQL or the sandbox.
+
 ## [0.10.0] - 2026-09-22
 
 FRAMEWORK step 3: the local MCP server (D12-D15). **No schema change and no `INGESTER_VERSION`

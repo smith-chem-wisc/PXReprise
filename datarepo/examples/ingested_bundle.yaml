@@ -261,29 +261,29 @@ proteins:
 - protein_accession: CONTAM_P00001
   canonical_accession: CONTAM_P00001
   gene: KRT1
-  organism: NCBITaxon:9606
   source_db: contaminants
   is_contaminant: true
 - protein_accession: DECOY_P12345
   canonical_accession: DECOY_P12345
-  organism: NCBITaxon:9606
   source_db: decoy
   is_contaminant: false
 - protein_accession: O75390
   canonical_accession: O75390
   gene: CS
   organism: NCBITaxon:9606
+  organism_name: Homo sapiens
   source_db: uniprot
   is_contaminant: false
 - protein_accession: O75396
   canonical_accession: O75396
   gene: SEC22B
   organism: NCBITaxon:9606
+  organism_name: Homo sapiens
   source_db: uniprot
   is_contaminant: false
 - protein_accession: P00761
   canonical_accession: P00761
-  organism: NCBITaxon:9606
+  organism_name: Sus scrofa
   source_db: contaminants
   is_contaminant: true
 provenance_records:
