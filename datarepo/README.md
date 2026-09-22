@@ -3,7 +3,7 @@
 **Software for an AI-ready repository of reanalyzed public proteomics data.**
 
 dataRepo turns the search and quantification output of many reanalyzed PRIDE datasets into one set of
-versioned, validated, queryable tables. It serves those tables over a REST API and an MCP server, so
+versioned, validated, queryable tables. It serves those tables to an agent over MCP, so
 AI agents can answer questions like *"which mitochondrial proteins decline with age in skeletal muscle,
 in how many datasets, and show me the spectra"*. People can use it too, but agents are the primary users.
 
@@ -56,6 +56,7 @@ maps and metric definitions come from the projects that own them ([ownership](#w
 | [`examples/`](examples/) | A minimal valid bundle, real ingester output, and an invalid one that must fail |
 | [`src/datarepo/`](src/datarepo/) | The **ingester**: `datarepo ingest` turns a producer's run into a Parquet bundle |
 | [`docs/ingest.md`](docs/ingest.md) | **Ingester reference**: the manifest contract, what it reads, what it writes, how counts reconcile |
+| [`docs/mcp.md`](docs/mcp.md) | **MCP server reference**: the three tools, the provenance every answer carries, what the sandbox does and does not do |
 | [`tests/`](tests/) | Test suite with a miniature producing instance in `tests/data/` |
 | [`tools/build_docs.py`](tools/build_docs.py) | Regenerates `docs/schema/` from the schema |
 | [`tools/build_tables.py`](tools/build_tables.py) | Regenerates the ingester's Arrow schemas from the schema |
@@ -128,6 +129,10 @@ datarepo build     /path/to/instance/manifest.yaml --study aging=<bundle-id>
 datarepo catalog   /path/to/instance/catalog.duckdb               # what went into it?
 datarepo query     /path/to/instance/catalog.duckdb "SELECT * FROM dataset_overview"
 
+# Serve that catalog to an agent (needs `pip install 'datarepo[mcp]'`)
+datarepo mcp --catalog /path/to/instance/catalog.duckdb --install   # register with Claude Code
+datarepo mcp --catalog /path/to/instance/catalog.duckdb --check     # open it, without serving
+
 # Lint the schemas
 linkml-lint --config .linkmllint.yaml schema/datarepo.yaml
 linkml-lint --config .linkmllint.yaml schema/study/aging.yaml
@@ -144,7 +149,7 @@ pytest -q -rs
 ```
 
 Full references: **[docs/ingest.md](docs/ingest.md)**, **[docs/study.md](docs/study.md)**,
-**[docs/build.md](docs/build.md)**.
+**[docs/build.md](docs/build.md)**, **[docs/mcp.md](docs/mcp.md)**.
 
 LinkML also generates JSON Schema, Pydantic models and SQL DDL from the same file, e.g.
 `gen-json-schema schema/datarepo.yaml` or `gen-pydantic schema/datarepo.yaml`.
@@ -182,8 +187,8 @@ The agent tools will be scored against the same set, following the pattern used 
 | 1 | `datarepo ingest` for aging's first datasets → Parquet | **Done:** 16 tables, USIs, reconciliation against the producer's counts ([docs](docs/ingest.md)) |
 | 1b | `datarepo study` → study bundle for a layer's model results | **Done:** DATAREPO-20(a)'s default, loaded by `build --study` ([docs](docs/study.md)) |
 | 2 | `datarepo build` → DuckDB catalog | **Done:** materialised tables, acceptance views, cross-dataset indexes ([docs](docs/build.md)) |
-| 3 | Python client + local MCP server (stdio) | |
-| 4 | REST API, static site, Docker Compose package | |
+| 3 | Local MCP server (stdio) | **Done:** three tools, every answer carrying its `catalog_id`, a measured sandbox ([docs](docs/mcp.md)) |
+| 4 | Static site (Bioschemas, `llms.txt`, Croissant) | Next. REST and Compose deferred pending N1/G9 and evidence of a human who wants REST (D16) |
 | 5 | Production deployment by the instance owner; v0.1 release with DOI | |
 | 6 | Automatic ingest as the pipeline finishes each dataset | |
 

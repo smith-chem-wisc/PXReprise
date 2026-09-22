@@ -4,6 +4,89 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [0.10.0] - 2026-09-22
+
+FRAMEWORK step 3: the local MCP server (D12-D15). **No schema change and no `INGESTER_VERSION`
+change, so no bundle moves and no re-ingest is owed.**
+
+**But every catalog re-ids, and nothing in this release touches a catalog.** `catalog_id` hashes
+`__version__` alongside `CATALOG_VERSION`, so a release that only adds a server gives the same
+bundles a new catalog id. That is the G29 shape one level out -- one version doing two jobs -- and
+it is logged as **G34** rather than fixed here, because changing what `catalog_id` covers is a
+change to the identity aging cites and belongs in a thread, not in a release that was about
+something else. Rebuilding a catalog is cheap and loses nothing (D10), so the cost today is a
+rebuild, not a citation.
+
+### Added
+- **`datarepo mcp --catalog <path>`**, a stdio MCP server over ONE catalog named by explicit path
+  and never auto-discovered (D13). Three tools and no more (D12): `datarepo_describe`,
+  `datarepo_search`, `datarepo_sql`. A fourth is added only where aging's benchmark shows a
+  specific wrong answer.
+- **`--install`** writes the Claude Code config rather than asking for hand-edited JSON, refuses to
+  repoint an entry it did not write without `--force`, keeps the rest of the file, and writes
+  through a temporary file because that config is the user's whole Claude Code state.
+  **`--check`** opens the catalog and answers through the tools without the transport, so a
+  failure is the catalog or the tools and never the stdio plumbing. `datarepo doctor` now reports
+  the SDK and any registered server, and neither line can make it fail: a machine that ingests but
+  does not serve is a normal machine (D8).
+- **`sandbox.py`** -- D14 stage one. Measured, not assumed, on DuckDB 1.5.5, and every measurement
+  is a test so it cannot quietly stop being true.
+- **`_schema_docs.py`**, generated from the LinkML schema by `tools/build_tables.py` beside the
+  Arrow schemas, so the column meaning an agent is given is the schema's own sentence and cannot
+  drift from the column. CI's `--check` now covers both files.
+- The `[mcp]` extra. Optional for the same reason `[readers]` is: the core keeps three
+  dependencies, and `ingest`/`build`/`query` never touch the SDK. `serve()` accepts both the 1.x
+  `FastMCP` and the 2.x `MCPServer` it was renamed to.
+
+### Measured (the sandbox, and three assumptions that were wrong)
+- **`read_only=True` alone is not a sandbox**, restated as a passing test: a read-only connection
+  reads any CSV on disk. `enable_external_access=false` closes that and cannot be undone from
+  inside the session.
+- **It does not close `ATTACH`.** With external access off, `ATTACH 'other.duckdb' (READ_ONLY)`
+  still succeeded -- so a query could answer from rows that are not in this catalog, under a
+  result labelled with this catalog's `catalog_id`. **That is a D13 violation before it is a
+  security one**, and it is the reason `SET disabled_filesystems='LocalFileSystem'` is issued
+  immediately after connecting. It is itself one-way, and the already-open catalog serves
+  unchanged with it set.
+- **D14's own timeout probe had stopped demonstrating anything.** DuckDB 1.5 answers
+  `SELECT count(*) FROM range(3000000000)` from metadata in half a second. The watchdog is real --
+  a cross join is interrupted at 2.01 s of a 2 s deadline and the connection survives -- but the
+  probe that was supposed to prove it had been overtaken by an optimiser and would have passed
+  silently. The test now uses a query DuckDB cannot fold.
+- `disabled_filesystems` belongs to the database INSTANCE, not the connection: a second connection
+  to the same file in the same process inherits it, `current_setting` reads back `''` while it is
+  in force, and DuckDB refuses a second connection with a different config outright. So
+  `catalog.run_query` cannot open a catalog a `Sandbox` already holds -- irrelevant to the server,
+  which is its own process, and a trap for anything that opens a catalog twice.
+
+### The bar (D15)
+Not a percentage. Three things exist only so that "no data" is available instead of an invention:
+- `search` returns **what it searched**, each source with its row count. `protein_localizations`
+  holds 0 rows in every catalog built so far -- the organelle map is `go`'s (D1) and has not been
+  delivered -- so "mitochondria" comes back naming the empty table rather than as a considered no.
+- An absence is scoped to the datasets actually held, not to proteomics.
+- Truncation, decoys and empty tables are labelled in the result: `protein_index` is the search's
+  protein LIST, so `LMNA` and `DECOY_LMNA` both match, and unmarked they would read as two
+  proteins -- a wrong answer produced entirely by presentation.
+
+### Verified
+- 84 new tests (57 tools, 27 sandbox); 319 pass.
+- End-to-end over real stdio against the live three-dataset catalog with the mcp 2.2.0 SDK: tools
+  listed with their schemas, `search`/`sql`/`describe` answered, every result carrying
+  `catalog_id` `f360f3370ff03069`, and `DROP TABLE psms` returned as a structured refusal with a
+  hint rather than a stack trace.
+
+### Not done
+- **The sqlglot AST allow-list stays deferred** (D14 stage two). It is for the public no-login
+  endpoint, which does not exist. What ships bounds blast radius and provenance; it is not
+  claimed as a security boundary, because locally the agent already has the filesystem.
+- **No fourth tool.** `datarepo_dataset`, `datarepo_protein_profile`, `datarepo_age_effects` and
+  the rest of FRAMEWORK section 4's menu are not built: most are thin wrappers over SQL, and
+  several answer questions no measurement has asked. One gets built when aging's benchmark shows
+  the agent getting a specific answer wrong -- that is D12, and it needs their run, not our guess.
+- **The benchmark has not been run.** The harness is ours and the questions are aging's, read from
+  their master and never copied (D6/G5). Asked of them as thread 031.
+
 ## [0.9.0] - 2026-09-21
 
 Answers aging 027. **Schema 0.0.5 -> 0.0.6, `INGESTER_VERSION` 0.6.0 -> 0.7.0, `CATALOG_VERSION`
