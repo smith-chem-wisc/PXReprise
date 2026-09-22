@@ -283,8 +283,11 @@ groups them back, and doing so reproduces the accession-keyed table exactly, `n_
 ### Terminal sites, and the residue a terminus sits on
 
 Until 0.8.0 the ingester skipped every modification placed at a peptide terminus. That was one
-`continue`, and across aging's three datasets it cost **1,367 sites at q<=0.01** over 3,085
-peptidoforms and 18,566 PSMs (aging 024 §4). Nothing was missing from the bundle -- `peptidoforms`
+`continue`, and across aging's three datasets it cost **2,091 sites at q<=0.01** -- 1,220
+`protein_n_term` and 871 `peptide_n_term` over 20,789 PSMs, measured on the corpus after the fix
+(aging 028; their pre-fix estimate of 1,367 was retracted in 029 as being at the wrong grain).
+`ptm_sites` went 35,615 -> 38,045 and every other table stayed identical row-for-row, which is what
+an S39-only change must do. Nothing was missing from the bundle -- `peptidoforms`
 held every one of them -- so this was a projection gap, but `ptm_sites` is the table PTM
 stoichiometry reads, and a query for acetylation came back lysine-only with nothing saying so.
 

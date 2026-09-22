@@ -22,8 +22,7 @@ them **one** pass rather than two -- see the note at the end.
 - **`search_modifications_placed`**, derived from the **peptidoforms**, not from `ptm_sites`.
   aging answered the question we asked rather than guessed, and the reason is the one the question
   implied: `ptm_sites` is per *resolved protein position*, so it drops the 210 occupancy sites at
-  `pos0`, the 264 with no determinate position, and -- before 0.8.0 -- the 1,367 protein-N-terminal
-  sites. **A placed view built on it would have reported that N-terminal acetylation was never
+  `pos0`, the 264 with no determinate position, and -- before 0.8.0 -- all 2,091 terminal sites. **A placed view built on it would have reported that N-terminal acetylation was never
   placed in any of the three datasets while 3,085 peptidoforms carried it**: S39 reproduced in a new
   table, in the one view whose whole job is to be trusted about absence. A view trusted about
   absence must draw from the table that loses nothing.
@@ -63,8 +62,9 @@ Answers aging thread 024. **Schema 0.0.4 -> 0.0.5 and `INGESTER_VERSION` 0.5.0 -
 bundle must be re-ingested** -- once, for all of the below, rather than once per change.
 
 ### Fixed
-- **1,367 terminal PTM sites at q<=0.01 were never written, and nothing said so** (aging 024 §4,
-  their S39). A single `continue` skipped every modification placed at a peptide N-terminus, so
+- **2,091 terminal PTM sites at q<=0.01 were never written, and nothing said so** (aging 024 §4,
+  their S39; the count is aging's post-fix corpus measurement in their 028 -- their pre-fix estimate
+  of 1,367 was retracted in 029 as having been taken at the wrong grain). A single `continue` skipped every modification placed at a peptide N-terminus, so
   `ptm_sites` held **zero** rows for 3,085 peptidoforms and 18,566 PSMs that `peptidoforms` held in
   full. Six chemistries, led by `UNIMOD:1` acetylation with 12,448 PSMs. The 239 `UNIMOD:1` rows
   that *were* written are all `on K`, so a reader querying `ptm_sites` for acetylation got a
