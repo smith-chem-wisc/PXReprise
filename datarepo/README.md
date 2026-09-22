@@ -10,9 +10,13 @@ in how many datasets, and show me the spectra"*. People can use it too, but agen
 [![CI](https://github.com/trishorts/dataRepo/actions/workflows/ci.yml/badge.svg)](https://github.com/trishorts/dataRepo/actions/workflows/ci.yml)
 [![Code: MIT](https://img.shields.io/badge/code-MIT-blue.svg)](LICENSE)
 
-> **Status: v0, pre-alpha.** The schema is drafted and validated but not locked, and `datarepo ingest`
-> is the only working command. There is no query catalog and no server yet. Expect breaking changes.
-> See the [roadmap](#roadmap).
+> **Status: v0, pre-release** — `datarepo` 0.13.0, schema 0.0.7.
+> **Working and exercised against a real 9-dataset corpus:** `ingest`, `study`, `build`, `query` and a
+> local `mcp` server. **Not built yet:** the static site, REST, and deployment (roadmap steps 4–6).
+> The schema is validated but **not locked**, so expect breaking changes — bundles and catalogs are
+> content-addressed, so a change re-identifies them rather than silently altering one you cited.
+> Start with [the docs index](docs/README.md), the [query cookbook](docs/querying.md), and
+> — before you trust an answer — [what this repository cannot tell you](docs/limitations.md).
 
 ---
 
@@ -52,6 +56,9 @@ maps and metric definitions come from the projects that own them ([ownership](#w
 | [`schema/study/aging.yaml`](schema/study/aging.yaml) | The **aging study layer**: sample age, age effects, organelle summaries, clocks |
 | [`docs/schema/core.md`](docs/schema/core.md) | **Schema reference**: every table, column, type and vocabulary, plus a relationship diagram. Generated. |
 | [`docs/schema/study-aging.md`](docs/schema/study-aging.md) | Reference for the aging layer. Generated. |
+| [`docs/README.md`](docs/README.md) | **Documentation index** — which page you want, and the five rules that explain the design |
+| [`docs/querying.md`](docs/querying.md) | **Query cookbook** — real SQL against a real catalog with the output it returned, plus queries that look right and are wrong |
+| [`docs/limitations.md`](docs/limitations.md) | **What this repository cannot tell you** — every place a confident answer would be wrong, with the measurement behind it |
 | [`docs/architecture.md`](docs/architecture.md) | How the pieces fit, and which parts are decided vs. proposed |
 | [`examples/`](examples/) | A minimal valid bundle, real ingester output, and an invalid one that must fail |
 | [`src/datarepo/`](src/datarepo/) | The **ingester**: `datarepo ingest` turns a producer's run into a Parquet bundle |
