@@ -4,6 +4,94 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [0.8.0] - 2026-09-21
+
+Answers aging thread 024. **Schema 0.0.4 -> 0.0.5 and `INGESTER_VERSION` 0.5.0 -> 0.6.0, so every
+bundle must be re-ingested** -- once, for all of the below, rather than once per change.
+
+### Fixed
+- **1,367 terminal PTM sites at q<=0.01 were never written, and nothing said so** (aging 024 §4,
+  their S39). A single `continue` skipped every modification placed at a peptide N-terminus, so
+  `ptm_sites` held **zero** rows for 3,085 peptidoforms and 18,566 PSMs that `peptidoforms` held in
+  full. Six chemistries, led by `UNIMOD:1` acetylation with 12,448 PSMs. The 239 `UNIMOD:1` rows
+  that *were* written are all `on K`, so a reader querying `ptm_sites` for acetylation got a
+  lysine-only answer with nothing marking the absence. N-terminal acetylation is co-translational,
+  among the most abundant marks in any proteome, and governs the N-degron pathway -- protein
+  turnover, which is proteostasis, which is a hallmark this repository exists to measure. A
+  projection gap, not a data-loss gap: nothing was ever missing from the bundle.
+
+### Added
+- **`PtmSite.site_type`** and the `SiteType` enum (`residue`, `protein_n_term`, `protein_c_term`,
+  `peptide_n_term`, `peptide_c_term`), ruled by aging 024 §4 -- the same ruling they gave
+  QuantProject, so it costs no new concept. A `site_type` rather than a positional convention
+  because **a protein N-terminal acetylation and an N6-acetyllysine on residue 1 are different
+  chemistries at the same coordinate**, and a key that cannot separate them will eventually merge
+  them. A terminal site is keyed on the residue it actually sits on, never on a sentinel position
+  or the string `N-term`.
+- **`Dataset.permitted_responses`** (aging 024 §7): an **allow-list** of what a dataset may be used
+  for, empty meaning unrestricted. Positive rather than a bar because a deny-list fails open -- a
+  response type added later would be silently permitted on a dataset nobody re-examined. A real
+  column rather than a `flags` string, because a restriction a query cannot honour without parsing
+  prose is not a restriction. It is in `manifest.CONTENT_FIELDS`: two bundles over the same rows,
+  one usable for site localization and one not, are **not the same object**, so changing a
+  restriction re-identifies the bundle. That is the exact opposite of the `reason` case and the
+  same one-sentence test applied honestly -- *does this change what the rows mean*.
+- **A study delivery declares its own definition register** (aging 024 §2a). They asked for the
+  `definition_id` check we offered, and corrected its target: their definitions are not produced by
+  a search and have no business in a search bundle, so the core `definitions` table is the wrong
+  register. `study.yaml` gains `definitions:`, and an id not among them refuses the write. A
+  delivery declaring none is not checked, so a producer who has not adopted the register is not
+  silently held to a stricter contract; declaring one opts fully in.
+
+### Changed
+- `PtmSite.residue` is now **nullable**, and for a terminal site holds the residue the modification
+  sits on rather than the string `N-term`.
+- `bundle.INGESTER_VERSION` 0.5.0 -> **0.6.0** (the ingest path now derives and writes different
+  rows) and `SCHEMA_VERSION` 0.0.4 -> **0.0.5**. Both are in the changelog because both force a
+  re-ingest, which is the rule given to aging in 022 §4.
+- `study.STUDY_INGESTER_VERSION` 0.1.0 -> **0.2.0** (the study path now reads and enforces a
+  register).
+
+### Verified
+- **No existing `ptm_site_id` moved.** aging attached that condition to the ruling, and it is met
+  structurally: the site type joins the key **only** when it is not `residue`. Re-ingesting the
+  fixture across the change: **33 -> 36 sites, 0 ids lost, 0 carried-over rows changed any value**,
+  3 gained and all three terminal.
+- **The initiator-methionine case is handled, and it is the common one, not an edge case.**
+  Co-translational N-terminal acetylation follows Met excision, so the modified residue is
+  **residue 2** and the peptide's previous residue is the excised `M`. A rule of "peptide starts at
+  residue 1" would label the most abundant terminal chemistry in the proteome `peptide_n_term`.
+  Both fixture acetylations are of this shape and are classified `protein_n_term`; the fixture's
+  `Ammonia loss on C` at span `[52 to 81]` stays `peptide_n_term`, which is the counter-case that
+  stops the rule degenerating into "everything terminal is a protein terminus".
+
+- **`ptm_stoichiometry` now matches the shape accepted in thread 012** (aging 026), corrected while
+  the table still held 0 rows. Five changes were accepted in 0.4.0's cycle and then missed by three
+  releases -- a dropped commitment rather than a decision, and each one is a change to what an
+  existing number MEANS rather than an addition beside it, so it stops being free the moment a
+  bundle carries a row. `n_modified_psms` / `n_covering_psms` replace the peptidoform counts (an
+  ambiguous PSM counts in the denominator of every position it covers, so the old columns were a
+  different population *and* a different unit, with no arithmetic connecting them);
+  `modified_fraction` splits into `modified_fraction_count` and `modified_fraction_intensity`;
+  `intensity_is_floor` arrives; `uncertainty` is dropped because neither estimator produces one and
+  a numeric column gets filled anyway; `assay_id` is documented as the sample group, which is the
+  grain occupancy is actually computed at. **The split is the one that was not cosmetic:** 0.6.0
+  gave `age_effects` an `estimator` enum *because count- and intensity-based occupancy differ
+  threefold and must never be averaged*, while the core table it draws from still had one column
+  forcing exactly that average. The rule was enforced one layer up and broken one layer down. Four
+  tests now fail if the shape drifts back.
+
+### Not done, and why
+- **C-terminal placements stay `residue`.** A modification on a peptide's last residue and one on
+  its C-terminus render identically in a MetaMorpheus full sequence (`...K[mod]`), and the mod
+  file's `PP` line -- the only thing that could separate them -- is not parsed by `modlist`.
+  Guessing would move existing ids on no evidence. Raised as **DATAREPO-26**.
+- **`search_modifications` is not yet split** into `_declared` and `_placed` (aging 024 §6, our
+  G28). The rename is agreed; what is not settled is which table the "placed" view derives from --
+  `ptm_sites` is per-protein-position while aging's own measurement came from peptidoform ProForma,
+  and the two differ for a placement with no resolved protein position. Tracked as **G31** and
+  asked in 025 rather than guessed in a release that already moves every bundle id.
+
 ## [0.7.0] - 2026-09-21
 
 ### Added

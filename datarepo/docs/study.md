@@ -41,6 +41,9 @@ layer: aging
 instance: ncems-aging
 delivery: stage7-2026-10-02          # a label; prose, and not in the content hash
 store: F:/aging_data/repo/store      # the same store the search bundles live in
+definitions:                         # the register every definition_id must resolve against
+  - aging:DEF-AGE-EFFECT
+  - aging:DEF-AGE-EFFECT-META
 tables:
   age_effects: age_effects.tsv
   age_effect_refusals: refusals.tsv
@@ -76,6 +79,12 @@ The definition's rules are enforced **here**, on the way in, not documented besi
   column at all. That is `DEF-AGE-EFFECT v1` §5 — no row, not a row with a null — enforced by shape.
 - **A column the layer does not have** stops the write, naming it. A typo'd header is not silently
   dropped.
+- **A `definition_id` the delivery does not declare** stops the write. `study.yaml` carries a
+  `definitions:` register, and an id not among them refuses. aging asked for this check and
+  corrected its target: their definitions are not produced by a search and have no business in a
+  search bundle, so the core `definitions` table is the wrong register (their 024 §2a). A delivery
+  declaring no register is not checked -- a producer who has not adopted it is not silently held to
+  a stricter contract than the one they agreed to, and declaring one definition opts fully in.
 - **Two rows for one fit** stop the write. The keys in `integrity.STUDY_COMPOSITE_IDENTIFIERS` were
   declared in 0.6.0 while the tables were still empty, precisely so this check existed the moment
   something filled them. Which of two answers is right is the producer's call, not the ingester's.
@@ -143,17 +152,19 @@ Unlike the core's, these reference checks are not scoped by `dataset_id`. A stud
 not namespaced per dataset by us — the producer chose their identifiers — and `age_effect_meta` is
 cross-dataset by construction.
 
-### Two things deliberately unchecked
+### One thing still deliberately unchecked
 
-Their absence is the point, and both are questions aging owes an answer on:
-
-- **`feature_id` resolves against nothing.** DATAREPO-20(c) asks what a feature's cross-dataset
-  identity even *is* — a `protein_group_id` here is scoped to its dataset, so it cannot be a
-  cross-dataset key. A foreign key written before that answer would freeze a guess with the
-  authority of a constraint.
-- **`definition_id` is not resolved against `definitions`.** Whether a study layer's own definitions
-  land in a search bundle is unsettled, and refusing every delivery over it would enforce a contract
-  nobody agreed to.
+- **`feature_id` resolves against nothing yet.** DATAREPO-20(c) asked what a feature's cross-dataset
+  identity even *is*, and aging answered in their 024 §1: **the UniProt accession**, with the join
+  going through **membership in `protein_accessions`**, not through the id string. They measured it
+  — a membership join pools 2,608 accessions across ≥2 datasets against 2,497 for any id-based one,
+  and the 111 lost "are not a random tail, they are the paralogue families" (CALM1, VAMP2, RAB6A,
+  GLUD2, TEAD3). So the check is now buildable; it is not built yet, and that is tracked as G32
+  rather than claimed here.
+- **`definition_id` ~~is not resolved~~ now resolves against the delivery's own register.** aging
+  asked for the check and moved its target rather than accepting ours: their definitions are not
+  produced by a search, so the core `definitions` table was the wrong place to look (024 §2a). See
+  *What it refuses*, above.
 
 ## Not in the study path yet
 
@@ -164,6 +175,8 @@ Their absence is the point, and both are questions aging owes an answer on:
 - **`organelle_age_summaries` stays not-definition-backed.** Rolling per-feature effects up to a
   compartment is an operation nobody has defined, and how a protein annotated to two compartments is
   counted is the part that would bite.
-- **This whole path is a recorded default, not an agreed contract** (D7). aging has not yet replied
-  to thread 022. If they want a different hand-over, the reader changes and the bundle and catalog
-  contracts do not.
+- **The path is now an agreed contract, not a recorded default.** aging replied in their 024 §2:
+  "you built ahead of us and the shape is right; the delay was ours." They will copy
+  `examples/study_delivery/`. Their two changes are both in: the definition register, and `delivery`
+  being advisory rather than identifying — which was already true, and
+  `test_the_producers_prose_does_not_move_the_id` already proved it.

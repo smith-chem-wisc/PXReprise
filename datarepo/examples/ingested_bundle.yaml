@@ -466,11 +466,24 @@ psms:
   start_residue: 1322
   end_residue: 1355
 ptm_sites:
+- ptm_site_id: PXD999999:O75396:C52:Ammonia loss on C@peptide_n_term
+  dataset_id: PXD999999
+  protein_accession: O75396
+  position: 52
+  residue: C
+  site_type: peptide_n_term
+  modification: UNIMOD:385
+  modification_name: Ammonia loss on C
+  target_decoy: target
+  best_ambiguity_level: '1'
+  n_psms: 1
+  best_q_value: 0.000369
 - ptm_site_id: PXD999999:O75396:C52:Carbamidomethyl on C
   dataset_id: PXD999999
   protein_accession: O75396
   position: 52
   residue: C
+  site_type: residue
   modification: UNIMOD:4
   modification_name: Carbamidomethyl on C
   target_decoy: target
@@ -482,6 +495,7 @@ ptm_sites:
   protein_accession: O75396
   position: 70
   residue: C
+  site_type: residue
   modification: UNIMOD:4
   modification_name: Carbamidomethyl on C
   target_decoy: target
@@ -493,6 +507,7 @@ ptm_sites:
   protein_accession: O75396
   position: 75
   residue: C
+  site_type: residue
   modification: UNIMOD:4
   modification_name: Carbamidomethyl on C
   target_decoy: target
@@ -504,16 +519,7 @@ ptm_sites:
   protein_accession: P00761
   position: 77
   residue: K
-  modification_name: N6,N6-dimethyllysine on K
-  target_decoy: contaminant
-  best_ambiguity_level: '1'
-  n_psms: 2
-  best_q_value: 0.000369
-- ptm_site_id: PXD999999:P00761:K97:N6,N6-dimethyllysine on K
-  dataset_id: PXD999999
-  protein_accession: P00761
-  position: 97
-  residue: K
+  site_type: residue
   modification_name: N6,N6-dimethyllysine on K
   target_decoy: contaminant
   best_ambiguity_level: '1'

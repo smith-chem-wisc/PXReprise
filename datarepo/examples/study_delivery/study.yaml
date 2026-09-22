@@ -24,6 +24,15 @@ delivery: stage7-example
 # a production delivery uses the instance's absolute store, e.g. F:/aging_data/repo/store.
 store: ../../.tmp-example-store
 
+# The definition register every `definition_id` in the delivered rows must resolve against. These
+# are the STUDY LAYER's own definitions: they are not produced by a search and have no business in a
+# search bundle, so the core `definitions` table is the wrong register (aging 024 section 2a). A row
+# whose definition_id is not listed here refuses the write -- a number whose definition does not
+# resolve is exactly what a register exists to prevent. Declare nothing and the check is skipped.
+definitions:
+  - aging:DEF-AGE-EFFECT
+  - aging:DEF-AGE-EFFECT-META
+
 # One file per table, columns named as the schema names them. `.parquet`, `.tsv` or `.csv`; the
 # delimiter comes from the extension and is never sniffed. In a text file a list column splits on
 # `;` -- which is what carries `age_effect_meta.dataset_ids`.

@@ -280,6 +280,40 @@ accession-keyed one: 5 sites in 35,615 split. Nothing is lost -- the `ptm_sites_
 groups them back, and doing so reproduces the accession-keyed table exactly, `n_psms` summing and
 `best_q_value` taking the minimum, on all 35,568 groups of the three ingested datasets, with zero mismatches.
 
+### Terminal sites, and the residue a terminus sits on
+
+Until 0.8.0 the ingester skipped every modification placed at a peptide terminus. That was one
+`continue`, and across aging's three datasets it cost **1,367 sites at q<=0.01** over 3,085
+peptidoforms and 18,566 PSMs (aging 024 §4). Nothing was missing from the bundle -- `peptidoforms`
+held every one of them -- so this was a projection gap, but `ptm_sites` is the table PTM
+stoichiometry reads, and a query for acetylation came back lysine-only with nothing saying so.
+
+`site_type` fixes it, and it is a column rather than a positional convention for one reason: **a
+protein N-terminal acetylation and an N6-acetyllysine on residue 1 are different chemistries at the
+same coordinate.** A key that cannot separate them will eventually merge them.
+
+A terminal site is keyed on the residue it actually sits on. The site type joins `ptm_site_id`
+**only when it is not `residue`**, which is what keeps every id written before 0.8.0 exactly where
+it was:
+
+```
+PXD999999:P63261:E2:N-acetylglutamate on E@protein_n_term     terminal -> suffixed
+PXD999999:O75396:C52:Ammonia loss on C@peptide_n_term         terminal -> suffixed
+PXD036557:P16401:K37:N6-succinyllysine on K                   ordinary -> unchanged
+```
+
+**The initiator methionine is why this is not `start == 1`.** Co-translational N-terminal
+acetylation follows Met excision, so the modified residue is **residue 2** and the producer records
+the excised `M` as the peptide's previous residue. A naive rule would label the most abundant
+terminal chemistry in the proteome `peptide_n_term`. The derivation is therefore: peptide starts at
+residue 1, **or** starts at residue 2 with a previous residue of `M`, means `protein_n_term`;
+otherwise a terminal placement is `peptide_n_term`.
+
+**C-terminal placements are not classified.** `...K[mod]` is written identically whether the
+modification is on the last residue or on the C-terminus, and the mod file's `PP` line is not parsed
+by `modlist`. Guessing would move existing ids on no evidence, so those rows stay `residue` -- which
+is what they have always effectively been. Asked as DATAREPO-26.
+
 ## Findings a bundle can carry
 
 | Code | Severity | Meaning |

@@ -18,7 +18,7 @@
 id: https://w3id.org/datarepo/core
 name: datarepo
 title: dataRepo core schema
-version: 0.0.4
+version: 0.0.5
 license: https://creativecommons.org/licenses/by/4.0/
 description: >-
   Generic core schema for an AI-ready repository of reanalyzed public proteomics datasets:
@@ -118,6 +118,34 @@ enums:
       discover:
         description: Inferred from PRIDE metadata at discovery.
       curated:
+  SiteType:
+    description: >-
+      Where on the molecule a modification sits. Ruled by aging 024 section 4, which is the same
+      ruling they gave QuantProject in their 020, so it costs no new concept. A `site_type` rather
+      than a positional convention (position = 0 for a terminus, say) because a protein N-terminal
+      acetylation and an N6-acetyllysine on residue 1 are DIFFERENT CHEMISTRIES AT THE SAME
+      COORDINATE, and a key that cannot separate them will eventually merge them.
+    permissible_values:
+      residue:
+        description: >-
+          An internal residue. The default, and what almost every row is.
+      protein_n_term:
+        description: >-
+          The protein's own N-terminus. Includes the case where the initiator methionine was
+          cleaved and the modification sits on residue 2 -- which is the COMMON case, not an edge
+          case: co-translational N-terminal acetylation follows Met excision, so a rule of
+          "peptide starts at residue 1" would mislabel the most abundant terminal chemistry in
+          the proteome as peptide_n_term. dataRepo derives this from the producer's own
+          `previous_residue` and peptide description rather than from the position alone.
+      protein_c_term:
+        description: The protein's own C-terminus.
+      peptide_n_term:
+        description: >-
+          The N-terminus of this peptide, which is an internal position in the protein -- a
+          cleavage artefact position, not a protein terminus. Ammonia loss on a peptide's first
+          residue is the common case.
+      peptide_c_term:
+        description: The C-terminus of this peptide, internal to the protein.
   TargetDecoy:
     description: "Target/decoy/contaminant status of a match."
     permissible_values:
@@ -225,6 +253,7 @@ classes:
       enrichment: {range: Enrichment, multivalued: true, required: true, description: "Enrichment steps before MS; [none] for whole proteome."}
       instrument_vendor: {description: "Instrument vendor, e.g. Thermo, Bruker, SCIEX."}
       instruments: {multivalued: true, description: "PSI-MS instrument names or IDs."}
+      permitted_responses: {multivalued: true, description: "Which kinds of measurement this dataset MAY be used for -- an ALLOW-LIST, not a bar (aging 024 section 7). Empty means unrestricted. A deny-list fails open: a response type added later would be silently permitted on a dataset nobody re-examined, so a restriction is stated positively and a new response is excluded until someone says otherwise. The motivating case is PXD060431, whose low-resolution MS2 costs fragment mass accuracy and so bars it from `ptm_stoichiometry` and `ptm_site_localization` while leaving abundance sound (aging D24): `permitted_responses: [abundance]`. It is a real column rather than a `flags` string because a restriction a query cannot honour without parsing prose is not a restriction. The vocabulary is the producing instance's, not an enum here -- the core knows nothing about any one study (U5), and a study layer's own response values must be a subset of what this permits."}
       axis_source: {range: AxisSource, required: true, description: "Where the six axes above came from."}
       submission_type: {description: "Archive submission type (COMPLETE, PARTIAL)."}
       search_engine: {required: true, description: "Search engine used for the reanalysis."}
@@ -378,11 +407,12 @@ classes:
   PtmSite:
     description: One modified residue on one protein in one dataset, from PSM evidence.
     attributes:
-      ptm_site_id: {identifier: true, description: "<dataset_id>:<accession>:<residue><position>:<modification_name>. The last component is the SEARCH ENGINE'S OWN NAME for the modification (MetaMorpheus's IdWithMotif, e.g. 'Carbamidomethyl on C'), never the UNIMOD accession. Keying on UNIMOD cost sites: a modification with no UNIMOD cross-reference cannot form such a key at all, so its sites were not written as nulls -- they were not written, and a query for them returned an empty answer indistinguishable from 'never identified' (aging 019 section 3; Hydroxybutyrylation on K, 43 PSMs and 10 peptidoforms in PXD027318, 0 sites). It is not a rare shape: mzLib 1.0.591 carries a Unimod cross-reference on 86.8% of Mods.txt and 33.6% of ptmlist.txt, so a GPTMD run over UniProt annotations meets unmapped names routinely. The name is always present, which is the whole argument, and QuantProject has ruled that the native identity of a site is (database version, accession, position, IdWithMotif) with Unimod a DERIVED VIEW over it -- a derived view cannot be the key, because it cannot represent everything the engine finds. The id is also then invariant under a mapping improvement: when mzLib later gives Hydroxybutyrylation an accession, `modification` fills in and no id moves. Nothing is lost cross-dataset, because dataset_id is the first component and so this key never joins across datasets anyway: that is what the `modification` and `modification_name` COLUMNS are for. The residue is load-bearing and must not be dropped to 'simplify' the key: one UNIMOD accession covers several chemistries on different residues (UNIMOD:7 is deamidation on N and on Q and citrullination on R; UNIMOD:35 is hydroxylation on K/N/P and oxidation on M), so a key without it merges them."}
+      ptm_site_id: {identifier: true, description: "<dataset_id>:<accession>:<residue><position>:<modification_name>, with '@<site_type>' appended ONLY when site_type is not 'residue' -- so no id written before schema 0.0.5 moves (aging 024 section 4). A terminal site is keyed on the position of the residue it sits on, never on a sentinel position: a protein N-terminal acetylation and an N6-acetyllysine on residue 1 are different chemistries at the same coordinate, and a key that cannot separate them will eventually merge them.  The last component is the SEARCH ENGINE'S OWN NAME for the modification (MetaMorpheus's IdWithMotif, e.g. 'Carbamidomethyl on C'), never the UNIMOD accession. Keying on UNIMOD cost sites: a modification with no UNIMOD cross-reference cannot form such a key at all, so its sites were not written as nulls -- they were not written, and a query for them returned an empty answer indistinguishable from 'never identified' (aging 019 section 3; Hydroxybutyrylation on K, 43 PSMs and 10 peptidoforms in PXD027318, 0 sites). It is not a rare shape: mzLib 1.0.591 carries a Unimod cross-reference on 86.8% of Mods.txt and 33.6% of ptmlist.txt, so a GPTMD run over UniProt annotations meets unmapped names routinely. The name is always present, which is the whole argument, and QuantProject has ruled that the native identity of a site is (database version, accession, position, IdWithMotif) with Unimod a DERIVED VIEW over it -- a derived view cannot be the key, because it cannot represent everything the engine finds. The id is also then invariant under a mapping improvement: when mzLib later gives Hydroxybutyrylation an accession, `modification` fills in and no id moves. Nothing is lost cross-dataset, because dataset_id is the first component and so this key never joins across datasets anyway: that is what the `modification` and `modification_name` COLUMNS are for. The residue is load-bearing and must not be dropped to 'simplify' the key: one UNIMOD accession covers several chemistries on different residues (UNIMOD:7 is deamidation on N and on Q and citrullination on R; UNIMOD:35 is hydroxylation on K/N/P and oxidation on M), so a key without it merges them."}
       dataset_id: {range: Dataset, required: true, description: "Dataset this row belongs to (ProteomeXchange accession)."}
       protein_accession: {range: Protein, required: true, description: "UniProt (or custom-database) accession, isoform suffix kept."}
       position: {range: integer, required: true, description: "Residue position in the protein (1-based)."}
-      residue: {required: true, description: "Modified amino acid (one-letter code), or N-term / C-term."}
+      residue: {description: "Modified amino acid (one-letter code) -- for a terminal site, the residue the modification actually sits ON, not the string 'N-term'. A terminus is a position, and the thing modified there is still a residue; `site_type` carries the fact that it is terminal. Nullable because a producer can place a modification at a terminus without naming the residue, and a null is then honest where a guess would not be."}
+      site_type: {range: SiteType, required: true, description: "Where on the molecule the modification sits. Defaults to `residue`, which is what almost every row is; the terminal values exist because 1,367 terminal sites at q<=0.01 across three datasets were not written at all before schema 0.0.5 -- the ingester skipped every modification at a peptide terminus, so `ptm_sites` held 0 rows for them while `peptidoforms` held all 3,085 (aging 024 section 4). N-terminal acetylation is co-translational, among the most abundant marks in any proteome, and governs the N-degron pathway and so protein turnover: it is not a tail chemistry in an aging repository. A reader querying `ptm_sites` for acetylation before this got a lysine-only answer with nothing saying so."}
       modification: {range: uriorcurie, description: "UNIMOD accession, ABSENT when the search engine's modification has no UNIMOD cross-reference. A null here means 'this chemistry has no Unimod term in the registry that searched it', never 'unmodified' and never 'unknown chemistry': `modification_name` always says what it is. A caller aggregating by UNIMOD must decide what to do with these rows rather than have them silently dropped, which is what keying on UNIMOD used to do for them."}
       modification_name: {required: true, description: "The search engine's own name for the modification, verbatim (MetaMorpheus's IdWithMotif, e.g. 'Hydroxybutyrylation on K'). Always present, and the component of ptm_site_id that makes the key always formable. It is engine-specific by construction, which is safe here because a dataset is searched by one engine and dataset_id is part of the key; cross-dataset work goes through `modification`, or through this column when both datasets share an engine."}
       target_decoy: {range: TargetDecoy, description: "Target or contaminant, from the supporting PSMs. Contaminant sites are kept because they are real measurements of real molecules and are used as a process control, but they are not the sample, so a caller filters on this rather than having the decision made for them."}
@@ -393,15 +423,22 @@ classes:
 
   PtmStoichiometry:
     description: >-
-      Modified fraction of one site in one assay (R7). Producer: MetaMorpheus PTM stoichiometry
-      (paper submitted); definition on the QuantProject register. Stored as produced.
+      Modified fraction of one site in one sample group (R7). Producer: MetaMorpheus PTM
+      stoichiometry (paper submitted); definition on the QuantProject register. Stored as produced.
+
+      Corrected to aging 011's accepted shape in schema 0.0.5, while the table still held 0 rows
+      (their 026). The corrections were accepted in dataRepo thread 012 and then missed by three
+      releases, which is a dropped commitment rather than a decision -- and every one of them
+      becomes expensive the moment a bundle carries a row, because each is a change to what an
+      existing number MEANS rather than an addition beside it.
     attributes:
-      ptm_site_id: {range: PtmSite, required: true, description: "Site whose modified fraction this is."}
-      assay_id: {range: Assay, required: true, description: "Assay (run x channel) this value was measured in."}
-      modified_fraction: {range: float, minimum_value: 0, maximum_value: 1, description: "Fraction of the site that is modified (0-1)."}
-      n_modified_peptidoforms: {range: integer, required: true, description: "Modified peptidoforms that supported the estimate."}
-      n_unmodified_peptidoforms: {range: integer, required: true, description: "Unmodified peptidoforms that supported the estimate."}
-      uncertainty: {range: float, description: "Form (SE, CI half-width) set by definition_id."}
+      ptm_site_id: {range: PtmSite, required: true, description: "Site whose modified fraction this is. Keyed on the search engine's own modification name since 0.5.0, not on a UNIMOD accession."}
+      assay_id: {range: Assay, required: true, description: "The SAMPLE GROUP the occupancy was computed over, not a single run x channel. MetaMorpheus's occupancy is a group-level quantity: it pools the covering PSMs of every run in the group, so attributing it to one run would state a measurement that was never made. Named `assay_id` because it points into `Assay`, which carries the grouping."}
+      modified_fraction_count: {range: float, minimum_value: 0, maximum_value: 1, description: "Modified fraction from PSM COUNTS (`DEF-OCC-PSMS`): n_modified_psms / n_covering_psms. Kept in its own column, never merged with the intensity estimate. The two disagree about THREEFOLD overall and sevenfold at sites with 21-50 PSMs, so a single column would force a producer to pick one and throw the other away silently, with nothing in the row saying which. Two columns is the shape that cannot be averaged by accident; a `definition_id` discriminator is not, because it would mean two rows per (site, group) differing only in a string, which a natural key then has to treat as a duplicate."}
+      modified_fraction_intensity: {range: float, minimum_value: 0, maximum_value: 1, description: "Modified fraction from INTENSITIES. See `modified_fraction_count` for why these are two columns and not one, and `intensity_is_floor` for why a 0.0 here is not self-explanatory."}
+      intensity_is_floor: {range: boolean, description: "True when `modified_fraction_intensity` is a FLOOR rather than a measurement -- `DEF-OCC-INT-ZERO`: a fraction of 0.0000 whose numerator is a literal zero means the modified form was not detected, not that it was measured at zero. Without this flag both land as 0.0 and the difference is unrecoverable, which is the same absence-reading-as-a-measurement failure the `findings` mechanism exists to prevent. Null when there is no intensity estimate to qualify."}
+      n_modified_psms: {range: integer, description: "PSMs supporting the modified form, as `DEF-OCC-PSMS` counts them."}
+      n_covering_psms: {range: integer, description: "COVERING PSMs: the definition's denominator. An ambiguous PSM counts in the denominator of every position it covers, so this is a different population AND a different unit from a peptidoform count -- there is no arithmetic that converts one into the other, which is why the old `n_unmodified_peptidoforms` could only ever have been guessed at. Nullable, because a producer reporting only an intensity estimate has no PSM counts to give."}
       definition_id: {range: Definition, required: true, description: "Owner's definition ID giving this number its meaning."}
 
   Glycopeptide:
