@@ -4,6 +4,85 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [0.12.0] - 2026-09-22
+
+**No schema change, no `INGESTER_VERSION` change -- no bundle moves and no re-ingest is owed.**
+A second pair of agents was run against 0.11.0, one answering aging's benchmark with the source
+withheld and one red-teaming it with the source in hand. The benchmark improved (**0 wrong, 9
+answered, 9 correct 'no data'** over 20 questions, against 5/5 over 17). The red team broke three
+of the five claims, **two of them through fields 0.11.0 had added to prevent exactly that.**
+
+### Removed: per-answer provenance narrowing
+The important change is a deletion. Provenance used to narrow to "the bundles named in the rows",
+read out of the result's own `bundle_id` / `dataset_id` columns -- and a query can put anything in
+a column with those names:
+
+```sql
+SELECT max(dataset_id) AS dataset_id, count(*) FROM ptm_sites
+-- catalog-wide 38,045 rows, stamped with one dataset's bundle, in the same words a correct
+-- narrowing uses. PXD036557's real figure is 2,095. Nobody had to be trying.
+```
+
+0.11.0 had "fixed" this by rejecting bundle ids the catalog does not hold. That closed the
+reproduction and not the class: a **real** id in a computed column narrows just as effectively.
+
+**Two questions were being answered as one.** *Which frozen data does this server hold?* is a fact
+about the server, fixed when it opened the file, that no question can change. *Which slice did this
+answer touch?* is a guess read off the query's own output. The first is provenance; the second was
+a convenience mislabelled as provenance, which is what made it forgeable.
+
+**And the narrowing was never needed.** `catalog_id` is a hash of the exact (dataset, bundle) set,
+so naming it already states precisely which frozen copy of every dataset was available -- the whole
+citation, in one field, immune to the entire class. Provenance is now identical on every answer,
+inferred from nothing, and says whether the catalog is a **release** (archived, durable) or a
+**working build** (rebuilt in place, cite a release instead).
+
+### Fixed
+- **A CTE named after a real table was promoted to evidence.** `WITH protein_groups_1pct AS
+  (SELECT 'PXD036557' AS dataset_id, 99999 AS n) SELECT *` read **zero catalog bytes** and came
+  back with `tables_touched: [{protein_groups_1pct, rows: 8055}]` and a real bundle id attached.
+  The true answer is 1,652. Naming a working table after the thing it relates to is an ordinary
+  thing to write. CTE names are now subtracted from the parse, ordinary and `RECURSIVE` alike.
+- **Opaque table functions read real tables while the envelope named none.**
+  `SELECT count(*) FROM query_table('ptm_stoichiometry')` returned `rows: [[0]]` with
+  `tables_touched: []` -- the "there is none / we never looked" failure with the guard switched
+  off. `referenced_tables` now returns **None for "cannot tell"**, which the envelope reports as
+  `tables_touched_undetermined` rather than as an empty list. Its own docstring had warned that an
+  empty list means "not determined"; its only caller ignored that.
+- **`tables_touched` is a hint, not evidence,** and says so. It reads the query, not the engine.
+- **`search` truncated silently.** `search("KRT")` returned `total_hits: 25` beside `rows: 38002`
+  when 232 matched, with nothing saying there were more -- while `SEARCH_LIMIT`'s own comment
+  claimed it was "how many hits one kind returns before it says there are more". It now reads one
+  past the limit and reports `truncated_kinds`, the discipline `sql` already had.
+- **The `n_datasets_1pct` caveat fired only when every hit was zero,** so never on the case that
+  matters. `EIF1AY` comes back `n_datasets_1pct: 2` and sits in **zero** accepted protein groups;
+  585 accessions carry a non-zero count beside a NULL `best_q_value`. It now fires on every
+  protein hit, in `search`, which is the tool an agent is told to call first.
+- **`empty_tables_mean` asserted a cause it had not established** -- "this result is empty because
+  there is nothing to query... say the data has not been delivered" fired on a query that returned
+  nothing because the filter matched nothing. It now states the fact and stops. A warning that
+  asserts an unchecked reason is the failure it was written to prevent, pointed the other way.
+- **Descriptions could describe a newer schema than the catalog being served.** From 0.0.7 code
+  over a 0.0.5 catalog, `describe('proteins')` narrated the contaminant-organism fix in the past
+  tense and directed the reader to `organism_name`, a column that catalog does not have, while
+  `describe('protein_index')` stated `organism` is "NULL for contaminant and decoy entries" and
+  printed "[38,002 non-null]" on the same line. **An agent that did the diligent thing and called
+  `describe` first came away more confident and more wrong.** Every result carrying a description
+  now carries `schema_drift` when the two versions differ, saying the catalog is right.
+
+### Held, under attack
+The sandbox again, completely: every escape refused, the watchdog fired, both caps flagged
+including the single-oversized-row edge. `tables_touched` was verified correct through UNION ALL,
+correlated and LATERAL subqueries, RECURSIVE CTEs, SEMI JOIN USING, derived tables, quoted and
+qualified identifiers, SUMMARIZE, QUALIFY, COLUMNS(), FROM-first syntax and unnest -- and a table
+name inside a string literal is correctly not a reference. The empty-table and all-NULL guards, the
+decoy marking, and the study-layer NO_TABLE/EMPTY_TABLE distinction all held.
+
+### Verified
+- 343 tests (6 rewritten against the new contract, 7 new), all passing.
+- End-to-end over real stdio against aging's **re-ingested** four-dataset catalog
+  `71e48aa46a7c9900`, schema 0.0.7, every bundle written by 0.11.0.
+
 ## [0.11.0] - 2026-09-22
 
 **Schema 0.0.6 -> 0.0.7 and `INGESTER_VERSION` 0.7.0 -> 0.8.0, so every bundle must be

@@ -98,25 +98,64 @@ Prefer the acceptance views — `psms_1pct`, `peptidoforms_1pct`, `protein_group
 the producing search engine's rule once so no caller restates it. Each one states the rule it
 applies in its own `describe`.
 
-## Every answer carries its provenance
+## Every answer carries its provenance — and it is a fact about the server
 
-Every result from every tool carries a `provenance` block: the `catalog_id`, the schema and catalog
-versions, who built it and when, the instance, the release if there is one, the version of
-`datarepo` serving it, and the bundles the answer drew on.
+Every result from every tool carries the same `provenance` block: the `catalog_id`, the schema and
+catalog versions, who built it and when, the instance, the release if there is one, the version of
+`datarepo` serving it, and **every bundle this catalog holds**.
 
-Where the rows carry `bundle_id` or `dataset_id`, the bundle list is narrowed and says so. Where
-they do not, it is the catalog's whole bundle set and says *that* — it never guesses a narrower
-claim than the rows support.
+It is identical on every answer and **inferred from nothing**. It does not narrow to what a
+particular result touched, and that is deliberate.
 
-**The ids are validated against the catalog, not trusted from a column's name.** They are values in
-columns that happen to be called `bundle_id` and `dataset_id`, and a query can put anything there:
-`SELECT 'deadbeefdeadbeef' AS bundle_id, count(*) FROM protein_groups_1pct` once had a bundle id
-that exists in no catalog anywhere returned as the provenance of 8,055 real rows. Unknown ids now
-fall back to the whole catalog and are listed under `unrecognised_ids_in_result`.
+It used to. The bundle list was read out of the result's own `bundle_id` and `dataset_id` columns —
+and a query can put anything in a column with those names:
 
-A *real* id aliased into a result cannot be caught that way — the id is genuine, the rows just
-aren't from it — so the wording does not overstate. It says the bundles **appear in the rows
-returned**, and points at `tables_touched` for what was actually scanned.
+```sql
+SELECT max(dataset_id) AS dataset_id, count(*) FROM ptm_sites
+-- returns the catalog-wide 38,045 stamped with one dataset's bundle,
+-- in the same words a correct narrowing uses. That dataset's real figure is 2,095.
+```
+
+Nobody has to be trying. Rejecting ids the catalog does not hold closed one reproduction and not
+the class, because a *real* id in a computed column narrows just as well.
+
+**Two different questions were being answered as one.** *Which frozen data does this server hold?*
+is a fact about the server, fixed when it opened the file, that no question can change. *Which
+slice of it did this answer touch?* is a guess read off the query's own output. The first is
+provenance. The second was a convenience, and labelling it as provenance is what made it forgeable.
+
+**The narrowing was never needed anyway.** `catalog_id` is a hash of the exact (dataset, bundle)
+set, so naming it already states, precisely and immutably, which frozen copy of every dataset was
+available. That is the whole citation, in one field, immune to the entire class:
+
+```
+catalog_id 71e48aa46a7c9900
+  PXD023381  bundle 64ea541b11d57f4d
+  PXD027318  bundle 93fc318582114dae
+  PXD032202  bundle 96ff4ffe7fb65cea
+  PXD036557  bundle 1f3a324f5b923f1a
+```
+
+`catalog_kind` says whether you are holding a **release** — archived at a fixed path, never changes,
+the thing a paper cites — or a **working build**, which is rebuilt in place, so its id is exact
+today but the file at that path may be replaced.
+
+### `tables_touched` is a hint, not evidence
+
+`sql` reports which catalog tables a statement names, parsed from DuckDB's serialization of the
+query. It sees through aliases, subqueries, set operations and CTEs, and a table name inside a
+string literal is correctly not a reference.
+
+**It reads the query, not the engine, so it is a pointer to where to look and never proof of where
+an answer came from.** While it was presented as the latter, two things went wrong:
+
+- A **CTE named after a real table** was promoted to evidence. `WITH protein_groups_1pct AS
+  (SELECT 99999)` read no catalog bytes and came back reporting that view's 8,055 rows. Naming a
+  working table after the thing it relates to needs no adversary. CTE names are now subtracted.
+- A **table function taking its target as a string** — `query_table('psms')`, `read_parquet(...)` —
+  hides the reference entirely. That now returns `tables_touched: null` plus
+  `tables_touched_undetermined`, never an empty list. **Empty means "none"; null means "cannot
+  tell".** Conflating those two is the silently-wrong shape exactly.
 
 ## Empty is not negative, and neither is NULL
 
