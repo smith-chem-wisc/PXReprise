@@ -56,6 +56,14 @@ each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `definition_id` is not resolved against `definitions` (whether a study layer's definitions land in
   a search bundle is unsettled).
 
+### Fixed
+- **The packaged version had been wrong for four releases.** `pyproject.toml` restated
+  `version = "0.3.1"` while the package said 0.7.0, and what was actually installed reported
+  `0.1.0` -- three answers to one question. `__version__` is in every `catalog_id`, so an operator
+  reconciling "what did I install" against a catalog was reading two different numbers. The version
+  is now `dynamic` and read from `datarepo.__version__`, with a test asserting the installed
+  distribution and the package agree.
+
 ### Note
 - **This is the default from thread 022 section 2a, built while the question is still open** (D7).
   aging has not replied. If they want a different hand-over, the reader changes; the bundle and
