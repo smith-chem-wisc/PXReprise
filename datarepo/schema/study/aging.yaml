@@ -1,4 +1,4 @@
-# aging study layer, v0.1.0 (2026-09-20).
+# aging study layer, v0.2.0 (2026-09-22; v0.1.0 2026-09-20).
 #
 # The rule (U5): a study layer ADDS tables keyed on core identifiers and never alters a core table.
 # Everything the core stores stays usable by a non-aging consumer, and a second study layer can sit
@@ -23,7 +23,7 @@ description: >-
   effects and their refusals, the cross-dataset pooled effect, organelle-level summaries, age clocks
   and cross-species age mapping. aging owns the content; every table is keyed on core identifiers and
   no core table is altered.
-version: 0.1.0
+version: 0.2.0
 license: https://creativecommons.org/licenses/by/4.0/
 
 prefixes:
@@ -130,14 +130,22 @@ classes:
       The estimated change in one measured quantity, for one feature, per DECADE of donor age,
       fitted WITHIN a single dataset, with its uncertainty and the evidence behind it. Content is
       `aging:DEF-AGE-EFFECT v1`; every column below is named by that definition.
-      Three rules the shape enforces. PER DECADE, not per year: the datasets span 30-70 years and a
+      Four rules the shape enforces. PER DECADE, not per year: the datasets span 30-70 years and a
       per-year coefficient invites multiplication by a lifetime it was never fitted over. WITHIN ONE
       DATASET: raw intensities are not comparable across datasets (trap J3), so pooling happens in
       `age_effect_meta` over effect sizes only. AND A FIT THAT FAILED WRITES NO ROW: the reason goes
       to `age_effect_refusals`, because a null beta would make "no evidence" and "no effect" look
       the same.
+      ONE ORGANISM, and never corrected for it (`aging:DEF-AGE-EFFECT v1.1`, aging 039/040): `beta`
+      is per decade of chronological age within one organism. It is never expressed in lifespan
+      fractions, life stages or human-equivalent years, and the decade is ten years for every
+      organism -- a per-organism denominator is a lifespan correction wearing a different hat. Any
+      cross-species comparison is a separate, named quantity computed at read time from `beta` and
+      `age_mappings`, never a different meaning for this column.
     attributes:
       dataset_id: {range: Dataset, required: true, description: "Dataset the fit was performed within."}
+      organism: {range: uriorcurie, required: true, description: "NCBITaxon term of the organism the fit ran over. REQUIRED and denormalised (`aging:DEF-AGE-EFFECT v1.1` section 6.4): a dataset has one organism, so this is functionally dependent on `dataset_id`, but the pooling guard in `age_effect_meta` has to be checkable without a join, and a guard that needs a join is a guard somebody will skip. Not part of this table's key, because `dataset_id` already is (G40)."}
+      age_centre_years: {range: float, required: true, description: "The age the model was centred on, in years: `age_decades = (age_years - age_centre_years) / 10`. REQUIRED, with no n/a (`aging:DEF-AGE-EFFECT v1.1`, aging 040 section 3). It was a literal 50 in the model formula, a human constant that put every mouse observation near -4.8 decades. Centring does not change `beta`, only the intercept -- but the intercept and the knots of a `spline` or `breakpoint` fit are expressed relative to it, so a row with no centre cannot have either interpreted. 50 for human."}
       feature_type: {range: FeatureType, required: true, description: "Which table feature_id points into. ASK: the definition's section 4 writes `glycosite`, which the core FeatureType enum does not have -- it has `glycopeptide`. Using the core enum rather than forking it, and asked as DATAREPO-20."}
       feature_id: {required: true, description: "Identifier of the feature in the table named by feature_type."}
       response: {range: AgeResponse, required: true, description: "What changes with age. Part of the key."}
@@ -145,7 +153,7 @@ classes:
       quant_basis: {range: QuantBasis, required: true, description: "Whether MBR-transferred peaks counted as present. Part of the key: both are computed and both are stored, so DEF-Q4 being open does not block the fit."}
       model_form: {range: ModelForm, required: true, description: "Linear, spline or breakpoint. Part of the key."}
       stratum: {required: true, description: "Which samples the fit ran over: `all`, `sex=female`, `sex=male` (D13), or `incl_censored` for the sensitivity fit that includes right-censored ages at face value (definition section 5). ASK: left as a string rather than an enum because the definition's own section 5 adds a value its section 2 table does not list, so the vocabulary is demonstrably open. DATAREPO-20 asks whether to close it."}
-      beta: {range: float, required: true, description: "The coefficient on `age_decades = (age_years - 50) / 10`: change PER DECADE in the units of the response's transform -- log2 fold change for abundance and isoform_ratio, logit change for the fractions. Required, because a row exists only when a fit succeeded."}
+      beta: {range: float, required: true, description: "The coefficient on `age_decades = (age_years - age_centre_years) / 10`: change PER DECADE of chronological age, within one organism, in the units of the response's transform -- log2 fold change for abundance and isoform_ratio, logit change for the fractions. Required, because a row exists only when a fit succeeded."}
       se: {range: float, required: true, description: "Standard error of `beta`. REQUIRED: the definition's section 4 says a beta without an se is not an age effect."}
       ci_low: {range: float, description: "Lower bound of the confidence interval on `beta`."}
       ci_high: {range: float, description: "Upper bound of the confidence interval on `beta`."}
@@ -165,7 +173,7 @@ classes:
       n_covering_psms_median: {range: float, description: "modified_fraction rows only. Median PSM depth covering the site across samples -- QuantProject's own recommended filter, and what separates a real occupancy change from a depth artifact."}
       intensity_is_floor_frac: {range: float, minimum_value: 0, maximum_value: 1, description: "modified_fraction + estimator=intensity only. Fraction of the observations that were DEF-OCC-INT-ZERO floors rather than measured values. A row where this is high is mostly censored data."}
       mbr_kept_frac: {range: float, minimum_value: 0, maximum_value: 1, description: "Fraction of the values that came from a match-between-runs transferred peak."}
-      definition_id: {range: Definition, required: true, description: "`aging:DEF-AGE-EFFECT v1`. A change to the model, the covariate rule, the transform or the section 5 thresholds is a new version, not an edit."}
+      definition_id: {range: Definition, required: true, description: "`aging:DEF-AGE-EFFECT v1.1` (v1.1 added `organism` and `age_centre_years`). A change to the model, the covariate rule, the transform or the section 5 thresholds is a new version, not an edit."}
 
   AgeEffectRefusal:
     description: >-
@@ -203,11 +211,18 @@ classes:
       tissues and instruments, and a fixed-effect model would assert one true effect. The
       stratification columns are refusals in disguise -- never pool across acquisition (DDA with
       DIA), across quant_method (label-free with TMT) or across tissue, because H6, I3 and D4 ask
-      whether those AGREE and a pooled estimate would destroy the question.
+      whether those AGREE and a pooled estimate would destroy the question -- and NEVER ACROSS
+      ORGANISM (`aging:DEF-AGE-EFFECT-META v1.2` section 6.4, our G40), the strongest member of that
+      family and the one first left unwritten because every dataset was human. It is a key column,
+      not a stated invariant, because an invariant cannot be checked: today a UniProt accession is
+      species-specific and happens to keep a human and a mouse effect apart, but an
+      orthology-resolved feature id (`logs`) spans species by construction, and the moment one
+      enters this table the accession stops being the guard.
       `n_datasets = 1` is a legitimate row carrying a null `i_squared`. It is not a meta-analysis; it
       is an honest statement that one dataset exists, which is the state of this repository for every
       tissue it holds.
     attributes:
+      organism: {range: uriorcurie, required: true, description: "NCBITaxon term. FIRST component of the key and a hard stratification (`aging:DEF-AGE-EFFECT-META v1.2` section 6.4): every contributing `age_effects` row carries this organism, and a pooled estimate over two organisms is not written. Pooling across species on purpose is a different, named operation that does not exist yet."}
       feature_type: {range: FeatureType, required: true, description: "Which kind of feature this row pools. ASK (DATAREPO-20): the definition's section 6 key omits feature_type, but without it `feature_id` cannot be interpreted -- and a dataset-scoped identifier such as a protein_group_id cannot be a cross-dataset key at all, so the cross-dataset identity of a feature is itself the question."}
       feature_id: {required: true, description: "Identifier of the feature, in whatever vocabulary is cross-dataset for its type. ASK (DATAREPO-20): see feature_type."}
       response: {range: AgeResponse, required: true, description: "What changes with age. Part of the key."}
@@ -229,7 +244,7 @@ classes:
       n_direction_agree: {range: integer, description: "Contributing datasets whose effect has the same sign as the pooled one. H6 and I3 want direction agreement rather than a pooled p-value."}
       n_direction_disagree: {range: integer, description: "Contributing datasets whose effect has the opposite sign."}
       leave_one_out_max_delta: {range: float, description: "The largest change in `beta_meta` from dropping any single dataset. C2 asks whether the age effect is driven by one dataset, and this answers it as a number rather than a judgement. Null when n_datasets = 1."}
-      definition_id: {range: Definition, required: true, description: "`aging:DEF-AGE-EFFECT-META v1`."}
+      definition_id: {range: Definition, required: true, description: "`aging:DEF-AGE-EFFECT-META v1.2` (v1.2 added `organism` to the key and the never-pool-across-organism rule)."}
 
   OrganelleAgeSummary:
     description: >-
@@ -278,8 +293,11 @@ classes:
   AgeMapping:
     description: >-
       Cross-species age to life stage (R4). NOT YET DEFINITION-BACKED and NOT STARTED: rodent is in
-      scope (D5) and has no age mapping, which `aging:DEF-AGE-EFFECT v1` section 10 lists as open and
-      aging's. dataRepo stores it as a versioned, definition-backed lookup and does not derive it.
+      scope (D5) and has no age mapping. aging's, confirmed in their 039 (their requirement R4 assigned
+      it to their stage 7 before rodents were in scope): an ANALYSIS CHOICE, not a fact about a
+      sample, which is why it is neither sdrf's to curate nor ours to derive. dataRepo stores it as a
+      versioned, definition-backed lookup. aging have said on the record that they will not publish a
+      single scalar conversion: a mapping carries its source and its disagreement, or it is a refusal.
     attributes:
       organism: {range: uriorcurie, required: true, description: "NCBITaxon term the mapping applies to."}
       age_from: {range: float, required: true, description: "Start of the age band (inclusive)."}

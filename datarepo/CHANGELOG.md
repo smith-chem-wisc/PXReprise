@@ -4,6 +4,29 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [0.14.0] - 2026-09-22
+
+**aging study layer 0.1.0 -> 0.2.0, `STUDY_INGESTER_VERSION` 0.2.0 -> 0.3.0.** Core schema
+(0.0.7) and `INGESTER_VERSION` (0.9.0) are unchanged, so **no search bundle re-ids and no
+re-ingest is owed**. Closes G40, on aging's rulings in their 039 and 040.
+
+### Added
+- **`age_effects.organism`** (NCBITaxon, required) and **`age_effects.age_centre_years`** (float,
+  required, no n/a). `organism` is denormalised from `dataset_id` on purpose: the pooling guard
+  has to be checkable without a join. `age_centre_years` replaces the literal 50 that sat in the
+  model formula as a human constant; it moves the intercept and spline/breakpoint knots, never
+  `beta`.
+- **`age_effect_meta.organism`**, required and the **first component of the key**
+  (`aging:DEF-AGE-EFFECT-META v1.2` section 6.4). A human and a mouse effect on one feature id are
+  two rows. Nothing stopped them pooling before.
+
+### Changed
+- `beta` is documented as **per decade of chronological age, within one organism**, on
+  `(age_years - age_centre_years) / 10`, never lifespan-normalised and never with a per-organism
+  denominator (aging 040 corrected their own 039, which had said per year).
+- `age_mappings` is documented as aging's (their R4): an analysis choice, not sample metadata.
+- Both tables hold 0 rows in every catalog, so this costs no migration.
+
 ## [0.13.0] - 2026-09-22
 
 **`INGESTER_VERSION` 0.8.0 -> 0.9.0, so every bundle re-ids and a re-ingest is owed.** No schema
