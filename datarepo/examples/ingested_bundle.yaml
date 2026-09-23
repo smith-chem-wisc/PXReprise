@@ -153,6 +153,8 @@ peptidoforms:
   - P68363
   - Q71U36
   is_unique: false
+  engine_full_sequences:
+  - AVFVDLEPTVIDEVR
 - peptidoform_id: PXD999999:C[UNIMOD:4]PETLFQPSFIGMESAGIHETTYNSIMK
   dataset_id: PXD999999
   peptidoform: C[UNIMOD:4]PETLFQPSFIGMESAGIHETTYNSIMK
@@ -165,6 +167,8 @@ peptidoforms:
   protein_accessions:
   - P68032
   is_unique: true
+  engine_full_sequences:
+  - C[Common Fixed:Carbamidomethyl on C]PETLFQPSFIGMESAGIHETTYNSIMK
 - peptidoform_id: PXD999999:DDEAAAVALSSLIHALDDLDMVAIVR
   dataset_id: PXD999999
   peptidoform: DDEAAAVALSSLIHALDDLDMVAIVR
@@ -177,6 +181,8 @@ peptidoforms:
   protein_accessions:
   - P13010
   is_unique: true
+  engine_full_sequences:
+  - DDEAAAVALSSLIHALDDLDMVAIVR
 - peptidoform_id: PXD999999:DDISVEALQEQLTSVVQEIGHLIDPIATAAR
   dataset_id: PXD999999
   peptidoform: DDISVEALQEQLTSVVQEIGHLIDPIATAAR
@@ -189,6 +195,8 @@ peptidoforms:
   protein_accessions:
   - Q9Y4G6
   is_unique: true
+  engine_full_sequences:
+  - DDISVEALQEQLTSVVQEIGHLIDPIATAAR
 - peptidoform_id: PXD999999:EAPADMGAHQGVAVLGIALIAMGEEIGAEMALR
   dataset_id: PXD999999
   peptidoform: EAPADMGAHQGVAVLGIALIAMGEEIGAEMALR
@@ -201,6 +209,8 @@ peptidoforms:
   protein_accessions:
   - Q13200
   is_unique: true
+  engine_full_sequences:
+  - EAPADMGAHQGVAVLGIALIAMGEEIGAEMALR
 protein_groups:
 - protein_group_id: PXD999999:P68363;Q71U36
   dataset_id: PXD999999

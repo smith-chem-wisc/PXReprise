@@ -4,6 +4,45 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [0.16.0] - 2026-09-23
+
+**Core schema 0.0.7 -> 0.0.8 and `INGESTER_VERSION` 0.10.0 -> 0.11.0, so every bundle re-ids and
+a re-ingest is owed.** It is timed to ride aging's own manifest correction (enrichment and fractions
+for seven datasets, aging 045 section 3), which moves the same ids once. Answers DATAREPO-33
+(aging 045), DATAREPO-34 (aging 046), DATAREPO-29/30 (go 004) and DATAREPO-P1/P2/P3 (ptmQtl 002).
+Closes G51.
+
+### Fixed
+- **A C-terminal modification was stored one past the protein's end, on residue `-`** (G51,
+  DATAREPO-33). MetaMorpheus writes it as `KPVADYFL-[mod]`; the ProForma parser appended the `-`
+  to the base sequence. It is now the terminus marker. The site is keyed on the peptide's last
+  residue at its own position, typed `protein_c_term` when that residue ends the searched protein
+  and `peptide_c_term` otherwise, as aging ruled. The ProForma string, and so the peptidoform id,
+  is unchanged. On PXD050351 the corpus's one such site becomes
+  `PXD050351:P60510:L307:Leucine methyl ester on L@protein_c_term`, and the site check passes.
+  A C-terminal site on a protein with no sequence is not typed; it is counted under
+  `c_term_no_sequence` in the `unplaced_ptm_sites` finding.
+
+### Added
+- **`Enrichment`: `immunoprecipitation`, `proximity_labelling`, `affinity_purification`,
+  `chemical_probe`** (DATAREPO-34). Seven of aging's first ten datasets are capture enrichments,
+  and `other` could not tell a lysosome TurboID from a kinobead. Values come from the manifest.
+- **`peptidoforms.engine_full_sequences`**: the producer's own notation, verbatim, as a set
+  (DATAREPO-P3). `peptidoform` is UNIMOD ProForma, which cannot say whether `S[UNIMOD:21]` was
+  `UniProt:Phosphoserine` or `Common Biological:Phosphorylation on S`; this column can.
+- **`organelle_term_categories`** (go's producer; empty until go's first file): a term's organelle
+  category, stored once per (compartment, `organelle_map_version`, `go_release`) instead of on
+  every protein row (DATAREPO-29/30).
+- **`trait_effects` and `ptm_pairs`** (ptmQtl's producer; shape only, nothing writes them yet): a
+  generic per-feature trait effect (two-part hurdle, `estimable_*` flags instead of NULL answers)
+  and a two-peptidoform relationship table. aging's `age_effects` is unchanged.
+- Natural keys for all three new tables, declared while they are empty.
+
+### Changed
+- **`protein_localizations` drops `organelle_label`** and gains `organelle_map_version` and
+  `go_release`, the key into `organelle_term_categories`. Its description now cites go's own
+  rulings, not the superseded REQ-GO-2..10. The MCP `search` joins the category in.
+
 ## [0.15.0] - 2026-09-22
 
 **`INGESTER_VERSION` 0.9.0 -> 0.10.0, so every bundle re-ids and a re-ingest is owed.** aging

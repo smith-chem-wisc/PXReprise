@@ -18,7 +18,7 @@
 id: https://w3id.org/datarepo/core
 name: datarepo
 title: dataRepo core schema
-version: 0.0.7
+version: 0.0.8
 license: https://creativecommons.org/licenses/by/4.0/
 description: >-
   Generic core schema for an AI-ready repository of reanalyzed public proteomics datasets:
@@ -79,15 +79,31 @@ enums:
       TMT:
       iTRAQ:
   Enrichment:
-    description: Enrichment before MS (aging 003 axis). A dataset can have several.
+    description: >-
+      Enrichment before MS (aging 003 axis). A dataset can have several. The PTM values describe
+      what was enriched; the four capture values (DATAREPO-34, aging 046) describe HOW proteins were
+      captured, which is what decides whether intensities can be read as whole-cell abundance.
+      An enrichment is not excluded from organelle questions -- a LAMP1-TurboID pulldown is a
+      lysosome proteome -- but it must never be pooled with, or read as, a whole proteome.
+      Where the bait sits (an organelle) is NOT an enrichment value.
     permissible_values:
       none:
+        description: Whole proteome; no enrichment step.
       phospho:
       acetyl:
       ubiquitin_GG:
       succinyl:
       glyco:
+      immunoprecipitation:
+        description: Antibody capture of a bait -- IP, co-IP, IP-MS, including IgG control IPs.
+      proximity_labelling:
+        description: BioID, TurboID, APEX2 and similar, followed by streptavidin capture.
+      affinity_purification:
+        description: Tagged-bait or matrix capture without an antibody -- GFP-trap, FLAG, pulldowns.
+      chemical_probe:
+        description: Kinobeads and other small-molecule affinity matrices.
       other:
+        description: An enrichment none of the above names; the manifest's note says which.
   SdrfStatus:
     description: How far the dataset's SDRF could be trusted (P4).
     permissible_values:
@@ -138,14 +154,20 @@ enums:
           the proteome as peptide_n_term. dataRepo derives this from the producer's own
           `previous_residue` and peptide description rather than from the position alone.
       protein_c_term:
-        description: The protein's own C-terminus.
+        description: >-
+          The protein's own C-terminus: the peptide's last residue is the protein's last residue
+          in the searched sequence. Keyed on that residue at its own position, never on protein
+          length + 1 (aging 045 section 2, DATAREPO-33).
       peptide_n_term:
         description: >-
           The N-terminus of this peptide, which is an internal position in the protein -- a
           cleavage artefact position, not a protein terminus. Ammonia loss on a peptide's first
           residue is the common case.
       peptide_c_term:
-        description: The C-terminus of this peptide, internal to the protein.
+        description: >-
+          The C-terminus of this peptide, internal to the protein. Typed against the searched
+          sequence; a C-terminal modification on a protein with no sequence is not written and is
+          counted in the dataset's `unplaced_ptm_sites` finding instead.
   TargetDecoy:
     description: "Target/decoy/contaminant status of a match."
     permissible_values:
@@ -169,6 +191,24 @@ enums:
       glycopeptide:
       proteoform:
       protein:
+  PairResultType:
+    description: "What kind of relationship a ptm_pairs row reports (ptmQtl 002 section 5)."
+    permissible_values:
+      P:
+        description: Physical co-occurrence -- both modifications on the same peptidoform.
+      C:
+        description: Both co-vary with the trait.
+      A:
+        description: Residual correlation after the trait is accounted for.
+      B:
+        description: Stratified or differential -- the relationship differs between strata. The only type with a stratum.
+  PairFlag:
+    description: "Structural facts about a pair that change how it may be read."
+    permissible_values:
+      overlapping:
+        description: The two peptidoforms overlap in sequence or site. Excluded from A and B, where the unmodified form would anti-correlate with its own modified form by construction.
+      same_residue_exclusive:
+        description: The two modifications compete for one residue, e.g. O-GlcNAc versus phospho.
   GlycanType:
     description: "Glycan linkage class."
     permissible_values:
@@ -376,6 +416,7 @@ classes:
       protein_accessions: {range: Protein, multivalued: true, description: "All protein accessions the peptide maps to."}
       is_unique: {range: boolean, description: "Maps to exactly one protein (R11, mzLib REQ-MZLIB-1)."}
       is_isoform_specific: {range: boolean, description: "Distinguishes one isoform (O-section questions)."}
+      engine_full_sequences: {multivalued: true, description: "The producer's own notation for this peptidoform, VERBATIM (MetaMorpheus `Full Sequence`, engine modification names such as `[Common Biological:Phosphorylation on T]`). A set, not a pick: when two engine names resolve to one UNIMOD accession, one `peptidoform` comes from two producer strings, and both are listed. `peptidoform` is the UNIMOD-resolved ProForma key; this is the engine-name form, and it is the only place a modification with no UNIMOD accession keeps its name rather than a mass tag (ptmQtl 002, DATAREPO-P3). Not ProForma: engine names are not a ProForma controlled vocabulary."}
 
   ProteinGroup:
     description: One protein group in one dataset.
@@ -498,12 +539,37 @@ classes:
       doi: {range: uriorcurie, description: "DOI, if one has been minted."}
 
   ProteinLocalization:
-    description: Protein → compartment, as supplied by `go` (REQ-GO-2..10). Never computed here.
+    description: >-
+      Protein -> GO-CC term, as supplied by `go`. Never computed here. One row per (accession, term)
+      for the accessions that carry the term themselves -- go expands its (group, term) row over
+      `accession_used`, never over every group member (go D22) -- so a member that does not carry a
+      term gets no row. The organelle CATEGORY is not on this row: it is a property of the term, not
+      the protein, and lives once in `organelle_term_categories`, joined on (compartment,
+      organelle_map_version, go_release) (go 004, DATAREPO-29/30). There is no leading-protein
+      column and never will be: MetaMorpheus computes none, and member order is alphabetical
+      (go D25). Contract: go's own rulings (D1-D26), not the superseded REQ-GO-2..10.
     attributes:
       protein_accession: {range: Protein, required: true, description: "UniProt (or custom-database) accession, isoform suffix kept."}
-      compartment: {range: uriorcurie, required: true, description: "GO-CC term."}
-      organelle_label: {required: true, description: "Readable organelle name from the owner's map."}
+      compartment: {range: uriorcurie, required: true, description: "GO-CC term the protein's own entry carries, directly or by propagation (go's `go_id`). Named `compartment` as in `organelle_age_summaries`, and because published queries join on it."}
+      organelle_map_version: {required: true, description: "go's organelle map version, from the file header (go D9). Half of the key into organelle_term_categories."}
+      go_release: {required: true, description: "GO ontology release, from the file header (go D9). The other half: an ancestor edge moving between releases moves a term's category with the map unchanged (go 004 section 3)."}
       evidence: {description: "Evidence code or note from the source."}
+      source_id: {range: AnnotationSource, required: true, description: "Annotation source (owner + version) this row comes from."}
+
+  OrganelleTermCategory:
+    description: >-
+      Which organelle category a GO-CC term falls in, under one organelle map and one ontology
+      release. One row per (term, category, subcategory): a term in two categories is two rows, and
+      nothing is ever a list paired by position. Stored once per term instead of repeated on every
+      protein row, so two rows cannot disagree (DATAREPO-29). At ingest every row of go's file is
+      checked against this table built from the same header versions, and a file whose rows
+      disagree is refused (go 004 section 3). Producer: go.
+    attributes:
+      compartment: {range: uriorcurie, required: true, description: "GO-CC term (go's `go_id`)."}
+      organelle_map_version: {required: true, description: "go's organelle map version."}
+      go_release: {required: true, description: "GO ontology release. The category is a function of the PAIR (go 004, DATAREPO-30)."}
+      organelle_category: {required: true, description: "go's organelle category for this term, e.g. `mitochondrion`."}
+      organelle_subcategory: {description: "Qualified subcategory with its prefix kept, e.g. `mitochondrion:inner_membrane`. NULL when the category has none."}
       source_id: {range: AnnotationSource, required: true, description: "Annotation source (owner + version) this row comes from."}
 
   ProteinAnnotation:
@@ -611,6 +677,71 @@ classes:
       message: {required: true, description: "Plain-language explanation for people and agents."}
       source: {required: true, description: "provenance flags, SUSPICIOUS.md S<n>, …"}
 
+  # ---- relationship results (producer: ptmQtl; generic, never named after one trait) ---------
+  TraitEffect:
+    description: >-
+      How one feature changes with one consumer-defined trait, in one scope. Generic: the trait is
+      a `trait_id` the consuming project defines (for aging, `aging:DEF-AGE-EFFECT ...`), and this
+      table knows nothing about any trait. Producer: ptmQtl, through mzLib (ptmQtl D1-D10). For
+      v1 the model is a two-part hurdle per peptidoform, fitted over runs where its protein group
+      is quantified: a detection part and an intensity part, each reported, plus a combined p.
+      A part with too little support is `estimable_* = false` with NULL estimates -- the flag, not
+      the NULL, is the answer, so "not estimable" never reads as "no effect". aging's
+      `age_effects` is a different table from a different producer (aging's own protein-level
+      fits) and is unchanged. SHAPE ONLY: nothing writes this table until the mzLib engine exists.
+    attributes:
+      feature_type: {range: FeatureType, required: true, description: "What the feature is: `peptidoform` in v1; `glycopeptide` and `ptm_site` (ptmQtl's occupancy_site) later."}
+      feature_key: {required: true, description: "Cross-dataset feature key: the peptidoform's ProForma with the engine's modification names (ptmQtl D6). Keeps modifications with no UNIMOD accession distinct."}
+      feature_key_unimod: {description: "The same feature as UNIMOD-resolved ProForma, i.e. `peptidoforms.peptidoform`, which is the join into this repository. NULL only if the producer could not resolve it."}
+      protein_accessions: {range: Protein, multivalued: true, required: true, description: "EVERY accession of the feature's protein group, never the first: MetaMorpheus member order is alphabetical, not a choice (go D25)."}
+      trait_id: {required: true, description: "Consumer-defined trait with version, e.g. `aging:DEF-AGE-EFFECT v1.2`."}
+      response: {required: true, description: "What was regressed: `pf_beyond_protein` (peptidoform intensity with protein-group intensity as covariate), `modified_fraction`, `abundance`."}
+      scope: {required: true, description: "A dataset accession for a within-dataset fit, or `meta` for the cross-dataset one."}
+      beta_detect: {range: float, description: "Trait coefficient of the detection (logistic) part. NULL exactly when estimable_detect is false."}
+      se_detect: {range: float, description: "Standard error of beta_detect."}
+      p_detect: {range: float, minimum_value: 0, maximum_value: 1, description: "p-value of beta_detect."}
+      beta_int: {range: float, description: "Trait coefficient of the intensity part, over runs where the feature was detected. NULL exactly when estimable_int is false."}
+      se_int: {range: float, description: "Standard error of beta_int."}
+      p_int: {range: float, minimum_value: 0, maximum_value: 1, description: "p-value of beta_int."}
+      p_combined: {range: float, minimum_value: 0, maximum_value: 1, description: "Combined p over the estimable parts."}
+      q: {range: float, minimum_value: 0, maximum_value: 1, description: "Multiple-testing q-value within fdr_family."}
+      fdr_family: {required: true, description: "The family q was computed within, e.g. `pf_beyond_protein.biological`. Families are split by modification class so artefact sites do not spend the biological budget."}
+      n_detected: {range: integer, required: true, description: "Runs where the feature was detected."}
+      n_absent_protein_present: {range: integer, required: true, description: "Runs where its protein group was quantified and the feature was absent -- informative for the detection part."}
+      n_protein_present: {range: integer, required: true, description: "Runs where its protein group was quantified; runs without it are dropped for this feature."}
+      estimable_detect: {range: boolean, required: true, description: "Detection part had minimum support (>=3 detected, >=3 absent with protein present)."}
+      estimable_int: {range: boolean, required: true, description: "Intensity part had minimum support."}
+      mbr_dependent: {range: boolean, required: true, description: "The result does not survive an MS/MS-only refit."}
+      mod_class: {required: true, description: "Modification class used for the FDR family: default from mzLib `ModificationType` (biological, artefact, ...), overridable per context. A column, never a filter."}
+      ambiguity_level: {description: "MetaMorpheus ambiguity level of the evidence, e.g. `1`."}
+      definition_id: {range: Definition, required: true, description: "Model definition, e.g. `ptmQtl:DEF-PTM-TRAIT-HURDLE v0`."}
+
+  PtmPair:
+    description: >-
+      A relationship between two PTM-carrying peptidoforms. Each side is a feature key and its
+      protein group as real columns, never a joined string. Producer: ptmQtl, through mzLib.
+      SHAPE ONLY: nothing writes this table until the mzLib engine exists.
+    attributes:
+      result_type: {range: PairResultType, required: true, description: "P, C, A or B."}
+      scope: {required: true, description: "A dataset accession, or `meta`."}
+      feature_key_a: {required: true, description: "Side A: ProForma with engine names (as TraitEffect.feature_key)."}
+      protein_accessions_a: {range: Protein, multivalued: true, required: true, description: "Every accession of side A's protein group."}
+      feature_key_b: {required: true, description: "Side B: ProForma with engine names."}
+      protein_accessions_b: {range: Protein, multivalued: true, required: true, description: "Every accession of side B's protein group."}
+      same_protein: {range: boolean, required: true, description: "The two sides share a protein group."}
+      flags: {range: PairFlag, multivalued: true, description: "Structural flags. Empty means none apply."}
+      class_pair: {required: true, description: "Modification classes of the two sides, e.g. `biological x biological`."}
+      trait_id: {description: "Consumer-defined trait. NULL for types that do not involve one."}
+      stratum: {description: "The stratum; set only for result_type B, binned by the consumer."}
+      sign: {description: "`+` or `-`, where the statistic has a direction."}
+      statistic: {required: true, description: "What value is, e.g. `spearman_rho`, `obs_over_expected`."}
+      value: {range: float, required: true, description: "The statistic's value."}
+      n: {range: integer, required: true, description: "Observations behind the statistic."}
+      p: {range: float, minimum_value: 0, maximum_value: 1, description: "p-value."}
+      q: {range: float, minimum_value: 0, maximum_value: 1, description: "q-value within fdr_family."}
+      fdr_family: {description: "Family q was computed within, e.g. `A.inter_protein.biological x biological`."}
+      definition_id: {range: Definition, required: true, description: "e.g. `ptmQtl:DEF-PTM-PAIR v0`."}
+
   # ---- container (validation only) ----------------------------------------------------------
   Bundle:
     tree_root: true
@@ -635,11 +766,14 @@ classes:
       quant_values: {range: QuantValue, multivalued: true, inlined_as_list: true, description: "Rows of the quant_values table."}
       annotation_sources: {range: AnnotationSource, multivalued: true, inlined_as_list: true, description: "Rows of the annotation_sources table."}
       protein_localizations: {range: ProteinLocalization, multivalued: true, inlined_as_list: true, description: "Rows of the protein_localizations table."}
+      organelle_term_categories: {range: OrganelleTermCategory, multivalued: true, inlined_as_list: true, description: "Rows of the organelle_term_categories table."}
       protein_annotations: {range: ProteinAnnotation, multivalued: true, inlined_as_list: true, description: "Rows of the protein_annotations table."}
       feature_sets: {range: FeatureSet, multivalued: true, inlined_as_list: true, description: "Rows of the feature_sets table."}
       feature_set_members: {range: FeatureSetMember, multivalued: true, inlined_as_list: true, description: "Rows of the feature_set_members table."}
       definitions: {range: Definition, multivalued: true, inlined_as_list: true, description: "Rows of the definitions table."}
       provenance_records: {range: ProvenanceRecord, multivalued: true, inlined_as_list: true, description: "Rows of the provenance_records table."}
       findings: {range: Finding, multivalued: true, inlined_as_list: true, description: "Rows of the findings table."}
+      trait_effects: {range: TraitEffect, multivalued: true, inlined_as_list: true, description: "Rows of the trait_effects table."}
+      ptm_pairs: {range: PtmPair, multivalued: true, inlined_as_list: true, description: "Rows of the ptm_pairs table."}
       metrics: {range: Metric, multivalued: true, inlined_as_list: true, description: "Rows of the metrics table."}
       search_modifications_declared: {range: SearchModification, multivalued: true, inlined_as_list: true, description: "Rows of the search_modifications_declared table."}

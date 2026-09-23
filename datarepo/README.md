@@ -10,7 +10,7 @@ in how many datasets, and show me the spectra"*. People can use it too, but agen
 [![CI](https://github.com/trishorts/dataRepo/actions/workflows/ci.yml/badge.svg)](https://github.com/trishorts/dataRepo/actions/workflows/ci.yml)
 [![Code: MIT](https://img.shields.io/badge/code-MIT-blue.svg)](LICENSE)
 
-> **Status: v0, pre-release** — `datarepo` 0.13.0, schema 0.0.7.
+> **Status: v0, pre-release** — `datarepo` 0.16.0, schema 0.0.8.
 > **Working and exercised against a real 9-dataset corpus:** `ingest`, `study`, `build`, `query` and a
 > local `mcp` server. **Not built yet:** the static site, REST, and deployment (roadmap steps 4–6).
 > The schema is validated but **not locked**, so expect breaking changes — bundles and catalogs are
