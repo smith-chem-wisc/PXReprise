@@ -10,9 +10,10 @@ in how many datasets, and show me the spectra"*. People can use it too, but agen
 [![CI](https://github.com/trishorts/dataRepo/actions/workflows/ci.yml/badge.svg)](https://github.com/trishorts/dataRepo/actions/workflows/ci.yml)
 [![Code: MIT](https://img.shields.io/badge/code-MIT-blue.svg)](LICENSE)
 
-> **Status: v0, pre-release** — `datarepo` 0.16.0, schema 0.0.8.
+> **Status: v0, pre-release** — `datarepo` 0.17.0, schema 0.0.8.
 > **Working and exercised against a real 9-dataset corpus:** `ingest`, `study`, `build`, `query` and a
-> local `mcp` server. **Not built yet:** the static site, REST, and deployment (roadmap steps 4–6).
+> local `mcp` server, and the `site` generator for the static public site. **Not built yet:** REST
+> and deployment (roadmap steps 4b–6).
 > The schema is validated but **not locked**, so expect breaking changes — bundles and catalogs are
 > content-addressed, so a change re-identifies them rather than silently altering one you cited.
 > Start with [the docs index](docs/README.md), the [query cookbook](docs/querying.md), and
@@ -195,7 +196,8 @@ The agent tools will be scored against the same set, following the pattern used 
 | 1b | `datarepo study` → study bundle for a layer's model results | **Done:** DATAREPO-20(a)'s default, loaded by `build --study` ([docs](docs/study.md)) |
 | 2 | `datarepo build` → DuckDB catalog | **Done:** materialised tables, acceptance views, cross-dataset indexes ([docs](docs/build.md)) |
 | 3 | Local MCP server (stdio) | **Done:** three tools, every answer carrying its `catalog_id`, a measured sandbox ([docs](docs/mcp.md)) |
-| 4 | Static site (Bioschemas, `llms.txt`, Croissant) | Next. REST and Compose deferred pending N1/G9 and evidence of a human who wants REST (D16) |
+| 4a | Static site (Bioschemas, `llms.txt`, Croissant) | **Built:** `datarepo site`, template summaries (D17), publishing is the instance owner's ([docs](docs/site.md)) |
+| 4b | REST API + Docker Compose | Deferred pending N1/G9 and evidence of a human who wants REST (D16) |
 | 5 | Production deployment by the instance owner; v0.1 release with DOI | |
 | 6 | Automatic ingest as the pipeline finishes each dataset | |
 

@@ -28,6 +28,10 @@ proposed.
 → [**schema/core.md**](schema/core.md) — every table, column, type and vocabulary. Generated from
 `schema/datarepo.yaml`; do not edit by hand.
 
+**"I want to publish the public website."**
+→ [**site.md**](site.md) — `datarepo site` writes static pages, `llms.txt` and Croissant from one
+catalog, with no server.
+
 **"I need to run it."**
 → [**build.md**](build.md) — turning bundles into one DuckDB catalog, choosing bundles, and what a
 failed check means.
