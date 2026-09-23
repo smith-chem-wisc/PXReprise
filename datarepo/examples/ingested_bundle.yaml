@@ -311,7 +311,7 @@ provenance_records:
   peak_rss_gib: 1.0
   resources_json: '{"peak_rss_gib": 1.0, "wall_s": 60.0}'
   original_path: sources/provenance_04_search.json
-  original_sha256: 267bc6ad448214fdb30a47fcfded85488c2011b20016e2b9eb0a8900c98b334b
+  original_sha256: 8f104f6e95b43218d02220926b7649591e72a901e0f6ef61dff914cf47d845c5
 - dataset_id: PXD999999
   stage: qc_spectra
   provenance_schema: aging-provenance/2
@@ -326,7 +326,7 @@ provenance_records:
   peak_rss_gib: 1.0
   resources_json: '{"peak_rss_gib": 1.0, "wall_s": 60.0}'
   original_path: sources/provenance_02b_qc.json
-  original_sha256: acfecace2075156e7755cecc2ad018443faeec61e0f82a85fe2292bfdadfb9a0
+  original_sha256: fe88ca90a4dc6060b48366ce8e1427029aac8ea04086c72c7dd13930563f2466
 - dataset_id: PXD999999
   stage: fetch
   provenance_schema: aging-provenance/2
@@ -341,7 +341,7 @@ provenance_records:
   peak_rss_gib: 1.0
   resources_json: '{"peak_rss_gib": 1.0, "wall_s": 60.0}'
   original_path: sources/provenance_02_fetch.json
-  original_sha256: 35b4abbec05ac0a35834ab1feecce79a0f6b21811f3652ca2b0467feaec05926
+  original_sha256: 4c3bfcdff1b44fbc9afd72a4242eb3421903c8b0558ab08a119b03820a8e6e73
 psms:
 - psm_id: PXD999999:QE-002107_GM1_b:44174:1
   run_id: PXD999999:QE-002107_GM1_b
