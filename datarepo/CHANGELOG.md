@@ -7,9 +7,10 @@ each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.19.0] - 2026-09-24
 
 **`INGESTER_VERSION` 0.12.0 -> 0.13.0, so every bundle re-ids. Schema (0.0.9) and `CATALOG_VERSION`
-(5) are unchanged, so 0.18 and 0.19 bundles can share a catalog.** Released before aging moved to
-0.18.0, so they re-ingest once, on this. Two ingest defects, both found while measuring something
-else. Closes G66.
+(5) are unchanged, so 0.18 and 0.19 bundles can share a catalog**, and a producer can move one
+dataset at a time. aging had already re-ingested all 24 datasets on 0.18.1 when this was released
+(their 061), so this is a second re-ingest for them. Two ingest defects, both found while measuring
+something else. Closes G66.
 
 ### Fixed
 - **A protein's contaminant flag came from the PSM row it shared, not from the protein** (G66).
