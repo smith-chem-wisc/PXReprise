@@ -57,6 +57,14 @@ value for a whole deposit, and an age is a property of a donor, not a deposit. I
 corpus, whose ceiling is **153 accessions of 1,203 (12.7%)** — and the one dataset here that *has* an
 SDRF is not in that corpus.
 
+**PRIDE's own metadata will not fill it either** (pride thread 002, measured 2026-09-23 on PRIDE
+Archive v3). No PRIDE route is per sample; `sampleAttributes` only repeats the project's own lists;
+and age appears only as free text, mostly "age-matched", with a number in 4 of 500 projects and even
+then per group, not per donor. The only per-sample source PRIDE serves is a deposited SDRF with a
+real `characteristics[age]` column. On this corpus, every deposited SDRF is a PRIDE
+community-annotated file, and mzLib's informativeness gate rates the ten of them 1 informative,
+8 partial and 1 skeleton; none varies with age.
+
 **Consequences.** Any question stratified by age, sex, tissue, disease or donor is unanswerable.
 Of the producer's 168 benchmark questions, **46 require an age effect** and 42 are blocked by
 nothing else. Do not present an empty result to such a question as "no effect found".
