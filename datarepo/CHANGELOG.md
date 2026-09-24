@@ -12,11 +12,12 @@ bundles.** Three changes that each needed a bump, released together so the corpu
 Answers DATAREPO-39 (aging) and DATAREPO-44 (aging 058); closes G63's manifest path and G15; makes
 the three schema fixes promised to go (009 section 4).
 
-Measured before release on all 23 datasets aging serves, re-ingested to a scratch store and
+Measured before release on all 24 datasets aging serves, re-ingested to a scratch store and
 compared with their 0.11.0 bundles: every table other than `quant_values` has the same row count;
-every non-zero quantity is unchanged in number and now carries QuantProject's id; 1,146,906 zero
+every non-zero quantity is unchanged in number and now carries QuantProject's id (checked on 23 of
+them against their 0.11.0 bundles); 1,295,912 zero
 spectral counts are new rows (below); PXD058611's runs 178-198 read `chemical_probe` and 199-213
-`none`, exactly aging's assignment. The scratch catalog builds and passes all 384 checks.
+`none`, exactly aging's assignment. The scratch catalog builds and passes all 399 checks.
 
 ### Fixed
 - **The `quant_values` description said "never 0"**, which after the fix below would have led a
@@ -27,8 +28,8 @@ spectral counts are new rows (below); PXD058611's runs 178-198 read `chemical_pr
   through the intensity rule, where 0 means "not measured" and becomes no row. QuantProject's
   `DEF-PROT-SPC` says the opposite for a count: *"0 is a real zero here: no qualifying PSM in that
   sample group. Unlike an intensity cell, it is a measurement."* Found by filling in their
-  definition text. On the corpus this adds **1,146,906** rows with value 0 (70% of spectral-count
-  cells). **A query that counts spectral-count rows as detections now counts every run**; test
+  definition text. On the 24-dataset corpus this adds **1,295,912** rows with value 0 (70% of
+  spectral-count cells). **A query that counts spectral-count rows as detections now counts every run**; test
   `value > 0` instead. Intensities are unchanged: a 0 or blank intensity is still no row.
 
 ### Added
