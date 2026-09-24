@@ -80,12 +80,12 @@
   {
    "stage": "qc_spectra",
    "path": "run_test/PXD999999/02b_qc/provenance.json",
-   "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   "sha256": "fe88ca90a4dc6060b48366ce8e1427029aac8ea04086c72c7dd13930563f2466"
   },
   {
    "stage": "fetch",
    "path": "run_test/PXD999999/02_fetch/provenance.json",
-   "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+   "sha256": "4c3bfcdff1b44fbc9afd72a4242eb3421903c8b0558ab08a119b03820a8e6e73"
   }
  ]
 }

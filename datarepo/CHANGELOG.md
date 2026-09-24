@@ -4,6 +4,45 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [0.19.0] - 2026-09-24
+
+**`INGESTER_VERSION` 0.12.0 -> 0.13.0, so every bundle re-ids. Schema (0.0.9) and `CATALOG_VERSION`
+(5) are unchanged, so 0.18 and 0.19 bundles can share a catalog.** Released before aging moved to
+0.18.0, so they re-ingest once, on this. Two ingest defects, both found while measuring something
+else. Closes G66.
+
+### Fixed
+- **A protein's contaminant flag came from the PSM row it shared, not from the protein** (G66).
+  MetaMorpheus writes `Decoy/Contaminant/Target` once per peptide-protein match, not de-duplicated,
+  and `Accession` de-duplicated (`PsmTsvWriter.cs:229, 258` at `6e152da70`), so the two cannot be
+  zipped: the third `|`-joined column in the file to break that way. We gave every accession on a
+  row the row's worst letter. A human albumin sharing a peptide with bovine albumin was therefore a
+  contaminant, while MetaMorpheus, whose default `TCAmbiguity = RemoveContaminant` drops the
+  contaminant copy of any accession also in the target database, called its group `T`. Now:
+  - a one-letter cell holds for every accession on the row, because MetaMorpheus collapses it only
+    when every match agrees;
+  - a mixed cell is decided per accession, from the searched database it was read from (MetaMorpheus's
+    own rule: a path containing "contaminant" or "CRAP") and, for an accession in both, the search's
+    `TCAmbiguity`;
+  - anything still undecided keeps the old rule, under a `contaminant_label_unresolved` finding.
+
+  On the 24-dataset corpus, 494 protein rows move from contaminant to target (278 human, 127 mouse,
+  89 rat) and 67 the other way, with none undecided. The `proteins` flag now agrees with
+  MetaMorpheus's own single-protein group label in every case: 64,115 target and 897 contaminant.
+  Before, it disagreed 76 times.
+- **An upstream provenance file overwritten after the search was read as the search's own.** A
+  search records each upstream stage's `provenance.json` with its sha256, and the ingester never
+  checked it. aging's `db/provenance.json` is one shared file that every database preparation
+  overwrites:
+  - in 33 of the 38 searches on their disk, it was no longer the file the search recorded;
+  - a mouse dataset's bundle carried the record of a human isoform database prepared days after its
+    search;
+  - re-ingesting unchanged search output moved the bundle id.
+
+  Now a mismatched file is left out, and an `upstream_provenance_changed` finding names both
+  sha256s. **All 24 datasets aging serves are affected**: each loses its `db_prepare` record (96 to 72
+  provenance records) and gains the finding. Nothing else moved, and the catalog passes 399 checks. The test fixture's placeholder upstream sha256s are now the files' real ones.
+
 ## [0.18.1] - 2026-09-24
 
 **No bundle or catalog id moves**: `INGESTER_VERSION` (0.12.0), schema (0.0.9) and `CATALOG_VERSION`

@@ -312,7 +312,7 @@ provenance_records:
   peak_rss_gib: 1.0
   resources_json: '{"peak_rss_gib": 1.0, "wall_s": 60.0}'
   original_path: sources/provenance_04_search.json
-  original_sha256: 8f104f6e95b43218d02220926b7649591e72a901e0f6ef61dff914cf47d845c5
+  original_sha256: 72f0043adcbfa3ca61c210f337c054384ee45d3aca21d68f913a869eeb8f099b
 - dataset_id: PXD999999
   stage: qc_spectra
   provenance_schema: aging-provenance/2
