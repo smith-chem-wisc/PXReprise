@@ -4,6 +4,35 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [0.18.1] - 2026-09-24
+
+**No bundle or catalog id moves**: `INGESTER_VERSION` (0.12.0), schema (0.0.9) and `CATALOG_VERSION`
+(5) are unchanged, because nothing calls the new reader from `ingest` yet.
+
+### Added
+- **`datarepo.sources.go`: the reader for go's two output files** (G53, go 010). It reads an
+  annotation file and a category file and refuses either one when it fails a check:
+  - it was written by an unreleased mzLib (`#!mzlib_release none`; the refusal names the commit);
+  - its five header counters do not recount from the rows at `counter_q_value_max` (go D26, D29);
+  - a row disagrees with the header's release or sha256s;
+  - a term sits on a group not marked `annotated` (D19), or `n_with` is not the size of
+    `accession_used` (D22);
+  - an accession sits in two groups;
+  - a category file is not the pair of its annotation file: a different release, or a term the
+    annotation lacks (coverage, go 009 section 4).
+
+  It emits `protein_localizations` rows (cellular_component only, over `accession_used`),
+  `organelle_term_categories` rows and an `annotation_sources` row, and it counts every row it does
+  not store.
+- **Tested on go's pre-release files.** Both are refused by default. With the pre-release allowed:
+  - both pass every check;
+  - PXD036557 gives 24,997 localization rows over 781 accessions and 230 category rows;
+  - 64,228 biological-process and molecular-function rows are counted as not stored.
+
+  go's six-row fixture is in `tests/data/go`.
+- **Not built:** where go's output is stored. That waits on the runner (G64), together with go's
+  per-row evidence columns, which need a schema change.
+
 ## [0.18.0] - 2026-09-24
 
 **Core schema 0.0.8 -> 0.0.9, `INGESTER_VERSION` 0.11.0 -> 0.12.0 and `CATALOG_VERSION` 4 -> 5, so

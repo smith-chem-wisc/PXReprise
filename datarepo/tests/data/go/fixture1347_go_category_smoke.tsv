@@ -1,0 +1,24 @@
+#!go_category_format 1
+#!mzlib_version 1.0.0+282b480ddc96b632c5d52c510a638928aab4fca6
+#!mzlib_release none
+#!go_release releases/2026-07-26
+#!go_obo_sha256 d3593751d885ca160b2ab7baf6c7eccd88ca3c4599f79436c674bad661095ff0
+#!category_map smoke 1 1d7b437983efd665c8b3611ee2d3ce9f9e5f487e4cf50994f2ecb90f39a3b2d1
+go_id	category	subcategory
+GO:0005576	extracellular	
+GO:0005634	nucleus	
+GO:0005654	nucleus	
+GO:0005739	mitochondrion	
+GO:0005740	mitochondrion	
+GO:0005743	mitochondrion	mitochondrion:inner_membrane
+GO:0005757	mitochondrion	
+GO:0005759	mitochondrion	
+GO:0031966	mitochondrion	
+GO:0031981	nucleus	
+GO:0042645	mitochondrion	
+GO:0043230	extracellular	
+GO:0065010	extracellular	
+GO:0070062	extracellular	
+GO:0072562	extracellular	
+GO:0098798	mitochondrion	
+GO:1903561	extracellular	
