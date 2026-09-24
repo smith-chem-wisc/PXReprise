@@ -4,6 +4,68 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [0.18.0] - 2026-09-24
+
+**Core schema 0.0.8 -> 0.0.9, `INGESTER_VERSION` 0.11.0 -> 0.12.0 and `CATALOG_VERSION` 4 -> 5, so
+every bundle re-ids and a re-ingest is owed; `build` refuses a catalog that mixes 0.0.8 and 0.0.9
+bundles.** Three changes that each needed a bump, released together so the corpus re-ingests once.
+Answers DATAREPO-39 (aging) and DATAREPO-44 (aging 058); closes G63's manifest path and G15; makes
+the three schema fixes promised to go (009 section 4).
+
+Measured before release on all 23 datasets aging serves, re-ingested to a scratch store and
+compared with their 0.11.0 bundles: every table other than `quant_values` has the same row count;
+every non-zero quantity is unchanged in number and now carries QuantProject's id; 1,146,906 zero
+spectral counts are new rows (below); PXD058611's runs 178-198 read `chemical_probe` and 199-213
+`none`, exactly aging's assignment. The scratch catalog builds and passes all 384 checks.
+
+### Fixed
+- **The `quant_values` description said "never 0"**, which after the fix below would have led a
+  reader to count every spectral-count row as a detection (an agent did: 18 of 18 runs instead of
+  15 and 3). It now says a stored 0 is a measured zero, appears only for a count, and that
+  detections are counted with `value > 0`.
+- **A spectral count of 0 was stored as missing.** Both columns of a protein-group block went
+  through the intensity rule, where 0 means "not measured" and becomes no row. QuantProject's
+  `DEF-PROT-SPC` says the opposite for a count: *"0 is a real zero here: no qualifying PSM in that
+  sample group. Unlike an intensity cell, it is a measurement."* Found by filling in their
+  definition text. On the corpus this adds **1,146,906** rows with value 0 (70% of spectral-count
+  cells). **A query that counts spectral-count rows as detections now counts every run**; test
+  `value > 0` instead. Intensities are unchanged: a 0 or blank intensity is still no row.
+
+### Added
+- **Enrichment per run** (G63, aging DATAREPO-39/DATAREPO-44). `runs.enrichment` and
+  `runs.enrichment_source`, and `datasets.enrichment_mixed` (also in `dataset_overview`).
+  `datasets.enrichment` stays the producer's declaration. A dataset not flagged `mixed_enrichment`
+  gives every run its declaration; a mixed one gives NULL unless the manifest's new
+  `run_enrichment` names every run. The map is refused if it leaves a run out, names a non-run or a
+  run twice, uses a value outside the vocabulary, assigns an undeclared value, or contradicts the
+  flag. `run_enrichment` and the `mixed_enrichment` flag are manifest content fields; no other flag
+  is. See `docs/ingest.md`. **Not built:** reading `comment[enrichment process]` from an SDRF, which
+  would take precedence over the manifest; it waits for a real SDRF that carries it.
+- **A `mixed_enrichment` finding** on every dataset whose runs differ, stating the split (PXD058611:
+  21 runs `[chemical_probe]`, 15 `[none]`). A filter on `datasets.enrichment` alone gets a mixed
+  deposit wrong both ways, and a finding reaches every answer that cites the dataset (D19); the
+  column alone was found to be the only clue by an agent given the tools and not the source.
+- **An `sdrf_uncoded` finding replaces `sdrf_skeleton` where the SDRF has text but no ontology
+  term.** `sdrf_skeleton` said organism part, cell type, disease and individual were "all absent"
+  for PXD010115 and PXD034432, whose SDRFs say `Blood serum` and `Urine` without a UBERON term. The
+  new finding names the text values and says where they are (`sample_characteristics`).
+- The site says when a dataset's runs differ in enrichment, in the summary, the facts and the index.
+
+### Changed
+- **The three quant values carry QuantProject's definitions** (G15, QuantProject 003 section 1):
+  `QuantProject:DEF-PEP-INT`, `QuantProject:DEF-PROT-INT` and `QuantProject:DEF-PROT-SPC` replace
+  `PROVISIONAL:PEPTIDE-INTENSITY`, `PROVISIONAL:PROTEIN-INTENSITY` and
+  `PROVISIONAL:PROTEIN-SPECTRAL-COUNT`. The texts are theirs, verbatim, from definitions v3.5
+  (`f4bb910`), with their grain-and-unit row appended. No `PROVISIONAL:` definition remains.
+- **`protein_localizations` drops `organelle_map_version`** (go 009 section 4). Under go D28 an
+  annotation row names no map, so a `required` column there had no true value. It joins to
+  categories on (`compartment`, `go_release`).
+- **`organelle_term_categories` gains `category_map_name`**, in its natural key: go writes one
+  category file per consumer map, and two consumers' maps can share a version. Its description now
+  states the coverage check that replaces the lapsed per-row cross-check. Both tables are still
+  empty; no reader exists yet (G53).
+- MCP `search --kind localization` returns the map name and version with each category.
+
 ## [0.16.0] - 2026-09-23
 
 **Core schema 0.0.7 -> 0.0.8 and `INGESTER_VERSION` 0.10.0 -> 0.11.0, so every bundle re-ids and

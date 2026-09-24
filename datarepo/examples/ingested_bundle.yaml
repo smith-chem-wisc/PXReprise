@@ -22,6 +22,7 @@ datasets:
   labelling: none
   enrichment:
   - none
+  enrichment_mixed: false
   instrument_vendor: Thermo
   instruments:
   - Q Exactive Plus
@@ -540,27 +541,27 @@ quant_values:
   feature_type: protein_group
   feature_id: PXD999999:P68363;Q71U36
   value: 1000000.0
-  definition_id: PROVISIONAL:PROTEIN-INTENSITY
+  definition_id: QuantProject:DEF-PROT-INT
 - assay_id: PXD999999:QE-002107_GM1_b:label_free
   feature_type: protein_group
   feature_id: PXD999999:P68363;Q71U36
   value: 1000000.0
-  definition_id: PROVISIONAL:PROTEIN-INTENSITY
+  definition_id: QuantProject:DEF-PROT-INT
 - assay_id: PXD999999:QE-002106_GM1_a:label_free
   feature_type: protein_group
   feature_id: PXD999999:P68363;Q71U36
   value: 12.0
-  definition_id: PROVISIONAL:PROTEIN-SPECTRAL-COUNT
+  definition_id: QuantProject:DEF-PROT-SPC
 - assay_id: PXD999999:QE-002107_GM1_b:label_free
   feature_type: protein_group
   feature_id: PXD999999:P68363;Q71U36
   value: 12.0
-  definition_id: PROVISIONAL:PROTEIN-SPECTRAL-COUNT
+  definition_id: QuantProject:DEF-PROT-SPC
 - assay_id: PXD999999:QE-002106_GM1_a:label_free
   feature_type: protein_group
   feature_id: PXD999999:P05141
   value: 1000000.0
-  definition_id: PROVISIONAL:PROTEIN-INTENSITY
+  definition_id: QuantProject:DEF-PROT-INT
 runs:
 - run_id: PXD999999:QE-002106_GM1_a
   dataset_id: PXD999999
@@ -575,6 +576,9 @@ runs:
   run_minutes: 90.0
   qc_pass: true
   instrument_model: Q Exactive Plus
+  enrichment:
+  - none
+  enrichment_source: dataset_declaration
 - run_id: PXD999999:QE-002107_GM1_b
   dataset_id: PXD999999
   file_name: QE-002107_GM1_b.raw
@@ -588,6 +592,9 @@ runs:
   run_minutes: 90.0
   qc_pass: true
   instrument_model: Q Exactive Plus
+  enrichment:
+  - none
+  enrichment_source: dataset_declaration
 sample_characteristics:
 - sample_id: PXD999999:PXD999999-Sample-1
   name: characteristics[organism]

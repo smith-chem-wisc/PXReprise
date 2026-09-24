@@ -102,6 +102,34 @@ PXD048658
 That refusal is the point. The producer has already judged the run unfit, and loading it would put
 invalid quantities into the repository under a status that says not to.
 
+### Enrichment per run (0.18.0)
+
+`enrichment` is the producer's **declaration** of what the deposit is. When every run went through
+the same steps, every run gets it. When they did not -- PXD058611 split each sample into a direct
+aliquot and a probe capture -- the producer flags the dataset `mixed_enrichment` and says which run
+is which:
+
+```yaml
+  - accession: PXD058611
+    enrichment: [chemical_probe]
+    flags: [enriched, mixed_enrichment]
+    run_enrichment:              # enrichment value -> deposited run names, without extension
+      chemical_probe: ["178", "179", "180"]   # ... every capture run
+      none: ["199", "200", "201"]             # ... every whole-proteome run
+```
+
+| manifest says | every run's `enrichment` | `runs.enrichment_source` | `datasets.enrichment_mixed` |
+|---|---|---|---|
+| no flag, no map | the declaration | `dataset_declaration` | false |
+| `mixed_enrichment`, no map | **NULL** -- never the declaration, which is true of only some runs | NULL | true |
+| a map | the map's value | `manifest_run_enrichment` | true if the map has two values or the flag is set |
+
+A map is refused, and nothing is written, when it leaves a run out, names a file that is not a run of
+the dataset, names a run twice, uses a value outside the `Enrichment` vocabulary, assigns a value
+other than `none` that the declaration does not include, or gives every run one value on a dataset
+flagged mixed. Both `run_enrichment` and the `mixed_enrichment` flag are content fields: adding either
+moves the bundle id, because the run rows change. No other flag does.
+
 ## What it reads, and who parses it
 
 | File | Parsed by | Becomes |
@@ -162,10 +190,14 @@ copy of the column list.
 ### Rules the writer enforces
 
 - **Missing is missing.** A `NotDetected` cell or a zero intensity produces **no row**. A zero
-  q-value is kept, because there zero is a real measurement.
+  q-value is kept, because there zero is a real measurement, and so is a zero spectral count
+  (`QuantProject:DEF-PROT-SPC`: no qualifying PSM in that sample group). Before 0.18.0 a zero
+  spectral count was dropped like an intensity.
 - **Every number carries a `definition_id`**, which is how intensity and spectral count share one
   `value` column unambiguously. Definitions dataRepo does not own are copied from their register;
-  where no owner has published one yet the ID is prefixed `PROVISIONAL:` and says so in its text.
+  where no owner had published one the ID was prefixed `PROVISIONAL:` and said so in its text. Since
+  0.18.0 none is left: the three quant values carry QuantProject's `DEF-PEP-INT`, `DEF-PROT-INT` and
+  `DEF-PROT-SPC`.
 - **Decoys and above-threshold matches are kept**, so a caller can recompute FDR. Filtering is a
   question the caller asks, not a decision taken for them.
 - **Ambiguity is carried, not resolved.** MetaMorpheus separates alternatives with `|`; the first
