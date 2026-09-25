@@ -98,15 +98,24 @@ findings:
     individual are all absent. Sample-level questions cannot be answered for this dataset until it is
     curated.'
   source: datarepo ingest
-- finding_id: PXD999999:unresolved_modifications
+- finding_id: PXD999999:occupancy_not_stored
   dataset_id: PXD999999
-  code: unresolved_modifications
+  code: occupancy_not_stored
   severity: warning
   status: open
-  message: '3 modification(s) could not be mapped to a UNIMOD accession or a mass, and are carried in
-    ProForma as [Info:...] tags: UniProt:N-acetylalanine on A, UniProt:N-acetylglutamate on E, UniProt:N6,N6-dimethyllysine
-    on K. Their ptm_sites rows exist and carry modification_name, with modification null, so a query by
-    name finds them and a query by UNIMOD accession will not.'
+  message: 'Of 8 occupancy entries MetaMorpheus wrote, some are not in ptm_stoichiometry: 1 segment''s
+    accession not determinable from the sequences. ''site not in ptm_sites'' means the entry''s site has
+    no ptm_sites row to key on; ''not determinable'' means a cell''s segments could not be assigned to
+    its accessions from the sequences (QuantProject DEF-OCC-ACCESSION), which is never guessed. Absence
+    of a row for these sites is therefore not NA.'
+  source: datarepo ingest
+- finding_id: PXD999999:occupancy_decoy_groups
+  dataset_id: PXD999999
+  code: occupancy_decoy_groups
+  severity: info
+  status: open
+  message: '1 occupancy entries on decoy protein groups were not stored: MetaMorpheus computes them, and
+    they are FDR machinery, not biology.'
   source: datarepo ingest
 metrics:
 - scope: dataset
@@ -536,6 +545,69 @@ ptm_sites:
   best_ambiguity_level: '1'
   n_psms: 2
   best_q_value: 0.000369
+ptm_stoichiometry:
+- ptm_site_id: PXD999999:P68363:C129:Carbamidomethyl on C
+  assay_id: PXD999999:QE-002106_GM1_a:label_free
+  denominator_grouping: run
+  sample_label: QE-002106_GM1_a-calib
+  protein_group_id: PXD999999:P68363;Q71U36
+  mm_position: 129
+  mm_modification: Carbamidomethyl on C
+  occupancy_state: quantified
+  modified_fraction_count: 0.67
+  n_modified_psms: 2
+  n_covering_psms: 3
+  count_is_ceiling: false
+  modified_fraction_intensity: 0.25
+  intensity_modified: 1000.0
+  intensity_total: 4000.0
+  intensity_is_floor: false
+  intensity_is_ceiling: false
+  definition_id: QuantProject:DEF-OCC-CELL
+- ptm_site_id: PXD999999:P68363:C129:Carbamidomethyl on C
+  assay_id: PXD999999:QE-002107_GM1_b:label_free
+  denominator_grouping: run
+  sample_label: QE-002107_GM1_b-calib
+  protein_group_id: PXD999999:P68363;Q71U36
+  mm_position: 129
+  mm_modification: Carbamidomethyl on C
+  occupancy_state: intensity_unassigned
+  modified_fraction_count: 0.5
+  n_modified_psms: 1
+  n_covering_psms: 2
+  count_is_ceiling: false
+  definition_id: QuantProject:DEF-OCC-CELL
+- ptm_site_id: PXD999999:Q71U36:C129:Carbamidomethyl on C
+  assay_id: PXD999999:QE-002106_GM1_a:label_free
+  denominator_grouping: run
+  sample_label: QE-002106_GM1_a-calib
+  protein_group_id: PXD999999:P68363;Q71U36
+  mm_position: 129
+  mm_modification: Carbamidomethyl on C
+  occupancy_state: floor
+  modified_fraction_count: 1.0
+  n_modified_psms: 2
+  n_covering_psms: 2
+  count_is_ceiling: true
+  modified_fraction_intensity: 0.0
+  intensity_modified: 0.0
+  intensity_total: 2500.0
+  intensity_is_floor: true
+  intensity_is_ceiling: false
+  definition_id: QuantProject:DEF-OCC-CELL
+- ptm_site_id: PXD999999:Q71U36:C129:Carbamidomethyl on C
+  assay_id: PXD999999:QE-002107_GM1_b:label_free
+  denominator_grouping: run
+  sample_label: QE-002107_GM1_b-calib
+  protein_group_id: PXD999999:P68363;Q71U36
+  mm_position: 129
+  mm_modification: Carbamidomethyl on C
+  occupancy_state: intensity_unassigned
+  modified_fraction_count: 0.33
+  n_modified_psms: 1
+  n_covering_psms: 3
+  count_is_ceiling: false
+  definition_id: QuantProject:DEF-OCC-CELL
 quant_values:
 - assay_id: PXD999999:QE-002106_GM1_a:label_free
   feature_type: protein_group

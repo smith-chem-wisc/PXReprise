@@ -18,7 +18,7 @@
 id: https://w3id.org/datarepo/core
 name: datarepo
 title: dataRepo core schema
-version: 0.0.10
+version: 0.0.11
 license: https://creativecommons.org/licenses/by/4.0/
 description: >-
   Generic core schema for an AI-ready repository of reanalyzed public proteomics datasets:
@@ -202,9 +202,32 @@ enums:
       peptidoform:
       protein_group:
       ptm_site:
+      ptm_site_canonical:
+        description: >-
+          A site named the same way in every dataset of one species, for pooled results:
+          `<accession>:<residue><position>:<UNIMOD accession, or the engine's name when there is none>`.
+          Not a `ptm_site_id` (which is per dataset); join it to `ptm_sites` on accession, position
+          and modification.
       glycopeptide:
       proteoform:
       protein:
+  OccupancyGrouping:
+    description: >-
+      What an occupancy denominator was accumulated over (QuantProject DEF-OCC-GROUPING). Nothing in
+      MetaMorpheus's file says which, so the row must: two generations of one definition, before and
+      after a design file, are not comparable.
+    permissible_values:
+      run: {description: "One raw file. MetaMorpheus with no experimental design makes each file its own sample group."}
+      sample_group: {description: "A design's (condition, biological replicate), pooling its fractions and technical replicates."}
+  OccupancyState:
+    description: >-
+      Which of QuantProject's states a stored occupancy observation is in (DEF-OCC-COUNTONLY). The
+      fourth state, absent (no modified form seen), is no row at all (DEF-OCC-ABSENT) and never 0.
+    permissible_values:
+      quantified: {description: "A count entry and an intensity entry with a non-zero numerator: a measurement."}
+      floor: {description: "An intensity entry of fraction 0 with numerator 0: the modified form was identified but never quantified, while covering forms were. CENSORED low, not a measured zero (DEF-OCC-INT-ZERO)."}
+      count_only: {description: "A count entry and no intensity entry: nothing covering the site was quantified in this run. The intensity columns are NULL, never 0."}
+      intensity_unassigned: {description: "A count entry, and the run's intensity cell for this group EXISTS but its segments could not be assigned to accessions from the sequences (DEF-OCC-ACCESSION). The intensity columns are NULL because the value is unknown, not because nothing was quantified; an occupancy_not_stored finding counts the entries."}
   GeneResolutionOutcome:
     description: >-
       What logs' gene resolution found for one protein (mzLib `EnsemblGeneResolver`, pyMzLib
@@ -493,23 +516,40 @@ classes:
 
   PtmStoichiometry:
     description: >-
-      Modified fraction of one site in one sample group (R7). Producer: MetaMorpheus PTM
-      stoichiometry (paper submitted); definition on the QuantProject register. Stored as produced.
-
-      Corrected to aging 011's accepted shape in schema 0.0.5, while the table still held 0 rows
-      (their 026). The corrections were accepted in dataRepo thread 012 and then missed by three
-      releases, which is a dropped commitment rather than a decision -- and every one of them
-      becomes expensive the moment a bundle carries a row, because each is a change to what an
-      existing number MEANS rather than an addition beside it.
+      PTM site occupancy -- the modified fraction of one site -- in one run or sample group, as
+      MetaMorpheus computes and writes it (the `CountOccupancy_<label>` and `IntensityOccupancy_<label>`
+      cells of the protein-group table, read with pyMzLib `read_occupancy`). Never computed here (D29):
+      the ingester stores both bases MetaMorpheus writes, with everything behind each fraction, because
+      this is one of the repository's central measurements. Definitions are QuantProject's
+      (`DEF-OCC-*`, register v3-v3.5). One row per (site, run) where a MODIFIED form was seen; a site
+      seen only unmodified has no row, and absence is NA, never 0 (DEF-OCC-ABSENT). The two bases are
+      authoritative in OPPOSITE halves of the cell: for counts the integers are exact and the written
+      fraction is rounded to 2 decimals; for intensity the written fraction (4 decimals) is exact and
+      the pair is rounded to 4 significant figures (DEF-OCC-CELL v3.2). Occupancy is MS/MS-only (MBR
+      transfers do not enter, DEF-OCC-INT) and excludes `Common Variable` and `Common Fixed` modification
+      types, so a default search reports no oxidation or carbamidomethyl occupancy (DEF-OCC-PSMS). No
+      minimum evidence is applied; QuantProject recommends reading only `n_covering_psms >= 5`
+      (DEF-OCC-MINIMUM). Which group member a site belongs to is resolved against the searched sequence,
+      never by the `|` segment's position (DEF-OCC-ACCESSION). Not stored for TMT or SILAC datasets.
     attributes:
-      ptm_site_id: {range: PtmSite, required: true, description: "Site whose modified fraction this is. Keyed on the search engine's own modification name since 0.5.0, not on a UNIMOD accession."}
-      assay_id: {range: Assay, required: true, description: "The SAMPLE GROUP the occupancy was computed over, not a single run x channel. MetaMorpheus's occupancy is a group-level quantity: it pools the covering PSMs of every run in the group, so attributing it to one run would state a measurement that was never made. Named `assay_id` because it points into `Assay`, which carries the grouping."}
-      modified_fraction_count: {range: float, minimum_value: 0, maximum_value: 1, description: "Modified fraction from PSM COUNTS (`DEF-OCC-PSMS`): n_modified_psms / n_covering_psms. Kept in its own column, never merged with the intensity estimate. The two disagree about THREEFOLD overall and sevenfold at sites with 21-50 PSMs, so a single column would force a producer to pick one and throw the other away silently, with nothing in the row saying which. Two columns is the shape that cannot be averaged by accident; a `definition_id` discriminator is not, because it would mean two rows per (site, group) differing only in a string, which a natural key then has to treat as a duplicate."}
-      modified_fraction_intensity: {range: float, minimum_value: 0, maximum_value: 1, description: "Modified fraction from INTENSITIES. See `modified_fraction_count` for why these are two columns and not one, and `intensity_is_floor` for why a 0.0 here is not self-explanatory."}
-      intensity_is_floor: {range: boolean, description: "True when `modified_fraction_intensity` is a FLOOR rather than a measurement -- `DEF-OCC-INT-ZERO`: a fraction of 0.0000 whose numerator is a literal zero means the modified form was not detected, not that it was measured at zero. Without this flag both land as 0.0 and the difference is unrecoverable, which is the same absence-reading-as-a-measurement failure the `findings` mechanism exists to prevent. Null when there is no intensity estimate to qualify."}
-      n_modified_psms: {range: integer, description: "PSMs supporting the modified form, as `DEF-OCC-PSMS` counts them."}
-      n_covering_psms: {range: integer, description: "COVERING PSMs: the definition's denominator. An ambiguous PSM counts in the denominator of every position it covers, so this is a different population AND a different unit from a peptidoform count -- there is no arithmetic that converts one into the other, which is why the old `n_unmodified_peptidoforms` could only ever have been guessed at. Nullable, because a producer reporting only an intensity estimate has no PSM counts to give."}
-      definition_id: {range: Definition, required: true, description: "Owner's definition ID giving this number its meaning."}
+      ptm_site_id: {range: PtmSite, required: true, description: "The site, keyed as `ptm_sites` keys it (the engine's own modification name). MetaMorpheus's position is converted to ours: equal for a residue, 0 -> 1 with `@protein_n_term`, Length + 1 -> Length with `@protein_c_term` (DEF-OCC-KEY)."}
+      assay_id: {range: Assay, required: true, description: "The run's (or sample group's) assay. With `denominator_grouping = run` it is that raw file's label-free assay."}
+      denominator_grouping: {range: OccupancyGrouping, required: true, description: "Whether the denominators on this row cover one run or a pooled sample group (DEF-OCC-GROUPING). Never compare the two."}
+      sample_label: {required: true, description: "MetaMorpheus's own `<label>` from the column name, verbatim (e.g. `..._01-calib`), so a row round-trips to the file."}
+      protein_group_id: {range: ProteinGroup, required: true, description: "The protein group whose cell the entry was written in."}
+      mm_position: {range: integer, required: true, minimum_value: 0, description: "The position as MetaMorpheus wrote it (`pos{p}`): 1-based in the accession's sequence, 0 for the protein N-terminus, Length + 1 for the C-terminus."}
+      mm_modification: {required: true, description: "The modification exactly as the cell names it (`IdWithMotif`)."}
+      occupancy_state: {range: OccupancyState, required: true, description: "quantified, floor, count_only or intensity_unassigned (DEF-OCC-COUNTONLY). Read it before any intensity column."}
+      modified_fraction_count: {range: float, minimum_value: 0, maximum_value: 1, description: "Count-based occupancy AS WRITTEN (2 decimals, rounded; DEF-OCC-COUNT). For the exact value use `n_modified_psms / n_covering_psms`, which are authoritative for this basis. Kept in its own column, never merged with the intensity estimate: the two disagree threefold overall."}
+      n_modified_psms: {range: integer, minimum_value: 0, description: "PSMs whose resolved form carries the modification here: the count numerator, EXACT (DEF-OCC-COUNT). Spectra, not peptides."}
+      n_covering_psms: {range: integer, minimum_value: 1, description: "PSMs covering the position, modified or not: the count denominator, EXACT. An ambiguous PSM counts here for every position its base sequence covers (DEF-OCC-PSMS). This is the evidence depth; QuantProject recommends >= 5 (DEF-OCC-MINIMUM)."}
+      count_is_ceiling: {range: boolean, description: "True when every covering PSM carried the modification (`n_modified_psms = n_covering_psms`): an occupancy of 1 means no unmodified PSM was seen, which on a shallow site is weak evidence of full occupancy. NULL with no count entry."}
+      modified_fraction_intensity: {range: float, minimum_value: 0, maximum_value: 1, description: "Intensity-based occupancy AS WRITTEN (4 decimals), and for this basis the written fraction IS authoritative (DEF-OCC-INT, DEF-OCC-CELL v3.2). NULL when count_only."}
+      intensity_modified: {range: float, minimum_value: 0, description: "The intensity numerator: summed apex intensity share of the modified forms (DEF-OCC-INT), ROUNDED to 4 significant figures by the writer. NULL when count_only."}
+      intensity_total: {range: float, minimum_value: 0, description: "The intensity denominator: summed intensity share of every covering form, rounded to 4 significant figures. Use it to weight or pool runs: sum numerators over summed denominators, never average fractions (DEF-OCC-SYNONYM's rule). NULL when count_only."}
+      intensity_is_floor: {range: boolean, description: "True for `occupancy_state = floor`: a fraction of 0 whose numerator is a literal 0, meaning the modified form was identified but never quantified. CENSORED, not a measured zero (DEF-OCC-INT-ZERO). NULL when count_only."}
+      intensity_is_ceiling: {range: boolean, description: "True when the intensity fraction is 1: no unmodified covering form was quantified, the mirror of the floor. NULL when count_only."}
+      definition_id: {range: Definition, required: true, description: "`QuantProject:DEF-OCC-CELL`, the definition of both cells and of the states; the count and intensity columns cite DEF-OCC-COUNT and DEF-OCC-INT, which it carries."}
 
   Glycopeptide:
     description: >-
@@ -799,12 +839,18 @@ classes:
 
   PtmPair:
     description: >-
-      A relationship between two PTM-carrying peptidoforms. Each side is a feature key and its
-      protein group as real columns, never a joined string. Producer: ptmQtl, through mzLib.
-      SHAPE ONLY: nothing writes this table until the mzLib engine exists.
+      A relationship between two PTM features -- sites or peptidoforms, as `feature_type` says. Each
+      side is a feature key and its protein group as real columns, never a joined string. Producer:
+      ptmQtl, through mzLib. Nothing writes this table until the engine is released and the operator
+      runs it (D30). Unordered: `feature_key_a < feature_key_b` by ordinal string, and `(b, a)` never
+      appears (ptmQtl P6). `n` always counts RUNS; a pooled row's dataset count is `n_datasets` (D31).
     attributes:
       result_type: {range: PairResultType, required: true, description: "P, C, A or B."}
-      scope: {required: true, description: "A dataset accession, or `meta`."}
+      scope: {required: true, description: "A dataset accession; `meta` (pooled across everything); or `meta:<species>`, e.g. `meta:human`, pooled within one species because a site cannot yet be matched across species (ptmQtl P10, D31)."}
+      feature_type: {range: FeatureType, required: true, description: "What both sides are: `ptm_site` (keys are `ptm_site_id`s; ptmQtl's unit since their D12) or `peptidoform`. A pooled site pair names the site the same way in every dataset it pools."}
+      datasets: {multivalued: true, description: "The datasets a pooled row combined. NULL on a single-dataset row, whose scope already names it."}
+      n_datasets: {range: integer, minimum_value: 1, description: "How many datasets a pooled row combined (the length of `datasets`). NULL on a single-dataset row. Kept apart from `n` so no column holds two units."}
+      n_datasets_agreeing: {range: integer, minimum_value: 0, description: "Of `n_datasets`, how many point the same way as the pooled result (ptmQtl P10). NULL on a single-dataset row."}
       feature_key_a: {required: true, description: "Side A: ProForma with engine names (as TraitEffect.feature_key)."}
       protein_accessions_a: {range: Protein, multivalued: true, required: true, description: "Every accession of side A's protein group."}
       feature_key_b: {required: true, description: "Side B: ProForma with engine names."}
@@ -816,8 +862,8 @@ classes:
       stratum: {description: "The stratum; set only for result_type B, binned by the consumer."}
       sign: {description: "`+` or `-`, where the statistic has a direction."}
       statistic: {required: true, description: "What value is, e.g. `spearman_rho`, `obs_over_expected`."}
-      value: {range: float, required: true, description: "The statistic's value."}
-      n: {range: integer, required: true, description: "Observations behind the statistic."}
+      value: {range: float, description: "The statistic's value. NULL where the statistic has none: ptmQtl writes type-P rows whose co-occupancy is undefined (1,051 `overlapping` pairs and 14 pooled rows in their first bundle), and a required column would have forced a number that was never computed. Asked of ptmQtl to confirm (our 010)."}
+      n: {range: integer, description: "RUNS behind the statistic, always: on a pooled row, the total over its datasets, or NULL if the engine does not compute it. Never a dataset count (that is `n_datasets`, D31)."}
       p: {range: float, minimum_value: 0, maximum_value: 1, description: "p-value."}
       q: {range: float, minimum_value: 0, maximum_value: 1, description: "q-value within fdr_family."}
       fdr_family: {description: "Family q was computed within, e.g. `A.inter_protein.biological x biological`."}

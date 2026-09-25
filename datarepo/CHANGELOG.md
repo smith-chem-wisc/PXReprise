@@ -4,6 +4,64 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [0.21.0] - 2026-09-25
+
+**PTM site occupancy is stored (D29). Schema 0.0.10 -> 0.0.11 and `INGESTER_VERSION` 0.14.0 -> 0.15.0,
+so every bundle re-ids.** This is the re-ingest to do: it includes 0.19.1's and 0.20.0's changes.
+`CATALOG_VERSION` stays 6. Engine artefacts written by 0.20.0 are schema 0.0.10 and are skipped
+by a 0.21.0 catalog (reported in `catalog_checks`), so re-run `datarepo run` after re-ingesting.
+
+### Added
+- **`ptm_stoichiometry` is filled for every label-free dataset from MetaMorpheus's own occupancy**:
+  the `CountOccupancy_` / `IntensityOccupancy_` cells, read with pyMzLib `read_occupancy`, under
+  `QuantProject:DEF-OCC-CELL v3.2`. It held 0 rows. Every row keeps:
+  - both bases, count and intensity;
+  - each basis's numerator and denominator, and each fraction as written. The count integers are
+    exact; for intensity, the 4-decimal fraction is exact and the pair is rounded (DEF-OCC-CELL v3.2);
+  - `denominator_grouping` (run or sample group, DEF-OCC-GROUPING);
+  - `occupancy_state`: `quantified`, `floor`, `count_only`, or `intensity_unassigned` (below);
+  - floor and ceiling flags on both bases;
+  - MetaMorpheus's own label, position and modification name, so a row round-trips to the file.
+
+  Rows are keyed on `ptm_sites`. MetaMorpheus's position 0 becomes our position 1
+  `@protein_n_term`, and Length + 1 becomes Length `@protein_c_term` (DEF-OCC-KEY). A cell's `|`
+  segments are assigned to accessions by checking each entry's residue against the searched sequence,
+  never by position (DEF-OCC-ACCESSION; this is the fourth `|` list in MetaMorpheus's output that
+  cannot be zipped). An assignment that is not unique is reported, not guessed.
+
+  Nothing is dropped silently:
+  - entries not stored are counted by reason, in bundle.json `occupancy` and in the findings
+    `occupancy_not_stored`, `occupancy_decoy_groups` and `occupancy_cells_truncated` /
+    `occupancy_cells_unparsed`;
+  - a TMT or SILAC dataset gets `occupancy_not_ingested`.
+- **`OccupancyState.intensity_unassigned`**: the run's intensity cell exists but its protein could
+  not be told from the sequences. The first version called this `count_only`, which claims nothing
+  was quantified; the test fixture caught it.
+- **`ptm_pairs` takes ptmQtl's site grain and per-species pooling** (D31):
+  - `feature_type`, with the new `FeatureType.ptm_site_canonical` for pooled cross-dataset site keys;
+  - `scope` may be `meta:<species>`;
+  - pooled rows carry `datasets`, `n_datasets` and `n_datasets_agreeing`;
+  - `n` always counts runs and is NULL where unknown, never a dataset count;
+  - `value` is nullable: ptmQtl writes 1,065 type-P rows with no co-occupancy value.
+
+  Nothing is served into it yet: ptmQtl's engine is unreleased (D30).
+
+### Verified on real data (scratch ingest of four datasets, not served)
+| dataset | rows | quantified / floor / count-only | entries not stored |
+|---|---:|---|---|
+| PXD036557 | 1,654 | 1,528 / 69 / 57 | 9, all decoy groups |
+| PXD051644 | 5,691 | 4,724 / 837 / 130 | 8, all decoy groups |
+| PXD027318 | 16,737 | 12,293 / 3,243 / 1,201 | 263, all decoy groups |
+| PXD032202 | 18,764 | 14,251 / 3,430 / 1,083 | 293, all decoy groups |
+
+- PXD036557's 1,528 / 69 / 57 is exactly what aging counted by hand in that search (QuantProject v3.2).
+- Every non-decoy entry landed on an existing `ptm_sites` key, and no cell needed realigning.
+- Against ptmQtl's recomputation (their bundle, test data only), wherever both have an intensity
+  value they agree to 4 decimals for 3,089 of 3,162 sites (PXD027318), 4,766 of 4,806 (PXD032202) and
+  208 of 208 (PXD036557).
+- ptmQtl's 70,578 pair rows fit the new `ptm_pairs` shape, with 0 duplicate keys. 3 of them break
+  their own `a < b` order, which is reported to them.
+
 ## [0.20.0] - 2026-09-25
 
 **The runner (G64, D27/D28). Schema 0.0.9 -> 0.0.10 and `CATALOG_VERSION` 5 -> 6, so every bundle
