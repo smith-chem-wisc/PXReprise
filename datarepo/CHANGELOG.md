@@ -4,6 +4,27 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [0.19.1] - 2026-09-25
+
+**`INGESTER_VERSION` 0.13.0 -> 0.14.0, so every bundle re-ids. Rows change only in a dataset whose
+search excluded files. Schema (0.0.9) and `CATALOG_VERSION` (5) are unchanged**, so 0.19.0 and 0.19.1
+bundles can share a catalog, and a producer can move one dataset at a time. Answers DATAREPO-51.
+
+### Fixed
+- **A file the search excluded became a run** (DATAREPO-51, aging 064, their D52). aging now leaves a
+  blank or failed injection out of the search and records it in the search `provenance.json` under
+  `excluded_files`. The QC report still lists it, truthfully, and runs were built from the fetch
+  manifest and the QC report, so the file got a run row and run metrics while having no PSMs or
+  quantities. Now a file named in `excluded_files` gets no run, no run metrics and no SDRF assay. A
+  run-enrichment map entry for it is dropped too, where before it would have refused the ingest.
+  Each excluded file is recorded as an `excluded_from_search` finding (severity `info`), which gives
+  the producer's reason and the deposited sha256.
+
+  On PXD051644 (the first such dataset), `runs` goes from 24 to 23 and agrees with the producer. The
+  `ms2_spectra` check then disagrees: 381,822 in the bundle, 381,923 from the producer. aging's
+  `id_rate.ms2` still counts the excluded file's 101 MS2 scans, while MetaMorpheus's `results.txt`
+  says 381,822 were searched. The finding is correct and is reported to aging.
+
 ## [0.19.0] - 2026-09-24
 
 **`INGESTER_VERSION` 0.12.0 -> 0.13.0, so every bundle re-ids. Schema (0.0.9) and `CATALOG_VERSION`
