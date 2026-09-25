@@ -4,6 +4,62 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [0.20.0] - 2026-09-25
+
+**The runner (G64, D27/D28). Schema 0.0.9 -> 0.0.10 and `CATALOG_VERSION` 5 -> 6, so every bundle
+and every catalog re-ids; `INGESTER_VERSION` stays 0.14.0, because no ingested row changed.** A
+0.19.x bundle cannot join a 0.20.0 catalog (the catalog refuses mixed schema versions), so this is one
+re-ingest. An operator who has not yet re-ingested for 0.19.1 can skip it and do only this one: the
+only 0.19.1 row change (PXD051644's runs) is carried forward.
+
+### Added
+- **`datarepo run <engine> <PXD...> --store <store> --input ROLE=PATH ...`**: the instance
+  operator runs a RELEASED engine on stored data. Its output is an **engine artefact** at
+  `<store>/_engine/<engine>/<artefact id>/` (`run.json` plus one Parquet per table), written beside
+  the bundles and never inside one. The artefact id is a sha256 over the engine, its release, every
+  input's role and sha256, the definition id, `runner.RUNNER_VERSION` and the schema version, so the
+  same run twice is "already done". The runner refuses:
+  - an editable datarepo, or one installed from a directory that is not a clean git clone (aging 063).
+    It records the install's commit (or wheel sha256) in every artefact;
+  - a pyMzLib that is not a released package;
+  - an input that does not hash to its record, including a searched database that no longer hashes to
+    what the bundle recorded.
+- **The first engine, `logs.resolve_genes`** (pyMzLib `proteins.resolve_genes`, under
+  `logs:DEF-GENE-RESOLUTION v1`). It makes one artefact per searched **target** database, so every
+  dataset that searched that database shares one resolution. The contaminant database is never
+  resolved. Inputs: `gene_set`, `xref` (required; without it the run is not v1) and `logs_manifest`,
+  which is used to check the run and is not hashed. The rows are refused unless every one carries the
+  manifest's gene set, xref and release.
+- **Core table `gene_resolutions`** (schema 0.0.10): logs' rows as mzLib writes them, plus
+  `definition_id`, with enum `GeneResolutionOutcome`.
+- **go's per-row evidence on `protein_localizations`** (the same schema change, as D28 decided):
+  `protein_group`, `q_value`, `n_members`, `n_with`, `inherited`, `propagated`. The go reader fills
+  them. `annotation_status` is not stored, because every stored row is `annotated`.
+- **Catalog:** `build` loads each engine artefact run on a database a catalog bundle searched, and
+  hashes them into `catalog_id`. It refuses two artefacts for one database rather than choosing
+  between them. A database with no artefact is reported in `catalog_checks` (kind
+  `engine-coverage`) and does not fail the build. New tables:
+  - `catalog_engine_artefacts`;
+  - `dataset_databases`: every database each search read. `datasets.search_database` names only
+    the proteome;
+  - `protein_genes`: target proteins joined to their gene rows through a database their dataset
+    searched. Contaminants are excluded, and so is a protein whose `is_contaminant` is NULL.
+
+### Verified on real data (scratch run, not served)
+PXD036557 (human) and PXD051644 (rat) were re-ingested on this code, and the engine was run with logs'
+e116 inputs:
+- the human proteome gave 20,899 rows, the number logs' reference and our LOGS-D1 (logs 019) have;
+- the rat proteome gave 9,048 rows, with the outcomes logs 020 reports;
+- the rat isoform database got its own artefact (17 rows);
+- the gene_resolutions key has 0 duplicates, and a second run wrote nothing.
+
+`protein_genes` covers 3,774 of 3,774 human and 5,025 of 5,025 rat target proteins. Joining through
+`datasets.search_database_sha256` instead would have missed the rat's 11 isoform-database proteins.
+
+### Fixed
+- `examples/minimal_bundle.yaml` lacked `enrichment_mixed`, which schema 0.0.9 made required, so CI's
+  "Valid examples validate" step had failed on every push since 0.18.0.
+
 ## [0.19.1] - 2026-09-25
 
 **`INGESTER_VERSION` 0.13.0 -> 0.14.0, so every bundle re-ids. Rows change only in a dataset whose

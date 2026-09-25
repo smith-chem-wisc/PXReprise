@@ -10,6 +10,7 @@ datasets:
     quant_method: label_free
     labelling: none
     enrichment: [none]
+    enrichment_mixed: false
     instrument_vendor: Thermo
     axis_source: discover
     search_engine: MetaMorpheus

@@ -18,7 +18,7 @@
 id: https://w3id.org/datarepo/core
 name: datarepo
 title: dataRepo core schema
-version: 0.0.9
+version: 0.0.10
 license: https://creativecommons.org/licenses/by/4.0/
 description: >-
   Generic core schema for an AI-ready repository of reanalyzed public proteomics datasets:
@@ -205,6 +205,17 @@ enums:
       glycopeptide:
       proteoform:
       protein:
+  GeneResolutionOutcome:
+    description: >-
+      What logs' gene resolution found for one protein (mzLib `EnsemblGeneResolver`, pyMzLib
+      `proteins.OUTCOMES`). The six values are mzLib's own and are stored as it writes them.
+    permissible_values:
+      resolved: {description: "Exactly one gene on the pinned gene set's assembly."}
+      multi_gene: {description: "Several genes on the assembly; one row per gene, never a pick."}
+      off_primary_only: {description: "Genes linked, but only outside the gene set (ALT haplotypes, patches)."}
+      not_in_source: {description: "The database entry links no Ensembl gene."}
+      unrecognized_accession: {description: "The accession is not UniProt or RefSeq shaped."}
+      contaminant_not_mapped: {description: "A contaminant protein, never mapped through anything."}
   PairResultType:
     description: "What kind of relationship a ptm_pairs row reports (ptmQtl 002 section 5)."
     permissible_values:
@@ -578,6 +589,12 @@ classes:
       go_release: {required: true, description: "GO ontology release, from the file header (go D9). With `compartment`, the key into organelle_term_categories: an ancestor edge moving between releases moves a term's category with the map unchanged (go 004 section 3)."}
       evidence: {description: "Evidence code or note from the source."}
       source_id: {range: AnnotationSource, required: true, description: "Annotation source (owner + version) this row comes from."}
+      protein_group: {description: "go's `protein_group`: the MetaMorpheus group this accession was annotated in, its accessions `|`-joined in the producer's (alphabetical, not ranked) order. An accession sits in one group or the file is refused. Filled by go's released output (schema 0.0.10)."}
+      q_value: {range: float, minimum_value: 0, maximum_value: 1, description: "The GROUP's protein q-value, as go copies it from the search (go D29). The same on every row of one group. Every non-decoy group is written, so filter on it: go's header counters count at `q_value <= counter_q_value_max`."}
+      n_members: {range: integer, minimum_value: 1, description: "Accessions in the group (go D22)."}
+      n_with: {range: integer, minimum_value: 1, description: "Group accessions whose own entry carries this term (go D22). `n_with < n_members` means the term is not true of the whole group."}
+      inherited: {range: boolean, description: "go's `inherited`: the term reached this accession from another entry rather than its own (go D22). Read it before treating the row as the entry's own annotation."}
+      propagated: {range: boolean, description: "go's `propagated`: the term was reached by ancestor propagation over is_a and part_of, not annotated directly."}
 
   OrganelleTermCategory:
     description: >-
@@ -610,6 +627,43 @@ classes:
       position: {range: integer, description: "Set for residue-level facts, e.g. predicted deamidation rate (L2)."}
       qualifier: {description: "e.g. tissue or organism a half-life was measured in."}
       source_id: {range: AnnotationSource, required: true, description: "Annotation source (owner + version) this row comes from."}
+
+  GeneResolution:
+    description: >-
+      Protein -> stable Ensembl gene, as logs' resolver (mzLib `EnsemblGeneResolver`, pyMzLib
+      `proteins.resolve_genes`) writes it for one searched database against one pinned gene set.
+      Never computed here: the instance operator runs the released engine through `datarepo run
+      logs.resolve_genes`, which stores its rows unchanged as an engine artefact beside the bundles
+      (D28), never inside one. One row per (protein, gene), or one outcome row for a protein with no
+      gene on the assembly; never a pick among several genes and never a `|`-joined cell. Columns
+      after `definition_id` are mzLib's `GeneResolutionTsv` names. Join to `proteins` on
+      `accession` (entry level, LOGS-D2) AND on `search_database_sha256` being a database the
+      dataset searched: the same accession resolved from a different database or gene set is a
+      different row. The contaminant database is not resolved, so a contaminant protein has no
+      row, and never falls back to a target's (logs 002 section 0). A gene only Ensembl's xref links
+      adds a row with `source = ensembl_xref` and never changes `outcome`. Producer: logs (the
+      method, `logs:DEF-GENE-RESOLUTION v1`); the rows' inputs are the operator's.
+    attributes:
+      definition_id: {range: Definition, required: true, description: "`logs:DEF-GENE-RESOLUTION v1`. A run without Ensembl's xref is not v1 and is refused by the runner (logs 017 section 3)."}
+      accession: {required: true, description: "As the search database has it, variant suffix and all."}
+      entry_accession: {description: "The UniProt entry or unversioned RefSeq accession; verbatim otherwise."}
+      isoform: {range: integer, description: "UniProt isoform number. NULL: the accession has no `-N` suffix."}
+      namespace: {required: true, description: "`uniprot`, `refseq` or `unrecognized`."}
+      outcome: {range: GeneResolutionOutcome, required: true, description: "What the resolver found for this protein. The same on every row of one protein."}
+      n_genes: {range: integer, required: true, minimum_value: 0, description: "Genes on the gene set's assembly linked to this protein. 0 is a count, not a missing value."}
+      gene_id: {description: "Stable Ensembl gene id (`ENSG...`). NULL: no gene on the assembly (the outcome says why)."}
+      versioned_gene_id: {description: "The gene id as the database wrote it. NULL: no gene."}
+      gene_symbol: {description: "The gene set release's symbol, for display only. NULL: no gene, or the release names none."}
+      gene_biotype: {description: "The gene set release's biotype. NULL: no gene."}
+      off_primary_genes: {range: integer, required: true, minimum_value: 0, description: "Linked genes OUTSIDE the gene set (ALT haplotypes, patches), not counted in `n_genes`. 0 is a count."}
+      uniprot_gene_name: {description: "The database entry's own primary gene name, a label. NULL: the entry gives none."}
+      source: {required: true, description: "`search_database_dbreference`, or `ensembl_xref` for a gene only Ensembl links."}
+      search_database_sha256: {required: true, description: "sha256 of the decompressed searched database. Equal to the sha256 a bundle's `bundle.json` records for that database."}
+      gene_set_release: {description: "Ensembl release of the gene set, e.g. `116`. NULL: the GTF's name carried none."}
+      gene_set_sha256: {required: true, description: "sha256 of the Ensembl GTF the gene set was made from. The runner checks it against logs' manifest."}
+      ensembl_xref_agrees: {range: boolean, description: "Whether Ensembl's UniProt xref links this pair. NULL: the row has no gene (unknown, not false)."}
+      ensembl_xref_info_type: {description: "Ensembl's evidence for the link (`DIRECT`, `SEQUENCE_MATCH`, `INFERRED_PAIR`). NULL: no xref link."}
+      ensembl_xref_sha256: {required: true, description: "sha256 of Ensembl's UniProt xref file. Always present: v1 requires the xref."}
 
   FeatureSet:
     description: A curated, versioned list of proteins or features (R8 reference panels).
@@ -794,6 +848,7 @@ classes:
       annotation_sources: {range: AnnotationSource, multivalued: true, inlined_as_list: true, description: "Rows of the annotation_sources table."}
       protein_localizations: {range: ProteinLocalization, multivalued: true, inlined_as_list: true, description: "Rows of the protein_localizations table."}
       organelle_term_categories: {range: OrganelleTermCategory, multivalued: true, inlined_as_list: true, description: "Rows of the organelle_term_categories table."}
+      gene_resolutions: {range: GeneResolution, multivalued: true, inlined_as_list: true, description: "Rows of the gene_resolutions table."}
       protein_annotations: {range: ProteinAnnotation, multivalued: true, inlined_as_list: true, description: "Rows of the protein_annotations table."}
       feature_sets: {range: FeatureSet, multivalued: true, inlined_as_list: true, description: "Rows of the feature_sets table."}
       feature_set_members: {range: FeatureSetMember, multivalued: true, inlined_as_list: true, description: "Rows of the feature_set_members table."}
