@@ -107,7 +107,10 @@ findings:
     accession not determinable from the sequences. ''site not in ptm_sites'' means the entry''s site has
     no ptm_sites row to key on; ''not determinable'' means a cell''s segments could not be assigned to
     its accessions from the sequences (QuantProject DEF-OCC-ACCESSION), which is never guessed. Absence
-    of a row for these sites is therefore not NA.'
+    of a row for these sites is therefore not NA. A ''duplicate'' is a second entry for a (site, run)
+    that already has a row: one with identical values loses nothing; one with DIFFERENT values means MetaMorpheus
+    wrote two answers and the first in file order was stored (examples in bundle.json occupancy.differing_duplicates;
+    which one should be stored is QuantProject''s to define).'
   source: datarepo ingest
 - finding_id: PXD999999:occupancy_decoy_groups
   dataset_id: PXD999999

@@ -1,4 +1,5 @@
-# aging study layer, v0.3.0 (2026-09-22; v0.2.0 earlier the same day; v0.1.0 2026-09-20).
+# aging study layer, v0.4.0 (2026-09-26: `SampleAge.age_source`, aging 071 DATAREPO-59; v0.3.0 2026-09-22;
+# v0.2.0 earlier the same day; v0.1.0 2026-09-20).
 #
 # The rule (U5): a study layer ADDS tables keyed on core identifiers and never alters a core table.
 # Everything the core stores stays usable by a non-aging consumer, and a second study layer can sit
@@ -23,7 +24,7 @@ description: >-
   effects and their refusals, the cross-dataset pooled effect, organelle-level summaries, age clocks
   and cross-species age mapping. aging owns the content; every table is keyed on core identifiers and
   no core table is altered.
-version: 0.3.0
+version: 0.4.0
 license: https://creativecommons.org/licenses/by/4.0/
 
 prefixes:
@@ -57,6 +58,22 @@ enums:
         description: log2 ratio between isoforms. Benchmark O4.
       glycoform_fraction:
         description: logit-transformed glycoform share. Benchmark T3.
+
+  AgeSource:
+    description: >-
+      Where a sample's `age_raw` came from (aging 071, DATAREPO-59). Kept apart from
+      `normalizer_version`, which names software: putting a curation label there would give one
+      column two meanings, and a caller comparing normalizer versions would compare a label.
+    permissible_values:
+      sdrf:
+        description: >-
+          Read from the dataset's SDRF (deposited or drafted) and normalized by SdrfAge.
+          `normalizer_version` is the SdrfAge version.
+      curated:
+        description: >-
+          Entered by the study owner from a named source such as the deposit's PRIDE record or its
+          paper. `age_source_reference` says which, and a curated row whose source cannot be named
+          should not be delivered.
 
   AgeEstimator:
     description: >-
@@ -123,7 +140,9 @@ classes:
       age_years: {range: float, description: "Normalized to years. NA when not parseable, which is not the same as no age being recorded -- `age_raw` distinguishes them."}
       age_is_lower_bound: {range: boolean, description: "True for a right-censored age such as '65+' or '>=90Y'. `aging:DEF-AGE-EFFECT v1` section 5 EXCLUDES these from a primary fit and counts them in `n_age_lower_bound`; they are never silently treated as the bound value, because the datasets most likely to carry them are the ones with the oldest donors."}
       age_is_range: {range: boolean, description: "True if the SDRF gives a range (e.g. 60-69Y)."}
-      normalizer_version: {required: true, description: "Version of the age normalizer (SdrfAge) used. Two rows normalized by different versions are not comparable and this is how a caller can tell."}
+      age_source: {range: AgeSource, required: true, description: "Where `age_raw` came from: an SDRF cell, or the study owner's curation from a named source."}
+      age_source_reference: {description: "For a curated age, the source it was read from (for example 'PMID 40544948' or 'PRIDE PXD056433 project record'). NULL for an SDRF age, whose source is the SDRF."}
+      normalizer_version: {description: "Version of the software that turned `age_raw` into `age_years` (SdrfAge). Two rows normalized by different versions are not comparable and this is how a caller can tell. NULL when no normalizer ran, e.g. a curated age converted by hand; never a curation label (that is `age_source`)."}
 
   AgeEffect:
     description: >-

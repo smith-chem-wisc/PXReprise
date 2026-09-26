@@ -4,6 +4,43 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [0.23.0] - 2026-09-26
+
+**aging 069-071: the MCP, catalog, study-layer and ingest asks.** `INGESTER_VERSION` 0.16.0 -> 0.17.0
+(a finding's text and the SDRF run key), `CATALOG_VERSION` 6 -> 7 (the contaminant label is per
+dataset), aging study layer 0.3.0 -> 0.4.0 and `STUDY_INGESTER_VERSION` 0.4.0 -> 0.5.0
+(`sample_ages.age_source`). Core schema stays 0.0.11 (descriptions only). **A study delivery written
+for layer 0.3.0 must be re-delivered with `age_source`**; a catalog rebuild picks up the rest.
+
+### Changed
+- **The contaminant label is per dataset in the catalog** (aging 070, 57f). `protein_index.is_contaminant`
+  was `bool_or` over datasets, so human albumin read `true` while a target in every human search, and
+  an agent concluded it was excluded. It is replaced by `protein_index.n_datasets_contaminant`, and
+  `protein_datasets.is_contaminant` carries the label per dataset. `search` says the label is per dataset
+  when a hit has one. The site's "Proteins identified" count had the same fault (it dropped albumin
+  from the human count) and now counts an accession in a dataset where it was accepted and was not a
+  contaminant.
+- **Every MCP answer carries compact provenance** (aging 070, DATAREPO-58): `catalog_id`, the versions,
+  `n_bundles`, the catalog kind. The full bundle list is in `describe()` with no target. Nothing is
+  lost: `catalog_id` is the hash of exactly that list.
+- **A dropped occupancy duplicate says whether it matched the row kept** (aging 069, DATAREPO-53).
+  `occupancy_not_stored` now counts duplicates as identical or DIFFERENT, and from the same protein
+  group or another; `bundle.json` lists up to ten differing ones. On PXD024803 all 546 are identical
+  and from the same group (MetaMorpheus writing one group twice, aging's S34).
+- **The SDRF reader strips `-calib` / `-averaged` / `-calibrated` from `comment[data file]`**
+  (aging 069, DATAREPO-54), the same rule the USI path uses. An SDRF MetaMorpheus writes names the file
+  it searched, and without this the run silently got no sample, instrument or fraction.
+- `sex`, `organism_part`, `cell_type` and `disease` say that they hold ontology TERMS only, so a
+  named value with no term ("heart") is NULL there and verbatim in `sample_characteristics` (G74).
+- `docs/limitations.md` is re-measured on aging's 34-dataset catalog `deddfb23a567c7c7` (aging 070, 57b).
+
+### Added
+- **`sample_ages.age_source`** (`sdrf` | `curated`) and `age_source_reference` (aging 071, DATAREPO-59).
+  `normalizer_version` names software and is now nullable: NULL when no normalizer ran, never a
+  curation label.
+- **The MCP server says when its catalog file has been replaced** (`catalog_file_changed` in every
+  answer's provenance; aging 070, 57k). It keeps answering from the catalog it opened, on purpose.
+
 ## [0.22.0] - 2026-09-26
 
 **`pep` is marked run-relative, in the `sql` envelope and in the bundle (G70, pep 002).
