@@ -4,6 +4,18 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [0.24.1] - 2026-09-26
+
+The rest of aging 070's DATAREPO-57, in words only: no version but the package's moves.
+
+- **57i:** `describe()` with no target now opens with `read_first`: `target_decoy`'s three values, the
+  per-dataset contaminant label, organism as the searched database's, sorted group accessions, and
+  run-relative `pep`.
+- **57h:** `protein_groups.protein_group_id` says its accessions are sorted, so its first is no leader.
+- **57j:** `sample_characteristics.name` and `gene_resolutions.entry_accession` say what they join to
+  and that there is no `characteristic` column. The columns are not renamed: a rename breaks every
+  query already written against them, and the join is one line once it is written down.
+
 ## [0.24.0] - 2026-09-26
 
 **The public site, from aging's agent test drive (aging 069 section 3, 070).** Only `datarepo site`

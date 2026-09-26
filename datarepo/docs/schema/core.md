@@ -197,7 +197,7 @@ Every SDRF characteristic, kept verbatim, so nothing is lost to the curated colu
 | Column | Type | Req | Meaning |
 |---|---|---|---|
 | `sample_id` | [Sample](#sample) | yes | Sample this row describes. |
-| `name` | `string` | yes | SDRF column, e.g. characteristics[age]. |
+| `name` | `string` | yes | The SDRF column header, verbatim, e.g. characteristics[age] or characteristics[organism part]. This is the column to filter on; there is no `characteristic` column. |
 | `value` | `string` | yes | Value as written in the SDRF. |
 | `term` | `uriorcurie` |  | Ontology term for the value, where the SDRF gives one. |
 
@@ -305,7 +305,7 @@ QPX view: `pg` (table-level; column mapping not yet verified).
 
 | Column | Type | Req | Meaning |
 |---|---|---|---|
-| `protein_group_id` | `string` | key | <dataset_id>:<sorted accessions joined by ;> |
+| `protein_group_id` | `string` | key | <dataset_id>:<sorted accessions joined by ;>. The accessions are SORTED, so the first one in this id is the alphabetically first and nothing else: MetaMorpheus names no leading, razor or representative protein, and neither does this id (aging 070 57h). |
 | `dataset_id` | [Dataset](#dataset) | yes | Dataset this row belongs to (ProteomeXchange accession). |
 | `protein_accessions` | [Protein](#protein) [ ] | yes | All protein accessions the peptide maps to. |
 | `genes` | `string` [ ] |  | Gene names of the member proteins. |
@@ -489,7 +489,7 @@ Protein -> stable Ensembl gene, as logs' resolver (mzLib `EnsemblGeneResolver`, 
 |---|---|---|---|
 | `definition_id` | [Definition](#definition) | yes | `logs:DEF-GENE-RESOLUTION v1`. A run without Ensembl's xref is not v1 and is refused by the runner (logs 017 section 3). |
 | `accession` | `string` | yes | As the search database has it, variant suffix and all. |
-| `entry_accession` | `string` |  | The UniProt entry or unversioned RefSeq accession; verbatim otherwise. |
+| `entry_accession` | `string` |  | The UniProt entry or unversioned RefSeq accession; verbatim otherwise. Joins to `proteins.protein_accession` (the same accession under the name logs' artefact uses); the catalog's `protein_genes` view has already made that join. |
 | `isoform` | `integer` |  | UniProt isoform number. NULL: the accession has no `-N` suffix. |
 | `namespace` | `string` | yes | `uniprot`, `refseq` or `unrecognized`. |
 | `outcome` | [GeneResolutionOutcome](#generesolutionoutcome) | yes | What the resolver found for this protein. The same on every row of one protein. |
