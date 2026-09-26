@@ -4,6 +4,35 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [0.26.0] - 2026-09-26
+
+**SDRF provenance, the data-file gate, and "not available" kept (G62, G42).** Schema 0.0.11 ->
+**0.0.12** and `INGESTER_VERSION` 0.17.0 -> **0.18.0**: **every dataset must be re-ingested** before a
+0.26.0 build will load it. `CATALOG_VERSION` stays 8.
+
+### Added
+- **`sample_characteristics.source`** and **`source_reference`** (G62, sdrf D31 / SDRF-DR11): where each
+  value came from, per the SDRF's own `comment[<name> source]` or its row default
+  `comment[characteristics source]`, and the locator from `comment[<name> source reference]`. sdrf's
+  words, verbatim (deposited, pride project record, config, curated, inferred, default, publication);
+  not an enum, so a new word cannot fail an ingest. NULL when the SDRF records no source, which is
+  every deposited SDRF today: never assumed to be `deposited`.
+- **`runs.fraction_source`** and **`technical_replicate_source`** (SDRF-DR10), from
+  `comment[fraction identifier source]` / `comment[technical replicate source]`. NULL until sdrf's
+  drafter writes them; `runs.fraction`'s description says a drafted 1 may be a default.
+- **`sample_characteristics.value_reserved`** (G42): a `not available` / `not applicable` cell is now
+  KEPT as a row, flagged. It used to be dropped, so "asked, and not available" looked exactly like
+  "never asked". Count values with `NOT value_reserved`.
+- **`SdrfStatus.partial`** and **`unmatched`**, and findings `sdrf_partial` / `sdrf_unmatched`: the
+  data-file gate. An SDRF naming a file the search did not use left an assay pointing at no run, and
+  the integrity check refused the WHOLE bundle as an ingester bug, while any SDRF present was reported
+  `trusted`. Now the rows for searched runs are used, every searched run the SDRF misses gets a
+  synthetic sample, and the finding names both lists. An SDRF matching nothing is not used at all.
+
+### Changed
+- The catalog's `samples.<column>_name` descriptions (0.25.0) now say how to tell "asked, not
+  available" from "never asked".
+
 ## [0.25.0] - 2026-09-26
 
 **A tissue the SDRF names without an ontology term is no longer NULL (G74).** `CATALOG_VERSION`

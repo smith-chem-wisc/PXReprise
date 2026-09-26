@@ -18,7 +18,7 @@
 id: https://w3id.org/datarepo/core
 name: datarepo
 title: dataRepo core schema
-version: 0.0.11
+version: 0.0.12
 license: https://creativecommons.org/licenses/by/4.0/
 description: >-
   Generic core schema for an AI-ready repository of reanalyzed public proteomics datasets:
@@ -126,6 +126,14 @@ enums:
       config_fallback:
         description: No usable SDRF; design came from the pipeline's config.
       absent:
+      partial:
+        description: >-
+          The SDRF names files the search did not use, or misses runs it did. Only its rows for
+          searched runs are used; each run it misses gets a synthetic sample; a finding names both.
+      unmatched:
+        description: >-
+          The SDRF names none of the searched files, so it is not used at all and every run gets a
+          synthetic sample, as with no SDRF. A finding names the files it did name.
   ModUsage:
     description: How a modification entered the search (P1).
     permissible_values:
@@ -382,8 +390,11 @@ classes:
     attributes:
       sample_id: {range: Sample, required: true, description: "Sample this row describes."}
       name: {required: true, description: "The SDRF column header, verbatim, e.g. characteristics[age] or characteristics[organism part]. This is the column to filter on; there is no `characteristic` column."}
-      value: {required: true, description: "Value as written in the SDRF."}
+      value: {required: true, description: "Value as written in the SDRF, including a reserved word such as `not available` (see `value_reserved`)."}
+      value_reserved: {range: boolean, required: true, description: "True when the cell is an SDRF reserved word (`not available`, `not applicable`, `unknown`, `none`, `na`, `n/a`): the column was ASKED and no value was given. It is what separates 'asked, not available' from 'never asked' (G42), which is no row at all. Filter it out before counting values: a reserved cell is not an annotation."}
       term: {range: uriorcurie, description: "Ontology term for the value, where the SDRF gives one."}
+      source: {description: "Where this value came from, per the SDRF's own `comment[<name> source]` column or, failing that, its row default `comment[characteristics source]` (G62): sdrf's vocabulary, verbatim (D31 grain, sdrf 010-017): deposited, pride project record, config, curated, inferred, default (a value nothing established, e.g. a replicate of 1), publication (read from the paper or a supplement). Not an enum here: the words are sdrf's, and a new one must not fail an ingest. NULL when the SDRF records no source, which is every deposited SDRF; never assumed to be `deposited`."}
+      source_reference: {description: "Where exactly, when the SDRF says (`comment[<name> source reference]`, SDRF-DR11): a locator such as `mmc2.xlsx!Sheet1!R14C3` or a PMCID with its section. Verbatim; NULL when absent."}
 
   Run:
     description: One raw file.
@@ -394,8 +405,10 @@ classes:
       file_name: {required: true, description: "Raw file name as deposited."}
       sha256: {description: "SHA-256 of the file that was searched."}
       pride_checksum_sha1: {description: "Checksum published by the archive, for comparison with sha256 (F6)."}
-      fraction: {range: integer, description: "Fraction identifier from the SDRF."}
+      fraction: {range: integer, description: "Fraction identifier from the SDRF. A drafted SDRF writes 1 when nothing established it; read `fraction_source` before treating 1 as 'not fractionated'."}
+      fraction_source: {description: "Where the SDRF's fraction came from (`comment[fraction identifier source]`, SDRF-DR10): sdrf's vocabulary, verbatim (D31 grain, sdrf 010-017): deposited, pride project record, config, curated, inferred, default (a value nothing established, e.g. a replicate of 1), publication (read from the paper or a supplement). Not an enum here: the words are sdrf's, and a new one must not fail an ingest. NULL when the SDRF does not say, which is every deposited SDRF and every draft written before sdrf adds the column."}
       technical_replicate: {range: integer, description: "Technical replicate number."}
+      technical_replicate_source: {description: "Where the SDRF's technical replicate came from (`comment[technical replicate source]`, SDRF-DR10). Same vocabulary and NULL rule as `fraction_source`."}
       fragmentation: {multivalued: true, description: "HCD, EThcD, ETD… (T10)."}
       ms2_spectra: {range: integer, description: "Number of MS2 spectra in the file."}
       run_minutes: {range: float, description: "Acquisition length in minutes."}

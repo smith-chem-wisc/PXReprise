@@ -66,9 +66,15 @@ Do not present an empty result to such a question as "no effect found".
    hold terms only, so a named tissue is NULL there. **Resolved from catalog format 8:** the name is
    in the `<column>_name` beside each (§1).
 
-**Cases 1 and 2 are still indistinguishable**, in the term columns and in the `_name` columns alike,
-because the ingester stores no row for a `not available` cell (G42). Do not compute a coverage
-statistic from `samples`, and do not conclude from a NULL that a sample was never asked.
+**Cases 1 and 2 are indistinguishable in bundles written before datarepo 0.26.0**, because the
+ingester stored no row for a `not available` cell. From 0.26.0 (schema 0.0.12) it keeps one, with
+`sample_characteristics.value_reserved` true: a reserved row means asked and not answered, no row
+means never asked (G42). On an older catalog, do not conclude from a NULL that a sample was never
+asked.
+
+Where an SDRF says where its values came from (sdrf's drafted SDRFs do; deposited ones do not),
+`sample_characteristics.source` carries it: `default` means nothing established the value, and a
+drafted fraction of 1 may be exactly that (`runs.fraction_source`).
 
 ## 3 · Several tables are empty
 

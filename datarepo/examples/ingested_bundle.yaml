@@ -674,15 +674,23 @@ sample_characteristics:
 - sample_id: PXD999999:PXD999999-Sample-1
   name: characteristics[organism]
   value: Homo sapiens
+  value_reserved: false
+- sample_id: PXD999999:PXD999999-Sample-1
+  name: characteristics[organism part]
+  value: not available
+  value_reserved: true
+- sample_id: PXD999999:PXD999999-Sample-1
+  name: characteristics[disease]
+  value: not available
+  value_reserved: true
 - sample_id: PXD999999:PXD999999-Sample-1
   name: characteristics[biological replicate]
   value: '1'
+  value_reserved: false
 - sample_id: PXD999999:PXD999999-Sample-2
   name: characteristics[organism]
   value: Homo sapiens
-- sample_id: PXD999999:PXD999999-Sample-2
-  name: characteristics[biological replicate]
-  value: '2'
+  value_reserved: false
 samples:
 - sample_id: PXD999999:PXD999999-Sample-1
   dataset_id: PXD999999
