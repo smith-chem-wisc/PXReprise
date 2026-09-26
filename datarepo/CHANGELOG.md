@@ -4,6 +4,15 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [0.27.0] - 2026-09-26
+
+**`sample_characteristics.source_method`** (sdrf 019): how a `publication` value was read, from the
+SDRF's `comment[<name> source method]`: `rules`, `curator` or `model`, verbatim. sdrf had already built
+the column when our DR11 answer asked for it. Schema 0.0.12 -> **0.0.13**, `INGESTER_VERSION` 0.18.0 ->
+**0.19.0**. It follows 0.26.0 the same day, so **one re-ingest on 0.27.0 covers both**; 0.26.0 was
+never ingested by anyone. Tested against sdrf's stated grammar; no drafted file carrying the column
+has reached an ingest yet.
+
 ## [0.26.0] - 2026-09-26
 
 **SDRF provenance, the data-file gate, and "not available" kept (G62, G42).** Schema 0.0.11 ->
