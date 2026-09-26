@@ -41,8 +41,9 @@ SDRF said so. It is not evidence of sample annotation.
 
 **The zeros are not all "not recorded" (see §2).** `organism_part` holds an UBERON *term*, and the
 SDRFs here name tissues without one. So it is NULL for 51 samples whose SDRF says `heart`, `Urine`,
-`Blood` or `Blood serum` (PXD026608, PXD034432, PXD011314, PXD010115). Those names are in
-`sample_characteristics`.
+`Blood` or `Blood serum` (PXD026608, PXD034432, PXD011314, PXD010115). From catalog format 8
+(datarepo 0.25.0) the name is in `samples.organism_part_name`, filled for exactly those 51, and
+likewise `sex_name`, `cell_type_name` and `disease_name` (none filled on this corpus).
 
 **Ages: `sample_ages` holds 236 rows, one per sample, in 7 datasets, all hand-curated by aging**
 from each deposit's PRIDE record and paper (PXD047289, PXD047292, PXD051203, PXD051644, PXD056433,
@@ -62,11 +63,12 @@ Do not present an empty result to such a question as "no effect found".
 1. **Never asked.** 29 of 34 datasets have no SDRF at all.
 2. **Asked, and the answer was `not available`.** Stored as NULL, like case 1 (G42).
 3. **Answered with a name and no ontology term.** `sex`, `organism_part`, `cell_type` and `disease`
-   hold terms only, so a named tissue becomes NULL (§1). The column descriptions say so.
+   hold terms only, so a named tissue is NULL there. **Resolved from catalog format 8:** the name is
+   in the `<column>_name` beside each (§1).
 
-**The three are indistinguishable in `samples`.** Until they are (G42, G74), do not compute a
-coverage statistic from `samples`, and do not conclude from it that a sample has no tissue, sex or
-disease. Read `sample_characteristics`, which carries the producer's verbatim cell.
+**Cases 1 and 2 are still indistinguishable**, in the term columns and in the `_name` columns alike,
+because the ingester stores no row for a `not available` cell (G42). Do not compute a coverage
+statistic from `samples`, and do not conclude from a NULL that a sample was never asked.
 
 ## 3 · Several tables are empty
 

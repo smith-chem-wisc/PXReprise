@@ -4,6 +4,27 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [0.25.0] - 2026-09-26
+
+**A tissue the SDRF names without an ontology term is no longer NULL (G74).** `CATALOG_VERSION`
+7 -> 8. No re-ingest: `INGESTER_VERSION` stays 0.17.0 and schema 0.0.11. A catalog rebuild picks it up.
+
+### Added
+- **`samples.sex_name`, `organism_part_name`, `cell_type_name` and `disease_name`**, added by
+  `datarepo build` beside each term-only column. `organism_part` holds an UBERON term and nothing
+  else, so the 51 samples whose SDRF says `heart`, `Urine`, `Blood` or `Blood serum` (PXD026608,
+  PXD034432, PXD011314, PXD010115) read NULL, and "which datasets are heart?" came back empty. The
+  names come from `sample_characteristics`, which already kept every verbatim cell, parsed by the
+  ingester's own `sdrf._name`; `characteristics[...]` is preferred to `factor value[...]`, and two
+  names under one header are both kept. Names are never mapped to terms here. On aging's 34 datasets:
+  exactly those 51 samples are filled.
+- `search(kind='sample')` lists and matches the `_name` columns; `describe('samples')` documents them.
+
+### Not done
+- **G42 stays open:** a `not available` cell leaves no row in `sample_characteristics`, so a NULL
+  still cannot say "asked, not available" apart from "never asked". That needs an ingest change and a
+  re-ingest, and waits for the next schema change that forces one.
+
 ## [0.24.1] - 2026-09-26
 
 The rest of aging 070's DATAREPO-57, in words only: no version but the package's moves.
