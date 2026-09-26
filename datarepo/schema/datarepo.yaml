@@ -431,12 +431,12 @@ classes:
       retention_time_min: {range: float, description: "Retention time of the MS2 scan in minutes."}
       score: {range: float, description: "Search-engine score."}
       delta_score: {range: float, description: "Score difference to the next-best candidate."}
-      q_value: {range: float, minimum_value: 0, maximum_value: 1, required: true, description: "False discovery rate q-value (0-1)."}
+      q_value: {range: float, minimum_value: 0, maximum_value: 1, required: true, description: "False discovery rate q-value (0-1), from target-decoy counting over the search score. It does not depend on PEP, which makes it the more stable column across MetaMorpheus releases (pep 002)."}
       q_value_notch: {range: float, minimum_value: 0, maximum_value: 1, description: "q-value within the match's notch (mass-offset bin). Producers that accept a match on both q-values report counts that cannot be reproduced from q_value alone."}
       notch: {description: "The producer's notch assignment, verbatim. A search that leaves it unresolved reports several candidates separated by '|', and that text is the evidence for notch_ambiguous."}
       notch_ambiguous: {range: boolean, description: "The notch never resolved to one value. Producers exclude these from their headline identification count even though both q-values pass, so a count taken without this column cannot be reproduced (aging DEF-PSM-1PCT v1)."}
-      pep: {range: float, minimum_value: 0, maximum_value: 1, description: "Posterior error probability (0-1)."}
-      pep_q_value: {range: float, minimum_value: 0, maximum_value: 1, description: "q-value computed from PEP."}
+      pep: {range: float, minimum_value: 0, maximum_value: 1, description: "The producer's posterior error probability (0-1). RUN-RELATIVE: MetaMorpheus trains its PEP model afresh on every search, from that search's own targets and decoys, so values from two datasets come from two models even on one release. Rank or threshold within a dataset; never compare values across datasets or releases (pep 002, definition pep:DEF-PEP)."}
+      pep_q_value: {range: float, minimum_value: 0, maximum_value: 1, description: "q-value from ordering the PSMs by `pep`, so it moves whenever `pep` does. A count at a threshold compares across datasets within one MetaMorpheus release; across releases use `q_value`, which does not depend on PEP (pep 002)."}
       mass_error_ppm: {range: float, description: "Precursor mass error in ppm."}
       target_decoy: {range: TargetDecoy, required: true, description: "Target, decoy or contaminant."}
       protein_accessions: {range: Protein, multivalued: true, description: "All protein accessions the peptide maps to."}
@@ -460,7 +460,7 @@ classes:
       base_sequence: {required: true, description: "Unmodified amino-acid sequence."}
       best_q_value: {range: float, minimum_value: 0, maximum_value: 1, description: "Lowest q-value among the supporting PSMs."}
       best_q_value_notch: {range: float, minimum_value: 0, maximum_value: 1, description: "Lowest notch q-value among the supporting PSMs."}
-      best_pep: {range: float, minimum_value: 0, maximum_value: 1, description: "Lowest PEP among the supporting PSMs."}
+      best_pep: {range: float, minimum_value: 0, maximum_value: 1, description: "Lowest `pep` among the supporting PSMs. RUN-RELATIVE, like `Psm.pep`: rank or threshold within the dataset, never compare values across datasets or releases (definition pep:DEF-PEP)."}
       target_decoy: {range: TargetDecoy, required: true, description: "Target, decoy or contaminant. Decoy peptidoforms are kept so a caller can recompute FDR."}
       n_psms: {range: integer, description: "Number of PSMs supporting this row."}
       protein_group_id: {range: ProteinGroup, description: "Protein group the peptidoform was assigned to."}

@@ -4,6 +4,34 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [0.22.0] - 2026-09-26
+
+**`pep` is marked run-relative, in the `sql` envelope and in the bundle (G70, pep 002).
+`INGESTER_VERSION` 0.15.0 -> 0.16.0, because every bundle with PSMs gains one `definitions` row.**
+Schema stays 0.0.11 (descriptions only) and `CATALOG_VERSION` stays 6. No re-ingest is needed for
+the guard: it lives in the server and works on any catalog. Re-ingest when convenient to carry the
+definition.
+
+### Added
+- **`datarepo_sql` says when a query reads `pep`, `best_pep` or `pep_q_value`** (`run_relative_columns`,
+  `run_relative_means`). MetaMorpheus trains its PEP model afresh on every search, so two datasets'
+  `pep` come from two models even on one release. The note says to rank or threshold within a
+  dataset and to compare counts at a threshold across datasets. It warns and does not refuse: a
+  within-dataset ranking is a correct use, and the query text cannot tell the two apart. It sees the
+  column through aliases, filters, CTEs and `*` over a table that holds it. A star can over-report
+  (`count(*) FROM (SELECT * FROM psms)`), and that side was chosen on purpose.
+- **`pep:DEF-PEP`**, pep's text, carried in every bundle with PSMs. Its version is
+  `MetaMorpheus <release>; regime <standard|top-down|crosslink>`. No PEP method id exists, so the
+  release and the regime stand in for one. The regime is read from the task files by MetaMorpheus's
+  own rule (`FdrAnalysisEngine.cs:410-416`), and it is `not recorded` when the rule is not certain
+  (glyco, RNA, disagreeing tasks). All 204 stored bundles read `standard`.
+- `Sandbox.referenced_columns`: the column names a statement names, from DuckDB's parse.
+
+### Changed
+- The descriptions of `psms.pep`, `psms.pep_q_value`, `peptidoforms.best_pep` and `psms.q_value` say
+  what compares and what does not. `q_value` does not depend on PEP and is the stable column across
+  releases.
+
 ## [0.21.0] - 2026-09-25
 
 **PTM site occupancy is stored (D29). Schema 0.0.10 -> 0.0.11 and `INGESTER_VERSION` 0.14.0 -> 0.15.0,

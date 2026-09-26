@@ -255,12 +255,12 @@ QPX view: `psm` (table-level; column mapping not yet verified).
 | `retention_time_min` | `float` |  | Retention time of the MS2 scan in minutes. |
 | `score` | `float` |  | Search-engine score. |
 | `delta_score` | `float` |  | Score difference to the next-best candidate. |
-| `q_value` | `float` | yes | False discovery rate q-value (0-1). (range 0..1) |
+| `q_value` | `float` | yes | False discovery rate q-value (0-1), from target-decoy counting over the search score. It does not depend on PEP, which makes it the more stable column across MetaMorpheus releases (pep 002). (range 0..1) |
 | `q_value_notch` | `float` |  | q-value within the match's notch (mass-offset bin). Producers that accept a match on both q-values report counts that cannot be reproduced from q_value alone. (range 0..1) |
 | `notch` | `string` |  | The producer's notch assignment, verbatim. A search that leaves it unresolved reports several candidates separated by '\|', and that text is the evidence for notch_ambiguous. |
 | `notch_ambiguous` | `boolean` |  | The notch never resolved to one value. Producers exclude these from their headline identification count even though both q-values pass, so a count taken without this column cannot be reproduced (aging DEF-PSM-1PCT v1). |
-| `pep` | `float` |  | Posterior error probability (0-1). (range 0..1) |
-| `pep_q_value` | `float` |  | q-value computed from PEP. (range 0..1) |
+| `pep` | `float` |  | The producer's posterior error probability (0-1). RUN-RELATIVE: MetaMorpheus trains its PEP model afresh on every search, from that search's own targets and decoys, so values from two datasets come from two models even on one release. Rank or threshold within a dataset; never compare values across datasets or releases (pep 002, definition pep:DEF-PEP). (range 0..1) |
+| `pep_q_value` | `float` |  | q-value from ordering the PSMs by `pep`, so it moves whenever `pep` does. A count at a threshold compares across datasets within one MetaMorpheus release; across releases use `q_value`, which does not depend on PEP (pep 002). (range 0..1) |
 | `mass_error_ppm` | `float` |  | Precursor mass error in ppm. |
 | `target_decoy` | [TargetDecoy](#targetdecoy) | yes | Target, decoy or contaminant. |
 | `protein_accessions` | [Protein](#protein) [ ] |  | All protein accessions the peptide maps to. |
@@ -288,7 +288,7 @@ QPX view: `feature` (table-level; column mapping not yet verified).
 | `base_sequence` | `string` | yes | Unmodified amino-acid sequence. |
 | `best_q_value` | `float` |  | Lowest q-value among the supporting PSMs. (range 0..1) |
 | `best_q_value_notch` | `float` |  | Lowest notch q-value among the supporting PSMs. (range 0..1) |
-| `best_pep` | `float` |  | Lowest PEP among the supporting PSMs. (range 0..1) |
+| `best_pep` | `float` |  | Lowest `pep` among the supporting PSMs. RUN-RELATIVE, like `Psm.pep`: rank or threshold within the dataset, never compare values across datasets or releases (definition pep:DEF-PEP). (range 0..1) |
 | `target_decoy` | [TargetDecoy](#targetdecoy) | yes | Target, decoy or contaminant. Decoy peptidoforms are kept so a caller can recompute FDR. |
 | `n_psms` | `integer` |  | Number of PSMs supporting this row. |
 | `protein_group_id` | [ProteinGroup](#proteingroup) |  | Protein group the peptidoform was assigned to. |
