@@ -333,7 +333,7 @@ classes:
     attributes:
       dataset_id: {identifier: true, pattern: "^(PXD|MSV|JPST|IPX)[0-9]+$", description: "ProteomeXchange accession, e.g. PXD036557."}
       title: {description: "Title from the archive."}
-      organisms: {range: uriorcurie, multivalued: true, required: true, description: "NCBITaxon IDs."}
+      organisms: {range: uriorcurie, multivalued: true, required: true, description: "NCBITaxon IDs of the protein DATABASE the search used, as the producer declares it. Not a statement about the samples: PXD050351's title says mice and it is a human cell line, and this field can say only which proteome was searched (aging 070 57g). Sample annotation, where any exists, is in `samples` and `sample_characteristics`."}
       acquisition: {range: Acquisition, required: true, description: "Acquisition mode."}
       quant_method: {range: QuantMethod, required: true, description: "Quantification principle."}
       labelling: {range: Labelling, required: true, description: "Label reagent, if any."}

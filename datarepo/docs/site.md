@@ -17,7 +17,10 @@ datarepo site <catalog.duckdb> --out <dir> [--base-url URL] [--data-url URL] [--
 | `index.html` | people: every dataset, its headline counts, and the catalog's id | always |
 | `datasets/<id>.html` | people and search engines: one page per dataset, with a [Bioschemas Dataset](https://bioschemas.org/profiles/Dataset/1.0-RELEASE) block | always |
 | `llms.txt` | agents: what the repository is, the rules for reading it, and every dataset in one line ([llmstxt.org](https://llmstxt.org)) | always |
-| `datasets.json` | programs: the same facts as the pages | always |
+| `datasets.json` | programs: a small index, one entry per dataset, with links | always |
+| `datasets/<accession>.json` | programs: every fact on that dataset's page | always |
+| `proteins/index.json`, `proteins/<prefix>.json` | which datasets have accepted evidence for an accession; shards named by accession prefix, none over 150 KB | always |
+| `genes/<letter>.json` | gene symbol to accessions | always |
 | `style.css` | the pages, in light and dark mode | always |
 | `croissant.json` | ML loaders: every Parquet file with its SHA-256, one record set per dataset and table ([Croissant 1.0](https://docs.mlcommons.org/croissant/docs/croissant-spec.html)) | with `--data-url` |
 | `sitemap.xml`, `robots.txt` | search engines | with `--base-url` |

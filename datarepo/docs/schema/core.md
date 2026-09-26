@@ -144,7 +144,7 @@ QPX view: `dataset` (table-level; column mapping not yet verified).
 |---|---|---|---|
 | `dataset_id` | `string` | key | ProteomeXchange accession, e.g. PXD036557. (pattern `^(PXD|MSV|JPST|IPX)[0-9]+$`) |
 | `title` | `string` |  | Title from the archive. |
-| `organisms` | `uriorcurie` [ ] | yes | NCBITaxon IDs. |
+| `organisms` | `uriorcurie` [ ] | yes | NCBITaxon IDs of the protein DATABASE the search used, as the producer declares it. Not a statement about the samples: PXD050351's title says mice and it is a human cell line, and this field can say only which proteome was searched (aging 070 57g). Sample annotation, where any exists, is in `samples` and `sample_characteristics`. |
 | `acquisition` | [Acquisition](#acquisition) | yes | Acquisition mode. |
 | `quant_method` | [QuantMethod](#quantmethod) | yes | Quantification principle. |
 | `labelling` | [Labelling](#labelling) | yes | Label reagent, if any. |

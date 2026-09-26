@@ -4,6 +4,43 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [0.24.0] - 2026-09-26
+
+**The public site, from aging's agent test drive (aging 069 section 3, 070).** Only `datarepo site`
+changed, plus two descriptions. No re-ingest: `INGESTER_VERSION` stays 0.17.0, schema 0.0.11,
+`CATALOG_VERSION` 7. The site now refuses a catalog older than format 7, because counting proteins
+from one would use the corpus-wide contaminant flag that dropped albumin.
+
+### Changed
+- **`datasets.json` is a small index** (55a / 57a): one entry per dataset with its counts, summary,
+  finding counts by severity and finding types, and links. Every fact on a page is in
+  `datasets/<id>.json`. The single file with everything was cut off by agent fetch tools after
+  about 19 of 26 entries, and the agent could not tell.
+- **Absolute URLs** (`page_url`, `json_url`, `catalog.base_url`) beside the relative paths whenever
+  `--base-url` is given (55b).
+- **Every modification is published per dataset** (55c), on the page and in its JSON. The top-10 list
+  made the eleventh read as zero.
+- **Findings are summarised by severity and type** at the top of each page and in the index (55d, 57d),
+  instead of one bare count. Whether a dataset is usable for a question is left to the question: a
+  verdict is a definition, and it would be the producer's to publish.
+- **The corpus at a glance**: datasets by organism x enrichment on the front page, and a
+  "Proteins, whole-proteome datasets" figure beside "Proteins identified" (57d).
+- **Organism is labelled as the searched database's** on every page, in the JSON and in
+  `datasets.organisms`' description (57g).
+- **The public pipeline commit is linked when the producer records one** (55e): the site reads
+  `pipeline.public_repo` / `pipeline.public_commit` from the bundle's own copy of the provenance,
+  matched by the private commit. No schema change and no re-ingest: a producer adds the two fields
+  and the next ingest carries them.
+
+### Added
+- **Protein-level JSON** (DATAREPO-56): `proteins/index.json` lists every shard by accession prefix,
+  and each shard gives, per accession with accepted evidence, the datasets where a protein group or a
+  peptidoform passed, with the contaminant label as that dataset has it. `genes/<letter>.json` maps a
+  gene symbol to its accessions. Shards are split until none exceeds 150 KB: a fixed two-character
+  prefix put 3.6 MB in `Q9.json` on aging's 34 datasets.
+- `llms.txt` points at both, and says that contaminant is per dataset, that organism is the searched
+  database's, and that `pep` does not compare across datasets.
+
 ## [0.23.0] - 2026-09-26
 
 **aging 069-071: the MCP, catalog, study-layer and ingest asks.** `INGESTER_VERSION` 0.16.0 -> 0.17.0
