@@ -269,7 +269,7 @@ QPX view: `psm` (table-level; column mapping not yet verified).
 | `pep_q_value` | `float` |  | q-value from ordering the PSMs by `pep`, so it moves whenever `pep` does. A count at a threshold compares across datasets within one MetaMorpheus release; across releases use `q_value`, which does not depend on PEP (pep 002). (range 0..1) |
 | `mass_error_ppm` | `float` |  | Precursor mass error in ppm. |
 | `target_decoy` | [TargetDecoy](#targetdecoy) | yes | Target, decoy or contaminant. |
-| `protein_accessions` | [Protein](#protein) [ ] |  | All protein accessions the peptide maps to. |
+| `protein_accessions` | [Protein](#protein) [ ] |  | The accessions MetaMorpheus's PARSIMONY assigned the match to (its `Protein Accession` column), NOT every protein whose sequence contains the peptide: a peptide shared by a canonical and an isoform lists only the isoform when the dataset also holds a peptide unique to that isoform (aging 075, REQ-DATAREPO-5). |
 | `ambiguity_level` | `string` |  | Producer's ambiguity level (e.g. MetaMorpheus 1-5), including I/L. |
 | `localization_score` | `float` |  | Producer's modification-localization score. |
 | `search` | `string` |  | Which search produced it (standard, gptmd, glyco_*). |
@@ -298,9 +298,9 @@ QPX view: `feature` (table-level; column mapping not yet verified).
 | `target_decoy` | [TargetDecoy](#targetdecoy) | yes | Target, decoy or contaminant. Decoy peptidoforms are kept so a caller can recompute FDR. |
 | `n_psms` | `integer` |  | Number of PSMs supporting this row. |
 | `protein_group_id` | [ProteinGroup](#proteingroup) |  | Protein group the peptidoform was assigned to. |
-| `protein_accessions` | [Protein](#protein) [ ] |  | All protein accessions the peptide maps to. |
-| `is_unique` | `boolean` |  | Maps to exactly one protein (R11, mzLib REQ-MZLIB-1). |
-| `is_isoform_specific` | `boolean` |  | Distinguishes one isoform (O-section questions). |
+| `protein_accessions` | [Protein](#protein) [ ] |  | The accessions MetaMorpheus's PARSIMONY assigned the peptide to, NOT every protein whose sequence contains it. A peptide shared by a canonical and an isoform lists only the isoform when the dataset also holds a peptide unique to that isoform (aging 075, REQ-DATAREPO-5). |
+| `is_unique` | `boolean` |  | PARSIMONY-unique: `protein_accessions` holds exactly one accession. It is computed from the parsimony list, not from the searched sequences, so it is `true` for a peptide that occurs in several proteins whenever parsimony assigned it to one of them (aging 075: a fibronectin peptide in P02751 and three of its isoforms reads `true`). For sequence-level specificity, check the searched database (G76). (R11, mzLib REQ-MZLIB-1) |
+| `is_isoform_specific` | `boolean` |  | NOT POPULATED: NULL on every row. The ingester does not compute it yet (G76); NULL means unknown, never 'not isoform-specific'. Do not filter on it. |
 | `engine_full_sequences` | `string` [ ] |  | The producer's own notation for this peptidoform, VERBATIM (MetaMorpheus `Full Sequence`, engine modification names such as `[Common Biological:Phosphorylation on T]`). A set, not a pick: when two engine names resolve to one UNIMOD accession, one `peptidoform` comes from two producer strings, and both are listed. `peptidoform` is the UNIMOD-resolved ProForma key; this is the engine-name form, and it is the only place a modification with no UNIMOD accession keeps its name rather than a mass tag (ptmQtl 002, DATAREPO-P3). Not ProForma: engine names are not a ProForma controlled vocabulary. |
 
 ## ProteinGroup
@@ -313,7 +313,7 @@ QPX view: `pg` (table-level; column mapping not yet verified).
 |---|---|---|---|
 | `protein_group_id` | `string` | key | <dataset_id>:<sorted accessions joined by ;>. The accessions are SORTED, so the first one in this id is the alphabetically first and nothing else: MetaMorpheus names no leading, razor or representative protein, and neither does this id (aging 070 57h). |
 | `dataset_id` | [Dataset](#dataset) | yes | Dataset this row belongs to (ProteomeXchange accession). |
-| `protein_accessions` | [Protein](#protein) [ ] | yes | All protein accessions the peptide maps to. |
+| `protein_accessions` | [Protein](#protein) [ ] | yes | The group's member accessions as MetaMorpheus's parsimony formed it (aging 075, REQ-DATAREPO-5). |
 | `genes` | `string` [ ] |  | Gene names of the member proteins. |
 | `target_decoy` | [TargetDecoy](#targetdecoy) |  | Target, decoy or contaminant, as the producer classified the group. |
 | `q_value` | `float` |  | Protein-group q-value. (range 0..1) |

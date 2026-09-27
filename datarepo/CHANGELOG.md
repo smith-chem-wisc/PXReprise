@@ -4,6 +4,18 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [0.28.1] - 2026-09-27
+
+**Descriptions only (aging 075, REQ-DATAREPO-5 (a) and (b)).** No row, schema version or
+`INGESTER_VERSION` changes, so a re-ingest on 0.28.0 is not affected.
+- `psms.protein_accessions`, `peptidoforms.protein_accessions` and `protein_groups.protein_accessions`
+  are MetaMorpheus's PARSIMONY assignment, not "all protein accessions the peptide maps to".
+- `peptidoforms.is_unique` is described as parsimony-unique. It is `len(protein_accessions) == 1`,
+  so it reads `true` for a peptide that occurs in several proteins whenever parsimony assigned it to
+  one of them.
+- `peptidoforms.is_isoform_specific` says it is not populated (NULL on every row) and must not be
+  filtered on. Computing both columns from the searched sequences is G76.
+
 ## [0.28.0] - 2026-09-27
 
 **SDRF provenance cells are kept as written (G75).** `INGESTER_VERSION` 0.19.0 -> **0.20.0**; schema
