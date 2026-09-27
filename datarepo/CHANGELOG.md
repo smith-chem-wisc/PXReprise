@@ -4,6 +4,32 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [0.28.0] - 2026-09-27
+
+**SDRF provenance cells are kept as written (G75).** `INGESTER_VERSION` 0.19.0 -> **0.20.0**; schema
+stays **0.0.13** (descriptions only, no column changed). It follows 0.27.0, which nobody has ingested
+yet, so **one re-ingest on 0.28.0 covers 0.26.0, 0.27.0 and this**.
+
+### Fixed
+- **A reserved word in a provenance column no longer becomes NULL, or someone else's word.**
+  `sample_characteristics.source` / `source_reference` / `source_method` and
+  `runs.fraction_source` / `technical_replicate_source` went through the VALUE filter, which turns
+  `not available`, `not applicable` and the rest into NULL. There were two effects:
+  - a row default of `not applicable` became NULL, which the schema defines as "the SDRF records no
+    source";
+  - worse, a column's own `not applicable` fell through to the row default. On sdrf's drafted
+    PXD016662, 65 biological-replicate cells whose own source is `not applicable` were stored as
+    `publication`.
+
+  Only an empty cell is NULL now. Found by running sdrf's three drafts (G62), not by review. The
+  test covers every reserved word in all five columns. No stored bundle changes: no deposited SDRF
+  in aging's corpus carries a source column.
+
+### Changed
+- `ptm_pairs.value` states ptmQtl's meaning of a NULL type-P value (ptmQtl 012, P13). It means the
+  doubly marked peptidoform was identified in `n` runs but never quantified, never zero
+  co-occupancy.
+
 ## [0.27.0] - 2026-09-26
 
 **`sample_characteristics.source_method`** (sdrf 019): how a `publication` value was read, from the
