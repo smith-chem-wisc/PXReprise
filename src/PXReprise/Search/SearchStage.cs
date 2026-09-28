@@ -220,7 +220,8 @@ public static class SearchStage
                 try
                 {
                     var written = SpectralLibrary.Register(lib, sd, $"{r.RunDate}/{r.Accession}".Trim('/'), r.Accession ?? "", release);
-                    libRec["written"] = written;
+                    // A copy: the registry's own node already has a parent there.
+                    libRec["written"] = written.DeepClone();
                     prov.Output(Path.Combine(lib.Root, written["path"]!.GetValue<string>()));
                     prov.Note($"spectral library {lib.Organism} v{(int)written["version"]!:000}: {(int)written["n_spectra"]!:N0} spectra, {written["path"]}");
                 }

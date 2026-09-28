@@ -86,7 +86,8 @@ public sealed class AgingProvenance
     public void Input(string path) => ((JsonArray)Record["inputs"]!).Add(Entry(path, useRoot: true));
     public void Output(string path) => ((JsonArray)Record["outputs"]!).Add(Entry(path, useRoot: true, reuse: false));
     public void Note(string text) => ((JsonArray)Record["notes"]!).Add(text);
-    public void Set(string key, JsonNode? value) => Record[key] = value;
+    /// <summary>Sets a top-level block. A node that already belongs to another tree is copied (a JsonNode has one parent).</summary>
+    public void Set(string key, JsonNode? value) => Record[key] = value?.Parent is null ? value : value.DeepClone();
     public void Set<T>(string key, T value) => Record[key] = JsonSerializer.SerializeToNode(value, Envelope.Json);
 
     public string Write(string dir)

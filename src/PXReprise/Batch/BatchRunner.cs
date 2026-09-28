@@ -341,8 +341,11 @@ public sealed class BatchRunner
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            Log($"{acc} SEARCH could not start: {ex.Message}");
-            Record(acc, ("status", "search_failed"), ("detail", ex.Message));
+            // The stage threw: before MetaMorpheus ran (setup) or after it (a bug in our own bookkeeping). Say which
+            // could not be told apart from the message alone, so keep the type and where the output stands.
+            bool ran = Directory.Exists(Path.Combine(d, "04_search", "mm"));
+            Log($"{acc} SEARCH STAGE FAILED ({ex.GetType().Name}, MetaMorpheus {(ran ? "HAD run" : "had not run")}): {ex.Message}");
+            Record(acc, ("status", "search_failed"), ("detail", $"{ex.GetType().Name}: {ex.Message}"), ("metamorpheus_ran", ran));
             return;
         }
         var prov = JsonNode.Parse(File.ReadAllText(outcome.ProvenanceFile))!;

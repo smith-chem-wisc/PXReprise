@@ -18,6 +18,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\PXReprise\PXReprise.csproj" />
+    <!-- Built before the tests, not referenced: the search-stage tests launch it as the MetaMorpheus CMD. -->
+    <ProjectReference Include="..\FakeMetaMorpheus\FakeMetaMorpheus.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <ItemGroup>
