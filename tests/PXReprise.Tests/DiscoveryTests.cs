@@ -31,6 +31,7 @@ public class DiscoveryTests
     [TestCase("data-independent acquisition", null, "dia")]
     [TestCase("", "timsTOF Pro 2", "timstof")]
     [TestCase("SILAC labelled cells", null, "metabolic_labelling")]
+    [TestCase("TMT 11-plex with a SILAC spike-in", null, "mixed_labelling: needs a hand decision")]
     public void WhatNoProfileTakesIsNamedByTheCapabilityItNeeds(string text, string? instrument, string capability)
     {
         var r = TestSupport.Record("PXD000012", "Liver in type 2 diabetes", text,

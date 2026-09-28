@@ -5,7 +5,11 @@ namespace PXReprise.Discovery;
 
 public enum AcquisitionMode { Dda, Dia }
 
-public enum Labelling { LabelFree, Isobaric, Metabolic }
+/// <summary>
+/// <see cref="Mixed"/>: the record names both an isobaric and a metabolic label (e.g. PXD047864, PXD054682). The text
+/// cannot say which the search needs, so no profile takes it and it waits for a hand decision.
+/// </summary>
+public enum Labelling { LabelFree, Isobaric, Metabolic, Mixed }
 
 public enum InstrumentClass { OrbitrapHcdOnly, OrbitrapHybrid, Astral, Timstof, ThermoLowRes, Sciex, Waters, BrukerOther, Unknown }
 
@@ -85,7 +89,13 @@ public static class AcquisitionClassifier
         var dia = Dia.Match(text);
         var iso = Isobaric.Match(text);
         var met = Metabolic.Match(text);
-        var labelling = iso.Success ? Labelling.Isobaric : met.Success ? Labelling.Metabolic : Labelling.LabelFree;
+        var labelling = (iso.Success, met.Success) switch
+        {
+            (true, true) => Labelling.Mixed,
+            (true, false) => Labelling.Isobaric,
+            (false, true) => Labelling.Metabolic,
+            _ => Labelling.LabelFree,
+        };
         string enrichment = Enriched.IsMatch(text)
             ? EnrichmentKinds.FirstOrDefault(k => k.Pattern.IsMatch(text)).Kind ?? "other"
             : "none";
