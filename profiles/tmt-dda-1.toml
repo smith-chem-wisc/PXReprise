@@ -21,12 +21,15 @@ timeout_h = 6
 
 [databases.human]
 proteome = "uniprotkb_proteome_UP000005640_AND_revi_2026_09_18_agingPTM-v1.xml"
+taxon = 9606
 
 [databases.mouse]
 proteome = "uniprotkb_proteome_UP000000589_AND_revi_2026-09-22_agingPTM-v1.xml"
+taxon = 10090
 
 [databases.rat]
 proteome = "uniprotkb_proteome_UP000002494_AND_revi_2026-09-22_agingPTM-v1.xml"
+taxon = 10116
 
 [contaminants]
 panel = "MetaMorpheusContaminants.xml"
@@ -42,6 +45,7 @@ max_files = 60
 probe = "probe_spread"
 max_est_ms2 = 1_500_000
 max_file_mb = 5000
+defer_if_median_file_mb = 2200   # EBI drops very large transfers and a retry re-pays from zero (aging S40)
 
 [qc]
 ms2_analyzer = "orbitrap"

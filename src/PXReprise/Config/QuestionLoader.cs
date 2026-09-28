@@ -71,13 +71,27 @@ public static class QuestionLoader
 
         var pub = root.OptionalTable("publish");
         string? studyLayer = pub?.OptionalString("study_layer");
+        string? manifest = pub?.OptionalString("manifest");
+        var command = pub?.StringList("command") ?? Array.Empty<string>();
         pub?.RefuseUnknownKeys();
+
+        BatchSettings? batch = null;
+        if (root.OptionalTable("batch") is { } b)
+        {
+            batch = new BatchSettings(Abs(dir, b.RequiredString("run_root")), Abs(dir, b.RequiredString("state_dir")),
+                Abs(dir, b.RequiredString("queue")));
+            b.RefuseUnknownKeys();
+        }
 
         root.RefuseUnknownKeys();
         return new Question(name, description, file, profiles, keywords, organisms,
             new RelevanceRules(require, exclude, unless, decisions), overlays, requiredTraits, optionalTraits,
-            traitsSource, holds, studyLayer);
+            traitsSource, holds, studyLayer, batch,
+            new PublishSettings(manifest is null ? null : Abs(dir, manifest), command));
     }
+
+    /// <summary>A path in a question file is relative to the file, so a project folder can move.</summary>
+    private static string Abs(string dir, string path) => Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(dir, path));
 
     /// <summary>
     /// <c>decisions.tsv</c>: a header <c>accession	verdict	reason</c>, then one row per hand call. A reason is required:

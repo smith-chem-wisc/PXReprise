@@ -35,4 +35,15 @@ public sealed record Question(
     IReadOnlyList<string> OptionalTraits,
     string? TraitsSource,
     IReadOnlyDictionary<string, string> Holds,
-    string? StudyLayer);
+    string? StudyLayer,
+    BatchSettings? Batch = null,
+    PublishSettings? Publish = null);
+
+/// <summary>Where a question's batch keeps its run folders and its own state (queue, state.json, log, STOP).</summary>
+public sealed record BatchSettings(string RunRoot, string StateDir, string Queue);
+
+/// <summary>
+/// How a question's searched datasets reach its repository: the dataRepo manifest the batch appends to, and the command
+/// run after every ingest (rebuild the catalog, regenerate the site). The command is the question's own.
+/// </summary>
+public sealed record PublishSettings(string? Manifest, IReadOnlyList<string> Command);

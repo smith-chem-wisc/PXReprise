@@ -13,7 +13,7 @@ namespace PXReprise;
 public static class Program
 {
     /// <summary>The verbs, listed by the <c>version</c> verb. Keep in step with <see cref="Dispatch"/>.</summary>
-    public static readonly string[] Verbs = { "version", "profiles", "validate", "census", "fetch", "qc", "search" };
+    public static readonly string[] Verbs = { "version", "profiles", "validate", "census", "fetch", "qc", "search", "batch" };
 
     /// <summary>Where profiles are read from when --profiles is not given: beside the executable.</summary>
     public static string DefaultProfilesDir => Path.Combine(AppContext.BaseDirectory, "profiles");
@@ -151,6 +151,49 @@ public static class Program
                     args.Required("spectra"), args.Required("out"), args.Required("qc"), List(args.Option("extra-db")),
                     List(args.Option("exclude")), args.Option("run-date"), args.Option("accession"));
                 return await Search.SearchStage.RunAsync(request, ct).ConfigureAwait(false);
+            }
+
+            case "batch":
+            {
+                // pxreprise batch run|status|stop <question.toml> [--machine m.toml] [--run-date D]
+                var rest = args.Words.Skip(1).ToList();
+                if (rest.Count != 2 || rest[0] is not ("run" or "status" or "stop"))
+                    throw new UsageException("usage: pxreprise batch run|status|stop <question.toml> --machine m.toml");
+                args.AllowOnly("machine", "profiles", "run-date");
+                var q = QuestionLoader.Load(rest[1]);
+                var b = q.Batch ?? throw new ConfigException(q.SourceFile, "a batch needs a [batch] table");
+                Directory.CreateDirectory(b.StateDir);
+                string stop = Path.Combine(b.StateDir, "STOP"), stateFile = Path.Combine(b.StateDir, "state.json");
+                switch (rest[0])
+                {
+                    case "stop":
+                        // Taken at the top of the loop: the search in flight, its cleanup and delivery finish first.
+                        await File.WriteAllTextAsync(stop, $"Stop requested {DateTime.UtcNow:o}", ct).ConfigureAwait(false);
+                        return new { stop_written = stop };
+                    case "status":
+                    {
+                        var ds = File.Exists(stateFile) ? System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(stateFile, ct).ConfigureAwait(false))!["datasets"]!.AsObject() : new System.Text.Json.Nodes.JsonObject();
+                        string pidFile = Path.Combine(b.StateDir, "driver.pid");
+                        return new
+                        {
+                            driver_pid = File.Exists(pidFile) ? (await File.ReadAllTextAsync(pidFile, ct).ConfigureAwait(false)).Trim() : null,
+                            stop_pending = File.Exists(stop),
+                            datasets = ds.Count,
+                            by_status = ds.GroupBy(kv => kv.Value?["status"]?.GetValue<string>() ?? "?").OrderByDescending(g => g.Count()).ToDictionary(g => g.Key, g => g.Count()),
+                        };
+                    }
+                    default:
+                    {
+                        var machine = Machine.Load(args.Required("machine"));
+                        var profiles = ProfileLoader.LoadDirectory(ProfilesDir(args));
+                        if (File.Exists(stop)) File.Delete(stop);
+                        using var client = new PrideArchiveClient();
+                        var runner = new Batch.BatchRunner(q, profiles, machine, new Fetch.PrideFiles(client), new PrideProjectSearch(client),
+                            args.Option("run-date") ?? DateTime.UtcNow.ToString("yyyy-MM-dd"));
+                        await runner.RunAsync(Batch.BatchRunner.LoadQueue(b.Queue), ct).ConfigureAwait(false);
+                        return new { finished = true };
+                    }
+                }
             }
 
             default:

@@ -25,9 +25,16 @@ public sealed record ProfileAccepts(
     internal static string Name<T>(T value) where T : struct, Enum => ProfileLoader.Snake(value.ToString());
 }
 
-public sealed record OrganismDatabase(string Proteome, IReadOnlyList<string> Extra);
+/// <summary>An organism's search database. <see cref="Taxon"/> is the NCBI taxon the repository records for it.</summary>
+public sealed record OrganismDatabase(string Proteome, IReadOnlyList<string> Extra, int? Taxon = null);
 
-public sealed record DepositPolicy(bool WholeDeposit, int MaxFiles, string Probe, long MaxEstimatedMs2, int MaxFileMb);
+/// <summary>
+/// Which deposits a profile takes whole, and which it defers. Deferral is never subsampling: choosing runs of an
+/// experiment is a design decision (aging S43). <see cref="DeferIfMedianFileMb"/>: EBI drops very large transfers and a
+/// retry re-pays from zero (S40), so such deposits wait for resume. 0 disables a gate.
+/// </summary>
+public sealed record DepositPolicy(bool WholeDeposit, int MaxFiles, string Probe, long MaxEstimatedMs2, int MaxFileMb,
+    int DeferIfMedianFileMb = 0);
 
 public sealed record QcGates(
     string Ms2Analyzer, double MinFractionOrbitrapHcd, int MinMs2, IReadOnlyList<string> Excludable, double MaxExcludedFraction);

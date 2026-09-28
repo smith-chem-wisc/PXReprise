@@ -42,7 +42,8 @@ public static class ProfileLoader
             foreach (string organism in dbTable.Keys.ToList())
             {
                 var o = dbTable.RequiredTable(organism);
-                dbs[organism] = new OrganismDatabase(o.RequiredString("proteome"), o.StringList("extra"));
+                dbs[organism] = new OrganismDatabase(o.RequiredString("proteome"), o.StringList("extra"),
+                    o.OptionalInteger("taxon") is { } tx ? checked((int)tx) : null);
                 o.RefuseUnknownKeys();
             }
             dbTable.RefuseUnknownKeys();
@@ -63,8 +64,9 @@ public static class ProfileLoader
             dep.OptionalBool("whole") ?? true,
             checked((int)(dep.OptionalInteger("max_files") ?? 60)),
             dep.OptionalString("probe") ?? "probe_spread",
-            dep.OptionalInteger("max_est_ms2") ?? long.MaxValue,
-            checked((int)(dep.OptionalInteger("max_file_mb") ?? 5000)));
+            dep.OptionalInteger("max_est_ms2") ?? 0,
+            checked((int)(dep.OptionalInteger("max_file_mb") ?? 5000)),
+            checked((int)(dep.OptionalInteger("defer_if_median_file_mb") ?? 0)));
         dep.RefuseUnknownKeys();
 
         var qc = root.RequiredTable("qc");

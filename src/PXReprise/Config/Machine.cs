@@ -16,7 +16,11 @@ public sealed record Machine(
     int MaxThreads,
     string Dotnet,
     bool AcceptThermoLicence,
-    string SpectralLibraryRoot = "")
+    string SpectralLibraryRoot = "",
+    double MinFreeGb = 250,
+    string? DataRepo = null,
+    int FetchAttempts = 8,
+    int ParallelDownloads = 4)
 {
     public static Machine Load(string file)
     {
@@ -35,9 +39,15 @@ public sealed record Machine(
         bool licence = root.OptionalBool("accept_thermo_licence") ?? false;
         // Under the work root, never beside the spectra: cleanup deletes a run's spectra and must never touch libraries.
         string libraries = root.OptionalString("spectral_library_root") ?? Path.Combine(workRoot, "spectral_libraries");
+        // Stop rather than fill a disk other projects share.
+        double minFree = root.OptionalNumber("min_free_gb") ?? 250;
+        // The dataRepo RELEASE install used to ingest, never an editable development checkout (aging D-rule).
+        string? datarepo = root.OptionalString("datarepo");
+        int attempts = checked((int)(root.OptionalInteger("fetch_attempts") ?? 8));
+        int parallel = checked((int)(root.OptionalInteger("parallel_downloads") ?? 4));
         root.RefuseUnknownKeys();
         if (threads < 1) throw new ConfigException(file, "'max_threads' must be 1 or more");
-        return new Machine(file, workRoot, dbDir, mm, settings, threads, dotnet, licence, libraries);
+        return new Machine(file, workRoot, dbDir, mm, settings, threads, dotnet, licence, libraries, minFree, datarepo, attempts, parallel);
     }
 
     public string CmdFor(string release) =>

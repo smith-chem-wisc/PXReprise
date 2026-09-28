@@ -18,7 +18,8 @@ public sealed record SearchRequest(
     IReadOnlyList<string> ExtraDatabases,
     IReadOnlyList<string> ExcludeFiles,
     string? RunDate,
-    string? Accession = null);
+    string? Accession = null,
+    bool UseLibrary = true);
 
 public sealed record SearchOutcome(bool Success, int ExitCode, bool TimedOut, int? Psms1Pct, IReadOnlyList<string> Flags, string ProvenanceFile);
 
@@ -106,7 +107,9 @@ public static class SearchStage
         if (release != p.MetaMorpheus) throw new SearchSetupException($"MetaMorpheus is {release}, {p.Key} expects {p.MetaMorpheus}");
 
         // The organism's spectral library, resolved before the task files because it decides two of their values.
-        LibraryPlan? lib = p.SpectralLibrary ? SpectralLibrary.Plan(m.SpectralLibraryRoot, r.Organism) : null;
+        LibraryPlan? lib = p.SpectralLibrary && r.UseLibrary ? SpectralLibrary.Plan(m.SpectralLibraryRoot, r.Organism) : null;
+        if (p.SpectralLibrary && !r.UseLibrary)
+            prov.Note("spectral library switched OFF for this search by the batch (a previous update-mode search failed)");
         if (lib is not null)
             prov.Set("spectral_library", new JsonObject
             {
