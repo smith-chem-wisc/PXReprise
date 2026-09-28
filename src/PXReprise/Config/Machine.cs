@@ -20,7 +20,8 @@ public sealed record Machine(
     double MinFreeGb = 250,
     string? DataRepo = null,
     int FetchAttempts = 8,
-    int ParallelDownloads = 4)
+    int ParallelDownloads = 4,
+    string? QcPython = null)
 {
     public static Machine Load(string file)
     {
@@ -45,9 +46,12 @@ public sealed record Machine(
         string? datarepo = root.OptionalString("datarepo");
         int attempts = checked((int)(root.OptionalInteger("fetch_attempts") ?? 8));
         int parallel = checked((int)(root.OptionalInteger("parallel_downloads") ?? 4));
+        // A Python with qc's qctemplates installed: the qc-payload stage runs its validate and render (qc owns them).
+        // Optional: without it the payload is still built, with vendored bin edges, and the stage says so.
+        string? qcPython = root.OptionalString("qc_python");
         root.RefuseUnknownKeys();
         if (threads < 1) throw new ConfigException(file, "'max_threads' must be 1 or more");
-        return new Machine(file, workRoot, dbDir, mm, settings, threads, dotnet, licence, libraries, minFree, datarepo, attempts, parallel);
+        return new Machine(file, workRoot, dbDir, mm, settings, threads, dotnet, licence, libraries, minFree, datarepo, attempts, parallel, qcPython);
     }
 
     public string CmdFor(string release) =>

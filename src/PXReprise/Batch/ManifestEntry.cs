@@ -39,6 +39,10 @@ public static class ManifestEntry
             notes.Add($"QC-EXCLUDED FILES: {string.Join(", ", excluded)} failed QC on {string.Join("/", profile.Qc.Excludable)} (a blank or failed injection) and were not searched; the deposit has {qc.Count} raw files.");
             flags.Add("qc_excluded_files");
         }
+        var qcFlags = state?["qc_payload_flags"]?.AsArray().Select(x => x!.GetValue<string>()).ToList() ?? new List<string>();
+        if (qcFlags.Count > 0)
+            // A note, not a manifest flag: QC reporting is not a property of the data dataRepo stores (05_qc is not ingested).
+            notes.Add($"QC REPORT: the qc-payload stage recorded {string.Join(", ", qcFlags)}; see 05_qc/provenance.json. The search and its results are unaffected.");
         notes.Add($"Searched by PXReprise under profile {profile.Key}" + (extras.Count > 0 ? $", with extra databases {string.Join(", ", extras)}" : "") + ".");
         notes.Add($"{Capitalise(e.Organism)}; {Uncapitalise(profile.Description)}. Raw spectra were deleted after the search; PRIDE is the source of truth and the fetch provenance holds every SHA-256.");
 

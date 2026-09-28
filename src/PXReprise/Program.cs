@@ -13,7 +13,7 @@ namespace PXReprise;
 public static class Program
 {
     /// <summary>The verbs, listed by the <c>version</c> verb. Keep in step with <see cref="Dispatch"/>.</summary>
-    public static readonly string[] Verbs = { "version", "profiles", "validate", "census", "fetch", "qc", "search", "batch" };
+    public static readonly string[] Verbs = { "version", "profiles", "validate", "census", "fetch", "qc", "search", "qc-payload", "batch" };
 
     /// <summary>Where profiles are read from when --profiles is not given: beside the executable.</summary>
     public static string DefaultProfilesDir => Path.Combine(AppContext.BaseDirectory, "profiles");
@@ -151,6 +151,29 @@ public static class Program
                     args.Required("spectra"), args.Required("out"), args.Required("qc"), List(args.Option("extra-db")),
                     List(args.Option("exclude")), args.Option("run-date"), args.Option("accession"));
                 return await Search.SearchStage.RunAsync(request, ct).ConfigureAwait(false);
+            }
+
+            case "qc-payload":
+            {
+                // pxreprise qc-payload <search_dir> <qc_dir> <out_dir> --accession PXD [--run-date D] [--machine m.toml]
+                var pos = Positional(args, 3);
+                args.AllowOnly("accession", "run-date", "machine", "metamorpheus");
+                string accession = args.Required("accession");
+                var machine = args.Option("machine") is { } mf ? Machine.Load(mf) : null;
+                string outDir = pos[2];
+                Directory.CreateDirectory(outDir);
+                string paramsFile = Path.Combine(outDir, "params.json");
+                await File.WriteAllTextAsync(paramsFile, System.Text.Json.JsonSerializer.Serialize(
+                    new { stage = "qc_payload", accession, run_date = args.Option("run-date"), qc_python = machine?.QcPython }, Envelope.Json), ct).ConfigureAwait(false);
+                string workRoot = machine?.WorkRoot ?? Path.GetDirectoryName(Path.GetFullPath(pos[0]))!;
+                var o = Qc.QcPayloadStage.Run(pos[0], pos[1], outDir, accession, args.Option("run-date"), workRoot, paramsFile,
+                    machine?.QcPython, args.Option("metamorpheus"));
+                return new
+                {
+                    payload = o.PayloadFile, files = o.Files, protein_groups_quantified = o.ProteinGroupsQuantified,
+                    bin_edges_source = o.BinSource, validate = o.Validate, render = o.Render, findings = o.FindingsFile, flags = o.Flags,
+                    provenance = o.ProvenanceFile,
+                };
             }
 
             case "batch":

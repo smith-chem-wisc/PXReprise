@@ -355,6 +355,7 @@ public sealed class BatchRunner
             ("psms_1pct", outcome.Psms1Pct), ("id_rate", prov["id_rate"]?["rate"]?.DeepClone()), ("spectral_library", lib?.DeepClone()));
         if (outcome.Success)
         {
+            QcPayload(acc, profile);
             Cleanup(acc);
             await DeliverAsync(e, profile, ct).ConfigureAwait(false);
         }
@@ -365,6 +366,28 @@ public sealed class BatchRunner
             _libraryOk = false;
             Log($"{acc} SEARCH FAILED IN UPDATE MODE - disabling the spectral library for the rest of this batch. Raw files kept. INVESTIGATE.");
             Record(acc, ("library_disabled_after_failure", true));
+        }
+    }
+
+    /// <summary>
+    /// qc's payload for the search (stage 05_qc), and qc's validate + render when the machine names a qc_python. Never
+    /// fatal: a payload that is rejected, unrenderable or unbuildable is recorded and the deposit is still delivered.
+    /// </summary>
+    private void QcPayload(string acc, Profile profile)
+    {
+        string d = Run(acc);
+        try
+        {
+            var o = QcPayloadStage.Run(Path.Combine(d, "04_search"), Path.Combine(d, "02b_qc"), Path.Combine(d, "05_qc"), acc, _runDate,
+                _m.WorkRoot, ParamsFile(acc, profile), _m.QcPython);
+            Log($"{acc} QC-PAYLOAD files={o.Files} pg_quantified={o.ProteinGroupsQuantified?.ToString() ?? "n/a"} validate={o.Validate} render={(o.Render is null ? "not run" : o.FindingsFile is null ? "FAILED" : "ok")}");
+            Record(acc, ("qc_payload", o.PayloadFile), ("qc_payload_validate", o.Validate), ("qc_findings", o.FindingsFile),
+                ("qc_payload_flags", new JsonArray(o.Flags.Select(f => (JsonNode?)f).ToArray())));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log($"{acc} QC-PAYLOAD FAILED ({ex.GetType().Name}): {ex.Message}; delivering anyway");
+            Record(acc, ("qc_payload_error", $"{ex.GetType().Name}: {ex.Message}"), ("qc_payload_flags", new JsonArray("qc_payload_failed")));
         }
     }
 
