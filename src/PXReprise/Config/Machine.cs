@@ -15,7 +15,8 @@ public sealed record Machine(
     string MetaMorpheusSettingsRoot,
     int MaxThreads,
     string Dotnet,
-    bool AcceptThermoLicence)
+    bool AcceptThermoLicence,
+    string SpectralLibraryRoot = "")
 {
     public static Machine Load(string file)
     {
@@ -32,9 +33,11 @@ public sealed record Machine(
         string dotnet = root.OptionalString("dotnet") ?? "dotnet";
         // The Thermo RawFileReader licence is the operator's to accept, and it is recorded, never assumed.
         bool licence = root.OptionalBool("accept_thermo_licence") ?? false;
+        // Under the work root, never beside the spectra: cleanup deletes a run's spectra and must never touch libraries.
+        string libraries = root.OptionalString("spectral_library_root") ?? Path.Combine(workRoot, "spectral_libraries");
         root.RefuseUnknownKeys();
         if (threads < 1) throw new ConfigException(file, "'max_threads' must be 1 or more");
-        return new Machine(file, workRoot, dbDir, mm, settings, threads, dotnet, licence);
+        return new Machine(file, workRoot, dbDir, mm, settings, threads, dotnet, licence, libraries);
     }
 
     public string CmdFor(string release) =>

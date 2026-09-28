@@ -17,7 +17,8 @@ public sealed record SearchRequest(
     string QcDir,
     IReadOnlyList<string> ExtraDatabases,
     IReadOnlyList<string> ExcludeFiles,
-    string? RunDate);
+    string? RunDate,
+    string? Accession = null);
 
 public sealed record SearchOutcome(bool Success, int ExitCode, bool TimedOut, int? Psms1Pct, IReadOnlyList<string> Flags, string ProvenanceFile);
 
@@ -38,8 +39,6 @@ public static class SearchStage
         string outDir = Path.GetFullPath(r.OutDir);
         if (Directory.Exists(Path.Combine(outDir, "mm")))
             throw new UsageException($"refusing to reuse {Path.Combine(outDir, "mm")}: MetaMorpheus needs a fresh output directory");
-        if (p.SpectralLibrary)
-            throw new SearchSetupException($"{p.Key} uses a spectral library; the per-organism library registry is not ported yet (PXReprise G4)");
         if (p.ContaminantExclude is not null && !File.Exists(p.ListPath(p.ContaminantExclude)))
             throw new UsageException($"{p.Key} names contaminant exclusions {p.ListPath(p.ContaminantExclude)}, which is missing");
         if (!p.Databases.TryGetValue(r.Organism, out var db))
@@ -106,8 +105,17 @@ public static class SearchStage
         });
         if (release != p.MetaMorpheus) throw new SearchSetupException($"MetaMorpheus is {release}, {p.Key} expects {p.MetaMorpheus}");
 
+        // The organism's spectral library, resolved before the task files because it decides two of their values.
+        LibraryPlan? lib = p.SpectralLibrary ? SpectralLibrary.Plan(m.SpectralLibraryRoot, r.Organism) : null;
+        if (lib is not null)
+            prov.Set("spectral_library", new JsonObject
+            {
+                ["organism"] = lib.Organism, ["mode"] = lib.Mode, ["library_in"] = lib.LibraryIn,
+                ["parent_version"] = lib.ParentVersion, ["registry"] = SpectralLibrary.RegistryPath(lib.Root),
+            });
+
         var known = TaskFiles.KnownMods(Path.Combine(Path.GetDirectoryName(cmd)!, "Mods"));
-        var settings = new TaskSettings(m.MaxThreads, p.MatchBetweenRuns, p.GptmdExtraMods);
+        var settings = new TaskSettings(m.MaxThreads, p.MatchBetweenRuns, p.GptmdExtraMods, SpectralLibraryMode: lib?.Mode);
         var tomls = new List<string>();
         foreach (var (task, i) in p.Tasks.Select((t, i) => (Enum.Parse<TaskKind>(t), i + 1)))
         {
@@ -140,6 +148,12 @@ public static class SearchStage
         var dbs = new List<string> { proteome, contaminants };
         dbs.AddRange(extras);   // after the proteome and the contaminants: the first -d stays "the search database"
         prov.Set("extra_databases", new JsonArray(extras.Select(x => (JsonNode?)x).ToArray()));
+        if (lib?.LibraryIn is { } libIn)
+        {
+            // A library is another -d; MetaMorpheus recognises it by extension, and GPTMD forwards it down the chain.
+            dbs.Add(libIn);
+            prov.Note($"spectral library in use: {libIn} ({lib.Organism}, parent version {lib.ParentVersion})");
+        }
         prov.Input(qcReport);
         foreach (string f in files) prov.Input(f);
         foreach (string d in dbs) prov.Input(d);
@@ -192,6 +206,30 @@ public static class SearchStage
 
         // 4. derived measurements and automatic flags (they never fail the stage by themselves)
         var flags = new List<string>();
+
+        // Register the library only when the search succeeded: a failed run's partial library must not become the
+        // parent of the next one. A registration problem never fails a search that otherwise succeeded.
+        if (lib is not null)
+        {
+            var libRec = (JsonObject)prov.Record["spectral_library"]!;
+            if (ok && sd is not null)
+            {
+                try
+                {
+                    var written = SpectralLibrary.Register(lib, sd, $"{r.RunDate}/{r.Accession}".Trim('/'), r.Accession ?? "", release);
+                    libRec["written"] = written;
+                    prov.Output(Path.Combine(lib.Root, written["path"]!.GetValue<string>()));
+                    prov.Note($"spectral library {lib.Organism} v{(int)written["version"]!:000}: {(int)written["n_spectra"]!:N0} spectra, {written["path"]}");
+                }
+                catch (SearchSetupException e)
+                {
+                    libRec["error"] = e.Message;
+                    prov.Note(e.Message);
+                    flags.Add(e.Message);
+                }
+            }
+            else prov.Note("spectral library NOT registered: the search did not succeed, so this run's library cannot become the parent of the next one");
+        }
         if (log.Contains("Calibration failure")) flags.Add("calibration_failed: GPTMD/search ran on uncalibrated spectra (S7)");
         if (skipped.Count > 0)
             flags.Add("quantification_skipped: MetaMorpheus could not use an experimental design and quantified without it (fails the stage when the run carries ExperimentalDesign.tsv, D48)");

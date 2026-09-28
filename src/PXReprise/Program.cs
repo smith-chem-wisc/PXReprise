@@ -130,11 +130,11 @@ public static class Program
             {
                 Positional(args, 0);
                 args.AllowOnly("spectra", "qc", "out", "organism", "profile", "profile-file", "profiles", "machine",
-                    "extra-db", "exclude", "run-date");
+                    "extra-db", "exclude", "run-date", "accession");
                 var profile = ResolveProfile(args);
                 var request = new Search.SearchRequest(profile, args.Required("organism"), Machine.Load(args.Required("machine")),
                     args.Required("spectra"), args.Required("out"), args.Required("qc"), List(args.Option("extra-db")),
-                    List(args.Option("exclude")), args.Option("run-date"));
+                    List(args.Option("exclude")), args.Option("run-date"), args.Option("accession"));
                 return await Search.SearchStage.RunAsync(request, ct).ConfigureAwait(false);
             }
 
