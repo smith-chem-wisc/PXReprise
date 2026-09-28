@@ -1,0 +1,33 @@
+# /project — tracked vs ignored. Code worktrees + large data own their own remotes / are recorded.
+
+# Source worktrees (push to their own forks; recorded in code/PINNED.md)
+/code/*/
+!/code/PINNED.md
+!/code/reviews/
+!/code/reviews/**
+
+# Raw data & databases (recorded in data/PROVENANCE.md, not committed)
+*.raw
+*.mzML
+*.mzml
+*.d/
+*.fasta
+*.msl
+*.db
+/data/raw/
+/data/**/*.raw
+/data/**/*.mzML
+
+# Quarantine
+/.project/attic/
+
+# Office lock files & build outputs
+~$*
+*.tmp
+bin/
+obj/
+__pycache__/
+.ipynb_checkpoints/
+
+# Cross-project thread read-state: per-machine, not project truth (see references/threads.md)
+.project/threads.state
