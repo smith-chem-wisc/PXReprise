@@ -13,7 +13,7 @@ namespace PXReprise;
 public static class Program
 {
     /// <summary>The verbs, listed by the <c>version</c> verb. Keep in step with <see cref="Dispatch"/>.</summary>
-    public static readonly string[] Verbs = { "version", "profiles", "validate", "census", "qc", "search" };
+    public static readonly string[] Verbs = { "version", "profiles", "validate", "census", "fetch", "qc", "search" };
 
     /// <summary>Where profiles are read from when --profiles is not given: beside the executable.</summary>
     public static string DefaultProfilesDir => Path.Combine(AppContext.BaseDirectory, "profiles");
@@ -104,6 +104,21 @@ public static class Program
                 {
                     client?.Dispose();
                 }
+            }
+
+            case "fetch":
+            {
+                string accession = Positional(args, 1)[0];
+                args.AllowOnly("out", "machine", "pick", "max-files", "max-file-mb", "parallel", "attempts");
+                var machine = Machine.Load(args.Required("machine"));
+                var pick = ProfileLoader.ParseEnum<Fetch.Pick>("--pick", "pick", args.Option("pick") ?? "all");
+                var request = new Fetch.FetchRequest(accession, args.Required("out"), pick,
+                    int.Parse(args.Option("max-files") ?? "60"), int.Parse(args.Option("max-file-mb") ?? "5000"), ".raw",
+                    int.Parse(args.Option("parallel") ?? "4"), int.Parse(args.Option("attempts") ?? "8"),
+                    TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(60), machine.WorkRoot);
+                using var client = new PrideArchiveClient();
+                var manifest = await Fetch.FetchStage.RunAsync(request, new Fetch.PrideFiles(client), ct).ConfigureAwait(false);
+                return new { accession, files = manifest["files"]!.AsArray().Count, manifest = Path.GetFullPath(Path.Combine(request.OutDir, "fetch_manifest.json")) };
             }
 
             case "qc":
