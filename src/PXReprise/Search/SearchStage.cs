@@ -40,8 +40,8 @@ public static class SearchStage
             throw new UsageException($"refusing to reuse {Path.Combine(outDir, "mm")}: MetaMorpheus needs a fresh output directory");
         if (p.SpectralLibrary)
             throw new SearchSetupException($"{p.Key} uses a spectral library; the per-organism library registry is not ported yet (PXReprise G4)");
-        if (p.ContaminantExclude is not null)
-            throw new SearchSetupException($"{p.Key} excludes contaminant-panel entries; the reduced-panel builder is not ported yet (PXReprise G4)");
+        if (p.ContaminantExclude is not null && !File.Exists(p.ListPath(p.ContaminantExclude)))
+            throw new UsageException($"{p.Key} names contaminant exclusions {p.ListPath(p.ContaminantExclude)}, which is missing");
         if (!p.Databases.TryGetValue(r.Organism, out var db))
             throw new UsageException($"{p.Key} has no database for '{r.Organism}' (has: {string.Join(", ", p.Databases.Keys)})");
         Directory.CreateDirectory(outDir);
@@ -123,8 +123,17 @@ public static class SearchStage
         if (p.GptmdExtraMods.Count > 0) prov.Set("gptmd_extra_mods", new JsonArray(p.GptmdExtraMods.Select(x => (JsonNode?)x).ToArray()));
 
         // 2. one invocation for the whole chain
-        string contaminants = Path.Combine(Path.GetDirectoryName(cmd)!, "Contaminants", p.ContaminantPanel);
-        if (!File.Exists(contaminants)) throw new UsageException($"contaminant database missing at {contaminants}");
+        string shippedPanel = Path.Combine(Path.GetDirectoryName(cmd)!, "Contaminants", p.ContaminantPanel);
+        if (!File.Exists(shippedPanel)) throw new UsageException($"contaminant database missing at {shippedPanel}");
+        // The panel as searched: the shipped one, or its content-addressed reduced copy (aging D54). The file name must
+        // keep "Contaminants": MetaMorpheus marks a -d database as contaminant by its name.
+        var (contaminants, panelRecord) = ContaminantPanel.Resolve(shippedPanel,
+            p.ContaminantExclude is null ? null : p.ListPath(p.ContaminantExclude), Path.Combine(m.DatabaseDir, "contaminants"));
+        if (panelRecord is not null)
+        {
+            prov.Set("contaminant_panel", panelRecord);
+            prov.Note($"contaminant panel reduced by {panelRecord["excluded"]!.AsArray().Count} entries ({Path.GetFileName(p.ContaminantExclude)}, D54)");
+        }
         // Never pre-create the settings dir: MetaMorpheus seeds it only when it does not exist (an empty one crashes it).
         string settingsDir = Path.Combine(m.MetaMorpheusSettingsRoot, release);
         Directory.CreateDirectory(m.MetaMorpheusSettingsRoot);

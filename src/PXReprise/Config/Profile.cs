@@ -53,7 +53,11 @@ public sealed record Profile(
     string QuantMethod,
     bool MatchBetweenRuns,
     DepositPolicy Deposit,
-    QcGates Qc)
+    QcGates Qc,
+    string SourceDir = ".")
 {
     public string Key => $"{Id}@{Version}";
+
+    /// <summary>A list a profile names (e.g. its contaminant exclusions), shipped under <c>lists/</c> beside the profile.</summary>
+    public string ListPath(string name) => Path.Combine(SourceDir, "lists", name);
 }

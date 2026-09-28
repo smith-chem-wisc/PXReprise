@@ -25,6 +25,7 @@
   <ItemGroup>
     <!-- The profiles ship beside the executable: `pxreprise` reads them from there unless the profiles option says otherwise. -->
     <None Include="..\..\profiles\*.toml" Link="profiles\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\profiles\lists\*" Link="profiles\lists\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

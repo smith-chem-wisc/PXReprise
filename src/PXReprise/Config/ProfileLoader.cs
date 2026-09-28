@@ -78,7 +78,7 @@ public static class ProfileLoader
 
         root.RefuseUnknownKeys();
         return new Profile(id, version, status, description, accepts, mm, tasks, extraMods, library, timeout, dbs, panel, exclude,
-            method, mbr, deposit, gates);
+            method, mbr, deposit, gates, Path.GetDirectoryName(Path.GetFullPath(file))!);
     }
 
     /// <summary>Every <c>*.toml</c> in a directory, keyed by <c>id@version</c>; a duplicate key is refused.</summary>
