@@ -40,7 +40,7 @@ public static class ManifestEntry
             flags.Add("qc_excluded_files");
         }
         notes.Add($"Searched by PXReprise under profile {profile.Key}" + (extras.Count > 0 ? $", with extra databases {string.Join(", ", extras)}" : "") + ".");
-        notes.Add($"{Capitalise(e.Organism)} {profile.Description}. Raw spectra were deleted after the search; PRIDE is the source of truth and the fetch provenance holds every SHA-256.");
+        notes.Add($"{Capitalise(e.Organism)}; {Uncapitalise(profile.Description)}. Raw spectra were deleted after the search; PRIDE is the source of truth and the fetch provenance holds every SHA-256.");
 
         string run = Path.GetRelativePath(workRoot, runDir).Replace('\\', '/');
         string entry = $"""
@@ -69,4 +69,8 @@ public static class ManifestEntry
     }
 
     private static string Capitalise(string s) => s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s[1..];
+
+    /// <summary>Lower-cases a leading capital unless the word is an acronym ("Label-free" but not "DDA").</summary>
+    private static string Uncapitalise(string s) =>
+        s.Length > 1 && char.IsUpper(s[0]) && !char.IsUpper(s[1]) ? char.ToLowerInvariant(s[0]) + s[1..] : s;
 }
