@@ -31,6 +31,8 @@ public static class ProfileLoader
         // "<category>\t<IdWithMotif>" as MetaMorpheus's ListOfModsGptmd holds them; checked against the pinned
         // MetaMorpheus's Mods files when a search is prepared, not here.
         var extraMods = eng.StringList("gptmd_extra_mods");
+        // One library per organism: the first search writes it, every later one updates and consumes it (aging D33).
+        bool library = eng.OptionalBool("spectral_library") ?? false;
         double timeout = eng.OptionalNumber("timeout_h") ?? 6;
         eng.RefuseUnknownKeys();
 
@@ -75,7 +77,7 @@ public static class ProfileLoader
         qc.RefuseUnknownKeys();
 
         root.RefuseUnknownKeys();
-        return new Profile(id, version, status, description, accepts, mm, tasks, extraMods, timeout, dbs, panel, exclude,
+        return new Profile(id, version, status, description, accepts, mm, tasks, extraMods, library, timeout, dbs, panel, exclude,
             method, mbr, deposit, gates);
     }
 

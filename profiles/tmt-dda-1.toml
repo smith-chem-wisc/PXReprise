@@ -16,6 +16,7 @@ file_types = [".raw"]
 metamorpheus = "1.1.11"
 tasks = ["Calibration", "Gptmd", "Search"]
 gptmd_extra_mods = ["Trypsin Digested\tGG (Ubiquitination Site) on K"]
+spectral_library = true   # per organism, written then updated (aging D33)
 timeout_h = 6
 
 [databases.human]

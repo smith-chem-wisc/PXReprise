@@ -45,6 +45,7 @@ public sealed record Profile(
     string MetaMorpheus,
     IReadOnlyList<string> Tasks,
     IReadOnlyList<string> GptmdExtraMods,
+    bool SpectralLibrary,
     double TimeoutHours,
     IReadOnlyDictionary<string, OrganismDatabase> Databases,
     string ContaminantPanel,

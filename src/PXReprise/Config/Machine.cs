@@ -1,0 +1,44 @@
+using PXReprise.Cli;
+
+namespace PXReprise.Config;
+
+/// <summary>
+/// Where things live on THIS machine: the work root (the shared corpus), the prepared databases, each MetaMorpheus
+/// release's CMD, its settings directory, and how many threads a search may use. Nothing here changes a result, so
+/// none of it belongs in a profile; all of it is recorded in provenance.
+/// </summary>
+public sealed record Machine(
+    string SourceFile,
+    string WorkRoot,
+    string DatabaseDir,
+    IReadOnlyDictionary<string, string> MetaMorpheus,
+    string MetaMorpheusSettingsRoot,
+    int MaxThreads,
+    string Dotnet,
+    bool AcceptThermoLicence)
+{
+    public static Machine Load(string file)
+    {
+        file = Path.GetFullPath(file);
+        var root = TomlSection.Load(file);
+        string workRoot = root.RequiredString("work_root");
+        string dbDir = root.OptionalString("database_dir") ?? Path.Combine(workRoot, "db");
+        var mm = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        var mmTable = root.RequiredTable("metamorpheus");
+        foreach (string release in mmTable.Keys.ToList()) mm[release] = mmTable.RequiredString(release);
+        mmTable.RefuseUnknownKeys();
+        string settings = root.OptionalString("metamorpheus_settings_root") ?? Path.Combine(workRoot, "mm_settings");
+        int threads = checked((int)(root.OptionalInteger("max_threads") ?? Environment.ProcessorCount));
+        string dotnet = root.OptionalString("dotnet") ?? "dotnet";
+        // The Thermo RawFileReader licence is the operator's to accept, and it is recorded, never assumed.
+        bool licence = root.OptionalBool("accept_thermo_licence") ?? false;
+        root.RefuseUnknownKeys();
+        if (threads < 1) throw new ConfigException(file, "'max_threads' must be 1 or more");
+        return new Machine(file, workRoot, dbDir, mm, settings, threads, dotnet, licence);
+    }
+
+    public string CmdFor(string release) =>
+        MetaMorpheus.TryGetValue(release, out string? cmd)
+            ? cmd
+            : throw new UsageException($"{Path.GetFileName(SourceFile)} names no MetaMorpheus {release} (has: {string.Join(", ", MetaMorpheus.Keys)})");
+}
