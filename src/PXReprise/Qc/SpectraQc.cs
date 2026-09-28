@@ -59,8 +59,8 @@ public static class SpectraQc
         if (ms2.Count < gates.MinMs2) reasons.Add(TooFewMs2);
         double runMinutes = scans.Count > 0 ? scans.Max(s => s.RetentionTime) : 0;
         var charges = MostCommon(ms2.Select(s => s.SelectedIonChargeStateGuess?.ToString() ?? "None"), top: 6);
-        return new QcFileResult(reasons.Count == 0, reasons, scans.Count, ms2.Count, Math.Round(frac, 4), pairs,
-            Math.Round(runMinutes, 2), charges);
+        return new QcFileResult(reasons.Count == 0, reasons, scans.Count, ms2.Count, Search.SearchMetrics.PyRound(frac, 4), pairs,
+            Search.SearchMetrics.PyRound(runMinutes, 2), charges);
     }
 
     /// <summary>Counts by value, most common first; ties keep first-seen order (Python's Counter.most_common).</summary>
