@@ -30,6 +30,10 @@ public class FetchStageTests
         Assert.That(FetchStage.IsTransient(new HttpRequestException(message)), Is.EqualTo(transient));
 
     [Test]
+    public void ATruncatedResponseIsTransient() =>   // 11 deposits lost overnight 2026-09-28/29 when it was not
+        Assert.That(FetchStage.IsTransient(new HttpIOException(HttpRequestError.ResponseEnded)), Is.True);
+
+    [Test]
     public async Task ADroppedTransferIsRetriedAndAHardFailureIsNot()
     {
         var pride = new FlakyPride { FailuresBeforeSuccess = 2 };
@@ -80,8 +84,9 @@ public class FetchStageTests
         public Task<string> DownloadAsync(PrideArchiveFile f, string dir, CancellationToken ct)
         {
             if (Hard is not null) throw Hard;
+            // The real shape of an EBI drop: HttpIOException (an IOException), not an HttpRequestException.
             if (Interlocked.Increment(ref _calls) <= FailuresBeforeSuccess)
-                throw new HttpRequestException("response ended prematurely", null, HttpStatusCode.ServiceUnavailable);
+                throw new HttpIOException(HttpRequestError.ResponseEnded, "The response ended prematurely, with at least 334864664 additional bytes expected. (ResponseEnded)");
             Directory.CreateDirectory(dir);
             string p = Path.Combine(dir, f.FileName);
             File.WriteAllText(p, f.FileName);

@@ -65,6 +65,10 @@ public static class Envelope
         HttpRequestException h => h.InnerException is not null || h.Message.Contains("failed with status 5")
                                   || h.Message.Contains("failed with status 408") || h.Message.Contains("failed with status 429"),
         TaskCanceledException or TimeoutException or SocketException => true,
+        // A body cut off mid-transfer ("The response ended prematurely ... (ResponseEnded)") is an IOException, not an
+        // HttpRequestException: mzLib's download lets it through unwrapped. The bridge mapped it to ServiceUnavailable,
+        // so aging's fetch.py retried it; missing it here made every truncated download fail its deposit at once.
+        HttpIOException => true,
         _ => false,
     };
 
