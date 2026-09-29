@@ -88,7 +88,8 @@ public class ConfigTests
     [Test]
     public void UnlessWithoutExcludeIsRefused()
     {
-        string text = TestSupport.MinimalQuestion.Replace("exclude_if_any = [\"type (1|i) diabet\"]\n", "");
+        // A Windows checkout (core.autocrlf) gives the raw string CRLF endings.
+        string text = TestSupport.MinimalQuestion.ReplaceLineEndings("\n").Replace("exclude_if_any = [\"type (1|i) diabet\"]\n", "");
         var e = Assert.Throws<ConfigException>(() => QuestionLoader.Load(TestSupport.WriteFile(TestSupport.TempDir(), "q.toml", text)));
         Assert.That(e!.Message, Does.Contain("unless_any"));
     }
