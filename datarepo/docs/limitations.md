@@ -237,7 +237,7 @@ whether its dataset has an open finding that touches it.
 
 If you find a place where this catalog returns a confident answer it should not, that is a finding
 worth more than a fix. Open an issue at
-[github.com/trishorts/dataRepo/issues](https://github.com/trishorts/dataRepo/issues) with the query,
+[github.com/smith-chem-wisc/dataRepo/issues](https://github.com/smith-chem-wisc/dataRepo/issues) with the query,
 the `catalog_id`, and what you expected — the `catalog_id` is what makes it reproducible.
 
 See also: [querying.md §4](querying.md), *queries that look right and are wrong*.

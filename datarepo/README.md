@@ -3,7 +3,7 @@
 **Software that turns reanalysed public proteomics data into one repository that AI agents can
 query and people can browse.**
 
-[![CI](https://github.com/trishorts/dataRepo/actions/workflows/ci.yml/badge.svg)](https://github.com/trishorts/dataRepo/actions/workflows/ci.yml)
+[![CI](https://github.com/smith-chem-wisc/dataRepo/actions/workflows/ci.yml/badge.svg)](https://github.com/smith-chem-wisc/dataRepo/actions/workflows/ci.yml)
 [![Code: MIT](https://img.shields.io/badge/code-MIT-blue.svg)](LICENSE)
 
 A project that reanalyses many PRIDE datasets ends up with a folder of search and quantification
@@ -29,7 +29,7 @@ in skeletal muscle, in how many datasets, and show me the spectra"*. Agents are 
 ## Try it in ten minutes
 
 ```bash
-git clone https://github.com/trishorts/dataRepo.git && cd dataRepo
+git clone https://github.com/smith-chem-wisc/dataRepo.git && cd dataRepo
 python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install ".[readers,mcp]"
 cp -r tests/data ../example-instance && cd ../example-instance

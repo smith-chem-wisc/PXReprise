@@ -32,6 +32,8 @@ changes. No re-ingest.
   every release, so without it the page went stale silently.
 
 ### Changed
+- **The repository moved to `smith-chem-wisc/dataRepo`** (the user's decision, PXReprise 003). Links,
+  the badge, `CITATION.cff` and the site's "built by" link name it; the old URL redirects.
 - `runner.install_identity` accepts a frozen executable by its build stamp (`source: binary`), and
   refuses one that names no commit.
 - `datarepo mcp --install` from an executable registers the executable itself, not `python -m`.

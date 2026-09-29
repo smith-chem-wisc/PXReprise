@@ -27,7 +27,7 @@ You need Python 3.11 or later and git. (Self-contained downloads that need no Py
 verified, but not yet published: see [operating.md](operating.md#without-python-the-self-contained-executable).)
 
 ```bash
-git clone https://github.com/trishorts/dataRepo.git
+git clone https://github.com/smith-chem-wisc/dataRepo.git
 cd dataRepo
 python -m venv .venv
 ```

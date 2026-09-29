@@ -7,7 +7,7 @@ type: software
 # Credit line confirmed by the user 2026-09-19 (U3).
 authors:
   - name: "NCEMS Aging Proteome Working Group"
-repository-code: "https://github.com/trishorts/dataRepo"
+repository-code: "https://github.com/smith-chem-wisc/dataRepo"
 license: MIT
 version: 0.0.1
 date-released: "2026-09-19"

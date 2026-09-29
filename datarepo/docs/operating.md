@@ -34,7 +34,7 @@ built from a tagged commit:
 
 ```bash
 python -m venv /opt/datarepo-0.31.0
-/opt/datarepo-0.31.0/bin/pip install "datarepo[readers,mcp] @ git+https://github.com/trishorts/dataRepo.git@<commit>"
+/opt/datarepo-0.31.0/bin/pip install "datarepo[readers,mcp] @ git+https://github.com/smith-chem-wisc/dataRepo.git@<commit>"
 ```
 
 Two things depend on this:
