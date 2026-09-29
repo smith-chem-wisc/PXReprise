@@ -21,6 +21,7 @@ public sealed record QueueEntry(string Accession, string Title, string Organism)
 ///
 /// State lives in the question's state directory: state.json (one entry per deposit), batch.log, STOP, driver.pid.
 /// A deposit's settled status (deferred, excluded, skipped, failed) is never retried automatically; clear its entry to.
+/// Unavailability is not settled: a deposit PRIDE could not serve is retried on later passes (<c>fetch_passes</c>).
 /// </summary>
 public sealed class BatchRunner
 {
@@ -136,34 +137,104 @@ public sealed class BatchRunner
         Log($"  question {_q.SourceFile} ({_q.Name}); profiles {string.Join(", ", _q.Profiles)}");
         Log($"  manifest {_q.Publish?.Manifest ?? "(none)"}");
         Log($"  datarepo {_m.DataRepo ?? "(none)"}");
-        await ReconcileAsync(queue, ct).ConfigureAwait(false);
-
-        int i = 0;
-        (QueueEntry Entry, Profile Profile)? pending = null;
         try
         {
-            while (!ct.IsCancellationRequested)
+            await ReconcileAsync(queue, ct).ConfigureAwait(false);
+            // Pass 1 walks the queue; each later pass walks only the deposits PRIDE or UniProt failed to serve, after a
+            // wait. The pass count bounds the loop: an outage longer than fetch_passes waits leaves them for the next run.
+            var walk = queue;
+            for (int pass = 1; ; pass++)
             {
-                if (File.Exists(StopFile)) { Log("STOP file present: finishing"); return; }
-                if (FreeGb() < _m.MinFreeGb) { Log($"free space {FreeGb():0} GB below {_m.MinFreeGb:0} GB floor: stopping"); return; }
-                if (pending is null)
+                if (!await WalkAsync(walk, ct).ConfigureAwait(false)) return;
+                walk = queue.Where(e => Retriable(e.Accession)).ToList();
+                if (walk.Count == 0) { Log("queue exhausted"); return; }
+                string which = string.Join(", ", walk.Take(10).Select(e => e.Accession)) + (walk.Count > 10 ? ", ..." : "");
+                if (pass >= _m.FetchPasses)
                 {
-                    (pending, i) = await NextReadyAsync(queue, i, ct).ConfigureAwait(false);
-                    if (pending is null) { Log("queue exhausted"); return; }
+                    Log($"queue exhausted; {walk.Count} deposit(s) still waiting on PRIDE after {pass} pass(es) ({which}): run the batch again later");
+                    return;
                 }
-                var (e, profile) = pending.Value;
-                pending = null;
-                // While this dataset searches (hours), the next one is screened, probed and fetched (network-bound).
-                var search = SearchAndDeliverAsync(e, profile, ct);
-                var next = NextReadyAsync(queue, i, ct);
-                await Task.WhenAll(search, next).ConfigureAwait(false);
-                (pending, i) = next.Result;
+                Log($"pass {pass} done; {walk.Count} deposit(s) failed on PRIDE or UniProt availability ({which}); pass {pass + 1} in {_m.PassWaitMinutes:0} min");
+                if (!await WaitAsync(TimeSpan.FromMinutes(_m.PassWaitMinutes), ct).ConfigureAwait(false)) return;
             }
         }
         finally
         {
             try { File.Delete(PidFile); } catch (IOException) { }
         }
+    }
+
+    /// <summary>One walk of <paramref name="queue"/>. True when it ran out; false when STOP, the disk floor or cancellation ended it.</summary>
+    private async Task<bool> WalkAsync(IReadOnlyList<QueueEntry> queue, CancellationToken ct)
+    {
+        int i = 0;
+        (QueueEntry Entry, Profile Profile)? pending = null;
+        while (!ct.IsCancellationRequested)
+        {
+            if (File.Exists(StopFile)) { Log("STOP file present: finishing"); return false; }
+            if (FreeGb() < _m.MinFreeGb) { Log($"free space {FreeGb():0} GB below {_m.MinFreeGb:0} GB floor: stopping"); return false; }
+            if (pending is null)
+            {
+                (pending, i) = await NextReadyAsync(queue, i, ct).ConfigureAwait(false);
+                if (pending is null) return !ct.IsCancellationRequested && !File.Exists(StopFile);
+            }
+            var (e, profile) = pending.Value;
+            pending = null;
+            // While this dataset searches (hours), the next one is screened, probed and fetched (network-bound).
+            var search = SearchAndDeliverAsync(e, profile, ct);
+            var next = NextReadyAsync(queue, i, ct);
+            await Task.WhenAll(search, next).ConfigureAwait(false);
+            (pending, i) = next.Result;
+        }
+        return false;
+    }
+
+    /// <summary>Waits between passes, watching for STOP each minute. False when STOP or cancellation ended the wait.</summary>
+    private async Task<bool> WaitAsync(TimeSpan wait, CancellationToken ct)
+    {
+        var until = DateTime.UtcNow + wait;
+        while (DateTime.UtcNow < until)
+        {
+            if (File.Exists(StopFile)) { Log("STOP file present: finishing"); return false; }
+            var left = until - DateTime.UtcNow;
+            try { await Task.Delay(left < TimeSpan.FromMinutes(1) ? left : TimeSpan.FromMinutes(1), ct).ConfigureAwait(false); }
+            catch (OperationCanceledException) { return false; }
+        }
+        return !File.Exists(StopFile) && !ct.IsCancellationRequested;
+    }
+
+    /// <summary>
+    /// Left for a later pass by unavailability: downloads that exhausted their attempts (<c>*_unavailable</c>), or a
+    /// screen, database or listing call that never got an answer (still <c>probing</c>).
+    /// </summary>
+    internal bool Retriable(string acc) =>
+        !File.Exists(Path.Combine(Run(acc), "04_search", "provenance.json")) && Settled(acc).Length == 0
+        && Entry(acc)?["status"]?.GetValue<string>() is "fetch_unavailable" or "probe_fetch_unavailable" or "probing";
+
+    /// <summary>
+    /// A failed probe or whole-deposit fetch. Unavailability that outlasted every attempt (PRIDE down for hours, S52) is
+    /// not the deposit's fault: it is left unsettled for a later pass, up to <c>fetch_passes</c> in all, then settled.
+    /// Anything else (a checksum mismatch, a 404, a full disk) settles at once, as before.
+    /// </summary>
+    internal void RecordFetchFailure(string acc, bool probe, Exception ex)
+    {
+        string what = probe ? "PROBE fetch" : "FETCH";
+        string settled = probe ? "probe_fetch_failed" : "fetch_failed";
+        if (!FetchStage.IsTransient(ex))
+        {
+            Log($"{acc} {what} failed: {ex.Message}");
+            Record(acc, ("status", settled), ("detail", ex.Message));
+            return;
+        }
+        int used = (Entry(acc)?["unavailable_passes"]?.GetValue<int>() ?? 0) + 1;
+        if (used >= _m.FetchPasses)
+        {
+            Log($"{acc} {what} failed on availability, pass {used} of {_m.FetchPasses}: settled. {ex.Message}");
+            Record(acc, ("status", settled), ("detail", ex.Message), ("unavailable_passes", used));
+            return;
+        }
+        Log($"{acc} {what} failed on availability, pass {used} of {_m.FetchPasses}: retry next pass. {ex.Message}");
+        Record(acc, ("status", probe ? "probe_fetch_unavailable" : "fetch_unavailable"), ("detail", ex.Message), ("unavailable_passes", used));
     }
 
     private async Task<((QueueEntry, Profile)? Ready, int Index)> NextReadyAsync(IReadOnlyList<QueueEntry> queue, int i, CancellationToken ct)
@@ -266,10 +337,10 @@ public sealed class BatchRunner
         {
             await FetchStage.RunAsync(FetchRequestFor(acc, Pick.ProbeSpread, dep), _files, ct).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        // Not the caller's cancellation: an HttpClient timeout is a TaskCanceledException too, and it is unavailability.
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
-            Log($"{acc} PROBE fetch failed: {ex.Message}");
-            Record(acc, ("status", "probe_fetch_failed"), ("detail", ex.Message));
+            RecordFetchFailure(acc, probe: true, ex);
             return null;
         }
         var (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate);
@@ -306,10 +377,9 @@ public sealed class BatchRunner
         {
             manifest = await FetchStage.RunAsync(FetchRequestFor(acc, Pick.All, profile.Deposit), _files, ct).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
-            Log($"{acc} FETCH failed: {ex.Message}");
-            Record(acc, ("status", "fetch_failed"), ("detail", ex.Message));
+            RecordFetchFailure(acc, probe: false, ex);
             return false;
         }
         int listed = manifest["rest_raw_count"]!.GetValue<int>();

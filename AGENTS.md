@@ -224,7 +224,8 @@ Per-deposit status lives in `<state_dir>/state.json`. The statuses a person will
 | `deferred_large_files`, `deferred_search_too_large` | too big for this profile's limits |
 | `skipped_acquisition` | the files are not what the profile accepts (e.g. MS2 read in the ion trap) |
 | `waiting_*` | the deposit needs a capability no available profile has (DIA, TMT, timsTOF, ...) |
-| `fetch_failed`, `probe_fetch_failed` | PRIDE downloads failed after all retries |
+| `fetch_unavailable`, `probe_fetch_unavailable` | PRIDE dropped the downloads through every retry; tried again on a later pass (`fetch_passes`, default 3), not settled |
+| `fetch_failed`, `probe_fetch_failed` | downloads failed on every pass, or broke in a way a retry cannot fix (e.g. a checksum mismatch) |
 | `search_failed` | MetaMorpheus failed; see `04_search/metamorpheus.log` |
 
 ## When something goes wrong
@@ -236,7 +237,8 @@ Per-deposit status lives in `<state_dir>/state.json`. The statuses a person will
 | `names no MetaMorpheus 1.1.11` | The machine file's `[metamorpheus]` table does not name that release (step 4). |
 | `contaminant database missing` | `[metamorpheus]` points somewhere other than the unzipped release folder (step 3). |
 | log says `free space ... below ... floor: stopping` | The work disk is fuller than `min_free_gb`; free space or lower it. |
-| `FETCH failed ... 8 attempts all failed` | PRIDE dropped the downloads repeatedly; the deposit is settled as `fetch_failed`. Report it; do not edit `state.json` by hand. |
+| `failed on availability, pass 1 of 3: retry next pass` | PRIDE dropped the downloads through every attempt. The batch waits `pass_wait_minutes` (default 30) and tries again; nothing to do. |
+| `failed on availability, pass 3 of 3: settled` | PRIDE failed the deposit on every pass; it is settled as `fetch_failed`. Report it; do not edit `state.json` by hand. |
 | A deposit you expected is missing | Look it up in the census's `census.tsv`: the `route` and `route_reason` columns say why. |
 | A search fails and `04_search/metamorpheus.log` mentions the Thermo licence | `accept_thermo_licence` is not `true` (step 4). |
 
