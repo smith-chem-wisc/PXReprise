@@ -21,7 +21,9 @@ public sealed record Machine(
     string? DataRepo = null,
     int FetchAttempts = 8,
     int ParallelDownloads = 4,
-    string? QcPython = null)
+    string? QcPython = null,
+    int FetchPasses = 3,
+    double PassWaitMinutes = 30)
 {
     public static Machine Load(string file)
     {
@@ -46,12 +48,17 @@ public sealed record Machine(
         string? datarepo = root.OptionalString("datarepo");
         int attempts = checked((int)(root.OptionalInteger("fetch_attempts") ?? 8));
         int parallel = checked((int)(root.OptionalInteger("parallel_downloads") ?? 4));
+        // A deposit whose downloads exhaust their attempts on unavailability is retried on a later pass, up to this many in all.
+        int passes = checked((int)(root.OptionalInteger("fetch_passes") ?? 3));
+        double passWait = root.OptionalNumber("pass_wait_minutes") ?? 30;
         // A Python with qc's qctemplates installed: the qc-payload stage runs its validate and render (qc owns them).
         // Optional: without it the payload is still built, with vendored bin edges, and the stage says so.
         string? qcPython = root.OptionalString("qc_python");
         root.RefuseUnknownKeys();
         if (threads < 1) throw new ConfigException(file, "'max_threads' must be 1 or more");
-        return new Machine(file, workRoot, dbDir, mm, settings, threads, dotnet, licence, libraries, minFree, datarepo, attempts, parallel, qcPython);
+        if (passes < 1) throw new ConfigException(file, "'fetch_passes' must be 1 or more");
+        if (passWait < 0) throw new ConfigException(file, "'pass_wait_minutes' must not be negative");
+        return new Machine(file, workRoot, dbDir, mm, settings, threads, dotnet, licence, libraries, minFree, datarepo, attempts, parallel, qcPython, passes, passWait);
     }
 
     public string CmdFor(string release) =>

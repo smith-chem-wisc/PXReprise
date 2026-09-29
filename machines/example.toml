@@ -24,6 +24,11 @@ min_free_gb = 50
 # fetch_attempts = 8
 # parallel_downloads = 4
 
+# A deposit whose downloads fail on every retry (PRIDE down for hours) is tried again on a later pass, after a wait,
+# up to fetch_passes passes in all; then it is settled as fetch_failed. Defaults 3 and 30.
+# fetch_passes = 3
+# pass_wait_minutes = 30
+
 # OPTIONAL integrations (Python tools owned by other projects). Leave them out: the pipeline runs without them.
 # datarepo = "C:/path/to/datarepo.exe"     # ingest each result into a dataRepo store
 # qc_python = "C:/path/to/python.exe"      # a Python with qc's qctemplates, to validate and render QC reports

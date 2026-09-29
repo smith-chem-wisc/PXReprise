@@ -31,13 +31,13 @@ public class BatchRunnerTests
         Assert.That(BatchRunner.QcExclusion(Report(("a.raw", false, new[] { "low_res_ms2" }), ("b.raw", true, Array.Empty<string>())), Gates), Is.Null);
     }
 
-    private static (BatchRunner Runner, FakeSearch Search, FakeFiles Files, string Dir) Runner(string extraQuestion = "")
+    private static (BatchRunner Runner, FakeSearch Search, FakeFiles Files, string Dir) Runner(string extraQuestion = "", string extraMachine = "")
     {
         string dir = TestSupport.TempDir();
         string q = TestSupport.MinimalQuestion + $"\n[batch]\nrun_root = \"runs\"\nstate_dir = \"state\"\nqueue = \"queue.json\"\n" + extraQuestion;
         var question = QuestionLoader.Load(TestSupport.WriteFile(dir, "question.toml", q));
         var machine = Machine.Load(TestSupport.WriteFile(dir, "machine.toml",
-            $"work_root = '{dir}'\n[metamorpheus]\n\"1.1.11\" = 'C:/nowhere/CMD.exe'\n"));
+            $"work_root = '{dir}'\nmin_free_gb = 0\n{extraMachine}[metamorpheus]\n\"1.1.11\" = 'C:/nowhere/CMD.exe'\n"));
         var search = new FakeSearch();
         var files = new FakeFiles();
         return (new BatchRunner(question, Profiles, machine, files, search, "2026-09-28"), search, files, dir);
@@ -109,12 +109,65 @@ public class BatchRunnerTests
         Assert.That(text, Does.Contain("flags: [no_design_file, no_output_sdrf, enriched, qc_excluded_files]").And.Contain("iso.xml"));
     }
 
+    // G7. A deposit whose downloads PRIDE kept dropping is not the deposit's fault: it waits for a later pass, and only
+    // settles after fetch_passes of them. The dropped transfer is the type .NET really throws (HttpIOException), not a
+    // fake HttpRequestException(503): that fake is how the 09-29 retry defect survived its tests.
+    private static (BatchRunner Runner, FakeFiles Files, string Dir, QueueEntry Entry) Droppy(int passes, Func<Exception> failure)
+    {
+        var (runner, search, files, dir) = Runner(extraMachine: $"fetch_attempts = 1\nfetch_passes = {passes}\npass_wait_minutes = 0\n");
+        search.Results["PXD000208"] = new() { TestSupport.Record("PXD000208", "Type 2 diabetes muscle") };
+        files.Listing = Enumerable.Range(0, 5).Select(i => new PrideArchiveFile { FileName = $"h{i}.raw", FileSizeBytes = 500_000_000 }).ToList();
+        files.Failure = failure;
+        return (runner, files, dir, new QueueEntry("PXD000208", "t", "human"));
+    }
+
+    [Test]
+    public async Task ADownloadThatOutlastsItsAttemptsIsRetriedOnLaterPassesThenSettled()
+    {
+        var (runner, files, dir, e) = Droppy(3, () => new HttpIOException(HttpRequestError.ResponseEnded, "The response ended prematurely."));
+        await runner.RunAsync(new[] { e }, CancellationToken.None);
+        var ds = runner.State()["datasets"]!["PXD000208"]!;
+        Assert.That(ds["status"]!.GetValue<string>(), Is.EqualTo("probe_fetch_failed"));
+        Assert.That(ds["unavailable_passes"]!.GetValue<int>(), Is.EqualTo(3));
+        Assert.That(files.Downloads, Is.EqualTo(3 * 3), "three probe files, one attempt each, on each of three passes");
+        string log = File.ReadAllText(Path.Combine(dir, "state", "batch.log"));
+        Assert.That(log, Does.Contain("pass 1 done").And.Contain("pass 2 done").And.Contain("retry next pass").And.Contain("pass 3 of 3: settled"));
+    }
+
+    [Test]
+    public async Task AContractBreakSettlesAtOnceWithoutAnotherPass()
+    {
+        var (runner, files, dir, e) = Droppy(3, () => new MzLibUtil.MzLibException("h0.raw: checksum mismatch"));
+        await runner.RunAsync(new[] { e }, CancellationToken.None);
+        var ds = runner.State()["datasets"]!["PXD000208"]!;
+        Assert.That(ds["status"]!.GetValue<string>(), Is.EqualTo("probe_fetch_failed"));
+        Assert.That(ds["unavailable_passes"], Is.Null);
+        Assert.That(files.Downloads, Is.EqualTo(3), "one pass only");
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Not.Contain("pass 1 done"));
+    }
+
+    [Test]
+    public void AnUnavailableWholeFetchIsNeitherSettledNorForgotten()
+    {
+        var (runner, _, _, _) = Runner(extraMachine: "fetch_passes = 2\n");
+        var dropped = new HttpRequestException("h0.raw: 8 attempts all failed; last error: The response ended prematurely.",
+            new HttpIOException(HttpRequestError.ResponseEnded, "The response ended prematurely."));
+        runner.RecordFetchFailure("PXD000209", probe: false, dropped);
+        Assert.That(runner.State()["datasets"]!["PXD000209"]!["status"]!.GetValue<string>(), Is.EqualTo("fetch_unavailable"));
+        Assert.That(runner.Settled("PXD000209"), Is.Empty);
+        Assert.That(runner.Retriable("PXD000209"), Is.True);
+        runner.RecordFetchFailure("PXD000209", probe: false, dropped);
+        Assert.That(runner.Settled("PXD000209"), Is.EqualTo("fetch_failed"));
+        Assert.That(runner.Retriable("PXD000209"), Is.False);
+    }
+
     private sealed class FakeFiles : IPrideFiles
     {
         public List<PrideArchiveFile> Listing { get; set; } = new();
+        public Func<Exception> Failure { get; set; } = () => new InvalidOperationException("no downloads in this test");
         public int Downloads;
         public Task<List<PrideArchiveFile>> ListFilesAsync(string a, CancellationToken ct) => Task.FromResult(Listing);
         public Task<List<string>> ListFtpNamesAsync(string a, CancellationToken ct) => Task.FromResult(Listing.Select(f => f.FileName).ToList());
-        public Task<string> DownloadAsync(PrideArchiveFile f, string dir, CancellationToken ct) { Downloads++; throw new InvalidOperationException("no downloads in this test"); }
+        public Task<string> DownloadAsync(PrideArchiveFile f, string dir, CancellationToken ct) { Interlocked.Increment(ref Downloads); throw Failure(); }
     }
 }
