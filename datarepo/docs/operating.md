@@ -49,8 +49,9 @@ of the catalog id, and the site's footer names it.
 
 ### Without Python: the self-contained executable
 
-A machine with no Python can run dataRepo from a download: a zip per platform (Windows x64, Linux
-x64, macOS arm64 and x64) holding `datarepo/datarepo` (`datarepo.exe` on Windows), with the
+A machine with no Python can run dataRepo from a download: a `.zip` for Windows x64, or a
+`.tar.gz` for Linux x64 and macOS arm64 and x64 (unpack it with `tar -xzf`, which keeps the
+executable bits) holding `datarepo/datarepo` (`datarepo.exe` on Windows), with the
 interpreter, DuckDB, pyarrow, pyMzLib and its mzLib bridge inside. Unzip it anywhere and call the
 executable by its path, or point a tool at it (PXReprise's machine file: `datarepo = "…"`). The
 commands, arguments and outputs are the ones in [cli.md](cli.md).
@@ -70,7 +71,7 @@ To build one yourself, on the platform you want it for:
 
 ```bash
 pip install ".[readers,mcp]" pyinstaller
-python tools/build_binary.py                       # dist/datarepo-<version>-<platform>.zip
+python tools/build_binary.py                       # dist/datarepo-<version>-<platform>.zip or .tar.gz
 python tools/packaging/smoke_test.py <unzipped>/datarepo/datarepo
 ```
 
