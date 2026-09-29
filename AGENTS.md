@@ -117,40 +117,74 @@ Success: `"by_status": {"searched": 1}`. The results are in `examples/first-run/
 
 If it fails, see "When something goes wrong".
 
-## 6. Write the person's question
+## 6. Design the person's question with them
 
-A question is one TOML file in a folder of the person's choosing (not inside the PXReprise clone). Start from
-`examples/t2d/question.toml` and change:
+The question decides which public data the person's conclusions rest on, so it is **their** scientific choice. Your
+job is to turn their words into rules, show them the consequences, and let them decide. They should never have to
+write a regular expression. The method is the one in the tutorial,
+https://smith-chem-wisc.github.io/PXReprise/tutorial.html. Read it first; its finished example is
+`examples/muscle-ageing/`.
 
-- `question`: a short lower-case name, words joined by `-` (e.g. `muscle-ageing`).
-- `description`: one sentence.
-- `profiles`: keep `["label-free-dda@2"]`. Adding `"tmt-dda@1"` only COUNTS TMT deposits (that profile is not yet
-  runnable); it does not search them.
-- `[discover] keywords`: the PRIDE search terms. Broad is fine; relevance rules filter afterwards.
-- `[discover] organisms`: exact PRIDE spellings, e.g. `["Homo sapiens (human)", "Mus musculus (mouse)"]`, or `[]` for all.
-  Only `human`, `mouse` and `rat` have databases in `label-free-dda@2`; other organisms are counted, not searched.
-- `[relevance]`: regular expressions, case-insensitive, matched against each deposit's title, description and
-  protocols. `require_any`: at least one must match. `exclude_if_any`: any match excludes, unless one of
-  `unless_any` also matches.
-- `[batch]`: where this question's work goes; relative paths are relative to the question file.
+**6a. Interview.** Ask these, in plain words, one or two at a time. Do not ask about regular expressions.
 
-Work out the keywords and rules WITH the person: they are scientific choices. Then validate:
+1. What are you studying? One sentence. (This becomes `description`.)
+2. Which words would a paper or dataset about it use? Include synonyms, and the disease or model names.
+   (These become `keywords`, and the basis of `require_any`.)
+3. Which organisms? (Human, mouse and rat can be searched; others are counted only.)
+4. Which tissues or sample types count, and which do not? (For example: skeletal muscle yes, heart muscle no.)
+5. What looks similar but should NOT count? (For example: type 1 diabetes in a type 2 question; cancer cachexia in an
+   ageing one.) (These become `exclude_if_any`.)
+6. Is there anything that should count even when it looks excluded? (These become `unless_any`, kept narrow.)
+7. Do you already know any datasets that must be in, or must be out? Accession numbers if they have them.
+   (These become `decisions.tsv` entries, each with the person's reason, and a check that the rules agree.)
+
+**6b. Draft.** Write `question.toml` in a folder the person chooses, outside the PXReprise clone. Start broad.
+- `profiles = ["label-free-dda@2", "tmt-dda@1"]` (TMT deposits are then counted, not searched).
+- `[discover] organisms`: exact PRIDE spellings: `"Homo sapiens (human)"`, `"Mus musculus (mouse)"`, `"Rattus norvegicus (rat)"`.
+- Every rule: case-insensitive; `\b` around words (in TOML `\\b`) so `old` cannot match `fold`; match topic words,
+  not incidental ones ("3 months old" is an age, not ageing); proximity windows of about 150 characters
+  (`A.{0,150}B` and `B.{0,150}A`), not 60.
+- `[batch]`: `run_root = "work/runs"`, `state_dir = "work/state"`, `queue = "work/queue.json"`.
+
+Then `pxreprise validate <path>/question.toml`.
+
+**6c. Loop: census, read, show, fix.** Repeat until the person is satisfied (usually 3 to 5 rounds, a minute or two each):
 
 ```
-pxreprise validate <path>/question.toml
+pxreprise census <path>/question.toml --out <path>/census/round-N
 ```
 
-## 7. Census: see what the question would do (minutes, no downloads)
+Read `<out>/review.md` (not `census.tsv`: it is summarised for you). Then:
+
+- **Show the person** the outcome counts, and 5 to 10 rows from each of these sections, with the quoted evidence:
+  *Relevant: are these right?*, *Excluded* (all of them if there are few: each is a deposit lost), and
+  *Found by a keyword, but no rule matched*. Ask: which are wrong? Which are missing?
+- **Look for yourself** at what the samples may miss: filter `census.tsv` for `relevance` = `not_relevant` whose
+  `title` contains the topic's words, and show any that look relevant.
+- **Fix, and say what you changed and why**, in terms of the person's answers:
+  - a relevant deposit that is wrong because of how a word was matched: tighten that rule (`\b`, topic words);
+  - a class of wrong deposits: add to `exclude_if_any`;
+  - a good deposit lost to an exclusion: narrow the exclusion, or add to `unless_any`;
+  - a good deposit no rule matched: add its phrasing to `require_any`, or widen a window;
+  - a handful of specific cases no rule should decide: `decisions.tsv` entries (tab-separated
+    `accession	verdict	reason`, verdict `include` or `exclude`, the reason in the person's words). If the call
+    depends on what was measured, open `https://www.ebi.ac.uk/pride/archive/projects/<accession>` and check first.
+- Use the review's **Keywords** table to judge keywords by their *relevant* column, not their *found* column, and
+  the **Rules** table to spot a rule that matches nothing, or an `unless_any` that rescues too much.
+
+Keep every round's census folder: `review.md` samples are chosen by accession, so rounds can be compared row by row.
+
+## 7. Write the queue, and report what the batch would do
+
+When the person is happy with the last round:
 
 ```
 pxreprise census <path>/question.toml --queue
 ```
 
-This searches PRIDE, decides for every deposit whether it is relevant and whether a profile can search it, and writes
-`census.tsv` (one row per deposit, with the reason), `summary.json`, and the batch queue (`--queue` installs it at the
-question's `[batch] queue` path; it refuses to replace an existing queue). Report `summary.json` to the person:
-how many deposits were found, how many are relevant, how many would be searched (`routes.search`), and what the rest
-wait on (`waiting_on`, e.g. `dia`, `timstof`, `tmt-dda@1`).
+`--queue` installs the queue at the question's `[batch] queue` path (it refuses to replace an existing one). Report
+from `summary.json`: how many deposits are in scope, how many will be searched (`routes.search`, and `queued`), and
+what the rest wait on (`waiting_on`, e.g. `dia`, `timstof`, `tmt-dda@1`): capabilities a future profile would add.
 
 **Ask the person before step 8.** A batch runs for hours to days and downloads hundreds of GB over its life (each
 deposit's raw files are deleted after its search).
@@ -213,4 +247,4 @@ and the output of `pxreprise version`.
 
 - Full documentation: https://smith-chem-wisc.github.io/PXReprise/
 - Every command: `docs/commands.md`
-- Writing a question: `docs/questions.md`
+- Writing a question: `docs/questions.md`; the tutorial: `docs/tutorial.md`

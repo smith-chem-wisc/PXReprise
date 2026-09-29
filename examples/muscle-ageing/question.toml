@@ -1,0 +1,35 @@
+# Skeletal muscle ageing: the question built step by step in the tutorial "Your first question"
+# (https://smith-chem-wisc.github.io/PXReprise/tutorial.html). Each rule below is there because a census showed it was
+# needed; the tutorial says which.
+#
+#   pxreprise census examples/muscle-ageing/question.toml --queue
+#   pxreprise batch run examples/muscle-ageing/question.toml --machine machines/my-machine.toml
+question = "muscle-ageing"
+description = "Skeletal muscle proteome across age"
+profiles = ["label-free-dda@2", "tmt-dda@1"]
+
+[discover]
+# "skeletal muscle" finds 605 deposits, most irrelevant, but it is the only keyword that finds most of the relevant ones.
+keywords = ["sarcopenia", "muscle aging", "muscle ageing", "aged muscle", "skeletal muscle"]
+organisms = ["Homo sapiens (human)", "Mus musculus (mouse)", "Rattus norvegicus (rat)"]
+
+[relevance]
+# \b word boundaries: without them "old" matches "fold change" and "threshold", and "aged" matches "damaged".
+# Ageing words, not ages: "3 months old" is an age, not an ageing study.
+# A 150-character window: at 80, "Natural aging and ovariectomy induces ... in skeletal muscle" (PXD035171) was missed.
+require_any = [
+    "\\bsarcopeni",
+    "\\b(muscle|myofib\\w*|satellite cells?)\\b.{0,150}\\b(aging|ageing|aged|elderly|age[- ](related|dependent|associated)|old(er)? (mice|rats|adults|animals|individuals|subjects|people|men|women)|young (and|vs\\.?|versus) old)\\b",
+    "\\b(aging|ageing|aged|elderly|age[- ](related|dependent|associated)|old(er)? (mice|rats|adults|animals|individuals|subjects|people|men|women)|young (and|vs\\.?|versus) old)\\b.{0,150}\\b(muscle|myofib\\w*)",
+]
+# Heart muscle is muscle too. Kept when skeletal muscle is named as well.
+exclude_if_any = ["\\b(heart|cardiac|cardiomyocytes?|myocardi\\w*)\\b"]
+unless_any = ["\\bskeletal muscle"]
+# The few calls no rule should make: each with its reason.
+decisions = "decisions.tsv"
+
+# Relative paths are relative to this file.
+[batch]
+run_root = "work/runs"
+state_dir = "work/state"
+queue = "work/queue.json"

@@ -1,6 +1,6 @@
 ---
 title: Commands
-nav_order: 6
+nav_order: 7
 ---
 
 # Commands
@@ -57,6 +57,7 @@ profile, or records why not. Writes to `--out` (default: `census/<today>` beside
 | File | Contents |
 |---|---|
 | `census.tsv` | One row per deposit: relevance and the text that decided it, route, profile, reason, instrument, files, organisms, title. Opens in Excel. |
+| `review.md` | **Read this first.** The census made readable: how much each keyword and rule contributed, a sample of relevant deposits and of keyword hits no rule matched, and every exclusion, each quoting the text that decided it. See the [tutorial](tutorial.md). |
 | `summary.json` | The counts: deposits found, relevant, searchable per profile, and what the rest wait on. |
 | `queue.json` | The deposits the batch would search, in order. |
 | `provenance.json` | When the census ran and with which versions. PRIDE changes daily, so a census is a dated snapshot. |

@@ -1,36 +1,45 @@
 ---
 title: Writing a question
-nav_order: 5
+nav_order: 6
 ---
 
 # Writing a question
 
+New to this? Start with the [tutorial](tutorial.md), which builds a question step by step; this page is the reference.
+
 A question is one [TOML](https://toml.io) file. Keep it in a folder of your own, not inside the PXReprise download.
-Start from [`examples/t2d/question.toml`](https://github.com/smith-chem-wisc/PXReprise/blob/master/examples/t2d/question.toml)
-and check your edits with `pxreprise validate question.toml`. PXReprise rejects unknown or misspelled settings rather
-than ignoring them.
+Start from [`examples/muscle-ageing/question.toml`](https://github.com/smith-chem-wisc/PXReprise/blob/master/examples/muscle-ageing/question.toml),
+the question the tutorial builds, and check your edits with `pxreprise validate question.toml`. PXReprise rejects
+unknown or misspelled settings rather than ignoring them.
 
 ## A complete example
 
 ```toml
 question = "muscle-ageing"
 description = "Skeletal muscle proteome across age"
-profiles = ["label-free-dda@2"]
+profiles = ["label-free-dda@2", "tmt-dda@1"]
 
 [discover]
-keywords = ["sarcopenia", "muscle aging", "skeletal muscle ageing"]
-organisms = ["Homo sapiens (human)", "Mus musculus (mouse)"]
+keywords = ["sarcopenia", "muscle aging", "muscle ageing", "aged muscle", "skeletal muscle"]
+organisms = ["Homo sapiens (human)", "Mus musculus (mouse)", "Rattus norvegicus (rat)"]
 
 [relevance]
-require_any = ["\\bsarcopeni", "(muscle|myofib).{0,40}(ag(e|ing)|old|elderly)"]
-exclude_if_any = ["cardiac", "\\bheart\\b"]
-unless_any = ["skeletal"]
+require_any = [
+    "\\bsarcopeni",
+    "\\b(muscle|myofib\\w*|satellite cells?)\\b.{0,150}\\b(aging|ageing|aged|elderly|age[- ](related|dependent|associated)|old(er)? (mice|rats|adults|animals|individuals|subjects|people|men|women)|young (and|vs\\.?|versus) old)\\b",
+    "\\b(aging|ageing|aged|elderly|age[- ](related|dependent|associated)|old(er)? (mice|rats|adults|animals|individuals|subjects|people|men|women)|young (and|vs\\.?|versus) old)\\b.{0,150}\\b(muscle|myofib\\w*)",
+]
+exclude_if_any = ["\\b(heart|cardiac|cardiomyocytes?|myocardi\\w*)\\b"]
+unless_any = ["\\bskeletal muscle"]
+decisions = "decisions.tsv"
 
 [batch]
 run_root = "work/runs"
 state_dir = "work/state"
 queue = "work/queue.json"
 ```
+
+The [tutorial](tutorial.md) explains why each rule is written the way it is.
 
 ## The settings
 
@@ -92,7 +101,10 @@ Needed for `census --queue` and `batch run`. Relative paths are relative to the 
 
 ## Tips
 
-- Run `pxreprise census` after every change to the rules, and read `census.tsv`. Each deposit's `relevance_evidence`
-  column quotes the text that matched, so you can see why each one is in or out.
+- Run `pxreprise census` after every change to the rules, and read its `review.md`: how much each keyword and rule
+  did, a sample of each outcome, and every exclusion, each quoting the text that decided it. `census.tsv` has every
+  deposit, for filtering in Excel.
+- Put `\b` around words (`\\b` in TOML), so `old` cannot match *fold* and `aged` cannot match *damaged*; give
+  proximity windows about 150 characters.
 - Prefer rules that are too broad plus a few `exclude` decisions over rules too narrow to find what you need.
 - A question is data: put it under version control next to your analysis.

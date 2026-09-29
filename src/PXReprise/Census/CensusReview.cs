@@ -113,10 +113,10 @@ public static class CensusReview
         foreach (var x in rows)
             sb.Append($"| [{x.Accession}](https://www.ebi.ac.uk/pride/archive/projects/{x.Accession}) | {Cell(Trim(x.Record.Title, 110))} | " +
                       $"{Cell(string.Join("; ", x.Record.Organisms.Select(o => Regex.Replace(o, @"\s*\(.*\)$", ""))))} | " +
-                      $"{Cell(withEvidence ? "…" + Trim(x.Relevance.Evidence ?? "", 90) + "…" : string.Join("; ", x.KeywordsHit))} |\n");
+                      $"{Cell(withEvidence ? "..." + Trim(x.Relevance.Evidence ?? "", 90) + "..." : string.Join("; ", x.KeywordsHit))} |\n");
     }
 
-    private static string Trim(string s, int n) => s.Length <= n ? s : s[..n].TrimEnd() + "…";
+    private static string Trim(string s, int n) => s.Length <= n ? s : s[..n].TrimEnd() + "...";
 
     private static string Cell(string s) => s.Replace("|", "\\|").Replace('\n', ' ').Replace('\r', ' ').Replace('\t', ' ');
 }
