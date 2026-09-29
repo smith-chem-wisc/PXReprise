@@ -1,4 +1,5 @@
-# aging study layer, v0.4.0 (2026-09-26: `SampleAge.age_source`, aging 071 DATAREPO-59; v0.3.0 2026-09-22;
+# aging study layer, v0.5.0 (2026-09-29: `CuratedSampleCharacteristic`, aging 078 REQ-DATAREPO-6;
+# v0.4.0 2026-09-26: `SampleAge.age_source`, aging 071 DATAREPO-59; v0.3.0 2026-09-22;
 # v0.2.0 earlier the same day; v0.1.0 2026-09-20).
 #
 # The rule (U5): a study layer ADDS tables keyed on core identifiers and never alters a core table.
@@ -24,7 +25,7 @@ description: >-
   effects and their refusals, the cross-dataset pooled effect, organelle-level summaries, age clocks
   and cross-species age mapping. aging owns the content; every table is keyed on core identifiers and
   no core table is altered.
-version: 0.4.0
+version: 0.5.0
 license: https://creativecommons.org/licenses/by/4.0/
 
 prefixes:
@@ -143,6 +144,31 @@ classes:
       age_source: {range: AgeSource, required: true, description: "Where `age_raw` came from: an SDRF cell, or the study owner's curation from a named source."}
       age_source_reference: {description: "For a curated age, the source it was read from (for example 'PMID 40544948' or 'PRIDE PXD056433 project record'). NULL for an SDRF age, whose source is the SDRF."}
       normalizer_version: {description: "Version of the software that turned `age_raw` into `age_years` (SdrfAge). Two rows normalized by different versions are not comparable and this is how a caller can tell. NULL when no normalizer ran, e.g. a curated age converted by hand; never a curation label (that is `age_source`)."}
+
+  CuratedSampleCharacteristic:
+    description: >-
+      One characteristic of one sample, as aging CURATED it (aging 078, REQ-DATAREPO-6). The values
+      come from the PRIDE record, the deposit's own files and the paper, not from an SDRF cell. That
+      is the whole reason this is a study table and not a core one. The core `samples` and
+      `sample_characteristics` hold only what an SDRF wrote, and a curated value never enters them,
+      so "the depositor said" and "aging read it from the paper" can never be confused. Being in
+      this table is the mark that a value is aging's. The same rule as `sample_ages.age_source =
+      curated`, except that here every row is curated.
+      A NULL `samples.organism_part` / `cell_type` / `cell_line` / `disease` does not mean nothing
+      is known about the sample. It means no SDRF term was written. Read this table before reporting
+      a sample's tissue, cell type, cell line or disease as unknown. It is keyed per sample, so a
+      value that holds for a whole dataset is one row per sample, and a per-run condition (control
+      vs progeria on the same deposit) needs no extra table.
+    attributes:
+      sample_id: {range: Sample, required: true, description: "Sample this row describes. Must be a sample the catalog holds."}
+      name: {required: true, description: "The characteristic, written the way an SDRF column header is, e.g. `characteristics[organism part]`, `characteristics[cell type]`, `characteristics[cell line]`, `characteristics[disease]`. It is the same vocabulary as `sample_characteristics.name`, so the two can be read side by side on one filter. Part of the key: one curated value per characteristic per sample."}
+      value: {required: true, description: "The curated value as a name, e.g. `SH-SY5Y`, `brain`, `Hutchinson-Gilford progeria syndrome`, `normal`, or an SDRF reserved word the curator wrote: `not applicable` (the characteristic does not apply, e.g. the tissue of a cell line) or `not available` (the sources were read and do not say). No row means the characteristic was not curated at all. Those are three different answers (G42), so filter on `value_reserved` before counting values."}
+      value_reserved: {range: boolean, required: true, description: "True when `value` is an SDRF reserved word (`not available`, `not applicable`, `unknown`, `none`, `na`, `n/a`), the same list and meaning as `sample_characteristics.value_reserved`: the curator looked and there is no value. Computed by `datarepo study` from `value`. A delivered value that disagrees is refused. A reserved row is not an annotation."}
+      term: {range: uriorcurie, description: "The ontology term for `value` where the curator gave one: UBERON (organism part), CL (cell type), Cellosaurus `CVCL_` (cell line), MONDO or DOID (disease; PATO:0000461 for normal)."}
+      source_reference: {required: true, description: "What the value was read from, e.g. `PMID 40544948`, `PRIDE PXD050351 project record`, `PXD036557 samples_names.docx`. REQUIRED, as for a curated age: a curated value whose source cannot be named is not delivered."}
+      evidence: {description: "The curator's note: the sentence, table cell or mapping the value rests on. Verbatim, and free text."}
+      confidence: {description: "aging's own rating of the row, verbatim (`high`, `medium`, `low` in `aging-curation/1`). It is aging's vocabulary, so it is not an enum here. Filter on it before trusting a `low` row like the others."}
+      curation_version: {required: true, description: "The curation that produced the row, e.g. `aging-curation/1`. Two rows from different curation versions may disagree by design, and this is how a caller can tell. It is a curation label, not software. It is never written into `sample_ages.normalizer_version`, which names software."}
 
   AgeEffect:
     description: >-
@@ -335,6 +361,7 @@ classes:
       the schema's and never a second hand-written copy.
     attributes:
       sample_ages: {range: SampleAge, multivalued: true, inlined_as_list: true, description: "Rows of the sample_ages table."}
+      curated_sample_characteristics: {range: CuratedSampleCharacteristic, multivalued: true, inlined_as_list: true, description: "Rows of the curated_sample_characteristics table."}
       age_effects: {range: AgeEffect, multivalued: true, inlined_as_list: true, description: "Rows of the age_effects table."}
       age_effect_refusals: {range: AgeEffectRefusal, multivalued: true, inlined_as_list: true, description: "Rows of the age_effect_refusals table."}
       age_effect_meta: {range: AgeEffectMeta, multivalued: true, inlined_as_list: true, description: "Rows of the age_effect_meta table."}

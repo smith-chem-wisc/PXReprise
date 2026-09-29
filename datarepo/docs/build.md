@@ -116,6 +116,7 @@ separately from `TABLES`.
 | `age_effect_refusals` | one row per fit **not** performed, with the reason | `aging:DEF-AGE-EFFECT v1` §5 |
 | `age_effect_meta` | (feature, response, estimator, quant_basis, stratum, tissue, acquisition, quant_method) | `aging:DEF-AGE-EFFECT-META v1` |
 | `sample_ages` | one row per sample | not yet definition-backed |
+| `curated_sample_characteristics` | (sample, characteristic) | aging's curation, versioned by `curation_version` (aging 078) |
 | `organelle_age_summaries`, `clock_models`, `clock_features`, `age_mappings` | — | not yet definition-backed |
 
 **They are empty unless a delivery is loaded, and the catalog creates them either way.** Nothing in

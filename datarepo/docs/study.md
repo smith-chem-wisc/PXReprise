@@ -143,7 +143,7 @@ Run on the union and reported in `catalog_checks`, and a failure refuses the bui
 | Kind | What it asserts |
 |---|---|
 | `study-unique` | no table repeats its own declared key |
-| `study-reference` | `age_effects.dataset_id` and `age_effect_refusals.dataset_id` are datasets the catalog holds; `sample_ages.sample_id` is a sample it holds; `clock_features.clock_id` is a clock it holds |
+| `study-reference` | `age_effects.dataset_id` and `age_effect_refusals.dataset_id` are datasets the catalog holds; `sample_ages.sample_id` and `curated_sample_characteristics.sample_id` are samples it holds; `clock_features.clock_id` is a clock it holds |
 
 An age effect naming a dataset the catalog does not hold is **refused, not dropped**. Section D's
 answer would otherwise come back smaller than the delivery supports, with nothing to say why.
@@ -165,6 +165,27 @@ cross-dataset by construction.
   asked for the check and moved its target rather than accepting ours: their definitions are not
   produced by a search, so the core `definitions` table was the wrong place to look (024 §2a). See
   *What it refuses*, above.
+
+## Curated sample characteristics (layer 0.5.0)
+
+`curated_sample_characteristics` takes a study owner's curated tissue, cell type, cell line, disease
+and the rest, one row per (sample, characteristic), with `name` written the way an SDRF header is
+(`characteristics[organism part]`). It exists because aging curated 52 datasets from PRIDE records,
+deposit files and papers, and the only route into `samples` was an SDRF (aging 078, REQ-DATAREPO-6).
+
+- **A curated value never enters the core.** `samples` and `sample_characteristics` hold what an SDRF
+  wrote; this table holds what the study owner read elsewhere. Being here is the mark that a value is
+  the curator's, the same rule as `sample_ages.age_source = curated`.
+- **`source_reference` and `curation_version` are required.** A curated value whose source cannot be
+  named is not delivered, as for a curated age. `curation_version` is a curation label such as
+  `aging-curation/1`, never software, so it is not `normalizer_version`.
+- **A reserved word is kept and flagged.** `not applicable` (a cell line has no tissue) and
+  `not available` (the sources were read and do not say) are answers; no row means "not curated".
+  `value_reserved` is computed from `value` with the core's SDRF list, so filter on it before counting.
+- **Per sample, so per run where the deposit has one sample per run.** A dataset-level value is one
+  row per sample; a per-run condition (control and progeria in one deposit) needs nothing extra.
+- `datarepo_sql` points at the table whenever a query reads `samples` and it holds rows
+  (`study_tables_on_these_samples`).
 
 ## Not in the study path yet
 

@@ -4,6 +4,22 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [0.29.0] - 2026-09-29
+
+**Curated sample characteristics (aging 078, REQ-DATAREPO-6).** aging study layer 0.4.0 ->
+**0.5.0**, `STUDY_INGESTER_VERSION` 0.5.0 -> **0.6.0**. Core schema stays **0.0.13** and
+`INGESTER_VERSION` stays **0.20.0**, so **no search bundle moves and no re-ingest is needed for this**.
+A study delivery declares layer 0.5.0; aging had not re-delivered under 0.4.0, so this costs nothing.
+
+### Added
+- **`curated_sample_characteristics`** in the aging layer: `sample_id`, `name` (SDRF header form),
+  `value`, `value_reserved`, `term`, `source_reference` (required), `evidence`, `confidence`,
+  `curation_version` (required). Key (`sample_id`, `name`); `sample_id` must be a sample the catalog
+  holds. A reserved word (`not applicable`, `not available`) is kept, and `value_reserved` is computed
+  from it with the core's list, because "looked, not found" and "not curated" are different answers. The core `samples` columns stay what the SDRF wrote.
+- **`datarepo_sql` says when a sample query has curated study rows beside it**
+  (`study_tables_on_these_samples`), because a NULL `samples.cell_line` is otherwise read as unknown.
+
 ## [0.28.1] - 2026-09-27
 
 **Descriptions only (aging 075, REQ-DATAREPO-5 (a) and (b)).** No row, schema version or

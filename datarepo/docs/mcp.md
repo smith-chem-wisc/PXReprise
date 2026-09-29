@@ -94,6 +94,11 @@ tables returns `rows: []`, and an agent that reads that as a negative finding ha
 *"organelles do not age at measurably different rates"* from two tables nobody has delivered yet.
 The guard cannot be skipped, which is why it is a field and not a fourth tool.
 
+When the statement reads `samples` or `sample_characteristics` and a study layer has delivered rows
+keyed on samples (`sample_ages`, `curated_sample_characteristics`), the result also carries
+**`study_tables_on_these_samples`**. A curated tissue or cell line never enters `samples`, so a
+NULL there is not "unknown" (aging 078).
+
 Prefer the acceptance views — `psms_1pct`, `peptidoforms_1pct`, `protein_groups_1pct` — which apply
 the producing search engine's rule once so no caller restates it. Each one states the rule it
 applies in its own `describe`.
@@ -168,7 +173,7 @@ are built so that "no data" stays distinguishable from "no", in four places:
 | `describe()` | `tables_empty` — every table present with zero rows |
 | `describe(table)` | per-column non-null counts, and `all_null` on a column that holds nothing |
 | `search()` | `searched` with each source's row count, `searched_but_empty`, the columns matched and which of them are entirely NULL |
-| `sql()` | `tables_touched`, and `empty_tables` when any is empty |
+| `sql()` | `tables_touched`, `empty_tables` when any is empty, and `study_tables_on_these_samples` when a sample table has curated study rows beside it |
 
 The column-level half matters as much as the table-level half. `samples` holds 57 rows with
 `organism_part`, `cell_type`, `disease`, `condition` and `cell_line` NULL on every one, so a search
