@@ -203,6 +203,27 @@ downloads the next deposit while the current one is searching.
 - Stop cleanly: `pxreprise batch stop <question.toml>` (the current search finishes first).
 - Restart: run `batch run` again. It skips everything already settled and resumes where it stopped.
 
+## Updating an existing installation
+
+Do this when the person asks to update, or when `pxreprise version` is older than the newest release at
+https://github.com/smith-chem-wisc/PXReprise/releases.
+
+1. Read the new releases' entries in `CHANGELOG.md` (or on the releases page). Each says whether it needs a different
+   MetaMorpheus, whether the machine file needs a change, and whether it is safe mid-batch. Tell the person what it
+   says before going on.
+2. If a batch is running, **ask the person** before stopping it. Then run `pxreprise batch stop <question.toml>` and wait
+   until `<state_dir>/driver.pid` is gone. On Windows the program cannot be replaced while it runs.
+3. In the clone, run `git pull`, `dotnet build -c Release`, then
+   `dotnet test -c Release --filter "Category!=ExternalService&Category!=LocalCorpus"`.
+   - Success: `Failed: 0`.
+   - On any failure, stop and report it. The installed program is untouched and still works.
+4. `dotnet publish src/PXReprise -c Release -o <TOOLS>/pxreprise`, then `pxreprise version`. Success: the version shown
+   is the new one.
+5. Do what the release notes ask: a new MetaMorpheus (step 3), or a machine-file line (step 4). Never edit `profiles/`.
+6. If a batch was stopped, **ask the person**, then start it again with `batch run`. It resumes where it stopped.
+
+The person's machine file (`machines/my-*.toml`), questions, `state.json` and results are never touched by an update.
+
 ## Reading the results
 
 Each deposit gets `<run_root>/<PXD accession>/`:
