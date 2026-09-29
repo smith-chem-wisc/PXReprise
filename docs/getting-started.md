@@ -92,6 +92,49 @@ should show `"searched": 1`. The results are in `examples/first-run/work/runs/PX
    works through the queue one deposit at a time. Stop it cleanly with `pxreprise batch stop path/to/question.toml`;
    start it again with `batch run`, and it carries on where it stopped.
 
+## 7. Updating
+
+New versions are listed, newest first, on the [releases page](https://github.com/smith-chem-wisc/PXReprise/releases)
+and in `CHANGELOG.md`. Each one says whether it needs a different MetaMorpheus, whether your machine file needs a
+change, and whether it is safe to update part-way through a batch. Read that first. To see what you have:
+`pxreprise version` (the `pxreprise` line is the version and the exact commit).
+
+1. **Stop any running batch** and wait for it to exit (the current search finishes first). On Windows the program
+   cannot be replaced while it runs.
+
+   ```
+   pxreprise batch stop path/to/question.toml
+   ```
+
+2. **Get the new code, build and test it**, in the folder you cloned:
+
+   ```
+   git pull
+   dotnet build -c Release
+   dotnet test -c Release --filter "Category!=ExternalService&Category!=LocalCorpus"
+   ```
+
+   The tests should end with `Failed: 0`. If they don't, stop: your installed program is still the old one and still
+   works.
+3. **Replace the program**, then check it:
+
+   ```
+   dotnet publish src/PXReprise -c Release -o D:\tools\pxreprise
+   pxreprise version
+   ```
+
+4. **Do what the release notes ask**, if anything: download a new MetaMorpheus, or add a line to your machine file.
+5. **Start the batch again** with `batch run`. It carries on where it stopped.
+
+What an update keeps:
+- **Your machine file.** `machines/my-*.toml` is never committed, so `git pull` does not touch it. New settings come
+  with defaults.
+- **Your questions, queue, `state.json` and results.** They live in your own folders.
+- **Finished results.** A new version never changes them.
+
+**To keep the old version** (useful during a long batch), publish the new one to a new folder instead, e.g.
+`D:\tools\pxreprise-0.2.0`, and run it from there. Going back is then just running the old folder's program.
+
 ## When something goes wrong
 
 Every command prints one JSON object. `"ok": false` comes with an error `type` and a `message`.
