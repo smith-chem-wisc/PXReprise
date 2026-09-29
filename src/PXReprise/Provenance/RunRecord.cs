@@ -13,7 +13,9 @@ public sealed record FileEntry(string Path, long SizeBytes, string Sha256);
 /// </summary>
 public sealed class RunRecord
 {
-    public string Schema { get; } = "pxreprise-provenance/1";
+    // Not "pxreprise-provenance/1": that name is the per-stage record dataRepo ingests (aging-provenance/3's layout under
+    // a neutral name, DATAREPO-62). This record is a different document (census, never ingested) and keeps its own name.
+    public string Schema { get; } = "pxreprise-run/1";
     public string Command { get; }
     public string StartedUtc { get; } = Now();
     public string? FinishedUtc { get; private set; }
