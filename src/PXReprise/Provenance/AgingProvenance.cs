@@ -9,7 +9,7 @@ namespace PXReprise.Provenance;
 /// <summary>
 /// A stage's provenance in the <c>aging-provenance/3</c> schema, the one dataRepo's ingester reads (and the only one it
 /// accepts: <c>sources/provenance.py</c>). The engine writes this exact shape so the switch from the Python pipeline
-/// changes no contract (a design principle). Paths under the work root are stored relative to it with
+/// changes no contract for anything downstream. Paths under the work root are stored relative to it with
 /// <c>"root": "work_root"</c>; a file an upstream stage already hashed reuses that hash and names the stage.
 /// </summary>
 public sealed class AgingProvenance
