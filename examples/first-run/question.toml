@@ -1,0 +1,19 @@
+# FIRST RUN: one small, known-good public deposit through the whole pipeline, to prove an installation works.
+# PXD058082 (mouse, 15 Thermo .raw files, 4.5 GB, label-free DDA on an Orbitrap) is already in queue.json, so this runs
+# without a census. Everything it writes goes under ./work beside this file. Expect about an hour: most of it is the
+# download and the MetaMorpheus search.
+#
+#   pxreprise validate examples/first-run/question.toml
+#   pxreprise batch run examples/first-run/question.toml --machine machines/my-machine.toml
+question = "first-run"
+description = "Installation check: PXD058082 searched end to end with label-free-dda@2"
+profiles = ["label-free-dda@2"]
+
+[discover]
+keywords = ["PXD058082"]
+
+# Relative paths are relative to this file.
+[batch]
+run_root = "work/runs"
+state_dir = "work/state"
+queue = "queue.json"

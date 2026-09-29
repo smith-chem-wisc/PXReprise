@@ -1,0 +1,174 @@
+using System.Net;
+using System.Text.Json;
+using PXReprise.Census;
+using PXReprise.Cli;
+using UsefulProteomicsDatabases;
+
+namespace PXReprise.Tests;
+
+public class CensusTests
+{
+    private static (FakeSearch Search, string QuestionFile, string OutDir) Setup()
+    {
+        var s = new FakeSearch();
+        s.Results["type 2 diabetes"] = new()
+        {
+            TestSupport.Record("PXD000100", "Type 2 diabetes muscle"),
+            TestSupport.Record("PXD000101", "Type 2 diabetes islets", "TMT 10-plex"),
+            TestSupport.Record("PXD000102", "Type 2 diabetes plasma", "DIA-NN library-free"),
+            TestSupport.Record("PXD000103", "Type 2 diabetes in mice", organisms: new[] { "Mus musculus (mouse)" }),
+        };
+        s.Results["insulin resistance"] = new()
+        {
+            TestSupport.Record("PXD000100", "Type 2 diabetes muscle"),     // found by both keywords: counted once
+            TestSupport.Record("PXD000104", "Insulin resistance in adipose"),
+            TestSupport.Record("PXD000105", "Cell cycle in yeast"),       // the keyword matched elsewhere; not relevant
+        };
+        string dir = TestSupport.TempDir();
+        return (s, TestSupport.WriteFile(dir, "question.toml", TestSupport.MinimalQuestion), Path.Combine(dir, "out"));
+    }
+
+    private static async Task<(int Exit, JsonElement Data)> Run(FakeSearch s, params string[] argv)
+    {
+        var sw = new StringWriter();
+        int exit = await Program.RunAsync(argv, sw, CancellationToken.None, () => s);
+        var doc = JsonDocument.Parse(sw.ToString());
+        return (exit, doc.RootElement.TryGetProperty("data", out var d) ? d.Clone() : doc.RootElement.Clone());
+    }
+
+    [Test]
+    public async Task TheCensusRoutesEveryDepositAndWritesItsRecord()
+    {
+        var (s, q, outDir) = Setup();
+        var (exit, data) = await Run(s, "census", q, "--profiles", TestSupport.ProfilesDir, "--out", outDir);
+
+        Assert.That(exit, Is.EqualTo(0));
+        Assert.That(s.Calls, Is.EqualTo(new[] { "type 2 diabetes", "insulin resistance" }));
+        Assert.That(data.GetProperty("deposits").GetInt32(), Is.EqualTo(6));
+        var routes = data.GetProperty("routes");
+        Assert.Multiple(() =>
+        {
+            Assert.That(routes.GetProperty("search").GetInt32(), Is.EqualTo(2));                  // 100, 104
+            Assert.That(routes.GetProperty("waiting_on_capability").GetInt32(), Is.EqualTo(2));   // 101 TMT, 102 DIA
+            Assert.That(routes.GetProperty("out_of_scope").GetInt32(), Is.EqualTo(2));            // 103 mouse, 105 yeast
+            Assert.That(data.GetProperty("waiting_on").GetProperty("tmt-dda@1").GetInt32(), Is.EqualTo(1));
+            Assert.That(data.GetProperty("waiting_on").GetProperty("dia").GetInt32(), Is.EqualTo(1));
+        });
+
+        foreach (string f in new[] { "census.tsv", "summary.json", "provenance.json" })
+            Assert.That(File.Exists(Path.Combine(outDir, f)), f);
+        var tsv = File.ReadAllLines(Path.Combine(outDir, "census.tsv"));
+        Assert.That(tsv, Has.Length.EqualTo(7));
+        Assert.That(tsv.Single(l => l.StartsWith("PXD000100")), Does.Contain("insulin resistance;type 2 diabetes"));   // sorted, so the row is stable
+        var prov = JsonDocument.Parse(File.ReadAllText(Path.Combine(outDir, "provenance.json"))).RootElement;
+        Assert.That(prov.GetProperty("inputs")[0].GetProperty("sha256").GetString(), Has.Length.EqualTo(64));
+        Assert.That(prov.GetProperty("tools").GetProperty("mzlib").GetString(), Does.StartWith("1.0.592"));
+    }
+
+    [Test]
+    public async Task TheCensusWritesTheBatchQueueAndInstallsItOnlyWhenAsked()
+    {
+        var (s, q, outDir) = Setup();
+        File.AppendAllText(q, "\n[batch]\nrun_root = \"runs\"\nstate_dir = \"batch\"\nqueue = \"batch/queue.json\"\n");
+        string installed = Path.Combine(Path.GetDirectoryName(q)!, "batch", "queue.json");
+
+        var (exit, data) = await Run(s, "census", q, "--profiles", TestSupport.ProfilesDir, "--out", outDir);
+        Assert.That(exit, Is.EqualTo(0));
+        Assert.That(File.Exists(installed), Is.False, "without --queue the census only writes its own copy");
+        var queue = JsonDocument.Parse(File.ReadAllText(Path.Combine(outDir, "queue.json"))).RootElement;
+        Assert.That(queue.EnumerateArray().Select(e => (e.GetProperty("accession").GetString(), e.GetProperty("organism").GetString())),
+            Is.EqualTo(new[] { ("PXD000100", "human"), ("PXD000104", "human") }));
+        Assert.That(data.GetProperty("queued").GetInt32(), Is.EqualTo(2));
+
+        (exit, data) = await Run(s, "census", q, "--profiles", TestSupport.ProfilesDir, "--out", outDir + "2", "--queue");
+        Assert.That((exit, data.GetProperty("queue_installed").GetString()), Is.EqualTo((0, installed)));
+        var batchQueue = PXReprise.Batch.BatchRunner.LoadQueue(installed);   // the batch reads what the census wrote
+        Assert.That(batchQueue.Select(e => e.Organism), Is.EqualTo(new[] { "human", "human" }));
+
+        (exit, data) = await Run(s, "census", q, "--profiles", TestSupport.ProfilesDir, "--out", outDir + "3", "--queue");
+        Assert.That(exit, Is.EqualTo(Envelope.ExitUsage), "an existing queue belongs to a batch and is never overwritten");
+    }
+
+    [TestCase("Homo sapiens (human)", "human", true)]
+    [TestCase("Mus musculus (mouse)", "mouse", true)]
+    [TestCase("Homo sapiens (human)", "homo_sapiens", true)]
+    [TestCase("Mus musculus (mouse)", "human", false)]
+    [TestCase("Rattus norvegicus (rat)", "ra", false)]
+    public void APrideOrganismMatchesAProfileDatabaseKey(string pride, string key, bool match) =>
+        Assert.That(CensusRunner.OrganismMatches(pride, key), Is.EqualTo(match));
+
+    [Test]
+    public async Task AnUnavailableKeywordIsReportedNotSilentlyDropped()
+    {
+        var (s, q, outDir) = Setup();
+        s.Failures["insulin resistance"] = new HttpRequestException("PRIDE failed with status 503", null, HttpStatusCode.ServiceUnavailable);
+        var (exit, data) = await Run(s, "census", q, "--profiles", TestSupport.ProfilesDir, "--out", outDir);
+        Assert.That(exit, Is.EqualTo(0));
+        Assert.That(data.GetProperty("failed_keywords")[0].GetString(), Is.EqualTo("insulin resistance"));
+        Assert.That(data.GetProperty("deposits").GetInt32(), Is.EqualTo(4));
+    }
+
+    [Test]
+    public async Task AContractBreakFailsTheCensusRatherThanPassingAsAnOutage()
+    {
+        var (s, q, outDir) = Setup();
+        s.Failures["insulin resistance"] = new MzLibUtil.MzLibException("PRIDE returned an identical page twice");
+        var (exit, data) = await Run(s, "census", q, "--profiles", TestSupport.ProfilesDir, "--out", outDir);
+        Assert.That(exit, Is.EqualTo(Envelope.ExitFailure));
+        Assert.That(data.GetProperty("error").GetProperty("type").GetString(), Is.EqualTo("MzLibException"));
+    }
+
+    [Test]
+    public async Task AQuestionNamingAnUnknownProfileIsAUsageError()
+    {
+        var (s, q, outDir) = Setup();
+        File.WriteAllText(q, File.ReadAllText(q).Replace("tmt-dda@1", "tmt-dda@9"));
+        var (exit, data) = await Run(s, "census", q, "--profiles", TestSupport.ProfilesDir, "--out", outDir);
+        Assert.That(exit, Is.EqualTo(Envelope.ExitUsage));
+        Assert.That(data.GetProperty("error").GetProperty("message").GetString(), Does.Contain("tmt-dda@9"));
+        Assert.That(s.Calls, Is.Empty, "no PRIDE call is made before the question is known to be valid");
+    }
+
+    [Test]
+    public async Task VersionListsEveryVerbAndTheMzLibPin()
+    {
+        var (exit, data) = await Run(new FakeSearch(), "version");
+        Assert.That(exit, Is.EqualTo(0));
+        Assert.That(data.GetProperty("verbs").EnumerateArray().Select(v => v.GetString()), Is.EqualTo(Program.Verbs));
+        Assert.That(data.GetProperty("tools").GetProperty("mzlib").GetString(), Does.StartWith("1.0.592"));
+    }
+
+    [TestCase(new string[0], "a verb is required")]
+    [TestCase(new[] { "census" }, "1 positional")]
+    [TestCase(new[] { "version", "--frobnicate", "x" }, "unknown option")]
+    [TestCase(new[] { "version", "--profiles" }, "needs a value")]
+    public async Task UsageErrorsExitTwo(string[] argv, string expected)
+    {
+        var (exit, data) = await Run(new FakeSearch(), argv);
+        Assert.That(exit, Is.EqualTo(Envelope.ExitUsage));
+        Assert.That(data.GetProperty("error").GetProperty("message").GetString(), Does.Contain(expected));
+    }
+
+    [Test]
+    public void UnavailabilityIsOnly408And429And5xx()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(Envelope.IsUnavailable(new HttpRequestException("x", null, HttpStatusCode.ServiceUnavailable)), Is.True);
+            Assert.That(Envelope.IsUnavailable(new HttpRequestException("x", null, HttpStatusCode.TooManyRequests)), Is.True);
+            Assert.That(Envelope.IsUnavailable(new HttpRequestException("x", null, HttpStatusCode.RequestTimeout)), Is.True);
+            Assert.That(Envelope.IsUnavailable(new HttpRequestException("x", null, HttpStatusCode.Forbidden)), Is.False);
+            Assert.That(Envelope.IsUnavailable(new MzLibUtil.MzLibException("contract")), Is.False);
+        });
+    }
+
+    [Test, Category("ExternalService")]
+    public async Task LivePrideSearchReturnsProjects() =>
+        await ExternalServiceTestHelper.RunAsync("PRIDE", async () =>
+        {
+            using var client = new PrideArchiveClient();
+            var hits = await new PrideProjectSearch(client, attempts: 1).SearchAsync("SCoPE2", CancellationToken.None);
+            Assert.That(hits, Is.Not.Empty);
+            Assert.That(hits.All(h => h.Accession.StartsWith("PXD")), Is.True);
+        });
+}

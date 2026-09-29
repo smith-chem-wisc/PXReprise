@@ -1,0 +1,103 @@
+using PXReprise.Config;
+using PXReprise.Discovery;
+
+namespace PXReprise.Tests;
+
+public class DiscoveryTests
+{
+    private static readonly IReadOnlyDictionary<string, Profile> Profiles = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
+
+    private static Question Q(string extra = "") =>
+        QuestionLoader.Load(TestSupport.WriteFile(TestSupport.TempDir(), "q.toml", TestSupport.MinimalQuestion + extra));
+
+    [Test]
+    public void LabelFreeOrbitrapDdaIsRoutedToTheLabelFreeProfile()
+    {
+        var r = TestSupport.Record("PXD000010", "Muscle proteome in type 2 diabetes");
+        var a = AcquisitionClassifier.Classify(r);
+        var route = Router.Assign(r.Accession, a, Relevance.Evaluate(r, Q().Relevance), Q(), Profiles);
+        Assert.That(route, Is.EqualTo(new Route(RouteKind.Search, "label-free-dda@1", "accepted")));
+    }
+
+    [Test]
+    public void TmtWaitsOnThePendingTmtProfileAndSaysSo()
+    {
+        var r = TestSupport.Record("PXD000011", "Islets in type 2 diabetes", "TMTpro 16-plex labelling");
+        var route = Router.Assign(r.Accession, AcquisitionClassifier.Classify(r), Relevance.Evaluate(r, Q().Relevance), Q(), Profiles);
+        Assert.That(route.Kind, Is.EqualTo(RouteKind.WaitingOnCapability));
+        Assert.That(route.Profile, Is.EqualTo("tmt-dda@1"));
+    }
+
+    [TestCase("data-independent acquisition", null, "dia")]
+    [TestCase("", "timsTOF Pro 2", "timstof")]
+    [TestCase("SILAC labelled cells", null, "metabolic_labelling")]
+    [TestCase("TMT 11-plex with a SILAC spike-in", null, "mixed_labelling: needs a hand decision")]
+    public void WhatNoProfileTakesIsNamedByTheCapabilityItNeeds(string text, string? instrument, string capability)
+    {
+        var r = TestSupport.Record("PXD000012", "Liver in type 2 diabetes", text,
+            instruments: instrument is null ? null : new[] { instrument });
+        var route = Router.Assign(r.Accession, AcquisitionClassifier.Classify(r), Relevance.Evaluate(r, Q().Relevance), Q(), Profiles);
+        Assert.That(route, Is.EqualTo(new Route(RouteKind.WaitingOnCapability, null, capability)));
+    }
+
+    [Test]
+    public void TypeOneOnlyIsExcludedButAStudyNamingBothIsKept()
+    {
+        var q = Q();
+        var t1 = TestSupport.Record("PXD000013", "Type 1 diabetes in NOD mice");
+        var both = TestSupport.Record("PXD000014", "Type 1 and type 2 diabetes plasma");
+        Assert.That(Relevance.Evaluate(t1, q.Relevance).Verdict, Is.EqualTo(RelevanceVerdict.NotRelevant).Or.EqualTo(RelevanceVerdict.Excluded));
+        Assert.That(Relevance.Evaluate(both, q.Relevance).IsIn, Is.True);
+    }
+
+    [Test]
+    public void AHandDecisionOverridesTheRules()
+    {
+        string dir = TestSupport.TempDir();
+        TestSupport.WriteFile(dir, "d.tsv", "accession\tverdict\treason\nPXD000015\texclude\tstreptozotocin model\n");
+        var q = QuestionLoader.Load(TestSupport.WriteFile(dir, "q.toml",
+            TestSupport.MinimalQuestion.Replace("unless_any = [\"type (2|ii) diabet\"]",
+                "unless_any = [\"type (2|ii) diabet\"]\ndecisions = \"d.tsv\"")));
+        var r = TestSupport.Record("PXD000015", "Type 2 diabetes model");
+        var rel = Relevance.Evaluate(r, q.Relevance);
+        Assert.That(rel, Is.EqualTo(new RelevanceResult(RelevanceVerdict.DecidedExclude, "streptozotocin model")));
+        Assert.That(Router.Assign(r.Accession, AcquisitionClassifier.Classify(r), rel, q, Profiles).Kind, Is.EqualTo(RouteKind.OutOfScope));
+    }
+
+    [Test]
+    public void AHeldDepositIsNotSearched()
+    {
+        var q = Q("\n[holds]\nPXD000016 = \"waits for the MetaMorpheus fix\"\n");
+        var r = TestSupport.Record("PXD000016", "Type 2 diabetes heart");
+        var route = Router.Assign(r.Accession, AcquisitionClassifier.Classify(r), Relevance.Evaluate(r, q.Relevance), q, Profiles);
+        Assert.That(route, Is.EqualTo(new Route(RouteKind.Held, null, "waits for the MetaMorpheus fix")));
+    }
+
+    [TestCase("Q Exactive HF", InstrumentClass.OrbitrapHcdOnly)]
+    [TestCase("Orbitrap Exploris 480", InstrumentClass.OrbitrapHcdOnly)]
+    [TestCase("Orbitrap Fusion Lumos", InstrumentClass.OrbitrapHybrid)]
+    [TestCase("Orbitrap Astral", InstrumentClass.Astral)]
+    [TestCase("timsTOF Pro", InstrumentClass.Timstof)]
+    [TestCase("LTQ", InstrumentClass.ThermoLowRes)]
+    [TestCase("TripleTOF 6600", InstrumentClass.Sciex)]
+    [TestCase("Synapt G2-Si", InstrumentClass.Waters)]
+    [TestCase("something else", InstrumentClass.Unknown)]
+    public void InstrumentsAreClassedAsTheAgingPipelineClassedThem(string instrument, InstrumentClass expected) =>
+        Assert.That(AcquisitionClassifier.ClassifyInstrument(new[] { instrument }), Is.EqualTo(expected));
+
+    [Test]
+    public void EnrichmentUsesTheFirstMatchingKindInDataRepoOrder()
+    {
+        // A TurboID capture IS a streptavidin pulldown; proximity labelling must win over affinity purification.
+        var r = TestSupport.Record("PXD000017", "LAMP1-TurboID proximity labelling", "streptavidin pulldown of biotinylated proteins");
+        Assert.That(AcquisitionClassifier.Classify(r).Enrichment, Is.EqualTo("proximity_labelling"));
+        Assert.That(AcquisitionClassifier.Classify(TestSupport.Record("PXD000018", "Whole proteome")).Enrichment, Is.EqualTo("none"));
+    }
+
+    [Test]
+    public void MsFilesAreCountedByType()
+    {
+        var counts = AcquisitionClassifier.CountMsFiles(new[] { "a.raw", "B.RAW", "c.d.zip", "d.mzML", "e.txt", "f.d" });
+        Assert.That(counts, Is.EquivalentTo(new Dictionary<string, int> { [".raw"] = 2, [".d.zip"] = 1, [".mzml"] = 1, [".d"] = 1 }));
+    }
+}
