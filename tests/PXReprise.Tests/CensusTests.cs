@@ -89,6 +89,26 @@ public class CensusTests
         Assert.That(exit, Is.EqualTo(Envelope.ExitUsage), "an existing queue belongs to a batch and is never overwritten");
     }
 
+    [Test]
+    public async Task TheReviewCountsEachKeywordAndRuleAndShowsEveryExclusion()
+    {
+        var (s, q, outDir) = Setup();
+        s.Results["insulin resistance"].Add(TestSupport.Record("PXD000106", "Type 1 diabetes and insulin resistance"));
+        var (exit, _) = await Run(s, "census", q, "--profiles", TestSupport.ProfilesDir, "--out", outDir);
+        Assert.That(exit, Is.EqualTo(0));
+        string md = File.ReadAllText(Path.Combine(outDir, "review.md"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(md, Does.Contain("| found by the keywords | 7 |"));
+            Assert.That(md, Does.Contain("| excluded (an `exclude_if_any` rule matched) | 1 |"));
+            Assert.That(md, Does.Contain("| not relevant: organism not in `[discover] organisms` | 1 |"));   // the mouse deposit
+            Assert.That(md, Does.Contain("| insulin resistance | 4 | 2 | 3 |"));   // found 100, 104, 105, 106; relevant 100, 104; only here 104, 105, 106
+            Assert.That(md, Does.Contain("| exclude_if_any | `type (1|i) diabet` | 1 excluded |".Replace("|i)", "\\|i)")));
+            Assert.That(md, Does.Contain("[PXD000106]").And.Contain("Type 1 diabetes and insulin resistance"), "every exclusion is listed");
+            Assert.That(md, Does.Contain("Cell cycle in yeast"), "a keyword hit no rule matched is shown for checking");
+        });
+    }
+
     [TestCase("Homo sapiens (human)", "human", true)]
     [TestCase("Mus musculus (mouse)", "mouse", true)]
     [TestCase("Homo sapiens (human)", "homo_sapiens", true)]
