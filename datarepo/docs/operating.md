@@ -47,6 +47,33 @@ Two things depend on this:
 Build the catalog and the site with **the same install** that ingested. The builder's version is part
 of the catalog id, and the site's footer names it.
 
+### Without Python: the self-contained executable
+
+A machine with no Python can run dataRepo from a download: a zip per platform (Windows x64, Linux
+x64, macOS arm64 and x64) holding `datarepo/datarepo` (`datarepo.exe` on Windows), with the
+interpreter, DuckDB, pyarrow, pyMzLib and its mzLib bridge inside. Unzip it anywhere and call the
+executable by its path, or point a tool at it (PXReprise's machine file: `datarepo = "…"`). The
+commands, arguments and outputs are the ones in [cli.md](cli.md).
+
+- **Each download is verified by running it.** The `binaries` workflow runs the whole
+  [tutorial](getting-started.md) with the executable on a PATH that holds no Python, and then with
+  the Python install that built it. It fails unless the two produce the same bundle id and catalog
+  id, which means they read and wrote the same rows.
+- **An executable is identified by the commit it was built from.** `datarepo doctor` prints it
+  (`build  executable, commit …`), and `datarepo run` records it with every engine output. A build
+  made from uncommitted changes carries no commit. It still runs, but `run` refuses it, because
+  nothing identifies its code.
+- **Downloads are not published yet.** The workflow builds them on demand and attaches them to a
+  draft release when a version is tagged. Where releases are published is still being decided.
+
+To build one yourself, on the platform you want it for:
+
+```bash
+pip install ".[readers,mcp]" pyinstaller
+python tools/build_binary.py                       # dist/datarepo-<version>-<platform>.zip
+python tools/packaging/smoke_test.py <unzipped>/datarepo/datarepo
+```
+
 ## 2. Describe your instance: `manifest.yaml`
 
 The manifest is the contract. It lists every dataset you have searched, says which may be loaded,

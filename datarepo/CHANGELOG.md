@@ -4,6 +4,31 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [0.31.0] - 2026-09-29
+
+**Self-contained executables (D36, PXReprise PXR-D1), built and verified in CI, not yet published.**
+Package version only: `INGESTER_VERSION` stays 0.21.0, schema 0.0.13, and nothing that reaches a row
+changes. No re-ingest.
+
+### Added
+- **`tools/build_binary.py`** freezes datarepo, with DuckDB, pyarrow, pyMzLib and its mzLib bridge,
+  into `dist/datarepo-<version>-<platform>.zip`, which needs no Python to run. A build stamp
+  (`_build_info.json`: commit, version, platform) is its identity. From a tree with uncommitted
+  changes the stamp carries no commit.
+- **`.github/workflows/binaries.yml`**: one build per pyMzLib wheel platform (Windows x64, Linux x64,
+  macOS arm64 and x64). Each is verified by `tools/packaging/smoke_test.py`, which runs the
+  getting-started tutorial with the executable on a PATH holding no Python and requires the same
+  bundle and catalog ids as the Python install. A `v*` tag attaches the zips to a **draft** release,
+  and nothing is public until a person publishes it.
+- On Windows, the executable gives bundle `3b56a967d6968d39` and catalog `3293ab062d7ecab5` on the
+  tutorial, the same as the Python install. Its MCP server answers over real stdio.
+
+### Changed
+- `runner.install_identity` accepts a frozen executable by its build stamp (`source: binary`), and
+  refuses one that names no commit.
+- `datarepo mcp --install` from an executable registers the executable itself, not `python -m`.
+- `datarepo doctor` prints an executable's build commit, or says it is unidentified.
+
 ## [0.30.0] - 2026-09-29
 
 **`datarepo publish`, question-neutral output, and the documentation rebuilt (PXReprise 001:
