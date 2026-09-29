@@ -19,6 +19,26 @@ it did not write (`--force` overrides, `--name` registers a second catalog along
 rest of the file, and writes through a temporary file — that config is your whole Claude Code
 state, not ours. Restart Claude Code afterwards.
 
+**Other MCP clients.** The server speaks MCP over stdio, so any client that can start a command can
+use it. Register this command, with the catalog's absolute path:
+
+```json
+{
+  "mcpServers": {
+    "datarepo": {
+      "command": "/path/to/venv/bin/python",
+      "args": ["-m", "datarepo.cli", "mcp", "--catalog", "/abs/path/to/catalog.duckdb"]
+    }
+  }
+}
+```
+
+`--install --config <file>` writes that entry into another client's JSON config instead of Claude
+Code's.
+
+**Removing an entry.** `claude mcp remove datarepo` (or the name you gave with `--name`), or delete
+the entry from the config file. Nothing else was written anywhere.
+
 ## One catalog, by explicit path
 
 The path is required and the catalog is **never auto-discovered**. A server that went looking for a
