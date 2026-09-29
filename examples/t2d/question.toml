@@ -1,9 +1,12 @@
 # Example question: type 2 diabetes. It lives here only until the T2D project exists; then it moves into that
-# project's folder, which is where a question belongs (PXReprise D2). Keywords and relevance rules are the PRIDE census
-# of 2026-09-27 (E:\CodeReview\pride_census_2026-09-27\census.py), so the two can be compared.
+# project's folder, which is where a question belongs (PXReprise D2). Keywords and relevance rules follow the PRIDE
+# census of 2026-09-27, so the two can be compared.
+#
+#   pxreprise census examples/t2d/question.toml --queue      # find and route deposits; writes work/queue.json
+#   pxreprise batch run examples/t2d/question.toml --machine machines/my-machine.toml
 question = "t2d"
 description = "Type 2 diabetes across tissues and organisms (exploratory scope)"
-profiles = ["label-free-dda@1", "tmt-dda@1"]
+profiles = ["label-free-dda@2", "tmt-dda@1"]
 
 [discover]
 keywords = ["type 2 diabetes", "type II diabetes", "T2D", "T2DM", "diabetes", "diabetic", "insulin resistance",
@@ -18,3 +21,9 @@ require_any = ["type (2|ii) diabet", "\\bt2dm?\\b", "diabetic", "insulin resista
                "streptozotocin", "\\bislets?\\b", "beta[- ]cells?"]
 exclude_if_any = ["type (1|i) diabet", "\\bt1dm?\\b", "autoimmune diabet", "\\bnod mice\\b"]
 unless_any = ["type (2|ii) diabet", "\\bt2dm?\\b"]
+
+# Relative paths are relative to this file.
+[batch]
+run_root = "work/runs"
+state_dir = "work/state"
+queue = "work/queue.json"

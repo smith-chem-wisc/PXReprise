@@ -31,3 +31,7 @@ __pycache__/
 
 # Cross-project thread read-state: per-machine, not project truth (see references/threads.md)
 .project/threads.state
+
+# Written by the examples, and each user's own machine file
+examples/*/work/
+machines/my-*.toml
