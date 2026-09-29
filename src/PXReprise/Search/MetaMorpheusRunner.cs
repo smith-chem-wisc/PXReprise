@@ -5,8 +5,10 @@ namespace PXReprise.Search;
 
 public sealed record TaskMark(string Task, string Event, double Seconds);
 
+/// <param name="TimedOut">Killed by the batch: the wall-clock ceiling, or a stall (<paramref name="Stalled"/>).</param>
+/// <param name="Stalled">Killed because MetaMorpheus used no CPU for the stall window: hung, not slow.</param>
 public sealed record RunResult(int ExitCode, bool TimedOut, double WallSeconds, double CpuSeconds, double PeakRssGb,
-    IReadOnlyList<TaskMark> Marks);
+    IReadOnlyList<TaskMark> Marks, bool Stalled = false);
 
 /// <summary>
 /// Launches MetaMorpheus's CMD as a separate process, one per dataset: TaskLayer is not packaged, its events are
@@ -46,8 +48,13 @@ public sealed class MetaMorpheusRunner(string cmd, string dotnet)
     /// deadline is real: on timeout the whole process tree is killed (with <c>dotnet CMD.dll</c>, CMD is a child).
     /// stdout and stderr both go to the log. Never pipe the output through something that can stop reading early: a
     /// closed pipe kills MetaMorpheus mid-run.
+    ///
+    /// <paramref name="stall"/> (zero: off) kills a search whose CPU time has not grown for that long. MetaMorpheus
+    /// 1.1.11's PEP step writes nothing for hours on a busy box while 31 of 32 threads wait on Chronologer's lock
+    /// (2026-09-29, PXD069093), so silence is not a hang; a process that uses no CPU at all is.
     /// </summary>
-    public async Task<RunResult> RunAsync(IReadOnlyList<string> args, string logPath, TimeSpan timeout, CancellationToken ct)
+    public async Task<RunResult> RunAsync(IReadOnlyList<string> args, string logPath, TimeSpan timeout, CancellationToken ct,
+        TimeSpan stall = default)
     {
         var psi = new ProcessStartInfo(Launch[0])
         {
@@ -82,20 +89,37 @@ public sealed class MetaMorpheusRunner(string cmd, string dotnet)
         proc.BeginOutputReadLine();
         proc.BeginErrorReadLine();
 
-        double peakRss = 0;
-        using var sampler = new CancellationTokenSource();
-        var sampling = Task.Run(async () =>
-        {
-            while (!sampler.IsCancellationRequested)
-            {
-                try { proc.Refresh(); peakRss = Math.Max(peakRss, proc.PeakWorkingSet64 / 1e9); } catch (InvalidOperationException) { }
-                try { await Task.Delay(5000, sampler.Token).ConfigureAwait(false); } catch (OperationCanceledException) { }
-            }
-        });
-
-        bool timedOut = false;
+        bool timedOut = false, stalled = false;
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(timeout);
+
+        double peakRss = 0;
+        using var sampler = new CancellationTokenSource();
+        var every = stall > TimeSpan.Zero && stall / 4 < TimeSpan.FromSeconds(5) ? stall / 4 : TimeSpan.FromSeconds(5);
+        var sampling = Task.Run(async () =>
+        {
+            double cpuAtProgress = 0;
+            var progressAt = sw.Elapsed;
+            while (!sampler.IsCancellationRequested)
+            {
+                try
+                {
+                    proc.Refresh();
+                    peakRss = Math.Max(peakRss, proc.PeakWorkingSet64 / 1e9);
+                    // Progress is a full CPU-second of work: an idle .NET process still spends milliseconds on timers.
+                    double cpu = proc.TotalProcessorTime.TotalSeconds;
+                    if (cpu - cpuAtProgress >= 1.0) { cpuAtProgress = cpu; progressAt = sw.Elapsed; }
+                }
+                catch (InvalidOperationException) { }
+                if (stall > TimeSpan.Zero && sw.Elapsed - progressAt > stall)
+                {
+                    stalled = true;
+                    deadline.Cancel();
+                    return;
+                }
+                try { await Task.Delay(every, sampler.Token).ConfigureAwait(false); } catch (OperationCanceledException) { }
+            }
+        });
         try
         {
             await proc.WaitForExitAsync(deadline.Token).ConfigureAwait(false);
@@ -113,7 +137,7 @@ public sealed class MetaMorpheusRunner(string cmd, string dotnet)
         double cpu = 0;
         try { cpu = proc.TotalProcessorTime.TotalSeconds; } catch (InvalidOperationException) { }
         lock (gate) log.Flush();
-        return new RunResult(timedOut ? -1 : proc.ExitCode, timedOut, sw.Elapsed.TotalSeconds, cpu, Math.Round(peakRss, 2), marks);
+        return new RunResult(timedOut ? -1 : proc.ExitCode, timedOut, sw.Elapsed.TotalSeconds, cpu, Math.Round(peakRss, 2), marks, timedOut && stalled);
     }
 
     private static string Capture(IReadOnlyList<string> argv, out int exitCode)

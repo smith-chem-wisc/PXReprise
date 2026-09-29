@@ -5,7 +5,8 @@
 //   CMD --help           -> help text carrying "CMD 1.0.0+<40-hex commit>"
 //   CMD -t ... -o <dir>  -> Task1CalibrationTask/, Task2GptmdTask/, Task3SearchTask/ with small result tables
 // Environment: FAKE_MM_EXIT=<n> exits with n after writing outputs; FAKE_MM_NO_PROTEIN_GROUPS=1 omits the protein-group
-// table (FlashLFQ failing silently); FAKE_MM_SKIP_QUANT=1 prints the design warning.
+// table (FlashLFQ failing silently); FAKE_MM_SKIP_QUANT=1 prints the design warning; FAKE_MM_HANG=1 sleeps forever, using
+// no CPU (a hung search); FAKE_MM_BUSY_SECONDS=<n> works silently for n seconds first (MetaMorpheus's long PEP step).
 using System.Text;
 
 string Release = Environment.GetEnvironmentVariable("FAKE_MM_RELEASE") ?? "1.1.11";
@@ -37,6 +38,13 @@ if (args.Contains("--help"))
 
 string outDir = Arg("-o")!;
 Directory.CreateDirectory(outDir);
+if (Environment.GetEnvironmentVariable("FAKE_MM_HANG") == "1") Thread.Sleep(Timeout.Infinite);
+if (double.TryParse(Environment.GetEnvironmentVariable("FAKE_MM_BUSY_SECONDS"), out double busy))
+{
+    var until = DateTime.UtcNow.AddSeconds(busy);
+    double x = 0;
+    while (DateTime.UtcNow < until) x += Math.Sqrt(x + 1);
+}
 var spectra = Values("-s").Select(Path.GetFileNameWithoutExtension).ToList();
 foreach (var (task, i) in new[] { "CalibrationTask", "GptmdTask", "SearchTask" }.Select((t, i) => (t, i + 1)))
 {

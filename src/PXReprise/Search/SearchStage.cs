@@ -74,7 +74,9 @@ public static class SearchStage
             ["tasks"] = new JsonArray(p.Tasks.Select(t => (JsonNode?)t).ToArray()),
             ["max_threads"] = m.MaxThreads,
             ["match_between_runs"] = p.MatchBetweenRuns,
-            ["timeout_s"] = (int)(p.TimeoutHours * 3600),
+            // The machine's limits, not the profile's timeout_h: how long a search takes depends on the box and its load.
+            ["timeout_s"] = (int)(m.SearchTimeoutHours * 3600),
+            ["stall_s"] = (int)(m.SearchStallMinutes * 60),
         };
         if (p.GptmdExtraMods.Count > 0) search["gptmd_extra_mods"] = new JsonArray(p.GptmdExtraMods.Select(x => (JsonNode?)x).ToArray());
         if (r.ExcludeFiles.Count > 0) search["exclude_files"] = new JsonArray(r.ExcludeFiles.Select(x => (JsonNode?)x).ToArray());
@@ -171,12 +173,18 @@ public static class SearchStage
             prov.Note("Thermo RawFileReader licence accepted via the machine configuration (operator's recorded choice).");
         }
         prov.Command(runner.Launch.Concat(args));
-        var run = await runner.RunAsync(args, Path.Combine(outDir, "metamorpheus.log"), TimeSpan.FromHours(p.TimeoutHours), ct).ConfigureAwait(false);
+        var run = await runner.RunAsync(args, Path.Combine(outDir, "metamorpheus.log"), TimeSpan.FromHours(m.SearchTimeoutHours), ct,
+            TimeSpan.FromMinutes(m.SearchStallMinutes)).ConfigureAwait(false);
         prov.Set("exit_code", (JsonNode)run.ExitCode);
-        if (run.TimedOut)
+        if (run.Stalled)
         {
-            prov.Set("timed_out_after_s", (JsonNode)(int)(p.TimeoutHours * 3600));
-            prov.Note($"KILLED: the search exceeded the profile's timeout ({p.TimeoutHours} h) and the process tree was terminated. Partial outputs are NOT a completed search.");
+            prov.Set("stalled_after_s", (JsonNode)(int)run.WallSeconds);
+            prov.Note($"KILLED: MetaMorpheus used no CPU for {m.SearchStallMinutes} min (search_stall_minutes), so it was hung, and the process tree was terminated. Partial outputs are NOT a completed search.");
+        }
+        else if (run.TimedOut)
+        {
+            prov.Set("timed_out_after_s", (JsonNode)(int)(m.SearchTimeoutHours * 3600));
+            prov.Note($"KILLED: the search exceeded the machine's ceiling ({m.SearchTimeoutHours} h, search_timeout_h) and the process tree was terminated. Partial outputs are NOT a completed search.");
         }
         var starts = run.Marks.Where(x => x.Event == "start").GroupBy(x => x.Task).ToDictionary(g => g.Key, g => g.First().Seconds);
         var perTask = new JsonObject();

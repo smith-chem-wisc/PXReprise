@@ -9,6 +9,11 @@ A new version of the engine never changes a finished result. Methods live in ver
 
 ## Unreleased
 
+- **A busy machine no longer kills searches.** A search's time limit was the profile's `timeout_h` (6 h), so
+  MetaMorpheus 1.1.11's long, silent PEP step could be killed on a loaded box while still working. The limits now live
+  in the machine file: `search_timeout_h` (default 48 h) is a ceiling, and `search_stall_minutes` (default 90) kills a
+  search only when MetaMorpheus has used no CPU for that long, i.e. when it is hung. Profiles' `timeout_h` is read but
+  no longer used. Provenance records the limits used, and says which one killed a search.
 - **Provenance points at the public repository.** Each stage's `provenance.json` now names
   `https://github.com/smith-chem-wisc/PXReprise` as `pipeline.repo`, instead of a development repository no reader
   could open.
