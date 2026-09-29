@@ -127,10 +127,12 @@ public class BatchRunnerTests
             .And.Contain("run: PXD000210\n").And.Contain("files: 1\n"));
         Assert.That(ManifestEntry.WorkRootOf(manifest), Is.EqualTo(Path.GetFullPath(runRoot)));
 
-        File.WriteAllText(manifest, "manifest_version: 1\nwork_root: F:/aging_data   # aging's, by hand\ndatasets:\n");
+        // An absolute root, as aging's hand-written manifest has (F:/aging_data there; absolute on every OS here).
+        string absolute = Path.GetFullPath(Path.Combine(dir, "aging_data")).Replace('\\', '/');
+        File.WriteAllText(manifest, $"manifest_version: 1\nwork_root: {absolute}   # by hand\ndatasets:\n");
         ManifestEntry.EnsureExists(manifest, "first-run", runRoot);
-        Assert.That(File.ReadAllText(manifest), Does.StartWith("manifest_version: 1\nwork_root: F:/aging_data"), "an existing manifest is never rewritten");
-        Assert.That(ManifestEntry.WorkRootOf(manifest), Is.EqualTo(Path.GetFullPath("F:/aging_data")));
+        Assert.That(File.ReadAllText(manifest), Does.StartWith($"manifest_version: 1\nwork_root: {absolute}"), "an existing manifest is never rewritten");
+        Assert.That(ManifestEntry.WorkRootOf(manifest), Is.EqualTo(Path.GetFullPath(absolute)));
     }
 
     [Test]
