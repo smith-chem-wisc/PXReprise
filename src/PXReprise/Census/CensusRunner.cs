@@ -82,6 +82,9 @@ public sealed class CensusRunner(IProjectSearch search)
         string tsv = Path.Combine(outDir, "census.tsv");
         WriteTsv(tsv, rows);
         record.Output(tsv);
+        string review = Path.Combine(outDir, "review.md");
+        CensusReview.Write(review, q, rows, record.StartedUtc);
+        record.Output(review);
         var (queue, noDatabase) = Queue(rows, profiles);
         string queueFile = Path.Combine(outDir, "queue.json");
         File.WriteAllText(queueFile, queue.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }), new UTF8Encoding(false));

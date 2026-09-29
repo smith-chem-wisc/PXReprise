@@ -14,6 +14,7 @@ public class ExamplesTests
 
     [TestCase("first-run")]
     [TestCase("t2d")]
+    [TestCase("muscle-ageing")]
     public void AnExampleQuestionLoadsAndUsesOnlyShippedProfiles(string example)
     {
         var q = QuestionLoader.Load(Path.Combine(RepoRoot(), "examples", example, "question.toml"));

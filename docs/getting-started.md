@@ -82,10 +82,12 @@ should show `"searched": 1`. The results are in `examples/first-run/work/runs/PX
 
 ## 6. Ask your own question
 
-1. Copy `examples/t2d/question.toml` to a folder of your own, and edit it: [Writing a question](questions.md).
-2. Check it: `pxreprise validate path/to/question.toml`.
-3. See what it would do, without downloading anything (minutes):
-   `pxreprise census path/to/question.toml --queue`. Open `summary.json` and `census.tsv` in the census folder.
+1. Work through [Tutorial: your first question](tutorial.md) (fifteen minutes). It builds a real question and
+   teaches the loop that makes rules good: census, read `review.md`, fix, repeat.
+2. Copy `examples/muscle-ageing/question.toml` to a folder of your own and change it to your topic
+   ([every setting](questions.md)). Check it: `pxreprise validate path/to/question.toml`.
+3. Run the loop: `pxreprise census path/to/question.toml`, read `review.md` in the census folder, fix, repeat.
+   When the samples look right, write the queue: `pxreprise census path/to/question.toml --queue`.
 4. Run it: `pxreprise batch run path/to/question.toml --machine machines/my-machine.toml`. This can take days: it
    works through the queue one deposit at a time. Stop it cleanly with `pxreprise batch stop path/to/question.toml`;
    start it again with `batch run`, and it carries on where it stopped.

@@ -32,9 +32,13 @@ When that works, ask it for the next part:
 
 > Help me write a PXReprise question about &lt;your topic&gt;, run a census, and show me what it would search.
 
-The agent works out keywords and relevance rules **with you** (they are scientific choices), runs a census (minutes,
-no downloads), and reports how many deposits would be searched and why the rest would not. It asks before starting
-the batch itself, which can run for days.
+The agent interviews you in plain words: what you study, which terms a paper would use, which organisms and tissues
+count, and what looks similar but should not. You never write a regular expression. It turns your answers into rules,
+runs a census (a minute or two, no downloads), and shows you samples of what got in, everything that was excluded, and
+what no rule caught, each with the text that decided it. You say what is wrong; it fixes the rules or records your
+decision with your reason, and runs the census again. When you are happy, it reports how many deposits would be
+searched and why the rest would not, and asks before starting the batch itself, which can run for days. The method is
+the one in the [tutorial](tutorial.md).
 
 ## What the agent will not do
 

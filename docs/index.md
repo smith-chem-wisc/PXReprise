@@ -41,6 +41,7 @@ a new text file, never a change to the program.
 ## Learn more
 
 - [How it works](concepts.md): questions, profiles and the machine file, in plain words.
+- [Tutorial: your first question](tutorial.md): build a real question (skeletal muscle ageing) step by step.
 - [Writing a question](questions.md): every setting in `question.toml`.
 - [Commands](commands.md): what each `pxreprise` command does.
 - [Reading the results](results.md): where results land, and what each status means.
