@@ -1,56 +1,76 @@
 # PXReprise
 
-Reprocess public ProteomeXchange/PRIDE proteomics data at scale, for any biological question.
+**Reprocess public proteomics data at scale, for any biological question.**
 
-PXReprise is orchestration: it finds deposits, decides which can be searched and how, searches them with MetaMorpheus
-and records what it did. Chemistry, file readers, SDRF, quantification and statistics come from
-[mzLib](https://github.com/smith-chem-wisc/mzLib); search is [MetaMorpheus](https://github.com/smith-chem-wisc/MetaMorpheus).
+Documentation: **<https://smith-chem-wisc.github.io/PXReprise/>**
 
-## The idea
+You describe a biological question in a small text file. PXReprise finds the relevant deposits in
+[PRIDE](https://www.ebi.ac.uk/pride/), decides which it can search and how, downloads them, checks every file's
+quality, searches them with [MetaMorpheus](https://github.com/smith-chem-wisc/MetaMorpheus) under one versioned
+method, and records exactly how every result was made. A new question is a new text file, never a change to the program.
 
-| | what it is | where it lives |
+## Have an AI agent set it up
+
+Open your coding agent (Claude Code, Codex, Cursor, ...) in an empty folder and paste:
+
+> Install PXReprise and prove it works, following
+> https://raw.githubusercontent.com/smith-chem-wisc/PXReprise/master/AGENTS.md exactly.
+> Ask me before accepting any licence or starting anything that runs for more than an hour.
+
+## Or do it yourself
+
+You need the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0), git, and 100 GB of free disk.
+No Python.
+
+```
+git clone https://github.com/smith-chem-wisc/PXReprise.git
+cd PXReprise
+dotnet build -c Release
+dotnet publish src/PXReprise -c Release -o <tools>/pxreprise
+```
+
+Then download [MetaMorpheus 1.1.11](https://github.com/smith-chem-wisc/MetaMorpheus/releases/tag/1.1.11)
+(`MetaMorpheus_CommandLine.zip`), copy `machines/example.toml` to `machines/my-machine.toml`, and fill in its paths.
+The full walk-through, including a one-hour test run, is in
+[Getting started](https://smith-chem-wisc.github.io/PXReprise/getting-started.html).
+
+## Using it
+
+`pxreprise` is one program; the first word after it says what to do:
+
+```
+pxreprise validate question.toml                                  # check a question file
+pxreprise census question.toml --queue                            # what would be searched, and why (no downloads)
+pxreprise batch run question.toml --machine machines/my-machine.toml   # do it all, deposit by deposit
+pxreprise batch status question.toml                              # progress
+pxreprise batch stop question.toml                                # finish the current deposit, then stop
+```
+
+See [Commands](https://smith-chem-wisc.github.io/PXReprise/commands.html) for the rest.
+
+## How it is organised
+
+| | Answers | Lives in |
 |---|---|---|
-| **Profile** | how one kind of data is searched: accepted acquisition, MetaMorpheus version and tasks, databases, contaminants, quantification, deposit rules, QC gates | `profiles/` in this repo, versioned (`label-free-dda@1`) |
-| **Question** | what is studied: PRIDE keywords, organisms, relevance rules plus hand decisions, allowed profiles, traits, holds | a `question.toml` in the question's own project folder |
-| **Shared corpus** | search results keyed by (accession, profile version, engine version) | machine configuration; reused by every question |
+| **Question** | what is studied: PRIDE keywords, relevance rules, hand decisions | your own folder (`question.toml`) |
+| **Profile** | how one kind of data is searched, versioned (`label-free-dda@2`) | `profiles/` |
+| **Machine** | where things live on one computer | `machines/my-machine.toml` |
 
-Routing sends each deposit to the first of the question's profiles that accepts its acquisition. A deposit no
-available profile takes is recorded as waiting on a capability (for example `dia`, `timstof`, or a `pending` profile
-such as `tmt-dda@1`), so a census says what each capability would unlock. A new question is a new file, never an
-engine change.
+PXReprise is orchestration, policy and provenance. File reading, chemistry and quantification come from
+[mzLib](https://github.com/smith-chem-wisc/mzLib); search is MetaMorpheus, run as its own process per dataset.
 
-## Use
+## Developing
 
 ```
-pxreprise version                          # tools, mzLib pin, verbs
-pxreprise profiles                         # the profiles this build ships
-pxreprise validate <question.toml>         # check a question against its schema and the profiles
-pxreprise census <question.toml> [--out D] # discovery + routing, no downloads: census.tsv, summary.json, provenance.json
-pxreprise fetch <PXD> --out D --machine m.toml             # one deposit's raw files, verified
-pxreprise qc --spectra D --out D --profile P --machine m.toml
-pxreprise search --spectra D --qc D --out D --organism O --profile P --machine m.toml
-pxreprise qc-payload <search_dir> <qc_dir> <out_dir> --accession PXD [--run-date D] [--machine m.toml]
-                                           # qc's qc-payload/1; validate + render when the machine names qc_python
-pxreprise batch run|status|stop <question.toml> --machine m.toml
+dotnet test --filter "Category!=ExternalService&Category!=LocalCorpus"   # offline; required
+dotnet test --filter "Category=ExternalService"                         # live PRIDE/UniProt canaries; skip when a service is down
 ```
 
-The batch runs, per deposit: screen and route, probe, fetch, QC, search, `05_qc` (qc's payload and report, never
-fatal), cleanup, manifest entry, ingest, publish (`design/DESIGN.md` section 7a).
+.NET 10; mzLib 1.0.592 from NuGet, the same version MetaMorpheus 1.1.11 uses. Every command prints one JSON envelope
+(`{"ok":true,"data":...}` or `{"ok":false,"error":{...}}`) and exits 0 (ok), 1 (handled failure) or 2 (usage).
 
-Every command prints one JSON envelope on stdout (`{"ok":true,"data":...}` or `{"ok":false,"error":{"type","message"}}`)
-and exits 0 (ok), 1 (handled failure; `ServiceUnavailable` means retry later) or 2 (usage).
+## Licence
 
-## Build and test
-
-```
-dotnet build
-dotnet test --filter "Category!=ExternalService"   # offline, required
-dotnet test --filter "Category=ExternalService"    # live PRIDE canaries; skipped when PRIDE is down
-```
-
-.NET 10. mzLib 1.0.592 from NuGet, the same version MetaMorpheus 1.1.11 uses.
-
-## Status
-
-Running the aging batch since 2026-09-28 (aging D60), after reproducing the Python pipeline's searches, counts,
-provenance and ingest (`results/replay_PXD036557_n18_2026-09-28.md`). Next: a second question (type 2 diabetes).
+MIT; see [LICENSE](LICENSE). Reading Thermo `.raw` files requires accepting Thermo's
+[RawFileReader licence](https://github.com/thermofisherlsms/RawFileReader), which is the operator's choice
+(`accept_thermo_licence` in the machine file).

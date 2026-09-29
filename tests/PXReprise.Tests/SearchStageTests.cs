@@ -4,7 +4,7 @@ using PXReprise.Search;
 
 namespace PXReprise.Tests;
 
-/// <summary>The whole search stage, offline, against tests/FakeMetaMorpheus (built as CMD.exe).</summary>
+/// <summary>The whole search stage, offline, against tests/FakeMetaMorpheus (built as CMD).</summary>
 [NonParallelizable]   // FAKE_MM_* switches are process environment variables
 public class SearchStageTests
 {
@@ -34,7 +34,8 @@ public class SearchStageTests
         string db = Directory.CreateDirectory(Path.Combine(root, "db")).FullName;
         TestSupport.WriteFile(db, "proteome.xml", "<uniprot>\n<entry>\n<accession>Q8WZ42</accession>\n</entry>\n<entry>\n<accession>P04264</accession>\n</entry>\n</uniprot>\n");
         var machine = Machine.Load(TestSupport.WriteFile(root, "machine.toml",
-            $"work_root = '{root}'\ndatabase_dir = '{db}'\nmax_threads = 4\n[metamorpheus]\n\"1.1.11\" = '{Path.Combine(install, "CMD.exe")}'\n"));
+            // CMD.dll, run as `dotnet CMD.dll`: the one launch that works on every OS (the apphost is CMD.exe only on Windows).
+            $"work_root = '{root}'\ndatabase_dir = '{db}'\nmax_threads = 4\n[metamorpheus]\n\"1.1.11\" = '{Path.Combine(install, "CMD.dll")}'\n"));
         var profile = ProfileLoader.Load(TestSupport.WriteFile(root, "profile.toml", $"""
             id = "test-dda"
             version = 1

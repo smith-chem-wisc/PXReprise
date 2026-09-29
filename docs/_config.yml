@@ -1,0 +1,11 @@
+title: PXReprise
+description: Reprocess public proteomics data at scale, for any biological question
+remote_theme: just-the-docs/just-the-docs@v0.10.0
+plugins:
+  - jekyll-remote-theme
+color_scheme: light
+search_enabled: true
+aux_links:
+  "GitHub": "https://github.com/smith-chem-wisc/PXReprise"
+aux_links_new_tab: true
+footer_content: "PXReprise is MIT-licensed. Built on <a href=\"https://github.com/smith-chem-wisc/mzLib\">mzLib</a> and <a href=\"https://github.com/smith-chem-wisc/MetaMorpheus\">MetaMorpheus</a>."

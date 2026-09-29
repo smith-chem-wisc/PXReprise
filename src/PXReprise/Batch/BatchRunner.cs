@@ -229,7 +229,13 @@ public sealed class BatchRunner
         // A UniProt database is downloaded (once) before any PRIDE download, so an outage costs nothing and is retried.
         if (profile.Databases[e.Organism].UniProt is { } up)
         {
-            try { await Search.ProteomeCache.ResolveAsync(profile.Databases[e.Organism], _m.DatabaseDir, ct).ConfigureAwait(false); }
+            try
+            {
+                if (!Search.ProteomeCache.IsCached(profile.Databases[e.Organism], _m.DatabaseDir))
+                    Log($"{acc} database: downloading UniProt {up} (reviewed, xml) for {e.Organism}; first use on this machine, takes minutes");
+                var (dbPath, retrieval) = await Search.ProteomeCache.ResolveAsync(profile.Databases[e.Organism], _m.DatabaseDir, ct).ConfigureAwait(false);
+                Log($"{acc} database: {dbPath} (retrieved {retrieval?["retrieved_utc"]}, sha256 {retrieval?["sha256"]?.GetValue<string>()[..12]})");
+            }
             catch (Exception ex) when (Envelope.IsUnavailable(ex)) { Log($"{acc} database: UniProt {up} unavailable ({ex.Message}); retry next pass"); return null; }
         }
 

@@ -111,7 +111,8 @@ public static class QcPayloadBuilder
     /// Not Path.GetFileNameWithoutExtension: a run name may contain a dot.</summary>
     public static string Stem(string? name)
     {
-        string n = Path.GetFileName(name ?? "None");
+        // Both separators, not Path.GetFileName: a results file written on Windows is read on Linux too.
+        string n = (name ?? "None").Split('\\', '/')[^1];
         foreach (string ext in Exts)
             if (n.EndsWith(ext, StringComparison.OrdinalIgnoreCase)) { n = n[..^ext.Length]; break; }
         return n.EndsWith("-calib", StringComparison.Ordinal) ? n[..^"-calib".Length] : n;

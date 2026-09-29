@@ -27,6 +27,12 @@ public static class ProteomeCache
 
     public static string UniProtDir(string databaseDir) => Path.Combine(databaseDir, "uniprot");
 
+    private static string CachedPath(string databaseDir, string id) => Path.Combine(UniProtDir(databaseDir), $"{id}_reviewed.xml");
+
+    /// <summary>True when <paramref name="db"/> needs no download: a prepared file, or a UniProt proteome already cached.</summary>
+    public static bool IsCached(OrganismDatabase db, string databaseDir) =>
+        db.UniProt is not { } id || (File.Exists(CachedPath(databaseDir, id)) && File.Exists(CachedPath(databaseDir, id) + ".retrieval.json"));
+
     /// <summary>
     /// The database file for <paramref name="db"/>, downloading a UniProt proteome if it is not cached yet, with its
     /// retrieval record (null for a prepared file). A prepared file that is missing is a usage error: the operator names
@@ -44,7 +50,7 @@ public static class ProteomeCache
 
         string id = db.UniProt ?? throw new ArgumentException("an organism database names neither a file nor a UniProt proteome", nameof(db));
         string dir = UniProtDir(databaseDir);
-        string target = Path.Combine(dir, $"{id}_reviewed.xml"), record = target + ".retrieval.json";
+        string target = CachedPath(databaseDir, id), record = target + ".retrieval.json";
         if (File.Exists(target) && File.Exists(record))
             return (target, JsonNode.Parse(await File.ReadAllTextAsync(record, ct).ConfigureAwait(false))!.AsObject());
 
