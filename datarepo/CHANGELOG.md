@@ -20,8 +20,16 @@ changes. No re-ingest.
   getting-started tutorial with the executable on a PATH holding no Python and requires the same
   bundle and catalog ids as the Python install. A `v*` tag attaches the zips to a **draft** release,
   and nothing is public until a person publishes it.
-- On Windows, the executable gives bundle `3b56a967d6968d39` and catalog `3293ab062d7ecab5` on the
-  tutorial, the same as the Python install. Its MCP server answers over real stdio.
+- **Verified on all four platforms in CI** (run 36597055213, commit `0d145ab`): every executable gives
+  bundle `3b56a967d6968d39` and catalog `a90e1b47c81f28d5` on the tutorial, the same as the Python
+  install, so Windows, Linux and both macOS builds write identical rows. On Windows its MCP server was
+  also driven over real stdio.
+- Linux and macOS ship `.tar.gz`, not `.zip`. The first CI run failed on all three Unix builds with
+  `Permission denied` on pyMzLib's mzLib bridge: zip does not reliably carry the executable bit. The
+  smoke test caught it, which is why it unpacks without `chmod`.
+- `tests/test_getting_started.py` runs the tutorial's commands and fails when the version, bundle id
+  or catalog id printed on the page differs from what the program produces. A catalog id moves with
+  every release, so without it the page went stale silently.
 
 ### Changed
 - `runner.install_identity` accepts a frozen executable by its build stamp (`source: binary`), and

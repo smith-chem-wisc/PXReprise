@@ -5,8 +5,8 @@ ingested, a catalog built, a public site written, and an agent able to ask it qu
 small example instance that ships in this repository (`tests/data/`), so you need no real data and
 no search run of your own.
 
-Every command and every line of output below was run on this example with datarepo 0.30.0. Long
-paths are shortened to `…`. The ids are content hashes, so on 0.30.0 you should get the same ones;
+Every command and every line of output below was run on this example with datarepo 0.31.0. Long
+paths are shortened to `…`. The ids are content hashes, so on 0.31.0 you should get the same ones;
 on another version they will differ (a later section says why).
 
 **Words used here.**
@@ -23,8 +23,8 @@ The [glossary](README.md#glossary) has the rest.
 
 ## 1. Install
 
-You need Python 3.11 or later and git. (A download that needs no Python is planned: see the
-[roadmap](../README.md#roadmap).)
+You need Python 3.11 or later and git. (Self-contained downloads that need no Python are built and
+verified, but not yet published: see [operating.md](operating.md#without-python-the-self-contained-executable).)
 
 ```bash
 git clone https://github.com/trishorts/dataRepo.git
@@ -52,7 +52,7 @@ datarepo doctor
 `mcp` adds the server that agents talk to. `doctor` checks both:
 
 ```
-datarepo 0.30.0  schema 0.0.13
+datarepo 0.31.0  schema 0.0.13
   pyarrow          25.0.1
   duckdb           1.5.5
   pymzlib          0.2.0
@@ -156,14 +156,14 @@ datarepo publish manifest.yaml --site site --title "Example repository" --purpos
 
 ```
 catalog  …/example-instance/catalog.duckdb
-  id       3293ab062d7ecab5
+  id       a90e1b47c81f28d5
   dataset  PXD999999    bundle 3b56a967d6968d39
   note     logs.resolve_genes coverage (databases with an artefact): 0 of 1; no artefact for 89fb8c7a1140 (PXD999999)
   tables   assays 2, datasets 1, definitions 14, findings 6, gene_resolutions 0, …
   indexes  22
   checks   57 run, all passed
 site     site
-  catalog  3293ab062d7ecab5
+  catalog  a90e1b47c81f28d5
   wrote    36 files, 1 dataset page
   skipped  croissant.json: no --data-url: a Croissant file describes downloadable files, …
   skipped  robots.txt: no --base-url: both need the site's absolute address
@@ -244,8 +244,8 @@ datarepo mcp --catalog catalog.duckdb --check
 
 ```
 catalog  catalog.duckdb
-  id       3293ab062d7ecab5
-  built    … by datarepo 0.30.0
+  id       a90e1b47c81f28d5
+  built    … by datarepo 0.31.0
   dataset  PXD999999           58 PSMs at 1%
   tools    datarepo_describe, datarepo_search, datarepo_sql
   empty    26 table(s) present with no rows

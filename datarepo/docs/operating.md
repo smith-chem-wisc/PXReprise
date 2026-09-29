@@ -33,8 +33,8 @@ Run every step from **one released version, installed once and never edited**, f
 built from a tagged commit:
 
 ```bash
-python -m venv /opt/datarepo-0.30.0
-/opt/datarepo-0.30.0/bin/pip install "datarepo[readers,mcp] @ git+https://github.com/trishorts/dataRepo.git@<commit>"
+python -m venv /opt/datarepo-0.31.0
+/opt/datarepo-0.31.0/bin/pip install "datarepo[readers,mcp] @ git+https://github.com/trishorts/dataRepo.git@<commit>"
 ```
 
 Two things depend on this:

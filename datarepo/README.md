@@ -19,7 +19,7 @@ against the search engine's own totals. It then builds **one catalog** from them
 It is built for questions that span datasets, such as *"which mitochondrial proteins decline with age
 in skeletal muscle, in how many datasets, and show me the spectra"*. Agents are the main users.
 
-> **Status: pre-release**, datarepo **0.30.0**, core schema **0.0.13**. `ingest`, `study`, `run`,
+> **Status: pre-release**, datarepo **0.31.0**, core schema **0.0.13**. `ingest`, `study`, `run`,
 > `build`, `publish`, `site`, `query` and the MCP server are working. They run against the
 > [aging project](https://github.com/trishorts/aging)'s corpus of about 40 reanalysed datasets,
 > served at [trishorts.github.io/aging-pipeline](https://trishorts.github.io/aging-pipeline/).
@@ -144,7 +144,7 @@ Who does what between these projects is written down in [design/CHARTER.md](desi
 | | Status |
 |---|---|
 | Ingest, study bundles, engine runner, catalog, MCP server, static site, `publish` | **working** |
-| A download that needs no Python, attached to each release (PXReprise PXR-D1) | next |
+| A download that needs no Python (PXReprise PXR-D1) | **built and verified** on Windows, Linux and macOS (arm64, x64): each runs the tutorial and matches the Python install id for id. Not yet published ([operating.md](docs/operating.md#without-python-the-self-contained-executable)) |
 | Question-neutral code throughout (PXR-D2) | in progress: provenance, site and MCP done in 0.30.0 |
 | Versioned public releases alongside [PXReprise](https://github.com/smith-chem-wisc/PXReprise) (PXR-D3) | where they live is to be decided |
 | REST API | deferred until a human user asks for REST (D16) |
