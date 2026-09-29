@@ -10,8 +10,46 @@ namespace PXReprise.Batch;
 /// </summary>
 public static class ManifestEntry
 {
+    /// <summary>
+    /// A new question's manifest, written the first time a deposit is delivered: the header dataRepo requires
+    /// (<c>work_root</c>, <c>store</c>, <c>datasets</c>), with roots relative to the manifest so the folder can move.
+    /// An existing manifest (aging's, written by hand) is never touched.
+    /// </summary>
+    public static void EnsureExists(string manifestPath, string instance, string runRoot)
+    {
+        if (File.Exists(manifestPath)) return;
+        string dir = Path.GetDirectoryName(Path.GetFullPath(manifestPath))!;
+        Directory.CreateDirectory(dir);
+        string workRoot = Path.GetRelativePath(dir, Path.GetFullPath(runRoot)).Replace('\\', '/');
+        File.WriteAllText(manifestPath, $"""
+            # dataRepo manifest for the question '{instance}', written by PXReprise. `datarepo ingest` reads it; the batch
+            # appends one `include` entry per searched deposit. Roots are relative to this file.
+            manifest_version: 1
+            instance: {instance}
+            work_root: {workRoot}
+            store: store
+
+            datasets:
+
+            """);
+    }
+
+    /// <summary>The manifest's own <c>work_root</c>, resolved as dataRepo resolves it (relative to the manifest), or null.</summary>
+    public static string? WorkRootOf(string manifestPath)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(File.ReadAllText(manifestPath), @"(?m)^work_root:\s*([^#\r\n]+)");
+        if (!m.Success) return null;
+        string v = m.Groups[1].Value.Trim().Trim('"', '\'');
+        return Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(manifestPath))!, v));
+    }
+
+    /// <summary>
+    /// <paramref name="workRoot"/> is the fallback for a manifest that names none; an entry's <c>run</c> is relative to the
+    /// manifest's own <c>work_root</c>, because that is what dataRepo joins it to.
+    /// </summary>
     public static void Append(string manifestPath, QueueEntry e, Profile profile, string runDir, JsonObject? state, string workRoot)
     {
+        workRoot = WorkRootOf(manifestPath) ?? workRoot;
         string text = File.ReadAllText(manifestPath);
         if (text.Contains($"accession: {e.Accession}\n") || text.Contains($"accession: {e.Accession}\r")) return;
         // Count from qc_report.json, never from the raw files: cleanup has already deleted them (dataRepo hashes `files`

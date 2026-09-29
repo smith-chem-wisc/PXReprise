@@ -72,6 +72,18 @@ The search engine is MetaMorpheus, a separate program. The profile says which re
 2. Unzip it to `<TOOLS>/MetaMorpheus-1.1.11/`.
 3. Check: `dotnet <TOOLS>/MetaMorpheus-1.1.11/CMD.dll --help` prints MetaMorpheus's help text.
 
+### 3b. Get dataRepo
+
+dataRepo turns search results into a queryable repository and a website. It is a separate program, downloaded ready
+to run: no Python.
+
+1. From https://github.com/smith-chem-wisc/dataRepo/releases/tag/v0.31.0 download the file for this computer:
+   `datarepo-0.31.0-windows-x64.zip`, `-linux-x64.tar.gz`, `-macos-arm64.tar.gz` (Apple silicon) or `-macos-x64.tar.gz`.
+2. Unpack it into `<TOOLS>/`: `tar -xzf` on Linux and macOS (it keeps the executable bit), unzip on Windows. It makes
+   `<TOOLS>/datarepo/`.
+3. On macOS only, if the program is blocked: `xattr -dr com.apple.quarantine <TOOLS>/datarepo`.
+4. Check: `<TOOLS>/datarepo/datarepo doctor` (`datarepo.exe` on Windows) ends with `ready`.
+
 ## 4. Write the machine file
 
 A machine file says where things live on this computer. Copy the template and edit it:
@@ -87,7 +99,8 @@ In `machines/my-machine.toml`:
 - `accept_thermo_licence`: Thermo `.raw` files can only be read under Thermo's RawFileReader licence
   (https://github.com/thermofisherlsms/RawFileReader). **Ask the person** whether they accept it. Set it to `true`
   only if they say yes. If they say no, PXReprise cannot process `.raw` data; stop and tell them.
-- Leave `datarepo` and `qc_python` out. They are optional integrations with other projects' tools.
+- `datarepo`: the absolute path to the dataRepo program from step 3b, e.g. `<TOOLS>/datarepo/datarepo.exe`.
+- Leave `qc_python` out. It is an optional integration with another project's tool.
 
 `machines/my-*.toml` is ignored by git, so the person's paths never get committed.
 
@@ -104,7 +117,8 @@ pxreprise batch run examples/first-run/question.toml --machine machines/my-machi
 `batch run` runs until the queue is done, then prints `{"ok":true,"data":{"finished":true}}`. Progress goes to
 `examples/first-run/work/state/batch.log`; read it to report progress. In order you should see: `database: downloading UniProt UP000000589`
 (first run only; the mouse proteome takes a few minutes), `database: ...`, `PROBE qc ok`, `FETCH raw_files=15 of 15`, `SEARCH starting`, `SEARCH rc=0 success=True`,
-`QC-PAYLOAD`, `CLEANUP`, then `queue exhausted`.
+`QC-PAYLOAD`, `CLEANUP`, `MANIFEST entry appended`, `INGEST rc=0`, `PUBLISH rc=0`, then `queue exhausted`. The ingest
+and publish take about ten minutes more.
 
 Then check the outcome:
 
@@ -113,7 +127,10 @@ pxreprise batch status examples/first-run/question.toml
 ```
 
 Success: `"by_status": {"searched": 1}`. The results are in `examples/first-run/work/runs/PXD058082/` (see
-"Reading the results" below). Tell the person the number of PSMs from the `SEARCH rc=0` line of the log.
+"Reading the results" below), the repository in `examples/first-run/work/store/`, and a website in
+`examples/first-run/work/site/`: tell the person to open `work/site/index.html` in a browser. Tell them the number of PSMs
+from the `SEARCH rc=0` line of the log. `INGEST` may print `MISMATCH psms_target_1pct` with two numbers a few PSMs
+apart: that is expected (dataRepo and MetaMorpheus count slightly differently), not a failure.
 
 If it fails, see "When something goes wrong".
 

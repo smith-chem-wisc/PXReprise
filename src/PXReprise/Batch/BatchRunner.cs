@@ -518,7 +518,12 @@ public sealed class BatchRunner
     private async Task DeliverAsync(QueueEntry e, Profile profile, CancellationToken ct)
     {
         if (_q.Publish?.Manifest is not { } manifest) return;
-        try { ManifestEntry.Append(manifest, e, profile, Run(e.Accession), Entry(e.Accession), _m.WorkRoot); Log($"{e.Accession} MANIFEST entry appended"); }
+        try
+        {
+            ManifestEntry.EnsureExists(manifest, _q.Name, _runRoot);
+            ManifestEntry.Append(manifest, e, profile, Run(e.Accession), Entry(e.Accession), _m.WorkRoot);
+            Log($"{e.Accession} MANIFEST entry appended");
+        }
         catch (Exception ex) when (ex is IOException or InvalidOperationException) { Log($"{e.Accession} MANIFEST failed: {ex.Message}"); Record(e.Accession, ("ingest", "manifest_failed")); return; }
         if (_m.DataRepo is null) return;
         var (rc, tail) = await RunProcessAsync(new[] { _m.DataRepo, "ingest", manifest, e.Accession }, TimeSpan.FromHours(3), ct).ConfigureAwait(false);
@@ -526,10 +531,18 @@ public sealed class BatchRunner
         Record(e.Accession, ("ingest_rc", rc), ("ingest_out", tail));
         if (rc != 0 || _q.Publish.Command.Count == 0) return;
         // A failed publish is logged, never fatal: the bundle exists, and a stale site is a warning, not a reason to stop.
-        var (prc, ptail) = await RunProcessAsync(_q.Publish.Command.Select(c => c.Replace("{manifest}", manifest)).ToList(), TimeSpan.FromHours(1), ct).ConfigureAwait(false);
+        var (prc, ptail) = await RunProcessAsync(PublishArgv(_q.Publish.Command, manifest, _m.DataRepo), TimeSpan.FromHours(1), ct).ConfigureAwait(false);
         Log($"{e.Accession} PUBLISH rc={prc}\n{ptail}");
         Record(e.Accession, ("publish_rc", prc), ("publish_out", ptail));
     }
+
+    /// <summary>
+    /// The question's publish command with its placeholders filled: <c>{manifest}</c>, <c>{manifest_dir}</c>, and
+    /// <c>{datarepo}</c> (the machine's install), so a question names no path on anyone's machine.
+    /// </summary>
+    internal static List<string> PublishArgv(IReadOnlyList<string> command, string manifest, string datarepo) =>
+        command.Select(c => c.Replace("{manifest_dir}", Path.GetDirectoryName(Path.GetFullPath(manifest))!.Replace('\\', '/'))
+                             .Replace("{manifest}", manifest).Replace("{datarepo}", datarepo)).ToList();
 
     private static async Task<(int Rc, string Tail)> RunProcessAsync(IReadOnlyList<string> argv, TimeSpan timeout, CancellationToken ct)
     {

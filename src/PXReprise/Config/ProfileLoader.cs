@@ -33,6 +33,8 @@ public static class ProfileLoader
         var extraMods = eng.StringList("gptmd_extra_mods");
         // One library per organism: the first search writes it, every later one updates and consumes it (aging D33).
         bool library = eng.OptionalBool("spectral_library") ?? false;
+        // Read so published profiles stay valid, but no longer used: a search's limits are the machine's (search_timeout_h,
+        // search_stall_minutes), because how long it takes depends on the box and its load, not on the method.
         double timeout = eng.OptionalNumber("timeout_h") ?? 6;
         eng.RefuseUnknownKeys();
 

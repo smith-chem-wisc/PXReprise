@@ -44,6 +44,20 @@ D:\tools\pxreprise\pxreprise.exe version
    [MetaMorpheus 1.1.11 release](https://github.com/smith-chem-wisc/MetaMorpheus/releases/tag/1.1.11).
 2. Unzip it to `D:\tools\MetaMorpheus-1.1.11`.
 
+## 3b. Download dataRepo
+
+[dataRepo](https://github.com/smith-chem-wisc/dataRepo) turns the search results into a repository you can query, and
+a website. It is a ready-to-run download: no Python.
+
+1. From the [dataRepo 0.31.0 release](https://github.com/smith-chem-wisc/dataRepo/releases/tag/v0.31.0), download the
+   file for your computer: `datarepo-0.31.0-windows-x64.zip`, `-linux-x64.tar.gz`, `-macos-arm64.tar.gz` (Apple silicon)
+   or `-macos-x64.tar.gz`.
+2. Unpack it into `D:\tools`, which makes `D:\tools\datarepo`. On Linux and macOS use `tar -xzf`.
+3. Check it: `D:\tools\datarepo\datarepo.exe doctor` should end with `ready`. On macOS, if the program is blocked, run
+   `xattr -dr com.apple.quarantine datarepo` once in the folder you unpacked.
+
+Without dataRepo, everything still runs; it stops after the search.
+
 ## 4. Describe your machine
 
 Copy the template, then open the copy in a text editor:
@@ -52,10 +66,11 @@ Copy the template, then open the copy in a text editor:
 copy machines\example.toml machines\my-machine.toml
 ```
 
-Set three things. Use forward slashes in paths, even on Windows.
+Set four things. Use forward slashes in paths, even on Windows.
 
 - `work_root`: where the work goes, e.g. `"D:/pxreprise"`.
 - `"1.1.11"` under `[metamorpheus]`: `"D:/tools/MetaMorpheus-1.1.11/CMD.dll"`.
+- `datarepo`: `"D:/tools/datarepo/datarepo.exe"`.
 - `accept_thermo_licence`: Thermo `.raw` files are read with Thermo's RawFileReader, under
   [its licence](https://github.com/thermofisherlsms/RawFileReader). Read it; set `true` only if you accept it.
 
@@ -77,8 +92,14 @@ the mouse proteome from UniProt (a few minutes; kept for later runs). When it en
 pxreprise batch status examples/first-run/question.toml
 ```
 
-should show `"searched": 1`. The results are in `examples/first-run/work/runs/PXD058082/`: open
-`05_qc/report.html` in a browser. [Reading the results](results.md) explains the rest.
+should show `"searched": 1`. Then open, in a browser:
+
+- `examples/first-run/work/site/index.html`: the website dataRepo built from the results, one page per deposit;
+- `examples/first-run/work/runs/PXD058082/05_qc/report.html`: the quality report.
+
+The repository itself is in `examples/first-run/work/store/`. [Reading the results](results.md) explains the rest.
+The log may show `MISMATCH psms_target_1pct` with two numbers a few PSMs apart. That is expected: dataRepo and
+MetaMorpheus count the 1% PSMs slightly differently.
 
 ## 6. Ask your own question
 

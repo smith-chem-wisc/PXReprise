@@ -20,7 +20,7 @@ public class SearchStageTests
 
     private sealed record Rig(string Root, Machine Machine, Profile Profile, string Spectra, string Qc);
 
-    private static Rig Setup(bool library = true)
+    private static Rig Setup(bool library = true, string machineExtra = "")
     {
         string root = TestSupport.TempDir();
         // A MetaMorpheus "install": the fake CMD, and the Mods and Contaminants folders the engine reads beside it.
@@ -35,7 +35,7 @@ public class SearchStageTests
         TestSupport.WriteFile(db, "proteome.xml", "<uniprot>\n<entry>\n<accession>Q8WZ42</accession>\n</entry>\n<entry>\n<accession>P04264</accession>\n</entry>\n</uniprot>\n");
         var machine = Machine.Load(TestSupport.WriteFile(root, "machine.toml",
             // CMD.dll, run as `dotnet CMD.dll`: the one launch that works on every OS (the apphost is CMD.exe only on Windows).
-            $"work_root = '{root}'\ndatabase_dir = '{db}'\nmax_threads = 4\n[metamorpheus]\n\"1.1.11\" = '{Path.Combine(install, "CMD.dll")}'\n"));
+            $"work_root = '{root}'\ndatabase_dir = '{db}'\nmax_threads = 4\n{machineExtra}[metamorpheus]\n\"1.1.11\" = '{Path.Combine(install, "CMD.dll")}'\n"));
         var profile = ProfileLoader.Load(TestSupport.WriteFile(root, "profile.toml", $"""
             id = "test-dda"
             version = 1
@@ -130,6 +130,38 @@ public class SearchStageTests
             Assert.That(o.Flags, Has.Some.StartsWith("quantification_skipped"));
         }
         finally { Environment.SetEnvironmentVariable("FAKE_MM_SKIP_QUANT", null); }
+    }
+
+    // 2026-09-29: PXD069093 sat in MetaMorpheus's PEP step for hours on a busy box, silent but using ~49 cores, and a
+    // wall-clock limit was about to kill it. Slow is not hung: only a search that uses no CPU is killed early.
+    [Test]
+    public async Task ASilentButWorkingSearchOutlivesTheStallWindow()
+    {
+        var rig = Setup(library: false, machineExtra: "search_stall_minutes = 0.05\n");   // 3 s
+        Environment.SetEnvironmentVariable("FAKE_MM_BUSY_SECONDS", "8");
+        try
+        {
+            var o = await SearchStage.RunAsync(Req(rig, "04_search"), CancellationToken.None);
+            Assert.That((o.Success, o.TimedOut), Is.EqualTo((true, false)));
+        }
+        finally { Environment.SetEnvironmentVariable("FAKE_MM_BUSY_SECONDS", null); }
+    }
+
+    [Test]
+    public async Task AHungSearchIsKilledByTheStallCheckAndSaysSo()
+    {
+        var rig = Setup(library: false, machineExtra: "search_stall_minutes = 0.05\n");
+        Environment.SetEnvironmentVariable("FAKE_MM_HANG", "1");
+        try
+        {
+            var o = await SearchStage.RunAsync(Req(rig, "04_search"), CancellationToken.None);
+            Assert.That((o.Success, o.TimedOut), Is.EqualTo((false, true)));
+            var p = JsonNode.Parse(File.ReadAllText(o.ProvenanceFile))!;
+            Assert.That(p["stalled_after_s"], Is.Not.Null);
+            Assert.That(p["notes"]!.AsArray().Select(n => n!.GetValue<string>()), Has.Some.Contains("used no CPU"));
+            Assert.That((int)p["params"]!["stall_s"]!, Is.EqualTo(3));
+        }
+        finally { Environment.SetEnvironmentVariable("FAKE_MM_HANG", null); }
     }
 
     [Test]

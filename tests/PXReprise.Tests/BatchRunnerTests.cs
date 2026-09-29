@@ -109,6 +109,39 @@ public class BatchRunnerTests
         Assert.That(text, Does.Contain("flags: [no_design_file, no_output_sdrf, enriched, qc_excluded_files]").And.Contain("iso.xml"));
     }
 
+    [Test]
+    public void ANewQuestionGetsAManifestWhoseRunsAreRelativeToItsOwnWorkRoot()
+    {
+        string dir = TestSupport.TempDir(), runRoot = Path.Combine(dir, "work", "runs"), run = Path.Combine(runRoot, "PXD000210");
+        Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
+        Directory.CreateDirectory(Path.Combine(run, "04_search"));
+        File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(("a.raw", true, Array.Empty<string>())).ToJsonString());
+        File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), """{"tools":{"MetaMorpheus":{"release":"1.1.11"}}}""");
+        string manifest = Path.Combine(dir, "work", "manifest.yaml");
+
+        ManifestEntry.EnsureExists(manifest, "first-run", runRoot);
+        // The machine's work root is somewhere else entirely: the manifest's own root decides the entry's `run`.
+        ManifestEntry.Append(manifest, new QueueEntry("PXD000210", "t", "human"), Profiles["label-free-dda@1"], run, null, "Z:/elsewhere");
+        string text = File.ReadAllText(manifest).ReplaceLineEndings("\n");
+        Assert.That(text, Does.Contain("instance: first-run\n").And.Contain("work_root: runs\n").And.Contain("store: store\n")
+            .And.Contain("run: PXD000210\n").And.Contain("files: 1\n"));
+        Assert.That(ManifestEntry.WorkRootOf(manifest), Is.EqualTo(Path.GetFullPath(runRoot)));
+
+        File.WriteAllText(manifest, "manifest_version: 1\nwork_root: F:/aging_data   # aging's, by hand\ndatasets:\n");
+        ManifestEntry.EnsureExists(manifest, "first-run", runRoot);
+        Assert.That(File.ReadAllText(manifest), Does.StartWith("manifest_version: 1\nwork_root: F:/aging_data"), "an existing manifest is never rewritten");
+        Assert.That(ManifestEntry.WorkRootOf(manifest), Is.EqualTo(Path.GetFullPath("F:/aging_data")));
+    }
+
+    [Test]
+    public void APublishCommandNamesNoMachinePath()
+    {
+        var argv = BatchRunner.PublishArgv(new[] { "{datarepo}", "publish", "{manifest}", "--site", "{manifest_dir}/site" },
+            Path.Combine("C:", "q", "work", "manifest.yaml"), "D:/tools/datarepo/datarepo.exe");
+        Assert.That(argv, Is.EqualTo(new[] { "D:/tools/datarepo/datarepo.exe", "publish", Path.Combine("C:", "q", "work", "manifest.yaml"),
+            "--site", Path.GetFullPath(Path.Combine("C:", "q", "work")).Replace('\\', '/') + "/site" }));
+    }
+
     // G7. A deposit whose downloads PRIDE kept dropping is not the deposit's fault: it waits for a later pass, and only
     // settles after fetch_passes of them. The dropped transfer is the type .NET really throws (HttpIOException), not a
     // fake HttpRequestException(503): that fake is how the 09-29 retry defect survived its tests.

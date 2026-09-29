@@ -37,7 +37,9 @@ public sealed class AgingProvenance
             ["pipeline"] = new JsonObject
             {
                 ["version"] = RunRecord.Versions()["pxreprise"],
-                ["repo"] = "https://github.com/trishorts/PXReprise",
+                // The public repository, which anyone reading a record can open. Its snapshot commits name the
+                // development commit they came from, so a commit below from either repository can be traced.
+                ["repo"] = "https://github.com/smith-chem-wisc/PXReprise",
                 ["commit"] = RunRecord.Versions()["pxreprise"].Split('+').ElementAtOrDefault(1) ?? "unknown",
             },
             ["params_file"] = Entry(paramsFile, useRoot: false),

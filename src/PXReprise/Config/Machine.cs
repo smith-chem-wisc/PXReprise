@@ -23,7 +23,9 @@ public sealed record Machine(
     int ParallelDownloads = 4,
     string? QcPython = null,
     int FetchPasses = 3,
-    double PassWaitMinutes = 30)
+    double PassWaitMinutes = 30,
+    double SearchTimeoutHours = 48,
+    double SearchStallMinutes = 90)
 {
     public static Machine Load(string file)
     {
@@ -51,6 +53,11 @@ public sealed record Machine(
         // A deposit whose downloads exhaust their attempts on unavailability is retried on a later pass, up to this many in all.
         int passes = checked((int)(root.OptionalInteger("fetch_passes") ?? 3));
         double passWait = root.OptionalNumber("pass_wait_minutes") ?? 30;
+        // How long a search may take depends on this machine and what else runs on it, not on the method, so the limits
+        // live here. The wall clock is only a ceiling; a hung search is caught by the stall check, which kills MetaMorpheus
+        // only after it has used no CPU for that long. A slow search on a busy box is never killed for being slow.
+        double searchTimeout = root.OptionalNumber("search_timeout_h") ?? 48;
+        double stall = root.OptionalNumber("search_stall_minutes") ?? 90;
         // A Python with qc's qctemplates installed: the qc-payload stage runs its validate and render (qc owns them).
         // Optional: without it the payload is still built, with vendored bin edges, and the stage says so.
         string? qcPython = root.OptionalString("qc_python");
@@ -58,7 +65,9 @@ public sealed record Machine(
         if (threads < 1) throw new ConfigException(file, "'max_threads' must be 1 or more");
         if (passes < 1) throw new ConfigException(file, "'fetch_passes' must be 1 or more");
         if (passWait < 0) throw new ConfigException(file, "'pass_wait_minutes' must not be negative");
-        return new Machine(file, workRoot, dbDir, mm, settings, threads, dotnet, licence, libraries, minFree, datarepo, attempts, parallel, qcPython, passes, passWait);
+        if (searchTimeout <= 0) throw new ConfigException(file, "'search_timeout_h' must be positive");
+        if (stall < 0) throw new ConfigException(file, "'search_stall_minutes' must not be negative (0 turns the stall check off)");
+        return new Machine(file, workRoot, dbDir, mm, settings, threads, dotnet, licence, libraries, minFree, datarepo, attempts, parallel, qcPython, passes, passWait, searchTimeout, stall);
     }
 
     public string CmdFor(string release) =>
