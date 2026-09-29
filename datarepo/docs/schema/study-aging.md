@@ -58,7 +58,7 @@ Normalized age of one sample. NOT YET DEFINITION-BACKED (DATAREPO-5). The normal
 
 | Column | Type | Req | Meaning |
 |---|---|---|---|
-| `sample_id` | [Sample](#sample) | yes | Sample this row describes. |
+| `sample_id` | [Sample](core.md#sample) | yes | Sample this row describes. |
 | `age_raw` | `string` | yes | The SDRF value verbatim, so a normalizer change can be re-run against the source rather than against a previous normalization. |
 | `age_years` | `float` |  | Normalized to years. NA when not parseable, which is not the same as no age being recorded -- `age_raw` distinguishes them. |
 | `age_is_lower_bound` | `boolean` |  | True for a right-censored age such as '65+' or '>=90Y'. `aging:DEF-AGE-EFFECT v1` section 5 EXCLUDES these from a primary fit and counts them in `n_age_lower_bound`; they are never silently treated as the bound value, because the datasets most likely to carry them are the ones with the oldest donors. |
@@ -73,7 +73,7 @@ One characteristic of one sample, as aging CURATED it (aging 078, REQ-DATAREPO-6
 
 | Column | Type | Req | Meaning |
 |---|---|---|---|
-| `sample_id` | [Sample](#sample) | yes | Sample this row describes. Must be a sample the catalog holds. |
+| `sample_id` | [Sample](core.md#sample) | yes | Sample this row describes. Must be a sample the catalog holds. |
 | `name` | `string` | yes | The characteristic, written the way an SDRF column header is, e.g. `characteristics[organism part]`, `characteristics[cell type]`, `characteristics[cell line]`, `characteristics[disease]`. It is the same vocabulary as `sample_characteristics.name`, so the two can be read side by side on one filter. Part of the key: one curated value per characteristic per sample. |
 | `value` | `string` | yes | The curated value as a name, e.g. `SH-SY5Y`, `brain`, `Hutchinson-Gilford progeria syndrome`, `normal`, or an SDRF reserved word the curator wrote: `not applicable` (the characteristic does not apply, e.g. the tissue of a cell line) or `not available` (the sources were read and do not say). No row means the characteristic was not curated at all. Those are three different answers (G42), so filter on `value_reserved` before counting values. |
 | `value_reserved` | `boolean` | yes | True when `value` is an SDRF reserved word (`not available`, `not applicable`, `unknown`, `none`, `na`, `n/a`), the same list and meaning as `sample_characteristics.value_reserved`: the curator looked and there is no value. Computed by `datarepo study` from `value`. A delivered value that disagrees is refused. A reserved row is not an annotation. |
@@ -89,10 +89,10 @@ The estimated change in one measured quantity, for one feature, per DECADE of do
 
 | Column | Type | Req | Meaning |
 |---|---|---|---|
-| `dataset_id` | [Dataset](#dataset) | yes | Dataset the fit was performed within. |
+| `dataset_id` | [Dataset](core.md#dataset) | yes | Dataset the fit was performed within. |
 | `organism` | `uriorcurie` | yes | NCBITaxon term of the organism the fit ran over. REQUIRED and denormalised (`aging:DEF-AGE-EFFECT v1.1` section 6.4): a dataset has one organism, so this is functionally dependent on `dataset_id`, but the pooling guard in `age_effect_meta` has to be checkable without a join, and a guard that needs a join is a guard somebody will skip. Not part of this table's key, because `dataset_id` already is (G40). |
 | `age_centre_years` | `float` | yes | The age the model was centred on, in years: `age_decades = (age_years - age_centre_years) / 10`. REQUIRED, with no n/a (`aging:DEF-AGE-EFFECT v1.1`, aging 040 section 3). It was a literal 50 in the model formula, a human constant that put every mouse observation near -4.8 decades. Centring does not change `beta`, only the intercept -- but the intercept and the knots of a `spline` or `breakpoint` fit are expressed relative to it, so a row with no centre cannot have either interpreted. 50 for human. |
-| `feature_type` | [FeatureType](#featuretype) | yes | Which table feature_id points into. ASK: the definition's section 4 writes `glycosite`, which the core FeatureType enum does not have -- it has `glycopeptide`. Using the core enum rather than forking it, and asked as DATAREPO-20. |
+| `feature_type` | [FeatureType](core.md#featuretype) | yes | Which table feature_id points into. ASK: the definition's section 4 writes `glycosite`, which the core FeatureType enum does not have -- it has `glycopeptide`. Using the core enum rather than forking it, and asked as DATAREPO-20. |
 | `feature_id` | `string` | yes | Identifier of the feature in the table named by feature_type. |
 | `response` | [AgeResponse](#ageresponse) | yes | What changes with age. Part of the key. |
 | `estimator` | [AgeEstimator](#ageestimator) | yes | Which estimator produced the response. Part of the key, because count- and intensity-based occupancy must never be averaged. |
@@ -119,7 +119,7 @@ The estimated change in one measured quantity, for one feature, per DECADE of do
 | `n_covering_psms_median` | `float` |  | modified_fraction rows only. Median PSM depth covering the site across samples -- QuantProject's own recommended filter, and what separates a real occupancy change from a depth artifact. |
 | `intensity_is_floor_frac` | `float` |  | modified_fraction + estimator=intensity only. Fraction of the observations that were DEF-OCC-INT-ZERO floors rather than measured values. A row where this is high is mostly censored data. (range 0..1) |
 | `mbr_kept_frac` | `float` |  | Fraction of the values that came from a match-between-runs transferred peak. (range 0..1) |
-| `definition_id` | [Definition](#definition) | yes | `aging:DEF-AGE-EFFECT v1.1` (v1.1 added `organism` and `age_centre_years`). A change to the model, the covariate rule, the transform or the section 5 thresholds is a new version, not an edit. |
+| `definition_id` | [Definition](core.md#definition) | yes | `aging:DEF-AGE-EFFECT v1.1` (v1.1 added `organism` and `age_centre_years`). A change to the model, the covariate rule, the transform or the section 5 thresholds is a new version, not an edit. |
 
 ## AgeEffectRefusal
 
@@ -127,9 +127,9 @@ One fit that was NOT performed, and why. This table is what answers trap J6: "gi
 
 | Column | Type | Req | Meaning |
 |---|---|---|---|
-| `dataset_id` | [Dataset](#dataset) | yes | Dataset the fit would have run within. |
+| `dataset_id` | [Dataset](core.md#dataset) | yes | Dataset the fit would have run within. |
 | `organism` | `uriorcurie` | yes | NCBITaxon term of the organism the fit would have run over. REQUIRED and denormalised, as on `age_effects` (aging 042 section 2): a refusal row is what someone reads when asking why there is no mouse estimate for a feature, and if answering that needs a join back to `datasets` it will sometimes be answered wrongly. Not part of the key, because `dataset_id` already is. |
-| `feature_type` | [FeatureType](#featuretype) |  | Null for a dataset-level refusal such as no_age_metadata. |
+| `feature_type` | [FeatureType](core.md#featuretype) |  | Null for a dataset-level refusal such as no_age_metadata. |
 | `feature_id` | `string` |  | Null for a dataset-level refusal such as no_age_metadata. |
 | `response` | [AgeResponse](#ageresponse) | yes | The response that was not fitted. |
 | `estimator` | [AgeEstimator](#ageestimator) | yes | The estimator that was not used. |
@@ -141,7 +141,7 @@ One fit that was NOT performed, and why. This table is what answers trap J6: "gi
 | `n_observed` | `integer` |  | Non-missing values available, where that is what failed. |
 | `n_distinct_ages` | `integer` |  | Distinct donor ages available, where that is what failed. |
 | `age_span_years` | `float` |  | Age span available, where that is what failed. |
-| `definition_id` | [Definition](#definition) | yes | `aging:DEF-AGE-EFFECT v1`, whose section 5 sets the thresholds this row failed. |
+| `definition_id` | [Definition](core.md#definition) | yes | `aging:DEF-AGE-EFFECT v1`, whose section 5 sets the thresholds this row failed. |
 
 ## AgeEffectMeta
 
@@ -150,28 +150,28 @@ The pooled age effect for one feature ACROSS datasets. Content is `aging:DEF-AGE
 | Column | Type | Req | Meaning |
 |---|---|---|---|
 | `organism` | `uriorcurie` | yes | NCBITaxon term. FIRST component of the key and a hard stratification (`aging:DEF-AGE-EFFECT-META v1.2` section 6.4): every contributing `age_effects` row carries this organism, and a pooled estimate over two organisms is not written. Pooling across species on purpose is a different, named operation that does not exist yet. |
-| `feature_type` | [FeatureType](#featuretype) | yes | Which kind of feature this row pools. ASK (DATAREPO-20): the definition's section 6 key omits feature_type, but without it `feature_id` cannot be interpreted -- and a dataset-scoped identifier such as a protein_group_id cannot be a cross-dataset key at all, so the cross-dataset identity of a feature is itself the question. |
+| `feature_type` | [FeatureType](core.md#featuretype) | yes | Which kind of feature this row pools. ASK (DATAREPO-20): the definition's section 6 key omits feature_type, but without it `feature_id` cannot be interpreted -- and a dataset-scoped identifier such as a protein_group_id cannot be a cross-dataset key at all, so the cross-dataset identity of a feature is itself the question. |
 | `feature_id` | `string` | yes | Identifier of the feature, in whatever vocabulary is cross-dataset for its type. ASK (DATAREPO-20): see feature_type. |
 | `response` | [AgeResponse](#ageresponse) | yes | What changes with age. Part of the key. |
 | `estimator` | [AgeEstimator](#ageestimator) | yes | Part of the key. |
 | `quant_basis` | [QuantBasis](#quantbasis) | yes | Part of the key. |
 | `stratum` | `string` | yes | Part of the key. |
 | `tissue` | `uriorcurie` | yes | UBERON term. Part of the key, and a hard stratification: D4 asks whether the lysosome shows the same trend in brain as in muscle, which is two rows. |
-| `acquisition` | [Acquisition](#acquisition) | yes | Part of the key, and a hard stratification: H6 and I3 ask whether DDA and DIA agree. |
-| `quant_method` | [QuantMethod](#quantmethod) | yes | Part of the key, and a hard stratification: label-free and TMT are never pooled. |
+| `acquisition` | [Acquisition](core.md#acquisition) | yes | Part of the key, and a hard stratification: H6 and I3 ask whether DDA and DIA agree. |
+| `quant_method` | [QuantMethod](core.md#quantmethod) | yes | Part of the key, and a hard stratification: label-free and TMT are never pooled. |
 | `beta_meta` | `float` | yes | Random-effects (DerSimonian-Laird) pooled effect, per decade, in the response's transform units. |
 | `se_meta` | `float` | yes | Standard error of the pooled effect. Required for the same reason `se` is on AgeEffect. |
 | `ci_low` | `float` |  | Lower bound of the confidence interval on `beta_meta`. |
 | `ci_high` | `float` |  | Upper bound of the confidence interval on `beta_meta`. |
 | `q_meta` | `float` |  | Benjamini-Hochberg across features within the same stratum. (range 0..1) |
 | `n_datasets` | `integer` | yes | How many datasets contributed. |
-| `dataset_ids` | [Dataset](#dataset) [ ] | yes | WHICH datasets contributed. C3 and D1 ask for an effect seen in at least three datasets and need the list, not the count. |
+| `dataset_ids` | [Dataset](core.md#dataset) [ ] | yes | WHICH datasets contributed. C3 and D1 ask for an effect seen in at least three datasets and need the list, not the count. |
 | `i_squared` | `float` |  | I-squared heterogeneity across datasets. Null when n_datasets = 1, which is not a defect. (range 0..1) |
 | `tau2` | `float` |  | Between-dataset variance. H1's forest plot is made of this and i_squared. |
 | `n_direction_agree` | `integer` |  | Contributing datasets whose effect has the same sign as the pooled one. H6 and I3 want direction agreement rather than a pooled p-value. |
 | `n_direction_disagree` | `integer` |  | Contributing datasets whose effect has the opposite sign. |
 | `leave_one_out_max_delta` | `float` |  | The largest change in `beta_meta` from dropping any single dataset. C2 asks whether the age effect is driven by one dataset, and this answers it as a number rather than a judgement. Null when n_datasets = 1. |
-| `definition_id` | [Definition](#definition) | yes | `aging:DEF-AGE-EFFECT-META v1.2` (v1.2 added `organism` to the key and the never-pool-across-organism rule). |
+| `definition_id` | [Definition](core.md#definition) | yes | `aging:DEF-AGE-EFFECT-META v1.2` (v1.2 added `organism` to the key and the never-pool-across-organism rule). |
 
 ## OrganelleAgeSummary
 
@@ -183,7 +183,7 @@ Meta-analytic age effect per COMPARTMENT across datasets. NOT YET DEFINITION-BAC
 | `organism` | `uriorcurie` | yes | NCBITaxon term. |
 | `organism_part` | `uriorcurie` |  | UBERON; NA = all tissues. |
 | `response` | [AgeResponse](#ageresponse) | yes | What changes with age. |
-| `definition_id` | [Definition](#definition) | yes | Definition ID of the roll-up that produced the estimate. There is not one yet. |
+| `definition_id` | [Definition](core.md#definition) | yes | Definition ID of the roll-up that produced the estimate. There is not one yet. |
 | `n_datasets` | `integer` | yes | Datasets contributing to the summary. |
 | `n_proteins` | `integer` |  | Proteins contributing to the summary. |
 | `estimate` | `float` |  | Effect estimate (units set by the definition). |
@@ -198,12 +198,12 @@ A trained age clock (R9). NOT YET DEFINITION-BACKED (DATAREPO-5); the shape is d
 | Column | Type | Req | Meaning |
 |---|---|---|---|
 | `clock_id` | `string` | key | Stable ID of the clock. |
-| `definition_id` | [Definition](#definition) | yes | Owner's definition ID giving this model its meaning. |
+| `definition_id` | [Definition](core.md#definition) | yes | Owner's definition ID giving this model its meaning. |
 | `feature_level` | `string` |  | protein, ptm_site, proteoform or mixed (N1). |
-| `training_datasets` | [Dataset](#dataset) [ ] |  | Datasets used to train the clock. |
+| `training_datasets` | [Dataset](core.md#dataset) [ ] |  | Datasets used to train the clock. |
 | `cv_mae_years` | `float` |  | Cross-validated mean absolute error in years. |
 | `heldout_mae_years` | `float` |  | Mean absolute error on held-out datasets, in years. A clock with no held-out error has not been validated, and the two columns are separate so that cannot be hidden. |
-| `heldout_datasets` | [Dataset](#dataset) [ ] |  | Datasets held out for validation. |
+| `heldout_datasets` | [Dataset](core.md#dataset) [ ] |  | Datasets held out for validation. |
 
 ## ClockFeature
 
@@ -212,7 +212,7 @@ One feature of a ClockModel with its weight. NOT YET DEFINITION-BACKED (DATAREPO
 | Column | Type | Req | Meaning |
 |---|---|---|---|
 | `clock_id` | [ClockModel](#clockmodel) | yes | Clock this feature belongs to. |
-| `feature_type` | [FeatureType](#featuretype) | yes | Which table feature_id points into. |
+| `feature_type` | [FeatureType](core.md#featuretype) | yes | Which table feature_id points into. |
 | `feature_id` | `string` | yes | Identifier of the feature in the table named by feature_type. |
 | `weight` | `float` | yes | Model weight of the feature. |
 
@@ -228,7 +228,7 @@ Cross-species age to life stage (R4). NOT YET DEFINITION-BACKED and NOT STARTED:
 | `age_unit` | `string` | yes | Unit of age_from and age_to (days, weeks, months, years). |
 | `life_stage` | `string` | yes | Life-stage label, e.g. young adult, middle age, old. |
 | `human_equivalent_years` | `float` |  | Approximate human-equivalent age in years. |
-| `definition_id` | [Definition](#definition) | yes | Owner's definition ID giving this mapping its meaning. |
+| `definition_id` | [Definition](core.md#definition) | yes | Owner's definition ID giving this mapping its meaning. |
 
 ## StudyBundle
 

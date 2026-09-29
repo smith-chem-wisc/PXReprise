@@ -21,19 +21,19 @@ producer's work root                          bundle store
 ```bash
 python -m venv .venv
 # Windows: .venv\Scripts\activate    Linux/macOS: source .venv/bin/activate
-pip install -e .
-pip install mzlib              # pyMzLib: parses the producer's .psmtsv files
+pip install ".[readers]"       # readers = pyMzLib (`mzlib`), which parses .psmtsv and SDRF
 datarepo doctor                # says whether this machine can ingest
 ```
 
 `doctor` is the first thing to run on a new machine:
 
 ```
-datarepo 0.1.0  schema 0.0.1
+datarepo 0.30.0
   pyarrow          25.0.1
   duckdb           1.5.5
-  pymzlib          0.1.1
+  pymzlib          0.2.0
   mzLib bridge     …/site-packages/pymzlib/_dotnet/win-x64/mzlib-bridge.exe
+…
 ready
 ```
 
@@ -129,6 +129,22 @@ the dataset, names a run twice, uses a value outside the `Enrichment` vocabulary
 other than `none` that the declaration does not include, or gives every run one value on a dataset
 flagged mixed. Both `run_enrichment` and the `mixed_enrichment` flag are content fields: adding either
 moves the bundle id, because the run rows change. No other flag does.
+
+## The provenance schemas it reads
+
+Each search stage's `provenance.json` names its `schema`. It is read first, because the same field
+name has meant two different counts:
+
+| `schema` | Read as |
+|---|---|
+| `aging-provenance/2` | layout 2: `id_rate.psms_1pct` holds the FDR engine's count, stored as `psms_fdr_engine_1pct` |
+| `aging-provenance/3` | layout 3: `psms_1pct` (all target PSMs at q <= 0.01) and `psms_fdr_engine_1pct` are separate fields |
+| `pxreprise-provenance/1` | layout 3, under PXReprise's question-neutral name for the same document |
+
+Anything else is refused, naming the schemas that are read. A new schema name is one line in
+`sources/provenance.LAYOUTS`, and it is added only once its fields are known to match a layout.
+The schema string is kept verbatim in `provenance_records.provenance_schema`, and the file's bytes
+are part of the bundle id, so renaming the schema gives a new bundle id and nothing else changes.
 
 ## What it reads, and who parses it
 

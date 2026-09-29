@@ -5,6 +5,10 @@ want and in what order.
 
 ## Pick your path
 
+**"I am new here."**
+→ [**getting-started.md**](getting-started.md): ten minutes, from a fresh clone to a catalog, a
+site and an agent, on the example instance shipped in this repository. Every command on it was run.
+
 **"I want to ask this data a question."**
 → [**querying.md**](querying.md) — the cookbook. Real SQL against a real catalog, with the output it
 actually returned, and a section on queries that look right and are wrong.
@@ -28,13 +32,15 @@ proposed.
 → [**schema/core.md**](schema/core.md) — every table, column, type and vocabulary. Generated from
 `schema/datarepo.yaml`; do not edit by hand.
 
-**"I want to publish the public website."**
-→ [**site.md**](site.md) — `datarepo site` writes static pages, `llms.txt` and Croissant from one
-catalog, with no server.
-
-**"I need to run it."**
-→ [**build.md**](build.md) — turning bundles into one DuckDB catalog, choosing bundles, and what a
+**"I run an instance: I have searches and want them served."**
+→ [**operating.md**](operating.md): the operator's loop (pin an install, write the manifest,
+ingest, publish, host), and when an upgrade costs a re-ingest.
+→ [**build.md**](build.md): turning bundles into one DuckDB catalog, choosing bundles, and what a
 failed check means.
+→ [**site.md**](site.md): the static site, `llms.txt` and Croissant, with no server.
+
+**"I want the exact flags."**
+→ [**cli.md**](cli.md): every command and argument, generated from the program's own parser.
 
 ## The whole system in one paragraph
 
@@ -77,6 +83,23 @@ These recur in every page, so they are worth reading once here.
    A query that named a CTE after a real table once came back stamped with that table's row count and
    a real bundle id. Provenance is a fact about the server.
 
+## Glossary
+
+| Term | Meaning |
+|---|---|
+| **instance** | One project's collection of reanalysed datasets, described by one `manifest.yaml`, with its store, catalog and site. dataRepo is the software; an instance is the data. |
+| **operator** | Whoever runs an instance's steps (ingest, run, publish). dataRepo itself operates nothing (D27). Today: `aging`. |
+| **producer** | The pipeline that searched the datasets and wrote the files `ingest` reads (MetaMorpheus output, `provenance.json`, the SDRF). |
+| **manifest** | `manifest.yaml`: the operator's list of datasets, each `include`, `hold` or `exclude`, with its facts. The contract every command reads. |
+| **bundle** | One dataset's results as Parquet tables plus `bundle.json`, written by `ingest`. Immutable, and named by the hash of its inputs, the schema version and the ingester version. |
+| **store** | The folder of bundles: `<store>/<accession>/<bundle id>/`. Study bundles live under `_study/`, engine outputs under `_engine/`. |
+| **catalog** | One DuckDB file built from chosen bundles by `build` or `publish`. Named by a hash of what went in (`catalog_id`), which every answer carries. |
+| **study layer** | Tables one study adds beside the core, keyed on core ids, never altering a core table (for example, `aging`'s age effects). Delivered with `datarepo study`. |
+| **engine** | Code another project owns that runs on stored results (logs' gene resolution, go's annotation). Its output is an **artefact** beside the bundles. |
+| **finding** | A recorded fact about what is wrong or limited in a dataset (a low identification rate, a skeleton SDRF). Shown before the counts it qualifies. |
+| **definition id** | `owner:DEF-NAME`: which project defined a number and where its text is. Every stored number carries one. |
+| **acceptance view** | `psms_1pct`, `peptidoforms_1pct`, `protein_groups_1pct`: the search engine's own 1% FDR rule, applied once so no query restates it. |
+
 ## Conventions in these files
 
 | Prefix | Meaning |
@@ -97,5 +120,7 @@ peer, mirrored byte-identically in that peer's repository. Messages are never ed
 | `docs/schema/core.md`, `docs/schema/study-aging.md` | `python tools/build_docs.py` |
 | the ingester's Arrow schemas | `python tools/build_tables.py` |
 | `examples/ingested_bundle.yaml` | `python tools/build_example_bundle.py` |
+| `docs/cli.md` | `python tools/build_cli_docs.py` |
 
-CI fails on drift, so after any schema edit run the first two at minimum.
+CI fails on drift, so after any schema edit run the first two at minimum, and after any change
+to a command's arguments, the last.

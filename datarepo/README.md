@@ -1,226 +1,160 @@
 # dataRepo
 
-**Software for an AI-ready repository of reanalyzed public proteomics data.**
-
-dataRepo turns the search and quantification output of many reanalyzed PRIDE datasets into one set of
-versioned, validated, queryable tables. It serves those tables to an agent over MCP, so
-AI agents can answer questions like *"which mitochondrial proteins decline with age in skeletal muscle,
-in how many datasets, and show me the spectra"*. People can use it too, but agents are the primary users.
+**Software that turns reanalysed public proteomics data into one repository that AI agents can
+query and people can browse.**
 
 [![CI](https://github.com/trishorts/dataRepo/actions/workflows/ci.yml/badge.svg)](https://github.com/trishorts/dataRepo/actions/workflows/ci.yml)
 [![Code: MIT](https://img.shields.io/badge/code-MIT-blue.svg)](LICENSE)
 
-> **Status: v0, pre-release** — `datarepo` 0.19.0, schema 0.0.9.
-> **Working and exercised against a real 9-dataset corpus:** `ingest`, `study`, `build`, `query` and a
-> local `mcp` server, and the `site` generator for the static public site. **Not built yet:** REST
-> and deployment (roadmap steps 4b–6).
-> The schema is validated but **not locked**, so expect breaking changes — bundles and catalogs are
-> content-addressed, so a change re-identifies them rather than silently altering one you cited.
-> Start with [the docs index](docs/README.md), the [query cookbook](docs/querying.md), and
-> — before you trust an answer — [what this repository cannot tell you](docs/limitations.md).
+A project that reanalyses many PRIDE datasets ends up with a folder of search and quantification
+output per dataset, each a little different and none comparable as it stands. dataRepo reads those
+folders and loads every dataset into **one schema**. The tables are versioned, and each is checked
+against the search engine's own totals. It then builds **one catalog** from them and serves it:
 
----
+- **to agents**, over MCP. Every answer names the exact catalog it came from, and an empty table
+  never passes for a negative answer;
+- **to people**, as a static website with one page per dataset, which needs no server;
+- **to programs**, as Parquet, JSON, `llms.txt` and Croissant.
 
-## This repository is code, not data
+It is built for questions that span datasets, such as *"which mitochondrial proteins decline with age
+in skeletal muscle, in how many datasets, and show me the spectra"*. Agents are the main users.
 
-dataRepo is **software**. The **data** lives in an *instance* run by the project that produced it:
+> **Status: pre-release**, datarepo **0.30.0**, core schema **0.0.13**. `ingest`, `study`, `run`,
+> `build`, `publish`, `site`, `query` and the MCP server are working. They run against the
+> [aging project](https://github.com/trishorts/aging)'s corpus of about 40 reanalysed datasets,
+> served at [trishorts.github.io/aging-pipeline](https://trishorts.github.io/aging-pipeline/).
+> The schema is not locked yet. Bundles and catalogs are content-addressed, so a change gives new ids
+> and never silently alters data someone has cited.
 
-| | Lives in | Owned by |
-|---|---|---|
-| Schema, ingester, API/MCP server, deploy package, docs | **this repo** | dataRepo |
-| Parquet bundles, releases, DOIs, the running service | the producing project's instance | e.g. [aging](https://github.com/trishorts/aging) |
-| Raw spectra | PRIDE / ProteomeXchange | the original submitters |
+## Try it in ten minutes
 
-The first instance is the **NCEMS aging proteome** project (`aging`), which reanalyzes PRIDE datasets to
-ask how organelle proteomes change with age. The core schema doesn't mention aging: aging adds its
-tables as a [study layer](#core-and-study-layers). Any reanalysis project can do the same.
+```bash
+git clone https://github.com/trishorts/dataRepo.git && cd dataRepo
+python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
+pip install ".[readers,mcp]"
+cp -r tests/data ../example-instance && cd ../example-instance
+
+datarepo ingest  manifest.yaml PXD999999                  # one dataset's search output -> a bundle
+datarepo publish manifest.yaml --site site                # every bundle -> a catalog and a website
+datarepo query   catalog.duckdb "SELECT * FROM dataset_overview"
+datarepo mcp --catalog catalog.duckdb --install           # hand it to an agent (Claude Code)
+```
+
+[**docs/getting-started.md**](docs/getting-started.md) walks through the same steps with the real
+output and explains what each one did.
+
+## How it fits together
 
 ```mermaid
 flowchart LR
-    PRIDE[(PRIDE raw files)] --> P["producer pipeline<br/>(e.g. aging: MetaMorpheus search + FlashLFQ)"]
-    P -->|psmtsv, quant tsv,<br/>provenance.json, SDRF| I["dataRepo ingest<br/>validate · reshape to long · mint USIs"]
-    I --> B[("instance data<br/>Parquet bundles per release")]
-    B --> C["dataRepo build<br/>DuckDB catalog"]
-    C --> R[REST API]
-    C --> M[MCP server for agents]
-    B --> D[bulk download + DOI]
+    PRIDE[(PRIDE raw files)] --> P["a reanalysis pipeline<br/>(MetaMorpheus search + quant)"]
+    P -->|search output,<br/>provenance.json, SDRF| I["datarepo ingest<br/>validate · reconcile · mint USIs"]
+    M[manifest.yaml<br/>include / hold / exclude] --> I
+    I --> B[("bundles<br/>Parquet, one per dataset")]
+    E["datarepo run<br/>engines: genes, GO"] --> B
+    S["datarepo study<br/>model results"] --> B
+    B --> C["datarepo publish<br/>catalog.duckdb + site"]
+    C --> MCP[MCP server: agents]
+    C --> W[static site: people]
 ```
 
-dataRepo **stores and serves**. It never re-runs a search or computes science. Statistics, organelle
-maps and metric definitions come from the projects that own them ([ownership](#who-owns-what)).
-
-## What's here
-
-| Path | What it is |
+| Step | What it guarantees |
 |---|---|
-| [`schema/datarepo.yaml`](schema/datarepo.yaml) | The **core schema** (LinkML): 27 tables, generic to any bottom-up reanalysis |
-| [`schema/study/aging.yaml`](schema/study/aging.yaml) | The **aging study layer**: sample age, age effects, organelle summaries, clocks |
-| [`docs/schema/core.md`](docs/schema/core.md) | **Schema reference**: every table, column, type and vocabulary, plus a relationship diagram. Generated. |
-| [`docs/schema/study-aging.md`](docs/schema/study-aging.md) | Reference for the aging layer. Generated. |
-| [`docs/README.md`](docs/README.md) | **Documentation index** — which page you want, and the five rules that explain the design |
-| [`docs/querying.md`](docs/querying.md) | **Query cookbook** — real SQL against a real catalog with the output it returned, plus queries that look right and are wrong |
-| [`docs/limitations.md`](docs/limitations.md) | **What this repository cannot tell you** — every place a confident answer would be wrong, with the measurement behind it |
-| [`docs/architecture.md`](docs/architecture.md) | How the pieces fit, and which parts are decided vs. proposed |
-| [`examples/`](examples/) | A minimal valid bundle, real ingester output, and an invalid one that must fail |
-| [`src/datarepo/`](src/datarepo/) | The **ingester**: `datarepo ingest` turns a producer's run into a Parquet bundle |
-| [`docs/ingest.md`](docs/ingest.md) | **Ingester reference**: the manifest contract, what it reads, what it writes, how counts reconcile |
-| [`docs/mcp.md`](docs/mcp.md) | **MCP server reference**: the three tools, the provenance every answer carries, what the sandbox does and does not do |
-| [`tests/`](tests/) | Test suite with a miniature producing instance in `tests/data/` |
-| [`tools/build_docs.py`](tools/build_docs.py) | Regenerates `docs/schema/` from the schema |
-| [`tools/build_tables.py`](tools/build_tables.py) | Regenerates the ingester's Arrow schemas from the schema |
-| [`design/`](design/) | Working design notes: framework proposal, input inventory, coverage map, open questions, cross-project threads |
-| [`lit/`](lit/) | Background research on AI-ready platforms and proteomics resources |
+| **ingest** | Nothing is re-run or recomputed. Every count is reconciled against the search engine's own totals, and every PSM links to its spectrum by [USI](https://www.psidev.info/usi). Problems are recorded as *findings* that travel with the data. |
+| **bundle** | Immutable, and named by a hash of its inputs, the schema version and the ingester version. The same inputs give the same id; one changed byte gives a new bundle beside the old one. |
+| **publish** | Builds a catalog from every dataset the manifest includes, and runs its integrity checks (57 on the tutorial's catalog). Any failure refuses the build. The same catalog gives a byte-identical site. |
+| **MCP** | Three tools (`describe`, `search`, `sql`). Every answer carries its `catalog_id`, and the answer's envelope says when a query read an empty table, a run-relative score or a sample with curated metadata beside it. |
+
+## What makes it trustworthy
+
+- **Missing is missing.** An unmeasured value is no row or NULL, never 0. An empty table and an
+  unknown fact are different answers, and they look different.
+- **Every number names its definition.** `definition_id` points at the project that defined the
+  number, so two conflicting numbers can sit side by side, each labelled.
+- **The producer decides what is fit to serve.** A dataset marked `exclude` in the manifest is
+  refused with the producer's own reason. dataRepo never overrides it.
+- **Caveats come before counts.** A dataset's open findings (a low identification rate, an SDRF
+  with no biology in it) appear before its numbers, on its page and in every agent answer.
+- **Curated is never confused with deposited.** What an SDRF said and what a curator read from a
+  paper live in different tables.
+- **Provenance comes from the server, not the query.** Nothing an agent writes can stamp a
+  fabricated number with a real catalog id.
+
+[docs/limitations.md](docs/limitations.md) lists every place where a confident answer from this
+data would be wrong. Read it before trusting one.
+
+## Documentation
+
+| | |
+|---|---|
+| [**Getting started**](docs/getting-started.md) | The ten-minute tutorial |
+| [**Operating an instance**](docs/operating.md) | Serving your own searches: install, manifest, ingest, publish, host |
+| [**Command reference**](docs/cli.md) | Every command and flag, generated from the program |
+| [**Query cookbook**](docs/querying.md) | Real questions, the SQL that answers them, and queries that look right and are wrong |
+| [**Limitations**](docs/limitations.md) | What this data cannot tell you, with the measurement behind each |
+| [**MCP server**](docs/mcp.md) | The agent tools and the guarantees each answer carries |
+| [**Schema reference**](docs/schema/core.md) | Every table and column, generated from [`schema/datarepo.yaml`](schema/datarepo.yaml) |
+| [**All documentation**](docs/README.md) | The index, a glossary, and the five rules behind the design |
 
 ## The schema at a glance
 
-Full reference: **[docs/schema/core.md](docs/schema/core.md)**.
+31 core tables, generic to any bottom-up reanalysis and a superset of
+[QPX](https://github.com/bigbio/qpx):
 
 | Group | Tables |
 |---|---|
-| Catalog & releases | `Dataset` · `Release` · `ReleaseChange` · `DatasetCandidate` (screened but maybe excluded) |
-| Design | `Sample` · `SampleCharacteristic` (every SDRF column, verbatim) · `Run` · `Assay` (run × channel → sample) |
-| Identifications | `Psm` (each with a [USI](https://www.psidev.info/usi)) · `Peptidoform` · `ProteinGroup` · `Protein` |
+| Catalog | `Dataset` · `Release` · `ReleaseChange` · `DatasetCandidate` |
+| Design | `Sample` · `SampleCharacteristic` (every SDRF cell, verbatim, with its source) · `Run` · `Assay` |
+| Identifications | `Psm` (each with a USI) · `Peptidoform` (ProForma 2) · `ProteinGroup` · `Protein` |
 | PTMs, glyco, proteoforms | `PtmSite` · `PtmStoichiometry` · `Glycopeptide` · `ProteoformInference` |
-| Quantities | `QuantValue`: long format, one row per (assay, feature) |
-| Stored from their owners | `ProteinLocalization` · `ProteinAnnotation` · `FeatureSet` · `AnnotationSource` |
+| Quantities | `QuantValue`: long format, one row per (assay, feature), with the zero rule stated per definition |
+| From their owners | gene resolutions (logs) · protein annotations and organelle categories (go, aging) · PTM trait effects and pairs (ptmQtl) · localizations · feature sets |
 | Trust | `Definition` · `Metric` · `ProvenanceRecord` · `Finding` · `SearchModification` |
 
-**The rules every table follows**
-- **Missing is missing.** An unmeasured value is an absent row or NA, never 0.
-- **Every number carries a `definition_id`** pointing to the owning project's definition. Two conflicting
-  numbers can sit side by side, each labelled, and neither is silently picked (see `Metric`).
-- **One peptidoform notation:** [ProForma 2](https://github.com/HUPO-PSI/ProForma) with UNIMOD accessions.
-- **Every PSM links to its spectrum** through a Universal Spectrum Identifier. PRIDE's PROXI service resolves it.
-- **Dataset scope is explicit:** each dataset records `organisms`, `acquisition` (DDA/DIA), `quant_method`,
-  `labelling`, `enrichment` and `instrument_vendor`, and `axis_source` says where each value came from.
-- **Interoperable:** the tables are a [QPX](https://github.com/bigbio/qpx)-compatible superset. They
-  add proteoforms, USIs, stoichiometry and glycopeptides.
-- **Honest about bottom-up limits:** glycans are stored as *compositions*, not structures. An inferred
-  proteoform records whether any single peptide carries all its sites.
+**Study layers** add a study's own tables beside the core, keyed on core ids and never altering a
+core table. The `aging` layer adds sample ages, age effects and their refusals, a cross-dataset
+meta-analysis, and curated sample characteristics. A second study adds its own layer, and the core
+never changes for it.
 
-### Core and study layers
+## This repository is software, not data
 
-The core knows nothing about any one study. A **study layer** adds tables keyed on core IDs
-(`sample_id`, `dataset_id`, `feature_type` + `feature_id`) and never changes a core table. The aging layer
-adds `SampleAge`, `AgeEffect`, `OrganelleAgeSummary`, `ClockModel`/`ClockFeature` and `AgeMapping`.
-That's why age isn't a column on `Sample`.
+| | Lives in | Owned by |
+|---|---|---|
+| Schema, ingester, catalog builder, MCP server, site generator, docs | **this repository** | dataRepo |
+| Bundles, catalogs, the site, releases and DOIs | the operator's **instance** | e.g. [aging](https://github.com/trishorts/aging) |
+| Raw spectra | PRIDE / ProteomeXchange | the original submitters |
 
-A study layer's rows arrive by their own route. An age effect is the output of a modelling stage
-that runs long after a search, so it cannot come from `datarepo ingest`: the producer delivers it
-with **[`datarepo study`](docs/study.md)** as a separately content-addressed study bundle, and
-`datarepo build --study` loads it beside the search bundles. Delivering a model result therefore
-never re-identifies a search bundle somebody has cited.
-
-## Quick start
-
-You need Python 3.11+.
-
-```bash
-python -m venv .venv
-# Windows: .venv\Scripts\activate    Linux/macOS: source .venv/bin/activate
-pip install -e . -r requirements-dev.txt
-pip install mzlib             # pyMzLib: parses the producer's .psmtsv files
-
-# Ingest one dataset from a producing instance's manifest
-datarepo doctor                                                   # can this machine ingest?
-datarepo manifest  /path/to/instance/manifest.yaml                # what does it offer?
-datarepo ingest    /path/to/instance/manifest.yaml PXD036557 -v   # build the bundle
-datarepo inspect   /path/to/store/PXD036557/<bundle-id>           # what did it build?
-
-# Deliver a study layer's model results (age effects, sample ages) as a study bundle
-datarepo study     /path/to/stage7/study.yaml                     # write the delivery
-datarepo inspect   /path/to/store/_study/aging/<bundle-id>        # what did it write?
-
-# Build the query catalog over every bundle, then ask it something
-datarepo build     /path/to/instance/manifest.yaml                # one DuckDB file
-datarepo build     /path/to/instance/manifest.yaml --study aging=<bundle-id>
-datarepo catalog   /path/to/instance/catalog.duckdb               # what went into it?
-datarepo query     /path/to/instance/catalog.duckdb "SELECT * FROM dataset_overview"
-
-# Serve that catalog to an agent (needs `pip install 'datarepo[mcp]'`)
-datarepo mcp --catalog /path/to/instance/catalog.duckdb --install   # register with Claude Code
-datarepo mcp --catalog /path/to/instance/catalog.duckdb --check     # open it, without serving
-
-# Lint the schemas
-linkml-lint --config .linkmllint.yaml schema/datarepo.yaml
-linkml-lint --config .linkmllint.yaml schema/study/aging.yaml
-
-# Validate a bundle (YAML or JSON) against the core schema
-linkml-validate -s schema/datarepo.yaml -C Bundle examples/minimal_bundle.yaml
-
-# Regenerate the generated files after changing a schema (CI rejects stale ones)
-python tools/build_docs.py
-python tools/build_tables.py
-
-# Tests. Those that parse .psmtsv skip when pyMzLib is not installed (`pip install mzlib`).
-pytest -q -rs
-```
-
-Full references: **[docs/ingest.md](docs/ingest.md)**, **[docs/study.md](docs/study.md)**,
-**[docs/build.md](docs/build.md)**, **[docs/mcp.md](docs/mcp.md)**.
-
-LinkML also generates JSON Schema, Pydantic models and SQL DDL from the same file, e.g.
-`gen-json-schema schema/datarepo.yaml` or `gen-pydantic schema/datarepo.yaml`.
-
-## Who owns what
-
-dataRepo stores and serves. Everything scientific is owned upstream:
+dataRepo **stores and serves**. It never runs a search and never computes science. Every number has
+an owner:
 
 | Content | Owner |
 |---|---|
-| Search, quantification, age statistics, clocks, the discovery census, the benchmark questions | the producing project (aging) |
-| Organelle map, protein annotations, orthologs | `go` |
-| Metric definitions (`DEF-*`) | QuantProject |
-| Sample age normalization | sdrf / mzLib (SdrfAge) |
-| PTM stoichiometry, glycopeptide search, proteoform inference | MetaMorpheus / mzLib |
-| Parsing MetaMorpheus output | pyMzLib typed readers |
+| Searches, age statistics, the organelle category map, the benchmark questions | the producing project (today `aging`) |
+| GO parsing and propagation | `go` |
+| Gene resolution and orthology | `logs` |
+| Quantification metric definitions (`DEF-*`) | QuantProject |
+| SDRF tooling and age normalization | `sdrf` / mzLib |
+| PSM scoring, PEP, PTM stoichiometry | MetaMorpheus / mzLib, and `pep` for PEP's definition |
+| Parsing MetaMorpheus output | pyMzLib |
 
-## How we know the schema is good enough
-
-aging owns a benchmark of **168 questions** that the repository must be able to answer
-([`aging/design/QUESTIONS.md`](https://github.com/trishorts/aging/blob/master/design/QUESTIONS.md)).
-[`design/SCHEMA_COVERAGE.md`](design/SCHEMA_COVERAGE.md) maps every question to the tables that answer it:
-
-| | Answerable at ingest | Schema ready, waiting on a producer | No home yet | Out of scope |
-|---|---|---|---|---|
-| All 168 | 70 | 94 | 2 | 2 |
-
-The agent tools will be scored against the same set, following the pattern used by Open Targets.
+Who does what between these projects is written down in [design/CHARTER.md](design/CHARTER.md).
 
 ## Roadmap
 
-| Step | Deliverable | Status |
-|---|---|---|
-| 0 | Benchmark questions + schema v0 | **Done (draft):** schema validated; 166 of 168 questions have a home |
-| 1 | `datarepo ingest` for aging's first datasets → Parquet | **Done:** 16 tables, USIs, reconciliation against the producer's counts ([docs](docs/ingest.md)) |
-| 1b | `datarepo study` → study bundle for a layer's model results | **Done:** DATAREPO-20(a)'s default, loaded by `build --study` ([docs](docs/study.md)) |
-| 2 | `datarepo build` → DuckDB catalog | **Done:** materialised tables, acceptance views, cross-dataset indexes ([docs](docs/build.md)) |
-| 3 | Local MCP server (stdio) | **Done:** three tools, every answer carrying its `catalog_id`, a measured sandbox ([docs](docs/mcp.md)) |
-| 4a | Static site (Bioschemas, `llms.txt`, Croissant) | **Built:** `datarepo site`, template summaries (D17), publishing is the instance owner's ([docs](docs/site.md)) |
-| 4b | REST API + Docker Compose | Deferred pending N1/G9 and evidence of a human who wants REST (D16) |
-| 5 | Production deployment by the instance owner; v0.1 release with DOI | |
-| 6 | Automatic ingest as the pipeline finishes each dataset | |
+| | Status |
+|---|---|
+| Ingest, study bundles, engine runner, catalog, MCP server, static site, `publish` | **working** |
+| A download that needs no Python, attached to each release (PXReprise PXR-D1) | next |
+| Question-neutral code throughout (PXR-D2) | in progress: provenance, site and MCP done in 0.30.0 |
+| Versioned public releases alongside [PXReprise](https://github.com/smith-chem-wisc/PXReprise) (PXR-D3) | where they live is to be decided |
+| REST API | deferred until a human user asks for REST (D16) |
+| A DOI per data release | the operator's step |
 
-## Reading the IDs in these files
+## Contributing, licence, citation
 
-The docs cross-reference decisions and questions by short IDs:
-
-| Prefix | Meaning | Where |
-|---|---|---|
-| `D1`–`D8` | dataRepo's locked decisions | [`.project/state.yaml`](.project/state.yaml) |
-| `G…`, `U…`, `N…` | open gaps and open questions (with defaults) | [`design/OPEN_QUESTIONS.md`](design/OPEN_QUESTIONS.md) |
-| `A1`–`T10`, `J…` (traps) | benchmark questions | aging `design/QUESTIONS.md` |
-| `R1`–`R16` | schema needs routed to an owner | aging `design/QUESTIONS.md`, "Schema gaps" |
-| `S…` | suspicious findings under investigation | aging `results/SUSPICIOUS.md` |
-| `DATAREPO-n` | requests between dataRepo and aging | [`design/threads/aging/`](design/threads/aging/) |
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md). In short: change the schema YAML, run the three checks above, and
-regenerate the docs. CI rejects stale docs.
-
-## Licence and citation
-
-- **Code and schema:** [MIT](LICENSE).
-- **Data served by an instance:** CC BY 4.0, set by the instance owner.
-- **Citing:** see [CITATION.cff](CITATION.cff). A DOI will be minted with the first release.
+- [CONTRIBUTING.md](CONTRIBUTING.md): change the schema YAML, regenerate, and let CI check the rest.
+- **Code and schema:** [MIT](LICENSE). **Data served by an instance:** licensed by its operator (the
+  aging instance uses CC BY 4.0).
+- **Citing:** [CITATION.cff](CITATION.cff). A DOI comes with the first release.
+- IDs such as `D27`, `G76` or `DATAREPO-61` in the docs refer to decisions, gaps and cross-project
+  questions; [docs/README.md](docs/README.md#conventions-in-these-files) explains each prefix.

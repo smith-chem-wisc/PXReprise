@@ -4,6 +4,42 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [0.30.0] - 2026-09-29
+
+**`datarepo publish`, question-neutral output, and the documentation rebuilt (PXReprise 001:
+PXR-D2, PXR-D4).** `INGESTER_VERSION` 0.20.0 -> **0.21.0**, because four strings written into bundles
+lose their thread citations. Core schema stays **0.0.13** and the aging layer **0.5.0**. aging had not
+started its re-ingest, so **re-ingest on 0.30.0 instead of 0.29.0**: it is the same single re-ingest.
+
+### Added
+- **`datarepo publish <manifest> --site DIR`**: `build` then `site` for an operator with no script of
+  their own (PXR-D4). With no accessions named it loads every `include` dataset that has a bundle and
+  names each one that has none, where `build` refuses. An unchanged catalog is kept, so an unchanged
+  store republishes a byte-identical site. It runs no engine, loads no study delivery unless named
+  (`--study-latest`), and uploads nothing.
+- **`site --purpose TEXT` and `--keyword WORD`** (also on `publish`): the question an instance
+  serves, and extra schema.org keywords. **Without `--purpose` no page claims one.** The generator used
+  to print aging's question ("how organelle proteomes change with age") and the keyword `aging` on
+  every site. aging's publish step should now pass `--purpose "how organelle proteomes change with
+  age" --keyword aging` to keep its pages as they are.
+- **`pxreprise-provenance/1`** is read, with the same field layout as `aging-provenance/3`
+  (PXR-D2). Acceptance is now a table of (schema family, version) -> layout
+  (`sources/provenance.LAYOUTS`). A schema not in it is refused, never read under a guessed layout.
+- **Documentation:** a tested ten-minute tutorial (`docs/getting-started.md`), an operator's guide
+  (`docs/operating.md`), a command reference generated from the parser (`docs/cli.md`,
+  `tools/build_cli_docs.py`, checked by `tests/test_cli_docs.py`), a glossary, and a rewritten README.
+  `tests/test_docs_links.py` checks that every relative link and heading anchor in the docs resolves.
+
+### Changed
+- Finding `source`, the reconciliation label and the reader log no longer carry thread citations
+  (`aging thread 015`, `aging 043`, `aging 006`). The reconciliation label names the definition from
+  `definitions.py` instead of restating it.
+- The MCP `describe` tool's example definition id is `pep:DEF-PEP`, not an aging one.
+
+### Fixed
+- `docs/schema/study-aging.md` linked every core type (`Sample`, `Dataset`, `FeatureType`) to a heading
+  on its own page, which it does not have. They now link to `core.md`. Found by the new link test.
+
 ## [0.29.0] - 2026-09-29
 
 **Curated sample characteristics (aging 078, REQ-DATAREPO-6).** aging study layer 0.4.0 ->

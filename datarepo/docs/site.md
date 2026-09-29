@@ -7,8 +7,12 @@ the instance owner (`aging`) publishes the output, because data-derived files do
 repository (D8).
 
 ```
-datarepo site <catalog.duckdb> --out <dir> [--base-url URL] [--data-url URL] [--title TEXT] [--notice TEXT] [--about FILE]
+datarepo site <catalog.duckdb> --out <dir> [--base-url URL] [--data-url URL] [--title TEXT]
+              [--purpose TEXT] [--keyword WORD]... [--notice TEXT] [--about FILE]
 ```
+
+`datarepo publish` builds the catalog and runs this in one step (see [operating.md](operating.md)).
+Every flag is in [cli.md](cli.md#datarepo-site).
 
 ## What it writes
 
@@ -47,6 +51,12 @@ HTML in it is shown as text.
 spectra searched, PSMs at 1% FDR, proteins identified (decoys and contaminants excluded) and PTM
 sites. Each tile says what it counts. A figure some datasets don't report says how many did,
 instead of passing off a partial sum as a total.
+
+**`--purpose TEXT`** states the question the instance serves, as the end of "for questions about
+...", for example `--purpose "how organelle proteomes change with age"`. It appears in the tagline,
+the front page's overview, `llms.txt` and the catalog's structured data. Without it no page claims a
+purpose: the generator used to write aging's question onto every site, whoever ran it (PXR-D2).
+**`--keyword WORD`** (repeatable) adds a schema.org keyword to every dataset page.
 
 **`--notice`** puts a banner at the top of every page and of `llms.txt`, for example that the
 site is a preview and its data will be regenerated.
