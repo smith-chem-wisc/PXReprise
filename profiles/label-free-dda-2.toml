@@ -1,0 +1,60 @@
+# label-free-dda/2: label-free-dda/1's search, with plain UniProt databases that the engine downloads itself, so a new
+# machine needs no database preparation. Every search setting is /1's; only the databases differ: /1 searches the aging
+# project's PTM-annotated copies of the same UniProt reviewed proteomes (aging D59), which exist only where aging built them.
+# Use /2 for any new question; /1 stays aging's, unchanged. Changing a value here makes a NEW version (label-free-dda/3).
+id = "label-free-dda"
+version = 2
+status = "available"
+description = "Label-free DDA, high-resolution HCD with MS2 read in the Orbitrap; MetaMorpheus 1.1.11 Calibrate/GPTMD/Search, FlashLFQ with MBR; UniProt reviewed proteome downloaded by the engine"
+
+[accepts]
+acquisition = ["dda"]
+labelling = ["label_free"]
+# Hybrids MAY read MS2 in the ion trap, so QC checks the files (aging S37: PXD060431). Astral MS2 is not the Orbitrap.
+instrument = ["orbitrap_hcd_only", "orbitrap_hybrid"]
+file_types = [".raw"]
+
+[engine]
+metamorpheus = "1.1.11"
+tasks = ["Calibration", "Gptmd", "Search"]
+gptmd_extra_mods = ["Trypsin Digested\tGG (Ubiquitination Site) on K"]
+spectral_library = true   # per organism, written then updated (aging D33)
+timeout_h = 6
+
+# A UniProt proteome ID: its reviewed (Swiss-Prot) entries, as UniProt xml, are downloaded on first use into
+# <database_dir>/uniprot/ and reused from then on. The cached copy's date and SHA-256 go into every search's provenance.
+[databases.human]
+uniprot = "UP000005640"
+taxon = 9606
+
+[databases.mouse]
+uniprot = "UP000000589"
+taxon = 10090
+
+[databases.rat]
+uniprot = "UP000002494"
+taxon = 10116
+
+[contaminants]
+panel = "MetaMorpheusContaminants.xml"
+# The human spike-in standard removed (aging D54, S58): it is not a contaminant, and it hid native proteins.
+exclude = "contaminant_panel_exclude_v1.tsv"
+
+[quant]
+method = "flashlfq"
+mbr = true
+
+[deposit]
+whole = true              # every raw file or none (aging S43); more than max_files is deferred, never subsampled
+max_files = 60
+probe = "probe_spread"    # median by size plus first and last by name, never the smallest (aging G38)
+max_est_ms2 = 1_500_000   # aging D58: larger searches wait on MetaMorpheus's FDR-engine fix
+max_file_mb = 5000
+defer_if_median_file_mb = 2200   # EBI drops very large transfers and a retry re-pays from zero (aging S40)
+
+[qc]
+ms2_analyzer = "orbitrap"
+min_fraction_orbitrap_hcd = 0.9
+min_ms2 = 5000
+excludable = ["too_few_ms2"]   # a blank or failed injection may be excluded with a record (aging D52)
+max_excluded_frac = 0.10

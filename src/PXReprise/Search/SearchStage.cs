@@ -46,8 +46,7 @@ public static class SearchStage
             throw new UsageException($"{p.Key} has no database for '{r.Organism}' (has: {string.Join(", ", p.Databases.Keys)})");
         Directory.CreateDirectory(outDir);
 
-        string proteome = Path.Combine(m.DatabaseDir, db.Proteome);
-        if (!File.Exists(proteome)) throw new UsageException($"prepared database {proteome} missing");
+        var (proteome, retrieval) = await ProteomeCache.ResolveAsync(db, m.DatabaseDir, ct).ConfigureAwait(false);
         var extras = db.Extra.Concat(r.ExtraDatabases).Select(x => Path.IsPathRooted(x) ? x : Path.Combine(m.DatabaseDir, x)).ToList();
         foreach (string x in extras.Where(x => !File.Exists(x))) throw new UsageException($"extra database {x} missing");
 
@@ -93,6 +92,7 @@ public static class SearchStage
         if (File.Exists(fetchProv)) upstream.Add(fetchProv);
         prov.Upstream(upstream.ToArray());
         prov.Note($"profile {p.Key}, organism {r.Organism}; searched by PXReprise");
+        if (retrieval is not null) prov.Set("database_retrieval", retrieval.DeepClone());
 
         // 1. the pinned engine's defaults, then only the profile's settings changed
         var (release, genCmd) = runner.GenerateDefaults(tasksDir);

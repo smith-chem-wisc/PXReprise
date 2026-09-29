@@ -66,6 +66,38 @@ public class CensusTests
     }
 
     [Test]
+    public async Task TheCensusWritesTheBatchQueueAndInstallsItOnlyWhenAsked()
+    {
+        var (s, q, outDir) = Setup();
+        File.AppendAllText(q, "\n[batch]\nrun_root = \"runs\"\nstate_dir = \"batch\"\nqueue = \"batch/queue.json\"\n");
+        string installed = Path.Combine(Path.GetDirectoryName(q)!, "batch", "queue.json");
+
+        var (exit, data) = await Run(s, "census", q, "--profiles", TestSupport.ProfilesDir, "--out", outDir);
+        Assert.That(exit, Is.EqualTo(0));
+        Assert.That(File.Exists(installed), Is.False, "without --queue the census only writes its own copy");
+        var queue = JsonDocument.Parse(File.ReadAllText(Path.Combine(outDir, "queue.json"))).RootElement;
+        Assert.That(queue.EnumerateArray().Select(e => (e.GetProperty("accession").GetString(), e.GetProperty("organism").GetString())),
+            Is.EqualTo(new[] { ("PXD000100", "human"), ("PXD000104", "human") }));
+        Assert.That(data.GetProperty("queued").GetInt32(), Is.EqualTo(2));
+
+        (exit, data) = await Run(s, "census", q, "--profiles", TestSupport.ProfilesDir, "--out", outDir + "2", "--queue");
+        Assert.That((exit, data.GetProperty("queue_installed").GetString()), Is.EqualTo((0, installed)));
+        var batchQueue = PXReprise.Batch.BatchRunner.LoadQueue(installed);   // the batch reads what the census wrote
+        Assert.That(batchQueue.Select(e => e.Organism), Is.EqualTo(new[] { "human", "human" }));
+
+        (exit, data) = await Run(s, "census", q, "--profiles", TestSupport.ProfilesDir, "--out", outDir + "3", "--queue");
+        Assert.That(exit, Is.EqualTo(Envelope.ExitUsage), "an existing queue belongs to a batch and is never overwritten");
+    }
+
+    [TestCase("Homo sapiens (human)", "human", true)]
+    [TestCase("Mus musculus (mouse)", "mouse", true)]
+    [TestCase("Homo sapiens (human)", "homo_sapiens", true)]
+    [TestCase("Mus musculus (mouse)", "human", false)]
+    [TestCase("Rattus norvegicus (rat)", "ra", false)]
+    public void APrideOrganismMatchesAProfileDatabaseKey(string pride, string key, bool match) =>
+        Assert.That(CensusRunner.OrganismMatches(pride, key), Is.EqualTo(match));
+
+    [Test]
     public async Task AnUnavailableKeywordIsReportedNotSilentlyDropped()
     {
         var (s, q, outDir) = Setup();

@@ -25,8 +25,12 @@ public sealed record ProfileAccepts(
     internal static string Name<T>(T value) where T : struct, Enum => ProfileLoader.Snake(value.ToString());
 }
 
-/// <summary>An organism's search database. <see cref="Taxon"/> is the NCBI taxon the repository records for it.</summary>
-public sealed record OrganismDatabase(string Proteome, IReadOnlyList<string> Extra, int? Taxon = null);
+/// <summary>
+/// An organism's search database: EITHER a prepared file under the machine's database_dir (<see cref="Proteome"/>), OR a
+/// UniProt proteome ID (<see cref="UniProt"/>) whose reviewed entries the engine downloads once and caches, so a new
+/// machine needs no database preparation. <see cref="Taxon"/> is the NCBI taxon the repository records for it.
+/// </summary>
+public sealed record OrganismDatabase(string? Proteome, IReadOnlyList<string> Extra, int? Taxon = null, string? UniProt = null);
 
 /// <summary>
 /// Which deposits a profile takes whole, and which it defers. Deferral is never subsampling: choosing runs of an

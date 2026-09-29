@@ -10,7 +10,7 @@ public class ConfigTests
     public void ShippedProfilesLoadWithTheAgingV1Settings()
     {
         var profiles = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
-        Assert.That(profiles.Keys, Is.EquivalentTo(new[] { "label-free-dda@1", "tmt-dda@1" }));
+        Assert.That(profiles.Keys, Is.EquivalentTo(new[] { "label-free-dda@1", "label-free-dda@2", "tmt-dda@1" }));
 
         var lf = profiles["label-free-dda@1"];
         Assert.Multiple(() =>
@@ -29,6 +29,41 @@ public class ConfigTests
             Assert.That(lf.Accepts.Instruments, Does.Not.Contain(InstrumentClass.Astral));
         });
         Assert.That(profiles["tmt-dda@1"].Status, Is.EqualTo(ProfileStatus.Pending));
+    }
+
+    [Test]
+    public void TheGenericProfileIsV1WithUniProtDatabases()
+    {
+        var profiles = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
+        var (v1, v2) = (profiles["label-free-dda@1"], profiles["label-free-dda@2"]);
+        Assert.Multiple(() =>
+        {
+            Assert.That(v2.Databases["human"].UniProt, Is.EqualTo("UP000005640"));
+            Assert.That(v2.Databases.Values.All(d => d.Proteome is null), Is.True);
+            // Everything but the databases is /1's, so the two versions' results stay comparable.
+            Assert.That(SameSearch(v1, v2), Is.True);
+        });
+    }
+
+    private static bool SameSearch(Profile a, Profile b) =>
+        a.MetaMorpheus == b.MetaMorpheus && a.Tasks.SequenceEqual(b.Tasks) && a.GptmdExtraMods.SequenceEqual(b.GptmdExtraMods)
+        && a.SpectralLibrary == b.SpectralLibrary && a.TimeoutHours == b.TimeoutHours && a.ContaminantPanel == b.ContaminantPanel
+        && a.ContaminantExclude == b.ContaminantExclude && a.QuantMethod == b.QuantMethod && a.MatchBetweenRuns == b.MatchBetweenRuns
+        && a.Deposit == b.Deposit && a.Qc.Ms2Analyzer == b.Qc.Ms2Analyzer && a.Qc.MinMs2 == b.Qc.MinMs2
+        && a.Qc.MinFractionOrbitrapHcd == b.Qc.MinFractionOrbitrapHcd && a.Qc.Excludable.SequenceEqual(b.Qc.Excludable)
+        && a.Qc.MaxExcludedFraction == b.Qc.MaxExcludedFraction && a.Accepts.Modes.SequenceEqual(b.Accepts.Modes)
+        && a.Accepts.Labellings.SequenceEqual(b.Accepts.Labellings) && a.Accepts.Instruments.SequenceEqual(b.Accepts.Instruments);
+
+    [TestCase("proteome = \"a.xml\"\nuniprot = \"UP000005640\"", "exactly one of")]
+    [TestCase("taxon = 9606", "exactly one of")]
+    [TestCase("uniprot = \"human\"", "UniProt proteome ID")]
+    public void AnOrganismDatabaseNamesExactlyOneValidSource(string table, string expected)
+    {
+        string text = File.ReadAllText(Path.Combine(TestSupport.ProfilesDir, "label-free-dda-2.toml")).ReplaceLineEndings("\n")
+            .Replace("uniprot = \"UP000005640\"\ntaxon = 9606", table);
+        string dir = TestSupport.TempDir();
+        var e = Assert.Throws<ConfigException>(() => ProfileLoader.Load(TestSupport.WriteFile(dir, "p.toml", text)));
+        Assert.That(e!.Message, Does.Contain(expected));
     }
 
     [Test]

@@ -25,7 +25,10 @@ public sealed record CensusSummary(
     IReadOnlyDictionary<string, int> InScopeInstrument,
     IReadOnlyDictionary<string, int> InScopeLabelling,
     IReadOnlyList<string> FailedKeywords,
-    string OutputDirectory);
+    string OutputDirectory,
+    int Queued = 0,
+    IReadOnlyDictionary<string, int>? NotQueuedNoDatabase = null,
+    string? QueueInstalled = null);
 
 /// <summary>
 /// Discovery and routing only, with no downloads: which deposits a question would take, which profile would search
@@ -79,6 +82,10 @@ public sealed class CensusRunner(IProjectSearch search)
         string tsv = Path.Combine(outDir, "census.tsv");
         WriteTsv(tsv, rows);
         record.Output(tsv);
+        var (queue, noDatabase) = Queue(rows, profiles);
+        string queueFile = Path.Combine(outDir, "queue.json");
+        File.WriteAllText(queueFile, queue.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }), new UTF8Encoding(false));
+        record.Output(queueFile);
 
         var inScope = rows.Where(x => x.Relevance.IsIn).ToList();
         var summary = new CensusSummary(
@@ -89,8 +96,40 @@ public sealed class CensusRunner(IProjectSearch search)
             Count(rows.Where(x => x.Route.Kind == RouteKind.WaitingOnCapability), x => x.Route.Profile ?? x.Route.Reason),
             Count(inScope, x => Snake(x.Acquisition.Instrument.ToString())),
             Count(inScope, x => Snake(x.Acquisition.Labelling.ToString())),
-            failed, Path.GetFullPath(outDir));
+            failed, Path.GetFullPath(outDir), queue.Count, noDatabase);
         return (summary, rows);
+    }
+
+    /// <summary>
+    /// The batch's queue: every deposit routed to search, in accession order, with the organism key of the profile
+    /// database it will be searched against. A profile's database keys are PRIDE's common names ("Homo sapiens (human)"
+    /// -> human); a deposit whose organisms have no database in its profile is not queued, and is counted by organism.
+    /// </summary>
+    public static (System.Text.Json.Nodes.JsonArray Queue, IReadOnlyDictionary<string, int> NoDatabase) Queue(
+        IEnumerable<CensusRow> rows, IReadOnlyDictionary<string, Profile> profiles)
+    {
+        var queue = new System.Text.Json.Nodes.JsonArray();
+        var missing = new List<string>();
+        foreach (var x in rows.Where(x => x.Route.Kind == RouteKind.Search))
+        {
+            var keys = profiles[x.Route.Profile!].Databases.Keys;
+            string? organism = x.Record.Organisms.Select(o => keys.FirstOrDefault(k => OrganismMatches(o, k))).FirstOrDefault(k => k is not null);
+            if (organism is null) { missing.Add(x.Record.Organisms.FirstOrDefault() ?? "(none listed)"); continue; }
+            queue.Add(new System.Text.Json.Nodes.JsonObject
+            {
+                ["accession"] = x.Accession, ["title"] = x.Record.Title, ["organism"] = organism,
+                ["profile"] = x.Route.Profile, ["files"] = x.Acquisition.MsFileCount,
+                ["instruments"] = string.Join("; ", x.Record.Instruments),
+            });
+        }
+        return (queue, Count(missing, o => o));
+    }
+
+    /// <summary>"Homo sapiens (human)" matches key "human" (the common name) or "homo_sapiens" / "homo sapiens".</summary>
+    internal static bool OrganismMatches(string prideOrganism, string key)
+    {
+        string o = prideOrganism.ToLowerInvariant(), k = key.ToLowerInvariant().Replace('_', ' ');
+        return o.Contains($"({k})", StringComparison.Ordinal) || o.StartsWith(k + " (", StringComparison.Ordinal) || o == k;
     }
 
     private static IReadOnlyDictionary<string, int> Count<T>(IEnumerable<T> items, Func<T, string> key) =>

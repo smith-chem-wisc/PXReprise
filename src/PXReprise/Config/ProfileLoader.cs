@@ -42,8 +42,13 @@ public static class ProfileLoader
             foreach (string organism in dbTable.Keys.ToList())
             {
                 var o = dbTable.RequiredTable(organism);
-                dbs[organism] = new OrganismDatabase(o.RequiredString("proteome"), o.StringList("extra"),
-                    o.OptionalInteger("taxon") is { } tx ? checked((int)tx) : null);
+                string? proteome = o.OptionalString("proteome"), uniprot = o.OptionalString("uniprot");
+                if ((proteome is null) == (uniprot is null))
+                    throw new ConfigException(file, $"databases.{organism} needs exactly one of 'proteome' (a prepared file) or 'uniprot' (a proteome ID)");
+                if (uniprot is not null && !Regex.IsMatch(uniprot, "^UP[0-9]{9}$"))
+                    throw new ConfigException(file, $"databases.{organism}.uniprot must be a UniProt proteome ID like UP000005640, not '{uniprot}'");
+                dbs[organism] = new OrganismDatabase(proteome, o.StringList("extra"),
+                    o.OptionalInteger("taxon") is { } tx ? checked((int)tx) : null, uniprot);
                 o.RefuseUnknownKeys();
             }
             dbTable.RefuseUnknownKeys();

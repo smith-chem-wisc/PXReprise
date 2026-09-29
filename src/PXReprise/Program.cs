@@ -25,7 +25,7 @@ public static class Program
     {
         try
         {
-            var args = new Arguments(argv);
+            var args = new Arguments(argv, new HashSet<string>(StringComparer.Ordinal) { "queue" });
             if (args.Words.Count == 0) throw new UsageException($"a verb is required: {string.Join(", ", Verbs)}");
             object? data = await Dispatch(args, ct, searchFactory).ConfigureAwait(false);
             return Envelope.Ok(stdout, data);
@@ -74,9 +74,18 @@ public static class Program
             case "census":
             {
                 string file = Positional(args, 1)[0];
-                args.AllowOnly("profiles", "out");
+                // --queue: also install the census's queue.json as the question's batch queue, the input of `batch run`.
+                args.AllowOnly("profiles", "out", "queue");
                 var profiles = ProfileLoader.LoadDirectory(ProfilesDir(args));
                 var q = QuestionLoader.Load(file);
+                string? installQueue = null;
+                if (args.Has("queue"))
+                {
+                    installQueue = (q.Batch ?? throw new ConfigException(q.SourceFile, "--queue needs a [batch] table naming the queue file")).Queue;
+                    // A batch's queue is its running order; replacing it under a batch is the operator's decision, not a census's.
+                    if (File.Exists(installQueue))
+                        throw new UsageException($"{installQueue} already exists; a batch may be using it. Delete or rename it first to replace it.");
+                }
                 string outDir = args.Option("out")
                                 ?? Path.Combine(Path.GetDirectoryName(q.SourceFile)!, "census", DateTime.UtcNow.ToString("yyyy-MM-dd"));
                 var record = new RunRecord("census");
@@ -97,8 +106,14 @@ public static class Program
                     await File.WriteAllTextAsync(summaryFile,
                         System.Text.Json.JsonSerializer.Serialize(summary, Envelope.Json), ct).ConfigureAwait(false);
                     record.Output(summaryFile);
+                    if (installQueue is not null)
+                    {
+                        Directory.CreateDirectory(Path.GetDirectoryName(installQueue)!);
+                        File.Copy(Path.Combine(outDir, "queue.json"), installQueue);
+                        record.Output(installQueue);
+                    }
                     record.Write(outDir);
-                    return summary;
+                    return summary with { QueueInstalled = installQueue };
                 }
                 finally
                 {

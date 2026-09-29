@@ -226,6 +226,12 @@ public sealed class BatchRunner
             Record(acc, ("status", "skipped_organism"));
             return null;
         }
+        // A UniProt database is downloaded (once) before any PRIDE download, so an outage costs nothing and is retried.
+        if (profile.Databases[e.Organism].UniProt is { } up)
+        {
+            try { await Search.ProteomeCache.ResolveAsync(profile.Databases[e.Organism], _m.DatabaseDir, ct).ConfigureAwait(false); }
+            catch (Exception ex) when (Envelope.IsUnavailable(ex)) { Log($"{acc} database: UniProt {up} unavailable ({ex.Message}); retry next pass"); return null; }
+        }
 
         // Size gates BEFORE any download: whole deposits only, never subsampled by file size (S43).
         List<PrideArchiveFileLike> raws;
