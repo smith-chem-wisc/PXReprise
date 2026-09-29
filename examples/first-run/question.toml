@@ -17,3 +17,11 @@ keywords = ["PXD058082"]
 run_root = "work/runs"
 state_dir = "work/state"
 queue = "queue.json"
+
+# The results into a dataRepo repository, then a website: needs `datarepo = "..."` in your machine file (the dataRepo
+# download, no Python). Without it the run stops after the search, as before. The manifest is created on first use;
+# the site lands in work/site (open work/site/index.html). {datarepo} and {manifest_dir} are filled in by the batch.
+[publish]
+manifest = "work/manifest.yaml"
+command = ["{datarepo}", "publish", "{manifest}", "--site", "{manifest_dir}/site",
+           "--title", "PXReprise first run", "--purpose", "Installation check: one public mouse deposit, PXD058082"]

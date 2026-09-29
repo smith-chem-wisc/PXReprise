@@ -97,7 +97,7 @@ Needed for `census --queue` and `batch run`. Relative paths are relative to the 
 |---|---|
 | `[holds]` | Deposits to leave alone for now, with a reason: `PXD012345 = "waiting for the authors' sample key"`. |
 | `[overlays.<organism>]` | `extra_xml = ["file.xml", ...]`: extra protein databases searched alongside the profile's, for this question only. A plain file name is looked up in the machine's `database_dir`; an absolute path is used as is. |
-| `[publish]` | Hooks into a results store. Not needed to run a question. |
+| `[publish]` | Delivery into a [dataRepo](https://github.com/smith-chem-wisc/dataRepo) repository; needs `datarepo` in the machine file. `manifest`: the dataRepo manifest the batch appends each searched deposit to (created on first use). `command`: run after each ingest, e.g. `["{datarepo}", "publish", "{manifest}", "--site", "{manifest_dir}/site"]` to rebuild a website; `{datarepo}`, `{manifest}` and `{manifest_dir}` are filled in, so the question names no machine path. See `examples/first-run`. Not needed to run a question. |
 
 ## Tips
 

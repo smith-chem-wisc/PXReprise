@@ -35,9 +35,12 @@ min_free_gb = 50
 # search_timeout_h = 48
 # search_stall_minutes = 90
 
-# OPTIONAL integrations (Python tools owned by other projects). Leave them out: the pipeline runs without them.
-# datarepo = "C:/path/to/datarepo.exe"     # ingest each result into a dataRepo store
-# qc_python = "C:/path/to/python.exe"      # a Python with qc's qctemplates, to validate and render QC reports
+# RECOMMENDED. dataRepo, the no-Python download (https://github.com/smith-chem-wisc/dataRepo/releases): each searched
+# deposit is ingested into a repository and published as a website. Leave it out and the batch stops after the search.
+# datarepo = "D:/tools/datarepo/datarepo.exe"
+
+# OPTIONAL. A Python with qc's qctemplates, to validate and render QC reports. The pipeline runs without it.
+# qc_python = "C:/path/to/python.exe"
 
 # REQUIRED. MetaMorpheus, by release. Download MetaMorpheus_CommandLine.zip for the release a profile names
 # (1.1.11 for label-free-dda@2) from https://github.com/smith-chem-wisc/MetaMorpheus/releases/tag/1.1.11, unzip it
