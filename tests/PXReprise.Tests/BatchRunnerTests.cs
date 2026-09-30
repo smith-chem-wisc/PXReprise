@@ -144,6 +144,19 @@ public class BatchRunnerTests
             "--site", Path.GetFullPath(Path.Combine("C:", "q", "work")).Replace('\\', '/') + "/site" }));
     }
 
+    [Test]
+    public void AFailedIngestIsNotDeliveredSoTheNextStartRetriesIt()
+    {
+        const string manifest = "manifest_version: 1\ndatasets:\n\n  - accession: PXD075372\n    status: include\n";
+        Assert.That(BatchRunner.Delivered(manifest, "PXD075372", new JsonObject { ["ingest_rc"] = 1 }), Is.False, "the entry is appended before ingest runs");
+        Assert.That(BatchRunner.Delivered(manifest, "PXD075372", new JsonObject { ["ingest_rc"] = 0 }), Is.True);
+        Assert.That(BatchRunner.Delivered(manifest, "PXD075372", new JsonObject()), Is.True, "no ingest_rc: delivered elsewhere, or no datarepo here");
+        Assert.That(BatchRunner.Delivered(manifest, "PXD075372", null), Is.True);
+        Assert.That(BatchRunner.Delivered(manifest.Replace("\n", "\r\n"), "PXD075372", new JsonObject { ["ingest_rc"] = 0 }), Is.True);
+        Assert.That(BatchRunner.Delivered(manifest, "PXD07537", new JsonObject { ["ingest_rc"] = 0 }), Is.False, "a prefix is not the accession");
+        Assert.That(BatchRunner.Delivered(manifest, "PXD000001", new JsonObject { ["ingest_rc"] = 0 }), Is.False);
+    }
+
     // G7. A deposit whose downloads PRIDE kept dropping is not the deposit's fault: it waits for a later pass, and only
     // settles after fetch_passes of them. The dropped transfer is the type .NET really throws (HttpIOException), not a
     // fake HttpRequestException(503): that fake is how the 09-29 retry defect survived its tests.
