@@ -4,6 +4,32 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [0.32.0] - 2026-09-30
+
+**A run named with a spectra extension inside its stem now ingests (aging 081, REQ-DATAREPO-7), and
+the site's front page gains three figures.** `INGESTER_VERSION` 0.21.0 -> 0.22.0; schema 0.0.13
+unchanged. Stored bundles still build, so **no re-ingest** except for a dataset that failed on this
+defect (aging's PXD075372).
+
+### Fixed
+- **Run names that mzLib's PSM reader mangles.** PRIDE names PXD075372's files `X.raw.thermo.raw`.
+  mzLib's `SpectrumMatchFromTsv` deletes every known spectra extension (`.raw`, `.mzML`, `.mgf`, `.d`,
+  `ms1.msalign`, `ms2.msalign`) ANYWHERE in `File Name`, not only a final one, so the search's
+  `X.raw.thermo-calib` reached us as `X.thermo-calib`, matched no run, and the bundle refused to write.
+  `usi.RunNameMap` now also compares against each deposited name as mzLib would report it
+  (`usi.mzlib_tsv_file_name`), used only when that name is unambiguous: two deposited runs that mzLib
+  reports alike resolve to neither.
+
+### Added
+- **Site, "Unique peptides at 1% FDR"**: distinct peptide sequences at 1% FDR that parsimony assigns
+  to a single protein in every dataset that found them, decoys and contaminants excluded, beside the
+  count of all sequences. Parsimony-unique, not sequence-unique (G76).
+- **Site, "Proteins identified"**: the "in N or more datasets" cutoff is chosen at each build so that
+  count stays nearest `site.SHARED_PROTEINS_TARGET` (10,000). A fixed 3 read 14,442 at 62 datasets and
+  would keep growing; on that catalog N is 5 (9,639).
+- **Site, "PTM sites"**: phosphorylation (UNIMOD:21) and acetylation (UNIMOD:1) sites on target
+  proteins, by accession over `ptm_sites_by_chemistry`, so a residue reached under two names counts once.
+
 ## [0.31.0] - 2026-09-29
 
 **Self-contained executables (D36, PXReprise PXR-D1), built and verified in CI, not yet published.**

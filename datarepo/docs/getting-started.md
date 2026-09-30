@@ -5,8 +5,8 @@ ingested, a catalog built, a public site written, and an agent able to ask it qu
 small example instance that ships in this repository (`tests/data/`), so you need no real data and
 no search run of your own.
 
-Every command and every line of output below was run on this example with datarepo 0.31.0. Long
-paths are shortened to `…`. The ids are content hashes, so on 0.31.0 you should get the same ones;
+Every command and every line of output below was run on this example with datarepo 0.32.0. Long
+paths are shortened to `…`. The ids are content hashes, so on 0.32.0 you should get the same ones;
 on another version they will differ (a later section says why).
 
 **Words used here.**
@@ -52,7 +52,7 @@ datarepo doctor
 `mcp` adds the server that agents talk to. `doctor` checks both:
 
 ```
-datarepo 0.31.0  schema 0.0.13
+datarepo 0.32.0  schema 0.0.13
   pyarrow          25.0.1
   duckdb           1.5.5
   pymzlib          0.2.0
@@ -108,7 +108,7 @@ datarepo ingest manifest.yaml PXD999999
 
 ```
 PXD999999
-  bundle   …/store/PXD999999/3b56a967d6968d39
+  bundle   …/store/PXD999999/aeb10630abbcaf72
   tables   datasets 1, samples 2, sample_characteristics 8, runs 2, assays 2, psms 60, peptidoforms 40,
            protein_groups 5, proteins 62, ptm_sites 36, ptm_stoichiometry 4, quant_values 37,
            definitions 14, provenance_records 3, findings 6, metrics 18, search_modifications_declared 4
@@ -129,7 +129,7 @@ Three things happened:
   with no biology in it, and so on. One is informational. They travel with the data, so nobody
   reads a count without its caveats.
 
-The bundle's name, `3b56a967d6968d39`, is a hash of its input files, the schema version and the
+The bundle's name, `aeb10630abbcaf72`, is a hash of its input files, the schema version and the
 ingester version. Run the command again and it says the bundle is unchanged. Change one byte of
 input and you get a second bundle beside the first, so a result someone cited never changes under
 them.
@@ -156,14 +156,14 @@ datarepo publish manifest.yaml --site site --title "Example repository" --purpos
 
 ```
 catalog  …/example-instance/catalog.duckdb
-  id       a90e1b47c81f28d5
-  dataset  PXD999999    bundle 3b56a967d6968d39
+  id       153cf55067d58441
+  dataset  PXD999999    bundle aeb10630abbcaf72
   note     logs.resolve_genes coverage (databases with an artefact): 0 of 1; no artefact for 89fb8c7a1140 (PXD999999)
   tables   assays 2, datasets 1, definitions 14, findings 6, gene_resolutions 0, …
   indexes  22
   checks   57 run, all passed
 site     site
-  catalog  a90e1b47c81f28d5
+  catalog  153cf55067d58441
   wrote    36 files, 1 dataset page
   skipped  croissant.json: no --data-url: a Croissant file describes downloadable files, …
   skipped  robots.txt: no --base-url: both need the site's absolute address
@@ -244,8 +244,8 @@ datarepo mcp --catalog catalog.duckdb --check
 
 ```
 catalog  catalog.duckdb
-  id       a90e1b47c81f28d5
-  built    … by datarepo 0.31.0
+  id       153cf55067d58441
+  built    … by datarepo 0.32.0
   dataset  PXD999999           58 PSMs at 1%
   tools    datarepo_describe, datarepo_search, datarepo_sql
   empty    26 table(s) present with no rows

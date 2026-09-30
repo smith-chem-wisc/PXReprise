@@ -19,9 +19,9 @@ against the search engine's own totals. It then builds **one catalog** from them
 It is built for questions that span datasets, such as *"which mitochondrial proteins decline with age
 in skeletal muscle, in how many datasets, and show me the spectra"*. Agents are the main users.
 
-> **Status: pre-release**, datarepo **0.31.0**, core schema **0.0.13**. `ingest`, `study`, `run`,
+> **Status: pre-release**, datarepo **0.32.0**, core schema **0.0.13**. `ingest`, `study`, `run`,
 > `build`, `publish`, `site`, `query` and the MCP server are working. They run against the
-> [aging project](https://github.com/trishorts/aging)'s corpus of about 40 reanalysed datasets,
+> [aging project](https://github.com/trishorts/aging)'s corpus of about 60 reanalysed datasets,
 > served at [trishorts.github.io/aging-pipeline](https://trishorts.github.io/aging-pipeline/).
 > The schema is not locked yet. Bundles and catalogs are content-addressed, so a change gives new ids
 > and never silently alters data someone has cited.

@@ -28,7 +28,7 @@ datarepo doctor                # says whether this machine can ingest
 `doctor` is the first thing to run on a new machine:
 
 ```
-datarepo 0.31.0
+datarepo 0.32.0
   pyarrow          25.0.1
   duckdb           1.5.5
   pymzlib          0.2.0
