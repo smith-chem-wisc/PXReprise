@@ -56,7 +56,7 @@ profile, or records why not. Writes to `--out` (default: `census/<today>` beside
 
 | File | Contents |
 |---|---|
-| `census.tsv` | One row per deposit: relevance and the text that decided it, route, profile, reason, instrument, files, organisms, title. Opens in Excel. |
+| `census.tsv` | One row per deposit: relevance and the text that decided it, route, profile, reason, instrument, files, organisms, title. Opens in Excel. `organisms` is what PRIDE's search listed, which can be wrong; `organisms_of_record` is what the project record says, and it is what the census acts on. `organism_source` says which one was used: `project`, `search`, or `search_fallback` (PRIDE had no record to give). |
 | `review.md` | **Read this first.** The census made readable: how much each keyword and rule contributed, a sample of relevant deposits and of keyword hits no rule matched, and every exclusion, each quoting the text that decided it. See the [tutorial](tutorial.md). |
 | `summary.json` | The counts: deposits found, relevant, searchable per profile, and what the rest wait on. |
 | `queue.json` | The deposits the batch would search, in order. |
