@@ -7,6 +7,16 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.3.1 (2026-09-30)
+
+**Updating:** MetaMorpheus unchanged (1.1.11). Machine file unchanged. Safe mid-batch: stop the batch, update, run it
+again. On that restart, any deposit whose ingest had failed is ingested again.
+
+- **A failed ingest is retried at the next start.** The batch writes a deposit's manifest entry just before it runs
+  `datarepo ingest`, and it treated "in the manifest" as delivered. So a deposit that dataRepo refused was never
+  ingested again, even after dataRepo was fixed. A deposit now counts as delivered only when its recorded ingest
+  succeeded. When the batch starts again, it re-runs ingest and publish from the finished search, so nothing is
+  downloaded or searched again.
 ## 0.3.0 (2026-09-29)
 
 **Updating:** MetaMorpheus unchanged (1.1.11). Machine file: recommended new line `datarepo` (the dataRepo download);

@@ -498,7 +498,7 @@ public sealed class BatchRunner
             string d = Run(e.Accession);
             bool rawsLeft = Directory.Exists(Path.Combine(d, "02_fetch", "spectra")) && Directory.EnumerateFiles(Path.Combine(d, "02_fetch", "spectra"), "*.raw").Any();
             bool cleaned = File.Exists(Path.Combine(d, "09_cleanup", "provenance.json"));
-            bool delivered = manifest.Contains($"accession: {e.Accession}\n") || manifest.Contains($"accession: {e.Accession}\r");
+            bool delivered = Delivered(manifest, e.Accession, Entry(e.Accession));
             var todo = new List<string>();
             if (rawsLeft && !cleaned) todo.Add("cleanup");
             if (_q.Publish?.Manifest is not null && !delivered) todo.Add("ingest");
@@ -512,6 +512,15 @@ public sealed class BatchRunner
             }
         }
     }
+
+    /// <summary>
+    /// In the manifest AND not refused by ingest. The entry is appended before <c>datarepo ingest</c> runs, so the manifest
+    /// alone says nothing about ingest: PXD075372 (ingest_rc 1, 2026-09-30) looked delivered to every later pass. No
+    /// <c>ingest_rc</c> means ingest never ran here (no datarepo on the machine, or the Python runner delivered it).
+    /// </summary>
+    internal static bool Delivered(string manifestText, string acc, JsonObject? entry) =>
+        (manifestText.Contains($"accession: {acc}\n") || manifestText.Contains($"accession: {acc}\r"))
+        && entry?["ingest_rc"]?.GetValue<int>() is null or 0;
 
     // ------------------------------------------------------------------ delivery
 
