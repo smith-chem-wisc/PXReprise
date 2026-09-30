@@ -261,6 +261,9 @@ public sealed class BatchRunner
         string acc = e.Accession;
         // Screen the LIVE PRIDE record before any download: acquisition, labelling and enrichment are read from every text
         // field (a labelling time course once reached the queue because discovery read only the protocols).
+        // The search index is safe here: the screen never reads its organisms, organism parts or diseases, the fields
+        // PRIDE's index has carried SDRF headers in (pride 001/002), and the organism comes from the queue, which the
+        // census fills from the project record (0.3.2).
         PrideProjectSearchResultLike? rec;
         try
         {
