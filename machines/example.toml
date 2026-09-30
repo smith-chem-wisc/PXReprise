@@ -1,0 +1,50 @@
+# A machine file: where things live on YOUR computer. Copy this to machines/my-machine.toml and edit the paths.
+# Nothing here changes a scientific result; all of it is recorded in each run's provenance.
+# Use ABSOLUTE paths. On Windows, write them with forward slashes: "D:/pxreprise".
+
+# REQUIRED. The work area: downloaded spectra (deleted after each search), search results and caches.
+# Each deposit in progress briefly needs about twice its raw size.
+work_root = "D:/pxreprise"
+
+# REQUIRED to read Thermo .raw files. Thermo's RawFileReader licence must be accepted by YOU, the operator; read it at
+# https://github.com/thermofisherlsms/RawFileReader before setting this to true. Your choice is recorded in provenance.
+accept_thermo_licence = false
+
+# Stop the batch when free space on the work disk falls below this (GB). Default 250.
+min_free_gb = 50
+
+# Threads one MetaMorpheus search may use. Default: every core.
+# max_threads = 16
+
+# Where search databases live; UniProt proteomes named by a profile are downloaded here automatically, once.
+# Default: <work_root>/db
+# database_dir = "D:/pxreprise/db"
+
+# Download retries per file, and files downloaded at once. Defaults 8 and 4.
+# fetch_attempts = 8
+# parallel_downloads = 4
+
+# A deposit whose downloads fail on every retry (PRIDE down for hours) is tried again on a later pass, after a wait,
+# up to fetch_passes passes in all; then it is settled as fetch_failed. Defaults 3 and 30.
+# fetch_passes = 3
+# pass_wait_minutes = 30
+
+# How long one MetaMorpheus search may run. The ceiling is generous because a busy machine makes searches slow, and slow
+# is not broken. A HUNG search is caught separately: it is killed once MetaMorpheus has used no CPU for
+# search_stall_minutes (0 turns that check off). Defaults 48 and 90.
+# search_timeout_h = 48
+# search_stall_minutes = 90
+
+# RECOMMENDED. dataRepo, the no-Python download (https://github.com/smith-chem-wisc/dataRepo/releases): each searched
+# deposit is ingested into a repository and published as a website. Leave it out and the batch stops after the search.
+# datarepo = "D:/tools/datarepo/datarepo.exe"
+
+# OPTIONAL. A Python with qc's qctemplates, to validate and render QC reports. The pipeline runs without it.
+# qc_python = "C:/path/to/python.exe"
+
+# REQUIRED. MetaMorpheus, by release. Download MetaMorpheus_CommandLine.zip for the release a profile names
+# (1.1.11 for label-free-dda@2) from https://github.com/smith-chem-wisc/MetaMorpheus/releases/tag/1.1.11, unzip it
+# anywhere, and point at CMD.dll (run as `dotnet CMD.dll`, any OS) or, on Windows, CMD.exe.
+# This table must come LAST in the file.
+[metamorpheus]
+"1.1.11" = "D:/tools/MetaMorpheus-1.1.11/CMD.dll"

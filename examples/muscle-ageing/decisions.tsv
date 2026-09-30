@@ -1,0 +1,10 @@
+accession	verdict	reason
+# Liver studies that mention sarcopenia only as a consequence: no muscle was measured.
+PXD013478	exclude	liver gluconeogenesis (LKB1); sarcopenia named only as a downstream consequence
+PXD019755	exclude	liver gluconeogenesis (Lkb1); sarcopenia named only as a downstream consequence
+PXD019757	exclude	liver gluconeogenesis (Lkb1); sarcopenia named only as a downstream consequence
+PXD047574	exclude	liver tissue of PolgA mutator mice; no muscle samples
+# Muscle loss from cancer, not from age.
+PXD036752	exclude	pancreatic cancer cachexia model, not ageing
+# Excluded by the heart rule, but PRIDE lists skeletal muscle among the eight organs measured in aged mice.
+PXD030350	include	multi-organ ageing study (young-plasma vesicles in aged mice); skeletal muscle is one of the eight organs measured

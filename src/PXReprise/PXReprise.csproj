@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>pxreprise</AssemblyName>
+    <RootNamespace>PXReprise</RootNamespace>
+    <Version>0.3.2</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The same pin as MetaMorpheus 1.1.11: two mzLib versions cannot share a process, and the searches this engine
+         drives were made with it (DESIGN.md section 4, decision D3). -->
+    <PackageReference Include="mzLib" Version="1.0.592" />
+    <PackageReference Include="Tomlyn" Version="2.10.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PXReprise.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The profiles ship beside the executable: `pxreprise` reads them from there unless the profiles option says otherwise. -->
+    <None Include="..\..\profiles\*.toml" Link="profiles\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\profiles\lists\*" Link="profiles\lists\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
