@@ -93,7 +93,7 @@ public static class CensusReview
         if (otherOrganism.Count > 0)
         {
             sb.Append("\n## Other organisms\n\nRelevant by the rules, but not in `[discover] organisms`:\n\n| organism | deposits |\n|---|---:|\n");
-            foreach (var g in otherOrganism.GroupBy(x => string.Join("; ", x.Record.Organisms)).OrderByDescending(g => g.Count()))
+            foreach (var g in otherOrganism.GroupBy(x => string.Join("; ", x.Organisms)).OrderByDescending(g => g.Count()))
                 sb.Append($"| {Cell(g.Key)} | {g.Count()} |\n");
         }
         sb.Append("\nEvery deposit, with every column, is in `census.tsv`.\n");
@@ -112,7 +112,7 @@ public static class CensusReview
         sb.Append(withEvidence ? "| accession | title | organisms | decided by |\n|---|---|---|---|\n" : "| accession | title | organisms | keywords |\n|---|---|---|---|\n");
         foreach (var x in rows)
             sb.Append($"| [{x.Accession}](https://www.ebi.ac.uk/pride/archive/projects/{x.Accession}) | {Cell(Trim(x.Record.Title, 110))} | " +
-                      $"{Cell(string.Join("; ", x.Record.Organisms.Select(o => Regex.Replace(o, @"\s*\(.*\)$", ""))))} | " +
+                      $"{Cell(string.Join("; ", x.Organisms.Select(o => Regex.Replace(o, @"\s*\(.*\)$", ""))))} | " +
                       $"{Cell(withEvidence ? "..." + Trim(x.Relevance.Evidence ?? "", 90) + "..." : string.Join("; ", x.KeywordsHit))} |\n");
     }
 

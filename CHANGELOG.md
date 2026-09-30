@@ -7,6 +7,21 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.3.2 (2026-09-30)
+
+**Updating:** MetaMorpheus unchanged (1.1.11). Machine file unchanged. Safe mid-batch: yes. Only `census` changes;
+a running batch reads the queue it already has.
+
+- **The census takes organisms from PRIDE's project record, not its search index.** PRIDE's search index sometimes
+  stores SDRF column headers as metadata terms. For example, `Characteristics[organism]` appears as an organism, and in
+  one deposit it was the first organism listed. For every relevant deposit, the census now reads the project record.
+  It uses that record's organisms both for the `[discover] organisms` filter and to choose the queue's database.
+  The search index is still used to find deposits.
+- `census.tsv` gains `organisms_of_record` and `organism_source` (`project`, `search`, or `search_fallback`), and
+  `queue.json` entries gain `organism_source`. If PRIDE cannot serve a record, the deposit is kept. It uses the search
+  index's organisms with the SDRF headers removed, and it is marked `search_fallback`.
+- A census now fetches one project record per relevant deposit, so it takes longer.
+
 ## 0.3.1 (2026-09-30)
 
 **Updating:** MetaMorpheus unchanged (1.1.11). Machine file unchanged. Safe mid-batch: stop the batch, update, run it

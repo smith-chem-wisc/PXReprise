@@ -109,6 +109,80 @@ public class CensusTests
         });
     }
 
+    [Test]
+    public async Task OrganismsTheCensusActsOnComeFromTheProjectRecordNotTheSearchIndex()
+    {
+        // PXD043476 (pride 001) and PXD068369: the search index carried SDRF headers as organisms, even FIRST.
+        var (s, q, outDir) = Setup();
+        s.Results["type 2 diabetes"][0] = TestSupport.Record("PXD000100", "Type 2 diabetes muscle",
+            organisms: new[] { "Characteristics[age]", "Homo sapiens (human)" });
+        s.Results["insulin resistance"][0] = s.Results["type 2 diabetes"][0];
+        s.Projects["PXD000100"] = FakeSearch.Project("PXD000100", "Homo sapiens (human)");
+        // The search says human; the record says mouse. The record wins: not in [discover] organisms.
+        s.Projects["PXD000104"] = FakeSearch.Project("PXD000104", "Mus musculus (mouse)");
+
+        var (exit, data) = await Run(s, "census", q, "--profiles", TestSupport.ProfilesDir, "--out", outDir);
+
+        Assert.That(exit, Is.EqualTo(0));
+        var queue = JsonDocument.Parse(File.ReadAllText(Path.Combine(outDir, "queue.json"))).RootElement;
+        Assert.That(queue.EnumerateArray().Select(e => (e.GetProperty("accession").GetString(), e.GetProperty("organism").GetString(),
+                e.GetProperty("organism_source").GetString())),
+            Is.EqualTo(new[] { ("PXD000100", "human", "project") }));
+        var tsv = File.ReadAllLines(Path.Combine(outDir, "census.tsv"));
+        var header = tsv[0].Split('	');
+        string[] Row(string acc) => tsv.Single(l => l.StartsWith(acc)).Split('	');
+        string Col(string acc, string col) => Row(acc)[Array.IndexOf(header, col)];
+        Assert.Multiple(() =>
+        {
+            Assert.That(Col("PXD000100", "organisms"), Is.EqualTo("Characteristics[age];Homo sapiens (human)"), "the search snapshot is kept as found");
+            Assert.That(Col("PXD000100", "organisms_of_record"), Is.EqualTo("Homo sapiens (human)"));
+            Assert.That(Col("PXD000104", "relevance"), Is.EqualTo("not_relevant"));
+            Assert.That(Col("PXD000104", "organism_source"), Is.EqualTo("project"));
+            Assert.That(Col("PXD000105", "organism_source"), Is.EqualTo("search"), "an out-of-scope deposit costs no record fetch");
+        });
+        Assert.That(s.ProjectCalls, Does.Not.Contain("PXD000105"));
+        Assert.That(s.ProjectCalls, Is.Unique);
+    }
+
+    [Test]
+    public async Task AnUnavailableProjectRecordFallsBackToTheCleanedSearchIndexAndSaysSo()
+    {
+        var (s, q, outDir) = Setup();
+        s.Results["insulin resistance"][1] = TestSupport.Record("PXD000104", "Insulin resistance in adipose",
+            organisms: new[] { "Characteristics[cell type]", "Homo sapiens (human)" });
+        // .NET's real shape for an outage after mzLib's status check: an HttpRequestException carrying the status.
+        s.ProjectFailures["PXD000104"] = new HttpRequestException("PRIDE failed with status 503", null, HttpStatusCode.ServiceUnavailable);
+
+        var (exit, data) = await Run(s, "census", q, "--profiles", TestSupport.ProfilesDir, "--out", outDir);
+
+        Assert.That(exit, Is.EqualTo(0));
+        var queue = JsonDocument.Parse(File.ReadAllText(Path.Combine(outDir, "queue.json"))).RootElement;
+        Assert.That(queue.EnumerateArray().Select(e => (e.GetProperty("accession").GetString(), e.GetProperty("organism_source").GetString())),
+            Is.EqualTo(new[] { ("PXD000100", "search_fallback"), ("PXD000104", "search_fallback") }), "never dropped");
+        Assert.That(File.ReadAllLines(Path.Combine(outDir, "census.tsv")).Single(l => l.StartsWith("PXD000104")),
+            Does.EndWith("	Homo sapiens (human)	search_fallback"), "SDRF headers are removed from the fallback");
+        Assert.That(data.GetProperty("organism_sources").GetProperty("search_fallback").GetInt32(), Is.EqualTo(5));   // every relevant deposit: 100-104; this fake has no records
+        Assert.That(File.ReadAllText(Path.Combine(outDir, "provenance.json")), Does.Contain("PXD000104 organisms from the search index (project record unavailable"));
+    }
+
+    [Test]
+    public async Task ABrokenProjectRecordFailsTheCensus()
+    {
+        var (s, q, outDir) = Setup();
+        s.ProjectFailures["PXD000100"] = new MzLibUtil.MzLibException("PRIDE answered with an empty project");
+        var (exit, data) = await Run(s, "census", q, "--profiles", TestSupport.ProfilesDir, "--out", outDir);
+        Assert.That(exit, Is.EqualTo(Envelope.ExitFailure));
+        Assert.That(data.GetProperty("error").GetProperty("type").GetString(), Is.EqualTo("MzLibException"));
+    }
+
+    [TestCase("Characteristics[organism]", true)]
+    [TestCase("comment[technical replicate]", true)]
+    [TestCase("Factor Value[disease]", true)]
+    [TestCase("Homo sapiens (human)", false)]
+    [TestCase("Nt=oxidation", false)]
+    public void SdrfHeadersAreRecognised(string term, bool header) =>
+        Assert.That(CensusRunner.IsSdrfHeader(term), Is.EqualTo(header));
+
     [TestCase("Homo sapiens (human)", "human", true)]
     [TestCase("Mus musculus (mouse)", "mouse", true)]
     [TestCase("Homo sapiens (human)", "homo_sapiens", true)]

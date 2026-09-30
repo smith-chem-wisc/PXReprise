@@ -3,10 +3,16 @@ using UsefulProteomicsDatabases;
 
 namespace PXReprise.Census;
 
-/// <summary>The one PRIDE call the census makes, behind an interface so tests run offline.</summary>
+/// <summary>The PRIDE calls the census makes, behind an interface so tests run offline.</summary>
 public interface IProjectSearch
 {
     Task<List<PrideProjectSearchResult>> SearchAsync(string keyword, CancellationToken ct);
+
+    /// <summary>
+    /// The project record (<c>/projects/{accession}</c>), or null when PRIDE has no such project. The search index's
+    /// metadata fields can disagree with it (PXD043476, pride 001), so values the engine acts on come from here.
+    /// </summary>
+    Task<PrideProject?> TryGetProjectAsync(string accession, CancellationToken ct);
 }
 
 /// <summary>
@@ -18,17 +24,27 @@ public sealed class PrideProjectSearch(PrideArchiveClient client, int attempts =
 {
     private readonly TimeSpan _backoff = backoff ?? TimeSpan.FromSeconds(10);
 
-    public async Task<List<PrideProjectSearchResult>> SearchAsync(string keyword, CancellationToken ct)
+    public Task<List<PrideProjectSearchResult>> SearchAsync(string keyword, CancellationToken ct) =>
+        RetryAsync($"pride search '{keyword}'", () => client.SearchProjectsAsync(keyword, cancellationToken: ct), ct);
+
+    public async Task<PrideProject?> TryGetProjectAsync(string accession, CancellationToken ct)
+    {
+        var (found, project) = await RetryAsync($"pride project {accession}", () => client.TryGetProjectAsync(accession, ct), ct)
+            .ConfigureAwait(false);
+        return found ? project : null;
+    }
+
+    private async Task<T> RetryAsync<T>(string what, Func<Task<T>> call, CancellationToken ct)
     {
         for (int attempt = 1; ; attempt++)
         {
             try
             {
-                return await client.SearchProjectsAsync(keyword, cancellationToken: ct).ConfigureAwait(false);
+                return await call().ConfigureAwait(false);
             }
             catch (Exception e) when (attempt < attempts && Envelope.IsUnavailable(e) && !ct.IsCancellationRequested)
             {
-                Console.Error.WriteLine($"pride search '{keyword}' attempt {attempt} unavailable ({e.Message}); retrying");
+                Console.Error.WriteLine($"{what} attempt {attempt} unavailable ({e.Message}); retrying");
                 await Task.Delay(_backoff * attempt, ct).ConfigureAwait(false);
             }
         }

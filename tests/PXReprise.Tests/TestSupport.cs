@@ -64,6 +64,24 @@ internal sealed class FakeSearch : IProjectSearch
         if (Failures.TryGetValue(keyword, out var e)) throw e;
         return Task.FromResult(Results.TryGetValue(keyword, out var r) ? r : new List<PrideProjectSearchResult>());
     }
+
+    /// <summary>Project records by accession; an accession with none answers "no such project" (PRIDE's 404).</summary>
+    public Dictionary<string, PrideProject> Projects { get; } = new();
+    public Dictionary<string, Exception> ProjectFailures { get; } = new();
+    public List<string> ProjectCalls { get; } = new();
+
+    public Task<PrideProject?> TryGetProjectAsync(string accession, CancellationToken ct)
+    {
+        ProjectCalls.Add(accession);
+        if (ProjectFailures.TryGetValue(accession, out var e)) throw e;
+        return Task.FromResult(Projects.TryGetValue(accession, out var p) ? p : null);
+    }
+
+    public static PrideProject Project(string accession, params string[] organisms) => new()
+    {
+        Accession = accession,
+        Organisms = organisms.Select(o => new MzLibUtil.CvParam { CvLabel = "NEWT", Name = o }).ToList(),
+    };
 }
 
 /// <summary>

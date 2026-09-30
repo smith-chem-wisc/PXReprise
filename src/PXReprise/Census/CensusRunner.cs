@@ -12,7 +12,20 @@ public sealed record CensusRow(
     Acquisition Acquisition,
     Route Route,
     PrideProjectSearchResult Record,
-    IReadOnlyList<string> KeywordsHit);
+    IReadOnlyList<string> KeywordsHit,
+    IReadOnlyList<string> Organisms,
+    string OrganismSource);
+
+/// <summary>Where a row's <see cref="CensusRow.Organisms"/> came from: the census acts on these, so it says which.</summary>
+public static class OrganismSource
+{
+    /// <summary>PRIDE's project record: the source of record (pride G31).</summary>
+    public const string Project = "project";
+    /// <summary>The search index, for a deposit the census does not act on (out of scope): discovery only.</summary>
+    public const string Search = "search";
+    /// <summary>The search index, because the project record could not be had; SDRF column headers removed.</summary>
+    public const string SearchFallback = "search_fallback";
+}
 
 public sealed record CensusSummary(
     string Question,
@@ -28,7 +41,8 @@ public sealed record CensusSummary(
     string OutputDirectory,
     int Queued = 0,
     IReadOnlyDictionary<string, int>? NotQueuedNoDatabase = null,
-    string? QueueInstalled = null);
+    string? QueueInstalled = null,
+    IReadOnlyDictionary<string, int>? OrganismSources = null);
 
 /// <summary>
 /// Discovery and routing only, with no downloads: which deposits a question would take, which profile would search
@@ -71,11 +85,17 @@ public sealed class CensusRunner(IProjectSearch search)
         {
             var acquisition = AcquisitionClassifier.Classify(r);
             var relevance = Relevance.Evaluate(r, q.Relevance);
-            if (relevance.IsIn && q.Organisms.Count > 0 && !r.Organisms.Any(o => q.Organisms.Contains(o))
+            // The search index is for discovery only: its metadata fields can carry SDRF column headers as terms
+            // (PXD043476, pride 001). A deposit the census acts on takes its organisms from the project record,
+            // fetched only for those, so a census stays one search per keyword plus one record per in-scope deposit.
+            var (organisms, source) = relevance.IsIn
+                ? await OrganismsOfRecordAsync(acc, r, record, ct).ConfigureAwait(false)
+                : (r.Organisms, OrganismSource.Search);
+            if (relevance.IsIn && q.Organisms.Count > 0 && !organisms.Any(o => q.Organisms.Contains(o))
                 && relevance.Verdict != RelevanceVerdict.DecidedInclude)
-                relevance = new RelevanceResult(RelevanceVerdict.NotRelevant, "organism: " + string.Join("; ", r.Organisms));
+                relevance = new RelevanceResult(RelevanceVerdict.NotRelevant, "organism: " + string.Join("; ", organisms));
             var route = Router.Assign(acc, acquisition, relevance, q, profiles);
-            rows.Add(new CensusRow(acc, relevance, acquisition, route, r, kws.ToList()));
+            rows.Add(new CensusRow(acc, relevance, acquisition, route, r, kws.ToList(), organisms, source));
         }
 
         Directory.CreateDirectory(outDir);
@@ -99,9 +119,41 @@ public sealed class CensusRunner(IProjectSearch search)
             Count(rows.Where(x => x.Route.Kind == RouteKind.WaitingOnCapability), x => x.Route.Profile ?? x.Route.Reason),
             Count(inScope, x => Snake(x.Acquisition.Instrument.ToString())),
             Count(inScope, x => Snake(x.Acquisition.Labelling.ToString())),
-            failed, Path.GetFullPath(outDir), queue.Count, noDatabase);
+            failed, Path.GetFullPath(outDir), queue.Count, noDatabase,
+            OrganismSources: Count(rows, x => x.OrganismSource));
         return (summary, rows);
     }
+
+    /// <summary>
+    /// The organisms PRIDE's project record gives. When the record cannot be had (PRIDE unavailable after retries, or
+    /// no such project), the deposit is NOT dropped: that would silently shrink the census. It falls back to the search
+    /// index's organisms with SDRF column headers removed, is marked <see cref="OrganismSource.SearchFallback"/> in
+    /// census.tsv, and the reason is noted in the run record. A broken answer (<c>MzLibException</c>) fails the census,
+    /// as it does for a keyword: it is a contract break, not an outage.
+    /// </summary>
+    private async Task<(IReadOnlyList<string> Organisms, string Source)> OrganismsOfRecordAsync(
+        string accession, PrideProjectSearchResult hit, RunRecord record, CancellationToken ct)
+    {
+        string why;
+        try
+        {
+            var project = await search.TryGetProjectAsync(accession, ct).ConfigureAwait(false);
+            var names = project?.Organisms.Select(o => o.Name).Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
+            if (names is { Count: > 0 }) return (names, OrganismSource.Project);
+            why = project is null ? "PRIDE has no project record" : "the project record lists no organism";
+        }
+        catch (Exception e) when (Cli.Envelope.IsUnavailable(e) && !ct.IsCancellationRequested)
+        {
+            why = $"project record unavailable: {e.Message}";
+        }
+        record.Note($"{accession} organisms from the search index ({why})");
+        return (hit.Organisms.Where(o => !IsSdrfHeader(o)).ToList(), OrganismSource.SearchFallback);
+    }
+
+    /// <summary>An SDRF column header, e.g. "Characteristics[organism]" or "Comment[technical replicate]".</summary>
+    internal static bool IsSdrfHeader(string term) =>
+        System.Text.RegularExpressions.Regex.IsMatch(term, @"^\s*(characteristics|comment|factor ?value)\s*\[.*\]\s*$",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
     /// <summary>
     /// The batch's queue: every deposit routed to search, in accession order, with the organism key of the profile
@@ -116,13 +168,13 @@ public sealed class CensusRunner(IProjectSearch search)
         foreach (var x in rows.Where(x => x.Route.Kind == RouteKind.Search))
         {
             var keys = profiles[x.Route.Profile!].Databases.Keys;
-            string? organism = x.Record.Organisms.Select(o => keys.FirstOrDefault(k => OrganismMatches(o, k))).FirstOrDefault(k => k is not null);
-            if (organism is null) { missing.Add(x.Record.Organisms.FirstOrDefault() ?? "(none listed)"); continue; }
+            string? organism = x.Organisms.Select(o => keys.FirstOrDefault(k => OrganismMatches(o, k))).FirstOrDefault(k => k is not null);
+            if (organism is null) { missing.Add(x.Organisms.FirstOrDefault() ?? "(none listed)"); continue; }
             queue.Add(new System.Text.Json.Nodes.JsonObject
             {
                 ["accession"] = x.Accession, ["title"] = x.Record.Title, ["organism"] = organism,
                 ["profile"] = x.Route.Profile, ["files"] = x.Acquisition.MsFileCount,
-                ["instruments"] = string.Join("; ", x.Record.Instruments),
+                ["instruments"] = string.Join("; ", x.Record.Instruments), ["organism_source"] = x.OrganismSource,
             });
         }
         return (queue, Count(missing, o => o));
@@ -146,7 +198,8 @@ public sealed class CensusRunner(IProjectSearch search)
         var sb = new StringBuilder();
         sb.Append(string.Join('\t', "accession", "relevance", "relevance_evidence", "route", "profile", "route_reason",
             "acquisition", "labelling", "instrument_class", "enrichment", "ms_files", "file_types", "organisms",
-            "organism_parts", "diseases", "instruments", "submission_type", "publication_date", "keywords_hit", "title"));
+            "organism_parts", "diseases", "instruments", "submission_type", "publication_date", "keywords_hit", "title",
+            "organisms_of_record", "organism_source"));
         sb.Append('\n');
         foreach (var x in rows)
         {
@@ -160,7 +213,7 @@ public sealed class CensusRunner(IProjectSearch search)
                 string.Join(";", x.Record.OrganismParts), string.Join(";", x.Record.Diseases),
                 string.Join(";", x.Record.Instruments), x.Record.SubmissionType,
                 x.Record.PublicationDate == default ? "" : x.Record.PublicationDate.ToString("yyyy-MM-dd"),
-                string.Join(";", x.KeywordsHit), x.Record.Title,
+                string.Join(";", x.KeywordsHit), x.Record.Title, string.Join(";", x.Organisms), x.OrganismSource,
             }.Select(Clean)));
             sb.Append('\n');
         }
