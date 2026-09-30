@@ -1,9 +1,0 @@
-<Solution>
-  <Folder Name="/src/">
-    <Project Path="src/PXReprise/PXReprise.csproj" />
-  </Folder>
-  <Folder Name="/tests/">
-    <Project Path="tests/FakeMetaMorpheus/FakeMetaMorpheus.csproj" />
-    <Project Path="tests/PXReprise.Tests/PXReprise.Tests.csproj" />
-  </Folder>
-</Solution>
