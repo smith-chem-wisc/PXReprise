@@ -76,6 +76,18 @@ Where an SDRF says where its values came from (sdrf's drafted SDRFs do; deposite
 `sample_characteristics.source` carries it: `default` means nothing established the value, and a
 drafted fraction of 1 may be exactly that (`runs.fraction_source`).
 
+**Reading a per-column source.** In an SDRF's `comment[<characteristic> source]`, `not applicable`
+is not a source: it means the column has no override on that row and the row's
+`comment[characteristics source]` applies (sdrf 026). A row default covers only filled cells, so
+`source = publication` beside `value = not available` does not mean "the paper says not available".
+
+**A drafted SDRF can say `not available` for organism on a mixed-species deposit.** sdrf's drafter
+writes organism only as a term, and only when the PRIDE project record names one organism.
+PXD016662 (a draft sdrf sent us, not yet in the corpus) mixes human (HeLa) and rat
+(Sprague-Dawley), so all 362 of its SDRF rows read `not available`, though the rows carry what
+would settle it. How many deposits this affects is not
+yet measured (sdrf G43).
+
 ## 3 · Several tables are empty
 
 ```
