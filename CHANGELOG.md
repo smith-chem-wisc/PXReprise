@@ -20,16 +20,15 @@ again. Deposits already settled keep their status; the new screens apply to depo
   PRIDE's file list) is already in a searched deposit, the deposit gets the status `excluded_duplicate`, and its state
   entry's `duplicate_of` names the original. A deposit that shares only some files is searched, and the shared files
   are logged. On the aging corpus, the only duplicate among 78 searched deposits is PXD012985, which repeats PXD011740.
-- **Crosslinking (XL-MS) and 18O-labelled deposits are screened out.**
-  - Crosslinking is recognised by names that mean only crosslinking MS (`XL-MS`, `iqPIR`, `DSSO`, `DSBU`, `BS3`,
-    "cross-linking mass spectrometry"). `DSS` and `PIR` count only beside a crosslinking word: DSS also names a colitis
-    model, and PIR a protein database. "Crosslinked" alone never counts, because hydrogels and ChIP samples are
-    crosslinked too.
-  - 18O labelling is recognised by `18O`, `O18`, `16O/18O`, and similar terms.
-  - The new statuses are `waiting_crosslinking` and `waiting_o18_labelling`.
-  - A profile can opt in to crosslinking with `crosslinking = true` under `[accepts]`; none does.
-  - Over the 259 queued aging deposits with a PRIDE record, the new rules flag PXD062841 and PXD028282, the two that
-    were searched by mistake, plus two that other screens had already excluded.
+- **Crosslinking (XL-MS) deposits are screened out** as `waiting_crosslinking`. The screen looks for names that mean
+  only crosslinking MS (`XL-MS`, `iqPIR`, `DSSO`, `DSBU`, `BS3`, "cross-linking mass spectrometry"). `DSS` and `PIR`
+  count only beside a crosslinking word: DSS also names a colitis model, and PIR a protein database. "Crosslinked"
+  alone never counts, because hydrogels and ChIP samples are crosslinked too. A profile can opt in with
+  `crosslinking = true` under `[accepts]`; none does.
+- **18O-labelled deposits are screened out** as `waiting_o18_labelling`, found by `18O`, `O18`, `16O/18O` and similar
+  terms.
+- Over the 259 queued aging deposits with a PRIDE record, the two new screens flag PXD062841 and PXD028282, the two
+  that were searched by mistake, plus two that other screens had already excluded.
 
 ## 0.3.2 (2026-09-30)
 
