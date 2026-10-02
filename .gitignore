@@ -10,6 +10,8 @@
 *.raw
 *.mzML
 *.mzml
+# Small test spectra are committed: CI reads them (the TMT11 snip is MetaMorpheus's own test file, MIT, 0.9 MB).
+!tests/PXReprise.Tests/Fixtures/*.mzML
 *.d/
 *.fasta
 *.msl

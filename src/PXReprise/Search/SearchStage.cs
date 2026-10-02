@@ -63,7 +63,7 @@ public static class SearchStage
         if (failed.Count > 0) throw new SearchSetupException($"QC failed or is missing for {string.Join(", ", failed)}");
 
         // The effective parameters, in the aging pipeline's shape, so provenance's params_file is a real file.
-        var runner = new MetaMorpheusRunner(m.CmdFor(p.MetaMorpheus), m.Dotnet);
+        var runner = new MetaMorpheusRunner(m.CmdFor(p.MetaMorpheus), m.Dotnet, m.DotnetRoot);
         string tasksDir = Path.Combine(outDir, "tasks");
         Directory.CreateDirectory(tasksDir);
         var search = new JsonObject
@@ -95,6 +95,12 @@ public static class SearchStage
         prov.Upstream(upstream.ToArray());
         prov.Note($"profile {p.Key}, organism {r.Organism}; searched by PXReprise");
         if (retrieval is not null) prov.Set("database_retrieval", retrieval.DeepClone());
+        string runtimeRoot = DotnetRuntimes.Root(m.DotnetRoot);
+        prov.Set("dotnet_runtime", new JsonObject
+        {
+            ["root"] = runtimeRoot, ["private"] = m.DotnetRoot is not null,
+            ["netcore_app_versions"] = new JsonArray(DotnetRuntimes.Snapshot(runtimeRoot).Select(v => (JsonNode?)v).ToArray()),
+        });
 
         // 1. the pinned engine's defaults, then only the profile's settings changed
         var (release, genCmd) = runner.GenerateDefaults(tasksDir);

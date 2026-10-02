@@ -15,11 +15,23 @@ public sealed record RunResult(int ExitCode, bool TimedOut, double WallSeconds, 
 /// static and GlobalVariables is process-global, so an in-process host could not isolate two datasets or survive a
 /// crash (oracle 2026-09-27). <c>CMD.dll</c> is framework-dependent: <c>dotnet CMD.dll</c> is the same program as
 /// <c>CMD.exe</c>, on any OS.
+/// <paramref name="dotnetRoot"/> (optional): a private .NET install MetaMorpheus runs on, through <c>DOTNET_ROOT</c>,
+/// so a machine-wide runtime update cannot remove assemblies under a running search (G5, <see cref="DotnetRuntimes"/>).
 /// </summary>
-public sealed class MetaMorpheusRunner(string cmd, string dotnet)
+public sealed class MetaMorpheusRunner(string cmd, string dotnet, string? dotnetRoot = null)
 {
     public IReadOnlyList<string> Launch { get; } =
-        cmd.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? new[] { dotnet, cmd } : new[] { cmd };
+        cmd.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            ? new[] { dotnetRoot is null ? dotnet : DotnetRuntimes.Host(dotnetRoot), cmd }
+            : new[] { cmd };
+
+    /// <summary>Points the apphost (CMD.exe) or the dotnet host at the private runtime, when the machine names one.</summary>
+    private void UseRuntime(ProcessStartInfo psi)
+    {
+        if (dotnetRoot is null) return;
+        psi.Environment["DOTNET_ROOT"] = dotnetRoot;
+        psi.Environment["DOTNET_ROOT_X64"] = dotnetRoot;   // takes precedence over DOTNET_ROOT for an x64 apphost
+    }
 
     /// <summary>
     /// Writes the pinned release's default task files into <paramref name="dir"/> (<c>CMD -g</c>) and returns the
@@ -65,6 +77,7 @@ public sealed class MetaMorpheusRunner(string cmd, string dotnet)
             CreateNoWindow = true,
         };
         foreach (string a in Launch.Skip(1).Concat(args)) psi.ArgumentList.Add(a);
+        UseRuntime(psi);
 
         var marks = new List<TaskMark>();
         var sw = Stopwatch.StartNew();
@@ -140,7 +153,7 @@ public sealed class MetaMorpheusRunner(string cmd, string dotnet)
         return new RunResult(timedOut ? -1 : proc.ExitCode, timedOut, sw.Elapsed.TotalSeconds, cpu, Math.Round(peakRss, 2), marks, timedOut && stalled);
     }
 
-    private static string Capture(IReadOnlyList<string> argv, out int exitCode)
+    private string Capture(IReadOnlyList<string> argv, out int exitCode)
     {
         var psi = new ProcessStartInfo(argv[0])
         {
@@ -148,6 +161,7 @@ public sealed class MetaMorpheusRunner(string cmd, string dotnet)
             UseShellExecute = false, CreateNoWindow = true,
         };
         foreach (string a in argv.Skip(1)) psi.ArgumentList.Add(a);
+        UseRuntime(psi);
         using var p = Process.Start(psi) ?? throw new SearchSetupException($"could not start {argv[0]}");
         p.StandardInput.Close();
         var err = p.StandardError.ReadToEndAsync();

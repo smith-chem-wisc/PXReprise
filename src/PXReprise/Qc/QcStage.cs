@@ -25,11 +25,13 @@ public static class QcStage
         string fetchProv = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(spectraDir))!, "provenance.json");
         if (File.Exists(fetchProv)) prov.Upstream(fetchProv);
 
+        // A profile that does not take isobaric labels refuses files whose spectra carry reporter ions (G4).
+        bool refuseIsobaric = profile.Accepts.Labellings.Count > 0 && !profile.Accepts.Labellings.Contains(Discovery.Labelling.Isobaric);
         var report = new JsonObject();
         foreach (string f in Directory.EnumerateFiles(spectraDir, "*.raw").OrderBy(f => Path.GetFileName(f), StringComparer.Ordinal))
         {
             prov.Command(new[] { "mzLib.MsDataFileReader.GetDataFile", Path.GetFileName(f), "LoadAllStaticData" });
-            var r = SpectraQc.Check(f, profile.Qc);
+            var r = SpectraQc.Check(f, profile.Qc, refuseIsobaric);
             report[Path.GetFileName(f)] = r.FailReasons.Contains(SpectraQc.Unreadable)
                 ? new JsonObject
                 {
@@ -45,6 +47,10 @@ public static class QcStage
                     ["run_minutes"] = r.RunMinutes,
                     ["charge_states"] = Obj(r.ChargeStates!),
                 };
+            // Only when found: such a deposit is never ingested, so dataRepo's qc_report.json shape is unchanged.
+            if (r.Reporters?.Tag is { } tag)
+                report[Path.GetFileName(f)]!["isobaric_reporters"] = new JsonObject
+                    { ["tag"] = tag, ["fraction"] = r.Reporters.Fraction, ["spectra_checked"] = r.Reporters.SpectraChecked };
             if (r.FailReasons.Contains(SpectraQc.Unreadable))
                 prov.Note($"{Path.GetFileName(f)}: unreadable; recorded as a failure and skipped");
             else prov.Input(f);
