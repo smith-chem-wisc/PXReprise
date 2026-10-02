@@ -34,6 +34,22 @@ public class FetchStageTests
         Assert.That(FetchStage.IsTransient(new HttpIOException(HttpRequestError.ResponseEnded)), Is.True);
 
     [Test]
+    public async Task ATlsDisconnectIsTransientAndADiskErrorIsNot()   // PXD032240 lost a 78-minute fetch on 2026-10-02
+    {
+        // The real exception: SslStream over a transport that returns 0 bytes throws the IOException EBI's drop produced.
+        using var ssl = new System.Net.Security.SslStream(new MemoryStream());
+        var eof = Assert.CatchAsync<IOException>(() => ssl.AuthenticateAsClientAsync("example.org"))!;
+        Assert.That(eof.GetType(), Is.EqualTo(typeof(IOException)));
+        Assert.That(eof.Message, Does.Contain("unexpected EOF or 0 bytes from the transport stream"));
+        Assert.That(FetchStage.IsTransient(eof), Is.True);
+
+        // A local disk error is an IOException too, thrown from CoreLib: it must still fail at once.
+        string dir = TestSupport.TempDir();
+        var disk = Assert.Catch<IOException>(() => File.OpenRead(Path.Combine(dir, "missing.raw")))!;
+        Assert.That(FetchStage.IsTransient(disk), Is.False);
+    }
+
+    [Test]
     public async Task ADroppedTransferIsRetriedAndAHardFailureIsNot()
     {
         var pride = new FlakyPride { FailuresBeforeSuccess = 2 };

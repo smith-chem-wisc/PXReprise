@@ -8,19 +8,26 @@ public enum AcquisitionMode { Dda, Dia }
 /// <summary>
 /// <see cref="Mixed"/>: the record names both an isobaric and a metabolic label (e.g. PXD047864, PXD054682). The text
 /// cannot say which the search needs, so no profile takes it and it waits for a hand decision.
+/// <see cref="O18"/>: enzymatic 16O/18O labelling at the C-terminus (PXD028282, aging 017); searched label-free, most
+/// spectra carry a mass shift no label-free profile looks for.
 /// </summary>
-public enum Labelling { LabelFree, Isobaric, Metabolic, Mixed }
+public enum Labelling { LabelFree, Isobaric, Metabolic, O18, Mixed }
 
 public enum InstrumentClass { OrbitrapHcdOnly, OrbitrapHybrid, Astral, Timstof, ThermoLowRes, Sciex, Waters, BrukerOther, Unknown }
 
-/// <summary>What a deposit's acquisition is, as far as its PRIDE record says. Routing reads this; nothing else does.</summary>
+/// <summary>
+/// What a deposit's acquisition is, as far as its PRIDE record says. Routing reads this; nothing else does.
+/// <see cref="Crosslinked"/>: crosslinking MS (XL-MS). Its peptides are linked pairs, which a linear search cannot
+/// identify (PXD062841: calibration failed on 35 of 35 runs, aging 017).
+/// </summary>
 public sealed record Acquisition(
     AcquisitionMode Mode,
     Labelling Labelling,
     InstrumentClass Instrument,
     string Enrichment,
     IReadOnlyDictionary<string, int> MsFiles,
-    string? Evidence)
+    string? Evidence,
+    bool Crosslinked = false)
 {
     public int MsFileCount => MsFiles.Values.Sum();
 }
@@ -47,6 +54,20 @@ public static class AcquisitionClassifier
         "SILAC", "dimethyl label", @"heavy[- ]?(labell?ed )?water", @"\bD2O\b", "deuterium", "deuterated water", @"\b15N\b",
         @"pulsed?[- ]?SILAC", @"metabolic(ally)? label", @"\b13C6\b", "heavy (lysine|arginine)",
     }), Opt);
+
+    // Aging 017 (PXR-A11). PXD028282's keywords say "O18 labelling"; its authors searched "Label 18O (1 or 2) C-term".
+    private static readonly Regex O18 = new(@"\b(16O/)?18O\b|\bO-?18\b|oxygen-18|H2 ?18O", Opt);
+
+    // Aging 017 (PXR-A11). The names that only mean crosslinking MS are enough alone. DSS (also dextran sulfate sodium,
+    // a colitis model) and PIR (also the Protein Information Resource) count only within 80 characters of a crosslinking
+    // word. "Crosslink" alone never counts: hydrogels are crosslinked, and ChIP samples are crosslinked with formaldehyde.
+    private static readonly Regex CrosslinkingMs = new(string.Join("|", new[]
+    {
+        @"\bXL-?MS\b", @"cross-?link(ing|ed)?[- ]mass spectrometry", @"cross-?linking[- ]MS\b", @"\biqPIR\b", @"\bDSSO\b",
+        @"\bDSBU\b", @"\bBS3\b", @"\bcross-?linked peptides\b",
+    }), Opt);
+    private static readonly Regex AmbiguousReagent = new(@"\b(DSS|PIR)\b", Opt);
+    private static readonly Regex CrosslinkingWord = new(@"cross-?link", Opt);
 
     private static readonly Regex Enriched = new(string.Join("|", new[]
     {
@@ -89,24 +110,34 @@ public static class AcquisitionClassifier
         var dia = Dia.Match(text);
         var iso = Isobaric.Match(text);
         var met = Metabolic.Match(text);
-        var labelling = (iso.Success, met.Success) switch
-        {
-            (true, true) => Labelling.Mixed,
-            (true, false) => Labelling.Isobaric,
-            (false, true) => Labelling.Metabolic,
-            _ => Labelling.LabelFree,
-        };
+        var o18 = O18.Match(text);
+        var labels = new[] { (iso, Labelling.Isobaric), (met, Labelling.Metabolic), (o18, Labelling.O18) }.Where(l => l.Item1.Success).ToList();
+        var labelling = labels.Count switch { 0 => Labelling.LabelFree, 1 => labels[0].Item2, _ => Labelling.Mixed };
+        var xl = Crosslink(text);
         string enrichment = Enriched.IsMatch(text)
             ? EnrichmentKinds.FirstOrDefault(k => k.Pattern.IsMatch(text)).Kind ?? "other"
             : "none";
-        var evidence = new[] { dia, iso.Success ? iso : met }.FirstOrDefault(m => m.Success);
+        var evidence = new[] { dia, xl ?? Match.Empty }.Concat(labels.Select(l => l.Item1)).FirstOrDefault(m => m.Success);
         return new Acquisition(
             dia.Success ? AcquisitionMode.Dia : AcquisitionMode.Dda,
             labelling,
             ClassifyInstrument(r.Instruments),
             enrichment,
             CountMsFiles(r.ProjectFileNames),
-            evidence is null ? null : Snippet(text, evidence));
+            evidence is null ? null : Snippet(text, evidence),
+            xl is not null);
+    }
+
+    /// <summary>The text that says the deposit is crosslinking MS, or null.</summary>
+    internal static Match? Crosslink(string text)
+    {
+        var strong = CrosslinkingMs.Match(text);
+        if (strong.Success) return strong;
+        return AmbiguousReagent.Matches(text).FirstOrDefault(m =>
+        {
+            int a = Math.Max(0, m.Index - 80), b = Math.Min(text.Length, m.Index + m.Length + 80);
+            return CrosslinkingWord.IsMatch(text[a..b]);
+        });
     }
 
     public static InstrumentClass ClassifyInstrument(IEnumerable<string> instruments)

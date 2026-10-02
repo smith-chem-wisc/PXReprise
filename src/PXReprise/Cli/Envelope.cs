@@ -69,6 +69,10 @@ public static class Envelope
         // HttpRequestException: mzLib's download lets it through unwrapped. The bridge mapped it to ServiceUnavailable,
         // so aging's fetch.py retried it; missing it here made every truncated download fail its deposit at once.
         HttpIOException => true,
+        // A TLS connection closed under a transfer ("Received an unexpected EOF or 0 bytes from the transport stream") is a
+        // plain IOException thrown by SslStream, not an HttpIOException: PXD032240 lost a 78-minute fetch to one on
+        // 2026-10-02. Keyed on the throwing assembly, so a local disk error (CoreLib) still fails at once.
+        IOException io when io.InnerException is SocketException || io.Source is "System.Net.Security" or "System.Net.Http" or "System.Net.Sockets" => true,
         _ => false,
     };
 

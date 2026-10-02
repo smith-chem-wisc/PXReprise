@@ -7,6 +7,29 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.3.3 (2026-10-02)
+
+**Updating:** MetaMorpheus unchanged (1.1.11). Machine file unchanged. Safe mid-batch: stop the batch, update, run it
+again. Deposits already settled keep their status; the new screens apply to deposits not yet probed.
+
+- **A dropped TLS connection is retried, not fatal.** When EBI closes a connection mid-download, .NET can throw a plain
+  `IOException` ("Received an unexpected EOF or 0 bytes from the transport stream") instead of an `HttpIOException`.
+  The batch treated it as permanent and dropped the deposit after one failure. It is now retried like any other
+  dropped transfer. A local disk error still fails at once.
+- **Duplicate deposits are refused before any download.** If every raw file of a deposit (by name and size, from
+  PRIDE's file list) is already in a searched deposit, the deposit gets the status `excluded_duplicate`, and its state
+  entry's `duplicate_of` names the original. A deposit that shares only some files is searched, and the shared files
+  are logged. On the aging corpus, the only duplicate among 78 searched deposits is PXD012985, which repeats PXD011740.
+- **Crosslinking (XL-MS) deposits are screened out** as `waiting_crosslinking`. The screen looks for names that mean
+  only crosslinking MS (`XL-MS`, `iqPIR`, `DSSO`, `DSBU`, `BS3`, "cross-linking mass spectrometry"). `DSS` and `PIR`
+  count only beside a crosslinking word: DSS also names a colitis model, and PIR a protein database. "Crosslinked"
+  alone never counts, because hydrogels and ChIP samples are crosslinked too. A profile can opt in with
+  `crosslinking = true` under `[accepts]`; none does.
+- **18O-labelled deposits are screened out** as `waiting_o18_labelling`, found by `18O`, `O18`, `16O/18O` and similar
+  terms.
+- Over the 259 queued aging deposits with a PRIDE record, the two new screens flag PXD062841 and PXD028282, the two
+  that were searched by mistake, plus two that other screens had already excluded.
+
 ## 0.3.2 (2026-09-30)
 
 **Updating:** MetaMorpheus unchanged (1.1.11). Machine file unchanged. Safe mid-batch: yes. Only `census` changes;

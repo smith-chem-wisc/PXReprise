@@ -74,6 +74,36 @@ public class BatchRunnerTests
         Assert.That(files.Downloads, Is.Zero);
     }
 
+    // PXR-A9: PXD012985 was PXD011740 deposited again, and was fetched and searched in full before anyone saw it.
+    [Test]
+    public async Task ADepositWhoseRawFilesAreAlreadySearchedIsRefusedBeforeAnyDownload()
+    {
+        var (runner, search, files, dir) = Runner();
+        string searched = Path.Combine(dir, "runs", "PXD000211");
+        Directory.CreateDirectory(Path.Combine(searched, "02_fetch"));
+        Directory.CreateDirectory(Path.Combine(searched, "04_search"));
+        File.WriteAllText(Path.Combine(searched, "04_search", "provenance.json"), "{}");
+        File.WriteAllText(Path.Combine(searched, "02_fetch", "fetch_manifest.json"), """
+            {"accession":"PXD000211","files":[
+              {"name":"sample1.raw","pride_size_bytes":772102128},{"name":"sample2.raw","pride_size_bytes":783929316},
+              {"name":"sample3.raw","pride_size_bytes":700000000}]}
+            """);
+
+        search.Results["PXD000212"] = new() { TestSupport.Record("PXD000212", "Type 2 diabetes chondrocytes") };
+        files.Listing = new() { new() { FileName = "sample1.raw", FileSizeBytes = 772102128 }, new() { FileName = "sample2.raw", FileSizeBytes = 783929316 } };
+        Assert.That(await runner.ProbeAsync(new QueueEntry("PXD000212", "t", "human"), CancellationToken.None), Is.Null);
+        Assert.That(runner.Settled("PXD000212"), Is.EqualTo("excluded_duplicate"));
+        Assert.That(runner.State()["datasets"]!["PXD000212"]!["duplicate_of"]!.GetValue<string>(), Is.EqualTo("PXD000211"));
+        Assert.That(files.Downloads, Is.Zero);
+
+        // The same name with another size is another file; sharing some files is logged, never refused.
+        search.Results["PXD000213"] = new() { TestSupport.Record("PXD000213", "Type 2 diabetes chondrocytes") };
+        files.Listing = new() { new() { FileName = "sample1.raw", FileSizeBytes = 772102128 }, new() { FileName = "sample2.raw", FileSizeBytes = 1 } };
+        await runner.ProbeAsync(new QueueEntry("PXD000213", "t", "human"), CancellationToken.None);
+        Assert.That(runner.Settled("PXD000213"), Is.Not.EqualTo("excluded_duplicate"));
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain("PXD000213 shares 1 of 2 raw files (name and size) with PXD000211"));
+    }
+
     [Test]
     public void HeldAndPreviouslySettledDepositsAreNotRetried()
     {

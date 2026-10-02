@@ -4,16 +4,21 @@ namespace PXReprise.Config;
 
 public enum ProfileStatus { Available, Pending }
 
-/// <summary>What a profile accepts. An empty list means "any value".</summary>
+/// <summary>
+/// What a profile accepts. An empty list means "any value". <see cref="Crosslinking"/> is opt-in (<c>crosslinking =
+/// true</c>): no profile searches linked peptides, so none takes an XL-MS deposit unless it says so.
+/// </summary>
 public sealed record ProfileAccepts(
     IReadOnlyList<AcquisitionMode> Modes,
     IReadOnlyList<Labelling> Labellings,
     IReadOnlyList<InstrumentClass> Instruments,
-    IReadOnlyList<string> FileTypes)
+    IReadOnlyList<string> FileTypes,
+    bool Crosslinking = false)
 {
     /// <summary>Null when accepted, otherwise the first reason it is not.</summary>
     public string? Refusal(Acquisition a)
     {
+        if (a.Crosslinked && !Crosslinking) return "crosslinking";
         if (Modes.Count > 0 && !Modes.Contains(a.Mode)) return $"acquisition {Name(a.Mode)}";
         if (Labellings.Count > 0 && !Labellings.Contains(a.Labelling)) return $"labelling {Name(a.Labelling)}";
         if (Instruments.Count > 0 && !Instruments.Contains(a.Instrument)) return $"instrument {Name(a.Instrument)}";

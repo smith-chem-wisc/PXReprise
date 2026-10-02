@@ -45,7 +45,8 @@ spend time on them again.
 | `deferred_search_too_large` | Too many spectra for one search under this profile. | yes |
 | `skipped_acquisition`, `skipped_acquisition_full` | The files failed the quality gates (for example, MS2 read in the ion trap), in the probe or the full check. | yes |
 | `skipped_organism` | The profile has no database for this organism. | yes |
-| `waiting_*` | The deposit needs a capability no available profile has, named after the underscore: `waiting_dia`, `waiting_tmt_dda_1`, and so on. | until that profile exists |
+| `excluded_duplicate` | Every raw file (name and size) is in a deposit already searched; the state entry's `duplicate_of` names it. Decided from PRIDE's file list, before any download. | yes |
+| `waiting_*` | The deposit needs a capability no available profile has, named after the underscore: `waiting_dia`, `waiting_tmt_dda_1`, `waiting_crosslinking`, `waiting_o18_labelling`, and so on. | until that profile exists |
 | `fetch_unavailable`, `probe_fetch_unavailable` | PRIDE kept dropping the downloads through every retry. Tried again on a later pass, `fetch_passes` times in all (default 3). | no |
 | `fetch_failed`, `probe_fetch_failed` | The downloads failed on every pass, or failed in a way a retry cannot fix (for example a checksum mismatch). | yes |
 | `search_failed` | MetaMorpheus failed; see `04_search/metamorpheus.log`. | yes |

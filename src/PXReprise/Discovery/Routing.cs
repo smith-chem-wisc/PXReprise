@@ -63,11 +63,13 @@ public static class Router
     /// <summary>What the deposit would need, named by the first thing no allowed profile covers.</summary>
     private static string Capability(Acquisition a, IReadOnlyList<string> refusals)
     {
+        if (a.Crosslinked) return "crosslinking";
         if (a.Mode == AcquisitionMode.Dia) return "dia";
         if (a.Instrument == InstrumentClass.Timstof) return "timstof";
         if (a.Labelling == Labelling.Mixed) return "mixed_labelling: needs a hand decision";
         if (a.Labelling == Labelling.Metabolic) return "metabolic_labelling";
         if (a.Labelling == Labelling.Isobaric) return "isobaric";
+        if (a.Labelling == Labelling.O18) return "o18_labelling";
         return refusals.Count > 0 ? refusals[0] : "no profile allowed";
     }
 }
