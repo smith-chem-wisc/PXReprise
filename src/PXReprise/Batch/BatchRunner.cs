@@ -314,10 +314,22 @@ public sealed class BatchRunner
         }
 
         // Size gates BEFORE any download: whole deposits only, never subsampled by file size (S43).
-        List<PrideArchiveFileLike> raws;
-        try { raws = (await _files.ListFilesAsync(acc, ct).ConfigureAwait(false)).Where(f => f.FileName.EndsWith(".raw", StringComparison.OrdinalIgnoreCase)).Select(f => new PrideArchiveFileLike(f.FileSizeBytes)).ToList(); }
+        List<UsefulProteomicsDatabases.PrideArchiveFile> listing;
+        try { listing = (await _files.ListFilesAsync(acc, ct).ConfigureAwait(false)).Where(f => f.FileName.EndsWith(".raw", StringComparison.OrdinalIgnoreCase)).ToList(); }
         catch (Exception ex) when (FetchStage.IsTransient(ex)) { Log($"{acc} size listing failed ({ex.Message}); retry next pass"); return null; }
-        var sizes = raws.Select(r => r.SizeMb).OrderBy(x => x).ToList();
+
+        // The same raw files already searched under another accession: refused before any download (PXR-A9).
+        var dup = DuplicateScreen.Check(acc, listing.Select(f => (f.FileName, f.FileSizeBytes)).ToList(), DuplicateScreen.Index(DuplicateRoots()));
+        if (dup.DuplicateOf is { } original)
+        {
+            Log($"{acc} SCREENED OUT (excluded_duplicate): all {listing.Count} raw files (name and size) are in {original}, already searched");
+            Record(acc, ("status", "excluded_duplicate"), ("duplicate_of", original));
+            return null;
+        }
+        foreach (var (other, shared) in dup.Partial)
+            Log($"{acc} shares {shared} of {listing.Count} raw files (name and size) with {other}, already searched; not a duplicate, continuing");
+
+        var sizes = listing.Select(f => f.FileSizeBytes / 1e6).OrderBy(x => x).ToList();
         var dep = profile.Deposit;
         var oversize = sizes.Where(s => s > dep.MaxFileMb).ToList();
         if (sizes.Count > dep.MaxFiles || oversize.Count > 0)
@@ -612,7 +624,13 @@ public sealed class BatchRunner
 
     /// <summary>Thin wrappers so the runner's gates read plainly.</summary>
     private sealed record PrideProjectSearchResultLike(UsefulProteomicsDatabases.PrideProjectSearchResult Record);
-    private sealed record PrideArchiveFileLike(long Bytes) { public double SizeMb => Bytes / 1e6; }
+    /// <summary>Where searched deposits live: this run root, the machine's work root, and the question manifest's root.</summary>
+    private IEnumerable<string> DuplicateRoots()
+    {
+        yield return _runRoot;
+        yield return _m.WorkRoot;
+        if (_q.Publish?.Manifest is { } mf && File.Exists(mf) && ManifestEntry.WorkRootOf(mf) is { } wr) yield return wr;
+    }
 
     public static IReadOnlyList<QueueEntry> LoadQueue(string path) =>
         JsonNode.Parse(File.ReadAllText(path))!.AsArray().Select(x => new QueueEntry(

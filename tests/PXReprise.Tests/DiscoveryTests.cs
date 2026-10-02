@@ -32,6 +32,13 @@ public class DiscoveryTests
     [TestCase("", "timsTOF Pro 2", "timstof")]
     [TestCase("SILAC labelled cells", null, "metabolic_labelling")]
     [TestCase("TMT 11-plex with a SILAC spike-in", null, "mixed_labelling: needs a hand decision")]
+    // Aging 017 (PXR-A11): the two deposits the screen let through, in their own PRIDE words.
+    [TestCase("Quantitative cross-linking mass spectrometry and proteomics together with a transgenic mouse", null, "crosslinking")]
+    [TestCase("Mitochondria Mouse Xl-ms Kidney", null, "crosslinking")]
+    [TestCase("isolated mitochondria were crosslinked with the iqPIR reagent", null, "crosslinking")]
+    [TestCase("lysates were cross-linked with DSS before digestion", null, "crosslinking")]
+    [TestCase("analysed by proteomics using 18O labeled internal standard", null, "o18_labelling")]
+    [TestCase("O18 labelling", null, "o18_labelling")]
     public void WhatNoProfileTakesIsNamedByTheCapabilityItNeeds(string text, string? instrument, string capability)
     {
         var r = TestSupport.Record("PXD000012", "Liver in type 2 diabetes", text,
@@ -71,6 +78,20 @@ public class DiscoveryTests
         var r = TestSupport.Record("PXD000016", "Type 2 diabetes heart");
         var route = Router.Assign(r.Accession, AcquisitionClassifier.Classify(r), Relevance.Evaluate(r, q.Relevance), q, Profiles);
         Assert.That(route, Is.EqualTo(new Route(RouteKind.Held, null, "waits for the MetaMorpheus fix")));
+    }
+
+    // The short reagent names have other meanings, and "crosslinked" alone describes hydrogels and ChIP fixation.
+    [TestCase("colitis was induced with 3% DSS in drinking water")]
+    [TestCase("searched against UniProt and PIR")]
+    [TestCase("MSCs grown on soft or stiff crosslinked hydrogels with a PEG crosslinker")]
+    [TestCase("chromatin was crosslinked with formaldehyde")]
+    [TestCase("searched with PEAKS; O-GlcNAc on S/T")]
+    public void WordsThatOnlyResembleCrosslinkingOr18OAreLabelFree(string text)
+    {
+        var r = TestSupport.Record("PXD000013", "Liver in type 2 diabetes", text, instruments: new[] { "Q Exactive HF" }, files: new[] { "a.raw" });
+        var a = AcquisitionClassifier.Classify(r);
+        Assert.That((a.Crosslinked, a.Labelling), Is.EqualTo((false, Labelling.LabelFree)));
+        Assert.That(Router.Assign(r.Accession, a, Relevance.Evaluate(r, Q().Relevance), Q(), Profiles).Kind, Is.EqualTo(RouteKind.Search));
     }
 
     [TestCase("Q Exactive HF", InstrumentClass.OrbitrapHcdOnly)]
