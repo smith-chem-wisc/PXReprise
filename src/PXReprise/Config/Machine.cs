@@ -25,7 +25,8 @@ public sealed record Machine(
     int FetchPasses = 3,
     double PassWaitMinutes = 30,
     double SearchTimeoutHours = 48,
-    double SearchStallMinutes = 90)
+    double SearchStallMinutes = 90,
+    string? DotnetRoot = null)
 {
     public static Machine Load(string file)
     {
@@ -61,13 +62,18 @@ public sealed record Machine(
         // A Python with qc's qctemplates installed: the qc-payload stage runs its validate and render (qc owns them).
         // Optional: without it the payload is still built, with vendored bin edges, and the stage says so.
         string? qcPython = root.OptionalString("qc_python");
+        // A private .NET install for MetaMorpheus (G5): a machine-wide runtime update once removed assemblies under a
+        // running search (aging S66). Optional; without it MetaMorpheus uses the machine's runtime and the batch watches it.
+        string? dotnetRoot = root.OptionalString("dotnet_root");
         root.RefuseUnknownKeys();
+        if (dotnetRoot is not null && !Directory.Exists(Path.Combine(dotnetRoot, "shared", "Microsoft.NETCore.App")))
+            throw new ConfigException(file, $"'dotnet_root' = '{dotnetRoot}' holds no shared\\Microsoft.NETCore.App: copy a .NET install there (dotnet, host, shared)");
         if (threads < 1) throw new ConfigException(file, "'max_threads' must be 1 or more");
         if (passes < 1) throw new ConfigException(file, "'fetch_passes' must be 1 or more");
         if (passWait < 0) throw new ConfigException(file, "'pass_wait_minutes' must not be negative");
         if (searchTimeout <= 0) throw new ConfigException(file, "'search_timeout_h' must be positive");
         if (stall < 0) throw new ConfigException(file, "'search_stall_minutes' must not be negative (0 turns the stall check off)");
-        return new Machine(file, workRoot, dbDir, mm, settings, threads, dotnet, licence, libraries, minFree, datarepo, attempts, parallel, qcPython, passes, passWait, searchTimeout, stall);
+        return new Machine(file, workRoot, dbDir, mm, settings, threads, dotnet, licence, libraries, minFree, datarepo, attempts, parallel, qcPython, passes, passWait, searchTimeout, stall, dotnetRoot);
     }
 
     public string CmdFor(string release) =>

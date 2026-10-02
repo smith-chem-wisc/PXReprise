@@ -7,6 +7,27 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.3.4 (2026-10-02)
+
+**Updating:** MetaMorpheus unchanged (1.1.11). Machine file: new optional `dotnet_root` (a private .NET for
+MetaMorpheus). Safe mid-batch: stop the batch, update, run it again.
+
+- **TMT and iTRAQ are recognised from the spectra.** Some deposits never mention their labels in the text, so the
+  text screen cannot see them (one TMT six-plex was searched as label-free). QC now looks for reporter ions in every
+  MS2 and MS3 spectrum. It uses mzLib's reporter masses for TMT, iTRAQ and DiLeu, matched within 3 mDa. A file
+  counts as labelled when at least a quarter of its spectra carry three or more reporters of one kit. On real data,
+  label-free files show 0 to 0.01% and TMT files 50 to 79%.
+- If every file is labelled, the deposit waits for the isobaric profile (`waiting_tmt_dda_1`), as if the text had said
+  so. If only some files are, it becomes `deferred_mixed_labelling`: searching only the label-free files is a design
+  decision, not one to make automatically. Only a profile that does not take isobaric labels looks for reporters.
+- **A search that fails because .NET changed under it is searched again.** An automatic .NET update replaced the
+  runtime that a running MetaMorpheus was using, and the search failed 2 h 21 m in. The batch now records the
+  installed runtimes before each search. If a search fails and that set has changed, the deposit becomes
+  `search_interrupted` and is searched again on a later pass, at most twice. Every search's provenance records the
+  runtime it used.
+- **Optional `dotnet_root` in the machine file** runs MetaMorpheus on a private copy of .NET that no updater manages,
+  through `DOTNET_ROOT`. `machines/example.toml` says how to make one.
+
 ## 0.3.3 (2026-10-02)
 
 **Updating:** MetaMorpheus unchanged (1.1.11). Machine file unchanged. Safe mid-batch: stop the batch, update, run it

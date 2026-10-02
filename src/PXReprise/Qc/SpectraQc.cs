@@ -17,7 +17,8 @@ public sealed record QcFileResult(
     IReadOnlyDictionary<string, int>? Ms2AnalyzerDissociation,
     double? RunMinutes,
     IReadOnlyDictionary<string, int>? ChargeStates,
-    string? Error = null);
+    string? Error = null,
+    ReporterEvidence? Reporters = null);
 
 /// <summary>
 /// The pre-search gate: keep only high-resolution HCD with MS2 read in the Orbitrap (aging's v1 rule, now the profile's
@@ -30,7 +31,10 @@ public static class SpectraQc
     public const string TooFewMs2 = "too_few_ms2";
     public const string Unreadable = "unreadable";
 
-    public static QcFileResult Check(string path, QcGates gates)
+    /// <summary>The spectra carry isobaric reporter ions, under a profile that does not take isobaric labels (G4).</summary>
+    public const string IsobaricLabelled = "isobaric_reporters";
+
+    public static QcFileResult Check(string path, QcGates gates, bool refuseIsobaric = false)
     {
         List<MsDataScan> scans;
         try
@@ -44,11 +48,11 @@ public static class SpectraQc
             string msg = e.Message.Length > 500 ? e.Message[..500] : e.Message;
             return new QcFileResult(false, new[] { Unreadable }, null, 0, null, null, null, null, msg);
         }
-        return Evaluate(scans, gates);
+        return Evaluate(scans, gates, refuseIsobaric);
     }
 
     /// <summary>The verdict from a file's scans; separated from reading so it can be tested without a raw file.</summary>
-    public static QcFileResult Evaluate(IReadOnlyList<MsDataScan> scans, QcGates gates)
+    public static QcFileResult Evaluate(IReadOnlyList<MsDataScan> scans, QcGates gates, bool refuseIsobaric = false)
     {
         var ms2 = scans.Where(s => s.MsnOrder == 2).ToList();
         var pairs = MostCommon(ms2.Select(s => $"{s.MzAnalyzer}/{(s.DissociationType?.ToString() ?? "None")}"));
@@ -59,8 +63,10 @@ public static class SpectraQc
         if (ms2.Count < gates.MinMs2) reasons.Add(TooFewMs2);
         double runMinutes = scans.Count > 0 ? scans.Max(s => s.RetentionTime) : 0;
         var charges = MostCommon(ms2.Select(s => s.SelectedIonChargeStateGuess?.ToString() ?? "None"), top: 6);
+        var reporters = refuseIsobaric ? IsobaricReporters.Detect(scans) : null;
+        if (reporters?.Tag is not null) reasons.Add(IsobaricLabelled);
         return new QcFileResult(reasons.Count == 0, reasons, scans.Count, ms2.Count, Search.SearchMetrics.PyRound(frac, 4), pairs,
-            Search.SearchMetrics.PyRound(runMinutes, 2), charges);
+            Search.SearchMetrics.PyRound(runMinutes, 2), charges, Reporters: reporters);
     }
 
     /// <summary>Counts by value, most common first; ties keep first-seen order (Python's Counter.most_common).</summary>

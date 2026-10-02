@@ -45,6 +45,8 @@ spend time on them again.
 | `deferred_search_too_large` | Too many spectra for one search under this profile. | yes |
 | `skipped_acquisition`, `skipped_acquisition_full` | The files failed the quality gates (for example, MS2 read in the ion trap), in the probe or the full check. | yes |
 | `skipped_organism` | The profile has no database for this organism. | yes |
+| `deferred_mixed_labelling` | Some files' spectra carry isobaric reporter ions (TMT, iTRAQ) and some do not. Searching only part of the deposit is a design decision; the state entry's `isobaric_files` lists the labelled files. | yes |
+| `search_interrupted` | The search failed while the machine's .NET runtimes changed under it: an environment failure. Searched again on a later pass, twice at most. Set `dotnet_root` to prevent it. | no |
 | `excluded_duplicate` | Every raw file (name and size) is in a deposit already searched; the state entry's `duplicate_of` names it. Decided from PRIDE's file list, before any download. | yes |
 | `waiting_*` | The deposit needs a capability no available profile has, named after the underscore: `waiting_dia`, `waiting_tmt_dda_1`, `waiting_crosslinking`, `waiting_o18_labelling`, and so on. | until that profile exists |
 | `fetch_unavailable`, `probe_fetch_unavailable` | PRIDE kept dropping the downloads through every retry. Tried again on a later pass, `fetch_passes` times in all (default 3). | no |

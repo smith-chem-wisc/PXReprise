@@ -104,6 +104,76 @@ public class BatchRunnerTests
         Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain("PXD000213 shares 1 of 2 raw files (name and size) with PXD000211"));
     }
 
+    // G5 (aging S66): a machine-wide update replaced .NET 10.0.8 with 10.0.10 and PXD021194 died 2 h 21 m into its search.
+    [Test]
+    public void ASearchTheRuntimeChangedUnderIsRetriedTwiceThenSettled()
+    {
+        var (runner, _, _, dir) = Runner();
+        string root = Path.Combine(dir, "dotnet"), shared = Path.Combine(root, "shared", "Microsoft.NETCore.App");
+        Directory.CreateDirectory(Path.Combine(shared, "10.0.8"));
+        var before = PXReprise.Search.DotnetRuntimes.Snapshot(root);
+        Assert.That(before, Is.EqualTo(new[] { "10.0.8" }));
+        Assert.That(runner.InterruptedByRuntime("PXD000217", before, root), Is.False, "nothing changed: the failure is the search's own");
+
+        Directory.Delete(Path.Combine(shared, "10.0.8"));
+        Directory.CreateDirectory(Path.Combine(shared, "10.0.10"));
+        string search = Path.Combine(dir, "runs", "PXD000217", "04_search");
+        Directory.CreateDirectory(search);
+        File.WriteAllText(Path.Combine(search, "provenance.json"), "{}");
+        Assert.That(runner.InterruptedByRuntime("PXD000217", before, root), Is.True);
+        Assert.That(runner.State()["datasets"]!["PXD000217"]!["status"]!.GetValue<string>(), Is.EqualTo("search_interrupted"));
+        Assert.That(Directory.Exists(search), Is.False, "the failed output is moved aside, so the deposit is searched again");
+        Assert.That(Directory.GetDirectories(Path.GetDirectoryName(search)!, "04_search.interrupted-*"), Has.Length.EqualTo(1));
+        Assert.That(runner.Settled("PXD000217"), Is.Empty);
+        Assert.That(runner.Retriable("PXD000217"), Is.True);
+
+        Assert.That(runner.InterruptedByRuntime("PXD000217", before, root), Is.True);
+        Assert.That(runner.Settled("PXD000217"), Is.Empty, "second interruption: still retried");
+        Assert.That(runner.InterruptedByRuntime("PXD000217", before, root), Is.True);
+        Assert.That(runner.Settled("PXD000217"), Is.EqualTo("search_failed"), "a third: settled like any failed search");
+    }
+
+    [Test]
+    public void APrivateRuntimeHostsTheDllAndAMissingOneIsRefused()
+    {
+        string dir = TestSupport.TempDir(), root = Path.Combine(dir, "dotnet-10.0.10");
+        var mm = new PXReprise.Search.MetaMorpheusRunner("C:/mm/CMD.dll", "dotnet", root);
+        Assert.That(mm.Launch[0], Is.EqualTo(PXReprise.Search.DotnetRuntimes.Host(root)));
+        Assert.That(new PXReprise.Search.MetaMorpheusRunner("C:/mm/CMD.dll", "dotnet").Launch[0], Is.EqualTo("dotnet"));
+
+        string machine = $"work_root = '{dir}'\ndotnet_root = '{root}'\n[metamorpheus]\n\"1.1.11\" = 'C:/nowhere/CMD.exe'\n";
+        Assert.That(() => Machine.Load(TestSupport.WriteFile(dir, "machine.toml", machine)),
+            Throws.InstanceOf<ConfigException>().With.Message.Contains("dotnet_root"));
+        Directory.CreateDirectory(Path.Combine(root, "shared", "Microsoft.NETCore.App", "10.0.10"));
+        Assert.That(Machine.Load(TestSupport.WriteFile(dir, "machine.toml", machine)).DotnetRoot, Is.EqualTo(root));
+    }
+
+    // G4 (aging S64): PXD052189, 12 label-free runs and 20 TMT fractions, and a text that never says TMT.
+    [Test]
+    public void SpectraWithReporterIonsRouteTheDepositAsIsobaricOrDeferAMixedOne()
+    {
+        var (runner, _, _, _) = Runner();
+        JsonObject Qc(params (string File, bool Tmt)[] files)
+        {
+            var o = new JsonObject();
+            foreach (var (f, tmt) in files)
+                o[f] = tmt
+                    ? new JsonObject { ["pass"] = false, ["fail_reasons"] = new JsonArray("isobaric_reporters"), ["isobaric_reporters"] = new JsonObject { ["tag"] = "TMT", ["fraction"] = 0.9 } }
+                    : new JsonObject { ["pass"] = true, ["fail_reasons"] = new JsonArray() };
+            return o;
+        }
+        Assert.That(runner.RoutedByReporters("PXD000214", Qc(("a.raw", false), ("b.raw", false)), "PROBE"), Is.False);
+
+        Assert.That(runner.RoutedByReporters("PXD000215", Qc(("a.raw", true), ("b.raw", true)), "PROBE"), Is.True);
+        Assert.That(runner.Settled("PXD000215"), Is.EqualTo("waiting_tmt_dda_1"), "the screen's route for a TMT deposit");
+
+        Assert.That(runner.RoutedByReporters("PXD000216", Qc(("lf1.raw", false), ("tmt1.raw", true), ("tmt2.raw", true)), "QC(full)"), Is.True);
+        Assert.That(runner.Settled("PXD000216"), Is.EqualTo("deferred_mixed_labelling"));
+        var e = runner.State()["datasets"]!["PXD000216"]!;
+        Assert.That(e["isobaric_files"]!.AsArray().Select(x => x!.GetValue<string>()), Is.EqualTo(new[] { "tmt1.raw", "tmt2.raw" }));
+        Assert.That(e["isobaric_tag"]!.GetValue<string>(), Is.EqualTo("TMT"));
+    }
+
     [Test]
     public void HeldAndPreviouslySettledDepositsAreNotRetried()
     {

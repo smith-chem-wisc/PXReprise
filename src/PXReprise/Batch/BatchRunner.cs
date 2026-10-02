@@ -154,7 +154,7 @@ public sealed class BatchRunner
                     Log($"queue exhausted; {walk.Count} deposit(s) still waiting on PRIDE after {pass} pass(es) ({which}): run the batch again later");
                     return;
                 }
-                Log($"pass {pass} done; {walk.Count} deposit(s) failed on PRIDE or UniProt availability ({which}); pass {pass + 1} in {_m.PassWaitMinutes:0} min");
+                Log($"pass {pass} done; {walk.Count} deposit(s) failed on PRIDE or UniProt availability, or on a runtime change ({which}); pass {pass + 1} in {_m.PassWaitMinutes:0} min");
                 if (!await WaitAsync(TimeSpan.FromMinutes(_m.PassWaitMinutes), ct).ConfigureAwait(false)) return;
             }
         }
@@ -204,12 +204,13 @@ public sealed class BatchRunner
     }
 
     /// <summary>
-    /// Left for a later pass by unavailability: downloads that exhausted their attempts (<c>*_unavailable</c>), or a
-    /// screen, database or listing call that never got an answer (still <c>probing</c>).
+    /// Left for a later pass by unavailability: downloads that exhausted their attempts (<c>*_unavailable</c>), a
+    /// screen, database or listing call that never got an answer (still <c>probing</c>), or a search the .NET runtime
+    /// changed under (<c>search_interrupted</c>, G5).
     /// </summary>
     internal bool Retriable(string acc) =>
         !File.Exists(Path.Combine(Run(acc), "04_search", "provenance.json")) && Settled(acc).Length == 0
-        && Entry(acc)?["status"]?.GetValue<string>() is "fetch_unavailable" or "probe_fetch_unavailable" or "probing";
+        && Entry(acc)?["status"]?.GetValue<string>() is "fetch_unavailable" or "probe_fetch_unavailable" or "probing" or "search_interrupted";
 
     /// <summary>
     /// A failed probe or whole-deposit fetch. Unavailability that outlasted every attempt (PRIDE down for hours, S52) is
@@ -359,6 +360,7 @@ public sealed class BatchRunner
             return null;
         }
         var (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate);
+        if (RoutedByReporters(acc, report, "PROBE")) return null;
         var excl = QcExclusion(report, profile.Qc);
         bool ok = allPass || excl is { Count: > 0 };
         if (!allPass && ok) Log($"{acc} PROBE qc: {string.Join(", ", excl!)} fail only on excludable reasons; continuing (decided at full QC)");
@@ -410,6 +412,7 @@ public sealed class BatchRunner
     {
         string acc = e.Accession, d = Run(acc);
         var (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc"), profile, _m, ParamsFile(acc, profile), _runDate);
+        if (RoutedByReporters(acc, report, "QC(full)")) return;
         var excl = new List<string>();
         if (!allPass)
         {
@@ -431,6 +434,8 @@ public sealed class BatchRunner
         var overlays = _q.Overlays.TryGetValue(e.Organism, out var ov) ? ov : Array.Empty<string>();
         var req = new SearchRequest(profile, e.Organism, _m, Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "04_search"),
             Path.Combine(d, "02b_qc"), overlays, excl, _runDate, acc, UseLibrary: library);
+        string runtimeRoot = Search.DotnetRuntimes.Root(_m.DotnetRoot);
+        var runtimesBefore = Search.DotnetRuntimes.Snapshot(runtimeRoot);
         SearchOutcome outcome;
         try
         {
@@ -438,6 +443,7 @@ public sealed class BatchRunner
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            if (InterruptedByRuntime(acc, runtimesBefore, runtimeRoot)) return;
             // The stage threw: before MetaMorpheus ran (setup) or after it (a bug in our own bookkeeping). Say which
             // could not be told apart from the message alone, so keep the type and where the output stands.
             bool ran = Directory.Exists(Path.Combine(d, "04_search", "mm"));
@@ -445,6 +451,7 @@ public sealed class BatchRunner
             Record(acc, ("status", "search_failed"), ("detail", $"{ex.GetType().Name}: {ex.Message}"), ("metamorpheus_ran", ran));
             return;
         }
+        if (!outcome.Success && InterruptedByRuntime(acc, runtimesBefore, runtimeRoot)) return;
         var prov = JsonNode.Parse(File.ReadAllText(outcome.ProvenanceFile))!;
         var lib = prov["spectral_library"];
         Log($"{acc} SEARCH rc={outcome.ExitCode} success={outcome.Success} psms={outcome.Psms1Pct} rate={prov["id_rate"]?["rate"]} lib={lib?["mode"]}/v{lib?["written"]?["version"]}");
@@ -595,6 +602,58 @@ public sealed class BatchRunner
     /// profile's excludable reasons (a blank or failed injection), at most its share of the deposit (one file is always
     /// allowed), and at least one file must pass. An acquisition failure (ion-trap MS2) still drops the deposit (aging D52).
     /// </summary>
+    /// <summary>
+    /// G4 (aging S64): the deposit's text never said it was labelled, but its spectra carry isobaric reporter ions.
+    /// Every QC'd file labelled: it waits for the profile that takes isobaric labels, as the screen would have routed it.
+    /// Some files only: <c>deferred_mixed_labelling</c>, because searching the label-free part alone is a design decision
+    /// (PXD052189: 12 label-free runs and 20 TMT fractions in one deposit; whole deposits only, S43).
+    /// </summary>
+    /// <summary>
+    /// G5 (aging S66): a search that failed while the .NET runtimes it loads from changed (a machine-wide update replaced
+    /// 10.0.8 with 10.0.10 and PXD021194 died 2 h 21 m in) failed on the environment, not on its data. Its output is moved
+    /// aside, the raw files stay (a failed search never cleans up), and it is searched again on a later pass: twice at
+    /// most, then it settles as <c>search_failed</c> like any other.
+    /// </summary>
+    internal bool InterruptedByRuntime(string acc, IReadOnlyList<string> before, string root)
+    {
+        var after = Search.DotnetRuntimes.Snapshot(root);
+        if (after.SequenceEqual(before)) return false;
+        string change = $"{string.Join(",", before)} -> {string.Join(",", after)} under {root}";
+        int n = (Entry(acc)?["search_interruptions"]?.GetValue<int>() ?? 0) + 1;
+        if (n > MaxSearchInterruptions)
+        {
+            Log($"{acc} SEARCH failed while the .NET runtimes changed again ({change}); interrupted {n - 1} time(s) already: settled");
+            Record(acc, ("status", "search_failed"), ("detail", $"runtime changed during the search: {change}"), ("search_interruptions", n));
+            return true;
+        }
+        string d = Path.Combine(Run(acc), "04_search"), aside = d + $".interrupted-{DateTime.UtcNow:yyyyMMdd'T'HHmmss'Z'}";
+        if (Directory.Exists(d)) Directory.Move(d, aside);
+        Log($"{acc} SEARCH INTERRUPTED: the .NET runtimes changed during the search ({change}); the environment failed, not the data. Output moved to {Path.GetFileName(aside)}; searched again on a later pass ({n} of {MaxSearchInterruptions}). Set dotnet_root in the machine file to stop this.");
+        Record(acc, ("status", "search_interrupted"), ("search_interruptions", n), ("detail", $"runtime changed during the search: {change}"));
+        return true;
+    }
+
+    private const int MaxSearchInterruptions = 2;
+
+    internal bool RoutedByReporters(string acc, JsonObject report, string where)
+    {
+        var labelled = report.Where(kv => kv.Value!["isobaric_reporters"] is not null)
+            .Select(kv => kv.Key).OrderBy(k => k, StringComparer.Ordinal).ToList();
+        if (labelled.Count == 0) return false;
+        string tags = string.Join("/", labelled.Select(f => report[f]!["isobaric_reporters"]!["tag"]!.GetValue<string>()).Distinct().Order(StringComparer.Ordinal));
+        string status;
+        if (labelled.Count == report.Count)
+        {
+            var taker = _q.Profiles.Select(k => _profiles[k]).FirstOrDefault(p => p.Accepts.Labellings.Contains(Labelling.Isobaric));
+            status = "waiting_" + Slug(taker?.Key ?? "isobaric");
+        }
+        else status = "deferred_mixed_labelling";
+        Log($"{acc} {where} SPECTRA SAY ISOBARIC ({status}): {tags} reporter ions in {labelled.Count} of {report.Count} file(s): {string.Join(", ", labelled.Take(6))}{(labelled.Count > 6 ? ", ..." : "")}");
+        Record(acc, ("status", status), ("isobaric_files", new JsonArray(labelled.Select(n => (JsonNode?)n).ToArray())),
+            ("isobaric_of", report.Count), ("isobaric_tag", tags));
+        return true;
+    }
+
     public static List<string>? QcExclusion(JsonObject report, QcGates gates)
     {
         var failed = report.Where(kv => kv.Value!["pass"]!.GetValue<bool>() != true)

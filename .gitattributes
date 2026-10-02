@@ -2,3 +2,4 @@
 *.png binary
 *.raw binary
 profiles/lists/** -text
+*.mzML -text
