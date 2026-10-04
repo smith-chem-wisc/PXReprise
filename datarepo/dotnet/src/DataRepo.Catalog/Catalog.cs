@@ -7,6 +7,7 @@ using System.Text;
 using DataRepo.Bundle;
 using DataRepo.Ingest;
 using DataRepo.Ingest.Sources;
+using DataRepo.Study;
 using DuckDB.NET.Data;
 
 namespace DataRepo.Catalog;
@@ -22,7 +23,7 @@ public sealed record BundleRef(string Path, IReadOnlyDictionary<string, object?>
         var manifestPath = System.IO.Path.Combine(path, BundleWriter.ManifestName);
         if (!File.Exists(manifestPath))
             throw new CatalogException($"{SourcesPy.PathStr(path)} holds no {BundleWriter.ManifestName}, so it is not a bundle");
-        return new BundleRef(SourcesPy.PathStr(path), Catalog.ReadJsonObject(manifestPath));
+        return new BundleRef(SourcesPy.PathStr(path), CatalogBuilder.ReadJsonObject(manifestPath));
     }
 
     public string DatasetId => SourcesPy.Str(Manifest["dataset_id"]);
@@ -33,7 +34,7 @@ public sealed record BundleRef(string Path, IReadOnlyDictionary<string, object?>
 
     public string WrittenUtc => SourcesPy.Str(SourcesPy.Get(Manifest, "written_utc", ""));
 
-    public IReadOnlyDictionary<string, long> RowCounts => Catalog.StrMap(SourcesPy.Get(Manifest, "tables"), Catalog.PyInt);
+    public IReadOnlyDictionary<string, long> RowCounts => CatalogBuilder.StrMap(SourcesPy.Get(Manifest, "tables"), CatalogBuilder.PyInt);
 
     /// <summary>The table's Parquet file, or null when the bundle omits the table (it had no rows).</summary>
     public string? TablePath(string table)
@@ -52,10 +53,10 @@ public sealed record StudyBundleRef(string Path, IReadOnlyDictionary<string, obj
     /// <exception cref="CatalogException">The directory holds no <c>study.json</c>, or it cannot be read.</exception>
     public static StudyBundleRef Load(string path)
     {
-        var manifestPath = System.IO.Path.Combine(path, Catalog.StudyBundleManifest);
+        var manifestPath = System.IO.Path.Combine(path, CatalogBuilder.StudyBundleManifest);
         if (!File.Exists(manifestPath))
-            throw new CatalogException($"{SourcesPy.PathStr(path)} holds no {Catalog.StudyBundleManifest}, so it is not a study bundle");
-        return new StudyBundleRef(SourcesPy.PathStr(path), Catalog.ReadJsonObject(manifestPath));
+            throw new CatalogException($"{SourcesPy.PathStr(path)} holds no {CatalogBuilder.StudyBundleManifest}, so it is not a study bundle");
+        return new StudyBundleRef(SourcesPy.PathStr(path), CatalogBuilder.ReadJsonObject(manifestPath));
     }
 
     public string Layer => SourcesPy.Str(Manifest["layer"]);
@@ -68,7 +69,7 @@ public sealed record StudyBundleRef(string Path, IReadOnlyDictionary<string, obj
 
     public string WrittenUtc => SourcesPy.Str(SourcesPy.Get(Manifest, "written_utc", ""));
 
-    public IReadOnlyDictionary<string, long> RowCounts => Catalog.StrMap(SourcesPy.Get(Manifest, "tables"), Catalog.PyInt);
+    public IReadOnlyDictionary<string, long> RowCounts => CatalogBuilder.StrMap(SourcesPy.Get(Manifest, "tables"), CatalogBuilder.PyInt);
 
     public string? TablePath(string table)
     {
@@ -124,7 +125,7 @@ public sealed record DerivedDoc(string Description, IReadOnlyDictionary<string, 
 /// <para>Every SQL statement is the Python's, run on the same DuckDB engine version (DuckDB.NET 1.5.5 ships
 /// DuckDB 1.5.5), so the work is done where the Python did it: in SQL.</para>
 /// </remarks>
-public static class Catalog
+public static class CatalogBuilder
 {
     /// <summary>Bumped when a build produces a different catalog from the same bundles.</summary>
     /// <remarks>Part of the content hash, so a change to the builder gives every catalog a new id even from
@@ -144,12 +145,11 @@ public static class Catalog
     /// (Python's <c>__version__</c>): this assembly's informational version, without build metadata.</summary>
     public static readonly string PackageVersion = ReadPackageVersion();
 
-    /// <summary><c>study.STUDY_BUNDLE_MANIFEST</c>.</summary>
-    public const string StudyBundleManifest = "study.json";
+    /// <summary><c>study.STUDY_BUNDLE_MANIFEST</c>, from the study writer.</summary>
+    public const string StudyBundleManifest = StudyWriter.StudyBundleManifest;
 
-    /// <summary><c>study.STUDY_DIR</c>: where study bundles live in the store. The underscore keeps it out of
-    /// the dataset namespace: no ProteomeXchange or MassIVE accession starts with one.</summary>
-    public const string StudyDir = "_study";
+    /// <summary><c>study.STUDY_DIR</c>, from the study writer: where study bundles live in the store.</summary>
+    public const string StudyDir = StudyWriter.StudyDir;
 
     /// <summary>Provenance columns prepended to every table. <c>dataset_id</c> is re-derived from the bundle
     /// rather than trusted from the row, so a table without one (proteins, definitions) still gets it.</summary>
@@ -1433,8 +1433,8 @@ public static class Catalog
         {
             var layer = r.Layer;
             var layerTables = Tables.Study[layer].Select(t => t.Name).ToHashSet(StringComparer.Ordinal);
-            var keys = Integrity.StudyCompositeIdentifiers.GetValueOrDefault(layer) ?? [];
-            foreach (var (table, key) in keys.OrderBy(k => k.Table, SourcesPy.CodePointOrder))
+            var keys = Integrity.StudyCompositeIdentifiers.GetValueOrDefault(layer) ?? new Dictionary<string, string[]>();
+            foreach (var (table, key) in keys.OrderBy(k => k.Key, SourcesPy.CodePointOrder))
             {
                 if (!layerTables.Contains(table)) continue;
                 var columns = string.Join(", ", key.Select(c => $"\"{c}\""));
@@ -1816,8 +1816,8 @@ public static class Catalog
 
     private static string ReadPackageVersion()
     {
-        var info = typeof(Catalog).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
-            ?? typeof(Catalog).Assembly.GetName().Version?.ToString() ?? "0.0.0";
+        var info = typeof(CatalogBuilder).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+            ?? typeof(CatalogBuilder).Assembly.GetName().Version?.ToString() ?? "0.0.0";
         var plus = info.IndexOf('+');
         return plus >= 0 ? info[..plus] : info;
     }

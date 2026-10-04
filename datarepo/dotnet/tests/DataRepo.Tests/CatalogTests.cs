@@ -151,15 +151,15 @@ public class CatalogTests
     private static CatalogResult BuildFixture(string store, string output, bool overwrite = false)
     {
         var manifest = FixtureManifest();
-        var bundles = Catalog.Catalog.SelectBundles(manifest, ["PXD999999"], store);
-        var study = Catalog.Catalog.SelectStudyBundles(store, latest: ["aging"]);
-        var (artefacts, engineChecks) = Catalog.Catalog.SelectArtefacts(store, bundles);
+        var bundles = CatalogBuilder.SelectBundles(manifest, ["PXD999999"], store);
+        var study = CatalogBuilder.SelectStudyBundles(store, latest: ["aging"]);
+        var (artefacts, engineChecks) = CatalogBuilder.SelectArtefacts(store, bundles);
         var notes = new Dictionary<string, object?>
         {
             ["manifest"] = manifest.Path,
             ["study"] = study.ToDictionary(r => r.Layer, r => (object?)r.BundleId),
         };
-        return Catalog.Catalog.BuildCatalog(bundles, output, overwrite, manifest.Instance, notes, study, artefacts, engineChecks);
+        return CatalogBuilder.BuildCatalog(bundles, output, overwrite, manifest.Instance, notes, study, artefacts, engineChecks);
     }
 
     private static JsonElement Expected()
@@ -214,13 +214,13 @@ public class CatalogTests
             // `database` is `Path(p).name` of a Windows path: the Python's answer depends on its platform too.
             AssertSameAsPython(Dump(output), expected, comparePlatform: OperatingSystem.IsWindows());
 
-            var meta = Catalog.Catalog.DescribeCatalog(output)["meta"] as Dictionary<string, object?>;
+            var meta = CatalogBuilder.DescribeCatalog(output)["meta"] as Dictionary<string, object?>;
             Assert.That(meta!["catalog_id"], Is.EqualTo(result.CatalogId));
-            Assert.That(meta["builder_version"], Is.EqualTo(Catalog.Catalog.PackageVersion));
+            Assert.That(meta["builder_version"], Is.EqualTo(CatalogBuilder.PackageVersion));
             Assert.That((string)meta["built_utc"]!, Does.Match(@"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\+00:00$"));
             Assert.That(meta["notes"], Is.EqualTo(
                 $"{{\"manifest\": {PyFormat.Json(FixtureManifest().Path, ensureAscii: true)}, \"study\": {{\"aging\": \"{result.StudyBundles[0].BundleId}\"}}}}"));
-            var paths = Catalog.Catalog.RunQuery(output, "SELECT path FROM catalog_bundles").Rows;
+            var paths = CatalogBuilder.RunQuery(output, "SELECT path FROM catalog_bundles").Rows;
             Assert.That((string)paths.Single()[0]!, Does.EndWith("/PXD999999/aeb10630abbcaf72"));
         }
         finally
@@ -243,8 +243,8 @@ public class CatalogTests
             File.Copy(Path.Combine(FixtureDir, "g74", "sample_characteristics.parquet"),
                 Path.Combine(store, "PXD999999", "aeb10630abbcaf72", "sample_characteristics.parquet"), overwrite: true);
             var manifest = FixtureManifest();
-            var bundles = Catalog.Catalog.SelectBundles(manifest, ["PXD999999"], store);
-            Catalog.Catalog.BuildCatalog(bundles, output, instance: manifest.Instance,
+            var bundles = CatalogBuilder.SelectBundles(manifest, ["PXD999999"], store);
+            CatalogBuilder.BuildCatalog(bundles, output, instance: manifest.Instance,
                 notes: new Dictionary<string, object?> { ["manifest"] = manifest.Path });
             var actual = Dump(output);
             using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(FixtureDir, "expected_g74.json")));
@@ -273,7 +273,7 @@ public class CatalogTests
             var second = BuildFixture(store, output);
             Assert.That(second.Skipped, Is.True);
             Assert.That(second.CatalogId, Is.EqualTo(first.CatalogId));
-            Assert.That(Catalog.Catalog.ReadCatalogId(output), Is.EqualTo(first.CatalogId));
+            Assert.That(CatalogBuilder.ReadCatalogId(output), Is.EqualTo(first.CatalogId));
             var third = BuildFixture(store, output, overwrite: true);
             Assert.That(third.Skipped, Is.False);
             Assert.That(Directory.EnumerateFiles(store, "*.building*"), Is.Empty, "no staging file is left behind");
@@ -290,17 +290,17 @@ public class CatalogTests
         var store = FixtureStore();
         try
         {
-            var bundles = Catalog.Catalog.SelectBundles(FixtureManifest(), ["PXD999999"], store);
-            var study = Catalog.Catalog.SelectStudyBundles(store, latest: ["aging"]);
-            var (artefacts, _) = Catalog.Catalog.SelectArtefacts(store, bundles);
+            var bundles = CatalogBuilder.SelectBundles(FixtureManifest(), ["PXD999999"], store);
+            var study = CatalogBuilder.SelectStudyBundles(store, latest: ["aging"]);
+            var (artefacts, _) = CatalogBuilder.SelectArtefacts(store, bundles);
             // The Python's hash input, with `datarepo/0.32.0` replaced by this build's version.
-            var text = $"datarepo/{Catalog.Catalog.PackageVersion}\ncatalog/8\nschema/0.0.13\nstudy/aging/0.5.0\n"
+            var text = $"datarepo/{CatalogBuilder.PackageVersion}\ncatalog/8\nschema/0.0.13\nstudy/aging/0.5.0\n"
                 + "PXD999999\taeb10630abbcaf72\n"
                 + $"study-bundle/aging\t{study[0].BundleId}\n"
                 + $"engine/logs.resolve_genes\t{artefacts[0].ArtefactId}\n";
             var expected = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(text)))[..16];
-            Assert.That(Catalog.Catalog.CatalogId(bundles, study, artefacts), Is.EqualTo(expected));
-            var python = text.Replace($"datarepo/{Catalog.Catalog.PackageVersion}\n", "datarepo/0.32.0\n");
+            Assert.That(CatalogBuilder.CatalogId(bundles, study, artefacts), Is.EqualTo(expected));
+            var python = text.Replace($"datarepo/{CatalogBuilder.PackageVersion}\n", "datarepo/0.32.0\n");
             var pythonId = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(python)))[..16];
             Assert.That(pythonId, Is.EqualTo(Expected().GetProperty("_about").GetProperty("catalog_id_python").GetString()),
                 "the same rule, fed Python's version, gives Python's id");
@@ -323,7 +323,7 @@ public class CatalogTests
             File.WriteAllText(manifestPath, File.ReadAllText(manifestPath).Replace("\"psms\": 60", "\"psms\": 61"));
             var e = Assert.Throws<CatalogException>(() => BuildFixture(store, output, overwrite: true));
             Assert.That(e!.Message, Does.StartWith("the bundles do not hold together as one catalog, so nothing was written:\n  - PXD999999/psms: 60 vs 61 (bundle aeb10630abbcaf72)"));
-            Assert.That(Catalog.Catalog.ReadCatalogId(output), Is.EqualTo(first.CatalogId));
+            Assert.That(CatalogBuilder.ReadCatalogId(output), Is.EqualTo(first.CatalogId));
             Assert.That(Directory.EnumerateFiles(store, "*.building*"), Is.Empty);
         }
         finally
@@ -345,27 +345,27 @@ public class CatalogTests
             File.WriteAllText(copy, File.ReadAllText(copy).Replace("aeb10630abbcaf72", "ffff000000000000"));
             File.SetLastWriteTimeUtc(copy, File.GetLastWriteTimeUtc(Path.Combine(original, "bundle.json")).AddSeconds(5));
 
-            var e = Assert.Throws<CatalogException>(() => Catalog.Catalog.SelectBundles(manifest, ["PXD999999"], store));
+            var e = Assert.Throws<CatalogException>(() => CatalogBuilder.SelectBundles(manifest, ["PXD999999"], store));
             Assert.That(e!.Message, Does.StartWith("PXD999999 has 2 bundles and nothing says which one this catalog is of:\n    aeb10630abbcaf72  written "));
-            Assert.That(Catalog.Catalog.SelectBundles(manifest, ["PXD999999"], store, latest: true).Single().BundleId, Is.EqualTo("ffff000000000000"),
+            Assert.That(CatalogBuilder.SelectBundles(manifest, ["PXD999999"], store, latest: true).Single().BundleId, Is.EqualTo("ffff000000000000"),
                 "same written_utc, so the newer manifest mtime decides");
-            Assert.That(Catalog.Catalog.SelectBundles(manifest, ["PXD999999"], store, new Dictionary<string, string> { ["PXD999999"] = "aeb" }).Single().BundleId,
+            Assert.That(CatalogBuilder.SelectBundles(manifest, ["PXD999999"], store, new Dictionary<string, string> { ["PXD999999"] = "aeb" }).Single().BundleId,
                 Is.EqualTo("aeb10630abbcaf72"));
-            e = Assert.Throws<CatalogException>(() => Catalog.Catalog.SelectBundles(manifest, ["PXD999999"], store, new Dictionary<string, string> { ["PXD999999"] = "0" }));
+            e = Assert.Throws<CatalogException>(() => CatalogBuilder.SelectBundles(manifest, ["PXD999999"], store, new Dictionary<string, string> { ["PXD999999"] = "0" }));
             Assert.That(e!.Message, Is.EqualTo("PXD999999: --bundle 0 matches 0 of the bundles on disk (aeb10630abbcaf72, ffff000000000000)"));
-            e = Assert.Throws<CatalogException>(() => Catalog.Catalog.SelectBundles(manifest, ["PXD999999"], store, latest: true, release: "r1"));
+            e = Assert.Throws<CatalogException>(() => CatalogBuilder.SelectBundles(manifest, ["PXD999999"], store, latest: true, release: "r1"));
             Assert.That(e!.Message, Does.StartWith("--release r1 and --latest are mutually exclusive."));
-            e = Assert.Throws<CatalogException>(() => Catalog.Catalog.SelectBundles(manifest, ["PXD999999"], store, release: "r1"));
+            e = Assert.Throws<CatalogException>(() => CatalogBuilder.SelectBundles(manifest, ["PXD999999"], store, release: "r1"));
             Assert.That(e!.Message, Does.StartWith("--release r1 needs every dataset pinned, and PXD999999 is not."));
 
             var excluded = manifest.Datasets.Values.FirstOrDefault(d => !d.Ingestable);
             if (excluded is not null)
-                Assert.Throws<DatasetExcludedException>(() => Catalog.Catalog.SelectBundles(manifest, [excluded.Accession], store));
+                Assert.Throws<DatasetExcludedException>(() => CatalogBuilder.SelectBundles(manifest, [excluded.Accession], store));
 
-            e = Assert.Throws<CatalogException>(() => Catalog.Catalog.SelectStudyBundles(store, new Dictionary<string, string> { ["aging"] = "x" }, ["aging"]));
+            e = Assert.Throws<CatalogException>(() => CatalogBuilder.SelectStudyBundles(store, new Dictionary<string, string> { ["aging"] = "x" }, ["aging"]));
             Assert.That(e!.Message, Does.StartWith("study layer aging is both pinned with --study and asked for with --study-latest."));
-            Assert.That(Catalog.Catalog.SelectStudyBundles(store), Is.Empty, "study bundles are opt-in");
-            Assert.That(Catalog.Catalog.AvailableStudyLayers(store).Keys, Is.EqualTo(new[] { "aging" }));
+            Assert.That(CatalogBuilder.SelectStudyBundles(store), Is.Empty, "study bundles are opt-in");
+            Assert.That(CatalogBuilder.AvailableStudyLayers(store).Keys, Is.EqualTo(new[] { "aging" }));
         }
         finally
         {
@@ -381,18 +381,18 @@ public class CatalogTests
         try
         {
             BuildFixture(store, output);
-            Assert.Throws<CatalogException>(() => Catalog.Catalog.RunQuery(output, "DELETE FROM psms"));
-            var (columns, rows) = Catalog.Catalog.RunQuery(output, "SELECT dataset_id, n_psms_all, organisms FROM dataset_overview;", limit: 1);
+            Assert.Throws<CatalogException>(() => CatalogBuilder.RunQuery(output, "DELETE FROM psms"));
+            var (columns, rows) = CatalogBuilder.RunQuery(output, "SELECT dataset_id, n_psms_all, organisms FROM dataset_overview;", limit: 1);
             Assert.That(columns, Is.EqualTo(new[] { "dataset_id", "n_psms_all", "organisms" }));
             Assert.That(rows.Single(), Is.EqualTo(new object?[] { "PXD999999", 60L, new List<object?> { "NCBITaxon:9606" } }));
-            Assert.That(Catalog.Catalog.FormatRows(columns, rows, "tsv"), Is.EqualTo("dataset_id\tn_psms_all\torganisms\nPXD999999\t60\t['NCBITaxon:9606']"));
-            Assert.That(Catalog.Catalog.FormatRows(columns, rows, "json"), Is.EqualTo("{\"dataset_id\": \"PXD999999\", \"n_psms_all\": 60, \"organisms\": [\"NCBITaxon:9606\"]}"));
-            Assert.That(Catalog.Catalog.FormatRows(columns, rows), Is.EqualTo(
+            Assert.That(CatalogBuilder.FormatRows(columns, rows, "tsv"), Is.EqualTo("dataset_id\tn_psms_all\torganisms\nPXD999999\t60\t['NCBITaxon:9606']"));
+            Assert.That(CatalogBuilder.FormatRows(columns, rows, "json"), Is.EqualTo("{\"dataset_id\": \"PXD999999\", \"n_psms_all\": 60, \"organisms\": [\"NCBITaxon:9606\"]}"));
+            Assert.That(CatalogBuilder.FormatRows(columns, rows), Is.EqualTo(
                 "dataset_id  n_psms_all  organisms         \n"
                 + "----------  ----------  ------------------\n"
                 + "PXD999999   60          ['NCBITaxon:9606']"));
-            Assert.Throws<CatalogException>(() => Catalog.Catalog.RunQuery(Path.Combine(store, "missing.duckdb"), "SELECT 1"));
-            var described = Catalog.Catalog.DescribeCatalog(output);
+            Assert.Throws<CatalogException>(() => CatalogBuilder.RunQuery(Path.Combine(store, "missing.duckdb"), "SELECT 1"));
+            var described = CatalogBuilder.DescribeCatalog(output);
             Assert.That(((List<Dictionary<string, object?>>)described["bundles"]!).Single()["reconciliation_ok"], Is.EqualTo(true));
             Assert.That(((List<Dictionary<string, object?>>)described["study_bundles"]!).Single()["layer"], Is.EqualTo("aging"));
         }
@@ -405,13 +405,13 @@ public class CatalogTests
     [Test]
     public void EveryDerivedTableAndViewIsDocumented()
     {
-        var documented = Catalog.Catalog.DerivedDocs.Keys.Order(StringComparer.Ordinal);
-        var derived = Catalog.Catalog.DerivedTables
-            .Concat(Catalog.Catalog.AcceptedViews.Select(kv => kv.Key))
-            .Concat(Catalog.Catalog.GrainViews.Select(kv => kv.Key))
+        var documented = CatalogBuilder.DerivedDocs.Keys.Order(StringComparer.Ordinal);
+        var derived = CatalogBuilder.DerivedTables
+            .Concat(CatalogBuilder.AcceptedViews.Select(kv => kv.Key))
+            .Concat(CatalogBuilder.GrainViews.Select(kv => kv.Key))
             .Order(StringComparer.Ordinal);
         Assert.That(documented, Is.EqualTo(derived));
-        Assert.That(Catalog.Catalog.DerivedColumnDocs["samples"]["organism_part_name"], Does.StartWith(
+        Assert.That(CatalogBuilder.DerivedColumnDocs["samples"]["organism_part_name"], Does.StartWith(
             "The NAME the SDRF gives for `organism_part`, as written (from characteristics[organism part] or factor value[organism part]), "));
     }
 
@@ -443,9 +443,9 @@ public class CatalogTests
         var output = NewScratch("real") + ".duckdb";
         try
         {
-            var bundles = Catalog.Catalog.SelectBundles(manifest, order.Select(p => p.Accession).ToList(), AgingStore, pins);
-            var study = Catalog.Catalog.SelectStudyBundles(AgingStore, new Dictionary<string, string> { ["aging"] = studyId });
-            var (artefacts, engineChecks) = Catalog.Catalog.SelectArtefacts(AgingStore, bundles);
+            var bundles = CatalogBuilder.SelectBundles(manifest, order.Select(p => p.Accession).ToList(), AgingStore, pins);
+            var study = CatalogBuilder.SelectStudyBundles(AgingStore, new Dictionary<string, string> { ["aging"] = studyId });
+            var (artefacts, engineChecks) = CatalogBuilder.SelectArtefacts(AgingStore, bundles);
             Assert.That(artefacts.Select(a => a.ArtefactId).Order(StringComparer.Ordinal),
                 Is.EqualTo(about.GetProperty("artefacts").EnumerateArray().Select(a => a.GetString()!)), "the artefacts on offer changed since the fixture");
             var notes = new Dictionary<string, object?>
@@ -453,7 +453,7 @@ public class CatalogTests
                 ["manifest"] = manifest.Path,
                 ["study"] = new Dictionary<string, object?> { ["aging"] = studyId },
             };
-            var result = Catalog.Catalog.BuildCatalog(bundles, output, false, manifest.Instance, notes, study, artefacts, engineChecks);
+            var result = CatalogBuilder.BuildCatalog(bundles, output, false, manifest.Instance, notes, study, artefacts, engineChecks);
             Assert.That(result.FailedChecks, Is.Empty);
             AssertSameAsPython(Dump(output, about.GetProperty("full_limit").GetInt64()), expected, comparePlatform: true);
         }

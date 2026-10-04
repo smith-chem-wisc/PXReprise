@@ -23,7 +23,7 @@ public sealed record ArtefactRef(string Path, IReadOnlyDictionary<string, object
         var recordPath = System.IO.Path.Combine(path, Runner.RunRecord);
         if (!File.Exists(recordPath))
             throw new RunnerException($"{SourcesPy.PathStr(path)} holds no {Runner.RunRecord}, so it is not an engine artefact");
-        return new ArtefactRef(SourcesPy.PathStr(path), Catalog.ReadJsonObject(recordPath, msg => new RunnerException(msg)));
+        return new ArtefactRef(SourcesPy.PathStr(path), CatalogBuilder.ReadJsonObject(recordPath, msg => new RunnerException(msg)));
     }
 
     public string Engine => SourcesPy.Str(Record["engine"]);
@@ -33,9 +33,9 @@ public sealed record ArtefactRef(string Path, IReadOnlyDictionary<string, object
     public string SchemaVersion => SourcesPy.Str(SourcesPy.Get(Record, "schema_version", "?"));
 
     /// <summary><c>{role: sha256}</c> for every input that reaches a row.</summary>
-    public IReadOnlyDictionary<string, string> Inputs => Catalog.StrMap(SourcesPy.Get(Record, "inputs"), v => SourcesPy.Str(v));
+    public IReadOnlyDictionary<string, string> Inputs => CatalogBuilder.StrMap(SourcesPy.Get(Record, "inputs"), v => SourcesPy.Str(v));
 
-    public IReadOnlyDictionary<string, long> RowCounts => Catalog.StrMap(SourcesPy.Get(Record, "tables"), Catalog.PyInt);
+    public IReadOnlyDictionary<string, long> RowCounts => CatalogBuilder.StrMap(SourcesPy.Get(Record, "tables"), CatalogBuilder.PyInt);
 
     /// <summary>The table's Parquet file, or null when the artefact did not write one.</summary>
     public string? TablePath(string table)
@@ -66,12 +66,12 @@ public static class Runner
         if (!Directory.Exists(root)) return [];
         var engines = engine is not null
             ? [System.IO.Path.Combine(root, engine)]
-            : Catalog.SortedChildren(root).Where(Directory.Exists).ToList();
+            : CatalogBuilder.SortedChildren(root).Where(Directory.Exists).ToList();
         var found = new List<ArtefactRef>();
         foreach (var directory in engines)
         {
             if (!Directory.Exists(directory)) continue;
-            foreach (var child in Catalog.SortedChildren(directory))
+            foreach (var child in CatalogBuilder.SortedChildren(directory))
                 if (Directory.Exists(child) && File.Exists(System.IO.Path.Combine(child, RunRecord)))
                     found.Add(ArtefactRef.Load(child));
         }

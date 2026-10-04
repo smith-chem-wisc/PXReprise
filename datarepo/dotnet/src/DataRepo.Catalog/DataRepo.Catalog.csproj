@@ -13,6 +13,7 @@
   <ItemGroup>
     <ProjectReference Include="..\DataRepo.Bundle\DataRepo.Bundle.csproj" />
     <ProjectReference Include="..\DataRepo.Ingest\DataRepo.Ingest.csproj" />
+    <ProjectReference Include="..\DataRepo.Study\DataRepo.Study.csproj" />
   </ItemGroup>
 
   <ItemGroup>
