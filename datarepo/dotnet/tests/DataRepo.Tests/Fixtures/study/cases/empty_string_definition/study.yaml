@@ -1,0 +1,6 @@
+study_manifest_version: 1
+layer: aging
+store: ./unused-store
+definitions: ['']
+tables:
+  age_effects: ae.tsv

@@ -1,0 +1,7 @@
+clock_id	feature_type	feature_id	weight
+
+C1	protein_group	P1	0.25
+
+
+C1	protein_group	P2	-1e-05
+

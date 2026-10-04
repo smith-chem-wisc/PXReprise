@@ -1,0 +1,4 @@
+study_manifest_version: 1
+layer: aging
+tables:
+  sample_ages: sample_ages.tsv

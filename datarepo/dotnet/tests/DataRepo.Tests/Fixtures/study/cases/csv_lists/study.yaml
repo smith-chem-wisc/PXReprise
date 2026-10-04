@@ -1,0 +1,10 @@
+study_manifest_version: 1
+layer: aging
+store: ./unused-store
+definitions:
+  - aging:DEF-AGE-EFFECT-META
+  - aging:DEF-CLOCK
+tables:
+  age_effect_meta: age_effect_meta.csv
+  clock_models: clock_models.tsv
+  clock_features: clock_features.tsv

@@ -1,0 +1,40 @@
+{
+  "bundle_id": "9f378d7ba7cb9a98",
+  "kind": "study",
+  "layer": "aging",
+  "layer_version": "0.5.0",
+  "schema_version": "0.0.13",
+  "instance": "caf\u00e9",
+  "delivery": 7,
+  "ingester": {
+    "name": "datarepo",
+    "version": "0.32.0",
+    "study_ingest_path": "0.6.0"
+  },
+  "written_utc": "2026-10-04T16:07:43+00:00",
+  "tables": {
+    "age_effect_refusals": 0,
+    "age_effects": 1
+  },
+  "sources": [
+    {
+      "role": "table:age_effect_refusals",
+      "path": "E:\\CodeReview\\dataRepo\\.claude\\worktrees\\agent-a3e22cde33ad2ea8c\\dotnet\\tests\\DataRepo.Tests\\Fixtures\\study\\cases\\version_true_string_definitions\\refusals.tsv",
+      "size_bytes": 172,
+      "sha256": "ff4301a5d68ef791ba150ed09731bb5e26b5754c86758c0bed472727f3d4e477"
+    },
+    {
+      "role": "table:age_effects",
+      "path": "E:\\CodeReview\\dataRepo\\.claude\\worktrees\\agent-a3e22cde33ad2ea8c\\dotnet\\tests\\DataRepo.Tests\\Fixtures\\study\\cases\\version_true_string_definitions\\ae.tsv",
+      "size_bytes": 531,
+      "sha256": "da7037ee8293641bdcabd857b90bb3a545ba66c0bab07aac5ff59569e4a2e223"
+    },
+    {
+      "role": "declaration:study",
+      "path": "<declaration:study>",
+      "kind": "declaration",
+      "sha256": "a3bde5769138133373c4eb70f840c2706e0de8edd2ccfc8b3252bb0b176f33c4"
+    }
+  ],
+  "notes": "line one\nline \"two\"\n"
+}

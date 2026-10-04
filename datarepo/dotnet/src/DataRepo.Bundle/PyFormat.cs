@@ -141,6 +141,129 @@ public static class PyFormat
         _ => value.ToString() ?? "",
     };
 
+    /// <summary>Python's <c>str(value)</c> for anything a parsed document can hold: <c>None</c> for null, and
+    /// a list or mapping as its <see cref="Repr"/>.</summary>
+    public static string StrAny(object? value) => value switch
+    {
+        null => "None",
+        string s => s,
+        IDictionary or IList => Repr(value),
+        _ => Str(value),
+    };
+
+    /// <summary>Python's <c>repr(value)</c> for the plain values a parsed document or a row can hold.</summary>
+    /// <remarks>It appears in operator-facing messages (<c>{value!r}</c>), which are kept word for word.</remarks>
+    public static string Repr(object? value)
+    {
+        switch (value)
+        {
+            case null: return "None";
+            case bool b: return b ? "True" : "False";
+            case string s: return ReprString(s);
+            case double or float: return Str(value);
+            case DateOnly d: return $"datetime.date({d.Year}, {d.Month}, {d.Day})";
+            case IDictionary dict:
+            {
+                var parts = new List<string>();
+                foreach (DictionaryEntry kv in dict) parts.Add($"{Repr(kv.Key)}: {Repr(kv.Value)}");
+                return "{" + string.Join(", ", parts) + "}";
+            }
+            case IEnumerable list:
+                return "[" + string.Join(", ", list.Cast<object?>().Select(Repr)) + "]";
+            default: return Str(value);
+        }
+    }
+
+    private static string ReprString(string s)
+    {
+        var quote = s.Contains('\'') && !s.Contains('"') ? '"' : '\'';
+        var sb = new StringBuilder().Append(quote);
+        foreach (var c in s)
+        {
+            switch (c)
+            {
+                case '\\': sb.Append("\\\\"); break;
+                case '\n': sb.Append("\\n"); break;
+                case '\r': sb.Append("\\r"); break;
+                case '\t': sb.Append("\\t"); break;
+                default:
+                    if (c == quote) sb.Append('\\').Append(c);
+                    else if (c < 0x20 || c == 0x7f) sb.Append("\\x").Append(((int)c).ToString("x2", CultureInfo.InvariantCulture));
+                    else sb.Append(c);
+                    break;
+            }
+        }
+        return sb.Append(quote).ToString();
+    }
+
+    /// <summary>Python's <c>type(value).__name__</c> for the plain values a parsed document can hold.</summary>
+    public static string TypeName(object? value) => value switch
+    {
+        null => "NoneType",
+        string => "str",
+        bool => "bool",
+        sbyte or byte or short or ushort or int or uint or long or ulong => "int",
+        double or float => "float",
+        DateOnly => "date",
+        DateTime or DateTimeOffset => "datetime",
+        IDictionary => "dict",
+        IEnumerable => "list",
+        _ => value.GetType().Name,
+    };
+
+    /// <summary>
+    /// Python's <c>json.dumps(value, indent=2)</c>: insertion order, <c>ensure_ascii=True</c>, items separated by
+    /// <c>","</c> and a newline, keys by <c>": "</c>, and <c>[]</c>/<c>{}</c> for an empty container.
+    /// </summary>
+    public static string JsonIndented(object? value, int indent = 2)
+    {
+        var sb = new StringBuilder();
+        WriteIndented(sb, value, indent, 0);
+        return sb.ToString();
+    }
+
+    private static void WriteIndented(StringBuilder sb, object? value, int indent, int depth)
+    {
+        switch (value)
+        {
+            case null or bool or string or double or float or sbyte or byte or short or ushort or int or uint or long or ulong:
+                WriteJson(sb, value, sortKeys: false, ensureAscii: true);
+                return;
+            case IDictionary dict:
+            {
+                if (dict.Count == 0) { sb.Append("{}"); return; }
+                sb.Append('{');
+                var first = true;
+                foreach (DictionaryEntry kv in dict)
+                {
+                    sb.Append(first ? "" : ",").Append('\n').Append(' ', indent * (depth + 1));
+                    first = false;
+                    WriteString(sb, Str(kv.Key), ensureAscii: true);
+                    sb.Append(": ");
+                    WriteIndented(sb, kv.Value, indent, depth + 1);
+                }
+                sb.Append('\n').Append(' ', indent * depth).Append('}');
+                return;
+            }
+            case IEnumerable list:
+            {
+                var items = list.Cast<object?>().ToList();
+                if (items.Count == 0) { sb.Append("[]"); return; }
+                sb.Append('[');
+                for (var i = 0; i < items.Count; i++)
+                {
+                    sb.Append(i == 0 ? "" : ",").Append('\n').Append(' ', indent * (depth + 1));
+                    WriteIndented(sb, items[i], indent, depth + 1);
+                }
+                sb.Append('\n').Append(' ', indent * depth).Append(']');
+                return;
+            }
+            default:
+                WriteJson(sb, value, sortKeys: false, ensureAscii: true);
+                return;
+        }
+    }
+
     /// <summary>
     /// Python's <c>json.dumps(value, sort_keys=sortKeys, ensure_ascii=ensureAscii)</c> with the default
     /// separators (<c>", "</c> and <c>": "</c>) and <c>default=str</c>.

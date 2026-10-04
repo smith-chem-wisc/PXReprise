@@ -1,0 +1,13 @@
+study_manifest_version: true
+layer: aging
+layer_version: '0.5.0'
+store: ./unused-store
+definitions: aging:DEF-AGE-EFFECT
+instance: café
+delivery: 7
+notes: |
+  line one
+  line "two"
+tables:
+  age_effects: ae.tsv
+  age_effect_refusals: refusals.tsv
