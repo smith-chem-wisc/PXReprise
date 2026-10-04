@@ -104,7 +104,9 @@ public class BundleTests
     {
         Assert.That(PyFormat.Json(new Dictionary<string, object?> { ["b"] = "é\"\n\u0001", ["a"] = null }),
             Is.EqualTo("{\"a\": null, \"b\": \"é\\\"\\n\\u0001\"}"));
-        Assert.That(PyFormat.Json("é\u007f", ensureAscii: true), Is.EqualTo("\"\\u00e9\u007f\""));
+        // Checked against CPython: json.dumps('é\x7f') == '"\\u00e9\\u007f"'; ensure_ascii=False keeps DEL as is.
+        Assert.That(PyFormat.Json("é\u007f", ensureAscii: true), Is.EqualTo("\"\\u00e9\\u007f\""));
+        Assert.That(PyFormat.Json("\u007f", ensureAscii: false), Is.EqualTo("\"\u007f\""));
     }
 
     private static readonly ColumnSpec Text = new("t", ColumnType.String, false, true);

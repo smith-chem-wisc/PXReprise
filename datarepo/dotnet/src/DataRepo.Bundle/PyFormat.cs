@@ -172,7 +172,7 @@ public static class PyFormat
             case float f:
                 WriteJson(sb, (double)f, sortKeys, ensureAscii);
                 return;
-            case sbyte or byte or short or ushort or int or uint or long or ulong:
+            case sbyte or byte or short or ushort or int or uint or long or ulong or System.Numerics.BigInteger:
                 sb.Append(((IFormattable)value).ToString(null, CultureInfo.InvariantCulture));
                 return;
             case IDictionary dict:
@@ -224,7 +224,8 @@ public static class PyFormat
                 case '\b': sb.Append("\\b"); break;
                 case '\f': sb.Append("\\f"); break;
                 default:
-                    if (c < 0x20 || (ensureAscii && c > 0x7f))
+                    // Python's ensure_ascii escapes everything outside space..tilde, DEL (0x7F) included.
+                    if (c < 0x20 || (ensureAscii && c >= 0x7f))
                         sb.Append("\\u").Append(((int)c).ToString("x4", CultureInfo.InvariantCulture));
                     else
                         sb.Append(c);
