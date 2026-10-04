@@ -204,7 +204,8 @@ public sealed class BundleWriter(string store, string datasetId, string? ingestP
 
     /// <summary>The installed package's version, written as <c>ingester.version</c>.</summary>
     public static string PackageVersion { get; } =
-        typeof(BundleWriter).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
+        System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(
+            typeof(BundleWriter).Assembly)?.InformationalVersion ?? "0.0.0-dev";
 
     private static readonly JsonSerializerOptions ManifestJson = new()
     {

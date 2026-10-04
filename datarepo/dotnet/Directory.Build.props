@@ -1,0 +1,12 @@
+<Project>
+  <!--
+    One version for every project in the solution. It is recorded in each bundle's `ingester.version`, hashed
+    into every catalog id (catalog_id carries the package version, as the Python one did), and written as the
+    site's generator, so it must have exactly one source. `0.0.0-dev` until a release build stamps it
+    (CI passes -p:Version=X.Y.Z); a build that is not a release must never look like one.
+  -->
+  <PropertyGroup>
+    <Version>0.0.0-dev</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+</Project>

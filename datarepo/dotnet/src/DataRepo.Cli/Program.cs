@@ -15,9 +15,14 @@ using DataRepo.Study;
 //   datarepo inspect <bundle-dir>                what is in a bundle, and did it reconcile?
 //   datarepo site <catalog.duckdb> --out <dir>   write the public static site for one catalog
 //
-// build, catalog, query, publish, run and mcp arrive with their ports (design/CSHARP_PORT.md).
+//   datarepo build <manifest.yaml> <PXD...>      load bundles into one DuckDB catalog
+//   datarepo catalog <catalog.duckdb>            what is in a catalog, and did it check out?
+//   datarepo query <catalog.duckdb> <sql>        run one read-only query against a catalog
+//   datarepo publish <manifest.yaml> --site <d>  build, then site
+//
+// run and mcp arrive with their ports (design/CSHARP_PORT.md).
 CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
-return Cli.Main(args);
+return Cli.Run(args);
 
 namespace DataRepo.Cli
 {
@@ -25,10 +30,10 @@ namespace DataRepo.Cli
     {
         private const string Prog = "datarepo";
 
-        private static readonly string[] Commands = ["ingest", "study", "manifest", "inspect", "site", "doctor"];
-        private static readonly string[] Pending = ["build", "catalog", "query", "publish", "run", "mcp"];
+        private static readonly string[] Commands = ["ingest", "study", "manifest", "inspect", "build", "catalog", "query", "site", "publish", "doctor"];
+        private static readonly string[] Pending = ["run", "mcp"];
 
-        public static int Main(string[] argv)
+        public static int Run(string[] argv)
         {
             if (argv.Length == 0 || argv[0] is "-h" or "--help")
             {
@@ -57,6 +62,10 @@ namespace DataRepo.Cli
                     "study" => StudyCommand(rest),
                     "manifest" => ManifestCommand(rest),
                     "inspect" => Inspect(rest),
+                    "build" => CatalogCommands.Build(rest),
+                    "catalog" => CatalogCommands.CatalogSummary(rest),
+                    "query" => CatalogCommands.Query(rest),
+                    "publish" => CatalogCommands.Publish(rest),
                     "site" => DataRepo.Site.SiteCommand.Run(rest, Console.Out, Console.Error),
                     "doctor" => Doctor(),
                     _ when Pending.Contains(command) => NotYet(command),

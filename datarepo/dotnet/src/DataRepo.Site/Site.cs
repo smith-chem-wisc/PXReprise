@@ -104,7 +104,7 @@ public static partial class SiteGenerator
 
     /// <summary>This generator's name and version, as the marker's <c>generator</c> field and every page's
     /// footer state it. Python wrote <c>datarepo &lt;package version&gt;</c>; this is the C# assembly's.</summary>
-    public static string Version { get; } = typeof(SiteGenerator).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
+    public static string Version { get; } = DataRepo.Bundle.BundleWriter.PackageVersion;
 
     // --- words ---------------------------------------------------------------------------------
 

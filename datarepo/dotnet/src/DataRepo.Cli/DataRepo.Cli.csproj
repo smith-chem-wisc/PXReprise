@@ -5,6 +5,7 @@
     <ProjectReference Include="..\DataRepo.Ingest\DataRepo.Ingest.csproj" />
     <ProjectReference Include="..\DataRepo.Study\DataRepo.Study.csproj" />
     <ProjectReference Include="..\DataRepo.Site\DataRepo.Site.csproj" />
+    <ProjectReference Include="..\DataRepo.Catalog\DataRepo.Catalog.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

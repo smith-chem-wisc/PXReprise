@@ -143,7 +143,7 @@ public static class CatalogBuilder
 
     /// <summary>The package version a catalog id hashes and <c>catalog_meta.builder_version</c> records
     /// (Python's <c>__version__</c>): this assembly's informational version, without build metadata.</summary>
-    public static readonly string PackageVersion = ReadPackageVersion();
+    public static readonly string PackageVersion = BundleWriter.PackageVersion;
 
     /// <summary><c>study.STUDY_BUNDLE_MANIFEST</c>, from the study writer.</summary>
     public const string StudyBundleManifest = StudyWriter.StudyBundleManifest;
