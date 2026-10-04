@@ -146,7 +146,7 @@ public sealed class BundleWriter(string store, string datasetId, string? ingestP
     }
 
     /// <summary>The directory the bundle is written to: <c>&lt;store&gt;/&lt;dataset&gt;/&lt;bundle id&gt;</c>.</summary>
-    public string BundlePath() => Path.Combine(Store, DatasetId, BundleId);
+    public string BundlePath() => PathText(Path.Combine(Store, DatasetId, BundleId));
 
     /// <summary>Writes every table, copies the recorded sources, and emits <c>bundle.json</c>.</summary>
     /// <exception cref="IngestException">The bundle is already written and <paramref name="overwrite"/> is

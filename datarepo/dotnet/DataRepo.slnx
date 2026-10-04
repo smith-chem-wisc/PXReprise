@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/DataRepo.Bundle/DataRepo.Bundle.csproj" />
+    <Project Path="src/DataRepo.Cli/DataRepo.Cli.csproj" />
     <Project Path="src/DataRepo.Ingest/DataRepo.Ingest.csproj" />
     <Project Path="src/DataRepo.Parity/DataRepo.Parity.csproj" />
     <Project Path="src/DataRepo.SchemaGen/DataRepo.SchemaGen.csproj" />
