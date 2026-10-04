@@ -109,26 +109,26 @@ namespace DataRepo.Cli
 
         private static string G(object? value) => value is null ? "None" : PyFormat.FormatG(value);
 
-        private static void PrintResult(IngestResult result, bool verbose)
+        private static void PrintResult(IngestResult result, bool verbose, TextWriter output)
         {
-            Console.WriteLine($"  bundle   {result.BundlePath}");
+            output.WriteLine($"  bundle   {result.BundlePath}");
             if (result.Skipped)
-                Console.WriteLine("  unchanged: inputs and ingester match the bundle already written; --overwrite to rebuild");
-            Console.WriteLine($"  tables   {string.Join(", ", result.RowCounts.Select(kv => $"{kv.Key} {N(kv.Value)}"))}");
+                output.WriteLine("  unchanged: inputs and ingester match the bundle already written; --overwrite to rebuild");
+            output.WriteLine($"  tables   {string.Join(", ", result.RowCounts.Select(kv => $"{kv.Key} {N(kv.Value)}"))}");
             foreach (var check in result.Checks)
             {
                 if (check["ok"] is false)
-                    Console.WriteLine($"  MISMATCH {check["name"]}: bundle {G(check["observed"])} vs producer {G(check["expected"])} ({check["source"]})");
+                    output.WriteLine($"  MISMATCH {check["name"]}: bundle {G(check["observed"])} vs producer {G(check["expected"])} ({check["source"]})");
                 else if (verbose && check["observed"] is not null)
-                    Console.WriteLine($"  ok       {check["name"]}: {G(check["observed"])}");
+                    output.WriteLine($"  ok       {check["name"]}: {G(check["observed"])}");
             }
             if (result.UnresolvedModifications.Count > 0)
-                Console.WriteLine($"  WARN     {result.UnresolvedModifications.Count} unresolved modification(s): {string.Join(", ", result.UnresolvedModifications.Keys.Order(StringComparer.Ordinal))}");
+                output.WriteLine($"  WARN     {result.UnresolvedModifications.Count} unresolved modification(s): {string.Join(", ", result.UnresolvedModifications.Keys.Order(StringComparer.Ordinal))}");
             if (result.UnmatchedRuns.Count > 0)
-                Console.WriteLine($"  WARN     run names with no deposited file: {string.Join(", ", result.UnmatchedRuns.Keys.Order(StringComparer.Ordinal))}");
+                output.WriteLine($"  WARN     run names with no deposited file: {string.Join(", ", result.UnmatchedRuns.Keys.Order(StringComparer.Ordinal))}");
             var warnings = result.Findings.Where(f => f["severity"] is "warning" or "error").ToList();
             if (warnings.Count > 0)
-                Console.WriteLine($"  findings {warnings.Count} open warning(s): {string.Join(", ", warnings.Select(f => (string)f["code"]!).Distinct().Order(StringComparer.Ordinal))}");
+                output.WriteLine($"  findings {warnings.Count} open warning(s): {string.Join(", ", warnings.Select(f => (string)f["code"]!).Distinct().Order(StringComparer.Ordinal))}");
         }
 
         private static int Ingest(string[] argv)
@@ -140,20 +140,45 @@ namespace DataRepo.Cli
                 .Option("--mm-settings", Args.Kind.Value, "MetaMorpheus install to read modification definitions from")
                 .Option("--overwrite", Args.Kind.Flag, "rebuild a bundle that already exists")
                 .Option("--verbose", Args.Kind.Flag, "show every reconciliation check", shortName: "-v")
+                .Option("--json", Args.Kind.Flag, "print one JSON envelope on stdout; the human report goes to stderr")
                 .Parse(argv);
-            var manifest = Manifest.Load(args.Positional("manifest"));
+            var json = args.Flag("--json");
+            // PXReprise 009: a calling pipeline reads one envelope on stdout and the exit code; everything for a
+            // human goes to stderr, so the envelope is the only thing on stdout.
+            var human = json ? Console.Error : Console.Out;
+            var datasets = new List<Dictionary<string, object?>>();
+            int Finish(int code, List<string>? reasons = null)
+            {
+                if (json)
+                    Console.WriteLine(JsonSerializer.Serialize(new Dictionary<string, object?>
+                    {
+                        ["datarepo"] = BundleWriter.PackageVersion,
+                        ["ok"] = code == 0,
+                        ["exit_code"] = code,
+                        ["reasons"] = reasons ?? [],
+                        ["datasets"] = datasets,
+                    }, new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
+                return code;
+            }
+            Manifest manifest;
+            try { manifest = Manifest.Load(args.Positional("manifest")); }
+            catch (DataRepoException e) when (json)
+            {
+                Console.Error.WriteLine($"{Prog}: {e.Message}");
+                return Finish(1, [e.Message]);
+            }
             var accessions = args.Positionals("accession").Count > 0
                 ? args.Positionals("accession").ToList()
                 : manifest.IngestableEntries().Select(e => e.Accession).ToList();
             if (accessions.Count == 0)
             {
                 Console.Error.WriteLine($"{manifest.Path}: no dataset has status 'include'");
-                return 1;
+                return Finish(1, [$"{manifest.Path}: no dataset has status 'include'"]);
             }
             var failures = 0;
             foreach (var accession in accessions)
             {
-                Console.WriteLine(accession);
+                human.WriteLine(accession);
                 IngestResult result;
                 try
                 {
@@ -162,20 +187,51 @@ namespace DataRepo.Cli
                 }
                 catch (DatasetExcludedException e)
                 {
-                    Console.WriteLine($"  refused  {e.Message}");
+                    human.WriteLine($"  refused  {e.Message}");
+                    datasets.Add(new() { ["accession"] = accession, ["status"] = "excluded", ["reasons"] = new List<string> { e.Message } });
                     failures++;
                     continue;
                 }
                 catch (DataRepoException e)
                 {
                     Console.Error.WriteLine($"  failed   {e.Message}");
+                    datasets.Add(new() { ["accession"] = accession, ["status"] = "refused", ["reasons"] = new List<string> { e.Message } });
                     failures++;
                     continue;
                 }
-                PrintResult(result, args.Flag("--verbose"));
+                catch (Exception e) when (json)
+                {
+                    // A crash still owes the caller its envelope; the stack trace is for a human.
+                    Console.Error.WriteLine($"  error    {e}");
+                    datasets.Add(new() { ["accession"] = accession, ["status"] = "error", ["reasons"] = new List<string> { $"{e.GetType().Name}: {e.Message}" } });
+                    failures++;
+                    continue;
+                }
+                PrintResult(result, args.Flag("--verbose"), human);
+                datasets.Add(Envelope(result));
             }
-            return failures > 0 ? 1 : 0;
+            return Finish(failures > 0 ? 1 : 0);
         }
+
+        /// <summary>One dataset's entry in <c>ingest --json</c>'s envelope.</summary>
+        private static Dictionary<string, object?> Envelope(IngestResult result) => new()
+        {
+            ["accession"] = result.DatasetId,
+            ["status"] = result.Skipped ? "unchanged" : "ingested",
+            ["bundle_id"] = result.BundleId,
+            ["bundle_path"] = result.BundlePath,
+            ["tables"] = result.RowCounts,
+            ["checks"] = result.Checks.Select(c => new Dictionary<string, object?>
+            {
+                ["name"] = c["name"], ["ok"] = c["ok"], ["observed"] = c["observed"], ["expected"] = c["expected"], ["source"] = c["source"],
+            }).ToList(),
+            ["mismatches"] = result.Mismatches.Count(),
+            ["unresolved_modifications"] = result.UnresolvedModifications,
+            ["unmatched_runs"] = result.UnmatchedRuns,
+            ["findings"] = result.Findings.Where(f => f["severity"] is "warning" or "error")
+                .Select(f => (string)f["code"]!).Distinct().Order(StringComparer.Ordinal).ToList(),
+            ["reasons"] = new List<string>(),
+        };
 
         private static int StudyCommand(string[] argv)
         {
@@ -209,6 +265,7 @@ namespace DataRepo.Cli
             if (manifest.Licence is not null && PyFormat.Str(manifest.Licence).Length > 0)
                 Console.WriteLine($"licence    {PyFormat.Str(manifest.Licence)} - {(manifest.Credit is null ? "no credit line" : PyFormat.Str(manifest.Credit))}");
             Console.WriteLine();
+            var refused = 0;
             foreach (var entry in manifest.Datasets.Values)
             {
                 var mark = entry.Ingestable ? "+" : "-";
@@ -220,6 +277,21 @@ namespace DataRepo.Cli
                 if (entry.Flags.Count > 0) Console.WriteLine($"     flags  {string.Join(", ", entry.Flags)}");
                 if (entry.Reason is not null && PyFormat.Str(entry.Reason).Length > 0)
                     Console.WriteLine($"     reason {string.Join(" ", PyFormat.Str(entry.Reason).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))}");
+                // PXReprise 009: a run map ingest would refuse is refused here too, so a wrong map is found
+                // before a re-ingest. The runs are read where the run folder is reachable.
+                if (entry.RunEnrichment.Count == 0) continue;
+                var (problems, runsRead) = Ingester.RunEnrichmentProblems(manifest, entry);
+                foreach (var problem in problems) Console.WriteLine($"     REFUSED {problem}");
+                if (problems.Count == 0)
+                    Console.WriteLine(runsRead
+                        ? $"     run_enrichment  ok against the runs ({entry.RunEnrichment.Count} mapped)"
+                        : "     run_enrichment  values ok; runs not readable here, so coverage was not checked");
+                refused += problems.Count > 0 ? 1 : 0;
+            }
+            if (refused > 0)
+            {
+                Console.Error.WriteLine($"{manifest.Path}: {refused} dataset(s) have a run_enrichment map ingest would refuse");
+                return 1;
             }
             return 0;
         }

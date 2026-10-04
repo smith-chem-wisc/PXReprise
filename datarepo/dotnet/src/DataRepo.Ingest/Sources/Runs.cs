@@ -203,45 +203,74 @@ public static class Runs
             return mixed;
         }
 
-        var vocabulary = EnrichmentVocabulary.ToHashSet(StringComparer.Ordinal);
-        var given = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var (run, value) in runEnrichment) given[run] = value;
-        var badValues = given.Values.Where(v => !vocabulary.Contains(v)).Distinct().Order(CodePointOrder).ToList();
-        if (badValues.Count > 0)
-            throw new IngestException(
-                $"{datasetId}: run_enrichment uses {string.Join(", ", badValues)}, which the schema's Enrichment " +
-                $"vocabulary does not have ({string.Join(", ", vocabulary.Order(CodePointOrder))}).");
         var baseNames = new Dictionary<string, Row>(StringComparer.Ordinal);
         foreach (var run in runs) baseNames[PathStem(Str(run["file_name"]))] = run;  // later wins, as the dict comprehension
-        var unknown = given.Keys.Where(k => !baseNames.ContainsKey(k)).Order(CodePointOrder).ToList();
-        if (unknown.Count > 0)
-            throw new IngestException(
-                $"{datasetId}: run_enrichment names {unknown.Count} run(s) that are not runs of this " +
-                $"dataset: {Examples(unknown)}. Runs are the deposited raw file names without their " +
-                $"extension, e.g. {Examples(baseNames.Keys.Order(CodePointOrder).ToList(), 3)}.");
-        var missing = baseNames.Keys.Where(k => !given.ContainsKey(k)).Order(CodePointOrder).ToList();
-        if (missing.Count > 0)
-            throw new IngestException(
-                $"{datasetId}: run_enrichment covers {given.Count} of {baseNames.Count} runs and must cover " +
-                $"every one. Missing: {Examples(missing)}. A partial map would leave NULL meaning " +
-                "'probably the other one'.");
-        var undeclared = given.Values.Where(v => v != "none" && !declared.Contains(v)).Distinct().Order(CodePointOrder).ToList();
-        if (undeclared.Count > 0)
-            throw new IngestException(
-                $"{datasetId}: run_enrichment assigns {string.Join(", ", undeclared)}, which the dataset's " +
-                $"enrichment declaration ({string.Join(", ", declared)}) does not include. Either the run map or " +
-                "the declaration is wrong, and the producer has to say which.");
-        // A Python set's iteration order is not insertion order, but with one element there is only one.
+        var problems = EnrichmentProblems(baseNames.Keys, datasetId, declared, mixed, runEnrichment);
+        if (problems.Count > 0) throw new IngestException(problems[0]);
+        var given = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (run, value) in runEnrichment) given[run] = value;
         var distinct = given.Values.ToHashSet(StringComparer.Ordinal);
-        if (mixed && distinct.Count == 1)
-            throw new IngestException(
-                $"{datasetId}: flagged mixed_enrichment, but run_enrichment gives every run " +
-                $"{Repr(distinct.First())}. The flag and the map contradict each other.");
         foreach (var (runBase, run) in baseNames)
         {
             run["enrichment"] = new List<object?> { given[runBase] };
             run["enrichment_source"] = FromManifest;
         }
         return mixed || distinct.Count > 1;
+    }
+
+    /// <summary>The run base names <see cref="AssignEnrichment"/> matches a run map against.</summary>
+    public static IReadOnlyList<string> RunBaseNames(IReadOnlyList<Row> runs) =>
+        runs.Select(r => PathStem(Str(r["file_name"]))).Distinct(StringComparer.Ordinal).ToList();
+
+    /// <summary>Every rule <see cref="AssignEnrichment"/> refuses a run map on, in the order it applies them; ingest
+    /// refuses on the first, <c>datarepo manifest</c> reports them all (PXReprise 009).</summary>
+    /// <param name="runBaseNames">The dataset's run base names, or null when its runs cannot be read, which skips
+    /// the two rules that need them (unknown runs, coverage).</param>
+    public static List<string> EnrichmentProblems(
+        IEnumerable<string>? runBaseNames,
+        string datasetId,
+        IReadOnlyList<string> declared,
+        bool mixed,
+        IReadOnlyList<(string Run, string Value)> runEnrichment)
+    {
+        var problems = new List<string>();
+        if (runEnrichment.Count == 0) return problems;
+        var vocabulary = EnrichmentVocabulary.ToHashSet(StringComparer.Ordinal);
+        var given = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (run, value) in runEnrichment) given[run] = value;
+        var badValues = given.Values.Where(v => !vocabulary.Contains(v)).Distinct().Order(CodePointOrder).ToList();
+        if (badValues.Count > 0)
+            problems.Add(
+                $"{datasetId}: run_enrichment uses {string.Join(", ", badValues)}, which the schema's Enrichment " +
+                $"vocabulary does not have ({string.Join(", ", vocabulary.Order(CodePointOrder))}).");
+        if (runBaseNames is not null)
+        {
+            var baseNames = runBaseNames.ToHashSet(StringComparer.Ordinal);
+            var unknown = given.Keys.Where(k => !baseNames.Contains(k)).Order(CodePointOrder).ToList();
+            if (unknown.Count > 0)
+                problems.Add(
+                    $"{datasetId}: run_enrichment names {unknown.Count} run(s) that are not runs of this " +
+                    $"dataset: {Examples(unknown)}. Runs are the deposited raw file names without their " +
+                    $"extension, e.g. {Examples(baseNames.Order(CodePointOrder).ToList(), 3)}.");
+            var missing = baseNames.Where(k => !given.ContainsKey(k)).Order(CodePointOrder).ToList();
+            if (missing.Count > 0)
+                problems.Add(
+                    $"{datasetId}: run_enrichment covers {given.Count} of {baseNames.Count} runs and must cover " +
+                    $"every one. Missing: {Examples(missing)}. A partial map would leave NULL meaning " +
+                    "'probably the other one'.");
+        }
+        var undeclared = given.Values.Where(v => v != "none" && !declared.Contains(v)).Distinct().Order(CodePointOrder).ToList();
+        if (undeclared.Count > 0)
+            problems.Add(
+                $"{datasetId}: run_enrichment assigns {string.Join(", ", undeclared)}, which the dataset's " +
+                $"enrichment declaration ({string.Join(", ", declared)}) does not include. Either the run map or " +
+                "the declaration is wrong, and the producer has to say which.");
+        // A Python set's iteration order is not insertion order, but with one element there is only one.
+        var distinct = given.Values.ToHashSet(StringComparer.Ordinal);
+        if (mixed && distinct.Count == 1)
+            problems.Add(
+                $"{datasetId}: flagged mixed_enrichment, but run_enrichment gives every run " +
+                $"{Repr(distinct.First())}. The flag and the map contradict each other.");
+        return problems;
     }
 }

@@ -150,6 +150,40 @@ public static class Ingester
         return IngestDataset(manifest, entry, store, mmSettings, overwrite, rules);
     }
 
+    /// <summary>The <c>run_enrichment</c> rules ingest would refuse <paramref name="entry"/> on, checked without
+    /// ingesting (PXReprise 009). The runs are read as ingest reads them (fetch manifest, QC report, minus the files
+    /// the search left out); when they cannot be read, only the rules that need no runs are applied.</summary>
+    /// <returns>The problems, in ingest's order, and whether the runs were read.</returns>
+    public static (List<string> Problems, bool RunsRead) RunEnrichmentProblems(Manifest manifest, DatasetEntry entry)
+    {
+        IReadOnlyList<string>? baseNames = null;
+        IReadOnlySet<string> excluded = new HashSet<string>();
+        try
+        {
+            var runDir = manifest.RunDir(entry);
+            var searchDir = manifest.StageDir(entry, "search");
+            if (Directory.Exists(runDir) && searchDir is not null && File.Exists(Join(searchDir, "provenance.json")))
+            {
+                (excluded, _) = Runs.ExcludedFiles(Provenance.Load(Join(searchDir, "provenance.json")));
+                var fetchPath = Directory.GetDirectories(runDir).Order(StringComparer.Ordinal)
+                    .Select(d => Path.Combine(d, "fetch_manifest.json")).Where(File.Exists).Order(StringComparer.Ordinal).FirstOrDefault();
+                var qcDir = manifest.StageDir(entry, "qc");
+                var qcPath = qcDir is not null ? FindFile(qcDir, "qc_report.json") : null;
+                var (runRows, _) = Runs.Build(entry.Accession,
+                    fetchPath is not null ? Runs.LoadFetchManifest(fetchPath) : null,
+                    qcPath is not null ? Runs.LoadQcReport(qcPath) : null,
+                    new Dictionary<string, IReadOnlyDictionary<string, object?>>(StringComparer.Ordinal), excluded);
+                if (runRows.Count > 0) baseNames = Runs.RunBaseNames(runRows);
+            }
+        }
+        catch (DataRepoException) { baseNames = null; }
+        catch (IOException) { baseNames = null; }
+        var excludedStems = excluded.Select(Path.GetFileNameWithoutExtension).ToHashSet(StringComparer.Ordinal);
+        var problems = Runs.EnrichmentProblems(baseNames, entry.Accession, entry.Enrichment, entry.MixedEnrichment,
+            entry.RunEnrichment.Where(p => !excludedStems.Contains(p.Run)).ToList());
+        return (problems, baseNames is not null);
+    }
+
     /// <summary>Builds the bundle for one dataset.</summary>
     /// <param name="mmSettings">The MetaMorpheus install that did the search, for the modification registry;
     /// defaults to <c>&lt;work_root&gt;/mm_settings/&lt;version from the manifest&gt;</c>.</param>

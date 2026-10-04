@@ -1,5 +1,6 @@
 using DataRepo.Bundle;
 using DataRepo.Ingest;
+using DataRepo.Ingest.Sources;
 
 namespace DataRepo.Tests;
 
@@ -109,6 +110,44 @@ public class IngestParityTests
         Directory.CreateDirectory(to);
         foreach (var file in Directory.GetFiles(from, "*", SearchOption.AllDirectories))
             File.Copy(file, file.Replace(from, to), true);
+    }
+
+    /// <summary>PXReprise 009: <c>datarepo manifest</c> refuses a run map exactly where ingest would, with ingest's
+    /// own words, reading the runs as ingest reads them.</summary>
+    [Test]
+    public void ManifestChecksRefuseTheRunMapsIngestRefuses()
+    {
+        var manifest = Manifest.Load(Path.Combine(RepoRoot(), "tests", "data", "manifest.yaml"));
+        var entry = manifest.Datasets["PXD999999"];
+        var (_, runs) = ArrowTables.ReadParquet(Path.Combine(TestContext.CurrentContext.TestDirectory, "Fixtures", "python-0.32.0", "PXD999999", "aeb10630abbcaf72", "runs.parquet"));
+        var names = runs.Select(r => Path.GetFileNameWithoutExtension((string)r["file_name"]!)).Order(StringComparer.Ordinal).ToList();
+        Assume.That(names, Has.Count.GreaterThan(1));
+
+        var good = entry with { RunEnrichment = names.Select(n => (n, "none")).ToList() };
+        var (none, read) = Ingester.RunEnrichmentProblems(manifest, good);
+        Assert.That(read, "the fixture's runs are reachable");
+        Assert.That(none, Is.Empty);
+
+        var bad = entry with { RunEnrichment = names.Skip(1).Select(n => (n, "none")).Append(("not_a_run", "none")).ToList() };
+        var (problems, _) = Ingester.RunEnrichmentProblems(manifest, bad);
+        Assert.That(problems, Has.Count.EqualTo(2));
+        Assert.That(problems[0], Does.Contain("names 1 run(s) that are not runs of this dataset: not_a_run"));
+        Assert.That(problems[1], Does.Contain($"Missing: {names[0]}"));
+
+        var store = Path.Combine(Path.GetTempPath(), "datarepo-runmap-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Assert.That(() => Ingester.IngestDataset(manifest, bad, store),
+                Throws.TypeOf<IngestException>().With.Message.EqualTo(problems[0]), "manifest and ingest must refuse in the same words");
+        }
+        finally
+        {
+            if (Directory.Exists(store)) Directory.Delete(store, true);
+        }
+
+        // With no runs readable, the rules that need none still apply.
+        var unreadable = Runs.EnrichmentProblems(null, "PXD999999", ["other"], mixed: true, [("a", "other"), ("b", "other")]);
+        Assert.That(unreadable, Has.Count.EqualTo(1).And.Some.Contains("flagged mixed_enrichment"));
     }
 
     [Test]
