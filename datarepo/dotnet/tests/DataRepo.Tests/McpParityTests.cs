@@ -183,8 +183,13 @@ public class McpParityTests
     private static readonly Regex Elapsed = new("\"elapsed_seconds\": [^,\\n]+", RegexOptions.CultureInvariant);
     private static readonly Regex ServedBy = new("\"served_by\": \"datarepo [^\"]*\"", RegexOptions.CultureInvariant);
 
+    /// <summary>DuckDB's <c>threads</c> setting is the machine's core count (64 where the fixtures were made, 4 on a
+    /// CI runner): environment, not output. Found by CI on Linux, 2026-10-04.</summary>
+    private static readonly Regex Threads = new("(\"threads\",\\s*)\"\\d+\"", RegexOptions.CultureInvariant);
+
     public static string Normalise(string text, string catalogPath)
     {
+        text = Threads.Replace(text, "$1\"<cores>\"");
         text = Elapsed.Replace(text, "\"elapsed_seconds\": \"<elapsed>\"");
         text = ServedBy.Replace(text, "\"served_by\": \"datarepo <version>\"");
         var escaped = PydanticJson.Serialize(catalogPath);
