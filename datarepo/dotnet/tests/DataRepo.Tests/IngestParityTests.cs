@@ -22,11 +22,39 @@ public class IngestParityTests
         var store = Path.Combine(Path.GetTempPath(), "datarepo-ingest-" + Guid.NewGuid().ToString("N"));
         try
         {
-            var result = Ingester.Ingest(Path.Combine(RepoRoot(), "tests", "data", "manifest.yaml"), "PXD999999", store);
+            var result = Ingester.Ingest(Path.Combine(RepoRoot(), "tests", "data", "manifest.yaml"), "PXD999999", store, rules: IngestRules.Python0320);
             var expected = Path.Combine(TestContext.CurrentContext.TestDirectory, "Fixtures", "python-0.32.0", "PXD999999", "aeb10630abbcaf72");
             var differences = RoundTrip.CompareBundles(expected, result.BundlePath);
             Assert.That(differences, Is.Empty, string.Join("\n", differences));
             Assert.That(result.BundleId, Is.Not.EqualTo("aeb10630abbcaf72"), "the C# ingest path is its own version line");
+            Assert.That(File.ReadAllText(Path.Combine(result.BundlePath, "bundle.json")), Does.Contain(Ingester.Python0320ParityPath));
+        }
+        finally
+        {
+            if (Directory.Exists(store)) Directory.Delete(store, true);
+        }
+    }
+
+    [Test]
+    public void CurrentRulesComputeSpecificityFromTheSearchedSequencesAndKeyPepOnIteration()
+    {
+        var store = Path.Combine(Path.GetTempPath(), "datarepo-ingest-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var current = Ingester.Ingest(Path.Combine(RepoRoot(), "tests", "data", "manifest.yaml"), "PXD999999", store, rules: IngestRules.Current);
+            var (_, peptidoforms) = ArrowTables.ReadParquet(Path.Combine(current.BundlePath, "peptidoforms.parquet"));
+            // D40: is_isoform_specific is filled wherever the sequence is in the searched databases, and never
+            // claims more than is_unique does.
+            Assert.That(peptidoforms.Any(r => r["is_isoform_specific"] is not null), "G76 left is_isoform_specific NULL everywhere");
+            Assert.That(peptidoforms.Where(r => r["is_isoform_specific"] is true).All(r => r["is_unique"] is true));
+            Assert.That(peptidoforms.Where(r => r["is_unique"] is null).All(r => r["is_isoform_specific"] is null));
+
+            var (_, definitions) = ArrowTables.ReadParquet(Path.Combine(current.BundlePath, "definitions.parquet"));
+            var pep = definitions.Single(r => (string)r["definition_id"]! == Definitions.PepId);
+            Assert.That((string)pep["version"]!, Does.EndWith("; iterative off"), "G81: MetaMorpheus 1.1.11 predates iterative PEP");
+
+            var parity = Ingester.Ingest(Path.Combine(RepoRoot(), "tests", "data", "manifest.yaml"), "PXD999999", store, rules: IngestRules.Python0320);
+            Assert.That(parity.BundleId, Is.Not.EqualTo(current.BundleId), "a parity bundle must never share an id with a real one");
         }
         finally
         {

@@ -3,6 +3,18 @@ using DataRepo.Ingest.Sources;
 
 namespace DataRepo.Ingest;
 
+/// <summary>Which rules an ingest applies.</summary>
+public enum IngestRules
+{
+    /// <summary>The C# ingester's own rules: Python 0.32.0's, plus G76 (sequence-level specificity, D40) and G81
+    /// (DEF-PEP's <c>iterative</c> key part). Bundle ids are computed from <see cref="BundleWriter.IngesterVersion"/>.</summary>
+    Current,
+
+    /// <summary>Exactly the rows Python 0.32.0 wrote, for the port's parity runs (D41). Ids are computed from
+    /// <see cref="Ingester.Python0320ParityPath"/>, so such a bundle can never be mistaken for a real one.</summary>
+    Python0320,
+}
+
 /// <summary>What one ingest produced, for the CLI and for tests.</summary>
 public sealed record IngestResult(
     string DatasetId,
@@ -26,6 +38,9 @@ public sealed record IngestResult(
 /// </remarks>
 public static class Ingester
 {
+    /// <summary>The ingest path a <see cref="IngestRules.Python0320"/> run hashes into its ids: marked, never a release.</summary>
+    public const string Python0320ParityPath = "parity-python-0.32.0";
+
     /// <summary>Manifest <c>quant_method</c> spellings mapped onto the schema's enum.</summary>
     public static readonly IReadOnlyDictionary<string, string> QuantMethods = new Dictionary<string, string>(StringComparer.Ordinal)
     {
@@ -128,11 +143,11 @@ public static class Ingester
     }
 
     /// <summary>Loads a manifest and ingests one dataset from it.</summary>
-    public static IngestResult Ingest(string manifestPath, string accession, string? store = null, string? mmSettings = null, bool overwrite = false)
+    public static IngestResult Ingest(string manifestPath, string accession, string? store = null, string? mmSettings = null, bool overwrite = false, IngestRules rules = IngestRules.Current)
     {
         var manifest = Manifest.Load(manifestPath);
         var entry = manifest.Dataset(accession);
-        return IngestDataset(manifest, entry, store, mmSettings, overwrite);
+        return IngestDataset(manifest, entry, store, mmSettings, overwrite, rules);
     }
 
     /// <summary>Builds the bundle for one dataset.</summary>
@@ -141,7 +156,7 @@ public static class Ingester
     /// <exception cref="DatasetExcludedException">The manifest does not mark the dataset <c>include</c>.</exception>
     /// <exception cref="IngestException">A file the ingest cannot do without is missing.</exception>
     /// <exception cref="UnsupportedProvenanceException">The run's provenance cannot be mapped safely.</exception>
-    public static IngestResult IngestDataset(Manifest manifest, DatasetEntry entry, string? store = null, string? mmSettings = null, bool overwrite = false)
+    public static IngestResult IngestDataset(Manifest manifest, DatasetEntry entry, string? store = null, string? mmSettings = null, bool overwrite = false, IngestRules rules = IngestRules.Current)
     {
         // mzLib parses numbers with the current culture; pyMzLib's bridge ran with InvariantGlobalization. A
         // comma-decimal host culture would otherwise read "0.01" differently from the producer's intent.
@@ -163,7 +178,7 @@ public static class Ingester
         var resultsDir = manifest.SearchResultsDir(entry);
         if (!Directory.Exists(resultsDir)) throw new IngestException($"{datasetId}: search results folder {resultsDir} does not exist");
 
-        var writer = new BundleWriter(store ?? manifest.Store, datasetId);
+        var writer = new BundleWriter(store ?? manifest.Store, datasetId, rules == IngestRules.Python0320 ? Python0320ParityPath : null);
         // The manifest entry is an input like any other: it supplies the title and the D5 axes, so it is in the
         // content hash; only the fields that shape content, never the producer's prose (manifest.ContentFields).
         writer.AddDeclaration("manifest_entry", entry.ContentDeclaration());
@@ -366,6 +381,19 @@ public static class Ingester
             peptideColumns.Count > 0 ? peptideColumns : psmColumns, datasetId, proforma,
             Identifications.PsmCountsByPeptidoform(psmRows),
             proteinGroups.Select(g => (string)g["protein_group_id"]!).ToHashSet(StringComparer.Ordinal));
+        if (rules == IngestRules.Current)
+        {
+            // G76 (D40): specificity from the searched sequences, by mzLib's classifier, replacing parsimony-unique.
+            var databases = sequences.Files.Select(f => (PyFormat.Str(f["path"]!), PyFormat.Str(f["sha256"] ?? ""), ProteinDb.IsContaminantDatabase(PyFormat.Str(f["path"]!)))).ToList();
+            var sharing = Specificity.Classify(peptidoforms.Select(r => r["base_sequence"] as string ?? ""), Specificity.LoadProteins(databases));
+            foreach (var row in peptidoforms)
+            {
+                var (isUnique, isIsoformSpecific) = sharing.TryGetValue(row["base_sequence"] as string ?? "", out var cls)
+                    ? Specificity.Columns(cls) : (null, null);
+                row["is_unique"] = isUnique;
+                row["is_isoform_specific"] = isIsoformSpecific;
+            }
+        }
         // A protein's contaminant label comes from the database it was read from, not from the PSM row it shares
         // with a contaminant (G66). An accession in BOTH is whatever the search's TCAmbiguity made it.
         var tc = SearchParams.TcAmbiguity(TaskFiles(manifest.WorkRoot, searchProvenance));
@@ -584,7 +612,8 @@ public static class Ingester
         // `pep` is comparable only inside the search that wrote it (pep 002), so the text saying so travels with
         // the rows, versioned by the release and regime behind them.
         if (psmRows.Count > 0)
-            definitionRows.Add(Definitions.PepDefinition(engineVersion, SearchParams.PepRegime(taskFiles)).Row());
+            definitionRows.Add(Definitions.PepDefinition(engineVersion, SearchParams.PepRegime(taskFiles),
+                rules == IngestRules.Current ? SearchParams.PepIterative(taskFiles, engineVersion) : null).Row());
         writer.Add("definitions", definitionRows);
 
         writer.Notes["instance"] = manifest.Instance;

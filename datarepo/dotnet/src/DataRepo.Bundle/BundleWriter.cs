@@ -15,7 +15,9 @@ namespace DataRepo.Bundle;
 /// </remarks>
 /// <param name="store">The instance's bundle store, e.g. <c>F:/aging_data/repo/store</c>.</param>
 /// <param name="datasetId">ProteomeXchange accession.</param>
-public sealed class BundleWriter(string store, string datasetId)
+/// <param name="ingestPath">The ingest-path version hashed into the id; defaults to <see cref="IngesterVersion"/>.
+/// A parity run passes its own marked value so its ids can never collide with a real bundle's.</param>
+public sealed class BundleWriter(string store, string datasetId, string? ingestPath = null)
 {
     /// <summary>The version of the C# INGEST PATH, and the only version in a bundle's content hash.</summary>
     /// <remarks>
@@ -39,6 +41,9 @@ public sealed class BundleWriter(string store, string datasetId)
     private readonly List<(string Source, string CopyAs)> _copied = [];
 
     public string Store { get; } = store;
+
+    /// <summary>The ingest-path version this bundle's id is computed from.</summary>
+    public string IngestPath { get; } = ingestPath ?? IngesterVersion;
     public string DatasetId { get; } = datasetId;
 
     /// <summary>Top-level <c>bundle.json</c> keys added after the fixed ones (readers, reconciliation, ...).</summary>
@@ -120,7 +125,7 @@ public sealed class BundleWriter(string store, string datasetId)
     }
 
     /// <summary>Content hash of the inputs, the schema and the ingest path.</summary>
-    public string BundleId => ComputeBundleId(IngesterVersion, Tables.SchemaVersion, DatasetId, _sources);
+    public string BundleId => ComputeBundleId(IngestPath, Tables.SchemaVersion, DatasetId, _sources);
 
     /// <summary>The bundle id rule, exposed so a stored bundle's id can be recomputed from its manifest.</summary>
     /// <remarks>sha256 over <c>datarepo/&lt;ingest path&gt;\nschema/&lt;schema&gt;\n&lt;dataset&gt;\n</c>, then
@@ -186,7 +191,7 @@ public sealed class BundleWriter(string store, string datasetId)
             {
                 ["name"] = "datarepo",
                 ["version"] = PackageVersion,
-                ["ingest_path"] = IngesterVersion,
+                ["ingest_path"] = IngestPath,
             },
             ["written_utc"] = DateTimeOffset.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'+00:00'"),
             ["tables"] = rowCounts,
