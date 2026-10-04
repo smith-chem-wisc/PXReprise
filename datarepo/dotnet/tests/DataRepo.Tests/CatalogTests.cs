@@ -77,6 +77,14 @@ public class CatalogTests
     {
         using var con = new DuckDBConnection($"Data Source={path};ACCESS_MODE=READ_ONLY");
         con.Open();
+        // to_json renders a TIMESTAMPTZ in the session's time zone, which is the machine's: the expected dumps were
+        // written by Python in America/Chicago, and CI runs in UTC. Same instants, different text, so the dump
+        // pins the zone the fixtures were written in (found by CI on Linux, 2026-10-04).
+        using (var tz = con.CreateCommand())
+        {
+            tz.CommandText = "SET TimeZone = 'America/Chicago'";
+            tz.ExecuteNonQuery();
+        }
         var tables = new SortedDictionary<string, TableDump>(StringComparer.Ordinal);
         foreach (var obj in Rows(con,
             "SELECT table_name, table_type FROM information_schema.tables "
