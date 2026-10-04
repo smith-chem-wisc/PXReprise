@@ -1,0 +1,7 @@
+sample_id	name	value	term	source_reference	evidence	confidence	curation_version	value_reserved
+S1	organism part	not applicable		PMID 1			v1	
+S2	organism part	Not Available 		PMID 1			v1	TRUE
+S3	organism part	liver	UBERON:0002107	PMID 1	paper	high	v1	no
+S4	organism part	N/A		PMID 1			v1	1
+S5	organism part	unknown		PMID 1			v1
+S6	organism part	kidney		PMID 1			v1	 

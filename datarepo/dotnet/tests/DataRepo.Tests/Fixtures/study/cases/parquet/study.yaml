@@ -1,0 +1,7 @@
+study_manifest_version: 1
+layer: aging
+store: ./unused-store
+tables:
+  sample_ages: sample_ages.parquet
+  age_mappings: age_mappings.parquet
+  curated_sample_characteristics: curated.parquet

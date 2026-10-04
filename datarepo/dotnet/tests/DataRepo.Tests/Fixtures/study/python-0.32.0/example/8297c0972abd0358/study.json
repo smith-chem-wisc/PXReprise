@@ -1,0 +1,47 @@
+{
+  "bundle_id": "8297c0972abd0358",
+  "kind": "study",
+  "layer": "aging",
+  "layer_version": "0.5.0",
+  "schema_version": "0.0.13",
+  "instance": "ncems-aging",
+  "delivery": "stage7-example",
+  "ingester": {
+    "name": "datarepo",
+    "version": "0.32.0",
+    "study_ingest_path": "0.6.0"
+  },
+  "written_utc": "2026-10-04T16:07:42+00:00",
+  "tables": {
+    "age_effect_refusals": 1,
+    "age_effects": 2,
+    "sample_ages": 2
+  },
+  "sources": [
+    {
+      "role": "table:age_effect_refusals",
+      "path": "E:\\CodeReview\\dataRepo\\.claude\\worktrees\\agent-a3e22cde33ad2ea8c\\dotnet\\tests\\DataRepo.Tests\\Fixtures\\study\\cases\\example\\age_effect_refusals.tsv",
+      "size_bytes": 311,
+      "sha256": "f6a5bd828d624b89e33db79c0c9f7967deecbca15a5f0ab6094e3cfea92e3de4"
+    },
+    {
+      "role": "table:age_effects",
+      "path": "E:\\CodeReview\\dataRepo\\.claude\\worktrees\\agent-a3e22cde33ad2ea8c\\dotnet\\tests\\DataRepo.Tests\\Fixtures\\study\\cases\\example\\age_effects.tsv",
+      "size_bytes": 708,
+      "sha256": "333d75873b9695e1115c3e3440e0162eb279918ef3d2063991a42e74ce7c9537"
+    },
+    {
+      "role": "table:sample_ages",
+      "path": "E:\\CodeReview\\dataRepo\\.claude\\worktrees\\agent-a3e22cde33ad2ea8c\\dotnet\\tests\\DataRepo.Tests\\Fixtures\\study\\cases\\example\\sample_ages.tsv",
+      "size_bytes": 206,
+      "sha256": "577c7c7595d1a62e5aa29f78fbb4734d59fd6df3a0a487cda534653267845915"
+    },
+    {
+      "role": "declaration:study",
+      "path": "<declaration:study>",
+      "kind": "declaration",
+      "sha256": "dba0ec39decb9b697d3cf3f508f85007109ef8b646213caf8491208dbfbe90d6"
+    }
+  ],
+  "notes": "Two protein-group abundance effects and one refused fit, plus the two sample ages that would have supported them. The refusal is `too_few_distinct_ages`, which is DEF-AGE-EFFECT v1 section 5's rule working as intended: no row in age_effects, and nowhere to write a null beta.\n"
+}

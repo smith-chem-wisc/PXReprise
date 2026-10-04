@@ -45,12 +45,20 @@ public static class PyYaml
     /// string, long, double, bool, <see cref="DateOnly"/> or null.</summary>
     public static object? Plain(YamlNode node) => node switch
     {
-        YamlMappingNode m => m.Children.ToDictionary(
-            kv => KeyText(kv.Key), kv => Plain(kv.Value)),
+        YamlMappingNode m => Mapping(m),
         YamlSequenceNode s => s.Children.Select(Plain).ToList(),
         YamlScalarNode s => Scalar(s),
         _ => null,
     };
+
+    /// <summary>A mapping in document order; a repeated key keeps its first position and its last value, as
+    /// PyYAML's <c>safe_load</c> does (a dict assignment).</summary>
+    private static Dictionary<string, object?> Mapping(YamlMappingNode m)
+    {
+        var map = new Dictionary<string, object?>(StringComparer.Ordinal);
+        foreach (var (key, value) in m.Children) map[KeyText(key)] = Plain(value);
+        return map;
+    }
 
     private static string KeyText(YamlNode key) => Plain(key) switch
     {

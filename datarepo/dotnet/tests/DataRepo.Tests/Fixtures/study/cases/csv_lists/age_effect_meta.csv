@@ -1,0 +1,5 @@
+﻿organism,feature_type,feature_id,response,estimator,quant_basis,stratum,tissue,acquisition,quant_method,beta_meta,se_meta,ci_low,ci_high,q_meta,n_datasets,dataset_ids,i_squared,tau2,n_direction_agree,n_direction_disagree,leave_one_out_max_delta,definition_id
+NCBITaxon:9606,protein_group,P1,abundance,intensity,mbr_included,all,"liver, left lobe",DDA,LFQ,-0.21,0.04,,, 1e-3 ,3.0," PXD1; PXD2 ;;PXD3",NaN,inf,2,1,0.5,aging:DEF-AGE-EFFECT-META
+NCBITaxon:10090,protein_group,P2,abundance,intensity,mbr_included,all,"he said ""hi""",DDA,LFQ,0.08,0.03,-0.1,0.2,0.31,2.7,PXD9,,,,,,aging:DEF-AGE-EFFECT-META
+NCBITaxon:10090,protein_group,P3,abundance,intensity,mbr_included,all,"two
+lines",DDA,"LF"Q,1_000.5,0.03,,,,1,PXD9;PXD10,,,,,,aging:DEF-AGE-EFFECT-META
