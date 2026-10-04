@@ -71,6 +71,63 @@ public static class PyFormat
         return negative ? "-" + body : body;
     }
 
+    /// <summary>Python's <c>format(value, "g")</c>: six significant digits, trailing zeros dropped,
+    /// exponent form when the decimal exponent is below -4 or at least 6.</summary>
+    public static string FormatG(double value)
+    {
+        if (double.IsNaN(value)) return "nan";
+        if (double.IsInfinity(value)) return value > 0 ? "inf" : "-inf";
+        if (value == 0) return double.IsNegative(value) ? "-0" : "0";
+        // "E5" rounds to six significant digits correctly; its exponent decides the layout.
+        var e = value.ToString("E5", CultureInfo.InvariantCulture);
+        var exp = int.Parse(e[(e.IndexOf('E') + 1)..], CultureInfo.InvariantCulture);
+        if (exp < -4 || exp >= 6)
+        {
+            var mantissa = e[..e.IndexOf('E')];
+            if (mantissa.Contains('.')) mantissa = mantissa.TrimEnd('0').TrimEnd('.');
+            return mantissa + "e" + (exp < 0 ? "-" : "+") + Math.Abs(exp).ToString("00", CultureInfo.InvariantCulture);
+        }
+        var fixedText = value.ToString("F" + Math.Max(0, 5 - exp), CultureInfo.InvariantCulture);
+        if (fixedText.Contains('.')) fixedText = fixedText.TrimEnd('0').TrimEnd('.');
+        return fixedText;
+    }
+
+    /// <summary><see cref="FormatG(double)"/> for any number a row can carry.</summary>
+    public static string FormatG(object value) => value switch
+    {
+        double d => FormatG(d),
+        float f => FormatG(f),
+        IConvertible c => FormatG(c.ToDouble(CultureInfo.InvariantCulture)),
+        _ => throw new FormatException($"cannot format {value} with 'g'"),
+    };
+
+    /// <summary>Python's <c>float(text)</c>: surrounding whitespace allowed, <c>nan</c>/<c>inf</c>/<c>infinity</c>
+    /// in any case with an optional sign, underscores between digits; false where Python raises ValueError.</summary>
+    public static bool TryParseFloat(string? text, out double value)
+    {
+        value = 0;
+        if (text is null) return false;
+        var s = text.Trim();
+        if (s.Length == 0) return false;
+        var lower = s.ToLowerInvariant();
+        var unsigned = lower.TrimStart('+', '-');
+        var negative = lower.StartsWith('-');
+        if (lower.Length - unsigned.Length > 1) return false;
+        if (unsigned is "nan") { value = double.NaN; return true; }
+        if (unsigned is "inf" or "infinity") { value = negative ? double.NegativeInfinity : double.PositiveInfinity; return true; }
+        if (s.Contains('_'))
+        {
+            // Python allows one underscore between two digits only.
+            for (var i = 0; i < s.Length; i++)
+                if (s[i] == '_' && (i == 0 || i == s.Length - 1 || !char.IsAsciiDigit(s[i - 1]) || !char.IsAsciiDigit(s[i + 1])))
+                    return false;
+            s = s.Replace("_", "");
+        }
+        foreach (var c in s)
+            if (!(char.IsAsciiDigit(c) || c is '.' or 'e' or 'E' or '+' or '-')) return false;
+        return double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+    }
+
     /// <summary>Python's <c>str(value)</c> for the scalar types a row can carry.</summary>
     public static string Str(object value) => value switch
     {

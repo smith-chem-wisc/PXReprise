@@ -431,13 +431,17 @@ public sealed class ModRegistry
     /// <summary>Read <c>Mods/*.txt</c> and <c>Data/ptmlist.txt</c> from a MetaMorpheus install.</summary>
     /// <remarks>A missing install is not an error here; it yields an empty registry, and every unresolved
     /// modification is reported by the caller instead. <c>Mods/*.txt</c> is matched and sorted as Python's
-    /// <c>pathlib</c> does: case-insensitively on Windows, case-sensitively elsewhere. Files are decoded as
-    /// <c>utf-8-sig</c> with <c>errors="replace"</c> (one leading BOM dropped, bad bytes become U+FFFD).</remarks>
+    /// <c>pathlib</c> does ON WINDOWS, case-insensitively, on every platform. Python's order was
+    /// platform-dependent (case-sensitive on POSIX), and the order decides which file's entry a name lookup
+    /// finds, so the same search ingested on Linux would have resolved modifications differently. Every
+    /// stored bundle was written on Windows, so that order is the contract (found by CI, 2026-10-04; G83).
+    /// Files are decoded as <c>utf-8-sig</c> with <c>errors="replace"</c> (one leading BOM dropped, bad bytes
+    /// become U+FFFD).</remarks>
     public static ModRegistry FromMetaMorpheus(string installDir)
     {
         var registry = new ModRegistry();
-        var windows = OperatingSystem.IsWindows();
-        var comparison = windows ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        const bool windows = true;
+        var comparison = StringComparison.OrdinalIgnoreCase;
         var paths = new List<string>();
         var mods = Path.Combine(installDir, "Mods");
         if (Directory.Exists(mods))

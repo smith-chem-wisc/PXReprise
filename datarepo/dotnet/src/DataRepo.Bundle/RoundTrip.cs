@@ -91,6 +91,30 @@ public static class RoundTrip
             bundleDir, storedId, recomputed, schemaVersion, results, Integrity.Check(allRows), unknown);
     }
 
+    /// <summary>Compares two bundles table by table (phase 2: Python's and C#'s ingest of the same inputs).</summary>
+    /// <returns>One line per table that differs (schema, row count, or first differing cell); empty when the
+    /// two hold the same rows in the same order. Ids and <c>bundle.json</c> are not compared.</returns>
+    public static List<string> CompareBundles(string expectedDir, string actualDir)
+    {
+        var differences = new List<string>();
+        var expected = Directory.GetFiles(expectedDir, "*.parquet").Select(Path.GetFileName).ToHashSet(StringComparer.Ordinal);
+        var actual = Directory.GetFiles(actualDir, "*.parquet").Select(Path.GetFileName).ToHashSet(StringComparer.Ordinal);
+        foreach (var missing in expected.Except(actual).Order(StringComparer.Ordinal))
+            differences.Add($"{missing}: only in the expected bundle");
+        foreach (var extra in actual.Except(expected).Order(StringComparer.Ordinal))
+            differences.Add($"{extra}: only in the actual bundle");
+        foreach (var file in expected.Intersect(actual).Order(StringComparer.Ordinal))
+        {
+            var (schemaA, rowsA) = ArrowTables.ReadParquet(Path.Combine(expectedDir, file!));
+            var (schemaB, rowsB) = ArrowTables.ReadParquet(Path.Combine(actualDir, file!));
+            if (!SameSchema(schemaA, schemaB))
+                differences.Add($"{file}: schemas differ");
+            if (FirstDifference(rowsA, rowsB) is { } difference)
+                differences.Add($"{file}: {difference}");
+        }
+        return differences;
+    }
+
     /// <summary>Two Arrow schemas with the same fields, in order, with the same types and nullability.</summary>
     public static bool SameSchema(Schema a, Schema b) =>
         a.FieldsList.Count == b.FieldsList.Count
