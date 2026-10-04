@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/DataRepo.Bundle/DataRepo.Bundle.csproj" />
+    <Project Path="src/DataRepo.Parity/DataRepo.Parity.csproj" />
+    <Project Path="src/DataRepo.SchemaGen/DataRepo.SchemaGen.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/DataRepo.Tests/DataRepo.Tests.csproj" />
+  </Folder>
+</Solution>
