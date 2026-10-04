@@ -71,12 +71,17 @@ replace a queue that already exists, because a running batch may be using it. De
 pxreprise batch run    question.toml --machine my-machine.toml
 pxreprise batch status question.toml
 pxreprise batch stop   question.toml
+pxreprise batch retry  question.toml PXD000000 --reason "why"
 ```
 
 - `run` works through the queue, one deposit at a time, until the queue is done, the disk is full, or it is stopped.
-  Run it again at any time: deposits already settled are skipped, and it carries on where it stopped.
+  Run it again at any time: deposits already settled are skipped, and it carries on where it stopped. Each downloaded
+  file is logged as it finishes, and each retry with its error.
 - `status` counts the deposits by status (see [Reading the results](results.md)) and shows whether a batch is running.
 - `stop` asks a running batch to finish the deposit it is on, then exit.
+- `retry` puts one settled deposit (for example `fetch_failed`) back in the queue for the next `run`. The reason is
+  required; it is kept in `state.json` with the old status, the time and the user, and logged. Refused while a batch is
+  running and for a deposit whose search finished.
 
 Only one batch runs per question at a time; a second `run` is refused while the first is alive.
 

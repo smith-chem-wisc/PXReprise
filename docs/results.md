@@ -53,6 +53,7 @@ spend time on them again.
 | `fetch_failed`, `probe_fetch_failed` | The downloads failed on every pass, or failed in a way a retry cannot fix (for example a checksum mismatch). | yes |
 | `search_failed` | MetaMorpheus failed; see `04_search/metamorpheus.log`. | yes |
 | `on_hold_user` | Held by the question's `[holds]`. | until removed |
+| `requeued_user` | Put back in the queue by `pxreprise batch retry`; the entry's `requeued` list says who, when, why, and what it was before. | no |
 
 To see **why** a deposit has its status, search `batch.log` for its accession: each decision is logged with its reason.
 

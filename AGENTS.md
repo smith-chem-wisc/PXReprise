@@ -276,7 +276,8 @@ Per-deposit status lives in `<state_dir>/state.json`. The statuses a person will
 | `contaminant database missing` | `[metamorpheus]` points somewhere other than the unzipped release folder (step 3). |
 | log says `free space ... below ... floor: stopping` | The work disk is fuller than `min_free_gb`; free space or lower it. |
 | `failed on availability, pass 1 of 3: retry next pass` | PRIDE dropped the downloads through every attempt. The batch waits `pass_wait_minutes` (default 30) and tries again; nothing to do. |
-| `failed on availability, pass 3 of 3: settled` | PRIDE failed the deposit on every pass; it is settled as `fetch_failed`. Report it; do not edit `state.json` by hand. |
+| `failed on availability, pass 3 of 3: settled` | PRIDE failed the deposit on every pass; it is settled as `fetch_failed`. Report it; do not edit `state.json` by hand. To try it again, **ask the person**, stop the batch, then `pxreprise batch retry <question.toml> <PXD> --reason "..."`. |
+| `FETCH retry <file> attempt 2 of 8: ...` | One download dropped or stalled and is being retried; nothing to do. A file with no new data for `fetch_stall_minutes` (default 5) is abandoned and retried. |
 | A deposit you expected is missing | Look it up in the census's `census.tsv`: the `route` and `route_reason` columns say why. |
 | A search fails and `04_search/metamorpheus.log` mentions the Thermo licence | `accept_thermo_licence` is not `true` (step 4). |
 

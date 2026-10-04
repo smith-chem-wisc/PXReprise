@@ -29,6 +29,10 @@ min_free_gb = 50
 # fetch_passes = 3
 # pass_wait_minutes = 30
 
+# A download whose file has received no data for this many minutes is abandoned and retried (0 turns this off).
+# On a slow or unreliable link, parallel_downloads = 2 can be faster overall than 4. Default 5.
+# fetch_stall_minutes = 5
+
 # How long one MetaMorpheus search may run. The ceiling is generous because a busy machine makes searches slow, and slow
 # is not broken. A HUNG search is caught separately: it is killed once MetaMorpheus has used no CPU for
 # search_stall_minutes (0 turns that check off). Defaults 48 and 90.
