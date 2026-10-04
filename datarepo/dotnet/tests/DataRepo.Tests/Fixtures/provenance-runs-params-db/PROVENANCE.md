@@ -67,9 +67,10 @@ call each public function on the inputs listed, round-tripping every input throu
 languages see the same values, and write `json.dumps(..., ensure_ascii=False)`. `real_data.json` was
 re-dumped compactly with `build/pxreprise` reduced to its metrics (its runs are `build/aging`'s, checked).
 
-Beyond these ten folders, the same comparison was run once over every search folder aging has
-(`run_2026-09-1*` and `run_2026-09-2*`, with every searched database loaded) and is reported in the
-commit message, not stored.
+Beyond these ten folders, the same comparison was run once, on 2026-10-04, over every search folder aging
+has (`run_2026-09-1*` and `run_2026-09-2*`: 104 folders, 96 at layout 3, 4 at layout 2, 4 refused; 2,060
+runs, 6,390 modification rows, `protein_db.load()` on 103 and the Python's own refusal of a `.xml.gz`
+database on the 104th). The C# matched on all of it. That fixture (about 9 MB) is not stored.
 
 ## mzLib was measured and not used for the protein database
 
