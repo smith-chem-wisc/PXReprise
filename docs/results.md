@@ -47,7 +47,7 @@ spend time on them again.
 | `skipped_organism` | The profile has no database for this organism. | yes |
 | `deferred_mixed_labelling` | Some files' spectra carry isobaric reporter ions (TMT, iTRAQ) and some do not. Searching only part of the deposit is a design decision; the state entry's `isobaric_files` lists the labelled files. | yes |
 | `search_interrupted` | The search failed while the machine's .NET runtimes changed under it: an environment failure. Searched again on a later pass, twice at most. Set `dotnet_root` to prevent it. | no |
-| `excluded_duplicate` | Every raw file (name and size) is in a deposit already searched; the state entry's `duplicate_of` names it. Decided from PRIDE's file list, before any download. | yes |
+| `excluded_duplicate` | Every raw file (name and size) is in a deposit already searched, or in the one being searched at that moment; the state entry's `duplicate_of` names it. Decided from PRIDE's file list, before any download. | yes |
 | `waiting_*` | The deposit needs a capability no available profile has, named after the underscore: `waiting_dia`, `waiting_tmt_dda_1`, `waiting_crosslinking`, `waiting_o18_labelling`, and so on. | until that profile exists |
 | `fetch_unavailable`, `probe_fetch_unavailable` | PRIDE kept dropping the downloads through every retry. Tried again on a later pass, `fetch_passes` times in all (default 3). | no |
 | `fetch_failed`, `probe_fetch_failed` | The downloads failed on every pass, or failed in a way a retry cannot fix (for example a checksum mismatch). | yes |
@@ -55,7 +55,11 @@ spend time on them again.
 | `on_hold_user` | Held by the question's `[holds]`. | until removed |
 | `requeued_user` | Put back in the queue by `pxreprise batch retry`; the entry's `requeued` list says who, when, why, and what it was before. | no |
 
-To see **why** a deposit has its status, search `batch.log` for its accession: each decision is logged with its reason.
+To see **why** a deposit has its status, search `batch.log` for its accession: each decision is logged with its reason. A status's `detail` belongs to that status; when a later status replaces it (a download that failed once and then succeeded), the old text moves to `earlier_detail`.
 
 An enriched deposit (for example an affinity pulldown) is searched like any other, and its record carries an
 `enrichment` field, because an enrichment is not a whole proteome and its intensities must not be pooled as one.
+
+If every raw file's name says what kind of sample it is (for example `Lysate_`, `IP_`, `EV_`) and there is more than one kind, the
+manifest entry gets the flag `possibly_mixed_enrichment` and a note, and `batch.log` says `POSSIBLY MIXED SAMPLES`. Nothing
+else changes: which run is which enrichment is for you to curate (dataRepo's `run_enrichment`), not for file names to decide.

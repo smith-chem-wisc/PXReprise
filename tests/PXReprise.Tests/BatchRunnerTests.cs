@@ -104,6 +104,46 @@ public class BatchRunnerTests
         Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain("PXD000213 shares 1 of 2 raw files (name and size) with PXD000211"));
     }
 
+    // PXR-A21: PXD042302 (PXD042301 deposited again) was screened 7 s after PXD042301's search started, with no search
+    // provenance yet, and was fetched and searched in full.
+    [Test]
+    public async Task ADuplicateOfTheDepositBeingSearchedNowIsRefusedToo()
+    {
+        var (runner, search, files, dir) = Runner();
+        string inFlight = Path.Combine(dir, "runs", "PXD000221");
+        Directory.CreateDirectory(Path.Combine(inFlight, "02_fetch"));
+        File.WriteAllText(Path.Combine(inFlight, "02_fetch", "fetch_manifest.json"), """
+            {"accession":"PXD000221","files":[{"name":"a.raw","pride_size_bytes":1293721889},{"name":"b.raw","pride_size_bytes":1410000000}]}
+            """);
+        search.Results["PXD000222"] = new() { TestSupport.Record("PXD000222", "Type 2 diabetes podocytes") };
+        files.Listing = new() { new() { FileName = "a.raw", FileSizeBytes = 1293721889 }, new() { FileName = "b.raw", FileSizeBytes = 1410000000 } };
+
+        await runner.ProbeAsync(new QueueEntry("PXD000222", "t", "human"), CancellationToken.None);
+        Assert.That(runner.Settled("PXD000222"), Is.Not.EqualTo("excluded_duplicate"), "fetched but neither searched nor in flight: not evidence");
+
+        runner.Record("PXD000222", ("status", "probing"));
+        runner.Searching = "PXD000221";
+        Assert.That(await runner.ProbeAsync(new QueueEntry("PXD000222", "t", "human"), CancellationToken.None), Is.Null);
+        Assert.That(runner.Settled("PXD000222"), Is.EqualTo("excluded_duplicate"));
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain("are in PXD000221, being searched now"));
+    }
+
+    // The first-run on the other computer: PXD058082 read "searched" beside a TLS error from a pass that had since succeeded.
+    [Test]
+    public void ANewStatusRetiresTheOldDetailButKeepsIt()
+    {
+        var (runner, _, _, _) = Runner();
+        runner.Record("PXD000223", ("status", "fetch_unavailable"), ("detail", "HttpIOException: TLS EOF"));
+        runner.Record("PXD000223", ("n_raw", 3));   // no status: nothing retired
+        Assert.That(runner.State()["datasets"]!["PXD000223"]!["detail"]!.GetValue<string>(), Is.EqualTo("HttpIOException: TLS EOF"));
+        runner.Record("PXD000223", ("status", "searched"));
+        var e = runner.State()["datasets"]!["PXD000223"]!;
+        Assert.That(e["detail"], Is.Null);
+        Assert.That(e["earlier_detail"]!.GetValue<string>(), Is.EqualTo("HttpIOException: TLS EOF"));
+        runner.Record("PXD000223", ("status", "search_failed"), ("detail", "boom"));
+        Assert.That(runner.State()["datasets"]!["PXD000223"]!["detail"]!.GetValue<string>(), Is.EqualTo("boom"));
+    }
+
     // G5 (aging S66): a machine-wide update replaced .NET 10.0.8 with 10.0.10 and PXD021194 died 2 h 21 m into its search.
     [Test]
     public void ASearchTheRuntimeChangedUnderIsRetriedTwiceThenSettled()
