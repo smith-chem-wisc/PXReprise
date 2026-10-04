@@ -187,6 +187,14 @@ public static class ArrowTables
             LargeStringArray a => a.GetString(index),
             Int64Array a => a.GetValue(index),
             Int32Array a => (long?)a.GetValue(index),
+            // Narrower types a producer's own Parquet may carry (a study delivery): pyarrow's to_pylist gives
+            // a Python int or float for each, so they widen to long and double here.
+            Int16Array a => (long?)a.GetValue(index),
+            Int8Array a => (long?)a.GetValue(index),
+            UInt32Array a => (long?)a.GetValue(index),
+            UInt16Array a => (long?)a.GetValue(index),
+            UInt8Array a => (long?)a.GetValue(index),
+            FloatArray a => (double?)a.GetValue(index),
             DoubleArray a => a.GetValue(index),
             BooleanArray a => a.GetValue(index),
             Date32Array a => a.GetDateOnly(index),

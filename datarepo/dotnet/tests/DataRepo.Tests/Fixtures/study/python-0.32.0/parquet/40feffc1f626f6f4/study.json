@@ -1,0 +1,47 @@
+{
+  "bundle_id": "40feffc1f626f6f4",
+  "kind": "study",
+  "layer": "aging",
+  "layer_version": "0.5.0",
+  "schema_version": "0.0.13",
+  "instance": null,
+  "delivery": null,
+  "ingester": {
+    "name": "datarepo",
+    "version": "0.32.0",
+    "study_ingest_path": "0.6.0"
+  },
+  "written_utc": "2026-10-04T16:07:43+00:00",
+  "tables": {
+    "age_mappings": 2,
+    "curated_sample_characteristics": 3,
+    "sample_ages": 3
+  },
+  "sources": [
+    {
+      "role": "table:age_mappings",
+      "path": "E:\\CodeReview\\dataRepo\\.claude\\worktrees\\agent-a3e22cde33ad2ea8c\\dotnet\\tests\\DataRepo.Tests\\Fixtures\\study\\cases\\parquet\\age_mappings.parquet",
+      "size_bytes": 2252,
+      "sha256": "c50c2fb4b10240a53175f9e05065470a2e8db9fa39b3ef626c5eaf7a90705b91"
+    },
+    {
+      "role": "table:curated_sample_characteristics",
+      "path": "E:\\CodeReview\\dataRepo\\.claude\\worktrees\\agent-a3e22cde33ad2ea8c\\dotnet\\tests\\DataRepo.Tests\\Fixtures\\study\\cases\\parquet\\curated.parquet",
+      "size_bytes": 1659,
+      "sha256": "c45ea060d952ea03ffdfed3d525b48bd745fd1f173d4421a2ba1a1d5ee6bcf55"
+    },
+    {
+      "role": "table:sample_ages",
+      "path": "E:\\CodeReview\\dataRepo\\.claude\\worktrees\\agent-a3e22cde33ad2ea8c\\dotnet\\tests\\DataRepo.Tests\\Fixtures\\study\\cases\\parquet\\sample_ages.parquet",
+      "size_bytes": 2029,
+      "sha256": "b229f39ee46dc4af268127e929f9d543b9f05af6d5c7cffe9bd448e2509184e1"
+    },
+    {
+      "role": "declaration:study",
+      "path": "<declaration:study>",
+      "kind": "declaration",
+      "sha256": "046770c35f8e9ea43a642a3d4e8961ec21f3cc04131f04a37de55dcbcfef1cab"
+    }
+  ],
+  "notes": null
+}

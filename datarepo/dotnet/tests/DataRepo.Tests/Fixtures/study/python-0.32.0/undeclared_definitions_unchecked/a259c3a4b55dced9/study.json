@@ -1,0 +1,33 @@
+{
+  "bundle_id": "a259c3a4b55dced9",
+  "kind": "study",
+  "layer": "aging",
+  "layer_version": "0.5.0",
+  "schema_version": "0.0.13",
+  "instance": null,
+  "delivery": null,
+  "ingester": {
+    "name": "datarepo",
+    "version": "0.32.0",
+    "study_ingest_path": "0.6.0"
+  },
+  "written_utc": "2026-10-04T16:07:43+00:00",
+  "tables": {
+    "age_effects": 1
+  },
+  "sources": [
+    {
+      "role": "table:age_effects",
+      "path": "E:\\CodeReview\\dataRepo\\.claude\\worktrees\\agent-a3e22cde33ad2ea8c\\dotnet\\tests\\DataRepo.Tests\\Fixtures\\study\\cases\\undeclared_definitions_unchecked\\ae.tsv",
+      "size_bytes": 526,
+      "sha256": "968d55a136c54de85ff40efd358e726c019561e63aee6338e7d6a5a3092da644"
+    },
+    {
+      "role": "declaration:study",
+      "path": "<declaration:study>",
+      "kind": "declaration",
+      "sha256": "7d4c8b59355e2be1f5d03fb027f387096dfc8638ac84117ae3bcb95c1504e63d"
+    }
+  ],
+  "notes": null
+}

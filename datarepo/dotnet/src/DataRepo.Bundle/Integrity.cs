@@ -97,6 +97,60 @@ public static class Integrity
         ("ptm_pairs", ["result_type", "scope", "feature_type", "feature_key_a", "feature_key_b", "trait_id", "stratum", "statistic", "definition_id"]),
     ];
 
+    /// <summary>A study layer's natural keys, by layer and table (<c>integrity.STUDY_COMPOSITE_IDENTIFIERS</c>).</summary>
+    /// <remarks>
+    /// Enforced twice: <c>study</c> refuses a delivery whose rows repeat a key, and <c>build</c> re-checks it on
+    /// what the catalog actually loaded. They were declared before anything could write these tables, and that
+    /// is why the check existed the moment <c>study</c> did: <c>quant_values</c> shipped with no key at all and
+    /// a duplicated source row wrote one measurement three times. <c>aging:DEF-AGE-EFFECT v1</c> section 2 gives
+    /// <c>age_effects</c> its key outright, and every component of it is forced by a benchmark question --
+    /// <c>estimator</c> because count- and intensity-based occupancy differ about threefold, <c>quant_basis</c>
+    /// because H8+ asks whether MBR changes the answer, <c>stratum</c> because D13 asks whether a decline is
+    /// seen in both sexes. <c>age_effect_refusals</c> has the same key as the fit it refuses; its
+    /// <c>feature_id</c> is nullable and part of the key anyway, because a dataset-level refusal such as
+    /// <c>no_age_metadata</c> is one row with no feature. <c>age_effect_meta</c> starts with <c>organism</c>
+    /// (aging DEF-AGE-EFFECT-META v1.2 section 6.4, G40): never pool across it.
+    /// </remarks>
+    public static readonly IReadOnlyDictionary<string, IReadOnlyDictionary<string, string[]>> StudyCompositeIdentifiers =
+        new Dictionary<string, IReadOnlyDictionary<string, string[]>>(StringComparer.Ordinal)
+        {
+            ["aging"] = new Dictionary<string, string[]>(StringComparer.Ordinal)
+            {
+                ["sample_ages"] = ["sample_id"],
+                // One curated value per characteristic per sample (aging 078, REQ-DATAREPO-6).
+                ["curated_sample_characteristics"] = ["sample_id", "name"],
+                ["age_effects"] = ["dataset_id", "feature_id", "response", "estimator", "quant_basis", "model_form", "stratum"],
+                ["age_effect_refusals"] = ["dataset_id", "feature_id", "response", "estimator", "quant_basis", "model_form", "stratum"],
+                ["age_effect_meta"] = ["organism", "feature_id", "response", "estimator", "quant_basis", "stratum", "tissue", "acquisition", "quant_method"],
+                ["organelle_age_summaries"] = ["compartment", "organism", "organism_part", "response"],
+                ["clock_features"] = ["clock_id", "feature_type", "feature_id"],
+                ["age_mappings"] = ["organism", "age_from", "age_to"],
+            },
+        };
+
+    /// <summary>A study layer's references into the core, checked when a catalog loads a study bundle
+    /// (<c>integrity.STUDY_REFERENCES</c>): (table, column, core table, core column).</summary>
+    /// <remarks>
+    /// These are the joins that make a study layer a layer rather than a second repository: an age effect that
+    /// names a dataset the catalog does not hold cannot be traced to the evidence behind it. <c>build</c> refuses
+    /// rather than dropping the rows. Two columns are deliberately absent, and their absence is the point:
+    /// <c>feature_id</c> (DATAREPO-20(c) asks what a feature's cross-dataset identity even is, and a foreign key
+    /// written now would freeze a guess with the authority of a constraint) and <c>definition_id</c> (whether a
+    /// study layer's own definitions land in a search bundle is unsettled).
+    /// </remarks>
+    public static readonly IReadOnlyDictionary<string, IReadOnlyList<(string Table, string Column, string Target, string TargetColumn)>> StudyReferences =
+        new Dictionary<string, IReadOnlyList<(string Table, string Column, string Target, string TargetColumn)>>(StringComparer.Ordinal)
+        {
+            ["aging"] =
+            [
+                ("sample_ages", "sample_id", "samples", "sample_id"),
+                ("curated_sample_characteristics", "sample_id", "samples", "sample_id"),
+                ("age_effects", "dataset_id", "datasets", "dataset_id"),
+                ("age_effect_refusals", "dataset_id", "datasets", "dataset_id"),
+                ("clock_features", "clock_id", "clock_models", "clock_id"),
+            ],
+        };
+
     /// <summary>Tables where a row is a thing, so identical rows are one thing written twice.
     /// <c>psms</c> and <c>findings</c> are absent: a row there is an event, and the row count is itself
     /// a reported number.</summary>
