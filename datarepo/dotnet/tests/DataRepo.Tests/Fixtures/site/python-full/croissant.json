@@ -1,0 +1,2172 @@
+{
+ "@context": {
+  "@language": "en",
+  "@vocab": "https://schema.org/",
+  "sc": "https://schema.org/",
+  "cr": "http://mlcommons.org/croissant/",
+  "rai": "http://mlcommons.org/croissant/RAI/",
+  "dct": "http://purl.org/dc/terms/",
+  "equivalentProperty": "cr:equivalentProperty",
+  "examples": {
+   "@id": "cr:examples",
+   "@type": "@json"
+  },
+  "samplingRate": "cr:samplingRate",
+  "citeAs": "cr:citeAs",
+  "column": "cr:column",
+  "conformsTo": "dct:conformsTo",
+  "data": {
+   "@id": "cr:data",
+   "@type": "@json"
+  },
+  "dataType": {
+   "@id": "cr:dataType",
+   "@type": "@vocab"
+  },
+  "extract": "cr:extract",
+  "field": "cr:field",
+  "fileProperty": "cr:fileProperty",
+  "fileObject": "cr:fileObject",
+  "fileSet": "cr:fileSet",
+  "format": "cr:format",
+  "includes": "cr:includes",
+  "isLiveDataset": "cr:isLiveDataset",
+  "jsonPath": "cr:jsonPath",
+  "key": "cr:key",
+  "md5": "cr:md5",
+  "parentField": "cr:parentField",
+  "path": "cr:path",
+  "recordSet": "cr:recordSet",
+  "references": "cr:references",
+  "regex": "cr:regex",
+  "repeated": "cr:repeated",
+  "replace": "cr:replace",
+  "separator": "cr:separator",
+  "source": "cr:source",
+  "subField": "cr:subField",
+  "transform": "cr:transform"
+ },
+ "@type": "sc:Dataset",
+ "conformsTo": "http://mlcommons.org/croissant/1.0",
+ "name": "Test <repo> & 'co'",
+ "description": "Search and quantification results for 1 public proteomics datasets reanalysed with one pipeline, for questions about how organelle proteomes change with age.",
+ "url": "https://example.org/repo/index.html",
+ "identifier": "datarepo:catalog:153cf55067d58441",
+ "datePublished": "2026-10-04",
+ "license": [
+  "https://creativecommons.org/licenses/by/4.0/"
+ ],
+ "creator": [
+  {
+   "@type": "Organization",
+   "name": "Test Working Group"
+  }
+ ],
+ "distribution": [
+  {
+   "@type": "cr:FileObject",
+   "@id": "PXD999999/psms.parquet",
+   "name": "PXD999999/psms.parquet",
+   "contentUrl": "https://example.org/store/PXD999999/aeb10630abbcaf72/psms.parquet",
+   "encodingFormat": "application/x-parquet",
+   "contentSize": "16391 B",
+   "sha256": "a37ae512ffb187fe3434f53d3c886b33e4ee339cf0a912373f1e7927b5ad9630"
+  },
+  {
+   "@type": "cr:FileObject",
+   "@id": "PXD999999/peptidoforms.parquet",
+   "name": "PXD999999/peptidoforms.parquet",
+   "contentUrl": "https://example.org/store/PXD999999/aeb10630abbcaf72/peptidoforms.parquet",
+   "encodingFormat": "application/x-parquet",
+   "contentSize": "8325 B",
+   "sha256": "c702343ea53c7ffe037400b0a3a7848e2d9da7089618e2a0bf6066cf7835c797"
+  },
+  {
+   "@type": "cr:FileObject",
+   "@id": "PXD999999/protein_groups.parquet",
+   "name": "PXD999999/protein_groups.parquet",
+   "contentUrl": "https://example.org/store/PXD999999/aeb10630abbcaf72/protein_groups.parquet",
+   "encodingFormat": "application/x-parquet",
+   "contentSize": "3459 B",
+   "sha256": "fc3d5881b3203d42d93de74f44e694072776e16f7ca60f8f9b03556c0cb4e798"
+  },
+  {
+   "@type": "cr:FileObject",
+   "@id": "PXD999999/proteins.parquet",
+   "name": "PXD999999/proteins.parquet",
+   "contentUrl": "https://example.org/store/PXD999999/aeb10630abbcaf72/proteins.parquet",
+   "encodingFormat": "application/x-parquet",
+   "contentSize": "3725 B",
+   "sha256": "16f6f5163cd44a16a80a32e5bb83945594d055b3c4ced6dde94835897c5dee2e"
+  },
+  {
+   "@type": "cr:FileObject",
+   "@id": "PXD999999/ptm_sites.parquet",
+   "name": "PXD999999/ptm_sites.parquet",
+   "contentUrl": "https://example.org/store/PXD999999/aeb10630abbcaf72/ptm_sites.parquet",
+   "encodingFormat": "application/x-parquet",
+   "contentSize": "5133 B",
+   "sha256": "889e97075394f87f99f159ff80d3f21e4c4e7105ba168cbad1f74f9a28d463bf"
+  },
+  {
+   "@type": "cr:FileObject",
+   "@id": "PXD999999/quant_values.parquet",
+   "name": "PXD999999/quant_values.parquet",
+   "contentUrl": "https://example.org/store/PXD999999/aeb10630abbcaf72/quant_values.parquet",
+   "encodingFormat": "application/x-parquet",
+   "contentSize": "3388 B",
+   "sha256": "4e75fbec4476691e3d9c585cde55624790770842d55d8d40bae6e517996041d8"
+  },
+  {
+   "@type": "cr:FileObject",
+   "@id": "PXD999999/runs.parquet",
+   "name": "PXD999999/runs.parquet",
+   "contentUrl": "https://example.org/store/PXD999999/aeb10630abbcaf72/runs.parquet",
+   "encodingFormat": "application/x-parquet",
+   "contentSize": "5537 B",
+   "sha256": "020ea0454533330ae49d604a138592add2d6d16b706008d33efac458fb5828ab"
+  },
+  {
+   "@type": "cr:FileObject",
+   "@id": "PXD999999/samples.parquet",
+   "name": "PXD999999/samples.parquet",
+   "contentUrl": "https://example.org/store/PXD999999/aeb10630abbcaf72/samples.parquet",
+   "encodingFormat": "application/x-parquet",
+   "contentSize": "3825 B",
+   "sha256": "03dcd4ad5309a01975d3ddc9ccd8b0dda4b244644dd62749e04d13f81afbafa3"
+  },
+  {
+   "@type": "cr:FileObject",
+   "@id": "PXD999999/assays.parquet",
+   "name": "PXD999999/assays.parquet",
+   "contentUrl": "https://example.org/store/PXD999999/aeb10630abbcaf72/assays.parquet",
+   "encodingFormat": "application/x-parquet",
+   "contentSize": "1617 B",
+   "sha256": "35b09755cc0dd32a1c65aab454886091cec027c4caad77f7551932d511b1b644"
+  },
+  {
+   "@type": "cr:FileObject",
+   "@id": "PXD999999/findings.parquet",
+   "name": "PXD999999/findings.parquet",
+   "contentUrl": "https://example.org/store/PXD999999/aeb10630abbcaf72/findings.parquet",
+   "encodingFormat": "application/x-parquet",
+   "contentSize": "4251 B",
+   "sha256": "5e81e6861986140c3d00949670f1ef3ed9adf4639ac4c45d43a447e0ecb7ee7e"
+  },
+  {
+   "@type": "cr:FileObject",
+   "@id": "PXD999999/metrics.parquet",
+   "name": "PXD999999/metrics.parquet",
+   "contentUrl": "https://example.org/store/PXD999999/aeb10630abbcaf72/metrics.parquet",
+   "encodingFormat": "application/x-parquet",
+   "contentSize": "2487 B",
+   "sha256": "6d6a7193eac5b1b0d689fb70c63e0e435893ed19366992a31d795e5f975fb2f3"
+  },
+  {
+   "@type": "cr:FileObject",
+   "@id": "PXD999999/definitions.parquet",
+   "name": "PXD999999/definitions.parquet",
+   "contentUrl": "https://example.org/store/PXD999999/aeb10630abbcaf72/definitions.parquet",
+   "encodingFormat": "application/x-parquet",
+   "contentSize": "8524 B",
+   "sha256": "23f048353ed15e4140bffebb9c5f2c6a66bbca9cf1fb844bd10edcb8461f7b24"
+  }
+ ],
+ "recordSet": [
+  {
+   "@type": "cr:RecordSet",
+   "@id": "PXD999999/psms",
+   "name": "PXD999999/psms",
+   "field": [
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/psms/psm_id",
+     "name": "psm_id",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/psms.parquet"
+      },
+      "extract": {
+       "column": "psm_id"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/psms/run_id",
+     "name": "run_id",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/psms.parquet"
+      },
+      "extract": {
+       "column": "run_id"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/psms/scan",
+     "name": "scan",
+     "dataType": "sc:Integer",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/psms.parquet"
+      },
+      "extract": {
+       "column": "scan"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/psms/usi",
+     "name": "usi",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/psms.parquet"
+      },
+      "extract": {
+       "column": "usi"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/psms/peptidoform",
+     "name": "peptidoform",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/psms.parquet"
+      },
+      "extract": {
+       "column": "peptidoform"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/psms/base_sequence",
+     "name": "base_sequence",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/psms.parquet"
+      },
+      "extract": {
+       "column": "base_sequence"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/psms/precursor_charge",
+     "name": "precursor_charge",
+     "dataType": "sc:Integer",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/psms.parquet"
+      },
+      "extract": {
+       "column": "precursor_charge"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/psms/precursor_mz",
+     "name": "precursor_mz",
+     "dataType": "sc:Float",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/psms.parquet"
+      },
+      "extract": {
+       "column": "precursor_mz"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/psms/retention_time_min",
+     "name": "retention_time_min",
+     "dataType": "sc:Float",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/psms.parquet"
+      },
+      "extract": {
+       "column": "retention_time_min"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/psms/score",
+     "name": "score",
+     "dataType": "sc:Float",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/psms.parquet"
+      },
+      "extract": {
+       "column": "score"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/psms/delta_score",
+     "name": "delta_score",
+     "dataType": "sc:Float",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/psms.parquet"
+      },
+      "extract": {
+       "column": "delta_score"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/psms/q_value",
+     "name": "q_value",
+     "dataType": "sc:Float",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/psms.parquet"
+      },
+      "extract": {
+       "column": "q_value"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/psms/q_value_notch",
+     "name": "q_value_notch",
+     "dataType": "sc:Float",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/psms.parquet"
+      },
+      "extract": {
+       "column": "q_value_notch"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/psms/notch",
+     "name": "notch",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/psms.parquet"
+      },
+      "extract": {
+       "column": "notch"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/psms/notch_ambiguous",
+     "name": "notch_ambiguous",
+     "dataType": "sc:Boolean",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/psms.parquet"
+      },
+      "extract": {
+       "column": "notch_ambiguous"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/psms/pep",
+     "name": "pep",
+     "dataType": "sc:Float",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/psms.parquet"
+      },
+      "extract": {
+       "column": "pep"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/psms/pep_q_value",
+     "name": "pep_q_value",
+     "dataType": "sc:Float",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/psms.parquet"
+      },
+      "extract": {
+       "column": "pep_q_value"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/psms/mass_error_ppm",
+     "name": "mass_error_ppm",
+     "dataType": "sc:Float",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/psms.parquet"
+      },
+      "extract": {
+       "column": "mass_error_ppm"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/psms/target_decoy",
+     "name": "target_decoy",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/psms.parquet"
+      },
+      "extract": {
+       "column": "target_decoy"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/psms/protein_accessions",
+     "name": "protein_accessions",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/psms.parquet"
+      },
+      "extract": {
+       "column": "protein_accessions"
+      }
+     },
+     "repeated": true
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/psms/ambiguity_level",
+     "name": "ambiguity_level",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/psms.parquet"
+      },
+      "extract": {
+       "column": "ambiguity_level"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/psms/localization_score",
+     "name": "localization_score",
+     "dataType": "sc:Float",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/psms.parquet"
+      },
+      "extract": {
+       "column": "localization_score"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/psms/search",
+     "name": "search",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/psms.parquet"
+      },
+      "extract": {
+       "column": "search"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/psms/missed_cleavages",
+     "name": "missed_cleavages",
+     "dataType": "sc:Integer",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/psms.parquet"
+      },
+      "extract": {
+       "column": "missed_cleavages"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/psms/nonspecific_termini",
+     "name": "nonspecific_termini",
+     "dataType": "sc:Integer",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/psms.parquet"
+      },
+      "extract": {
+       "column": "nonspecific_termini"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/psms/start_residue",
+     "name": "start_residue",
+     "dataType": "sc:Integer",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/psms.parquet"
+      },
+      "extract": {
+       "column": "start_residue"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/psms/end_residue",
+     "name": "end_residue",
+     "dataType": "sc:Integer",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/psms.parquet"
+      },
+      "extract": {
+       "column": "end_residue"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/psms/matched_ion_series",
+     "name": "matched_ion_series",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/psms.parquet"
+      },
+      "extract": {
+       "column": "matched_ion_series"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/psms/matched_ion_count",
+     "name": "matched_ion_count",
+     "dataType": "sc:Integer",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/psms.parquet"
+      },
+      "extract": {
+       "column": "matched_ion_count"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "@type": "cr:RecordSet",
+   "@id": "PXD999999/peptidoforms",
+   "name": "PXD999999/peptidoforms",
+   "field": [
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/peptidoforms/peptidoform_id",
+     "name": "peptidoform_id",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/peptidoforms.parquet"
+      },
+      "extract": {
+       "column": "peptidoform_id"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/peptidoforms/dataset_id",
+     "name": "dataset_id",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/peptidoforms.parquet"
+      },
+      "extract": {
+       "column": "dataset_id"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/peptidoforms/peptidoform",
+     "name": "peptidoform",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/peptidoforms.parquet"
+      },
+      "extract": {
+       "column": "peptidoform"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/peptidoforms/base_sequence",
+     "name": "base_sequence",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/peptidoforms.parquet"
+      },
+      "extract": {
+       "column": "base_sequence"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/peptidoforms/best_q_value",
+     "name": "best_q_value",
+     "dataType": "sc:Float",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/peptidoforms.parquet"
+      },
+      "extract": {
+       "column": "best_q_value"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/peptidoforms/best_q_value_notch",
+     "name": "best_q_value_notch",
+     "dataType": "sc:Float",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/peptidoforms.parquet"
+      },
+      "extract": {
+       "column": "best_q_value_notch"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/peptidoforms/best_pep",
+     "name": "best_pep",
+     "dataType": "sc:Float",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/peptidoforms.parquet"
+      },
+      "extract": {
+       "column": "best_pep"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/peptidoforms/target_decoy",
+     "name": "target_decoy",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/peptidoforms.parquet"
+      },
+      "extract": {
+       "column": "target_decoy"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/peptidoforms/n_psms",
+     "name": "n_psms",
+     "dataType": "sc:Integer",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/peptidoforms.parquet"
+      },
+      "extract": {
+       "column": "n_psms"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/peptidoforms/protein_group_id",
+     "name": "protein_group_id",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/peptidoforms.parquet"
+      },
+      "extract": {
+       "column": "protein_group_id"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/peptidoforms/protein_accessions",
+     "name": "protein_accessions",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/peptidoforms.parquet"
+      },
+      "extract": {
+       "column": "protein_accessions"
+      }
+     },
+     "repeated": true
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/peptidoforms/is_unique",
+     "name": "is_unique",
+     "dataType": "sc:Boolean",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/peptidoforms.parquet"
+      },
+      "extract": {
+       "column": "is_unique"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/peptidoforms/is_isoform_specific",
+     "name": "is_isoform_specific",
+     "dataType": "sc:Boolean",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/peptidoforms.parquet"
+      },
+      "extract": {
+       "column": "is_isoform_specific"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/peptidoforms/engine_full_sequences",
+     "name": "engine_full_sequences",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/peptidoforms.parquet"
+      },
+      "extract": {
+       "column": "engine_full_sequences"
+      }
+     },
+     "repeated": true
+    }
+   ]
+  },
+  {
+   "@type": "cr:RecordSet",
+   "@id": "PXD999999/protein_groups",
+   "name": "PXD999999/protein_groups",
+   "field": [
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/protein_groups/protein_group_id",
+     "name": "protein_group_id",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/protein_groups.parquet"
+      },
+      "extract": {
+       "column": "protein_group_id"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/protein_groups/dataset_id",
+     "name": "dataset_id",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/protein_groups.parquet"
+      },
+      "extract": {
+       "column": "dataset_id"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/protein_groups/protein_accessions",
+     "name": "protein_accessions",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/protein_groups.parquet"
+      },
+      "extract": {
+       "column": "protein_accessions"
+      }
+     },
+     "repeated": true
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/protein_groups/genes",
+     "name": "genes",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/protein_groups.parquet"
+      },
+      "extract": {
+       "column": "genes"
+      }
+     },
+     "repeated": true
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/protein_groups/target_decoy",
+     "name": "target_decoy",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/protein_groups.parquet"
+      },
+      "extract": {
+       "column": "target_decoy"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/protein_groups/q_value",
+     "name": "q_value",
+     "dataType": "sc:Float",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/protein_groups.parquet"
+      },
+      "extract": {
+       "column": "q_value"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/protein_groups/sequence_coverage",
+     "name": "sequence_coverage",
+     "dataType": "sc:Float",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/protein_groups.parquet"
+      },
+      "extract": {
+       "column": "sequence_coverage"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/protein_groups/unique_peptides",
+     "name": "unique_peptides",
+     "dataType": "sc:Integer",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/protein_groups.parquet"
+      },
+      "extract": {
+       "column": "unique_peptides"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/protein_groups/shared_peptides",
+     "name": "shared_peptides",
+     "dataType": "sc:Integer",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/protein_groups.parquet"
+      },
+      "extract": {
+       "column": "shared_peptides"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "@type": "cr:RecordSet",
+   "@id": "PXD999999/proteins",
+   "name": "PXD999999/proteins",
+   "field": [
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/proteins/protein_accession",
+     "name": "protein_accession",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/proteins.parquet"
+      },
+      "extract": {
+       "column": "protein_accession"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/proteins/canonical_accession",
+     "name": "canonical_accession",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/proteins.parquet"
+      },
+      "extract": {
+       "column": "canonical_accession"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/proteins/gene",
+     "name": "gene",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/proteins.parquet"
+      },
+      "extract": {
+       "column": "gene"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/proteins/organism",
+     "name": "organism",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/proteins.parquet"
+      },
+      "extract": {
+       "column": "organism"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/proteins/organism_name",
+     "name": "organism_name",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/proteins.parquet"
+      },
+      "extract": {
+       "column": "organism_name"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/proteins/length",
+     "name": "length",
+     "dataType": "sc:Integer",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/proteins.parquet"
+      },
+      "extract": {
+       "column": "length"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/proteins/source_db",
+     "name": "source_db",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/proteins.parquet"
+      },
+      "extract": {
+       "column": "source_db"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/proteins/uniprot_release",
+     "name": "uniprot_release",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/proteins.parquet"
+      },
+      "extract": {
+       "column": "uniprot_release"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/proteins/is_contaminant",
+     "name": "is_contaminant",
+     "dataType": "sc:Boolean",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/proteins.parquet"
+      },
+      "extract": {
+       "column": "is_contaminant"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "@type": "cr:RecordSet",
+   "@id": "PXD999999/ptm_sites",
+   "name": "PXD999999/ptm_sites",
+   "field": [
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/ptm_sites/ptm_site_id",
+     "name": "ptm_site_id",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/ptm_sites.parquet"
+      },
+      "extract": {
+       "column": "ptm_site_id"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/ptm_sites/dataset_id",
+     "name": "dataset_id",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/ptm_sites.parquet"
+      },
+      "extract": {
+       "column": "dataset_id"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/ptm_sites/protein_accession",
+     "name": "protein_accession",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/ptm_sites.parquet"
+      },
+      "extract": {
+       "column": "protein_accession"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/ptm_sites/position",
+     "name": "position",
+     "dataType": "sc:Integer",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/ptm_sites.parquet"
+      },
+      "extract": {
+       "column": "position"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/ptm_sites/residue",
+     "name": "residue",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/ptm_sites.parquet"
+      },
+      "extract": {
+       "column": "residue"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/ptm_sites/site_type",
+     "name": "site_type",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/ptm_sites.parquet"
+      },
+      "extract": {
+       "column": "site_type"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/ptm_sites/modification",
+     "name": "modification",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/ptm_sites.parquet"
+      },
+      "extract": {
+       "column": "modification"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/ptm_sites/modification_name",
+     "name": "modification_name",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/ptm_sites.parquet"
+      },
+      "extract": {
+       "column": "modification_name"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/ptm_sites/target_decoy",
+     "name": "target_decoy",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/ptm_sites.parquet"
+      },
+      "extract": {
+       "column": "target_decoy"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/ptm_sites/best_ambiguity_level",
+     "name": "best_ambiguity_level",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/ptm_sites.parquet"
+      },
+      "extract": {
+       "column": "best_ambiguity_level"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/ptm_sites/localization_score",
+     "name": "localization_score",
+     "dataType": "sc:Float",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/ptm_sites.parquet"
+      },
+      "extract": {
+       "column": "localization_score"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/ptm_sites/n_psms",
+     "name": "n_psms",
+     "dataType": "sc:Integer",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/ptm_sites.parquet"
+      },
+      "extract": {
+       "column": "n_psms"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/ptm_sites/best_q_value",
+     "name": "best_q_value",
+     "dataType": "sc:Float",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/ptm_sites.parquet"
+      },
+      "extract": {
+       "column": "best_q_value"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "@type": "cr:RecordSet",
+   "@id": "PXD999999/quant_values",
+   "name": "PXD999999/quant_values",
+   "field": [
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/quant_values/assay_id",
+     "name": "assay_id",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/quant_values.parquet"
+      },
+      "extract": {
+       "column": "assay_id"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/quant_values/feature_type",
+     "name": "feature_type",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/quant_values.parquet"
+      },
+      "extract": {
+       "column": "feature_type"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/quant_values/feature_id",
+     "name": "feature_id",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/quant_values.parquet"
+      },
+      "extract": {
+       "column": "feature_id"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/quant_values/value",
+     "name": "value",
+     "dataType": "sc:Float",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/quant_values.parquet"
+      },
+      "extract": {
+       "column": "value"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/quant_values/detection_type",
+     "name": "detection_type",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/quant_values.parquet"
+      },
+      "extract": {
+       "column": "detection_type"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/quant_values/pip_q_value",
+     "name": "pip_q_value",
+     "dataType": "sc:Float",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/quant_values.parquet"
+      },
+      "extract": {
+       "column": "pip_q_value"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/quant_values/mbr_kept",
+     "name": "mbr_kept",
+     "dataType": "sc:Boolean",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/quant_values.parquet"
+      },
+      "extract": {
+       "column": "mbr_kept"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/quant_values/definition_id",
+     "name": "definition_id",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/quant_values.parquet"
+      },
+      "extract": {
+       "column": "definition_id"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "@type": "cr:RecordSet",
+   "@id": "PXD999999/runs",
+   "name": "PXD999999/runs",
+   "field": [
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/runs/run_id",
+     "name": "run_id",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/runs.parquet"
+      },
+      "extract": {
+       "column": "run_id"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/runs/dataset_id",
+     "name": "dataset_id",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/runs.parquet"
+      },
+      "extract": {
+       "column": "dataset_id"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/runs/file_name",
+     "name": "file_name",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/runs.parquet"
+      },
+      "extract": {
+       "column": "file_name"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/runs/sha256",
+     "name": "sha256",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/runs.parquet"
+      },
+      "extract": {
+       "column": "sha256"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/runs/pride_checksum_sha1",
+     "name": "pride_checksum_sha1",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/runs.parquet"
+      },
+      "extract": {
+       "column": "pride_checksum_sha1"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/runs/fraction",
+     "name": "fraction",
+     "dataType": "sc:Integer",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/runs.parquet"
+      },
+      "extract": {
+       "column": "fraction"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/runs/fraction_source",
+     "name": "fraction_source",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/runs.parquet"
+      },
+      "extract": {
+       "column": "fraction_source"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/runs/technical_replicate",
+     "name": "technical_replicate",
+     "dataType": "sc:Integer",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/runs.parquet"
+      },
+      "extract": {
+       "column": "technical_replicate"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/runs/technical_replicate_source",
+     "name": "technical_replicate_source",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/runs.parquet"
+      },
+      "extract": {
+       "column": "technical_replicate_source"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/runs/fragmentation",
+     "name": "fragmentation",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/runs.parquet"
+      },
+      "extract": {
+       "column": "fragmentation"
+      }
+     },
+     "repeated": true
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/runs/ms2_spectra",
+     "name": "ms2_spectra",
+     "dataType": "sc:Integer",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/runs.parquet"
+      },
+      "extract": {
+       "column": "ms2_spectra"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/runs/run_minutes",
+     "name": "run_minutes",
+     "dataType": "sc:Float",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/runs.parquet"
+      },
+      "extract": {
+       "column": "run_minutes"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/runs/qc_pass",
+     "name": "qc_pass",
+     "dataType": "sc:Boolean",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/runs.parquet"
+      },
+      "extract": {
+       "column": "qc_pass"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/runs/instrument_model",
+     "name": "instrument_model",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/runs.parquet"
+      },
+      "extract": {
+       "column": "instrument_model"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/runs/acquisition_datetime",
+     "name": "acquisition_datetime",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/runs.parquet"
+      },
+      "extract": {
+       "column": "acquisition_datetime"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/runs/enrichment",
+     "name": "enrichment",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/runs.parquet"
+      },
+      "extract": {
+       "column": "enrichment"
+      }
+     },
+     "repeated": true
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/runs/enrichment_source",
+     "name": "enrichment_source",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/runs.parquet"
+      },
+      "extract": {
+       "column": "enrichment_source"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "@type": "cr:RecordSet",
+   "@id": "PXD999999/samples",
+   "name": "PXD999999/samples",
+   "field": [
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/samples/sample_id",
+     "name": "sample_id",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/samples.parquet"
+      },
+      "extract": {
+       "column": "sample_id"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/samples/dataset_id",
+     "name": "dataset_id",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/samples.parquet"
+      },
+      "extract": {
+       "column": "dataset_id"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/samples/source_name",
+     "name": "source_name",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/samples.parquet"
+      },
+      "extract": {
+       "column": "source_name"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/samples/organism",
+     "name": "organism",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/samples.parquet"
+      },
+      "extract": {
+       "column": "organism"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/samples/sex",
+     "name": "sex",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/samples.parquet"
+      },
+      "extract": {
+       "column": "sex"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/samples/organism_part",
+     "name": "organism_part",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/samples.parquet"
+      },
+      "extract": {
+       "column": "organism_part"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/samples/cell_type",
+     "name": "cell_type",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/samples.parquet"
+      },
+      "extract": {
+       "column": "cell_type"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/samples/disease",
+     "name": "disease",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/samples.parquet"
+      },
+      "extract": {
+       "column": "disease"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/samples/condition",
+     "name": "condition",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/samples.parquet"
+      },
+      "extract": {
+       "column": "condition"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/samples/material_type",
+     "name": "material_type",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/samples.parquet"
+      },
+      "extract": {
+       "column": "material_type"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/samples/cell_line",
+     "name": "cell_line",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/samples.parquet"
+      },
+      "extract": {
+       "column": "cell_line"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/samples/individual_id",
+     "name": "individual_id",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/samples.parquet"
+      },
+      "extract": {
+       "column": "individual_id"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/samples/biological_replicate",
+     "name": "biological_replicate",
+     "dataType": "sc:Integer",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/samples.parquet"
+      },
+      "extract": {
+       "column": "biological_replicate"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/samples/timepoint",
+     "name": "timepoint",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/samples.parquet"
+      },
+      "extract": {
+       "column": "timepoint"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "@type": "cr:RecordSet",
+   "@id": "PXD999999/assays",
+   "name": "PXD999999/assays",
+   "field": [
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/assays/assay_id",
+     "name": "assay_id",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/assays.parquet"
+      },
+      "extract": {
+       "column": "assay_id"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/assays/run_id",
+     "name": "run_id",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/assays.parquet"
+      },
+      "extract": {
+       "column": "run_id"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/assays/channel",
+     "name": "channel",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/assays.parquet"
+      },
+      "extract": {
+       "column": "channel"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/assays/sample_id",
+     "name": "sample_id",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/assays.parquet"
+      },
+      "extract": {
+       "column": "sample_id"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "@type": "cr:RecordSet",
+   "@id": "PXD999999/findings",
+   "name": "PXD999999/findings",
+   "field": [
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/findings/finding_id",
+     "name": "finding_id",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/findings.parquet"
+      },
+      "extract": {
+       "column": "finding_id"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/findings/dataset_id",
+     "name": "dataset_id",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/findings.parquet"
+      },
+      "extract": {
+       "column": "dataset_id"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/findings/run_id",
+     "name": "run_id",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/findings.parquet"
+      },
+      "extract": {
+       "column": "run_id"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/findings/code",
+     "name": "code",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/findings.parquet"
+      },
+      "extract": {
+       "column": "code"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/findings/severity",
+     "name": "severity",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/findings.parquet"
+      },
+      "extract": {
+       "column": "severity"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/findings/status",
+     "name": "status",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/findings.parquet"
+      },
+      "extract": {
+       "column": "status"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/findings/message",
+     "name": "message",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/findings.parquet"
+      },
+      "extract": {
+       "column": "message"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/findings/source",
+     "name": "source",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/findings.parquet"
+      },
+      "extract": {
+       "column": "source"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "@type": "cr:RecordSet",
+   "@id": "PXD999999/metrics",
+   "name": "PXD999999/metrics",
+   "field": [
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/metrics/scope",
+     "name": "scope",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/metrics.parquet"
+      },
+      "extract": {
+       "column": "scope"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/metrics/scope_id",
+     "name": "scope_id",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/metrics.parquet"
+      },
+      "extract": {
+       "column": "scope_id"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/metrics/name",
+     "name": "name",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/metrics.parquet"
+      },
+      "extract": {
+       "column": "name"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/metrics/value",
+     "name": "value",
+     "dataType": "sc:Float",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/metrics.parquet"
+      },
+      "extract": {
+       "column": "value"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/metrics/definition_id",
+     "name": "definition_id",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/metrics.parquet"
+      },
+      "extract": {
+       "column": "definition_id"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/metrics/source",
+     "name": "source",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/metrics.parquet"
+      },
+      "extract": {
+       "column": "source"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "@type": "cr:RecordSet",
+   "@id": "PXD999999/definitions",
+   "name": "PXD999999/definitions",
+   "field": [
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/definitions/definition_id",
+     "name": "definition_id",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/definitions.parquet"
+      },
+      "extract": {
+       "column": "definition_id"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/definitions/version",
+     "name": "version",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/definitions.parquet"
+      },
+      "extract": {
+       "column": "version"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/definitions/owner_project",
+     "name": "owner_project",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/definitions.parquet"
+      },
+      "extract": {
+       "column": "owner_project"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/definitions/text",
+     "name": "text",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/definitions.parquet"
+      },
+      "extract": {
+       "column": "text"
+      }
+     }
+    },
+    {
+     "@type": "cr:Field",
+     "@id": "PXD999999/definitions/url",
+     "name": "url",
+     "dataType": "sc:Text",
+     "source": {
+      "fileObject": {
+       "@id": "PXD999999/definitions.parquet"
+      },
+      "extract": {
+       "column": "url"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

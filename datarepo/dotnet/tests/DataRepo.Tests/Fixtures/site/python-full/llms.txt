@@ -1,0 +1,32 @@
+# Test <repo> & 'co'
+
+> Search and quantification results for 1 public proteomics dataset, reanalysed with one pipeline into one schema, for questions about how organelle proteomes change with age. Every number here comes from catalog `153cf55067d58441` (datarepo 0.32.0, schema 0.0.13, built 2026-10-04T16:03:54+00:00); cite that id with any number you reuse.
+
+**Notice:** Preview: regenerated & <checked> "soon".
+
+Before you answer from this data:
+
+- Counts at 1% FDR come from the `*_1pct` views (`psms_1pct`, `peptidoforms_1pct`, `protein_groups_1pct`). The base tables also hold decoys and sub-threshold matches.
+- Each dataset page lists its open findings. A `low_id_rate` or `sdrf_skeleton` finding means the absence of a protein, or of sample metadata, is weak evidence.
+- An empty table means nothing was delivered. It does not mean the answer is zero or none. The MCP `describe` tool says which tables are empty.
+- Contaminant proteins (e.g. bovine albumin, porcine trypsin) are flagged and carry their own species. They are reagents, not evidence about the sample's organism. The flag is PER DATASET: human albumin is a target in a human search and a contaminant in a rodent one.
+- A dataset's organism is the organism of the protein database searched, not a statement about the samples.
+- `pep` values are not comparable across datasets: the model is retrained on every search. Compare counts at a threshold instead.
+- A protein group's accession list is kept in the search engine's order, and MetaMorpheus writes it alphabetically. The first accession is not a leading or razor protein, and nothing in this repository names one.
+
+## Datasets
+
+- [PXD999999: PXD999999](datasets/PXD999999.html): PXD999999 is a DDA label-free dataset (Homo sapiens) with 2 runs, 2 samples and no enrichment step (whole proteome). It was reanalysed with MetaMorpheus 1.1.11. At 1% FDR the search reports 58 PSMs, 40 peptidoforms and 3 protein groups, and the repository holds 36 PTM sites for it. 5 open warnings about it are recorded.
+
+## Access
+
+- [datasets.json](datasets.json): a small index, one entry per dataset, each naming its full JSON (`datasets/<id>.json`: every fact on its page, all findings and modifications).
+- [proteins/index.json](proteins/index.json): which datasets have accepted evidence for a protein. It lists every protein shard by accession prefix: fetch the shard whose prefix is the longest one the accession starts with. A gene symbol is in `genes/<first letter>.json`, which gives its accessions.
+- [MCP server](https://github.com/smith-chem-wisc/dataRepo/blob/master/docs/mcp.md): `datarepo mcp --catalog <catalog.duckdb>` serves a catalog to an agent over stdio (describe, search, read-only SQL).
+- [Schema](https://github.com/smith-chem-wisc/dataRepo/tree/master/docs/schema): every table and column, with its meaning.
+- [croissant.json](croissant.json): the Parquet files, described for ML loaders.
+
+## Optional
+
+- [Source code](https://github.com/smith-chem-wisc/dataRepo): the ingester and catalog builder that made this data.
+- [Limitations](https://github.com/smith-chem-wisc/dataRepo/blob/master/docs/limitations.md): what the repository does not yet hold.
