@@ -19,6 +19,16 @@
 //                               [--min-psms 5] [--sites-out DIR]
 //   dotnet run BuildPtmDb.cs -- --from-sites DIR ...   use DIR/sites_<organism>.tsv instead of the catalog (to prove the
 //                               port: v1's site lists must rebuild v1's XMLs byte for byte)
+//
+// --mode isoforms (aging PXR-A16): the port of aging's isoform_sites.py, for the D43 isoform XMLs
+// (aging_isoforms_tier1-2_<organism>.xml). A biological site on an isoform accession (P02751-8) goes on the isoform only
+// where MetaMorpheus's parsimony put it in a 1%-FDR target protein group that lists the isoform and NOT its canonical
+// (aging's rule, 2026-09-27). A group listing both is ambiguous. Every site the rule assigns is written ("loose"); the
+// "strict" column records the guard that the canonical is not also identified in that dataset. PSMs are summed over the
+// qualifying datasets, >= --min-psms. A residue that disagrees with the isoform sequence stops the build.
+//   dotnet run BuildPtmDb.cs -- --mode isoforms --catalog C.duckdb --out DIR --tag T --xml human=ISO.xml ...
+//       writes isoform_site_verdicts.tsv and isoform_sites_selected.tsv to --sites-out, <xml>_<T>.xml, isoform_provenance_<T>.json
+//   dotnet run BuildPtmDb.cs -- --mode isoforms --from-sites DIR ...   DIR/isoform_sites_selected.tsv instead of the catalog
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
@@ -38,6 +48,9 @@ var xmls = (opt.GetValueOrDefault("xml") ?? new()).Select(s => s.Split('=', 2)).
 if (xmls.Count == 0 || xmls.Keys.Any(k => !Orgs.Values.Contains(k))) return Usage("--xml organism=path, organism one of human, mouse, rat");
 Directory.CreateDirectory(outDir);
 Directory.CreateDirectory(sitesOut);
+string mode = opt.GetValueOrDefault("mode")?[0] ?? "proteome";
+if (mode == "isoforms") return RunIsoforms(catalog, fromSites, outDir, sitesOut, tag, minPsms, xmls);
+if (mode != "proteome") return Usage("--mode is proteome (the default) or isoforms");
 
 var all = Stopwatch.StartNew();
 var (meta, rows) = fromSites is null ? Select(catalog!, minPsms) : (null, FromSites(fromSites, xmls.Keys));
@@ -140,6 +153,169 @@ static (JsonObject Meta, List<Site> Rows) Select(string catalog, int minPsms)
     }
     return (meta, rows);
 }
+
+// ---------------------------------------------------------------------------------------------- --mode isoforms
+
+static int RunIsoforms(string? catalog, string? fromSites, string outDir, string sitesOut, string tag, int minPsms, Dictionary<string, string> xmls)
+{
+    var all = Stopwatch.StartNew();
+    JsonObject? meta = null;
+    // (organism, accession, position, residue, modification) -> (PSMs, datasets, strict)
+    var selected = new SortedDictionary<(string Org, string Acc, int Pos, string Res, string Mod), (long Psms, SortedSet<string> Datasets, bool Strict)>(
+        Comparer<(string, string, int, string, string)>.Create((a, b) =>
+        {
+            int c = string.CompareOrdinal(a.Item1, b.Item1); if (c != 0) return c;
+            c = string.CompareOrdinal(a.Item2, b.Item2); if (c != 0) return c;
+            c = a.Item3.CompareTo(b.Item3); if (c != 0) return c;
+            c = string.CompareOrdinal(a.Item4, b.Item4); if (c != 0) return c;
+            return string.CompareOrdinal(a.Item5, b.Item5);
+        }));
+    if (catalog is not null)
+    {
+        var verdicts = IsoformVerdicts(catalog, out meta);
+        var tsv = new StringBuilder("organism\tdataset_id\taccession\tcanonical\tposition\tresidue\tmodification\tn_psms\tn_groups\tgroup_has_canonical\tisoform_only_group\tcanonical_in_dataset\tverdict\r\n");
+        foreach (var v in verdicts)
+            tsv.Append($"{v.Org}\t{v.Dataset}\t{v.Acc}\t{v.Canonical}\t{v.Pos}\t{v.Res}\t{v.Mod}\t{v.Psms}\t{v.Groups}\t{Py(v.HasCanonical)}\t{Py(v.IsoformOnly)}\t{Py(v.CanonicalInDataset)}\t{v.Verdict}\r\n");
+        File.WriteAllText(Path.Combine(sitesOut, "isoform_site_verdicts.tsv"), tsv.ToString());
+        foreach (var g in verdicts.GroupBy(v => (v.Org, v.Verdict)).OrderBy(g => g.Key.Org, StringComparer.Ordinal).ThenBy(g => g.Key.Verdict, StringComparer.Ordinal))
+            Console.WriteLine($"  {g.Key.Org} {g.Key.Verdict}: {g.Count()}");
+        var loose = Rollup(verdicts, "isoform_by_parsimony", "isoform_group_but_canonical_also_identified");
+        var strict = Rollup(verdicts, "isoform_by_parsimony");
+        foreach (var (k, (psms, ds)) in loose.Where(kv => kv.Value.Psms >= minPsms))
+            selected[k] = (psms, ds, strict.TryGetValue(k, out var s) && s.Psms >= minPsms);
+        var sel = new StringBuilder("organism\taccession\tposition\tresidue\tmodification\tn_psms\tdatasets\tstrict\r\n");
+        foreach (var (k, v) in selected)
+            sel.Append($"{k.Org}\t{k.Acc}\t{k.Pos}\t{k.Res}\t{k.Mod}\t{v.Psms}\t{string.Join(",", v.Datasets)}\t{Py(v.Strict)}\r\n");
+        File.WriteAllText(Path.Combine(sitesOut, "isoform_sites_selected.tsv"), sel.ToString());
+        Console.WriteLine($"sites >= {minPsms} PSMs: rule only (loose) {selected.Count}; with the canonical-absent guard (strict) {selected.Count(kv => kv.Value.Strict)}");
+    }
+    else
+        foreach (var p in File.ReadLines(Path.Combine(fromSites!, "isoform_sites_selected.tsv")).Skip(1).Where(l => l.Length > 0).Select(l => l.Split('\t')))
+            selected[(p[0], p[1], int.Parse(p[2]), p[3], p[4])] = (long.Parse(p[5]), new SortedSet<string>(p[6].Split(','), StringComparer.Ordinal), p[7] == "True");
+
+    var prov = new JsonObject
+    {
+        ["built_utc"] = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'+00:00'"),
+        ["script"] = "PXReprise tools/ptm-db/BuildPtmDb.cs --mode isoforms (C# port of aging results/ptm_db_2026-09-27/isoform_sites.py)",
+        ["tag"] = tag, ["catalog"] = meta, ["from_sites"] = fromSites,
+        ["rule"] = "site on an isoform accession, reported in a 1%-FDR target protein group that lists the isoform and not its canonical " +
+                   $"(MetaMorpheus parsimony); >= {minPsms} PSMs summed over those datasets",
+        ["dotnet"] = Environment.Version.ToString(),
+        ["organisms"] = new JsonObject(),
+    };
+    foreach (var (org, src) in xmls.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+    {
+        var (_, seq) = LoadUniprot(src);
+        var keep = new Dictionary<string, List<Site>>(StringComparer.Ordinal);
+        var elsewhere = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var (k, v) in selected.Where(kv => kv.Key.Org == org))
+        {
+            // The searches also carry other isoform databases (tier3_compartment since v1), so a site's accession may belong
+            // to another XML: that one's build writes it. A residue that disagrees with this XML's own sequence is fatal.
+            if (!seq.TryGetValue(k.Acc, out string? sq)) { elsewhere.Add(k.Acc); continue; }
+            if (k.Pos < 1 || k.Pos > sq.Length || sq[k.Pos - 1].ToString() != k.Res)
+                throw new InvalidDataException($"{k.Acc} {k.Pos}: residue {k.Res} does not match the isoform sequence in {src}");
+            (keep.TryGetValue(k.Acc, out var l) ? l : keep[k.Acc] = new()).Add(new Site(org, k.Acc, k.Pos, k.Mod, "", v.Datasets.Count, v.Psms, string.Join(",", v.Datasets)));
+        }
+        string dst = Path.Combine(outDir, Path.GetFileName(src).Replace(".xml", $"_{tag}.xml"));
+        int written = Annotate(src, dst, keep);
+        prov["organisms"]![org] = new JsonObject
+        {
+            ["source_xml"] = src, ["source_sha256"] = Sha(src), ["output_xml"] = dst, ["output_sha256"] = Sha(dst), ["sites_written"] = written,
+            ["sites_by_accession"] = new JsonObject(keep.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => KeyValuePair.Create(kv.Key, (JsonNode?)kv.Value.Count))),
+            ["selected_accessions_not_in_this_xml"] = new JsonArray(elsewhere.Select(a => (JsonNode?)a).ToArray()),
+        };
+        Console.WriteLine($"{org}: {written} isoform sites written to {dst}" + (elsewhere.Count > 0 ? $"; {elsewhere.Count} selected accession(s) not in this XML: {string.Join(", ", elsewhere)}" : ""));
+    }
+    prov["wall_s"] = Math.Round(all.Elapsed.TotalSeconds, 1);
+    string provFile = Path.Combine(outDir, $"isoform_provenance_{tag}.json");
+    File.WriteAllText(provFile, prov.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+    Console.WriteLine($"provenance: {provFile}");
+    return 0;
+}
+
+/// <summary>One row per (dataset, isoform site): the groups it was reported in, and the verdict of aging's rule.</summary>
+static List<IsoVerdict> IsoformVerdicts(string catalog, out JsonObject meta)
+{
+    using var con = new DuckDBConnection($"Data Source={catalog};ACCESS_MODE=READ_ONLY");
+    con.Open();
+    meta = new JsonObject();
+    using (var c = con.CreateCommand())
+    {
+        c.CommandText = "select catalog_id, builder_version, built_utc from catalog_meta";
+        using var r = c.ExecuteReader();
+        r.Read();
+        meta["id"] = r.GetValue(0)?.ToString(); meta["datarepo"] = r.GetValue(1)?.ToString(); meta["built_utc"] = r.GetValue(2)?.ToString();
+        meta["path"] = catalog;
+    }
+    string names = string.Join(",", Bio.Keys.Select(n => "'" + n.Replace("'", "''") + "'"));
+    var rows = new List<IsoVerdict>();
+    using (var c = con.CreateCommand())
+    {
+        c.CommandText = $@"
+          WITH org AS (SELECT dataset_id, organism_name FROM (
+              SELECT dataset_id, organism_name, count(*) n FROM proteins WHERE organism IS NOT NULL GROUP BY 1,2)
+            QUALIFY row_number() OVER (PARTITION BY dataset_id ORDER BY n DESC)=1),
+          site AS (
+            SELECT s.*, split_part(s.protein_accession, '-', 1) AS canonical
+            FROM ptm_sites s
+            WHERE s.target_decoy='target' AND s.best_q_value<=0.01 AND s.best_ambiguity_level='1'
+              AND s.modification_name IN ({names}) AND s.protein_accession LIKE '%-%'),
+          grp AS (
+            SELECT DISTINCT st.ptm_site_id, g.protein_group_id, g.protein_accessions
+            FROM ptm_stoichiometry st JOIN protein_groups_1pct g USING (protein_group_id)
+            WHERE g.target_decoy='target'),
+          canon_elsewhere AS (
+            SELECT DISTINCT g.dataset_id, a AS acc
+            FROM protein_groups_1pct g, unnest(g.protein_accessions) t(a)
+            WHERE g.target_decoy='target')
+          SELECT o.organism_name, s.dataset_id, s.protein_accession, s.canonical, s.position, s.residue,
+                 s.modification_name, s.n_psms::BIGINT,
+                 count(gr.protein_group_id)::BIGINT AS n_groups,
+                 bool_or(list_contains(gr.protein_accessions, s.canonical)) AS group_has_canonical,
+                 bool_or(NOT list_contains(gr.protein_accessions, s.canonical)) AS isoform_only_group,
+                 any_value(ce.acc) IS NOT NULL AS canonical_in_dataset
+          FROM site s JOIN org o USING (dataset_id)
+          LEFT JOIN grp gr ON gr.ptm_site_id = s.ptm_site_id
+          LEFT JOIN canon_elsewhere ce ON ce.dataset_id = s.dataset_id AND ce.acc = s.canonical
+          GROUP BY ALL";
+        using var r = c.ExecuteReader();
+        while (r.Read())
+        {
+            // isoform_sites.py stopped on an organism outside the three; the isoform XMLs exist only for them.
+            if (!Orgs.TryGetValue(r.GetString(0), out string? org)) continue;
+            bool? B(int i) => r.IsDBNull(i) ? null : r.GetBoolean(i);
+            long groups = Convert.ToInt64(r.GetValue(8));
+            bool? hasCanon = B(9), isoOnly = B(10);
+            bool canonIn = r.GetBoolean(11);
+            string verdict = groups == 0 ? "no_1pct_group"
+                : hasCanon == true ? "ambiguous_group"
+                : canonIn ? "isoform_group_but_canonical_also_identified"
+                : "isoform_by_parsimony";
+            rows.Add(new IsoVerdict(org, r.GetString(1), r.GetString(2), r.GetString(3), Convert.ToInt32(r.GetValue(4)), r.GetValue(5)?.ToString() ?? "",
+                r.GetString(6), Convert.ToInt64(r.GetValue(7)), groups, hasCanon, isoOnly, canonIn, verdict));
+        }
+    }
+    // isoform_sites.py wrote DuckDB's row order, which no query fixes; this order is stable.
+    return rows.OrderBy(v => v.Org, StringComparer.Ordinal).ThenBy(v => v.Dataset, StringComparer.Ordinal).ThenBy(v => v.Acc, StringComparer.Ordinal)
+        .ThenBy(v => v.Pos).ThenBy(v => v.Mod, StringComparer.Ordinal).ToList();
+}
+
+static Dictionary<(string Org, string Acc, int Pos, string Res, string Mod), (long Psms, SortedSet<string> Datasets)> Rollup(List<IsoVerdict> rows, params string[] ok)
+{
+    var agg = new Dictionary<(string, string, int, string, string), (long Psms, SortedSet<string> Datasets)>();
+    foreach (var r in rows.Where(r => ok.Contains(r.Verdict)))
+    {
+        var k = (r.Org, r.Acc, r.Pos, r.Res, r.Mod);
+        var (p, d) = agg.TryGetValue(k, out var v) ? v : (0L, new SortedSet<string>(StringComparer.Ordinal));
+        d.Add(r.Dataset);
+        agg[k] = (p + r.Psms, d);
+    }
+    return agg;
+}
+
+/// <summary>Python's spelling of a nullable bool in a csv cell, so the tables read as v1's did.</summary>
+static string Py(bool? b) => b switch { true => "True", false => "False", null => "" };
 
 static List<Site> FromSites(string dir, IEnumerable<string> orgs) =>
     orgs.SelectMany(o => File.ReadLines(Path.Combine(dir, $"sites_{o}.tsv")).Skip(1).Where(l => l.Length > 0).Select(l => l.Split('\t'))
@@ -250,6 +426,9 @@ record Site(string Organism, string Accession, int Position, string Modification
 {
     public char Residue { get; init; }
 }
+
+record IsoVerdict(string Org, string Dataset, string Acc, string Canonical, int Pos, string Res, string Mod, long Psms, long Groups,
+    bool? HasCanonical, bool? IsoformOnly, bool CanonicalInDataset, string Verdict);
 
 static partial class Program
 {
