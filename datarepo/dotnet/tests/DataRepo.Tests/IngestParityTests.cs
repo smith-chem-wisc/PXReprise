@@ -62,6 +62,55 @@ public class IngestParityTests
         }
     }
 
+    /// <summary>QuantProject 009 (DATAREPO-Q1): a count entry of 0/N is a covered, unmodified site, a measured zero.
+    /// Its intensity entry prints 0.0000(0/I) exactly like a floor, so only the count numerator tells them apart.</summary>
+    [Test]
+    public void ACountNumeratorOfZeroIsCoveredZeroNotAFloor()
+    {
+        var copy = Path.Combine(Path.GetTempPath(), "datarepo-covered-zero-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            CopyDirectory(Path.Combine(RepoRoot(), "tests", "data"), copy);
+            var table = Path.Combine(copy, "work_root", "run_test", "PXD999999", "04_search", "mm", "Task3SearchTask", "AllQuantifiedProteinGroups.tsv");
+            var text = File.ReadAllText(table);
+            // Row 2's second segment is a floor today: count 2/2, intensity 0/2500. Make its count 0/2.
+            const string floor = "pos129[Carbamidomethyl on C,info:fraction=1.00(2/2)]";
+            Assert.That(text, Does.Contain(floor));
+            File.WriteAllText(table, text.Replace(floor, "pos129[Carbamidomethyl on C,info:fraction=0.00(0/2)]"));
+
+            var store = Path.Combine(copy, "out");
+            var manifest = Path.Combine(copy, "manifest.yaml");
+            string StateOf(IngestRules rules)
+            {
+                var result = Ingester.Ingest(manifest, "PXD999999", store, rules: rules, overwrite: true);
+                var (_, rows) = ArrowTables.ReadParquet(Path.Combine(result.BundlePath, "ptm_stoichiometry.parquet"));
+                var row = rows.Single(r => r["n_modified_psms"] is 0L && r["n_covering_psms"] is 2L);
+                return $"{row["occupancy_state"]}/{row["intensity_is_floor"]}";
+            }
+            Assert.That(StateOf(IngestRules.Current), Is.EqualTo("covered_zero/False"));
+            Assert.That(StateOf(IngestRules.Python0320), Is.EqualTo("floor/True"), "0.32.0 had no fifth state; parity mode keeps its rows");
+
+            var current = Ingester.Ingest(manifest, "PXD999999", store, rules: IngestRules.Current, overwrite: true);
+            var (_, definitions) = ArrowTables.ReadParquet(Path.Combine(current.BundlePath, "definitions.parquet"));
+            var occupancy = definitions.Single(r => (string)r["definition_id"]! == Definitions.Occupancy.DefinitionId);
+            Assert.That(occupancy["version"], Is.EqualTo("v3.6"));
+            Assert.That((string)occupancy["text"]!, Does.Contain("DEF-OCC-COVERED-ZERO").And.Contain("DEF-OCC-ABSENT v3.6"));
+        }
+        finally
+        {
+            if (Directory.Exists(copy)) Directory.Delete(copy, true);
+        }
+    }
+
+    private static void CopyDirectory(string from, string to)
+    {
+        foreach (var dir in Directory.GetDirectories(from, "*", SearchOption.AllDirectories))
+            Directory.CreateDirectory(dir.Replace(from, to));
+        Directory.CreateDirectory(to);
+        foreach (var file in Directory.GetFiles(from, "*", SearchOption.AllDirectories))
+            File.Copy(file, file.Replace(from, to), true);
+    }
+
     [Test]
     public void ADatasetTheProducerExcludedIsRefused()
     {

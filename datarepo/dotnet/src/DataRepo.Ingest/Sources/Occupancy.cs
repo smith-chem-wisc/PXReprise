@@ -205,7 +205,8 @@ public static class Occupancy
     /// <param name="assayIds">The bundle's assay ids; a run with no label-free assay stores nothing.</param>
     public static OccupancyResult Rows(
         string path, string datasetId, RunNameMap runNames, ProteinSequences sequences,
-        IReadOnlySet<string> siteIds, IReadOnlySet<string> groupIds, IReadOnlySet<string> assayIds, ReaderLog? log = null)
+        IReadOnlySet<string> siteIds, IReadOnlySet<string> groupIds, IReadOnlySet<string> assayIds, ReaderLog? log = null,
+        IngestRules rules = IngestRules.Current)
     {
         var read = Readers.ReadOccupancy(path, log);
         // A private map: a label that is not a run must not be reported as an unmatched USI run name.
@@ -339,6 +340,15 @@ public static class Occupancy
 
         foreach (var row in merged.Values)
         {
+            // DEF-OCC-COVERED-ZERO (QuantProject 009, v3.6): a COUNT numerator of 0 is a covered, unmodified site, a
+            // measured zero. Its intensity entry, if any, prints 0.0000(0/I) like a floor, so without this it would be
+            // stored as a censored floor. Only output from an mzLib carrying #1411 and an opting-in MetaMorpheus has one.
+            if (rules == IngestRules.Current && row.GetValueOrDefault("n_modified_psms") is long modified && modified == 0)
+            {
+                row["occupancy_state"] = "covered_zero";
+                if (row.ContainsKey("intensity_is_floor")) row["intensity_is_floor"] = false;
+                continue;
+            }
             if (row.GetValueOrDefault("intensity_total") is null)
             {
                 // An intensity cell that exists but could not be assigned to an accession is NOT "nothing was

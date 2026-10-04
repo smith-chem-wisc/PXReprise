@@ -526,7 +526,7 @@ public static class Ingester
             var occ = Occupancy.Rows(pgPath, datasetId, runNames, sequences,
                 ptmSites.Select(s => (string)s["ptm_site_id"]!).ToHashSet(StringComparer.Ordinal),
                 proteinGroups.Select(g => (string)g["protein_group_id"]!).ToHashSet(StringComparer.Ordinal),
-                assays.Select(a => (string)a["assay_id"]!).ToHashSet(StringComparer.Ordinal), log);
+                assays.Select(a => (string)a["assay_id"]!).ToHashSet(StringComparer.Ordinal), log, rules);
             stoichiometry = occ.Rows;
             occupancyNote = new OrderedDictionary<string, object?>
             {
@@ -609,6 +609,12 @@ public static class Ingester
             .ToHashSet(StringComparer.Ordinal);
         if (psmRows.Count > 0) used.Add(Definitions.Cite(Definitions.NotchAmbiguous, searchNamespace));
         var definitionRows = Definitions.Rows(used);
+        if (rules == IngestRules.Current)
+        {
+            // QuantProject 009: bundles written under the current rules carry the occupancy definition at v3.6.
+            var at = definitionRows.FindIndex(r => (string)r["definition_id"]! == Definitions.Occupancy.DefinitionId);
+            if (at >= 0) definitionRows[at] = Definitions.OccupancyV36.Row();
+        }
         // `pep` is comparable only inside the search that wrote it (pep 002), so the text saying so travels with
         // the rows, versioned by the release and regime behind them.
         if (psmRows.Count > 0)

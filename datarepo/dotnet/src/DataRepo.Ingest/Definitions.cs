@@ -83,6 +83,44 @@ public static partial class Definitions
     public static List<DataRepo.Bundle.Row> Rows(ISet<string>? used = null) =>
         All.Where(d => used is null || used.Contains(d.DefinitionId)).Select(d => d.Row()).ToList();
 
+    /// <summary>The v3.6 replacements in QuantProject's occupancy text (QuantProject 009, 2026-10-04): DEF-OCC-ABSENT
+    /// corrected at every shipped version, DEF-OCC-COUNT amended, DEF-OCC-COVERED-ZERO added. Everything else is the
+    /// v3.2 copy, word for word; <see cref="OccupancyV36"/> refuses to build if a replacement stops matching.</summary>
+    internal static readonly (string Old, string New)[] OccupancyV36Edits =
+    [
+        ("DEF-OCC-CELL (v3, grammar superseded by v3.2) with ",
+         "DEF-OCC-CELL (v3, grammar superseded by v3.2; DEF-OCC-ABSENT corrected and DEF-OCC-COUNT amended by v3.6, "
+         + "DEF-OCC-COVERED-ZERO added by v3.6) with "),
+        ("Written for every site with at least one modified PSM. ",
+         "Written for every site with at least one modified PSM; and, only in output from an mzLib carrying #1411 and a "
+         + "MetaMorpheus that opts in, at 0/N for every covered site where that modification was seen in some sample "
+         + "group of the search (DEF-OCC-COVERED-ZERO). "),
+        ("absent (no entry: no modified form seen -- NA, never 0, DEF-OCC-ABSENT). ",
+         "covered-zero (count entry with numerator 0: covered and not modified, a MEASURED zero, DEF-OCC-COVERED-ZERO; "
+         + "its intensity entry, if any, prints 0.0000(0/I) exactly like a floor, so only the count numerator tells them "
+         + "apart); absent (no entry: not covered, or, in shipped output, covered and not modified -- the file cannot "
+         + "tell which, and SpectralCount_ > 0 is no substitute for coverage -- NA, never 0, DEF-OCC-ABSENT v3.6). "),
+    ];
+
+    private static readonly Lazy<Def> OccupancyV36Lazy = new(() =>
+    {
+        var text = Occupancy.Text;
+        foreach (var (old, replacement) in OccupancyV36Edits)
+        {
+            if (!text.Contains(old, StringComparison.Ordinal))
+                throw new InvalidOperationException($"QuantProject's v3.2 occupancy text no longer contains {old}");
+            text = text.Replace(old, replacement, StringComparison.Ordinal);
+        }
+        text = text.Replace("[Source: QuantProject design/DATA-DEFINITIONS.md at f4bb910, definitions v3.5.]",
+            "[Source: QuantProject design/DATA-DEFINITIONS.md at f4bb910, definitions v3.5; v3.6 from QuantProject thread 009, 2026-10-04.]",
+            StringComparison.Ordinal);
+        return Occupancy with { Version = "v3.6", Text = text };
+    });
+
+    /// <summary>QuantProject's occupancy definition at v3.6 (thread 009), carried by bundles written under
+    /// <see cref="IngestRules.Current"/>; a <see cref="IngestRules.Python0320"/> bundle keeps the v3.2 copy.</summary>
+    public static Def OccupancyV36 => OccupancyV36Lazy.Value;
+
     /// <summary>DEF-PEP for one search, versioned by the release and regime that produced its PEP values.</summary>
     /// <param name="iterative"><c>on</c>, <c>off</c> or <c>not recorded</c> (pep 005, G81); null keeps the
     /// 0.32.0 key, which has no <c>iterative</c> part.</param>
