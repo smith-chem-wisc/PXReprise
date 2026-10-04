@@ -6,6 +6,7 @@ using DataRepo.Bundle;
 
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("DataRepo.Tests")]
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("DataRepo.Catalog")]
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("DataRepo.Mcp")]
 
 namespace DataRepo.Ingest.Sources;
 

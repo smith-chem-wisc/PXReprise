@@ -13,6 +13,7 @@ using DataRepo.Study;
 //   datarepo ingest <manifest.yaml> <PXD...>     build the bundle(s)
 //   datarepo study <study.yaml>                  write a study layer's delivered rows as a bundle
 //   datarepo inspect <bundle-dir>                what is in a bundle, and did it reconcile?
+//   datarepo mcp --catalog <catalog.duckdb>      serve one catalog to an agent over stdio
 //   datarepo site <catalog.duckdb> --out <dir>   write the public static site for one catalog
 //
 //   datarepo build <manifest.yaml> <PXD...>      load bundles into one DuckDB catalog
@@ -22,7 +23,7 @@ using DataRepo.Study;
 //
 //   datarepo run <engine> <PXD...> --store ...   run a released engine on stored data
 //
-// mcp arrives with its port (design/CSHARP_PORT.md).
+// Every command of the Python release is here (D41).
 CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
 return Cli.Run(args);
 
@@ -32,8 +33,8 @@ namespace DataRepo.Cli
     {
         private const string Prog = "datarepo";
 
-        private static readonly string[] Commands = ["ingest", "study", "manifest", "inspect", "build", "catalog", "query", "site", "publish", "run", "doctor"];
-        private static readonly string[] Pending = ["mcp"];
+        private static readonly string[] Commands = ["ingest", "study", "manifest", "inspect", "build", "catalog", "query", "site", "publish", "run", "mcp", "doctor"];
+        private static readonly string[] Pending = [];
 
         public static int Run(string[] argv)
         {
@@ -69,6 +70,7 @@ namespace DataRepo.Cli
                     "query" => CatalogCommands.Query(rest),
                     "publish" => CatalogCommands.Publish(rest),
                     "run" => RunCommand.Run(rest),
+                    "mcp" => DataRepo.Mcp.McpCommand.Run(rest, Console.Out, Console.Error),
                     "site" => DataRepo.Site.SiteCommand.Run(rest, Console.Out, Console.Error),
                     "doctor" => Doctor(),
                     _ when Pending.Contains(command) => NotYet(command),
@@ -285,6 +287,25 @@ namespace DataRepo.Cli
             Console.WriteLine($"  runtime          .NET {Environment.Version}");
             Console.WriteLine($"  mzLib            {typeof(Readers.FileReader).Assembly.GetName().Version}");
             Console.WriteLine($"  parquet          ParquetSharp {typeof(ParquetSharp.ParquetFileReader).Assembly.GetName().Version}");
+            // The MCP half. Neither line can make `doctor` fail: a machine that ingests but does not serve is a
+            // normal machine (D8 -- aging hosts, we ship).
+            Console.WriteLine($"  mcp SDK          ModelContextProtocol {typeof(ModelContextProtocol.Server.McpServer).Assembly.GetName().Version}");
+            var entries = DataRepo.Mcp.Mcp.InstalledEntries();
+            if (entries.Count > 0)
+            {
+                foreach (var (name, entry) in entries.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+                {
+                    var args = (entry.GetValueOrDefault("args") as List<object?> ?? []).Select(a => a?.ToString() ?? "").ToList();
+                    var at = args.IndexOf("--catalog");
+                    var catalog = at >= 0 && at + 1 < args.Count ? args[at + 1] : "?";
+                    Console.WriteLine($"  mcp registered   {name} -> {catalog}{(File.Exists(catalog) ? "" : "  (MISSING)")}");
+                }
+            }
+            else
+            {
+                Console.WriteLine("  mcp registered   no (`datarepo mcp --catalog <path> --install`)");
+                Console.WriteLine($"                   config would be {DataRepo.Mcp.Mcp.ClaudeConfigPath()}");
+            }
             Console.WriteLine("ready");
             return 0;
         }

@@ -7,6 +7,7 @@
     <ProjectReference Include="..\DataRepo.Site\DataRepo.Site.csproj" />
     <ProjectReference Include="..\DataRepo.Catalog\DataRepo.Catalog.csproj" />
     <ProjectReference Include="..\DataRepo.Runner\DataRepo.Runner.csproj" />
+    <ProjectReference Include="..\DataRepo.Mcp\DataRepo.Mcp.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
