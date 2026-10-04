@@ -1,0 +1,150 @@
+{
+ "tables": {
+  "sample_characteristics": {
+   "columns": [
+    [
+     "dataset_id",
+     "VARCHAR"
+    ],
+    [
+     "bundle_id",
+     "VARCHAR"
+    ],
+    [
+     "sample_id",
+     "VARCHAR"
+    ],
+    [
+     "name",
+     "VARCHAR"
+    ],
+    [
+     "value",
+     "VARCHAR"
+    ],
+    [
+     "value_reserved",
+     "BOOLEAN"
+    ],
+    [
+     "term",
+     "VARCHAR"
+    ],
+    [
+     "source",
+     "VARCHAR"
+    ],
+    [
+     "source_reference",
+     "VARCHAR"
+    ],
+    [
+     "source_method",
+     "VARCHAR"
+    ]
+   ],
+   "count": 8,
+   "kind": "BASE TABLE",
+   "platform": {},
+   "rows": [
+    "{\"dataset_id\":\"PXD999999\",\"bundle_id\":\"aeb10630abbcaf72\",\"sample_id\":\"PXD999999:PXD999999-Sample-1\",\"name\":\"characteristics[disease]\",\"value\":\"normal\",\"value_reserved\":false,\"term\":null,\"source\":null,\"source_reference\":null,\"source_method\":null}",
+    "{\"dataset_id\":\"PXD999999\",\"bundle_id\":\"aeb10630abbcaf72\",\"sample_id\":\"PXD999999:PXD999999-Sample-1\",\"name\":\"characteristics[organism part]\",\"value\":\"NT=heart;AC=UBERON:0000948\",\"value_reserved\":false,\"term\":null,\"source\":null,\"source_reference\":null,\"source_method\":null}",
+    "{\"dataset_id\":\"PXD999999\",\"bundle_id\":\"aeb10630abbcaf72\",\"sample_id\":\"PXD999999:PXD999999-Sample-1\",\"name\":\"characteristics[organism]\",\"value\":\"Homo sapiens\",\"value_reserved\":false,\"term\":null,\"source\":null,\"source_reference\":null,\"source_method\":null}",
+    "{\"dataset_id\":\"PXD999999\",\"bundle_id\":\"aeb10630abbcaf72\",\"sample_id\":\"PXD999999:PXD999999-Sample-1\",\"name\":\"factor value[organism part]\",\"value\":\"liver\",\"value_reserved\":false,\"term\":null,\"source\":null,\"source_reference\":null,\"source_method\":null}",
+    "{\"dataset_id\":\"PXD999999\",\"bundle_id\":\"aeb10630abbcaf72\",\"sample_id\":\"PXD999999:PXD999999-Sample-2\",\"name\":\" Characteristics[Sex] \",\"value\":\"female\",\"value_reserved\":false,\"term\":null,\"source\":null,\"source_reference\":null,\"source_method\":null}",
+    "{\"dataset_id\":\"PXD999999\",\"bundle_id\":\"aeb10630abbcaf72\",\"sample_id\":\"PXD999999:PXD999999-Sample-2\",\"name\":\"characteristics[organism]\",\"value\":\"Homo sapiens\",\"value_reserved\":false,\"term\":null,\"source\":null,\"source_reference\":null,\"source_method\":null}",
+    "{\"dataset_id\":\"PXD999999\",\"bundle_id\":\"aeb10630abbcaf72\",\"sample_id\":\"PXD999999:PXD999999-Sample-2\",\"name\":\"characteristics[sex]\",\"value\":\"male\",\"value_reserved\":false,\"term\":null,\"source\":null,\"source_reference\":null,\"source_method\":null}",
+    "{\"dataset_id\":\"PXD999999\",\"bundle_id\":\"aeb10630abbcaf72\",\"sample_id\":\"PXD999999:PXD999999-Sample-2\",\"name\":\"factor value[cell type]\",\"value\":\"cardiomyocyte\",\"value_reserved\":false,\"term\":null,\"source\":null,\"source_reference\":null,\"source_method\":null}"
+   ],
+   "rows_hash_sum": null
+  },
+  "samples": {
+   "columns": [
+    [
+     "dataset_id",
+     "VARCHAR"
+    ],
+    [
+     "bundle_id",
+     "VARCHAR"
+    ],
+    [
+     "sample_id",
+     "VARCHAR"
+    ],
+    [
+     "source_name",
+     "VARCHAR"
+    ],
+    [
+     "organism",
+     "VARCHAR"
+    ],
+    [
+     "sex",
+     "VARCHAR"
+    ],
+    [
+     "organism_part",
+     "VARCHAR"
+    ],
+    [
+     "cell_type",
+     "VARCHAR"
+    ],
+    [
+     "disease",
+     "VARCHAR"
+    ],
+    [
+     "condition",
+     "VARCHAR"
+    ],
+    [
+     "material_type",
+     "VARCHAR"
+    ],
+    [
+     "cell_line",
+     "VARCHAR"
+    ],
+    [
+     "individual_id",
+     "VARCHAR"
+    ],
+    [
+     "biological_replicate",
+     "BIGINT"
+    ],
+    [
+     "timepoint",
+     "VARCHAR"
+    ],
+    [
+     "sex_name",
+     "VARCHAR"
+    ],
+    [
+     "organism_part_name",
+     "VARCHAR"
+    ],
+    [
+     "cell_type_name",
+     "VARCHAR"
+    ],
+    [
+     "disease_name",
+     "VARCHAR"
+    ]
+   ],
+   "count": 2,
+   "kind": "BASE TABLE",
+   "platform": {},
+   "rows": [
+    "{\"dataset_id\":\"PXD999999\",\"bundle_id\":\"aeb10630abbcaf72\",\"sample_id\":\"PXD999999:PXD999999-Sample-1\",\"source_name\":\"PXD999999-Sample-1\",\"organism\":\"NCBITaxon:9606\",\"sex\":null,\"organism_part\":null,\"cell_type\":null,\"disease\":null,\"condition\":null,\"material_type\":null,\"cell_line\":null,\"individual_id\":null,\"biological_replicate\":1,\"timepoint\":null,\"sex_name\":null,\"organism_part_name\":\"heart\",\"cell_type_name\":null,\"disease_name\":\"normal\"}",
+    "{\"dataset_id\":\"PXD999999\",\"bundle_id\":\"aeb10630abbcaf72\",\"sample_id\":\"PXD999999:PXD999999-Sample-2\",\"source_name\":\"PXD999999-Sample-2\",\"organism\":\"NCBITaxon:9606\",\"sex\":null,\"organism_part\":null,\"cell_type\":null,\"disease\":null,\"condition\":null,\"material_type\":null,\"cell_line\":null,\"individual_id\":null,\"biological_replicate\":2,\"timepoint\":null,\"sex_name\":\"female; male\",\"organism_part_name\":null,\"cell_type_name\":\"cardiomyocyte\",\"disease_name\":null}"
+   ],
+   "rows_hash_sum": null
+  }
+ }
+}

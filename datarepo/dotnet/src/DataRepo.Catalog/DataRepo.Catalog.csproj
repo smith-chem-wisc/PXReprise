@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- The package version a catalog id hashes (catalog.py's `__version__`). Set at release; the
+         commit is deliberately NOT appended, so two builds of one release share catalog ids. -->
+    <Version>0.0.0-dev</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DataRepo.Bundle\DataRepo.Bundle.csproj" />
+    <ProjectReference Include="..\DataRepo.Ingest\DataRepo.Ingest.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 1.5.5 ships DuckDB 1.5.5, the engine the Python 0.32.0 environment runs: same engine, same SQL. -->
+    <PackageReference Include="DuckDB.NET.Data.Full" Version="1.5.5" />
+  </ItemGroup>
+
+</Project>
