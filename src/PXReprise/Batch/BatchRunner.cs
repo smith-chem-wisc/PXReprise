@@ -473,8 +473,12 @@ public sealed class BatchRunner
         Log($"{acc} SEARCH starting (profile={profile.Key}, organism={e.Organism}, library={library})");
         Record(acc, ("status", "searching"));
         var overlays = _q.Overlays.TryGetValue(e.Organism, out var ov) ? ov : Array.Empty<string>();
+        string? curated = _q.Designs?.For(acc);
+        if (curated is not null && File.Exists(curated) && profile.Design != "sdrf")
+            Log($"{acc} note: the question has a design for it ({curated}), but {profile.Key} does not use designs; searching without it");
         var req = new SearchRequest(profile, e.Organism, _m, Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "04_search"),
-            Path.Combine(d, "02b_qc"), overlays, excl, _runDate, acc, UseLibrary: library);
+            Path.Combine(d, "02b_qc"), overlays, excl, _runDate, acc, UseLibrary: library,
+            CuratedDesign: curated, DesignConditionColumns: _q.Designs is { ConditionColumns.Count: > 0 } ds ? ds.ConditionColumns : null);
         string runtimeRoot = Search.DotnetRuntimes.Root(_m.DotnetRoot);
         var runtimesBefore = Search.DotnetRuntimes.Snapshot(runtimeRoot);
         SearchOutcome outcome;

@@ -33,6 +33,11 @@ is a new version, so every result says exactly which method made it.
 | `label-free-dda@1` | available | the same search, with the ageing project's own PTM-annotated databases; only runs where those databases exist |
 | `tmt-dda@1` | pending | TMT-labelled DDA. Not runnable yet: a question that lists it gets a count of the TMT deposits it would unlock |
 
+A profile can also take an experimental design (`[quant] design = "sdrf"`, none of the profiles above yet): before the
+search, PXReprise writes MetaMorpheus's `ExperimentalDesign.tsv` from the question's own SDRF for that deposit, or else
+from the deposit's, so quantification knows the conditions and replicates. Without one, every file is quantified as its
+own sample.
+
 A deposit that no available profile accepts (DIA, timsTOF, TMT, metabolic labelling, ...) is not forced through an
 unsuitable method. It is recorded as *waiting on* that capability, so a census tells you what each missing capability
 would unlock.
