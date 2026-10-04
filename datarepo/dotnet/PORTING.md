@@ -20,8 +20,11 @@ Python 0.32.0 actually produces, never against what we expect it to produce.
 - **Messages are kept word for word** (findings, refusals, notes): they are rows or operator-facing text.
   Docstrings become `<summary>`/`<remarks>`, keeping the reasons; that prose is the project's memory.
 - **Errors**: `IngestError` -> `IngestException`, `UnsupportedProvenance` -> `UnsupportedProvenanceException`,
-  `ManifestError` -> `ManifestException`, `ReaderUnavailable` -> `ReaderUnavailableException`
-  (all in `DataRepo.Bundle`).
+  `ManifestError` -> `ManifestException`, `ReaderUnavailable` -> `ReaderUnavailableException`,
+  `CatalogError` -> `CatalogException`, `QueryRefused` -> `QueryRefusedException`, `QueryTimeout` ->
+  `QueryTimeoutException` (all in `DataRepo.Bundle`); the MCP server's `ToolError` -> `ToolException`
+  (`DataRepo.Mcp`). Where a Python name reaches an agent (the MCP error payload's `error`), it is the Python
+  name (`Mcp.ErrorName`).
 - **Producer files are read with mzLib** (NuGet `mzLib` 1.0.593), never with a new in-house parser for a
   format mzLib reads. Where the Python read a file through pyMzLib, the C# reads it through the same mzLib
   type and projects it the way pyMzLib's bridge did, so the module above it sees the same values. The
