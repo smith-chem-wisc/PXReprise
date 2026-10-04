@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<uniprot xmlns="http://uniprot.org/uniprot">
+<entry dataset="Swiss-Prot">
+  <accession>P60709</accession>
+  <accession>Q1XHY6</accession>
+  <comment type="alternative products"><isoform><sequence type="displayed"/></isoform></comment>
+  <sequence length="10" mass="1">MDDDI
+  aalvv</sequence>
+</entry>
+<entry dataset="Swiss-Prot">
+  <accession>  P63261  </accession>
+  <sequence length="5" mass="1">MEEEI<!-- a comment ends lxml's text -->KKKK</sequence>
+</entry>
+<entry dataset="Swiss-Prot">
+  <accession>P00001</accession>
+  <sequence length="0" mass="0"/>
+</entry>
+<entry dataset="Swiss-Prot">
+  <accession></accession>
+  <accession>P00002</accession>
+  <sequence length="3" mass="1">MKV</sequence>
+</entry>
+<entry dataset="Swiss-Prot">
+  <accession>P00003</accession>
+  <sequence length="7" mass="1"><![CDATA[MKB]]>ZX&amp;U</sequence>
+  <sequence length="3" mass="1">WWW</sequence>
+</entry>
+<entry dataset="Swiss-Prot">
+  <accession>P60709</accession>
+  <sequence length="4" mass="1">MSRK</sequence>
+</entry>
+<entry dataset="Swiss-Prot">
+  <accession>P60709</accession>
+  <sequence length="10" mass="1">MDDDIAALVV</sequence>
+</entry>
+<entry dataset="Swiss-Prot">
+  <feature type="chain"><accession>NOTME</accession></feature>
+  <accession>P00004<!-- c -->X</accession>
+  <sequence length="2" mass="1">  M K  </sequence>
+</entry>
+<other:entry xmlns:other="urn:not-uniprot"><other:accession>P99999</other:accession><other:sequence>MMMM</other:sequence></other:entry>
+</uniprot>
