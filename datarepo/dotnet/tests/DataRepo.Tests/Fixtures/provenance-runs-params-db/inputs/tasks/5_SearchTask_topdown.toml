@@ -1,0 +1,4 @@
+TaskType = "Search"
+
+[CommonParameters.DigestionParams]
+Protease = "top-down"
