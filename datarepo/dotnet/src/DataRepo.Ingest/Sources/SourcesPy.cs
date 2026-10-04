@@ -5,6 +5,7 @@ using System.Text.Json;
 using DataRepo.Bundle;
 
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("DataRepo.Tests")]
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("DataRepo.Catalog")]
 
 namespace DataRepo.Ingest.Sources;
 

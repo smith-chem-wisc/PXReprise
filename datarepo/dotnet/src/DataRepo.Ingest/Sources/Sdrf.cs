@@ -112,7 +112,9 @@ public static class Sdrf
         return !string.IsNullOrEmpty(accession) && !NotAvailable.Contains(accession.ToLowerInvariant()) ? accession : null;
     }
 
-    private static string? Name(string? raw) => Clean(ParseValue(raw).GetValueOrDefault("NT", ""));
+    /// <summary><c>sdrf._name</c>: the NT part of a cell, NULL for a reserved word. Also read by the catalog builder
+    /// (G74), so there is one reading of an SDRF cell, not two.</summary>
+    internal static string? Name(string? raw) => Clean(ParseValue(raw).GetValueOrDefault("NT", ""));
 
     /// <summary>Python's <c>int(x) if x and x.isdigit() else None</c>.</summary>
     private static long? Digits(string? value) =>

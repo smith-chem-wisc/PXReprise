@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\src\DataRepo.Bundle\DataRepo.Bundle.csproj" />
     <ProjectReference Include="..\..\src\DataRepo.SchemaGen\DataRepo.SchemaGen.csproj" />
     <ProjectReference Include="..\..\src\DataRepo.Ingest\DataRepo.Ingest.csproj" />
+    <ProjectReference Include="..\..\src\DataRepo.Catalog\DataRepo.Catalog.csproj" />
     <ProjectReference Include="..\..\src\DataRepo.Study\DataRepo.Study.csproj" />
     <ProjectReference Include="..\..\src\DataRepo.Site\DataRepo.Site.csproj" />
   </ItemGroup>
