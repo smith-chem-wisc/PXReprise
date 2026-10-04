@@ -1,0 +1,368 @@
+{
+"label":"missing",
+"count":0,
+"sources":[],
+"entries":[],
+"lookups":[
+[
+"Foo on K",
+"K",
+null
+],
+[
+"Foo on K",
+null,
+null
+],
+[
+"Acetylation on X",
+"X",
+null
+],
+[
+"Acetylation on X",
+null,
+null
+],
+[
+"a",
+null,
+null
+],
+[
+"b",
+null,
+null
+],
+[
+"",
+null,
+null
+],
+[
+"ab",
+null,
+null
+],
+[
+"a[b]c",
+null,
+null
+],
+[
+"Carbamidomethyl on C",
+"C",
+null
+],
+[
+"Carbamidomethyl on C",
+null,
+null
+],
+[
+"Phosphoserine on S",
+"S",
+null
+],
+[
+"Phosphoserine on S",
+null,
+null
+],
+[
+"Bar on K",
+"K",
+null
+],
+[
+"Bar on K",
+null,
+null
+],
+[
+"NoColon",
+null,
+null
+],
+[
+"N6-acetyllysine on k",
+"k",
+null
+],
+[
+"N6-acetyllysine on k",
+null,
+null
+],
+[
+"N6-acetyllysine on Lysine",
+"Lysine",
+null
+],
+[
+"N6-acetyllysine on Lysine",
+null,
+null
+],
+[
+"UniProt:N6-acetyllysine on lysine",
+null,
+null
+],
+[
+"Foo on bar on K",
+"K",
+null
+],
+[
+"Foo on bar on K",
+null,
+null
+],
+[
+"N6-acetyllysine on bar on K",
+"K",
+null
+],
+[
+"N6-acetyllysine on bar on K",
+null,
+null
+],
+[
+":N6-acetyllysine on K",
+"K",
+null
+],
+[
+":N6-acetyllysine on K",
+null,
+null
+],
+[
+"N6-acetyllysine on K",
+"K",
+null
+],
+[
+"N6-acetyllysine on K",
+null,
+null
+],
+[
+"Cat:N6-acetyllysine on K\n\n",
+null,
+null
+],
+[
+"Cat:N6-acetyllysine\non K",
+null,
+null
+],
+[
+"Cat:N6-ACETYLLYSINE ON K",
+null,
+null
+],
+[
+"n6-acetyllysine on K",
+"K",
+null
+],
+[
+"n6-acetyllysine on K",
+null,
+null
+],
+[
+"N6-acetyllysine on S",
+"S",
+null
+],
+[
+"N6-acetyllysine on S",
+null,
+null
+],
+[
+"N6-acetyllysine on c",
+"c",
+null
+],
+[
+"N6-acetyllysine on c",
+null,
+null
+],
+[
+"x",
+null,
+null
+],
+[
+"y",
+null,
+null
+],
+[
+"Acetylation on K",
+"K",
+null
+],
+[
+"Acetylation on K",
+null,
+null
+],
+[
+"Acetylation on Kx",
+"Kx",
+null
+],
+[
+"Acetylation on Kx",
+null,
+null
+],
+[
+"Cat:Acetylation on KK",
+null,
+null
+],
+[
+"Acetylation on Ks",
+"Ks",
+null
+],
+[
+"Acetylation on Ks",
+null,
+null
+],
+[
+"Oxidation on M",
+"M",
+null
+],
+[
+"Oxidation on M",
+null,
+null
+],
+[
+"Oxidation on X",
+"X",
+null
+],
+[
+"Oxidation on X",
+null,
+null
+],
+[
+"Amidation on X",
+"X",
+null
+],
+[
+"Amidation on X",
+null,
+null
+],
+[
+"Phosphothreonine on T",
+"T",
+null
+],
+[
+"Phosphothreonine on T",
+null,
+null
+],
+[
+"N6,N6,N6-trimethyllysine on K",
+"K",
+null
+],
+[
+"N6,N6,N6-trimethyllysine on K",
+null,
+null
+],
+[
+" Cat:Foo on K ",
+null,
+null
+],
+[
+"Cat:Foo on K ",
+null,
+null
+],
+[
+"Cat: on K",
+"K",
+null
+],
+[
+"Cat: on K",
+null,
+null
+],
+[
+"Cat:on K",
+null,
+null
+],
+[
+"Cat:x on ",
+null,
+null
+],
+[
+"Cat:Hydroxylation on İ",
+null,
+null
+],
+[
+"Cat:Hydroxylation on é",
+null,
+null
+],
+[
+" on ",
+null,
+null
+],
+[
+"on K",
+null,
+null
+],
+[
+" on K",
+null,
+null
+],
+[
+"Foo on ",
+null,
+null
+],
+[
+"N6-acetyllysine on ",
+null,
+null
+],
+[
+"N6-acetyllysine on  k",
+null,
+null
+],
+[
+"N6-acetyllysine on k",
+"",
+null
+]
+]
+}
