@@ -1,0 +1,3408 @@
+{
+"label":"fixture",
+"cases":[
+{
+"input":"VGATAAVYSAAILEYLTAEVLELAGNASK",
+"proforma":"VGATAAVYSAAILEYLTAEVLELAGNASK",
+"base_sequence":"VGATAAVYSAAILEYLTAEVLELAGNASK",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"LADQC[Common Fixed:Carbamidomethyl on C]TGLQGFLVFHSFGGGTGSGFTSLLMER",
+"proforma":"LADQC[UNIMOD:4]TGLQGFLVFHSFGGGTGSGFTSLLMER",
+"base_sequence":"LADQCTGLQGFLVFHSFGGGTGSGFTSLLMER",
+"is_modified":true,
+"mods":[
+[
+5,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"DDEAAAVALSSLIHALDDLDMVAIVR",
+"proforma":"DDEAAAVALSSLIHALDDLDMVAIVR",
+"base_sequence":"DDEAAAVALSSLIHALDDLDMVAIVR",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"HYAHTDC[Common Fixed:Carbamidomethyl on C]PGHADYVK",
+"proforma":"HYAHTDC[UNIMOD:4]PGHADYVK",
+"base_sequence":"HYAHTDCPGHADYVK",
+"is_modified":true,
+"mods":[
+[
+7,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"ILDDEAAQELMPVVAGAVFTLTAHLSQAVLTEQK",
+"proforma":"ILDDEAAQELMPVVAGAVFTLTAHLSQAVLTEQK",
+"base_sequence":"ILDDEAAQELMPVVAGAVFTLTAHLSQAVLTEQK",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"MTQIMFETFNVPAMYVAIQAVLSLYASGR",
+"proforma":"MTQIMFETFNVPAMYVAIQAVLSLYASGR",
+"base_sequence":"MTQIMFETFNVPAMYVAIQAVLSLYASGR",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"LGEHNIDVLEGNEQFINAAK[UniProt:N6,N6-dimethyllysine on K]IITHPNFNGNTLDNDIMLIK[UniProt:N6,N6-dimethyllysine on K]LSSPATLNSR",
+"proforma":"LGEHNIDVLEGNEQFINAAK[Info:N6,N6-dimethyllysine on K]IITHPNFNGNTLDNDIMLIK[Info:N6,N6-dimethyllysine on K]LSSPATLNSR",
+"base_sequence":"LGEHNIDVLEGNEQFINAAKIITHPNFNGNTLDNDIMLIKLSSPATLNSR",
+"is_modified":true,
+"mods":[
+[
+20,
+"K",
+"N6,N6-dimethyllysine on K",
+"UniProt",
+null,
+null,
+false
+],
+[
+40,
+"K",
+"N6,N6-dimethyllysine on K",
+"UniProt",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"UniProt:N6,N6-dimethyllysine on K"
+]
+},
+{
+"input":"GGSGGSYGGGGSGGGYGGGSGSR",
+"proforma":"GGSGGSYGGGGSGGGYGGGSGSR",
+"base_sequence":"GGSGGSYGGGGSGGGYGGGSGSR",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"AALPSHVVTMLDNFPTNLHPMSQLSAAVTALNSESNFAR",
+"proforma":"AALPSHVVTMLDNFPTNLHPMSQLSAAVTALNSESNFAR",
+"base_sequence":"AALPSHVVTMLDNFPTNLHPMSQLSAAVTALNSESNFAR",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"FQSSAVMALQEAC[Common Fixed:Carbamidomethyl on C]EAYLVGLFEDTNLC[Common Fixed:Carbamidomethyl on C]AIHAK",
+"proforma":"FQSSAVMALQEAC[UNIMOD:4]EAYLVGLFEDTNLC[UNIMOD:4]AIHAK",
+"base_sequence":"FQSSAVMALQEACEAYLVGLFEDTNLCAIHAK",
+"is_modified":true,
+"mods":[
+[
+13,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+],
+[
+27,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GPEAGYVATPIAMVQAAMTLLSDASHLPK",
+"proforma":"GPEAGYVATPIAMVQAAMTLLSDASHLPK",
+"base_sequence":"GPEAGYVATPIAMVQAAMTLLSDASHLPK",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"IC[Common Fixed:Carbamidomethyl on C]ELLPEAAIN[Common Artifact:Deamidation on N]DVYLAPLLQC[Common Fixed:Carbamidomethyl on C]LIEGLSAEPR",
+"proforma":"IC[UNIMOD:4]ELLPEAAIN[UNIMOD:7]DVYLAPLLQC[UNIMOD:4]LIEGLSAEPR",
+"base_sequence":"ICELLPEAAINDVYLAPLLQCLIEGLSAEPR",
+"is_modified":true,
+"mods":[
+[
+2,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+],
+[
+11,
+"N",
+"Deamidation on N",
+"Common Artifact",
+"UNIMOD:7",
+null,
+true
+],
+[
+21,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"TAFDEAIAELDTLSEESYKDSTLIMQLLR",
+"proforma":"TAFDEAIAELDTLSEESYKDSTLIMQLLR",
+"base_sequence":"TAFDEAIAELDTLSEESYKDSTLIMQLLR",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"PLLMEEISTVLQYVVGR",
+"proforma":"PLLMEEISTVLQYVVGR",
+"base_sequence":"PLLMEEISTVLQYVVGR",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"DLLLAAVSEDSSVTQIYHAVAALSGFGLPLASQEALSALTAR",
+"proforma":"DLLLAAVSEDSSVTQIYHAVAALSGFGLPLASQEALSALTAR",
+"base_sequence":"DLLLAAVSEDSSVTQIYHAVAALSGFGLPLASQEALSALTAR",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"MTQIMFETFN[Common Artifact:Deamidation on N]TPAMYVAIQAVLSLYASGR",
+"proforma":"MTQIMFETFN[UNIMOD:7]TPAMYVAIQAVLSLYASGR",
+"base_sequence":"MTQIMFETFNTPAMYVAIQAVLSLYASGR",
+"is_modified":true,
+"mods":[
+[
+10,
+"N",
+"Deamidation on N",
+"Common Artifact",
+"UNIMOD:7",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"MTQIMFETFNTPAMYVAIQAVLSLYASGR",
+"proforma":"MTQIMFETFNTPAMYVAIQAVLSLYASGR",
+"base_sequence":"MTQIMFETFNTPAMYVAIQAVLSLYASGR",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"[Common Artifact:Ammonia loss on C]C[Common Fixed:Carbamidomethyl on C]TLEAGAMTFHYIIEQGVC[Common Fixed:Carbamidomethyl on C]YLVLC[Common Fixed:Carbamidomethyl on C]EAAFPK",
+"proforma":"[UNIMOD:385]-C[UNIMOD:4]TLEAGAMTFHYIIEQGVC[UNIMOD:4]YLVLC[UNIMOD:4]EAAFPK",
+"base_sequence":"CTLEAGAMTFHYIIEQGVCYLVLCEAAFPK",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"Ammonia loss on C",
+"Common Artifact",
+"UNIMOD:385",
+null,
+true
+],
+[
+1,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+],
+[
+19,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+],
+[
+24,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"C[Common Fixed:Carbamidomethyl on C]PEALFQPSFLGMESC[Common Fixed:Carbamidomethyl on C]GIHETTFNSIMK",
+"proforma":"C[UNIMOD:4]PEALFQPSFLGMESC[UNIMOD:4]GIHETTFNSIMK",
+"base_sequence":"CPEALFQPSFLGMESCGIHETTFNSIMK",
+"is_modified":true,
+"mods":[
+[
+1,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+],
+[
+16,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"DLLLAAVSEDSSVTQ[Common Artifact:Deamidation on Q]IYHAVAALSGFGLPLASQEALSALTAR",
+"proforma":"DLLLAAVSEDSSVTQ[UNIMOD:7]IYHAVAALSGFGLPLASQEALSALTAR",
+"base_sequence":"DLLLAAVSEDSSVTQIYHAVAALSGFGLPLASQEALSALTAR",
+"is_modified":true,
+"mods":[
+[
+15,
+"Q",
+"Deamidation on Q",
+"Common Artifact",
+"UNIMOD:7",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"VETGVLKPGMVVTFAPVNVTTEVK",
+"proforma":"VETGVLKPGMVVTFAPVNVTTEVK",
+"base_sequence":"VETGVLKPGMVVTFAPVNVTTEVK",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"SEC[Common Fixed:Carbamidomethyl on C]SKPEQLVVTFVAGYIAGVFC[Common Fixed:Carbamidomethyl on C]AIVSHPADSVVSVLNK",
+"proforma":"SEC[UNIMOD:4]SKPEQLVVTFVAGYIAGVFC[UNIMOD:4]AIVSHPADSVVSVLNK",
+"base_sequence":"SECSKPEQLVVTFVAGYIAGVFCAIVSHPADSVVSVLNK",
+"is_modified":true,
+"mods":[
+[
+3,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+],
+[
+23,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"VPGPVQQALQSAEMSLDEIEQVILVGGATR",
+"proforma":"VPGPVQQALQSAEMSLDEIEQVILVGGATR",
+"base_sequence":"VPGPVQQALQSAEMSLDEIEQVILVGGATR",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"GISEFIVMAADAEPLEIILHLPLLC[Common Fixed:Carbamidomethyl on C]EDK",
+"proforma":"GISEFIVMAADAEPLEIILHLPLLC[UNIMOD:4]EDK",
+"base_sequence":"GISEFIVMAADAEPLEIILHLPLLCEDK",
+"is_modified":true,
+"mods":[
+[
+25,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"[UniProt:N-acetylglutamate on E]EEEIAALVIDN[Common Artifact:Deamidation on N]GSGMC[Common Fixed:Carbamidomethyl on C]K",
+"proforma":"[Info:N-acetylglutamate on E]-EEEIAALVIDN[UNIMOD:7]GSGMC[UNIMOD:4]K",
+"base_sequence":"EEEIAALVIDNGSGMCK",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"N-acetylglutamate on E",
+"UniProt",
+null,
+null,
+false
+],
+[
+11,
+"N",
+"Deamidation on N",
+"Common Artifact",
+"UNIMOD:7",
+null,
+true
+],
+[
+16,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+]
+],
+"unresolved":[
+"UniProt:N-acetylglutamate on E"
+]
+},
+{
+"input":"MDADLSQLQTEVEEAVQEC[Common Fixed:Carbamidomethyl on C]R",
+"proforma":"MDADLSQLQTEVEEAVQEC[UNIMOD:4]R",
+"base_sequence":"MDADLSQLQTEVEEAVQECR",
+"is_modified":true,
+"mods":[
+[
+19,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GLIDGVVEADLVEALQEFGPISYVVVMPK",
+"proforma":"GLIDGVVEADLVEALQEFGPISYVVVMPK",
+"base_sequence":"GLIDGVVEADLVEALQEFGPISYVVVMPK",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"TTGIVLDSGDGVTHNVPIYEGYALPHAIMR",
+"proforma":"TTGIVLDSGDGVTHNVPIYEGYALPHAIMR",
+"base_sequence":"TTGIVLDSGDGVTHNVPIYEGYALPHAIMR",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"[UniProt:N-acetylalanine on A]AAAGGGGGGAAAAGR",
+"proforma":"[Info:N-acetylalanine on A]-AAAGGGGGGAAAAGR",
+"base_sequence":"AAAGGGGGGAAAAGR",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"N-acetylalanine on A",
+"UniProt",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"UniProt:N-acetylalanine on A"
+]
+},
+{
+"input":"NEEDAAELVALAQAVNAR",
+"proforma":"NEEDAAELVALAQAVNAR",
+"base_sequence":"NEEDAAELVALAQAVNAR",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"VPTANVSVVDLTC[Common Fixed:Carbamidomethyl on C]R",
+"proforma":"VPTANVSVVDLTC[UNIMOD:4]R",
+"base_sequence":"VPTANVSVVDLTCR",
+"is_modified":true,
+"mods":[
+[
+13,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"AVFVDLEPTVIDEVR",
+"proforma":"AVFVDLEPTVIDEVR",
+"base_sequence":"AVFVDLEPTVIDEVR",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"EAPADMGAHQGVAVLGIALIAMGEEIGAEMALR",
+"proforma":"EAPADMGAHQGVAVLGIALIAMGEEIGAEMALR",
+"base_sequence":"EAPADMGAHQGVAVLGIALIAMGEEIGAEMALR",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"NIDEHANEDVER",
+"proforma":"NIDEHANEDVER",
+"base_sequence":"NIDEHANEDVER",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"LLLTGTPLQNNLEELFHLLNFLTPER",
+"proforma":"LLLTGTPLQNNLEELFHLLNFLTPER",
+"base_sequence":"LLLTGTPLQNNLEELFHLLNFLTPER",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"YSVWIGGSILASLSTFQQMWISK",
+"proforma":"YSVWIGGSILASLSTFQQMWISK",
+"base_sequence":"YSVWIGGSILASLSTFQQMWISK",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"SYELPDGQVITIGNER",
+"proforma":"SYELPDGQVITIGNER",
+"base_sequence":"SYELPDGQVITIGNER",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"YDC[Common Fixed:Carbamidomethyl on C]GEEILITVLSAMTEEAAVAIK",
+"proforma":"YDC[UNIMOD:4]GEEILITVLSAMTEEAAVAIK",
+"base_sequence":"YDCGEEILITVLSAMTEEAAVAIK",
+"is_modified":true,
+"mods":[
+[
+3,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"NTHIVISWMIAQTVTAVAGLTSYPFDTVR",
+"proforma":"NTHIVISWMIAQTVTAVAGLTSYPFDTVR",
+"base_sequence":"NTHIVISWMIAQTVTAVAGLTSYPFDTVR",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"KLEDEC[Common Fixed:Carbamidomethyl on C]SELKK",
+"proforma":"KLEDEC[UNIMOD:4]SELKK",
+"base_sequence":"KLEDECSELKK",
+"is_modified":true,
+"mods":[
+[
+6,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"DDISVEALQEQLTSVVQEIGHLIDPIATAAR",
+"proforma":"DDISVEALQEQLTSVVQEIGHLIDPIATAAR",
+"base_sequence":"DDISVEALQEQLTSVVQEIGHLIDPIATAAR",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"RTPMC[Common Fixed:Carbamidomethyl on C]AHC[Common Fixed:Carbamidomethyl on C]NQVIR",
+"proforma":"RTPMC[UNIMOD:4]AHC[UNIMOD:4]NQVIR",
+"base_sequence":"RTPMCAHCNQVIR",
+"is_modified":true,
+"mods":[
+[
+5,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+],
+[
+8,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"HQEAEMAQNAVR",
+"proforma":"HQEAEMAQNAVR",
+"base_sequence":"HQEAEMAQNAVR",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"C[Common Fixed:Carbamidomethyl on C]PETLFQPSFIGMESAGIHETTYNSIMK",
+"proforma":"C[UNIMOD:4]PETLFQPSFIGMESAGIHETTYNSIMK",
+"base_sequence":"CPETLFQPSFIGMESAGIHETTYNSIMK",
+"is_modified":true,
+"mods":[
+[
+1,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"TPAIIYSVHTMTTLIPILSTFLFEDFSK",
+"proforma":"TPAIIYSVHTMTTLIPILSTFLFEDFSK",
+"base_sequence":"TPAIIYSVHTMTTLIPILSTFLFEDFSK",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"LAEKDEEMEQAKR",
+"proforma":"LAEKDEEMEQAKR",
+"base_sequence":"LAEKDEEMEQAKR",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"VIISAPSADAPMFVMGVNHEK",
+"proforma":"VIISAPSADAPMFVMGVNHEK",
+"base_sequence":"VIISAPSADAPMFVMGVNHEK",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"VDTMIVQAISLLDDLDKELNNYIMR",
+"proforma":"VDTMIVQAISLLDDLDKELNNYIMR",
+"base_sequence":"VDTMIVQAISLLDDLDKELNNYIMR",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"FENAFLSHVVSQHQALLGTIR",
+"proforma":"FENAFLSHVVSQHQALLGTIR",
+"base_sequence":"FENAFLSHVVSQHQALLGTIR",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"GEAGAAGPAGPAGPR",
+"proforma":"GEAGAAGPAGPAGPR",
+"base_sequence":"GEAGAAGPAGPAGPR",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"IHEGC[Common Fixed:Carbamidomethyl on C]EEPATHNALAK",
+"proforma":"IHEGC[UNIMOD:4]EEPATHNALAK",
+"base_sequence":"IHEGCEEPATHNALAK",
+"is_modified":true,
+"mods":[
+[
+5,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GVGMVADPDNPLVLDILTGSSTSYSFFPDKPITQYPHAVGK",
+"proforma":"GVGMVADPDNPLVLDILTGSSTSYSFFPDKPITQYPHAVGK",
+"base_sequence":"GVGMVADPDNPLVLDILTGSSTSYSFFPDKPITQYPHAVGK",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"TGAIVDVPVGEELLGR",
+"proforma":"TGAIVDVPVGEELLGR",
+"base_sequence":"TGAIVDVPVGEELLGR",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"IEC[Common Fixed:Carbamidomethyl on C]DDKGDGSC[Common Fixed:Carbamidomethyl on C]DVR",
+"proforma":"IEC[UNIMOD:4]DDKGDGSC[UNIMOD:4]DVR",
+"base_sequence":"IECDDKGDGSCDVR",
+"is_modified":true,
+"mods":[
+[
+3,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+],
+[
+11,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"VDEFPLC[Common Fixed:Carbamidomethyl on C]GHMVSDEYEQLSSEALEAAR",
+"proforma":"VDEFPLC[UNIMOD:4]GHMVSDEYEQLSSEALEAAR",
+"base_sequence":"VDEFPLCGHMVSDEYEQLSSEALEAAR",
+"is_modified":true,
+"mods":[
+[
+7,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"FQSSAVMALQEASEAYLVGLFEDTNLC[Common Fixed:Carbamidomethyl on C]AIHAK",
+"proforma":"FQSSAVMALQEASEAYLVGLFEDTNLC[UNIMOD:4]AIHAK",
+"base_sequence":"FQSSAVMALQEASEAYLVGLFEDTNLCAIHAK",
+"is_modified":true,
+"mods":[
+[
+27,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"LKTEGSDLC[Common Fixed:Carbamidomethyl on C]DR",
+"proforma":"LKTEGSDLC[UNIMOD:4]DR",
+"base_sequence":"LKTEGSDLCDR",
+"is_modified":true,
+"mods":[
+[
+9,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"VFIMDSC[Common Fixed:Carbamidomethyl on C]DELIPEYLNFIR",
+"proforma":"VFIMDSC[UNIMOD:4]DELIPEYLNFIR",
+"base_sequence":"VFIMDSCDELIPEYLNFIR",
+"is_modified":true,
+"mods":[
+[
+7,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"HEC[Common Fixed:Carbamidomethyl on C]QAN[Common Artifact:Deamidation on N]GPEDLNR",
+"proforma":"HEC[UNIMOD:4]QAN[UNIMOD:7]GPEDLNR",
+"base_sequence":"HECQANGPEDLNR",
+"is_modified":true,
+"mods":[
+[
+3,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+],
+[
+6,
+"N",
+"Deamidation on N",
+"Common Artifact",
+"UNIMOD:7",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"LTTPTYGDLNHLVSATMSGVTTC[Common Fixed:Carbamidomethyl on C]LR",
+"proforma":"LTTPTYGDLNHLVSATMSGVTTC[UNIMOD:4]LR",
+"base_sequence":"LTTPTYGDLNHLVSATMSGVTTCLR",
+"is_modified":true,
+"mods":[
+[
+23,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"VGQGHC[Common Fixed:Carbamidomethyl on C]VSGM[Common Variable:Oxidation on M]GFNK",
+"proforma":"VGQGHC[UNIMOD:4]VSGM[UNIMOD:35]GFNK",
+"base_sequence":"VGQGHCVSGMGFNK",
+"is_modified":true,
+"mods":[
+[
+6,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+],
+[
+10,
+"M",
+"Oxidation on M",
+"Common Variable",
+"UNIMOD:35",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GSSSGGGYSSGSSSYGSGGR",
+"proforma":"GSSSGGGYSSGSSSYGSGGR",
+"base_sequence":"GSSSGGGYSSGSSSYGSGGR",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"HNMC[Common Fixed:Carbamidomethyl on C]GETEEEKIR",
+"proforma":"HNMC[UNIMOD:4]GETEEEKIR",
+"base_sequence":"HNMCGETEEEKIR",
+"is_modified":true,
+"mods":[
+[
+4,
+"C",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"",
+"proforma":"",
+"base_sequence":"",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"PEPTIDE",
+"proforma":"PEPTIDE",
+"base_sequence":"PEPTIDE",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":" PEPTIDE ",
+"proforma":" PEPTIDE ",
+"base_sequence":" PEPTIDE ",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"-",
+"proforma":"-",
+"base_sequence":"-",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"-[UniProt:Foo on K]",
+"proforma":"-[Info:Foo on K]",
+"base_sequence":"",
+"is_modified":true,
+"mods":[
+[
+-1,
+"C-term",
+"Foo on K",
+"UniProt",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"UniProt:Foo on K"
+]
+},
+{
+"input":"[Common Biological:Acetylation on X]PEPTIDE",
+"proforma":"[Info:Acetylation on X]-PEPTIDE",
+"base_sequence":"PEPTIDE",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"Acetylation on X",
+"Common Biological",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"Common Biological:Acetylation on X"
+]
+},
+{
+"input":"[a][b]PEP",
+"proforma":"[Info:a][Info:b]-PEP",
+"base_sequence":"PEP",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"a",
+"",
+null,
+null,
+false
+],
+[
+0,
+"N-term",
+"b",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"a",
+"b"
+]
+},
+{
+"input":"[a]",
+"proforma":"[Info:a]-",
+"base_sequence":"",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"a",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"a"
+]
+},
+{
+"input":"[a][b]",
+"proforma":"[Info:a][Info:b]-",
+"base_sequence":"",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"a",
+"",
+null,
+null,
+false
+],
+[
+0,
+"N-term",
+"b",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"a",
+"b"
+]
+},
+{
+"input":"P[]",
+"proforma":"P[Info:]",
+"base_sequence":"P",
+"is_modified":true,
+"mods":[
+[
+1,
+"P",
+"",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+""
+]
+},
+{
+"input":"[]P",
+"proforma":"[Info:]-P",
+"base_sequence":"P",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+""
+]
+},
+{
+"input":"P[|]",
+"proforma":"P[Info:][Info:]",
+"base_sequence":"P",
+"is_modified":true,
+"mods":[
+[
+1,
+"P",
+"",
+"",
+null,
+null,
+false
+],
+[
+1,
+"P",
+"",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+""
+]
+},
+{
+"input":"P[a||b]",
+"proforma":"P[Info:a][Info:][Info:b]",
+"base_sequence":"P",
+"is_modified":true,
+"mods":[
+[
+1,
+"P",
+"a",
+"",
+null,
+null,
+false
+],
+[
+1,
+"P",
+"",
+"",
+null,
+null,
+false
+],
+[
+1,
+"P",
+"b",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"a",
+"",
+"b"
+]
+},
+{
+"input":"PEP[abc",
+"proforma":"PEP[Info:ab]",
+"base_sequence":"PEP",
+"is_modified":true,
+"mods":[
+[
+3,
+"P",
+"ab",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"ab"
+]
+},
+{
+"input":"PEP]K",
+"proforma":"PEP]K",
+"base_sequence":"PEP]K",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"PE[a[b]c]P",
+"proforma":"PE[Info:a[b]c]P",
+"base_sequence":"PEP",
+"is_modified":true,
+"mods":[
+[
+2,
+"E",
+"a[b]c",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"a[b]c"
+]
+},
+{
+"input":"PE[Common Fixed:Carbamidomethyl on C][UniProt:Phosphoserine on S]P",
+"proforma":"PE[UNIMOD:4][UNIMOD:21]P",
+"base_sequence":"PEP",
+"is_modified":true,
+"mods":[
+[
+2,
+"E",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+],
+[
+2,
+"E",
+"Phosphoserine on S",
+"UniProt",
+"UNIMOD:21",
+79.966331,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"PEP[Foo:Bar on K]",
+"proforma":"PEP[Info:Bar on K]",
+"base_sequence":"PEP",
+"is_modified":true,
+"mods":[
+[
+3,
+"P",
+"Bar on K",
+"Foo",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"Foo:Bar on K"
+]
+},
+{
+"input":"PEP[NoColon]",
+"proforma":"PEP[Info:NoColon]",
+"base_sequence":"PEP",
+"is_modified":true,
+"mods":[
+[
+3,
+"P",
+"NoColon",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"NoColon"
+]
+},
+{
+"input":"pep[UniProt:N6-acetyllysine on k]K",
+"proforma":"pep[UNIMOD:1]K",
+"base_sequence":"pepK",
+"is_modified":true,
+"mods":[
+[
+3,
+"p",
+"N6-acetyllysine on k",
+"UniProt",
+"UNIMOD:1",
+42.010565,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"K[UniProt:N6-acetyllysine on Lysine]",
+"proforma":"K[UNIMOD:1]",
+"base_sequence":"K",
+"is_modified":true,
+"mods":[
+[
+1,
+"K",
+"N6-acetyllysine on Lysine",
+"UniProt",
+"UNIMOD:1",
+42.010565,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"K[UniProt:N6-acetyllysine on lysine]",
+"proforma":"K[Info:UniProt:N6-acetyllysine on lysine]",
+"base_sequence":"K",
+"is_modified":true,
+"mods":[
+[
+1,
+"K",
+"UniProt:N6-acetyllysine on lysine",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"UniProt:N6-acetyllysine on lysine"
+]
+},
+{
+"input":"K[Cat:Foo on bar on K]",
+"proforma":"K[Info:Foo on bar on K]",
+"base_sequence":"K",
+"is_modified":true,
+"mods":[
+[
+1,
+"K",
+"Foo on bar on K",
+"Cat",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"Cat:Foo on bar on K"
+]
+},
+{
+"input":"K[Cat:N6-acetyllysine on bar on K]",
+"proforma":"K[Info:N6-acetyllysine on bar on K]",
+"base_sequence":"K",
+"is_modified":true,
+"mods":[
+[
+1,
+"K",
+"N6-acetyllysine on bar on K",
+"Cat",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"Cat:N6-acetyllysine on bar on K"
+]
+},
+{
+"input":"K[:N6-acetyllysine on K]",
+"proforma":"K[Info::N6-acetyllysine on K]",
+"base_sequence":"K",
+"is_modified":true,
+"mods":[
+[
+1,
+"K",
+":N6-acetyllysine on K",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+":N6-acetyllysine on K"
+]
+},
+{
+"input":"K[Cat::N6-acetyllysine on K]",
+"proforma":"K[Info::N6-acetyllysine on K]",
+"base_sequence":"K",
+"is_modified":true,
+"mods":[
+[
+1,
+"K",
+":N6-acetyllysine on K",
+"Cat",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"Cat::N6-acetyllysine on K"
+]
+},
+{
+"input":"K[Cat:N6-acetyllysine on K\n]",
+"proforma":"K[UNIMOD:1]",
+"base_sequence":"K",
+"is_modified":true,
+"mods":[
+[
+1,
+"K",
+"N6-acetyllysine on K",
+"Cat",
+"UNIMOD:1",
+42.010565,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"K[Cat:N6-acetyllysine on K]\n",
+"proforma":"K[UNIMOD:1]\n",
+"base_sequence":"K\n",
+"is_modified":true,
+"mods":[
+[
+1,
+"K",
+"N6-acetyllysine on K",
+"Cat",
+"UNIMOD:1",
+42.010565,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"K[Cat:N6-acetyllysine on K\n\n]",
+"proforma":"K[Info:Cat:N6-acetyllysine on K\n\n]",
+"base_sequence":"K",
+"is_modified":true,
+"mods":[
+[
+1,
+"K",
+"Cat:N6-acetyllysine on K\n\n",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"Cat:N6-acetyllysine on K\n\n"
+]
+},
+{
+"input":"K[Cat:N6-acetyllysine\non K]",
+"proforma":"K[Info:Cat:N6-acetyllysine\non K]",
+"base_sequence":"K",
+"is_modified":true,
+"mods":[
+[
+1,
+"K",
+"Cat:N6-acetyllysine\non K",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"Cat:N6-acetyllysine\non K"
+]
+},
+{
+"input":"K[Cat:N6-ACETYLLYSINE ON K]",
+"proforma":"K[Info:Cat:N6-ACETYLLYSINE ON K]",
+"base_sequence":"K",
+"is_modified":true,
+"mods":[
+[
+1,
+"K",
+"Cat:N6-ACETYLLYSINE ON K",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"Cat:N6-ACETYLLYSINE ON K"
+]
+},
+{
+"input":"K[Cat:n6-acetyllysine on K]",
+"proforma":"K[UNIMOD:1]",
+"base_sequence":"K",
+"is_modified":true,
+"mods":[
+[
+1,
+"K",
+"n6-acetyllysine on K",
+"Cat",
+"UNIMOD:1",
+42.010565,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"K[UniProt:N6-acetyllysine on S]",
+"proforma":"K[UNIMOD:1]",
+"base_sequence":"K",
+"is_modified":true,
+"mods":[
+[
+1,
+"K",
+"N6-acetyllysine on S",
+"UniProt",
+"UNIMOD:1",
+42.010565,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"K[UniProt:N6-acetyllysine on c]",
+"proforma":"K[UNIMOD:1]",
+"base_sequence":"K",
+"is_modified":true,
+"mods":[
+[
+1,
+"K",
+"N6-acetyllysine on c",
+"UniProt",
+"UNIMOD:1",
+42.010565,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"A-B[Common Fixed:Carbamidomethyl on C]",
+"proforma":"A-B[UNIMOD:4]",
+"base_sequence":"A-B",
+"is_modified":true,
+"mods":[
+[
+3,
+"B",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"AB-[Common Fixed:Carbamidomethyl on C]-",
+"proforma":"AB-[UNIMOD:4]-",
+"base_sequence":"AB--",
+"is_modified":true,
+"mods":[
+[
+3,
+"-",
+"Carbamidomethyl on C",
+"Common Fixed",
+"UNIMOD:4",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"AB-[x]-[y]",
+"proforma":"AB-[Info:x]-[Info:y]",
+"base_sequence":"AB-",
+"is_modified":true,
+"mods":[
+[
+3,
+"-",
+"x",
+"",
+null,
+null,
+false
+],
+[
+-1,
+"C-term",
+"y",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"x",
+"y"
+]
+},
+{
+"input":"AB-[x][y]",
+"proforma":"AB-[Info:x][Info:y]",
+"base_sequence":"AB",
+"is_modified":true,
+"mods":[
+[
+-1,
+"C-term",
+"x",
+"",
+null,
+null,
+false
+],
+[
+-1,
+"C-term",
+"y",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"x",
+"y"
+]
+},
+{
+"input":"AB--[x]",
+"proforma":"AB--[Info:x]",
+"base_sequence":"AB-",
+"is_modified":true,
+"mods":[
+[
+-1,
+"C-term",
+"x",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"x"
+]
+},
+{
+"input":"PEP-",
+"proforma":"PEP-",
+"base_sequence":"PEP-",
+"is_modified":false,
+"mods":[],
+"unresolved":[]
+},
+{
+"input":"PEP-[x",
+"proforma":"PEP-[Info:]",
+"base_sequence":"PEP",
+"is_modified":true,
+"mods":[
+[
+-1,
+"C-term",
+"",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+""
+]
+},
+{
+"input":"[x]-PEP",
+"proforma":"[Info:x]--PEP",
+"base_sequence":"-PEP",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"x",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"x"
+]
+},
+{
+"input":"[x]-[y]",
+"proforma":"[Info:x]--[Info:y]",
+"base_sequence":"",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"x",
+"",
+null,
+null,
+false
+],
+[
+-1,
+"C-term",
+"y",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"x",
+"y"
+]
+},
+{
+"input":"PEPé[x]K",
+"proforma":"PEPé[Info:x]K",
+"base_sequence":"PEPéK",
+"is_modified":true,
+"mods":[
+[
+4,
+"é",
+"x",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"x"
+]
+},
+{
+"input":"P😀[x]K",
+"proforma":"P😀[Info:x]K",
+"base_sequence":"P😀K",
+"is_modified":true,
+"mods":[
+[
+2,
+"😀",
+"x",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"x"
+]
+},
+{
+"input":"P😀K[x]",
+"proforma":"P😀K[Info:x]",
+"base_sequence":"P😀K",
+"is_modified":true,
+"mods":[
+[
+3,
+"K",
+"x",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"x"
+]
+},
+{
+"input":"😀[UniProt:N6-acetyllysine on K]",
+"proforma":"😀[UNIMOD:1]",
+"base_sequence":"😀",
+"is_modified":true,
+"mods":[
+[
+1,
+"😀",
+"N6-acetyllysine on K",
+"UniProt",
+"UNIMOD:1",
+42.010565,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"K[Cat:Acetylation on K]",
+"proforma":"K[Info:Acetylation on K]",
+"base_sequence":"K",
+"is_modified":true,
+"mods":[
+[
+1,
+"K",
+"Acetylation on K",
+"Cat",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"Cat:Acetylation on K"
+]
+},
+{
+"input":"K[Cat:Acetylation on Kx]",
+"proforma":"K[Info:Acetylation on Kx]",
+"base_sequence":"K",
+"is_modified":true,
+"mods":[
+[
+1,
+"K",
+"Acetylation on Kx",
+"Cat",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"Cat:Acetylation on Kx"
+]
+},
+{
+"input":"K[Cat:Acetylation on KK]",
+"proforma":"K[Info:Cat:Acetylation on KK]",
+"base_sequence":"K",
+"is_modified":true,
+"mods":[
+[
+1,
+"K",
+"Cat:Acetylation on KK",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"Cat:Acetylation on KK"
+]
+},
+{
+"input":"K[Cat:Acetylation on Ks]",
+"proforma":"K[Info:Acetylation on Ks]",
+"base_sequence":"K",
+"is_modified":true,
+"mods":[
+[
+1,
+"K",
+"Acetylation on Ks",
+"Cat",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"Cat:Acetylation on Ks"
+]
+},
+{
+"input":"M[Common Variable:Oxidation on M]",
+"proforma":"M[UNIMOD:35]",
+"base_sequence":"M",
+"is_modified":true,
+"mods":[
+[
+1,
+"M",
+"Oxidation on M",
+"Common Variable",
+"UNIMOD:35",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"M[Common Variable:Oxidation on X]",
+"proforma":"M[Info:Oxidation on X]",
+"base_sequence":"M",
+"is_modified":true,
+"mods":[
+[
+1,
+"M",
+"Oxidation on X",
+"Common Variable",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"Common Variable:Oxidation on X"
+]
+},
+{
+"input":"[Common Biological:Acetylation on X]M[Common Variable:Oxidation on M]K-[Common Biological:Amidation on X]",
+"proforma":"[Info:Acetylation on X]-M[UNIMOD:35]K-[Info:Amidation on X]",
+"base_sequence":"MK",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"Acetylation on X",
+"Common Biological",
+null,
+null,
+false
+],
+[
+1,
+"M",
+"Oxidation on M",
+"Common Variable",
+"UNIMOD:35",
+null,
+true
+],
+[
+-1,
+"C-term",
+"Amidation on X",
+"Common Biological",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"Common Biological:Acetylation on X",
+"Common Biological:Amidation on X"
+]
+},
+{
+"input":"S[UniProt:Phosphoserine on S]|T[UniProt:Phosphothreonine on T]",
+"proforma":"S[UNIMOD:21]|T[Info:Phosphothreonine on T]",
+"base_sequence":"S|T",
+"is_modified":true,
+"mods":[
+[
+1,
+"S",
+"Phosphoserine on S",
+"UniProt",
+"UNIMOD:21",
+79.966331,
+true
+],
+[
+3,
+"T",
+"Phosphothreonine on T",
+"UniProt",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"UniProt:Phosphothreonine on T"
+]
+},
+{
+"input":"K[UniProt:N6,N6,N6-trimethyllysine on K]",
+"proforma":"K[Info:N6,N6,N6-trimethyllysine on K]",
+"base_sequence":"K",
+"is_modified":true,
+"mods":[
+[
+1,
+"K",
+"N6,N6,N6-trimethyllysine on K",
+"UniProt",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"UniProt:N6,N6,N6-trimethyllysine on K"
+]
+},
+{
+"input":"K[ Cat:Foo on K ]",
+"proforma":"K[Info: Cat:Foo on K ]",
+"base_sequence":"K",
+"is_modified":true,
+"mods":[
+[
+1,
+"K",
+" Cat:Foo on K ",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+" Cat:Foo on K "
+]
+},
+{
+"input":"K[Cat:Foo on K ]",
+"proforma":"K[Info:Cat:Foo on K ]",
+"base_sequence":"K",
+"is_modified":true,
+"mods":[
+[
+1,
+"K",
+"Cat:Foo on K ",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"Cat:Foo on K "
+]
+},
+{
+"input":"K[Cat: on K]",
+"proforma":"K[Info:Cat: on K]",
+"base_sequence":"K",
+"is_modified":true,
+"mods":[
+[
+1,
+"K",
+"Cat: on K",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"Cat: on K"
+]
+},
+{
+"input":"K[Cat:on K]",
+"proforma":"K[Info:Cat:on K]",
+"base_sequence":"K",
+"is_modified":true,
+"mods":[
+[
+1,
+"K",
+"Cat:on K",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"Cat:on K"
+]
+},
+{
+"input":"K[Cat:x on ]",
+"proforma":"K[Info:Cat:x on ]",
+"base_sequence":"K",
+"is_modified":true,
+"mods":[
+[
+1,
+"K",
+"Cat:x on ",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"Cat:x on "
+]
+},
+{
+"input":"K[Cat:Hydroxylation on İ]",
+"proforma":"K[Info:Cat:Hydroxylation on İ]",
+"base_sequence":"K",
+"is_modified":true,
+"mods":[
+[
+1,
+"K",
+"Cat:Hydroxylation on İ",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"Cat:Hydroxylation on İ"
+]
+},
+{
+"input":"K[Cat:Hydroxylation on é]",
+"proforma":"K[Info:Cat:Hydroxylation on é]",
+"base_sequence":"K",
+"is_modified":true,
+"mods":[
+[
+1,
+"K",
+"Cat:Hydroxylation on é",
+"",
+null,
+null,
+false
+]
+],
+"unresolved":[
+"Cat:Hydroxylation on é"
+]
+},
+{
+"input":"GC[Cat:Carbamidomethyl on C]R",
+"proforma":"GC[UNIMOD:4]R",
+"base_sequence":"GCR",
+"is_modified":true,
+"mods":[
+[
+2,
+"C",
+"Carbamidomethyl on C",
+"Cat",
+"UNIMOD:4",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"[Cat:Carbamidomethyl on C]GCR",
+"proforma":"[UNIMOD:4]-GCR",
+"base_sequence":"GCR",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"Carbamidomethyl on C",
+"Cat",
+"UNIMOD:4",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GCR-[Cat:Carbamidomethyl on C]",
+"proforma":"GCR-[UNIMOD:4]",
+"base_sequence":"GCR",
+"is_modified":true,
+"mods":[
+[
+-1,
+"C-term",
+"Carbamidomethyl on C",
+"Cat",
+"UNIMOD:4",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GG[Carbamidomethyl on C]R",
+"proforma":"GG[UNIMOD:4]R",
+"base_sequence":"GGR",
+"is_modified":true,
+"mods":[
+[
+2,
+"G",
+"Carbamidomethyl on C",
+"",
+"UNIMOD:4",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"[Carbamidomethyl on C]GGR",
+"proforma":"[UNIMOD:4]-GGR",
+"base_sequence":"GGR",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"Carbamidomethyl on C",
+"",
+"UNIMOD:4",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GGR-[Carbamidomethyl on C]",
+"proforma":"GGR-[UNIMOD:4]",
+"base_sequence":"GGR",
+"is_modified":true,
+"mods":[
+[
+-1,
+"C-term",
+"Carbamidomethyl on C",
+"",
+"UNIMOD:4",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GM[Cat:Oxidation on M]R",
+"proforma":"GM[UNIMOD:35]R",
+"base_sequence":"GMR",
+"is_modified":true,
+"mods":[
+[
+2,
+"M",
+"Oxidation on M",
+"Cat",
+"UNIMOD:35",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"[Cat:Oxidation on M]GMR",
+"proforma":"[UNIMOD:35]-GMR",
+"base_sequence":"GMR",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"Oxidation on M",
+"Cat",
+"UNIMOD:35",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GMR-[Cat:Oxidation on M]",
+"proforma":"GMR-[UNIMOD:35]",
+"base_sequence":"GMR",
+"is_modified":true,
+"mods":[
+[
+-1,
+"C-term",
+"Oxidation on M",
+"Cat",
+"UNIMOD:35",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GG[Oxidation on M]R",
+"proforma":"GG[UNIMOD:35]R",
+"base_sequence":"GGR",
+"is_modified":true,
+"mods":[
+[
+2,
+"G",
+"Oxidation on M",
+"",
+"UNIMOD:35",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"[Oxidation on M]GGR",
+"proforma":"[UNIMOD:35]-GGR",
+"base_sequence":"GGR",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"Oxidation on M",
+"",
+"UNIMOD:35",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GGR-[Oxidation on M]",
+"proforma":"GGR-[UNIMOD:35]",
+"base_sequence":"GGR",
+"is_modified":true,
+"mods":[
+[
+-1,
+"C-term",
+"Oxidation on M",
+"",
+"UNIMOD:35",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GK[UniProt:Hydroxylation on K]R",
+"proforma":"GK[UNIMOD:35]R",
+"base_sequence":"GKR",
+"is_modified":true,
+"mods":[
+[
+2,
+"K",
+"Hydroxylation on K",
+"UniProt",
+"UNIMOD:35",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"[UniProt:Hydroxylation on K]GKR",
+"proforma":"[UNIMOD:35]-GKR",
+"base_sequence":"GKR",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"Hydroxylation on K",
+"UniProt",
+"UNIMOD:35",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GKR-[UniProt:Hydroxylation on K]",
+"proforma":"GKR-[UNIMOD:35]",
+"base_sequence":"GKR",
+"is_modified":true,
+"mods":[
+[
+-1,
+"C-term",
+"Hydroxylation on K",
+"UniProt",
+"UNIMOD:35",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GN[UniProt:Hydroxylation on N]R",
+"proforma":"GN[UNIMOD:35]R",
+"base_sequence":"GNR",
+"is_modified":true,
+"mods":[
+[
+2,
+"N",
+"Hydroxylation on N",
+"UniProt",
+"UNIMOD:35",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"[UniProt:Hydroxylation on N]GNR",
+"proforma":"[UNIMOD:35]-GNR",
+"base_sequence":"GNR",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"Hydroxylation on N",
+"UniProt",
+"UNIMOD:35",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GNR-[UniProt:Hydroxylation on N]",
+"proforma":"GNR-[UNIMOD:35]",
+"base_sequence":"GNR",
+"is_modified":true,
+"mods":[
+[
+-1,
+"C-term",
+"Hydroxylation on N",
+"UniProt",
+"UNIMOD:35",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GG[Hydroxylation]R",
+"proforma":"GG[UNIMOD:35]R",
+"base_sequence":"GGR",
+"is_modified":true,
+"mods":[
+[
+2,
+"G",
+"Hydroxylation",
+"",
+"UNIMOD:35",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"[Hydroxylation]GGR",
+"proforma":"[UNIMOD:35]-GGR",
+"base_sequence":"GGR",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"Hydroxylation",
+"",
+"UNIMOD:35",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GGR-[Hydroxylation]",
+"proforma":"GGR-[UNIMOD:35]",
+"base_sequence":"GGR",
+"is_modified":true,
+"mods":[
+[
+-1,
+"C-term",
+"Hydroxylation",
+"",
+"UNIMOD:35",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GC[UniProt:Ammonia loss on C]R",
+"proforma":"GC[UNIMOD:385]R",
+"base_sequence":"GCR",
+"is_modified":true,
+"mods":[
+[
+2,
+"C",
+"Ammonia loss on C",
+"UniProt",
+"UNIMOD:385",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"[UniProt:Ammonia loss on C]GCR",
+"proforma":"[UNIMOD:385]-GCR",
+"base_sequence":"GCR",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"Ammonia loss on C",
+"UniProt",
+"UNIMOD:385",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GCR-[UniProt:Ammonia loss on C]",
+"proforma":"GCR-[UNIMOD:385]",
+"base_sequence":"GCR",
+"is_modified":true,
+"mods":[
+[
+-1,
+"C-term",
+"Ammonia loss on C",
+"UniProt",
+"UNIMOD:385",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GN[UniProt:Ammonia loss on N]R",
+"proforma":"GN[UNIMOD:385]R",
+"base_sequence":"GNR",
+"is_modified":true,
+"mods":[
+[
+2,
+"N",
+"Ammonia loss on N",
+"UniProt",
+"UNIMOD:385",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"[UniProt:Ammonia loss on N]GNR",
+"proforma":"[UNIMOD:385]-GNR",
+"base_sequence":"GNR",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"Ammonia loss on N",
+"UniProt",
+"UNIMOD:385",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GNR-[UniProt:Ammonia loss on N]",
+"proforma":"GNR-[UNIMOD:385]",
+"base_sequence":"GNR",
+"is_modified":true,
+"mods":[
+[
+-1,
+"C-term",
+"Ammonia loss on N",
+"UniProt",
+"UNIMOD:385",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GG[Ammonia loss]R",
+"proforma":"GG[UNIMOD:385]R",
+"base_sequence":"GGR",
+"is_modified":true,
+"mods":[
+[
+2,
+"G",
+"Ammonia loss",
+"",
+"UNIMOD:385",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"[Ammonia loss]GGR",
+"proforma":"[UNIMOD:385]-GGR",
+"base_sequence":"GGR",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"Ammonia loss",
+"",
+"UNIMOD:385",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GGR-[Ammonia loss]",
+"proforma":"GGR-[UNIMOD:385]",
+"base_sequence":"GGR",
+"is_modified":true,
+"mods":[
+[
+-1,
+"C-term",
+"Ammonia loss",
+"",
+"UNIMOD:385",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GN[UniProt:Deamidation on N]R",
+"proforma":"GN[UNIMOD:7]R",
+"base_sequence":"GNR",
+"is_modified":true,
+"mods":[
+[
+2,
+"N",
+"Deamidation on N",
+"UniProt",
+"UNIMOD:7",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"[UniProt:Deamidation on N]GNR",
+"proforma":"[UNIMOD:7]-GNR",
+"base_sequence":"GNR",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"Deamidation on N",
+"UniProt",
+"UNIMOD:7",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GNR-[UniProt:Deamidation on N]",
+"proforma":"GNR-[UNIMOD:7]",
+"base_sequence":"GNR",
+"is_modified":true,
+"mods":[
+[
+-1,
+"C-term",
+"Deamidation on N",
+"UniProt",
+"UNIMOD:7",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GQ[UniProt:Deamidation on Q]R",
+"proforma":"GQ[UNIMOD:7]R",
+"base_sequence":"GQR",
+"is_modified":true,
+"mods":[
+[
+2,
+"Q",
+"Deamidation on Q",
+"UniProt",
+"UNIMOD:7",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"[UniProt:Deamidation on Q]GQR",
+"proforma":"[UNIMOD:7]-GQR",
+"base_sequence":"GQR",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"Deamidation on Q",
+"UniProt",
+"UNIMOD:7",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GQR-[UniProt:Deamidation on Q]",
+"proforma":"GQR-[UNIMOD:7]",
+"base_sequence":"GQR",
+"is_modified":true,
+"mods":[
+[
+-1,
+"C-term",
+"Deamidation on Q",
+"UniProt",
+"UNIMOD:7",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GG[Deamidation]R",
+"proforma":"GG[UNIMOD:7]R",
+"base_sequence":"GGR",
+"is_modified":true,
+"mods":[
+[
+2,
+"G",
+"Deamidation",
+"",
+"UNIMOD:7",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"[Deamidation]GGR",
+"proforma":"[UNIMOD:7]-GGR",
+"base_sequence":"GGR",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"Deamidation",
+"",
+"UNIMOD:7",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GGR-[Deamidation]",
+"proforma":"GGR-[UNIMOD:7]",
+"base_sequence":"GGR",
+"is_modified":true,
+"mods":[
+[
+-1,
+"C-term",
+"Deamidation",
+"",
+"UNIMOD:7",
+null,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GD[UniProt:Calcium on D]R",
+"proforma":"GD[+37.946941]R",
+"base_sequence":"GDR",
+"is_modified":true,
+"mods":[
+[
+2,
+"D",
+"Calcium on D",
+"UniProt",
+null,
+37.946941,
+false
+]
+],
+"unresolved":[]
+},
+{
+"input":"[UniProt:Calcium on D]GDR",
+"proforma":"[+37.946941]-GDR",
+"base_sequence":"GDR",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"Calcium on D",
+"UniProt",
+null,
+37.946941,
+false
+]
+],
+"unresolved":[]
+},
+{
+"input":"GDR-[UniProt:Calcium on D]",
+"proforma":"GDR-[+37.946941]",
+"base_sequence":"GDR",
+"is_modified":true,
+"mods":[
+[
+-1,
+"C-term",
+"Calcium on D",
+"UniProt",
+null,
+37.946941,
+false
+]
+],
+"unresolved":[]
+},
+{
+"input":"GE[UniProt:Calcium on E]R",
+"proforma":"GE[+37.946941]R",
+"base_sequence":"GER",
+"is_modified":true,
+"mods":[
+[
+2,
+"E",
+"Calcium on E",
+"UniProt",
+null,
+37.946941,
+false
+]
+],
+"unresolved":[]
+},
+{
+"input":"[UniProt:Calcium on E]GER",
+"proforma":"[+37.946941]-GER",
+"base_sequence":"GER",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"Calcium on E",
+"UniProt",
+null,
+37.946941,
+false
+]
+],
+"unresolved":[]
+},
+{
+"input":"GER-[UniProt:Calcium on E]",
+"proforma":"GER-[+37.946941]",
+"base_sequence":"GER",
+"is_modified":true,
+"mods":[
+[
+-1,
+"C-term",
+"Calcium on E",
+"UniProt",
+null,
+37.946941,
+false
+]
+],
+"unresolved":[]
+},
+{
+"input":"GG[Calcium]R",
+"proforma":"GG[+37.946941]R",
+"base_sequence":"GGR",
+"is_modified":true,
+"mods":[
+[
+2,
+"G",
+"Calcium",
+"",
+null,
+37.946941,
+false
+]
+],
+"unresolved":[]
+},
+{
+"input":"[Calcium]GGR",
+"proforma":"[+37.946941]-GGR",
+"base_sequence":"GGR",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"Calcium",
+"",
+null,
+37.946941,
+false
+]
+],
+"unresolved":[]
+},
+{
+"input":"GGR-[Calcium]",
+"proforma":"GGR-[+37.946941]",
+"base_sequence":"GGR",
+"is_modified":true,
+"mods":[
+[
+-1,
+"C-term",
+"Calcium",
+"",
+null,
+37.946941,
+false
+]
+],
+"unresolved":[]
+},
+{
+"input":"GM[UniProt:Methionine (R)-sulfoxide on M]R",
+"proforma":"GM[UNIMOD:35]R",
+"base_sequence":"GMR",
+"is_modified":true,
+"mods":[
+[
+2,
+"M",
+"Methionine (R)-sulfoxide on M",
+"UniProt",
+"UNIMOD:35",
+15.994915,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"[UniProt:Methionine (R)-sulfoxide on M]GMR",
+"proforma":"[UNIMOD:35]-GMR",
+"base_sequence":"GMR",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"Methionine (R)-sulfoxide on M",
+"UniProt",
+"UNIMOD:35",
+15.994915,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GMR-[UniProt:Methionine (R)-sulfoxide on M]",
+"proforma":"GMR-[UNIMOD:35]",
+"base_sequence":"GMR",
+"is_modified":true,
+"mods":[
+[
+-1,
+"C-term",
+"Methionine (R)-sulfoxide on M",
+"UniProt",
+"UNIMOD:35",
+15.994915,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GG[Methionine (R)-sulfoxide]R",
+"proforma":"GG[UNIMOD:35]R",
+"base_sequence":"GGR",
+"is_modified":true,
+"mods":[
+[
+2,
+"G",
+"Methionine (R)-sulfoxide",
+"",
+"UNIMOD:35",
+15.994915,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"[Methionine (R)-sulfoxide]GGR",
+"proforma":"[UNIMOD:35]-GGR",
+"base_sequence":"GGR",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"Methionine (R)-sulfoxide",
+"",
+"UNIMOD:35",
+15.994915,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GGR-[Methionine (R)-sulfoxide]",
+"proforma":"GGR-[UNIMOD:35]",
+"base_sequence":"GGR",
+"is_modified":true,
+"mods":[
+[
+-1,
+"C-term",
+"Methionine (R)-sulfoxide",
+"",
+"UNIMOD:35",
+15.994915,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GK[UniProt:N6-acetyllysine on K]R",
+"proforma":"GK[UNIMOD:1]R",
+"base_sequence":"GKR",
+"is_modified":true,
+"mods":[
+[
+2,
+"K",
+"N6-acetyllysine on K",
+"UniProt",
+"UNIMOD:1",
+42.010565,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"[UniProt:N6-acetyllysine on K]GKR",
+"proforma":"[UNIMOD:1]-GKR",
+"base_sequence":"GKR",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"N6-acetyllysine on K",
+"UniProt",
+"UNIMOD:1",
+42.010565,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GKR-[UniProt:N6-acetyllysine on K]",
+"proforma":"GKR-[UNIMOD:1]",
+"base_sequence":"GKR",
+"is_modified":true,
+"mods":[
+[
+-1,
+"C-term",
+"N6-acetyllysine on K",
+"UniProt",
+"UNIMOD:1",
+42.010565,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GG[N6-acetyllysine]R",
+"proforma":"GG[UNIMOD:1]R",
+"base_sequence":"GGR",
+"is_modified":true,
+"mods":[
+[
+2,
+"G",
+"N6-acetyllysine",
+"",
+"UNIMOD:1",
+42.010565,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"[N6-acetyllysine]GGR",
+"proforma":"[UNIMOD:1]-GGR",
+"base_sequence":"GGR",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"N6-acetyllysine",
+"",
+"UNIMOD:1",
+42.010565,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GGR-[N6-acetyllysine]",
+"proforma":"GGR-[UNIMOD:1]",
+"base_sequence":"GGR",
+"is_modified":true,
+"mods":[
+[
+-1,
+"C-term",
+"N6-acetyllysine",
+"",
+"UNIMOD:1",
+42.010565,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GS[UniProt:Phosphoserine on S]R",
+"proforma":"GS[UNIMOD:21]R",
+"base_sequence":"GSR",
+"is_modified":true,
+"mods":[
+[
+2,
+"S",
+"Phosphoserine on S",
+"UniProt",
+"UNIMOD:21",
+79.966331,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"[UniProt:Phosphoserine on S]GSR",
+"proforma":"[UNIMOD:21]-GSR",
+"base_sequence":"GSR",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"Phosphoserine on S",
+"UniProt",
+"UNIMOD:21",
+79.966331,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GSR-[UniProt:Phosphoserine on S]",
+"proforma":"GSR-[UNIMOD:21]",
+"base_sequence":"GSR",
+"is_modified":true,
+"mods":[
+[
+-1,
+"C-term",
+"Phosphoserine on S",
+"UniProt",
+"UNIMOD:21",
+79.966331,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GG[Phosphoserine]R",
+"proforma":"GG[UNIMOD:21]R",
+"base_sequence":"GGR",
+"is_modified":true,
+"mods":[
+[
+2,
+"G",
+"Phosphoserine",
+"",
+"UNIMOD:21",
+79.966331,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"[Phosphoserine]GGR",
+"proforma":"[UNIMOD:21]-GGR",
+"base_sequence":"GGR",
+"is_modified":true,
+"mods":[
+[
+0,
+"N-term",
+"Phosphoserine",
+"",
+"UNIMOD:21",
+79.966331,
+true
+]
+],
+"unresolved":[]
+},
+{
+"input":"GGR-[Phosphoserine]",
+"proforma":"GGR-[UNIMOD:21]",
+"base_sequence":"GGR",
+"is_modified":true,
+"mods":[
+[
+-1,
+"C-term",
+"Phosphoserine",
+"",
+"UNIMOD:21",
+79.966331,
+true
+]
+],
+"unresolved":[]
+}
+]
+}
