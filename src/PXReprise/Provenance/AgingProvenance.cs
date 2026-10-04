@@ -26,6 +26,9 @@ public sealed class AgingProvenance
         Record = new JsonObject
         {
             ["schema"] = Schema,
+            // dataRepo D37 (dataRepo 008): the numbers this record produced cite the ten pxreprise: definitions in
+            // DEFINITIONS.md, not aging:'s. datarepo 0.32.0 does not read the key; its C# ingester will.
+            ["definitions"] = "pxreprise",
             ["stage"] = stage,
             ["started_utc"] = Iso(_started),
             ["host"] = new JsonObject

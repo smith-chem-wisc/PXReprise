@@ -77,6 +77,13 @@ public static class ManifestEntry
             notes.Add($"QC-EXCLUDED FILES: {string.Join(", ", excluded)} failed QC on {string.Join("/", profile.Qc.Excludable)} (a blank or failed injection) and were not searched; the deposit has {qc.Count} raw files.");
             flags.Add("qc_excluded_files");
         }
+        // G16: a prose flag and a note only. `mixed_enrichment` itself changes what the ingest does with every run, so it
+        // is set by hand with the per-run map (aging D51), never guessed from file names.
+        if (MixedSamples.Detect(qc.Select(kv => kv.Key)) is { } mixed)
+        {
+            notes.Add($"POSSIBLY MIXED SAMPLES: the raw file names hold {MixedSamples.Describe(mixed)}. If these are different enrichments, the dataset-level `enrichment` cannot say which run is which; curate `run_enrichment` and the `mixed_enrichment` flag before pooling.");
+            flags.Add("possibly_mixed_enrichment");
+        }
         var qcFlags = state?["qc_payload_flags"]?.AsArray().Select(x => x!.GetValue<string>()).ToList() ?? new List<string>();
         if (qcFlags.Count > 0)
             // A note, not a manifest flag: QC reporting is not a property of the data dataRepo stores (05_qc is not ingested).

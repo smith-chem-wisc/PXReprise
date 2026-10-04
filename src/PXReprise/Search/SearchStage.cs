@@ -19,7 +19,9 @@ public sealed record SearchRequest(
     IReadOnlyList<string> ExcludeFiles,
     string? RunDate,
     string? Accession = null,
-    bool UseLibrary = true);
+    bool UseLibrary = true,
+    string? CuratedDesign = null,
+    IReadOnlyList<string>? DesignConditionColumns = null);
 
 public sealed record SearchOutcome(bool Success, int ExitCode, bool TimedOut, int? Psms1Pct, IReadOnlyList<string> Flags, string ProvenanceFile);
 
@@ -61,6 +63,8 @@ public static class SearchStage
         if (files.Count == 0) throw new UsageException("every file is excluded");
         var failed = files.Where(f => qc[Path.GetFileName(f)]?["pass"]?.GetValue<bool>() != true).Select(Path.GetFileName).ToList();
         if (failed.Count > 0) throw new SearchSetupException($"QC failed or is missing for {string.Join(", ", failed)}");
+        // MetaMorpheus reads ExperimentalDesign.tsv from beside the first spectra file; written here, before any task runs.
+        var design = p.Design == "sdrf" ? DesignStage.Prepare(r.SpectraDir, files, r.CuratedDesign, r.DesignConditionColumns) : null;
 
         // The effective parameters, in the aging pipeline's shape, so provenance's params_file is a real file.
         var runner = new MetaMorpheusRunner(m.CmdFor(p.MetaMorpheus), m.Dotnet, m.DotnetRoot);
@@ -95,6 +99,15 @@ public static class SearchStage
         prov.Upstream(upstream.ToArray());
         prov.Note($"profile {p.Key}, organism {r.Organism}; searched by PXReprise");
         if (retrieval is not null) prov.Set("database_retrieval", retrieval.DeepClone());
+        if (design is not null)
+        {
+            prov.Set("experimental_design", design);
+            if (design["written"]!.GetValue<bool>())
+            {
+                prov.Input(design["sdrf"]!.GetValue<string>());
+                prov.Note($"experimental design from the {design["source"]} SDRF: {design["files"]} files, conditions {string.Join(", ", design["conditions"]!.AsArray().Select(c => c!.GetValue<string>()))}");
+            }
+        }
         string runtimeRoot = DotnetRuntimes.Root(m.DotnetRoot);
         prov.Set("dotnet_runtime", new JsonObject
         {

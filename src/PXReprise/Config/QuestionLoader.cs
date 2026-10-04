@@ -83,11 +83,18 @@ public static class QuestionLoader
             b.RefuseUnknownKeys();
         }
 
+        DesignSettings? designs = null;
+        if (root.OptionalTable("designs") is { } dg)
+        {
+            designs = new DesignSettings(Abs(dir, dg.RequiredString("dir")), dg.StringList("condition_columns"));
+            dg.RefuseUnknownKeys();
+        }
+
         root.RefuseUnknownKeys();
         return new Question(name, description, file, profiles, keywords, organisms,
             new RelevanceRules(require, exclude, unless, decisions), overlays, requiredTraits, optionalTraits,
             traitsSource, holds, studyLayer, batch,
-            new PublishSettings(manifest is null ? null : Abs(dir, manifest), command));
+            new PublishSettings(manifest is null ? null : Abs(dir, manifest), command), designs);
     }
 
     /// <summary>A path in a question file is relative to the file, so a project folder can move.</summary>

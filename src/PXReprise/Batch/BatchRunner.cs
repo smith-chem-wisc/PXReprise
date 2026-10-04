@@ -34,6 +34,10 @@ public sealed class BatchRunner
     private readonly string _stateDir, _runRoot;
     private readonly object _gate = new();
     private bool _libraryOk = true;
+    private volatile string? _searching;
+
+    /// <summary>The deposit being searched while the next one is screened and fetched; null between searches.</summary>
+    internal string? Searching { get => _searching; set => _searching = value; }
 
     public BatchRunner(Question q, IReadOnlyDictionary<string, Profile> profiles, Machine m, IPrideFiles files, IProjectSearch search, string runDate)
     {
@@ -82,6 +86,13 @@ public sealed class BatchRunner
             var st = State();
             var ds = st["datasets"]!.AsObject();
             if (ds[acc] is not JsonObject e) ds[acc] = e = new JsonObject();
+            // A new status without its own detail retires the old one: the first-run's PXD058082 read "searched" next to a
+            // TLS error from a pass that had since succeeded. Kept as earlier_detail, so the history is not lost.
+            if (fields.Any(f => f.Key == "status") && fields.All(f => f.Key != "detail") && e["detail"] is { } stale)
+            {
+                e.Remove("detail");
+                e["earlier_detail"] = stale;
+            }
             foreach (var (k, v) in fields) e[k] = v?.DeepClone();
             e["updated_utc"] = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'+00:00'");
             string tmp = StateFile + ".tmp";
@@ -221,9 +232,11 @@ public sealed class BatchRunner
             var (e, profile) = pending.Value;
             pending = null;
             // While this dataset searches (hours), the next one is screened, probed and fetched (network-bound).
+            Searching = e.Accession;
             var search = SearchAndDeliverAsync(e, profile, ct);
             var next = NextReadyAsync(queue, i, ct);
-            await Task.WhenAll(search, next).ConfigureAwait(false);
+            try { await Task.WhenAll(search, next).ConfigureAwait(false); }
+            finally { Searching = null; }
             (pending, i) = next.Result;
         }
         return false;
@@ -361,15 +374,19 @@ public sealed class BatchRunner
         catch (Exception ex) when (FetchStage.IsTransient(ex)) { Log($"{acc} size listing failed ({ex.Message}); retry next pass"); return null; }
 
         // The same raw files already searched under another accession: refused before any download (PXR-A9).
-        var dup = DuplicateScreen.Check(acc, listing.Select(f => (f.FileName, f.FileSizeBytes)).ToList(), DuplicateScreen.Index(DuplicateRoots()));
+        // The deposit being searched counts too: it is fetched in full, and the next one is screened alongside it (PXR-A21).
+        string? searching = Searching;
+        var dup = DuplicateScreen.Check(acc, listing.Select(f => (f.FileName, f.FileSizeBytes)).ToList(),
+            DuplicateScreen.Index(DuplicateRoots(), searching is null ? null : new[] { Run(searching) }));
+        string When(string other) => other == searching ? "being searched now" : "already searched";
         if (dup.DuplicateOf is { } original)
         {
-            Log($"{acc} SCREENED OUT (excluded_duplicate): all {listing.Count} raw files (name and size) are in {original}, already searched");
+            Log($"{acc} SCREENED OUT (excluded_duplicate): all {listing.Count} raw files (name and size) are in {original}, {When(original)}");
             Record(acc, ("status", "excluded_duplicate"), ("duplicate_of", original));
             return null;
         }
         foreach (var (other, shared) in dup.Partial)
-            Log($"{acc} shares {shared} of {listing.Count} raw files (name and size) with {other}, already searched; not a duplicate, continuing");
+            Log($"{acc} shares {shared} of {listing.Count} raw files (name and size) with {other}, {When(other)}; not a duplicate, continuing");
 
         var sizes = listing.Select(f => f.FileSizeBytes / 1e6).OrderBy(x => x).ToList();
         var dep = profile.Deposit;
@@ -473,8 +490,12 @@ public sealed class BatchRunner
         Log($"{acc} SEARCH starting (profile={profile.Key}, organism={e.Organism}, library={library})");
         Record(acc, ("status", "searching"));
         var overlays = _q.Overlays.TryGetValue(e.Organism, out var ov) ? ov : Array.Empty<string>();
+        string? curated = _q.Designs?.For(acc);
+        if (curated is not null && File.Exists(curated) && profile.Design != "sdrf")
+            Log($"{acc} note: the question has a design for it ({curated}), but {profile.Key} does not use designs; searching without it");
         var req = new SearchRequest(profile, e.Organism, _m, Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "04_search"),
-            Path.Combine(d, "02b_qc"), overlays, excl, _runDate, acc, UseLibrary: library);
+            Path.Combine(d, "02b_qc"), overlays, excl, _runDate, acc, UseLibrary: library,
+            CuratedDesign: curated, DesignConditionColumns: _q.Designs is { ConditionColumns.Count: > 0 } ds ? ds.ConditionColumns : null);
         string runtimeRoot = Search.DotnetRuntimes.Root(_m.DotnetRoot);
         var runtimesBefore = Search.DotnetRuntimes.Snapshot(runtimeRoot);
         SearchOutcome outcome;
@@ -595,6 +616,9 @@ public sealed class BatchRunner
             ManifestEntry.EnsureExists(manifest, _q.Name, _runRoot);
             ManifestEntry.Append(manifest, e, profile, Run(e.Accession), Entry(e.Accession), _m.WorkRoot);
             Log($"{e.Accession} MANIFEST entry appended");
+            var qcNames = JsonNode.Parse(File.ReadAllText(Path.Combine(Run(e.Accession), "02b_qc", "qc_report.json")))!.AsObject().Select(kv => kv.Key);
+            if (MixedSamples.Detect(qcNames) is { } mixed)
+                Log($"{e.Accession} POSSIBLY MIXED SAMPLES (flagged in the manifest; curate run_enrichment): {MixedSamples.Describe(mixed)}");
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException) { Log($"{e.Accession} MANIFEST failed: {ex.Message}"); Record(e.Accession, ("ingest", "manifest_failed")); return; }
         if (_m.DataRepo is null) return;

@@ -7,6 +7,32 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.3.7 (2026-10-04)
+
+**Updating:** MetaMorpheus unchanged (1.1.11). Machine file unchanged. Safe mid-batch: stop the batch, update, run it
+again. No shipped profile changes, so no result changes.
+
+- **A duplicate of the deposit being searched is now caught.** The batch fetches the next deposit while the current one
+  searches, and the duplicate check compared only with deposits whose search had finished. PXD042302 (PXD042301
+  deposited again: same title, same paper, 30 of 31 raw files byte-identical) was checked 7 seconds after PXD042301's
+  search began, and was fetched and searched in full. The deposit being searched now counts too, and the log says
+  `..., being searched now`.
+- **Possibly mixed samples are flagged.** When every raw file's name says what kind of sample it is (`Lysate_`, `IP_`,
+  `EV_`, `phospho`, ...) and there is more than one kind, the manifest entry gets the flag `possibly_mixed_enrichment`
+  and a note, and `batch.log` says `POSSIBLY MIXED SAMPLES`. Which run is which enrichment stays yours to curate; the
+  flag does not change the ingest. On the 96 searched aging deposits it flags one, PXD077298 (lysate, IP and
+  extracellular vesicles).
+- **A state entry's `detail` belongs to its status.** When a later status replaces it (a download that failed once,
+  then succeeded), the old text moves to `earlier_detail`. Before, a searched deposit could still show the error of an
+  earlier pass.
+- **Experimental designs (not used by any shipped profile yet).** A profile can set `[quant] design = "sdrf"`. Before
+  the search, PXReprise writes MetaMorpheus's `ExperimentalDesign.tsv` from the question's own SDRF for the deposit
+  (`[designs]` in `question.toml`), or else from the deposit's, after mzLib checks it the way MetaMorpheus reads it. A
+  question's design that fails the check stops that deposit's search, with the reasons. `pxreprise search` takes
+  `--design` and `--condition-columns`. See [Writing a question](https://smith-chem-wisc.github.io/PXReprise/questions.html).
+- Every stage's `provenance.json` now says `"definitions": "pxreprise"`, so dataRepo can cite PXReprise's own
+  definitions of its numbers (`DEFINITIONS.md`). dataRepo 0.32.0 ignores the field.
+
 ## 0.3.6 (2026-10-04)
 
 **Updating:** MetaMorpheus unchanged (1.1.11). Machine file: new optional `fetch_stall_minutes`. Safe mid-batch: stop

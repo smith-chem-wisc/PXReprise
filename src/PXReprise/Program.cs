@@ -160,11 +160,13 @@ public static class Program
             {
                 Positional(args, 0);
                 args.AllowOnly("spectra", "qc", "out", "organism", "profile", "profile-file", "profiles", "machine",
-                    "extra-db", "exclude", "run-date", "accession");
+                    "extra-db", "exclude", "run-date", "accession", "design", "condition-columns");
                 var profile = ResolveProfile(args);
+                if (args.Option("design") is { } given && !File.Exists(given)) throw new UsageException($"--design {given} does not exist");
                 var request = new Search.SearchRequest(profile, args.Required("organism"), Machine.Load(args.Required("machine")),
                     args.Required("spectra"), args.Required("out"), args.Required("qc"), List(args.Option("extra-db")),
-                    List(args.Option("exclude")), args.Option("run-date"), args.Option("accession"));
+                    List(args.Option("exclude")), args.Option("run-date"), args.Option("accession"),
+                    CuratedDesign: args.Option("design"), DesignConditionColumns: args.Option("condition-columns") is null ? null : List(args.Option("condition-columns")));
                 return await Search.SearchStage.RunAsync(request, ct).ConfigureAwait(false);
             }
 

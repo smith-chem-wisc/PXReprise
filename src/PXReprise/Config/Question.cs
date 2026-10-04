@@ -37,7 +37,18 @@ public sealed record Question(
     IReadOnlyDictionary<string, string> Holds,
     string? StudyLayer,
     BatchSettings? Batch = null,
-    PublishSettings? Publish = null);
+    PublishSettings? Publish = null,
+    DesignSettings? Designs = null);
+
+/// <summary>
+/// A question's curated experimental designs (G15): one SDRF per deposit, <c>&lt;Dir&gt;/&lt;PXD&gt;.sdrf.tsv</c>, used by a
+/// profile with <c>[quant] design = "sdrf"</c> ahead of the deposit's own. <see cref="ConditionColumns"/> names the
+/// factor columns the condition is built from when a design has more than one.
+/// </summary>
+public sealed record DesignSettings(string Dir, IReadOnlyList<string> ConditionColumns)
+{
+    public string For(string accession) => Path.Combine(Dir, $"{accession}.sdrf.tsv");
+}
 
 /// <summary>Where a question's batch keeps its run folders and its own state (queue, state.json, log, STOP).</summary>
 public sealed record BatchSettings(string RunRoot, string StateDir, string Queue);

@@ -65,6 +65,10 @@ public static class ProfileLoader
         var quant = root.RequiredTable("quant");
         string method = quant.RequiredString("method");
         bool mbr = quant.OptionalBool("mbr") ?? false;
+        // "sdrf": ExperimentalDesign.tsv from the question's curated SDRF, else the deposit's (G15). Changes quantification.
+        string design = quant.OptionalString("design") ?? "none";
+        if (!Profile.Designs.Contains(design))
+            throw new ConfigException(file, $"[quant] design must be one of {string.Join(", ", Profile.Designs)}, not '{design}'");
         quant.RefuseUnknownKeys();
 
         var dep = root.RequiredTable("deposit");
@@ -88,7 +92,7 @@ public static class ProfileLoader
 
         root.RefuseUnknownKeys();
         return new Profile(id, version, status, description, accepts, mm, tasks, extraMods, library, timeout, dbs, panel, exclude,
-            method, mbr, deposit, gates, Path.GetDirectoryName(Path.GetFullPath(file))!);
+            method, mbr, deposit, gates, Path.GetDirectoryName(Path.GetFullPath(file))!, design);
     }
 
     /// <summary>Every <c>*.toml</c> in a directory, keyed by <c>id@version</c>; a duplicate key is refused.</summary>

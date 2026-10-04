@@ -70,8 +70,12 @@ public sealed record Profile(
     bool MatchBetweenRuns,
     DepositPolicy Deposit,
     QcGates Qc,
-    string SourceDir = ".")
+    string SourceDir = ".",
+    string Design = "none")
 {
+    /// <summary>The values of <c>[quant] design</c>: none, or an experimental design from an SDRF (G15).</summary>
+    public static readonly string[] Designs = { "none", "sdrf" };
+
     public string Key => $"{Id}@{Version}";
 
     /// <summary>A list a profile names (e.g. its contaminant exclusions), shipped under <c>lists/</c> beside the profile.</summary>

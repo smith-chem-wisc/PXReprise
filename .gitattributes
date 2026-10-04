@@ -3,3 +3,4 @@
 *.raw binary
 profiles/lists/** -text
 *.mzML -text
+results/designs_*/** -text

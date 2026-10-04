@@ -93,7 +93,7 @@ For testing a stage by hand. The batch runs all of these for you.
 |---|---|
 | `pxreprise fetch PXD012345 --out folder --machine m.toml` | Downloads one deposit's raw files, verified. `--max-files`, `--max-file-mb`, `--parallel` and `--attempts` adjust it. |
 | `pxreprise qc --spectra folder --out folder --profile label-free-dda@2 --machine m.toml` | Checks raw files against the profile's quality gates. |
-| `pxreprise search --spectra folder --qc folder --out folder --organism human --profile label-free-dda@2 --machine m.toml` | Runs the MetaMorpheus search on checked files. |
+| `pxreprise search --spectra folder --qc folder --out folder --organism human --profile label-free-dda@2 --machine m.toml` | Runs the MetaMorpheus search on checked files. With a profile that takes a design (`[quant] design = "sdrf"`), `--design PXD012345.sdrf.tsv` gives the SDRF to use, and `--condition-columns` the factor columns its condition is built from when it has several. |
 | `pxreprise qc-payload <search folder> <qc folder> <out folder> --accession PXD012345` | Builds the QC report from a finished search. |
 
 ## Information

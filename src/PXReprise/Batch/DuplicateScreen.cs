@@ -20,9 +20,16 @@ public static class DuplicateScreen
     /// <c>run_&lt;date&gt;/&lt;accession&gt;</c>) with a search provenance and the whole fetch's manifest. The fetch
     /// manifest of a searched deposit lists the whole deposit, because only whole deposits are searched (S43).
     /// </summary>
-    public static List<Searched> Index(IEnumerable<string> roots)
+    /// <param name="inFlight">
+    /// Run folders fetched in full and being searched now, with no search provenance yet. The next deposit is screened
+    /// while the current one searches, so without them a deposit is never compared with the one just before it:
+    /// PXD042302 (PXD042301 deposited again) was screened 7 s after PXD042301's search started (2026-10-04, PXR-A21).
+    /// </param>
+    public static List<Searched> Index(IEnumerable<string> roots, IEnumerable<string>? inFlight = null)
     {
         var found = new Dictionary<string, Searched>(StringComparer.Ordinal);
+        foreach (string dir in inFlight ?? Array.Empty<string>())
+            if (Read(Path.Combine(dir, "02_fetch", "fetch_manifest.json")) is { } s) found.TryAdd(s.Accession, s);
         foreach (string root in roots.Where(Directory.Exists).Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase))
             foreach (string dir in Directory.EnumerateDirectories(root).SelectMany(d => Directory.EnumerateDirectories(d).Prepend(d)))
             {
@@ -35,6 +42,7 @@ public static class DuplicateScreen
 
     private static Searched? Read(string manifest)
     {
+        if (!File.Exists(manifest)) return null;
         try
         {
             var m = JsonNode.Parse(File.ReadAllText(manifest))!;
