@@ -20,7 +20,9 @@ using DataRepo.Study;
 //   datarepo query <catalog.duckdb> <sql>        run one read-only query against a catalog
 //   datarepo publish <manifest.yaml> --site <d>  build, then site
 //
-// run and mcp arrive with their ports (design/CSHARP_PORT.md).
+//   datarepo run <engine> <PXD...> --store ...   run a released engine on stored data
+//
+// mcp arrives with its port (design/CSHARP_PORT.md).
 CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
 return Cli.Run(args);
 
@@ -30,8 +32,8 @@ namespace DataRepo.Cli
     {
         private const string Prog = "datarepo";
 
-        private static readonly string[] Commands = ["ingest", "study", "manifest", "inspect", "build", "catalog", "query", "site", "publish", "doctor"];
-        private static readonly string[] Pending = ["run", "mcp"];
+        private static readonly string[] Commands = ["ingest", "study", "manifest", "inspect", "build", "catalog", "query", "site", "publish", "run", "doctor"];
+        private static readonly string[] Pending = ["mcp"];
 
         public static int Run(string[] argv)
         {
@@ -66,6 +68,7 @@ namespace DataRepo.Cli
                     "catalog" => CatalogCommands.CatalogSummary(rest),
                     "query" => CatalogCommands.Query(rest),
                     "publish" => CatalogCommands.Publish(rest),
+                    "run" => RunCommand.Run(rest),
                     "site" => DataRepo.Site.SiteCommand.Run(rest, Console.Out, Console.Error),
                     "doctor" => Doctor(),
                     _ when Pending.Contains(command) => NotYet(command),

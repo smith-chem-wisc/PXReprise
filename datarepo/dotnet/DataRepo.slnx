@@ -5,6 +5,7 @@
     <Project Path="src/DataRepo.Catalog/DataRepo.Catalog.csproj" />
     <Project Path="src/DataRepo.Ingest/DataRepo.Ingest.csproj" />
     <Project Path="src/DataRepo.Parity/DataRepo.Parity.csproj" />
+    <Project Path="src/DataRepo.Runner/DataRepo.Runner.csproj" />
     <Project Path="src/DataRepo.SchemaGen/DataRepo.SchemaGen.csproj" />
     <Project Path="src/DataRepo.Study/DataRepo.Study.csproj" />
     <Project Path="src/DataRepo.Site/DataRepo.Site.csproj" />

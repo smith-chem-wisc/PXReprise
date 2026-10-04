@@ -1740,7 +1740,7 @@ public static class CatalogBuilder
             .ToList();
 
     /// <summary><c>json.loads(path.read_text(encoding="utf-8"))</c> of a JSON object, as plain values.</summary>
-    internal static IReadOnlyDictionary<string, object?> ReadJsonObject(string path, Func<string, Exception>? error = null)
+    public static IReadOnlyDictionary<string, object?> ReadJsonObject(string path, Func<string, Exception>? error = null)
     {
         error ??= msg => new CatalogException(msg);
         object? value;

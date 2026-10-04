@@ -9,4 +9,12 @@
     <Version>0.0.0-dev</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
+  <!--
+    The commit a release was built from (CI passes -p:SourceRevisionId=<sha>). `datarepo run` records it as the
+    install's identity and refuses a build without one, because an engine artefact stamped by unidentifiable code
+    is reproducible by nobody (aging 063).
+  -->
+  <ItemGroup Condition="'$(SourceRevisionId)' != ''">
+    <AssemblyMetadata Include="SourceRevisionId" Value="$(SourceRevisionId)" />
+  </ItemGroup>
 </Project>
