@@ -66,7 +66,7 @@ dotnet test --filter "Category!=ExternalService&Category!=LocalCorpus"   # offli
 dotnet test --filter "Category=ExternalService"                         # live PRIDE/UniProt canaries; skip when a service is down
 ```
 
-.NET 10; mzLib 1.0.592 from NuGet, the same version MetaMorpheus 1.1.11 uses. Every command prints one JSON envelope
+.NET 10; mzLib 1.0.593 from NuGet (MetaMorpheus 1.1.11, a separate process, uses 1.0.592). Every command prints one JSON envelope
 (`{"ok":true,"data":...}` or `{"ok":false,"error":{...}}`) and exits 0 (ok), 1 (handled failure) or 2 (usage).
 
 ## Licence

@@ -7,6 +7,19 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.3.5 (2026-10-04)
+
+**Updating:** MetaMorpheus unchanged (1.1.11). Machine file unchanged. Safe mid-batch: stop the batch, update, run it
+again.
+
+- **mzLib 1.0.593.** PXReprise now uses mzLib 1.0.593, one release ahead of the 1.0.592 inside MetaMorpheus 1.1.11.
+  That is safe because MetaMorpheus runs as its own process. Searches are unchanged: MetaMorpheus does them with its
+  own mzLib.
+- What changes for PXReprise: PRIDE now reports every dropped or timed-out download as `HttpRequestException`, the
+  error the batch already retries, so dropped transfers no longer depend on PXReprise's own workaround from 0.3.3
+  (kept as a safety net). Download error messages name the file and host, never the full URL.
+- Every record's `tools.mzlib` now reads `1.0.593+…`.
+
 ## 0.3.4 (2026-10-02)
 
 **Updating:** MetaMorpheus unchanged (1.1.11). Machine file: new optional `dotnet_root` (a private .NET for
