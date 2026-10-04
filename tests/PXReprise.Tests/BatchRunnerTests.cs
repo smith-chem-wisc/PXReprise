@@ -307,6 +307,31 @@ public class BatchRunnerTests
         runner.RecordFetchFailure("PXD000209", probe: false, dropped);
         Assert.That(runner.Settled("PXD000209"), Is.EqualTo("fetch_failed"));
         Assert.That(runner.Retriable("PXD000209"), Is.False);
+        Assert.That(runner.State()["datasets"]!["PXD000209"]!["detail"]!.GetValue<string>(), Does.StartWith("HttpRequestException: h0.raw"));
+    }
+
+    [Test]
+    public void BatchRetryRequeuesASettledDepositAndRecordsWhy()   // first-run 2026-10-03: un-settling meant editing state.json
+    {
+        var (runner, _, _, dir) = Runner(extraMachine: "fetch_passes = 1\n");
+        runner.RecordFetchFailure("PXD000209", probe: false, new IOException("Received an unexpected EOF") { Source = "System.Net.Security" });
+        Assert.That(runner.Settled("PXD000209"), Is.EqualTo("fetch_failed"));
+        string state = Path.Combine(dir, "state"), runs = Path.Combine(dir, "runs");
+
+        BatchRunner.Requeue(state, runs, "PXD000209", "TLS drop, fixed in v0.3.3");
+        var e = runner.State()["datasets"]!["PXD000209"]!;
+        Assert.That(runner.Settled("PXD000209"), Is.Empty);
+        Assert.That(e["status"]!.GetValue<string>(), Is.EqualTo("requeued_user"));
+        Assert.That(e["unavailable_passes"], Is.Null);
+        var h = e["requeued"]![0]!;
+        Assert.That((h["previous_status"]!.GetValue<string>(), h["reason"]!.GetValue<string>()), Is.EqualTo(("fetch_failed", "TLS drop, fixed in v0.3.3")));
+        Assert.That(File.ReadAllText(Path.Combine(state, "batch.log")), Does.Contain("PXD000209 REQUEUED by").And.Contain("(was fetch_failed)"));
+
+        Assert.Throws<PXReprise.Cli.UsageException>(() => BatchRunner.Requeue(state, runs, "PXD999999", "x"), "not in the state");
+        Assert.Throws<PXReprise.Cli.UsageException>(() => BatchRunner.Requeue(state, runs, "PXD000209", " "), "a reason is required");
+        Directory.CreateDirectory(Path.Combine(runs, "PXD000209", "04_search"));
+        File.WriteAllText(Path.Combine(runs, "PXD000209", "04_search", "provenance.json"), "{}");
+        Assert.That(() => BatchRunner.Requeue(state, runs, "PXD000209", "x"), Throws.TypeOf<PXReprise.Cli.UsageException>().With.Message.Contains("finished search"));
     }
 
     private sealed class FakeFiles : IPrideFiles

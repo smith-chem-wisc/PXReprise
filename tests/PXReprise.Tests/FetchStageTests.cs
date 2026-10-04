@@ -105,8 +105,84 @@ public class FetchStageTests
                 throw new HttpIOException(HttpRequestError.ResponseEnded, "The response ended prematurely, with at least 334864664 additional bytes expected. (ResponseEnded)");
             Directory.CreateDirectory(dir);
             string p = Path.Combine(dir, f.FileName);
-            File.WriteAllText(p, f.FileName);
+            if (File.Exists(p)) return Task.FromResult(p);   // mzLib's overwrite: false skips on existence alone
+            File.WriteAllBytes(p, new byte[f.FileSizeBytes - Short]);
             return Task.FromResult(p);
+        }
+
+        /// <summary>Bytes each download comes up short by.</summary>
+        public int Short;
+    }
+
+    [Test]
+    public async Task AFileCutShortOnDiskIsDownloadedAgain()   // first-run 2026-10-03: raws downloaded by hand into spectra/
+    {
+        string dir = TestSupport.TempDir();
+        File.WriteAllBytes(Path.Combine(dir, "a.raw"), new byte[40]);
+        var lines = new List<string>();
+        var (path, _, attempts) = await FetchStage.DownloadWithRetry(new FlakyPride(), F("a.raw", 100), dir, 3, TimeSpan.Zero, CancellationToken.None, log: lines.Add);
+        Assert.That((new FileInfo(path).Length, attempts), Is.EqualTo((100L, 1)));
+        Assert.That(lines.Single(), Does.Contain("on disk is 40 bytes, PRIDE lists 100"));
+    }
+
+    [Test]
+    public void ADownloadThatKeepsComingUpShortIsUnavailabilityNotSuccess()
+    {
+        string dir = TestSupport.TempDir();
+        var lines = new List<string>();
+        var e = Assert.ThrowsAsync<HttpRequestException>(() =>
+            FetchStage.DownloadWithRetry(new FlakyPride { Short = 1 }, F("a.raw", 100), dir, 2, TimeSpan.Zero, CancellationToken.None, log: lines.Add));
+        Assert.That(FetchStage.IsTransient(e!), Is.True);
+        Assert.That(File.Exists(Path.Combine(dir, "a.raw")), Is.False);
+        Assert.That(lines, Has.Count.EqualTo(2).And.All.Contains("HttpIOException: a.raw: received 99 bytes, PRIDE lists 100"));
+    }
+
+    [Test]
+    public async Task AStalledDownloadIsAbandonedAndRetried()   // first-run 2026-10-03: 6 h on two frozen .partial files
+    {
+        string dir = TestSupport.TempDir();
+        var pride = new StallingPride { Stalls = 1 };
+        var lines = new List<string>();
+        var (path, _, attempts) = await FetchStage.DownloadWithRetry(pride, F("a.raw", 10), dir, 3, TimeSpan.Zero, CancellationToken.None,
+            stallAfter: TimeSpan.FromMilliseconds(300), log: lines.Add, poll: TimeSpan.FromMilliseconds(50), abandonGrace: TimeSpan.FromMilliseconds(200));
+        Assert.That((File.Exists(path), attempts), Is.EqualTo((true, 2)));
+        Assert.That(lines.Single(), Does.Contain("TimeoutException: a.raw: no data for"));
+    }
+
+    [Test]
+    public void AStallThatIgnoresCancellationCannotHangTheFetch()
+    {
+        var pride = new StallingPride { Stalls = 99, IgnoreCancellation = true };
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var e = Assert.ThrowsAsync<HttpRequestException>(() => FetchStage.DownloadWithRetry(pride, F("a.raw", 10), TestSupport.TempDir(), 2,
+            TimeSpan.Zero, CancellationToken.None, stallAfter: TimeSpan.FromMilliseconds(200), poll: TimeSpan.FromMilliseconds(50),
+            abandonGrace: TimeSpan.FromMilliseconds(100)));
+        Assert.That(e!.InnerException, Is.TypeOf<TimeoutException>());
+        Assert.That(FetchStage.IsTransient(e), Is.True);
+        Assert.That(sw.Elapsed, Is.LessThan(TimeSpan.FromSeconds(10)));
+    }
+
+    /// <summary>Writes a few bytes to the .partial, then waits forever: the shape of the 2026-10-03 hang.</summary>
+    private sealed class StallingPride : IPrideFiles
+    {
+        public int Stalls;
+        public bool IgnoreCancellation;
+        private int _calls;
+
+        public Task<List<PrideArchiveFile>> ListFilesAsync(string a, CancellationToken ct) => Task.FromResult(new List<PrideArchiveFile>());
+        public Task<List<string>> ListFtpNamesAsync(string a, CancellationToken ct) => Task.FromResult(new List<string>());
+
+        public async Task<string> DownloadAsync(PrideArchiveFile f, string dir, CancellationToken ct)
+        {
+            string p = Path.Combine(dir, f.FileName);
+            if (Interlocked.Increment(ref _calls) > Stalls)
+            {
+                File.WriteAllBytes(p, new byte[f.FileSizeBytes]);
+                return p;
+            }
+            File.WriteAllBytes(p + ".partial", new byte[3]);
+            await Task.Delay(Timeout.Infinite, IgnoreCancellation ? CancellationToken.None : ct);
+            return p;
         }
     }
 }

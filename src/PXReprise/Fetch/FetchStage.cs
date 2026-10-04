@@ -32,8 +32,12 @@ public sealed class PrideFiles(PrideArchiveClient client) : IPrideFiles
 
 public enum Pick { All, ProbeSpread, MedianSize, FirstByName }
 
+/// <param name="StallAfter">A download whose <c>.partial</c> file has not grown for this long is abandoned and retried
+/// (zero turns the watch off). mzLib has its own 2-minute body stall guard; this one also covers a read that never
+/// answers its cancellation (a first-run on 2026-10-03 sat 6 h on two frozen <c>.partial</c> files).</param>
 public sealed record FetchRequest(string Accession, string OutDir, Pick Pick, int MaxFiles, int MaxFileMb, string Extension,
-    int ParallelDownloads, int MaxAttempts, TimeSpan Backoff, TimeSpan ListingBackoff, string WorkRoot);
+    int ParallelDownloads, int MaxAttempts, TimeSpan Backoff, TimeSpan ListingBackoff, string WorkRoot,
+    TimeSpan StallAfter = default);
 
 /// <summary>
 /// One accession's raw files (and SDRF, if deposited), with the engine's retry policy. mzLib's client never retries
@@ -78,7 +82,8 @@ public static class FetchStage
         }
     }
 
-    public static async Task<JsonObject> RunAsync(FetchRequest r, IPrideFiles pride, CancellationToken ct)
+    /// <param name="log">Progress lines (each file done, each retry with its exception type); null for none.</param>
+    public static async Task<JsonObject> RunAsync(FetchRequest r, IPrideFiles pride, CancellationToken ct, Action<string>? log = null)
     {
         string outDir = Path.GetFullPath(r.OutDir);
         Directory.CreateDirectory(outDir);
@@ -120,12 +125,19 @@ public static class FetchStage
         Directory.CreateDirectory(spectraDir);
         prov.Command(new[] { "mzLib.PrideArchiveClient.DownloadFileAsync" }.Concat(chosen.Concat(sdrfs).Select(f => f.FileName)).Append("overwrite=False"));
         var results = new (string Path, double Seconds, int Attempts)[chosen.Count];
+        int done = 0;
         using (var gate = new SemaphoreSlim(Math.Max(1, r.ParallelDownloads)))
         {
             await Task.WhenAll(chosen.Select(async (f, i) =>
             {
                 await gate.WaitAsync(ct).ConfigureAwait(false);
-                try { results[i] = await DownloadWithRetry(pride, f, spectraDir, r.MaxAttempts, r.Backoff, ct).ConfigureAwait(false); }
+                try
+                {
+                    results[i] = await DownloadWithRetry(pride, f, spectraDir, r.MaxAttempts, r.Backoff, ct, r.StallAfter, log).ConfigureAwait(false);
+                    var (_, s, a) = results[i];
+                    log?.Invoke($"{Interlocked.Increment(ref done)} of {chosen.Count} done: {f.FileName} {f.FileSizeBytes / 1e6:0} MB in {s:0} s"
+                                + (a > 1 ? $", attempt {a}" : ""));
+                }
                 finally { gate.Release(); }
             })).ConfigureAwait(false);
         }
@@ -195,25 +207,81 @@ public static class FetchStage
         }
     }
 
+    /// <summary>
+    /// One file, retried on transport failures. A file is complete only at PRIDE's listed size: mzLib's
+    /// <c>overwrite: false</c> skips on existence alone, so a file cut short (a crash, a hand download) would otherwise
+    /// be searched. Over 2,222 aging downloads PRIDE's size and the local size never differed.
+    /// </summary>
     public static async Task<(string Path, double Seconds, int Attempts)> DownloadWithRetry(IPrideFiles pride, PrideArchiveFile f,
-        string dir, int attempts, TimeSpan backoff, CancellationToken ct)
+        string dir, int attempts, TimeSpan backoff, CancellationToken ct, TimeSpan stallAfter = default, Action<string>? log = null,
+        TimeSpan? poll = null, TimeSpan? abandonGrace = null)
     {
         var sw = Stopwatch.StartNew();
         Exception? last = null;
+        string target = Path.Combine(dir, f.FileName);
         for (int a = 1; a <= attempts; a++)
         {
+            if (f.FileSizeBytes > 0 && File.Exists(target) && new FileInfo(target).Length is long had && had != f.FileSizeBytes)
+            {
+                log?.Invoke($"{f.FileName} on disk is {had:N0} bytes, PRIDE lists {f.FileSizeBytes:N0}: deleted, downloading again");
+                File.Delete(target);
+            }
             try
             {
-                string path = await pride.DownloadAsync(f, dir, ct).ConfigureAwait(false);
-                return (path, Math.Round(sw.Elapsed.TotalSeconds, 1), a);
+                string path = await Watched(pride, f, dir, stallAfter, poll ?? TimeSpan.FromSeconds(15), abandonGrace ?? TimeSpan.FromSeconds(30), ct).ConfigureAwait(false);
+                long got = new FileInfo(path).Length;
+                if (f.FileSizeBytes <= 0 || got == f.FileSizeBytes) return (path, Math.Round(sw.Elapsed.TotalSeconds, 1), a);
+                File.Delete(path);
+                throw new HttpIOException(HttpRequestError.ResponseEnded, $"{f.FileName}: received {got:N0} bytes, PRIDE lists {f.FileSizeBytes:N0}");
             }
             catch (Exception e) when (IsTransient(e))
             {
                 last = e;
+                log?.Invoke($"retry {f.FileName} attempt {a} of {attempts}: {Describe(e)}");
                 if (a < attempts) await Task.Delay(backoff * a, ct).ConfigureAwait(false);
             }
         }
-        throw new HttpRequestException($"{f.FileName}: {attempts} attempts all failed; last error: {last?.Message}", last);
+        throw new HttpRequestException($"{f.FileName}: {attempts} attempts all failed; last error: {(last is null ? "none" : Describe(last))}", last);
+    }
+
+    /// <summary>The exception's type and message: a bare message cannot tell a TLS drop from a disk error.</summary>
+    public static string Describe(Exception e) => $"{e.GetType().Name}: {e.Message}";
+
+    /// <summary>
+    /// The download, abandoned when its <c>.partial</c> stops growing for <paramref name="stall"/>. The attempt is
+    /// cancelled first; if it does not end within <paramref name="grace"/> it is left behind, so a read that ignores
+    /// cancellation can no longer hang the batch. Either way it is a <see cref="TimeoutException"/>: unavailability.
+    /// </summary>
+    private static async Task<string> Watched(IPrideFiles pride, PrideArchiveFile f, string dir, TimeSpan stall, TimeSpan poll,
+        TimeSpan grace, CancellationToken ct)
+    {
+        if (stall <= TimeSpan.Zero) return await pride.DownloadAsync(f, dir, ct).ConfigureAwait(false);
+        using var attempt = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var download = pride.DownloadAsync(f, dir, attempt.Token);
+        string partial = Path.Combine(dir, f.FileName + ".partial");
+        long seen = -1;
+        var quiet = Stopwatch.StartNew();
+        while (true)
+        {
+            if (await Task.WhenAny(download, Task.Delay(poll, ct)).ConfigureAwait(false) == download)
+                return await download.ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+            long len = PartialLength(partial);
+            if (len != seen) { seen = len; quiet.Restart(); continue; }
+            if (quiet.Elapsed < stall) continue;
+            attempt.Cancel();
+            if (await Task.WhenAny(download, Task.Delay(grace, ct)).ConfigureAwait(false) != download)
+                _ = download.ContinueWith(t => _ = t.Exception, TaskScheduler.Default);   // left behind; observe its fault
+            else if (download.IsCompletedSuccessfully)
+                return download.Result;   // it finished as we cancelled
+            throw new TimeoutException($"{f.FileName}: no data for {stall.TotalMinutes:0.#} min ({Math.Max(seen, 0):N0} bytes received)");
+        }
+    }
+
+    private static long PartialLength(string path)
+    {
+        try { return File.Exists(path) ? new FileInfo(path).Length : -1; }
+        catch (IOException) { return -1; }
     }
 
     private static string Snake(Pick p) => Config.ProfileLoader.Snake(p.ToString());

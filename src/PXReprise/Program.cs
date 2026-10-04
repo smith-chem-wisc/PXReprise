@@ -130,7 +130,7 @@ public static class Program
                 var request = new Fetch.FetchRequest(accession, args.Required("out"), pick,
                     int.Parse(args.Option("max-files") ?? "60"), int.Parse(args.Option("max-file-mb") ?? "5000"), ".raw",
                     int.Parse(args.Option("parallel") ?? "4"), int.Parse(args.Option("attempts") ?? "8"),
-                    TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(60), machine.WorkRoot);
+                    TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(60), machine.WorkRoot, TimeSpan.FromMinutes(machine.FetchStallMinutes));
                 using var client = new PrideArchiveClient();
                 var manifest = await Fetch.FetchStage.RunAsync(request, new Fetch.PrideFiles(client), ct).ConfigureAwait(false);
                 return new { accession, files = manifest["files"]!.AsArray().Count, manifest = Path.GetFullPath(Path.Combine(request.OutDir, "fetch_manifest.json")) };
@@ -194,16 +194,19 @@ public static class Program
             case "batch":
             {
                 // pxreprise batch run|status|stop <question.toml> [--machine m.toml] [--run-date D]
+                // pxreprise batch retry <question.toml> <PXD> --reason "..."
                 var rest = args.Words.Skip(1).ToList();
-                if (rest.Count != 2 || rest[0] is not ("run" or "status" or "stop"))
-                    throw new UsageException("usage: pxreprise batch run|status|stop <question.toml> --machine m.toml");
-                args.AllowOnly("machine", "profiles", "run-date");
+                if (!(rest.Count == 2 && rest[0] is ("run" or "status" or "stop")) && !(rest.Count == 3 && rest[0] == "retry"))
+                    throw new UsageException("usage: pxreprise batch run|status|stop <question.toml> --machine m.toml, or batch retry <question.toml> <PXD> --reason \"...\"");
+                args.AllowOnly("machine", "profiles", "run-date", "reason");
                 var q = QuestionLoader.Load(rest[1]);
                 var b = q.Batch ?? throw new ConfigException(q.SourceFile, "a batch needs a [batch] table");
                 Directory.CreateDirectory(b.StateDir);
                 string stop = Path.Combine(b.StateDir, "STOP"), stateFile = Path.Combine(b.StateDir, "state.json");
                 switch (rest[0])
                 {
+                    case "retry":
+                        return Batch.BatchRunner.Requeue(b.StateDir, b.RunRoot, rest[2], args.Required("reason"));
                     case "stop":
                         // Taken at the top of the loop: the search in flight, its cleanup and delivery finish first.
                         await File.WriteAllTextAsync(stop, $"Stop requested {DateTime.UtcNow:o}", ct).ConfigureAwait(false);

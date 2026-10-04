@@ -7,6 +7,30 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.3.6 (2026-10-04)
+
+**Updating:** MetaMorpheus unchanged (1.1.11). Machine file: new optional `fetch_stall_minutes`. Safe mid-batch: stop
+the batch, update, run it again.
+
+From a first-run report on a slow, unreliable link (one 4.5 GB deposit over two days):
+
+- **A stalled download can no longer hang the batch.** Two downloads sat on frozen `.partial` files for 6 hours with no
+  error and no log line. The batch now watches each download's file. When it receives no data for
+  `fetch_stall_minutes` (default 5), the download is abandoned and retried, even if the network read does not respond
+  to cancellation. It counts as a dropped transfer: retried, then left for a later pass.
+- **A file is complete only at PRIDE's listed size.** A file already in `spectra/` at the wrong size (cut short by a
+  crash, or downloaded by hand) is deleted and downloaded again, and a download that arrives short is retried. Before,
+  any file present by name was taken as complete. Across 2,222 aging downloads, PRIDE's size and the downloaded size
+  never differed.
+- **Downloads are logged as they happen:** `FETCH 7 of 15 done: <file> 305 MB in 212 s`, and each retry with its error
+  type, for example `FETCH retry <file> attempt 2 of 8: TimeoutException: ...`. Before, a fetch was silent for hours.
+- **Failures name the exception type** in `batch.log` and in the state entry's `detail`.
+- **New `pxreprise batch retry <question.toml> <PXD> --reason "..."`** puts a settled deposit back in the queue, so
+  undoing a `fetch_failed` no longer means editing `state.json`. It keeps the old status, time, user and reason, and
+  refuses while a batch is running.
+- The TLS drop in that report ("Received an unexpected EOF or 0 bytes from the transport stream") was already fixed in
+  0.3.3. That run used 0.3.1.
+
 ## 0.3.5 (2026-10-04)
 
 **Updating:** MetaMorpheus unchanged (1.1.11). Machine file unchanged. Safe mid-batch: stop the batch, update, run it

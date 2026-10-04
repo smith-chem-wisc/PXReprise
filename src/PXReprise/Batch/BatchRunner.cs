@@ -98,16 +98,56 @@ public sealed class BatchRunner
     /// </summary>
     private void ClaimOrDie()
     {
-        if (File.Exists(PidFile) && int.TryParse(File.ReadAllText(PidFile).Trim(), out int old) && old != Environment.ProcessId)
-        {
-            try
-            {
-                using var p = Process.GetProcessById(old);
-                if (!p.HasExited) throw new UsageException($"a batch driver is already running as pid {old}; stop it first (or delete {PidFile} if it is stale)");
-            }
-            catch (ArgumentException) { }   // no such process: the file is stale
-        }
+        if (LiveDriver(PidFile) is int old)
+            throw new UsageException($"a batch driver is already running as pid {old}; stop it first (or delete {PidFile} if it is stale)");
         File.WriteAllText(PidFile, Environment.ProcessId.ToString());
+    }
+
+    /// <summary>The pid in <paramref name="pidFile"/> when it names a live process other than this one.</summary>
+    private static int? LiveDriver(string pidFile)
+    {
+        if (!File.Exists(pidFile) || !int.TryParse(File.ReadAllText(pidFile).Trim(), out int pid) || pid == Environment.ProcessId) return null;
+        try
+        {
+            using var p = Process.GetProcessById(pid);
+            return p.HasExited ? null : pid;
+        }
+        catch (ArgumentException) { return null; }   // no such process: the file is stale
+    }
+
+    /// <summary>
+    /// <c>batch retry</c>: puts a deposit back in the queue (status <c>requeued_user</c>), so a settled status such as
+    /// <c>fetch_failed</c> is never undone by hand-editing state.json. The previous status, detail, time, user and reason
+    /// are kept in the entry's <c>requeued</c> list and in batch.log. Refused while a driver runs (it owns state.json)
+    /// and for a deposit whose search finished.
+    /// </summary>
+    public static object Requeue(string stateDir, string runRoot, string acc, string reason)
+    {
+        string pidFile = Path.Combine(stateDir, "driver.pid"), stateFile = Path.Combine(stateDir, "state.json");
+        if (string.IsNullOrWhiteSpace(reason)) throw new UsageException("--reason must say why the deposit is retried");
+        if (LiveDriver(pidFile) is int pid) throw new UsageException($"a batch driver is running as pid {pid}; stop it (batch stop) and let it exit first");
+        if (File.Exists(Path.Combine(runRoot, acc, "04_search", "provenance.json")))
+            throw new UsageException($"{acc} has a finished search; there is nothing to retry");
+        if (!File.Exists(stateFile)) throw new UsageException($"no {stateFile}: the batch has not run");
+        var st = JsonNode.Parse(File.ReadAllText(stateFile))!.AsObject();
+        if (st["datasets"]?[acc] is not JsonObject e) throw new UsageException($"{acc} is not in {stateFile}");
+        string now = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'+00:00'");
+        string previous = e["status"]?.GetValue<string>() ?? "?";
+        if (e["requeued"] is not JsonArray history) e["requeued"] = history = new JsonArray();
+        history.Add(new JsonObject
+        {
+            ["utc"] = now, ["previous_status"] = previous, ["previous_detail"] = e["detail"]?.DeepClone(),
+            ["by"] = Environment.UserName, ["reason"] = reason,
+        });
+        e["status"] = "requeued_user";
+        e.Remove("detail");
+        e.Remove("unavailable_passes");
+        e["updated_utc"] = now;
+        string tmp = stateFile + ".tmp";
+        File.WriteAllText(tmp, st.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = Envelope.Json.Encoder }));
+        File.Move(tmp, stateFile, overwrite: true);
+        File.AppendAllText(Path.Combine(stateDir, "batch.log"), $"{now}  {acc} REQUEUED by {Environment.UserName} (was {previous}): {reason}\n");
+        return new { accession = acc, previous_status = previous, status = "requeued_user" };
     }
 
     private double FreeGb() => new DriveInfo(Path.GetPathRoot(Path.GetFullPath(_runRoot))!).AvailableFreeSpace / 1e9;
@@ -221,21 +261,22 @@ public sealed class BatchRunner
     {
         string what = probe ? "PROBE fetch" : "FETCH";
         string settled = probe ? "probe_fetch_failed" : "fetch_failed";
+        string why = FetchStage.Describe(ex);
         if (!FetchStage.IsTransient(ex))
         {
-            Log($"{acc} {what} failed: {ex.Message}");
-            Record(acc, ("status", settled), ("detail", ex.Message));
+            Log($"{acc} {what} failed: {why}");
+            Record(acc, ("status", settled), ("detail", why));
             return;
         }
         int used = (Entry(acc)?["unavailable_passes"]?.GetValue<int>() ?? 0) + 1;
         if (used >= _m.FetchPasses)
         {
-            Log($"{acc} {what} failed on availability, pass {used} of {_m.FetchPasses}: settled. {ex.Message}");
-            Record(acc, ("status", settled), ("detail", ex.Message), ("unavailable_passes", used));
+            Log($"{acc} {what} failed on availability, pass {used} of {_m.FetchPasses}: settled. {why}");
+            Record(acc, ("status", settled), ("detail", why), ("unavailable_passes", used));
             return;
         }
-        Log($"{acc} {what} failed on availability, pass {used} of {_m.FetchPasses}: retry next pass. {ex.Message}");
-        Record(acc, ("status", probe ? "probe_fetch_unavailable" : "fetch_unavailable"), ("detail", ex.Message), ("unavailable_passes", used));
+        Log($"{acc} {what} failed on availability, pass {used} of {_m.FetchPasses}: retry next pass. {why}");
+        Record(acc, ("status", probe ? "probe_fetch_unavailable" : "fetch_unavailable"), ("detail", why), ("unavailable_passes", used));
     }
 
     private async Task<((QueueEntry, Profile)? Ready, int Index)> NextReadyAsync(IReadOnlyList<QueueEntry> queue, int i, CancellationToken ct)
@@ -351,7 +392,7 @@ public sealed class BatchRunner
         string d = Run(acc);
         try
         {
-            await FetchStage.RunAsync(FetchRequestFor(acc, Pick.ProbeSpread, dep), _files, ct).ConfigureAwait(false);
+            await FetchStage.RunAsync(FetchRequestFor(acc, Pick.ProbeSpread, dep), _files, ct, m => Log($"{acc} PROBE fetch {m}")).ConfigureAwait(false);
         }
         // Not the caller's cancellation: an HttpClient timeout is a TaskCanceledException too, and it is unavailability.
         catch (Exception ex) when (!ct.IsCancellationRequested)
@@ -392,7 +433,7 @@ public sealed class BatchRunner
         JsonObject manifest;
         try
         {
-            manifest = await FetchStage.RunAsync(FetchRequestFor(acc, Pick.All, profile.Deposit), _files, ct).ConfigureAwait(false);
+            manifest = await FetchStage.RunAsync(FetchRequestFor(acc, Pick.All, profile.Deposit), _files, ct, m => Log($"{acc} FETCH {m}")).ConfigureAwait(false);
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
@@ -667,7 +708,8 @@ public sealed class BatchRunner
 
     private FetchRequest FetchRequestFor(string acc, Pick pick, DepositPolicy dep) =>
         new(acc, Path.Combine(Run(acc), "02_fetch"), pick, pick == Pick.All ? dep.MaxFiles : 1, dep.MaxFileMb, ".raw",
-            _m.ParallelDownloads, _m.FetchAttempts, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(60), _m.WorkRoot);
+            _m.ParallelDownloads, _m.FetchAttempts, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(60), _m.WorkRoot,
+            TimeSpan.FromMinutes(_m.FetchStallMinutes));
 
     private string ParamsFile(string acc, Profile profile)
     {
