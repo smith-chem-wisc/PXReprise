@@ -6,26 +6,37 @@ using DataRepo.SchemaGen;
 var root = FindRoot(Directory.GetCurrentDirectory())
     ?? FindRoot(AppContext.BaseDirectory)
     ?? throw new DirectoryNotFoundException("no schema/datarepo.yaml above the working directory");
-var target = Path.Combine(root, "dotnet", "src", "DataRepo.Bundle", "Generated", "Tables.g.cs");
-var text = SchemaGenerator.Render(
-    Path.Combine(root, "schema", "datarepo.yaml"), Path.Combine(root, "schema", "study"));
+var schemaPath = Path.Combine(root, "schema", "datarepo.yaml");
+var studyDir = Path.Combine(root, "schema", "study");
+var generated = Path.Combine(root, "dotnet", "src", "DataRepo.Bundle", "Generated");
+var outputs = new (string Target, string Text)[]
+{
+    (Path.Combine(generated, "Tables.g.cs"), SchemaGenerator.Render(schemaPath, studyDir)),
+    (Path.Combine(generated, "SchemaDocs.g.cs"), SchemaGenerator.RenderDocs(schemaPath, studyDir)),
+};
 
 if (args.Contains("--check"))
 {
-    // Line endings are not content: git may check the file out with CRLF on Windows.
-    var current = File.Exists(target) ? File.ReadAllText(target).Replace("\r\n", "\n") : "";
-    if (current != text)
+    var stale = 0;
+    foreach (var (target, text) in outputs)
     {
+        // Line endings are not content: git may check the file out with CRLF on Windows.
+        var current = File.Exists(target) ? File.ReadAllText(target).Replace("\r\n", "\n") : "";
+        if (current == text) continue;
         Console.Error.WriteLine($"{Path.GetRelativePath(root, target)} is out of date; run dotnet run --project dotnet/src/DataRepo.SchemaGen");
-        return 1;
+        stale++;
     }
+    if (stale > 0) return 1;
     Console.WriteLine("tables up to date");
     return 0;
 }
 
-Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-File.WriteAllText(target, text, new System.Text.UTF8Encoding(false));
-Console.WriteLine($"wrote {Path.GetRelativePath(root, target)}");
+Directory.CreateDirectory(generated);
+foreach (var (target, text) in outputs)
+{
+    File.WriteAllText(target, text, new System.Text.UTF8Encoding(false));
+    Console.WriteLine($"wrote {Path.GetRelativePath(root, target)}");
+}
 return 0;
 
 static string? FindRoot(string start)
