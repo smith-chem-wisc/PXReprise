@@ -1,0 +1,69 @@
+# Self-contained C# `datarepo` executables, one per platform (D41; meets PXReprise PXR-D1 with no Python).
+#
+# Every run builds and VERIFIES: each platform's published binary, with no .NET SDK on PATH for the run,
+# ingests the fixture dataset, builds a catalog, answers a query and writes the site. The folders are uploaded
+# as workflow artifacts. There is NO release step here: publishing a release is a person's decision, made
+# when the operator is ready to switch (design/CSHARP_PORT.md, phase 5).
+name: dotnet-binaries
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - "dotnet/**"
+      - ".github/workflows/dotnet-binaries.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+            exe: datarepo.exe
+          - os: ubuntu-latest
+            rid: linux-x64
+            exe: datarepo
+          - os: macos-latest       # arm64
+            rid: osx-arm64
+            exe: datarepo
+          - os: macos-15-intel     # x64
+            rid: osx-x64
+            exe: datarepo
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Publish self-contained
+        shell: bash
+        run: |
+          dotnet publish dotnet/src/DataRepo.Cli -c Release -r ${{ matrix.rid }} --self-contained \
+            -p:SourceRevisionId=${{ github.sha }} -o "$RUNNER_TEMP/datarepo-${{ matrix.rid }}"
+
+      - name: Run it end to end, with no .NET on PATH
+        shell: bash
+        run: |
+          DR="$RUNNER_TEMP/datarepo-${{ matrix.rid }}/${{ matrix.exe }}"
+          export PATH="/usr/bin:/bin"
+          export DOTNET_ROOT=""
+          "$DR" --version
+          "$DR" doctor
+          "$DR" ingest tests/data/manifest.yaml PXD999999 --store "$RUNNER_TEMP/store" \
+            --mm-settings tests/data/work_root/mm_settings/1.1.11
+          "$DR" build tests/data/manifest.yaml PXD999999 --store "$RUNNER_TEMP/store" --out "$RUNNER_TEMP/catalog.duckdb"
+          "$DR" query "$RUNNER_TEMP/catalog.duckdb" "SELECT dataset_id, n_psms_1pct FROM dataset_overview"
+          "$DR" site "$RUNNER_TEMP/catalog.duckdb" --out "$RUNNER_TEMP/site"
+          test -f "$RUNNER_TEMP/site/datasets/PXD999999.html"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: datarepo-${{ matrix.rid }}
+          path: ${{ runner.temp }}/datarepo-${{ matrix.rid }}
