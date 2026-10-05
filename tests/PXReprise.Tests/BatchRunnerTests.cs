@@ -173,6 +173,73 @@ public class BatchRunnerTests
         Assert.That(runner.Settled("PXD000217"), Is.EqualTo("search_failed"), "a third: settled like any failed search");
     }
 
+    // G18: a reboot mid-search left the deposit at "searching" with a half-written 04_search/mm, which MetaMorpheus refuses
+    // to reuse; the restart would have settled it as search_failed.
+    [Test]
+    public void ASearchCutOffByTheDriversDeathIsSearchedAgainThenSettled()
+    {
+        var (runner, _, _, dir) = Runner();
+        var e = new QueueEntry("PXD000218", "t", "human");
+        string search = Path.Combine(dir, "runs", "PXD000218", "04_search");
+        for (int death = 1; death <= 3; death++)
+        {
+            runner.Record("PXD000218", ("status", "searching"));
+            Directory.CreateDirectory(Path.Combine(search, "mm"));
+            runner.RecoverInterruptedSearches(new[] { e });
+            Assert.That(runner.State()["datasets"]!["PXD000218"]!["status"]!.GetValue<string>(), Is.EqualTo("search_interrupted"), $"death {death}");
+            Assert.That(Directory.Exists(search), Is.False, "the half-written output is moved aside");
+            Assert.That(runner.Retriable("PXD000218"), Is.True);
+        }
+        Assert.That(Directory.GetDirectories(Path.GetDirectoryName(search)!, "04_search.interrupted-*"), Is.Not.Empty);
+        runner.Record("PXD000218", ("status", "searching"));
+        runner.RecoverInterruptedSearches(new[] { e });
+        Assert.That(runner.Settled("PXD000218"), Is.EqualTo("search_failed"), "a fourth death on one deposit settles it");
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain("PXD000218 SEARCH INTERRUPTED: the previous driver stopped"));
+
+        // A search that finished before the death is left for ReconcileAsync to deliver, and other statuses are untouched.
+        var done = new QueueEntry("PXD000219", "t", "human");
+        string doneSearch = Path.Combine(dir, "runs", "PXD000219", "04_search");
+        Directory.CreateDirectory(doneSearch);
+        File.WriteAllText(Path.Combine(doneSearch, "provenance.json"), "{}");
+        runner.Record("PXD000219", ("status", "searching"));
+        runner.Record("PXD000220", ("status", "probing"));
+        runner.RecoverInterruptedSearches(new[] { done, new QueueEntry("PXD000220", "t", "human") });
+        Assert.That(File.Exists(Path.Combine(doneSearch, "provenance.json")), Is.True);
+        Assert.That(runner.State()["datasets"]!["PXD000219"]!["status"]!.GetValue<string>(), Is.EqualTo("searching"));
+        Assert.That(runner.State()["datasets"]!["PXD000220"]!["status"]!.GetValue<string>(), Is.EqualTo("probing"));
+    }
+
+    // G18: after a reboot, driver.pid's number may belong to another program; the start time in driver.last.json tells.
+    [Test]
+    public void APidReusedAfterARebootIsNotTakenForTheDriver()
+    {
+        string dir = TestSupport.TempDir(), pidFile = Path.Combine(dir, "driver.pid"), rec = Path.Combine(dir, BatchRunner.DriverRecordFile);
+        using var me = System.Diagnostics.Process.GetCurrentProcess();
+        File.WriteAllText(pidFile, me.Id.ToString());
+        Assert.That(BatchRunner.LiveDriver(pidFile, self: -1), Is.EqualTo(me.Id), "no record: the pid alone, as before");
+        File.WriteAllText(rec, new JsonObject { ["pid"] = me.Id, ["start_utc"] = me.StartTime.ToUniversalTime().ToString("o") }.ToJsonString());
+        Assert.That(BatchRunner.LiveDriver(pidFile, self: -1), Is.EqualTo(me.Id), "same pid, same start: the driver");
+        File.WriteAllText(rec, new JsonObject { ["pid"] = me.Id, ["start_utc"] = me.StartTime.ToUniversalTime().AddHours(-5).ToString("o") }.ToJsonString());
+        Assert.That(BatchRunner.LiveDriver(pidFile, self: -1), Is.Null, "same pid, another start: a reused pid");
+        File.WriteAllText(rec, new JsonObject { ["pid"] = me.Id + 1, ["start_utc"] = "2020-01-01T00:00:00Z" }.ToJsonString());
+        Assert.That(BatchRunner.LiveDriver(pidFile, self: -1), Is.EqualTo(me.Id), "a record of another pid says nothing about this one");
+        Assert.That(BatchRunner.LiveDriver(pidFile), Is.Null, "never this process itself");
+    }
+
+    [Test]
+    public async Task ADriverRecordsHowToStartItAgain()
+    {
+        var (runner, _, _, dir) = Runner();
+        runner.CommandLine = new[] { "batch", "run", "question.toml", "--machine", "machine.toml" };
+        await runner.RunAsync(Array.Empty<QueueEntry>(), CancellationToken.None);
+        var rec = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "state", BatchRunner.DriverRecordFile)))!;
+        Assert.That(rec["pid"]!.GetValue<int>(), Is.EqualTo(Environment.ProcessId));
+        Assert.That(rec["args"]!.AsArray().Select(a => a!.GetValue<string>()), Is.EqualTo(runner.CommandLine));
+        Assert.That(rec["exe"]!.GetValue<string>(), Is.EqualTo(Environment.ProcessPath));
+        Assert.That(rec["cwd"]!.GetValue<string>(), Is.EqualTo(Environment.CurrentDirectory));
+        Assert.That(File.Exists(Path.Combine(dir, "state", "driver.pid")), Is.False, "a clean exit removes the pid file; the record stays");
+    }
+
     [Test]
     public void APrivateRuntimeHostsTheDllAndAMissingOneIsRefused()
     {
@@ -290,6 +357,7 @@ public class BatchRunnerTests
         const string manifest = "manifest_version: 1\ndatasets:\n\n  - accession: PXD075372\n    status: include\n";
         Assert.That(BatchRunner.Delivered(manifest, "PXD075372", new JsonObject { ["ingest_rc"] = 1 }), Is.False, "the entry is appended before ingest runs");
         Assert.That(BatchRunner.Delivered(manifest, "PXD075372", new JsonObject { ["ingest_rc"] = 0 }), Is.True);
+        Assert.That(BatchRunner.Delivered(manifest, "PXD075372", new JsonObject { ["ingest_rc"] = -1 }), Is.False, "G18: ingest began and the driver died inside it");
         Assert.That(BatchRunner.Delivered(manifest, "PXD075372", new JsonObject()), Is.True, "no ingest_rc: delivered elsewhere, or no datarepo here");
         Assert.That(BatchRunner.Delivered(manifest, "PXD075372", null), Is.True);
         Assert.That(BatchRunner.Delivered(manifest.Replace("\n", "\r\n"), "PXD075372", new JsonObject { ["ingest_rc"] = 0 }), Is.True);
