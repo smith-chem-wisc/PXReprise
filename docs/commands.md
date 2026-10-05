@@ -56,14 +56,46 @@ profile, or records why not. Writes to `--out` (default: `census/<today>` beside
 
 | File | Contents |
 |---|---|
-| `census.tsv` | One row per deposit: relevance and the text that decided it, route, profile, reason, instrument, files, organisms, title. Opens in Excel. `organisms` is what PRIDE's search listed, which can be wrong; `organisms_of_record` is what the project record says, and it is what the census acts on. `organism_source` says which one was used: `project`, `search`, or `search_fallback` (PRIDE had no record to give). |
+| `census.tsv` | One row per deposit: relevance and the text that decided it, route, profile, reason, instrument, files, organisms, title, `watch` (why it is on the watch list, if it is) and `reference_group` (the words read as a reference group, for a disease-only deposit). Opens in Excel. `organisms` is what PRIDE's search listed, which can be wrong; `organisms_of_record` is what the project record says, and it is what the census acts on. `organism_source` says which one was used: `project`, `search`, or `search_fallback` (PRIDE had no record to give). |
 | `review.md` | **Read this first.** The census made readable: how much each keyword and rule contributed, a sample of relevant deposits and of keyword hits no rule matched, and every exclusion, each quoting the text that decided it. See the [tutorial](tutorial.md). |
-| `summary.json` | The counts: deposits found, relevant, searchable per profile, and what the rest wait on. |
+| `summary.json` | The counts: deposits found, relevant, searchable per profile, and what the rest wait on; `queued_by_keyword` (how many deposits each keyword would queue, after every screen) and `watched`. |
 | `queue.json` | The deposits the batch would search, in order. |
+| `watch.tsv` | Only when the question has `disease_keywords` or `watch_keywords`: the deposits found and screened but never queued, with the reason (`watch_list`, `no_reference_group_found`). |
 | `provenance.json` | When the census ran and with which versions. PRIDE changes daily, so a census is a dated snapshot. |
 
 `--queue` also copies `queue.json` to the question's `[batch] queue` path, where `batch run` reads it. It refuses to
 replace a queue that already exists, because a running batch may be using it. Delete or rename the old one first.
+
+### `rank`
+
+```
+pxreprise rank census-folder [--only accessions.tsv] [--out folder] [--max-files 60] [--large-gb 150]
+```
+
+Orders a census's queueable deposits, biggest first within limits. Deposits rarely state their design well enough to
+rank on, so size decides. It makes one PRIDE file listing per deposit, plus the deposit's SDRF if it has one, and
+downloads no spectra.
+- **Tier 1:** at most `--max-files` raw files and `--large-gb` GB, most raw files first, then the smaller download.
+- **Tier 2:** larger than either.
+- **The design, for information only:** the groups and replicates read from a deposited SDRF, or guessed from the
+  file names, are written beside the ranking.
+- **`--only`:** ranks just the accessions in its first column.
+
+Writes `ranked.tsv` and `provenance.json` to `--out` (default: `rank` inside the census folder).
+
+### `chemistry`
+
+```
+pxreprise chemistry --accessions accessions.txt [--designs folder] [--out folder]
+```
+
+Reads each deposit's protease, cysteine alkylation and label, without downloading spectra, in the order a
+`chemistry = "deposit"` profile reads them. See [Concepts](concepts.md).
+- **The sources:** the question's own SDRF (from `--designs`), the deposit's SDRF, PRIDE's identified modifications and
+  quantification method, and the protocol text.
+- **What it writes:** `chemistry.tsv`, every fact with its source and the words it was read from.
+- **`differs_from_v1`:** says where a deposit differs from MetaMorpheus's defaults (trypsin, fixed carbamidomethyl,
+  no label). Use it to see which deposits searched under those defaults were searched with the wrong chemistry.
 
 ### `batch`
 
