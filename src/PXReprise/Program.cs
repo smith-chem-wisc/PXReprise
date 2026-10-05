@@ -229,10 +229,13 @@ public static class Program
                     {
                         var machine = Machine.Load(args.Required("machine"));
                         var profiles = ProfileLoader.LoadDirectory(ProfilesDir(args));
-                        if (File.Exists(stop)) File.Delete(stop);
+                        // Never clear a running driver's STOP: a second start is refused by the driver's claim, but only after
+                        // this line ran (G18; a start after a reboot may race a driver that survived it).
+                        if (Batch.BatchRunner.LiveDriver(Path.Combine(b.StateDir, "driver.pid")) is null && File.Exists(stop)) File.Delete(stop);
                         using var client = new PrideArchiveClient();
                         var runner = new Batch.BatchRunner(q, profiles, machine, new Fetch.PrideFiles(client), new PrideProjectSearch(client),
-                            args.Option("run-date") ?? DateTime.UtcNow.ToString("yyyy-MM-dd"));
+                            args.Option("run-date") ?? DateTime.UtcNow.ToString("yyyy-MM-dd"))
+                        { CommandLine = args.Raw };
                         await runner.RunAsync(Batch.BatchRunner.LoadQueue(b.Queue), ct).ConfigureAwait(false);
                         return new { finished = true };
                     }

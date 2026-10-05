@@ -9,8 +9,12 @@ public sealed class Arguments
     private readonly Dictionary<string, string?> _options = new(StringComparer.Ordinal);
     public IReadOnlyList<string> Words { get; }
 
+    /// <summary>The command line as given, for a caller that records how it was started.</summary>
+    public IReadOnlyList<string> Raw { get; }
+
     public Arguments(IReadOnlyList<string> argv, IReadOnlySet<string>? flags = null)
     {
+        Raw = argv.ToArray();
         var words = new List<string>();
         for (int i = 0; i < argv.Count; i++)
         {

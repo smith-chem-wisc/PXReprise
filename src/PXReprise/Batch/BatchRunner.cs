@@ -112,16 +112,58 @@ public sealed class BatchRunner
         if (LiveDriver(PidFile) is int old)
             throw new UsageException($"a batch driver is already running as pid {old}; stop it first (or delete {PidFile} if it is stale)");
         File.WriteAllText(PidFile, Environment.ProcessId.ToString());
+        WriteDriverRecord();
     }
 
-    /// <summary>The pid in <paramref name="pidFile"/> when it names a live process other than this one.</summary>
-    private static int? LiveDriver(string pidFile)
+    /// <summary>
+    /// The command line <c>batch run</c> was given (set by the CLI). With it, <see cref="DriverRecordFile"/> records how to
+    /// start this driver again, which is what a start after a reboot runs (G18, <c>tools/autostart</c>).
+    /// </summary>
+    public IReadOnlyList<string>? CommandLine { get; set; }
+
+    /// <summary>driver.last.json beside driver.pid: who the driver is (pid and start time) and how to start it again.</summary>
+    public const string DriverRecordFile = "driver.last.json";
+
+    private void WriteDriverRecord()
     {
-        if (!File.Exists(pidFile) || !int.TryParse(File.ReadAllText(pidFile).Trim(), out int pid) || pid == Environment.ProcessId) return null;
+        using var me = Process.GetCurrentProcess();
+        var o = new JsonObject
+        {
+            ["pid"] = me.Id,
+            ["start_utc"] = me.StartTime.ToUniversalTime().ToString("o"),
+            ["engine"] = Provenance.RunRecord.Versions()["pxreprise"]?.ToString(),
+            ["exe"] = Environment.ProcessPath,
+            ["args"] = CommandLine is null ? null : new JsonArray(CommandLine.Select(a => (JsonNode?)a).ToArray()),
+            ["cwd"] = Environment.CurrentDirectory,
+        };
+        string f = Path.Combine(_stateDir, DriverRecordFile), tmp = f + ".tmp";
+        File.WriteAllText(tmp, o.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = Envelope.Json.Encoder }));
+        File.Move(tmp, f, overwrite: true);
+    }
+
+    /// <summary>
+    /// The pid in <paramref name="pidFile"/> when it names a live process other than this one. After a reboot that number
+    /// may belong to some other program, so when driver.last.json records the driver's start time for the same pid, the
+    /// process must have started then too (G18); a pid file older than that record is taken on the pid alone.
+    /// </summary>
+    internal static int? LiveDriver(string pidFile, int? self = null)
+    {
+        if (!File.Exists(pidFile) || !int.TryParse(File.ReadAllText(pidFile).Trim(), out int pid) || pid == (self ?? Environment.ProcessId)) return null;
+        DateTime? started = null;
+        try
+        {
+            var rec = JsonNode.Parse(File.ReadAllText(Path.Combine(Path.GetDirectoryName(pidFile)!, DriverRecordFile)));
+            if (rec?["pid"]?.GetValue<int>() == pid && DateTime.TryParse(rec["start_utc"]?.GetValue<string>(), null,
+                    System.Globalization.DateTimeStyles.RoundtripKind, out var s))
+                started = s.ToUniversalTime();
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException or FormatException) { }
         try
         {
             using var p = Process.GetProcessById(pid);
-            return p.HasExited ? null : pid;
+            if (p.HasExited) return null;
+            if (started is { } t && Math.Abs((p.StartTime.ToUniversalTime() - t).TotalSeconds) > 2) return null;   // a reused pid
+            return pid;
         }
         catch (ArgumentException) { return null; }   // no such process: the file is stale
     }
@@ -575,6 +617,7 @@ public sealed class BatchRunner
     /// <summary>Finish anything a previous driver searched but never cleaned up or delivered. A skip that looks like success must not strand a dataset.</summary>
     private async Task ReconcileAsync(IReadOnlyList<QueueEntry> queue, CancellationToken ct)
     {
+        RecoverInterruptedSearches(queue);
         string manifest = _q.Publish?.Manifest is { } mf && File.Exists(mf) ? File.ReadAllText(mf) : "";
         foreach (var e in queue)
         {
@@ -622,6 +665,9 @@ public sealed class BatchRunner
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException) { Log($"{e.Accession} MANIFEST failed: {ex.Message}"); Record(e.Accession, ("ingest", "manifest_failed")); return; }
         if (_m.DataRepo is null) return;
+        // G18: the manifest entry already exists, and an entry with no ingest_rc reads as delivered elsewhere. Mark the
+        // ingest as begun, so a driver that dies inside it leaves the deposit undelivered and the next start re-ingests.
+        Record(e.Accession, ("ingest_rc", -1), ("ingest_out", $"ingest started {DateTime.UtcNow:yyyy-MM-dd'T'HH:mm:ss'Z'} and has not finished"));
         var (rc, tail) = await RunProcessAsync(new[] { _m.DataRepo, "ingest", manifest, e.Accession }, TimeSpan.FromHours(3), ct).ConfigureAwait(false);
         Log($"{e.Accession} INGEST rc={rc}\n{tail}");
         Record(e.Accession, ("ingest_rc", rc), ("ingest_out", tail));
@@ -691,7 +737,7 @@ public sealed class BatchRunner
             Record(acc, ("status", "search_failed"), ("detail", $"runtime changed during the search: {change}"), ("search_interruptions", n));
             return true;
         }
-        string d = Path.Combine(Run(acc), "04_search"), aside = d + $".interrupted-{DateTime.UtcNow:yyyyMMdd'T'HHmmss'Z'}";
+        string d = Path.Combine(Run(acc), "04_search"), aside = Aside(d);
         if (Directory.Exists(d)) Directory.Move(d, aside);
         Log($"{acc} SEARCH INTERRUPTED: the .NET runtimes changed during the search ({change}); the environment failed, not the data. Output moved to {Path.GetFileName(aside)}; searched again on a later pass ({n} of {MaxSearchInterruptions}). Set dotnet_root in the machine file to stop this.");
         Record(acc, ("status", "search_interrupted"), ("search_interruptions", n), ("detail", $"runtime changed during the search: {change}"));
@@ -699,6 +745,46 @@ public sealed class BatchRunner
     }
 
     private const int MaxSearchInterruptions = 2;
+
+    /// <summary>
+    /// G18: a deposit still marked <c>searching</c> when a driver starts was cut off by the previous driver's death (a
+    /// reboot, a crash, a kill), never by its data. Its half-written output is moved aside, since MetaMorpheus refuses to
+    /// reuse it and the deposit would otherwise settle as <c>search_failed</c>, and it is searched again on this run. Three
+    /// such deaths on one deposit settle it: a deposit that keeps taking the machine down is worth a look.
+    /// </summary>
+    internal void RecoverInterruptedSearches(IEnumerable<QueueEntry> queue)
+    {
+        foreach (var e in queue)
+        {
+            string acc = e.Accession;
+            if (Entry(acc)?["status"]?.GetValue<string>() != "searching") continue;
+            string d = Path.Combine(Run(acc), "04_search");
+            if (File.Exists(Path.Combine(d, "provenance.json"))) continue;   // the search finished; ReconcileAsync delivers it
+            int n = (Entry(acc)?["driver_interruptions"]?.GetValue<int>() ?? 0) + 1;
+            const string why = "the previous driver stopped during the search (a reboot, a crash or a kill)";
+            if (n > MaxDriverInterruptions)
+            {
+                Log($"{acc} SEARCH INTERRUPTED again: {why}; interrupted {n - 1} time(s) already: settled");
+                Record(acc, ("status", "search_failed"), ("detail", $"{why}, {n} times"), ("driver_interruptions", n));
+                continue;
+            }
+            string aside = Aside(d);
+            if (Directory.Exists(d)) Directory.Move(d, aside);
+            Log($"{acc} SEARCH INTERRUPTED: {why}. " + (Directory.Exists(aside) ? $"Output moved to {Path.GetFileName(aside)}; " : "")
+                + $"searched again on this run ({n} of {MaxDriverInterruptions}).");
+            Record(acc, ("status", "search_interrupted"), ("driver_interruptions", n), ("detail", why));
+        }
+    }
+
+    private const int MaxDriverInterruptions = 3;
+
+    /// <summary><c>04_search.interrupted-&lt;utc&gt;</c>, made unique: two interruptions can fall in one second.</summary>
+    private static string Aside(string d)
+    {
+        string stamp = d + $".interrupted-{DateTime.UtcNow:yyyyMMdd'T'HHmmss'Z'}", aside = stamp;
+        for (int k = 2; Directory.Exists(aside) || File.Exists(aside); k++) aside = $"{stamp}-{k}";
+        return aside;
+    }
 
     internal bool RoutedByReporters(string acc, JsonObject report, string where)
     {

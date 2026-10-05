@@ -46,7 +46,7 @@ spend time on them again.
 | `skipped_acquisition`, `skipped_acquisition_full` | The files failed the quality gates (for example, MS2 read in the ion trap), in the probe or the full check. | yes |
 | `skipped_organism` | The profile has no database for this organism. | yes |
 | `deferred_mixed_labelling` | Some files' spectra carry isobaric reporter ions (TMT, iTRAQ) and some do not. Searching only part of the deposit is a design decision; the state entry's `isobaric_files` lists the labelled files. | yes |
-| `search_interrupted` | The search failed while the machine's .NET runtimes changed under it: an environment failure. Searched again on a later pass, twice at most. Set `dotnet_root` to prevent it. | no |
+| `search_interrupted` | The search was cut off by the environment, not by its data: the machine's .NET runtimes changed under it (searched again on a later pass, twice at most; set `dotnet_root` to prevent it), or the batch itself stopped mid-search (a reboot, a crash). In the second case the next `batch run` moves the partial output aside and searches the deposit again, up to three times. | no |
 | `excluded_duplicate` | Every raw file (name and size) is in a deposit already searched, or in the one being searched at that moment; the state entry's `duplicate_of` names it. Decided from PRIDE's file list, before any download. | yes |
 | `waiting_*` | The deposit needs a capability no available profile has, named after the underscore: `waiting_dia`, `waiting_tmt_dda_1`, `waiting_crosslinking`, `waiting_o18_labelling`, and so on. | until that profile exists |
 | `fetch_unavailable`, `probe_fetch_unavailable` | PRIDE kept dropping the downloads through every retry. Tried again on a later pass, `fetch_passes` times in all (default 3). | no |
@@ -54,6 +54,10 @@ spend time on them again.
 | `search_failed` | MetaMorpheus failed; see `04_search/metamorpheus.log`. | yes |
 | `on_hold_user` | Held by the question's `[holds]`. | until removed |
 | `requeued_user` | Put back in the queue by `pxreprise batch retry`; the entry's `requeued` list says who, when, why, and what it was before. | no |
+
+**After a reboot or a crash,** run the same `batch run` command again. It finishes what was cut off: a search is redone,
+and a deposit whose delivery to the repository did not finish is delivered again. The state directory's `driver.last.json`
+records the last batch's exact command, so a script or a scheduled task can restart it.
 
 To see **why** a deposit has its status, search `batch.log` for its accession: each decision is logged with its reason. A status's `detail` belongs to that status; when a later status replaces it (a download that failed once and then succeeded), the old text moves to `earlier_detail`.
 

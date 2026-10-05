@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>pxreprise</AssemblyName>
     <RootNamespace>PXReprise</RootNamespace>
-    <Version>0.3.7</Version>
+    <Version>0.3.8</Version>
   </PropertyGroup>
 
   <ItemGroup>
