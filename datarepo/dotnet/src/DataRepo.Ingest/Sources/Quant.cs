@@ -89,11 +89,11 @@ public static class Quant
     /// come from, so it is used only to attach peak-level quality the peptide table lacks: the PIP q-value
     /// and whether the MBR transfer passes the producer's threshold (QuantProject DEF-QC-MBR).</remarks>
     public static Dictionary<(string Run, string Sequence), (double? PipQValue, bool? MbrKept)> PeakQuality(
-        string path, string datasetId, RunNameMap runNames, double mbrQThreshold, ReaderLog? log = null)
+        string path, string datasetId, RunNameMap runNames, double mbrQThreshold, ReaderLog? log = null, IngestRules rules = IngestRules.Current)
     {
         var output = new Dictionary<(string, string), (double?, bool?)>();
         if (!File.Exists(path)) return output;
-        var (header, rows) = Readers.ReadTsv(path, log, PeaksNote);
+        var (header, rows) = Readers.ReadTsv(path, log, PeaksNote, rules);
         foreach (var row in Readers.IterDicts(header, rows))
         {
             var reported = Cell(row, "File Name");
@@ -116,9 +116,9 @@ public static class Quant
     public static List<Row> PeptideQuantRows(
         string path, string datasetId, RunNameMap runNames, Func<string, string?> toProforma,
         Dictionary<(string Run, string Sequence), (double? PipQValue, bool? MbrKept)>? peakQualityIndex = null,
-        ReaderLog? log = null)
+        ReaderLog? log = null, IngestRules rules = IngestRules.Current)
     {
-        var (header, rows) = Readers.ReadTsv(path, log, NoReader);
+        var (header, rows) = Readers.ReadTsv(path, log, NoReader, rules);
         var intensityCols = WideColumns(header, "Intensity");
         var detectionCols = WideColumns(header, "Detection Type").ToDictionary(p => p.Reported, p => p.Column, StringComparer.Ordinal);
         var index = peakQualityIndex ?? [];
@@ -168,9 +168,9 @@ public static class Quant
     /// <returns>The groups, their quantities (intensity and spectral count as separate rows told apart by
     /// definition), and the producer-style group count at 1% FDR, for reconciling.</returns>
     public static (List<Row> Groups, List<Row> Quants, long ProducerCount) ProteinGroupRows(
-        string path, string datasetId, RunNameMap runNames, ReaderLog? log = null)
+        string path, string datasetId, RunNameMap runNames, ReaderLog? log = null, IngestRules rules = IngestRules.Current)
     {
-        var (header, rows) = Readers.ReadTsv(path, log, NoReader);
+        var (header, rows) = Readers.ReadTsv(path, log, NoReader, rules);
         var intensityCols = WideColumns(header, "Intensity");
         var countCols = WideColumns(header, "SpectralCount");
 

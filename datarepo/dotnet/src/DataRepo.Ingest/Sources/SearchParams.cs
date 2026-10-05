@@ -90,7 +90,11 @@ public static class SearchParams
     /// <returns>One row per (modification, usage), deduplicated and sorted.</returns>
     /// <remarks>Takes the lookup as a function so this module compiles before <c>ModRegistry</c> is ported;
     /// <c>ModificationRows(taskFiles, datasetId, registry)</c> is the one-line overload to add beside it.</remarks>
-    public static List<Row> ModificationRows(IEnumerable<string> taskFiles, string datasetId, Func<string, string?> unimodCurie)
+    /// <param name="rules">Under <see cref="IngestRules.Current"/> a name with no <c> on </c> part has
+    /// <c>residues</c> <c>unspecified</c>; Python 0.32.0's <c>rpartition</c> returned the whole name when the
+    /// separator was absent, so the column held the modification's name (G83 item 14).</param>
+    public static List<Row> ModificationRows(IEnumerable<string> taskFiles, string datasetId, Func<string, string?> unimodCurie,
+        IngestRules rules = IngestRules.Current)
     {
         var seen = new Dictionary<(string Name, string Usage), Row>();
         foreach (var path in taskFiles)
@@ -105,7 +109,8 @@ public static class SearchParams
                 {
                     if (name.Length == 0) continue;
                     var curie = unimodCurie(name);
-                    var (_, _, residues) = RPartition(name, " on ");
+                    var (_, separator, residues) = RPartition(name, " on ");
+                    if (separator.Length == 0 && rules == IngestRules.Current) residues = "";
                     if (seen.ContainsKey((name, usage))) continue;
                     seen[(name, usage)] = new Row
                     {
@@ -258,16 +263,35 @@ public static class SearchParams
     /// </remarks>
     /// <returns>The one value every search task that states it agrees on; the default when a search task
     /// exists but does not state it; null when there is no search task or two disagree.</returns>
-    public static string? TcAmbiguity(IEnumerable<string> taskFiles)
+    /// <param name="rules">Which tasks are search tasks. Under <see cref="IngestRules.Current"/> a task's
+    /// <c>TaskType</c> decides, as it does for <see cref="PepRegime"/>: a <c>Search</c> task answers with its
+    /// <c>TCAmbiguity</c> (or the default), and a <c>GlycoSearch</c> or <c>XLSearch</c> task with
+    /// <c>RemoveContaminant</c>, because MetaMorpheus loads their databases with <c>DatabaseLoadingEngine</c>'s
+    /// default and no setting (<c>GlycoSearchTask.cs:53</c>, <c>XLSearchTask.cs:51</c> at <c>6e152da70</c>). Python
+    /// 0.32.0 went by the file name, so a search task whose file name lacked "search" was not read, and a
+    /// <c>GlycoSearch</c> task's <c>SearchParameters</c> table (which MetaMorpheus never reads) was (G83 item 15).</param>
+    public static string? TcAmbiguity(IEnumerable<string> taskFiles, IngestRules rules = IngestRules.Current)
     {
         var values = new HashSet<string>(StringComparer.Ordinal);
         var searched = false;
         foreach (var path in taskFiles)
         {
-            // The file's stem, not its TaskType, decides what a search task is here (as in the Python).
-            if (!File.Exists(path) || !PathStem(path).ToLowerInvariant().Contains("search")) continue;
+            if (!File.Exists(path)) continue;
+            // 0.32.0: the file's stem, not its TaskType, decides what a search task is.
+            if (rules == IngestRules.Python0320 && !PathStem(path).ToLowerInvariant().Contains("search")) continue;
             var doc = ReadTask(path);
             if (doc is null) continue;
+            if (rules == IngestRules.Current)
+            {
+                var taskType = TaskType(doc);
+                if (taskType is "GlycoSearch" or "XLSearch")
+                {
+                    searched = true;
+                    values.Add(TcAmbiguityDefault);
+                    continue;
+                }
+                if (taskType != "Search") continue;
+            }
             searched = true;
             var value = Get(Section(doc, "SearchParameters"), "TCAmbiguity");
             values.Add(Truthy(value) ? Str(value) : TcAmbiguityDefault);

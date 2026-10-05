@@ -35,6 +35,10 @@ public static class Provenance
 
     private static readonly Regex SchemaRe = new(@"^(?<family>[a-z][a-z0-9-]*-provenance)/(?<version>\d+)$", RegexOptions.CultureInvariant);
 
+    /// <summary><see cref="SchemaRe"/> without the trailing-newline allowance of <c>$</c>, and with ASCII digits only
+    /// (<c>\d</c> also matches other scripts' digits) (G83 item 16).</summary>
+    private static readonly Regex SchemaReExact = new(@"^(?<family>[a-z][a-z0-9-]*-provenance)/(?<version>[0-9]+)\z", RegexOptions.CultureInvariant);
+
     /// <summary>How much each pipeline flag should change trust in the data.</summary>
     public static readonly IReadOnlyDictionary<string, string> FlagSeverity = new Dictionary<string, string>(StringComparer.Ordinal)
     {
@@ -65,10 +69,13 @@ public static class Provenance
     /// <summary>The field layout of this provenance document (see <see cref="Layouts"/>).</summary>
     /// <exception cref="UnsupportedProvenanceException">The value is missing, unparseable, or a schema whose
     /// field meanings this ingester has not been taught.</exception>
-    public static int SchemaVersion(IReadOnlyDictionary<string, object?> doc)
+    /// <param name="rules">Under <see cref="IngestRules.Current"/> the schema must be exactly a listed name:
+    /// <c>aging-provenance/3\n</c> is refused like any other unlisted string. Python 0.32.0's <c>$</c> also
+    /// matched before a final newline, and its <c>\d</c> any script's digits (G83 item 16).</param>
+    public static int SchemaVersion(IReadOnlyDictionary<string, object?> doc, IngestRules rules = IngestRules.Current)
     {
         var raw = Str(Get(doc, "schema", ""));
-        var m = SchemaRe.Match(raw);
+        var m = (rules == IngestRules.Current ? SchemaReExact : SchemaRe).Match(raw);
         int? layout = null;
         if (m.Success && ParseDigits(m.Groups["version"].Value) is { } version
             && Layouts.TryGetValue((m.Groups["family"].Value, version), out var l))
@@ -120,7 +127,12 @@ public static class Provenance
     }
 
     /// <summary>One ProvenanceRecord row, with the heavy blocks kept verbatim as JSON.</summary>
-    public static Row RecordRow(IReadOnlyDictionary<string, object?> doc, string datasetId, string stageDirName, string bundlePath, string sha256)
+    /// <param name="rules">Under <see cref="IngestRules.Current"/> a <c>schema</c> that is null is written as an
+    /// empty string, as an absent one always was; Python 0.32.0 wrote <c>str(None)</c>, the word <c>None</c>,
+    /// which reads as a schema name (G83 item 16). The column is required, so empty is the nearest to "not
+    /// stated" it can hold.</param>
+    public static Row RecordRow(IReadOnlyDictionary<string, object?> doc, string datasetId, string stageDirName, string bundlePath, string sha256,
+        IngestRules rules = IngestRules.Current)
     {
         var pipeline = DictOrEmpty(Get(doc, "pipeline"), "pipeline");
         var resources = DictOrEmpty(Get(doc, "resources"), "resources");
@@ -131,7 +143,7 @@ public static class Provenance
         {
             ["dataset_id"] = datasetId,
             ["stage"] = Str(Truthy(stage) ? stage : stageDirName),
-            ["provenance_schema"] = Str(Get(doc, "schema", "")),
+            ["provenance_schema"] = rules == IngestRules.Current && Get(doc, "schema", "") is null ? "" : Str(Get(doc, "schema", "")),
             ["started_utc"] = Get(doc, "started_utc"),
             ["finished_utc"] = Get(doc, "finished_utc"),
             ["pipeline_repo"] = Get(pipeline, "repo"),
@@ -164,7 +176,11 @@ public static class Provenance
     /// <paramref name="ns"/>'s id (D37); QuantProject's MBR block keeps its own.</remarks>
     /// <param name="version">The layout from <see cref="SchemaVersion"/>.</param>
     /// <param name="ns">The record's definitions namespace (<see cref="DefinitionsNamespace"/>).</param>
-    public static List<Row> MetricRows(IReadOnlyDictionary<string, object?> doc, string datasetId, int version, string ns = Definitions.DefaultNamespace)
+    /// <param name="rules">Under <see cref="IngestRules.Current"/> an MBR key whose value is null writes no row, as
+    /// every other metric here does: a metric row is a measurement, and a null one states nothing. Python 0.32.0
+    /// wrote one for any key present (G83 item 13).</param>
+    public static List<Row> MetricRows(IReadOnlyDictionary<string, object?> doc, string datasetId, int version, string ns = Definitions.DefaultNamespace,
+        IngestRules rules = IngestRules.Current)
     {
         var rows = new List<Row>();
         var idRate = DictOrEmpty(Get(doc, "id_rate"), "id_rate");
@@ -196,8 +212,8 @@ public static class Provenance
         var mbrSource = Str(Truthy(mbrDefinition) ? mbrDefinition : Definitions.Mbr.DefinitionId);
         foreach (var key in new[] { "mbr_rows", "mbr_kept", "msms_peaks", "kept_over_msms", "mbr_fdr_threshold" })
         {
-            // Present is enough: a null here is written, as the Python writes it.
-            if (mbr.TryGetValue(key, out var value))
+            // 0.32.0: present is enough, so a null was written. Current: a value is needed.
+            if (mbr.TryGetValue(key, out var value) && (value is not null || rules == IngestRules.Python0320))
                 rows.Add(Metric("dataset", datasetId, key, value, Definitions.Mbr.DefinitionId, $"provenance.json mbr ({mbrSource})"));
         }
         return rows;

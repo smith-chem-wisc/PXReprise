@@ -162,7 +162,7 @@ public class ReadersSdrfTests
         var expected = AsDict(AsList(Expected.Value["sdrf_parse"])[index]);
         var log = new ReaderLog();
         var table = Sdrf.Parse(InRepo((string)expected["path"]!), (string)expected["dataset_id"]!,
-            (string?)expected["default_organism"], log);
+            (string?)expected["default_organism"], log, IngestRules.Python0320);
         Assert.Multiple(() =>
         {
             SameJson(table.Samples, expected["samples"], "samples");
@@ -182,7 +182,7 @@ public class ReadersSdrfTests
     {
         var expected = AsDict(Section(Expected.Value, "tsv")[relative]);
         var log = new ReaderLog();
-        var (header, rows) = Readers.ReadTsv(InRepo(relative), log, (string?)expected["note"]);
+        var (header, rows) = Readers.ReadTsv(InRepo(relative), log, (string?)expected["note"], IngestRules.Python0320);
         SameJson(header, expected["header"], "header");
         SameJson(rows, expected["rows"], "rows");
         SameJson(Readers.IterDicts(header, rows).ToList(), expected["dicts"], "iter_dicts");
@@ -286,7 +286,7 @@ public class ReadersSdrfTests
 
         var parse = AsList(ExpectedReal.Value["sdrf_parse"]).Select(AsDict).Single(p => (string)p["path"]! == path);
         var log = new ReaderLog();
-        var table = Sdrf.Parse(path, (string)parse["dataset_id"]!, (string?)parse["default_organism"], log);
+        var table = Sdrf.Parse(path, (string)parse["dataset_id"]!, (string?)parse["default_organism"], log, IngestRules.Python0320);
         var sha = AsDict(parse["sha256"]);
         Assert.Multiple(() =>
         {
@@ -309,7 +309,7 @@ public class ReadersSdrfTests
         RequireFile(path);
         var expected = AsDict(Section(ExpectedReal.Value, "tsv")[path]);
         var log = new ReaderLog();
-        var (header, rows) = Readers.ReadTsv(path, log, (string?)expected["note"]);
+        var (header, rows) = Readers.ReadTsv(path, log, (string?)expected["note"], IngestRules.Python0320);
         SameJson(header, expected["header"], "header");
         Assert.That(Sha(rows), Is.EqualTo(expected["rows_sha256"]), "rows digest");
         Assert.That(Sha(Readers.IterDicts(header, rows).ToList()), Is.EqualTo(expected["dicts_sha256"]), "iter_dicts digest");

@@ -379,8 +379,12 @@ public static class Readers
     /// Python's <c>csv.reader(delimiter='\t', quoting=QUOTE_NONE)</c> over the file opened <c>utf-8-sig</c>
     /// with <c>newline=""</c>: a row ends at <c>\n</c>, <c>\r</c> or <c>\r\n</c>; quotes are ordinary
     /// characters; the first row is the header even when it is empty; later empty rows are dropped.
+    /// <para>Python's <c>csv</c> also refused a field over 131,072 characters, which a protein group with
+    /// enough members reaches (the largest in aging's corpus is 60,129). That limit was the parser's, not the
+    /// format's, and it refused the whole ingest; under <see cref="IngestRules.Current"/> there is none (G83 item 7).</para>
     /// </remarks>
-    public static (List<string> Header, List<List<string>> Rows) ReadTsv(string path, ReaderLog? log = null, string? note = null)
+    public static (List<string> Header, List<List<string>> Rows) ReadTsv(string path, ReaderLog? log = null, string? note = null,
+        IngestRules rules = IngestRules.Current)
     {
         string text = PyText.DecodeUtf8Sig(File.ReadAllBytes(path), strict: true);
         var header = new List<string>();
@@ -391,7 +395,7 @@ public static class Readers
             List<string> row = line.Length == 0 ? [] : line.Split('\t').ToList();
             foreach (string field in row)
             {
-                if (field.Length > CsvFieldSizeLimit)
+                if (field.Length > CsvFieldSizeLimit && rules == IngestRules.Python0320)
                     throw new InvalidDataException($"field larger than field limit ({CsvFieldSizeLimit})");
             }
             if (first)

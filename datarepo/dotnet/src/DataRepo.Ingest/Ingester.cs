@@ -224,7 +224,7 @@ public static class Ingester
         var searchProvenancePath = Join(searchDir, "provenance.json");
         if (!File.Exists(searchProvenancePath)) throw new IngestException($"{datasetId}: no provenance.json in {searchDir}");
         var searchProvenance = Provenance.Load(searchProvenancePath);
-        var provenanceVersion = Provenance.SchemaVersion(searchProvenance);
+        var provenanceVersion = Provenance.SchemaVersion(searchProvenance, rules);
         // D37: each stage's record says whose definitions its numbers are; none declared reads as aging's.
         var searchNamespace = Provenance.DefinitionsNamespace(searchProvenance);
 
@@ -239,12 +239,12 @@ public static class Ingester
             var stageName = new DirectoryInfo(Path.GetDirectoryName(path)!).Name;
             namespaceByStageDir[Path.GetFullPath(Path.GetDirectoryName(path)!)] = Provenance.DefinitionsNamespace(doc);
             var source = writer.AddSource(path, $"provenance:{stageName}", $"provenance_{stageName}.json");
-            provenanceRows.Add(Provenance.RecordRow(doc, datasetId, stageName, (string)source["bundle_path"]!, (string)source["sha256"]!));
+            provenanceRows.Add(Provenance.RecordRow(doc, datasetId, stageName, (string)source["bundle_path"]!, (string)source["sha256"]!, rules));
             if (path == searchProvenancePath)
                 findings.AddRange(Provenance.FindingRows(doc, datasetId, $"provenance.json flags ({stageName})"));
         }
 
-        var metrics = Provenance.MetricRows(searchProvenance, datasetId, provenanceVersion, searchNamespace);
+        var metrics = Provenance.MetricRows(searchProvenance, datasetId, provenanceVersion, searchNamespace, rules);
 
         // --- the modification registry from the build that did the search --------------------------------
         var settings = mmSettings;
@@ -273,13 +273,13 @@ public static class Ingester
         if (sdrfPath is not null)
         {
             writer.AddSource(BundleWriter.PathText(sdrfPath), "sdrf", Path.GetFileName(sdrfPath));
-            sdrf = Sdrf.Parse(sdrfPath, datasetId, DatasetEntry.Text(entry.Organism), log);
+            sdrf = Sdrf.Parse(sdrfPath, datasetId, DatasetEntry.Text(entry.Organism), log, rules);
         }
         else sdrf = new SdrfTable { Samples = [], Characteristics = [], Assays = [], RunFacts = [], SampleOfRun = [], Columns = [] };
 
         var (excluded, excludedReason) = Runs.ExcludedFiles(searchProvenance);
         var runFacts = sdrf.RunFacts.ToDictionary(kv => kv.Key, kv => (IReadOnlyDictionary<string, object?>)kv.Value, StringComparer.Ordinal);
-        var (runRows, runMetrics) = Runs.Build(datasetId, fetch, qc, runFacts, excluded, qcNamespace);
+        var (runRows, runMetrics) = Runs.Build(datasetId, fetch, qc, runFacts, excluded, qcNamespace, rules);
         if (runRows.Count == 0)
             throw new IngestException(
                 $"{datasetId}: no runs found. Neither a fetch manifest nor a QC report was readable "
@@ -291,7 +291,7 @@ public static class Ingester
         var excludedStems = excluded.Select(Path.GetFileNameWithoutExtension).ToHashSet(StringComparer.Ordinal);
         var enrichmentMixed = Runs.AssignEnrichment(
             runRows, datasetId, entry.Enrichment, entry.MixedEnrichment,
-            entry.RunEnrichment.Where(p => !excludedStems.Contains(p.Run)).ToList());
+            entry.RunEnrichment.Where(p => !excludedStems.Contains(p.Run)).ToList(), rules);
 
         var samples = sdrf.Samples.ToList();
         var characteristics = sdrf.Characteristics.ToList();
@@ -384,7 +384,7 @@ public static class Ingester
         if (File.Exists(pgPath))
         {
             writer.AddSource(pgPath, "protein_group_quant");
-            (proteinGroups, proteinGroupQuant, proteinGroupCount) = Quant.ProteinGroupRows(pgPath, datasetId, runNames, log);
+            (proteinGroups, proteinGroupQuant, proteinGroupCount) = Quant.ProteinGroupRows(pgPath, datasetId, runNames, log, rules);
         }
 
         var searches = SearchParams.TaskNames(searchProvenance).Select(t => t.ToLowerInvariant()).ToList();
@@ -395,7 +395,7 @@ public static class Ingester
         // Sites are placed by finding each peptide in the searched proteins, because the producer's spans cannot
         // be paired with its accessions (aging 043, DATAREPO-32). The databases are inputs to every ptm_sites
         // row, so they are in the content hash; they are not copied.
-        var sequences = ProteinDb.Load(searchProvenance, manifest.WorkRoot);
+        var sequences = ProteinDb.Load(searchProvenance, manifest.WorkRoot, rules);
         foreach (var db in sequences.Files)
         {
             // The role carries the file name: sources are hashed in (role, path) order, and a path is absolute and
@@ -432,7 +432,7 @@ public static class Ingester
         }
         // A protein's contaminant label comes from the database it was read from, not from the PSM row it shares
         // with a contaminant (G66). An accession in BOTH is whatever the search's TCAmbiguity made it.
-        var tc = SearchParams.TcAmbiguity(TaskFiles(manifest.WorkRoot, searchProvenance));
+        var tc = SearchParams.TcAmbiguity(TaskFiles(manifest.WorkRoot, searchProvenance), rules);
         bool? ContaminantOf(string accession)
         {
             var status = sequences.DatabaseStatus(accession);
@@ -453,21 +453,21 @@ public static class Ingester
             : 0.01;
         var peaksPath = Join(resultsDir, "AllQuantifiedPeaks.tsv");
         if (File.Exists(peaksPath)) writer.AddSource(peaksPath, "peaks");
-        var peakQuality = Quant.PeakQuality(peaksPath, datasetId, runNames, mbrThreshold, log);
+        var peakQuality = Quant.PeakQuality(peaksPath, datasetId, runNames, mbrThreshold, log, rules);
 
         var quantValues = new List<Row>(proteinGroupQuant);
         var peptideQuantPath = Join(resultsDir, "AllQuantifiedPeptides.tsv");
         if (File.Exists(peptideQuantPath))
         {
             writer.AddSource(peptideQuantPath, "peptide_quant");
-            quantValues.AddRange(Quant.PeptideQuantRows(peptideQuantPath, datasetId, runNames, s => proforma.Get(s).Proforma, peakQuality, log));
+            quantValues.AddRange(Quant.PeptideQuantRows(peptideQuantPath, datasetId, runNames, s => proforma.Get(s).Proforma, peakQuality, log, rules));
         }
 
         // --- search parameters and reported totals --------------------------------------------------------
         var taskFiles = TaskFiles(manifest.WorkRoot, searchProvenance);
         foreach (var path in taskFiles)
             writer.AddSource(path, $"task:{Path.GetFileNameWithoutExtension(path)}", Path.GetFileName(path));
-        var searchModifications = SearchParams.ModificationRows(taskFiles, datasetId, name => registry.Lookup(name, rules: rules)?.UnimodCurie);
+        var searchModifications = SearchParams.ModificationRows(taskFiles, datasetId, name => registry.Lookup(name, rules: rules)?.UnimodCurie, rules);
 
         var resultsPath = Join(resultsDir, "results.txt");
         var results = new Dictionary<string, Dictionary<string, long>>(StringComparer.Ordinal);

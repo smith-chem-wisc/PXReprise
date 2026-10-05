@@ -163,6 +163,309 @@ public class CurrentRulesTests
         });
     }
 
+    // ---------------------------------------------------------------- items 6 and 8: the SDRF
+
+    private static string WriteSdrf(params string[][] rows)
+    {
+        string[] header =
+        [
+            "source name", "characteristics[organism]", "characteristics[biological replicate]", "assay name",
+            "comment[label]", "comment[instrument]", "comment[fraction identifier]", "comment[technical replicate]",
+            "comment[data file]",
+        ];
+        var dir = Path.Combine(Path.GetTempPath(), "datarepo-g83-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, "t.sdrf.tsv");
+        File.WriteAllText(path, string.Join("\n", new[] { header }.Concat(rows).Select(r => string.Join("\t", r))) + "\n",
+            new System.Text.UTF8Encoding(false));
+        return path;
+    }
+
+    /// <summary>A multiplexed run: one file, one row per channel, and the rows disagree on a run-level fact.</summary>
+    [TestCase(5, "NT=Q Exactive", "NT=Orbitrap Fusion", "1", "1")]   // the instrument
+    [TestCase(6, "NT=Q Exactive", "NT=Q Exactive", "1", "2")]        // the fraction
+    public void ARunsFactIsWhatEveryRowSays(int column, string instrumentA, string instrumentB, string fractionA, string fractionB)
+    {
+        var path = WriteSdrf(
+            ["s1", "homo sapiens", "1", "a1", "TMT126", instrumentA, fractionA, "1", "run1.raw"],
+            ["s2", "homo sapiens", "1", "a2", "TMT127", instrumentB, fractionB, "1", "run1.raw"],
+            ["s3", "homo sapiens", "1", "a3", "TMT126", "NT=Q Exactive", "3", "1", "run2.raw"],
+            ["s4", "homo sapiens", "1", "a4", "TMT127", "NT=Q Exactive", "3", "1", "run2.raw"]);
+        var current = Sdrf.Parse(path, "PXD1", rules: IngestRules.Current);
+        var python = Sdrf.Parse(path, "PXD1", rules: IngestRules.Python0320);
+        var key = column == 5 ? "instrument_model" : "fraction";
+        Assert.Multiple(() =>
+        {
+            Assert.That(current.RunFacts["run1"][key], Is.Null, "the rows disagree: no row's value is the run's");
+            Assert.That(python.RunFacts["run1"][key], Is.EqualTo(column == 5 ? (object)"Orbitrap Fusion" : 2L), "0.32.0: the last row won");
+            Assert.That(current.RunFacts["run2"]["instrument_model"], Is.EqualTo("Q Exactive"), "agreeing rows keep it");
+            Assert.That(current.RunFacts["run2"]["fraction"], Is.EqualTo(3L));
+            Assert.That(current.RunFacts["run1"][column == 5 ? "fraction" : "instrument_model"], Is.Not.Null, "the other fact agrees");
+            Assert.That(current.Assays, Has.Count.EqualTo(4), "every channel is still an assay");
+        });
+    }
+
+    /// <summary>Digit characters that are not decimal digits: superscripts, a circled digit, a fraction.</summary>
+    [TestCase("²")]
+    [TestCase("1³")]
+    [TestCase("①")]
+    public void ANonDecimalDigitIsNotANumber(string cell)
+    {
+        var path = WriteSdrf(["s1", "homo sapiens", cell, "a1", "label free sample", "NT=Q Exactive", cell, cell, "run1.raw"]);
+        var current = Sdrf.Parse(path, "PXD1", rules: IngestRules.Current);
+        Assert.Multiple(() =>
+        {
+            Assert.That(current.Samples.Single()["biological_replicate"], Is.Null);
+            Assert.That(current.RunFacts["run1"]["fraction"], Is.Null);
+            Assert.That(current.RunFacts["run1"]["technical_replicate"], Is.Null);
+            Assert.That(() => Sdrf.Parse(path, "PXD1", rules: IngestRules.Python0320), Throws.TypeOf<FormatException>(),
+                "0.32.0: isdigit accepted it and int() refused the ingest");
+        });
+    }
+
+    [TestCase("12", 12L)]
+    [TestCase("١٢", 12L)]  // Arabic-Indic decimal digits are decimal digits; int() reads them
+    public void DecimalDigitsAreStillNumbers(string cell, long value)
+    {
+        var path = WriteSdrf(["s1", "homo sapiens", cell, "a1", "label free sample", "NT=Q Exactive", cell, cell, "run1.raw"]);
+        Assert.That(Sdrf.Parse(path, "PXD1", rules: IngestRules.Current).RunFacts["run1"]["fraction"], Is.EqualTo(value));
+    }
+
+    // ---------------------------------------------------------------- helpers for file-backed items
+
+    private static string TempFile(string name, string text, bool bom = false)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "datarepo-g83-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, name);
+        File.WriteAllText(path, text, new System.Text.UTF8Encoding(bom));
+        return path;
+    }
+
+    // ---------------------------------------------------------------- item 7: no field size limit
+
+    [TestCase(131_073)]
+    [TestCase(1_000_000)]
+    public void AFieldLongerThanPythonsCsvLimitIsRead(int length)
+    {
+        var cell = new string('A', length);
+        var path = TempFile("AllQuantifiedProteinGroups.tsv", "Protein Accession\tGene\n" + cell + "\tG1\n");
+        var (_, rows) = DataRepo.Ingest.Readers.ReadTsv(path, rules: IngestRules.Current);
+        Assert.Multiple(() =>
+        {
+            Assert.That(rows.Single()[0], Has.Length.EqualTo(length));
+            Assert.That(() => DataRepo.Ingest.Readers.ReadTsv(path, rules: IngestRules.Python0320), Throws.TypeOf<InvalidDataException>());
+        });
+    }
+
+    // ---------------------------------------------------------------- items 10 and 17: the protein database
+
+    /// <summary>Every kind of letter mzLib's loader turns into X before MetaMorpheus digests the sequence.</summary>
+    [TestCase("PEPBTIDE", "PEPXTIDE")]
+    [TestCase("ZEPJTIDE", "XEPXTIDE")]
+    [TestCase("PEPÉTIDE", "PEPXTIDE")]
+    [TestCase("PEPTIDEUO", "PEPTIDEUO")]  // selenocysteine and pyrrolysine are residues
+    public void ASequenceIsReadAsTheSearchSawIt(string written, string searched)
+    {
+        var fasta = TempFile("db.fasta", ">sp|P1|ONE_HUMAN one\n" + written + "\n");
+        var xml = TempFile("db.xml",
+            "<?xml version=\"1.0\"?><uniprot xmlns=\"http://uniprot.org/uniprot\"><entry><accession>P1</accession>"
+            + "<sequence>" + written + "</sequence></entry></uniprot>");
+        foreach (var path in new[] { fasta, xml })
+        {
+            var current = new ProteinSequences();
+            var python = new ProteinSequences();
+            ProteinDb.ReadDatabase(path, current, IngestRules.Current);
+            ProteinDb.ReadDatabase(path, python, IngestRules.Python0320);
+            Assert.Multiple(() =>
+            {
+                Assert.That(current.Get("P1"), Is.EqualTo(new[] { searched }), Path.GetFileName(path));
+                Assert.That(python.Get("P1"), Is.EqualTo(new[] { written.ToUpperInvariant() }), "0.32.0 kept the letters");
+            });
+        }
+    }
+
+    [Test]
+    public void APeptideSearchedAcrossABIsPlaced()
+    {
+        // The peptide as MetaMorpheus wrote it carries the X mzLib put where the database has B.
+        var path = TempFile("db.fasta", ">sp|P1|ONE_HUMAN one\nMKPEPBTIDEK\n");
+        var current = new ProteinSequences();
+        var python = new ProteinSequences();
+        ProteinDb.ReadDatabase(path, current, IngestRules.Current);
+        ProteinDb.ReadDatabase(path, python, IngestRules.Python0320);
+        Assert.Multiple(() =>
+        {
+            Assert.That(ProteinDb.Occurrences("PEPXTIDEK", current.Get("P1")[0]), Is.EqualTo(new[] { 3 }));
+            Assert.That(ProteinDb.Occurrences("PEPXTIDEK", python.Get("P1")[0]), Is.Empty);
+        });
+    }
+
+    [Test]
+    public void AFastaWithAByteOrderMarkKeepsItsFirstProtein()
+    {
+        var path = TempFile("db.fasta", ">sp|P1|ONE_HUMAN one\nMKA\n>sp|P2|TWO_HUMAN two\nMKB\n", bom: true);
+        var current = ProteinDb.IterFasta(path, IngestRules.Current).Select(p => p.Accession).ToList();
+        var python = ProteinDb.IterFasta(path, IngestRules.Python0320).Select(p => p.Accession).ToList();
+        Assert.Multiple(() =>
+        {
+            Assert.That(current, Is.EqualTo(new[] { "P1", "P2" }));
+            Assert.That(python, Is.EqualTo(new[] { "P2" }), "0.32.0 read the BOM as a character and lost P1");
+        });
+    }
+
+    // ---------------------------------------------------------------- items 11 and 12: one run per run id
+
+    private static Dictionary<string, object?> Fetch(params string[] names) => new()
+    {
+        ["files"] = names.Select(n => (object?)new Dictionary<string, object?> { ["name"] = n, ["category"] = "RAW", ["sha256"] = "sha-" + n }).ToList(),
+    };
+
+    private static Dictionary<string, object?> Qc(params string[] keys) =>
+        keys.ToDictionary(k => k, k => (object?)new Dictionary<string, object?> { ["ms2"] = 100L, ["pass"] = true });
+
+    private static readonly IReadOnlyDictionary<string, IReadOnlyDictionary<string, object?>> NoFacts =
+        new Dictionary<string, IReadOnlyDictionary<string, object?>>();
+
+    /// <summary>The QC report names the deposited file another way: by its stem, or by another extension.</summary>
+    [TestCase("b.raw", "b")]
+    [TestCase("b.raw", "b.mzML")]
+    public void ADepositedFileAndItsQcNameAreOneRun(string deposited, string qcName)
+    {
+        var (current, metrics) = Runs.Build("PXD1", Fetch(deposited, "a.raw"), Qc(qcName, "a.raw"), NoFacts, rules: IngestRules.Current);
+        var (python, _) = Runs.Build("PXD1", Fetch(deposited, "a.raw"), Qc(qcName, "a.raw"), NoFacts, rules: IngestRules.Python0320);
+        var b = current.Single(r => (string)r["run_id"]! == "PXD1:b");
+        Assert.Multiple(() =>
+        {
+            Assert.That(current.Select(r => r["run_id"]), Is.Unique);
+            Assert.That(current, Has.Count.EqualTo(2));
+            Assert.That(b["file_name"], Is.EqualTo(deposited), "the deposited name");
+            Assert.That(b["sha256"], Is.EqualTo("sha-" + deposited));
+            Assert.That(b["ms2_spectra"], Is.EqualTo(100L), "its QC entry, found under the other name");
+            Assert.That(metrics.Count(m => (string)m["scope_id"]! == "PXD1:b" && (string)m["name"]! == "ms2"), Is.EqualTo(1));
+            Assert.That(python.Count(r => (string)r["run_id"]! == "PXD1:b"), Is.EqualTo(2), "0.32.0: two rows, one id");
+        });
+    }
+
+    [Test]
+    public void QcNamesAloneFoldToTheFileName()
+    {
+        var (runs, _) = Runs.Build("PXD1", null, Qc("b", "b.raw"), NoFacts, rules: IngestRules.Current);
+        Assert.That(runs.Select(r => r["file_name"]), Is.EqualTo(new[] { "b.raw" }));
+    }
+
+    [TestCase("c.raw", "c.mzML")]
+    [TestCase("c.raw", "c.d")]
+    public void TwoDepositedFilesWithOneStemAreRefusedByName(string one, string two)
+    {
+        Assert.That(() => Runs.Build("PXD1", Fetch(one, two), null, NoFacts, rules: IngestRules.Current),
+            Throws.TypeOf<DataRepo.Bundle.IngestException>().With.Message.Contains("share the run id PXD1:c"));
+    }
+
+    [Test]
+    public void EveryRunOfABaseNameGetsItsEnrichment()
+    {
+        DataRepo.Bundle.Row Run(string file) => new() { ["run_id"] = "PXD1:" + Path.GetFileNameWithoutExtension(file), ["file_name"] = file, ["enrichment"] = null, ["enrichment_source"] = null };
+        foreach (var rules in new[] { IngestRules.Current, IngestRules.Python0320 })
+        {
+            var runs = new List<DataRepo.Bundle.Row> { Run("a.raw"), Run("b.raw"), Run("b.mzML") };
+            Runs.AssignEnrichment(runs, "PXD1", ["phospho"], false, [("a", "none"), ("b", "phospho")], rules);
+            var filled = runs.Count(r => r["enrichment"] is not null);
+            Assert.That(filled, Is.EqualTo(rules == IngestRules.Current ? 3 : 2), rules.ToString());
+        }
+    }
+
+    // ---------------------------------------------------------------- item 13: no null metric
+
+    [TestCase("mbr_rows")]
+    [TestCase("mbr_kept")]
+    [TestCase("msms_peaks")]
+    [TestCase("kept_over_msms")]
+    [TestCase("mbr_fdr_threshold")]
+    public void AnMbrKeyWithNoValueWritesNoMetric(string key)
+    {
+        var mbr = new Dictionary<string, object?> { ["mbr_rows"] = 10L, ["mbr_kept"] = 5L, ["msms_peaks"] = 7L, ["kept_over_msms"] = 0.5, ["mbr_fdr_threshold"] = 0.01 };
+        mbr[key] = null;
+        var doc = new Dictionary<string, object?> { ["schema"] = "aging-provenance/3", ["mbr"] = mbr };
+        var current = Provenance.MetricRows(doc, "PXD1", 3, rules: IngestRules.Current);
+        var python = Provenance.MetricRows(doc, "PXD1", 3, rules: IngestRules.Python0320);
+        Assert.Multiple(() =>
+        {
+            Assert.That(current.Select(r => r["name"]), Does.Not.Contain(key));
+            Assert.That(current.Count(r => (string)r["name"]! != key), Is.EqualTo(4), "the others are kept");
+            Assert.That(current.Select(r => r["value"]), Has.None.Null);
+            Assert.That(python.Single(r => (string)r["name"]! == key)["value"], Is.Null, "0.32.0 wrote a null measurement");
+        });
+    }
+
+    // ---------------------------------------------------------------- items 14 and 15: task files
+
+    private static string Task(string fileName, string body) => TempFile(fileName, body);
+
+    [Test]
+    public void ANameWithNoResidueHasResiduesUnspecified()
+    {
+        var path = Task("Task1SearchTask.toml",
+            "TaskType = \"Search\"\n[CommonParameters]\nListOfModsVariable = \"Common Variable\tOxidation on M\t\tCommon Biological\tHydroxylation\t\tX\tA on B on C\"\n");
+        var current = SearchParams.ModificationRows([path], "PXD1", _ => null, IngestRules.Current).ToDictionary(r => (string)r["name"]!, r => r["residues"]);
+        var python = SearchParams.ModificationRows([path], "PXD1", _ => null, IngestRules.Python0320).ToDictionary(r => (string)r["name"]!, r => r["residues"]);
+        Assert.Multiple(() =>
+        {
+            Assert.That(current["Hydroxylation"], Is.EqualTo("unspecified"));
+            Assert.That(python["Hydroxylation"], Is.EqualTo("Hydroxylation"), "0.32.0: the whole name");
+            Assert.That(current["Oxidation on M"], Is.EqualTo("M"));
+            Assert.That(current["A on B on C"], Is.EqualTo("C"), "the last ' on ' decides");
+        });
+    }
+
+    [Test]
+    public void TheTaskTypeDecidesWhichTasksAreSearches()
+    {
+        // A glyco task, whose file name says "search", carrying a SearchParameters table MetaMorpheus never reads.
+        var glyco = Task("Task2GlycoSearchTask.toml", "TaskType = \"GlycoSearch\"\n[SearchParameters]\nTCAmbiguity = \"RemoveTarget\"\n");
+        // A search task whose file name does not say "search".
+        var renamed = Task("Task1MyTask.toml", "TaskType = \"Search\"\n[SearchParameters]\nTCAmbiguity = \"RemoveTarget\"\n");
+        // A calibration task whose file name does.
+        var calibrate = Task("Task0CalibrateSearchTask.toml", "TaskType = \"Calibrate\"\n[SearchParameters]\nTCAmbiguity = \"RenameProtein\"\n");
+        Assert.Multiple(() =>
+        {
+            Assert.That(SearchParams.TcAmbiguity([glyco], IngestRules.Current), Is.EqualTo("RemoveContaminant"), "glyco: DatabaseLoadingEngine's default");
+            Assert.That(SearchParams.TcAmbiguity([glyco], IngestRules.Python0320), Is.EqualTo("RemoveTarget"));
+            Assert.That(SearchParams.TcAmbiguity([renamed], IngestRules.Current), Is.EqualTo("RemoveTarget"));
+            Assert.That(SearchParams.TcAmbiguity([renamed], IngestRules.Python0320), Is.Null);
+            Assert.That(SearchParams.TcAmbiguity([calibrate, renamed], IngestRules.Current), Is.EqualTo("RemoveTarget"), "a calibration task is not a search");
+            Assert.That(SearchParams.TcAmbiguity([calibrate], IngestRules.Current), Is.Null);
+            Assert.That(SearchParams.TcAmbiguity([glyco, renamed], IngestRules.Current), Is.Null, "two tasks that disagree");
+        });
+    }
+
+    // ---------------------------------------------------------------- item 16: the provenance schema
+
+    [TestCase("aging-provenance/3\n")]
+    [TestCase("aging-provenance/٣")]  // an Arabic-Indic three
+    public void ASchemaThatIsNotExactlyListedIsRefused(string schema)
+    {
+        var doc = new Dictionary<string, object?> { ["schema"] = schema };
+        Assert.Multiple(() =>
+        {
+            Assert.That(() => Provenance.SchemaVersion(doc, IngestRules.Current), Throws.TypeOf<DataRepo.Bundle.UnsupportedProvenanceException>());
+            Assert.That(Provenance.SchemaVersion(doc, IngestRules.Python0320), Is.EqualTo(3), "0.32.0 read it as layout 3");
+            Assert.That(Provenance.SchemaVersion(new Dictionary<string, object?> { ["schema"] = "aging-provenance/3" }, IngestRules.Current), Is.EqualTo(3));
+        });
+    }
+
+    [Test]
+    public void ANullSchemaIsNotTheWordNone()
+    {
+        var doc = new Dictionary<string, object?> { ["schema"] = null, ["stage"] = "qc" };
+        Assert.Multiple(() =>
+        {
+            Assert.That(Provenance.RecordRow(doc, "PXD1", "02b_qc", "p", "00", IngestRules.Current)["provenance_schema"], Is.EqualTo(""));
+            Assert.That(Provenance.RecordRow(new Dictionary<string, object?> { ["stage"] = "qc" }, "PXD1", "02b_qc", "p", "00", IngestRules.Current)["provenance_schema"], Is.EqualTo(""), "as an absent one");
+            Assert.That(Provenance.RecordRow(doc, "PXD1", "02b_qc", "p", "00", IngestRules.Python0320)["provenance_schema"], Is.EqualTo("None"));
+        });
+    }
+
     [Test]
     public void AnEntrysOwnLinesAreStillRead()
     {
