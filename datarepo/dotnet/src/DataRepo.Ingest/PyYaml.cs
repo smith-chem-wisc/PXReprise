@@ -34,11 +34,20 @@ public static class PyYaml
     /// <exception cref="YamlException">The text is not valid YAML.</exception>
     public static object? LoadFile(string path)
     {
+        var root = LoadRoot(path);
+        return root is null ? null : Plain(root);
+    }
+
+    /// <summary>The first document of a YAML file as its node tree, or null for an empty file: for a reader that
+    /// needs what <see cref="Plain"/> discards, such as a key written twice or a key's text as written.</summary>
+    /// <exception cref="YamlException">The text is not valid YAML.</exception>
+    public static YamlNode? LoadRoot(string path)
+    {
         var text = File.ReadAllText(path, new UTF8Encoding(false));
         if (text.Length > 0 && text[0] == '﻿') text = text[1..];  // utf-8-sig
         var stream = new YamlStream();
         stream.Load(new StringReader(text));
-        return stream.Documents.Count == 0 ? null : Plain(stream.Documents[0].RootNode);
+        return stream.Documents.Count == 0 ? null : stream.Documents[0].RootNode;
     }
 
     /// <summary>A YAML node as <see cref="Dictionary{TKey,TValue}"/> (document order), <see cref="List{T}"/>,

@@ -11,10 +11,11 @@ are content hashes, so on 1.0.0 you should get the same ones; on another version
 later section says why).
 
 > **This copy is ahead of the 1.0.0 release.** Since 1.0.0, the catalog format has moved to 10 (9: the go
-> engine; 10: `dataset_annotations`, the manifest's notes and flags taken at build) and the core schema to
-> 0.0.15 (each run's start time and instrument, G87). So the released 1.0.0 program prints `schema 0.0.14`,
-> a different bundle id (`26b07fd2d1b11625`) and catalog id (`ff7c707e1347b0f7`), and has no go coverage
-> line or "59 run" count. For the page exactly as 1.0.0 prints
+> engine; 10: `dataset_annotations`, the manifest's notes and flags taken at build, and `run_exclusions`,
+> its runs excluded from analysis) and the core schema to 0.0.15 (each run's start time and instrument,
+> G87). So the released 1.0.0 program prints `schema 0.0.14`, a different bundle id (`26b07fd2d1b11625`)
+> and catalog id (`ff7c707e1347b0f7`), 26 empty tables rather than 27, and has no go coverage line or
+> "59 run" count. For the page exactly as 1.0.0 prints
 > it, read it [at the v1.0.0 tag](https://github.com/smith-chem-wisc/dataRepo/blob/v1.0.0/docs/getting-started.md).
 > This note goes away at the next release.
 
@@ -275,11 +276,11 @@ catalog  catalog.duckdb
   built    … by datarepo 1.0.0
   dataset  PXD999999           58 PSMs at 1%
   tools    datarepo_describe, datarepo_search, datarepo_sql
-  empty    26 table(s) present with no rows
+  empty    27 table(s) present with no rows
 ```
 
-`26 table(s) present with no rows` is expected here. The schema has tables for data this small
-example does not have (glycopeptides, age effects, GO annotation). They exist and are empty, and an
+`27 table(s) present with no rows` is expected here. The schema has tables for data this small
+example does not have (glycopeptides, age effects, GO annotation, runs excluded from analysis). They exist and are empty, and an
 agent is told so. An empty table is never a negative answer.
 
 To register the catalog with [Claude Code](https://claude.com/claude-code):

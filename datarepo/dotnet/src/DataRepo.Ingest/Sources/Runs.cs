@@ -313,6 +313,38 @@ public static class Runs
     public static IReadOnlyList<string> RunBaseNames(IReadOnlyList<Row> runs) =>
         runs.Select(r => PathStem(Str(r["file_name"]))).Distinct(StringComparer.Ordinal).ToList();
 
+    /// <summary>Why a manifest's <c>excluded_runs</c> (G85) would not apply to the dataset's bundle: a named run that
+    /// is not one of its runs. <c>datarepo manifest</c> reports these and <c>datarepo build</c> refuses on them; ingest
+    /// does not read the field.</summary>
+    /// <param name="runBaseNames">The dataset's run base names (ingest's runs, which leave out what the search left
+    /// out), or null when its runs cannot be read, which checks nothing.</param>
+    /// <param name="leftOut">Base names of files the search left out, which are therefore not runs of the bundle.</param>
+    public static List<string> ExclusionProblems(
+        IEnumerable<string>? runBaseNames,
+        IReadOnlySet<string> leftOut,
+        string datasetId,
+        IReadOnlyList<(string Run, string Reason)> excludedRuns)
+    {
+        var problems = new List<string>();
+        if (runBaseNames is null || excludedRuns.Count == 0) return problems;
+        var baseNames = runBaseNames.ToHashSet(StringComparer.Ordinal);
+        var named = excludedRuns.Select(p => p.Run).Where(r => !baseNames.Contains(r)).Order(CodePointOrder).ToList();
+        var notSearched = named.Where(leftOut.Contains).ToList();
+        var unknown = named.Where(r => !leftOut.Contains(r)).ToList();
+        if (unknown.Count > 0)
+            problems.Add(
+                $"{datasetId}: excluded_runs names {unknown.Count} run(s) that are not runs of this dataset: " +
+                $"{Examples(unknown)}. Runs are the deposited raw file names without their extension, e.g. " +
+                $"{Examples(baseNames.Order(CodePointOrder).ToList(), 3)}. An exclusion that matches no run would " +
+                "leave the run it meant looking fit for analysis.");
+        if (notSearched.Count > 0)
+            problems.Add(
+                $"{datasetId}: excluded_runs names {notSearched.Count} run(s) the search left out: " +
+                $"{Examples(notSearched)}. They are not in the bundle, so there is nothing to exclude from analysis; " +
+                "remove them from excluded_runs.");
+        return problems;
+    }
+
     /// <summary>Every rule <see cref="AssignEnrichment"/> refuses a run map on, in the order it applies them; ingest
     /// refuses on the first, <c>datarepo manifest</c> reports them all (PXReprise 009).</summary>
     /// <param name="runBaseNames">The dataset's run base names, or null when its runs cannot be read, which skips

@@ -156,6 +156,29 @@ public static class Ingester
     /// <returns>The problems, in ingest's order, and whether the runs were read.</returns>
     public static (List<string> Problems, bool RunsRead) RunEnrichmentProblems(Manifest manifest, DatasetEntry entry)
     {
+        var (baseNames, excludedStems) = ReadRunBaseNames(manifest, entry);
+        var problems = Runs.EnrichmentProblems(baseNames, entry.Accession, entry.Enrichment, entry.MixedEnrichment,
+            entry.RunEnrichment.Where(p => !excludedStems.Contains(p.Run)).ToList());
+        return (problems, baseNames is not null);
+    }
+
+    /// <summary>The runs a manifest's <c>excluded_runs</c> (G85) names that are not runs of the dataset, checked as
+    /// <see cref="RunEnrichmentProblems"/> checks a run map, against the runs ingest would write.</summary>
+    /// <remarks>Ingest itself never refuses on these. The field is not content: it reaches no bundle row and no bundle
+    /// id, so an ingest outcome that depended on it would make a bundle depend on a field its id does not hash, and a
+    /// typo in it would block a correct bundle that its fix would not change. The gates are <c>datarepo manifest</c>
+    /// (exit 1) and <c>datarepo build</c>, which refuses a catalog whose exclusion matches no run of the bundle.</remarks>
+    /// <returns>The problems, and whether the runs were read (when not, nothing was checked).</returns>
+    public static (List<string> Problems, bool RunsRead) ExcludedRunProblems(Manifest manifest, DatasetEntry entry)
+    {
+        var (baseNames, excludedStems) = ReadRunBaseNames(manifest, entry);
+        return (Runs.ExclusionProblems(baseNames, excludedStems, entry.Accession, entry.ExcludedRuns), baseNames is not null);
+    }
+
+    /// <summary>The dataset's run base names as ingest reads them (fetch manifest, QC report, minus the files the
+    /// search left out), or null when they cannot be read; and the base names of the files the search left out.</summary>
+    private static (IReadOnlyList<string>? BaseNames, HashSet<string> LeftOutStems) ReadRunBaseNames(Manifest manifest, DatasetEntry entry)
+    {
         IReadOnlyList<string>? baseNames = null;
         IReadOnlySet<string> excluded = new HashSet<string>();
         try
@@ -178,10 +201,7 @@ public static class Ingester
         }
         catch (DataRepoException) { baseNames = null; }
         catch (IOException) { baseNames = null; }
-        var excludedStems = excluded.Select(Path.GetFileNameWithoutExtension).ToHashSet(StringComparer.Ordinal);
-        var problems = Runs.EnrichmentProblems(baseNames, entry.Accession, entry.Enrichment, entry.MixedEnrichment,
-            entry.RunEnrichment.Where(p => !excludedStems.Contains(p.Run)).ToList());
-        return (problems, baseNames is not null);
+        return (baseNames, excluded.Select(n => Path.GetFileNameWithoutExtension(n)).ToHashSet(StringComparer.Ordinal));
     }
 
     /// <summary>Builds the bundle for one dataset.</summary>

@@ -155,6 +155,20 @@ Run `datarepo manifest manifest.yaml` after editing the manifest. Besides listin
 checks every `run_enrichment` map the way `ingest` would, against the run folder where it can read
 it, and exits `1` on a map `ingest` would refuse, so a wrong map is found before a re-ingest.
 
+Runs that were searched but must be left out of **analysis** (a failed QC run, a blank) go in a
+dataset's `excluded_runs`, one reason per run, keyed by the raw file name without its extension:
+
+```yaml
+    excluded_runs:
+      20170317_VM_17: failed spectra QC (see DECISIONS.md D67)
+```
+
+The runs stay in the bundle, and the field is not identity, so changing it needs no re-ingest: the
+next `build` writes it to the catalog's `run_exclusions` table and moves the catalog id. `ingest`
+does not read it. `datarepo manifest` checks every name against the dataset's runs and exits `1` on
+one that is not a run, and `build` refuses such a name, so a misspelt exclusion never leaves the run
+it meant looking fit for analysis.
+
 ## 4. Optional: engines and study results
 
 - **`datarepo run`** runs a released engine on stored data and writes its output beside the

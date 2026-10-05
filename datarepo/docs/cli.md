@@ -9,7 +9,7 @@ New here? Start with [getting-started.md](getting-started.md), which runs the ma
 | Command | What it does |
 |---|---|
 | [`doctor`](#datarepo-doctor) | report this build's version, schema and components, and any registered MCP servers |
-| [`manifest`](#datarepo-manifest) | show what the producing instance offers, and check its run_enrichment maps |
+| [`manifest`](#datarepo-manifest) | show what the producing instance offers, and check its run_enrichment maps and excluded_runs |
 | [`ingest`](#datarepo-ingest) | build a Parquet bundle for one or more datasets |
 | [`inspect`](#datarepo-inspect) | summarise a written bundle |
 | [`study`](#datarepo-study) | write a study layer's delivered rows as a study bundle |
@@ -48,12 +48,12 @@ An instance operator runs these once per dataset, after the search. See [ingest.
 
 ### `datarepo manifest`
 
-Show what the producing instance offers, and check its run_enrichment maps.
+Show what the producing instance offers, and check its run_enrichment maps and excluded_runs.
 
 ```text
 usage: datarepo manifest [-h] manifest
 
-show what the producing instance offers, and check its run_enrichment maps
+show what the producing instance offers, and check its run_enrichment maps and excluded_runs
 
 positional arguments:
   manifest               the producing instance's manifest.yaml

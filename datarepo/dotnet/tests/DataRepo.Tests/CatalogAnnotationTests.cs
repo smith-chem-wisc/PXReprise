@@ -72,12 +72,13 @@ public class CatalogAnnotationTests
             $"SELECT in_manifest, status, notes, flags, provenance_schema FROM {CatalogBuilder.AnnotationsTable}").Rows.Single();
 
     [Test]
-    public void EveryNonContentFieldIsAnAnnotationExceptTheRawRow()
+    public void EveryNonContentFieldIsAnAnnotationOrARunExclusionExceptTheRawRow()
     {
         var expected = DatasetEntry.NonContentFields.Keys.Where(k => k != "raw").Order(StringComparer.Ordinal);
-        Assert.That(CatalogBuilder.AnnotationFields.Order(StringComparer.Ordinal), Is.EqualTo(expected),
-            "a non-content manifest field must be decided: carried in dataset_annotations, or not and why");
-        Assert.That(CatalogBuilder.AnnotationFields.Intersect(DatasetEntry.ContentFields), Is.Empty);
+        Assert.That(CatalogBuilder.AnnotationFields.Concat(CatalogBuilder.RunExclusionFields).Order(StringComparer.Ordinal), Is.EqualTo(expected),
+            "a non-content manifest field must be decided: carried in dataset_annotations, in run_exclusions, or not and why");
+        Assert.That(CatalogBuilder.AnnotationFields.Intersect(CatalogBuilder.RunExclusionFields), Is.Empty, "each field is served once");
+        Assert.That(CatalogBuilder.AnnotationFields.Concat(CatalogBuilder.RunExclusionFields).Intersect(DatasetEntry.ContentFields), Is.Empty);
         var columns = CatalogBuilder.DerivedDocs[CatalogBuilder.AnnotationsTable].Columns.Keys;
         Assert.That(CatalogBuilder.AnnotationFields, Is.SubsetOf(columns), "every annotation column is described");
     }

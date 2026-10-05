@@ -110,6 +110,10 @@ public sealed record DatasetAnnotation(
     }, sortKeys: true, ensureAscii: true);
 }
 
+/// <summary>One run the build's manifest excludes from ANALYSIS: a row of <c>run_exclusions</c> (G85).</summary>
+/// <param name="RunId">The run's id as <c>runs.run_id</c> spells it, <c>&lt;dataset_id&gt;:&lt;run base name&gt;</c>.</param>
+public sealed record RunExclusion(string DatasetId, string BundleId, string RunId, string RunName, string Reason);
+
 /// <summary>What a build did, in the terms an operator or a release checklist needs.</summary>
 public sealed record CatalogResult
 {
@@ -168,8 +172,10 @@ public static class CatalogBuilder
     /// engine artefacts into <c>protein_localizations</c>, <c>organelle_term_categories</c> and
     /// <c>annotation_sources</c>, with a go coverage check and <c>catalog_tables.kind</c>
     /// <c>engine:go.annotate_groups</c> (G86); "10" adds <c>dataset_annotations</c>, the producer's NON-content
-    /// manifest fields taken from the manifest the build is given, and hashes them into the catalog id (G84).
-    /// Inside a <see cref="SchemaContract.Python0320"/> scope it stays "8", and go and the annotations are left
+    /// manifest fields taken from the manifest the build is given, and hashes them into the catalog id (G84), and
+    /// <c>run_exclusions</c> from the same manifest's <c>excluded_runs</c> (G85). G85 did not bump it: "10" was
+    /// unreleased when G85 joined it (1.1.0 carries both), so no published catalog says "10" without the table, and
+    /// the exclusions themselves are hashed into the id, which moves whenever they do. Inside a <see cref="SchemaContract.Python0320"/> scope it stays "8", and go and the annotations are left
     /// out, so a parity build is still what Python 0.32.0 built. Same principle as
     /// <c>manifest.CONTENT_FIELDS</c> one level down -- an id moves when its own content moves, and not
     /// otherwise.</remarks>
@@ -190,6 +196,15 @@ public static class CatalogBuilder
     /// order. Every non-content field but <c>raw</c> (the source row, the container of these) is here, and a test
     /// fails on one that is in neither, so adding a manifest field means deciding whether a reader sees it.</summary>
     public static readonly IReadOnlyList<string> AnnotationFields = ["status", "reason", "notes", "flags", "provenance_schema", "sdrf"];
+
+    /// <summary>The derived table of runs the build's manifest excludes from analysis (G85).</summary>
+    public const string RunExclusionsTable = "run_exclusions";
+
+    /// <summary>The <see cref="DatasetEntry.NonContentFields"/> a reader sees in <c>run_exclusions</c> rather than in
+    /// <c>dataset_annotations</c>: a per-RUN fact, so one row per run joinable on <c>runs.run_id</c>, not a list in a
+    /// per-dataset row that every analysis would have to unnest. Together with <see cref="AnnotationFields"/> they are
+    /// every non-content field but <c>raw</c> (a test).</summary>
+    public static readonly IReadOnlyList<string> RunExclusionFields = ["excluded_runs"];
 
     /// <summary>The package version a catalog id hashes and <c>catalog_meta.builder_version</c> records
     /// (Python's <c>__version__</c>): this assembly's informational version, without build metadata.</summary>
@@ -241,6 +256,7 @@ public static class CatalogBuilder
         "dataset_databases",
         "protein_genes",
         AnnotationsTable,
+        RunExclusionsTable,
     ];
 
     /// <summary>Views that apply the producing search engine's acceptance rule, so no caller has to restate
@@ -464,8 +480,8 @@ public static class CatalogBuilder
             + "the bundle, so a reworded note reaches the catalog at the next build without a re-ingest (G84). "
             + "These fields never reach a bundle's rows and are not in its content hash, so the bundle holds no "
             + "copy to disagree with; the catalog id hashes them instead. READ `notes` before quoting a "
-            + "number for a dataset: the producer records there, in prose, what a reader must know, such as "
-            + "runs excluded from analysis that are still in the bundle.",
+            + "number for a dataset: the producer records there, in prose, what a reader must know. Runs the "
+            + "producer excludes from analysis are NOT here: they are rows of `run_exclusions`.",
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["in_manifest"] = "False when the build's manifest has no entry for the dataset. Every other "
@@ -480,6 +496,26 @@ public static class CatalogBuilder
                     + "schema from provenance.json itself; this is the declaration.",
                 ["sdrf"] = "The SDRF the producer declared. The ingest finds and hashes the SDRF under the "
                     + "run folder; this is the declaration.",
+            }),
+        [RunExclusionsTable] = new(
+            "One row per run the producer EXCLUDES FROM ANALYSIS (the manifest's `excluded_runs`, G85), with the "
+            + "producer's reason. The run was searched and is still in every bundle-backed table -- `runs`, "
+            + "`psms`, `quant_values`, `assays` -- and in every count derived from them, `dataset_overview` and "
+            + "the `_1pct` views included; nothing here filters them. So ANY analysis across runs or samples "
+            + "(abundance, age effects, per-run statistics) must leave these runs out itself, with an anti-join: "
+            + "`... WHERE run_id NOT IN (SELECT run_id FROM run_exclusions)` on `runs` or `psms`, or through "
+            + "`assays.run_id` for quantities. Identification counts the producer reports are of the whole search "
+            + "and include them. Taken from the manifest `datarepo build` was given, not from the bundle, so a "
+            + "changed exclusion reaches the catalog at the next build without a re-ingest, and moves the "
+            + "catalog id. No row for a dataset means its manifest entry excludes no run (or the dataset has no "
+            + "entry: `dataset_annotations.in_manifest`).",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["run_id"] = "The excluded run, exactly as `runs.run_id` spells it: join on it. The build refuses a "
+                    + "manifest exclusion that matches no run of the dataset's bundle, so every row joins.",
+                ["run_name"] = "The run's base name as the manifest wrote it (the raw file name without its "
+                    + "extension).",
+                ["reason"] = "The producer's reason, verbatim: prose, never parsed by datarepo.",
             }),
         ["psms_1pct"] = new(
             "`psms` with the producing search engine's acceptance rule applied once, so no caller "
@@ -750,7 +786,20 @@ public static class CatalogBuilder
         IReadOnlyList<ArtefactRef>? artefacts = null,
         string? packageVersion = null,
         Manifest? manifest = null) =>
-        CatalogIdOf(bundles, studyBundles, artefacts, packageVersion, Annotations(bundles, manifest));
+        CatalogIdOf(bundles, studyBundles, artefacts, packageVersion, Annotations(bundles, manifest), RunExclusions(bundles, manifest));
+
+    /// <summary>Each bundle's runs that <paramref name="manifest"/> excludes from analysis (G85), in dataset then run
+    /// order. A dataset the manifest does not list excludes nothing.</summary>
+    /// <remarks>From the manifest the catalog is BUILT with, for <see cref="Annotations"/>'s reason: the field is not
+    /// content, so a bundle carries no copy of it. Whether each run is a run of the bundle is checked by the build,
+    /// against the loaded <c>runs</c>.</remarks>
+    public static List<RunExclusion> RunExclusions(IReadOnlyList<BundleRef> bundles, Manifest? manifest) =>
+        bundles.OrderBy(r => r.DatasetId, SourcesPy.CodePointOrder)
+            .SelectMany(r => manifest is not null && manifest.Datasets.TryGetValue(r.DatasetId, out var e)
+                ? e.ExcludedRuns.OrderBy(p => p.Run, SourcesPy.CodePointOrder)
+                    .Select(p => new RunExclusion(r.DatasetId, r.BundleId, $"{r.DatasetId}:{p.Run}", p.Run, p.Reason))
+                : [])
+            .ToList();
 
     /// <summary>Each bundle's dataset with its non-content manifest fields from <paramref name="manifest"/>, in
     /// dataset order (G84).</summary>
@@ -773,7 +822,8 @@ public static class CatalogBuilder
         IReadOnlyList<StudyBundleRef>? studyBundles,
         IReadOnlyList<ArtefactRef>? artefacts,
         string? packageVersion,
-        IReadOnlyList<DatasetAnnotation> annotations)
+        IReadOnlyList<DatasetAnnotation> annotations,
+        IReadOnlyList<RunExclusion> exclusions)
     {
         var text = new StringBuilder();
         text.Append($"datarepo/{packageVersion ?? PackageVersion}\ncatalog/{CatalogVersion}\nschema/{SchemaContract.Version}\n");
@@ -796,6 +846,11 @@ public static class CatalogBuilder
         if (AnnotationsActive)
             foreach (var a in annotations.OrderBy(a => a.DatasetId, SourcesPy.CodePointOrder))
                 text.Append($"annotation/{a.DatasetId}\t{a.Canonical()}\n");
+        // And which runs a reader must leave out (G85): two catalogs that exclude different runs answer an analysis
+        // differently. A line per exclusion, none without, so a catalog that excludes nothing keeps the id it had.
+        if (AnnotationsActive)
+            foreach (var x in exclusions.OrderBy(x => x.DatasetId, SourcesPy.CodePointOrder).ThenBy(x => x.RunName, SourcesPy.CodePointOrder))
+                text.Append($"run-exclusion/{x.DatasetId}\t{PyFormat.Json(new List<object?> { x.RunName, x.Reason }, ensureAscii: true)}\n");
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text.ToString())))[..16];
     }
 
@@ -1086,7 +1141,8 @@ public static class CatalogBuilder
 
         var datasets = seen.Keys.Order(SourcesPy.CodePointOrder).ToList();
         var annotations = Annotations(bundles, manifest);
-        var cid = CatalogIdOf(bundles, study, engines, null, annotations);
+        var exclusions = RunExclusions(bundles, manifest);
+        var cid = CatalogIdOf(bundles, study, engines, null, annotations, exclusions);
         if (!overwrite && ReadCatalogId(@out) == cid)
             return new CatalogResult
             {
@@ -1113,7 +1169,11 @@ public static class CatalogBuilder
                 foreach (var (k, v) in CreateEngineTables(con, engines)) rowCounts[k] = v;
                 foreach (var (k, v) in LoadGoRows(con, bundles, engines)) rowCounts[k] = v;
                 BuildEngineDerived(con, bundles);
-                if (AnnotationsActive) CreateAnnotations(con, annotations);
+                if (AnnotationsActive)
+                {
+                    CreateAnnotations(con, annotations);
+                    CreateRunExclusions(con, exclusions);
+                }
                 checks = [
                     .. CheckRowCounts(con, bundles),
                     .. CheckIntegrity(con),
@@ -1122,6 +1182,7 @@ public static class CatalogBuilder
                     .. CheckGo(con, bundles, engines),
                     .. engineChecks ?? [],
                     .. AnnotationsActive ? [AnnotationCheck(annotations)] : Array.Empty<CatalogCheck>(),
+                    .. AnnotationsActive && exclusions.Count > 0 ? [RunExclusionCheck(con, exclusions)] : Array.Empty<CatalogCheck>(),
                 ];
                 var failed = checks.Where(c => !c.Ok).ToList();
                 if (failed.Count > 0)
@@ -1165,6 +1226,42 @@ public static class CatalogBuilder
         foreach (var a in annotations)
             Exec(con, $"INSERT INTO \"{AnnotationsTable}\" VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 a.DatasetId, a.BundleId, a.InManifest, a.Status, a.Reason, a.Notes, a.Flags?.ToList(), a.ProvenanceSchema, a.Sdrf);
+    }
+
+    /// <summary><c>run_exclusions</c>: one row per run the build's manifest excludes from analysis (G85). Written
+    /// even when empty, so a query against it never fails on a catalog that excludes nothing.</summary>
+    private static void CreateRunExclusions(DuckDBConnection con, IReadOnlyList<RunExclusion> exclusions)
+    {
+        Exec(con, $@"
+        CREATE TABLE ""{RunExclusionsTable}"" (
+            dataset_id VARCHAR, bundle_id VARCHAR, run_id VARCHAR, run_name VARCHAR, reason VARCHAR
+        )
+        ");
+        foreach (var x in exclusions)
+            Exec(con, $"INSERT INTO \"{RunExclusionsTable}\" VALUES (?, ?, ?, ?, ?)", x.DatasetId, x.BundleId, x.RunId, x.RunName, x.Reason);
+    }
+
+    /// <summary>Whether every excluded run is a run of its dataset's bundle. FAILS otherwise, which stops the build.</summary>
+    /// <remarks>An exclusion that matches no run is worse than none: the run it meant (misspelt, or written with its
+    /// extension) would sit in the catalog looking fit for analysis while the manifest says it is not. Ingest does not
+    /// check this (the field is not content, so it must not change an ingest's outcome); <c>datarepo manifest</c>
+    /// reports it first, in the same words, and this is the gate that cannot be skipped.</remarks>
+    private static CatalogCheck RunExclusionCheck(DuckDBConnection con, IReadOnlyList<RunExclusion> exclusions)
+    {
+        var problems = new List<string>();
+        var matched = 0L;
+        foreach (var group in exclusions.GroupBy(x => x.DatasetId))
+        {
+            var runIds = Query(con, "SELECT run_id FROM runs WHERE dataset_id = ?", group.Key)
+                .Select(r => SourcesPy.Str(r[0])).ToHashSet(StringComparer.Ordinal);
+            var prefix = group.Key + ":";
+            var baseNames = runIds.Where(id => id.StartsWith(prefix, StringComparison.Ordinal)).Select(id => id[prefix.Length..]).ToList();
+            matched += group.Count(x => runIds.Contains(x.RunId));
+            problems.AddRange(DataRepo.Ingest.Sources.Runs.ExclusionProblems(baseNames, new HashSet<string>(), group.Key,
+                group.Select(x => (x.RunName, x.Reason)).ToList()));
+        }
+        return new CatalogCheck($"{RunExclusionsTable} (excluded runs that are runs of the bundle)", "manifest",
+            problems.Count == 0, matched, exclusions.Count, problems.Count == 0 ? null : string.Join(" ", problems));
     }
 
     /// <summary>Which datasets the build's manifest annotated. It always passes: a dataset with no entry builds,
@@ -1848,7 +1945,7 @@ public static class CatalogBuilder
         var views = AcceptedViews.Select(kv => kv.Key).Concat(GrainViews.Select(kv => kv.Key)).ToHashSet(StringComparer.Ordinal);
         foreach (var name in DerivedTables.Concat(AcceptedViews.Select(kv => kv.Key)).Concat(GrainViews.Select(kv => kv.Key)))
         {
-            if (name == AnnotationsTable && !AnnotationsActive) continue;
+            if (name is AnnotationsTable or RunExclusionsTable && !AnnotationsActive) continue;
             var rows = Count(con, $"SELECT count(*) FROM \"{name}\"");
             Exec(con, "INSERT INTO catalog_tables VALUES (?, ?, ?)", name, rows, views.Contains(name) ? "view" : "derived");
         }

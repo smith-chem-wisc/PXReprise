@@ -42,7 +42,7 @@ namespace DataRepo.Cli
         {
             ["ingest"] = "build a Parquet bundle for one or more datasets",
             ["study"] = "write a study layer's delivered rows as a study bundle",
-            ["manifest"] = "show what the producing instance offers, and check its run_enrichment maps",
+            ["manifest"] = "show what the producing instance offers, and check its run_enrichment maps and excluded_runs",
             ["inspect"] = "summarise a written bundle",
             ["build"] = "load bundles into one DuckDB catalog",
             ["catalog"] = "summarise a built catalog",
@@ -305,6 +305,7 @@ namespace DataRepo.Cli
                 Console.WriteLine($"licence    {PyFormat.Str(manifest.Licence)} - {(manifest.Credit is null ? "no credit line" : PyFormat.Str(manifest.Credit))}");
             Console.WriteLine();
             var refused = 0;
+            var unmatched = 0;
             foreach (var entry in manifest.Datasets.Values)
             {
                 var mark = entry.Ingestable ? "+" : "-";
@@ -318,21 +319,36 @@ namespace DataRepo.Cli
                     Console.WriteLine($"     reason {string.Join(" ", PyFormat.Str(entry.Reason).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))}");
                 // PXReprise 009: a run map ingest would refuse is refused here too, so a wrong map is found
                 // before a re-ingest. The runs are read where the run folder is reachable.
-                if (entry.RunEnrichment.Count == 0) continue;
-                var (problems, runsRead) = Ingester.RunEnrichmentProblems(manifest, entry);
-                foreach (var problem in problems) Console.WriteLine($"     REFUSED {problem}");
-                if (problems.Count == 0)
-                    Console.WriteLine(runsRead
-                        ? $"     run_enrichment  ok against the runs ({entry.RunEnrichment.Count} mapped)"
-                        : "     run_enrichment  values ok; runs not readable here, so coverage was not checked");
-                refused += problems.Count > 0 ? 1 : 0;
+                if (entry.RunEnrichment.Count > 0)
+                {
+                    var (problems, runsRead) = Ingester.RunEnrichmentProblems(manifest, entry);
+                    foreach (var problem in problems) Console.WriteLine($"     REFUSED {problem}");
+                    if (problems.Count == 0)
+                        Console.WriteLine(runsRead
+                            ? $"     run_enrichment  ok against the runs ({entry.RunEnrichment.Count} mapped)"
+                            : "     run_enrichment  values ok; runs not readable here, so coverage was not checked");
+                    refused += problems.Count > 0 ? 1 : 0;
+                }
+                // G85: runs excluded from analysis. Ingest does not read the field (it is not content); `build` refuses
+                // an exclusion that matches no run of the bundle, and this is where the operator finds out first.
+                if (entry.ExcludedRuns.Count > 0)
+                {
+                    foreach (var (run, reason) in entry.ExcludedRuns)
+                        Console.WriteLine($"     excluded {run}: {string.Join(" ", reason.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))}");
+                    var (problems, runsRead) = Ingester.ExcludedRunProblems(manifest, entry);
+                    foreach (var problem in problems) Console.WriteLine($"     UNMATCHED {problem}");
+                    if (problems.Count == 0)
+                        Console.WriteLine(runsRead
+                            ? $"     excluded_runs  ok against the runs ({entry.ExcludedRuns.Count} excluded from analysis)"
+                            : "     excluded_runs  runs not readable here, so the names were not checked; build checks them against the bundle");
+                    unmatched += problems.Count > 0 ? 1 : 0;
+                }
             }
             if (refused > 0)
-            {
                 Console.Error.WriteLine($"{manifest.Path}: {refused} dataset(s) have a run_enrichment map ingest would refuse");
-                return 1;
-            }
-            return 0;
+            if (unmatched > 0)
+                Console.Error.WriteLine($"{manifest.Path}: {unmatched} dataset(s) have excluded_runs that are not runs of the dataset; build would refuse them");
+            return refused > 0 || unmatched > 0 ? 1 : 0;
         }
 
         private static int Inspect(string[] argv)

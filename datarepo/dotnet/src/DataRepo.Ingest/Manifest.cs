@@ -30,6 +30,9 @@ public sealed record DatasetEntry
     public object? Sdrf { get; init; }
     public object? Reason { get; init; }
     public object? Notes { get; init; }
+    /// <summary><c>(run base name, reason)</c> pairs, sorted by run, from <c>excluded_runs: {run: reason}</c> (G85):
+    /// runs the producer leaves out of ANALYSIS. They were searched and stay in the bundle.</summary>
+    public IReadOnlyList<(string Run, string Reason)> ExcludedRuns { get; init; } = [];
     public IReadOnlyDictionary<string, object?> Raw { get; init; } = new Dictionary<string, object?>();
 
     /// <summary>Manifest fields that shape what a bundle CONTAINS, so they go into its content hash.</summary>
@@ -52,6 +55,7 @@ public sealed record DatasetEntry
         ["flags"] = "shown by `datarepo manifest`; the ingest reads none of them except `mixed_enrichment`, which is lifted into its own content field so the rest stay prose",
         ["provenance_schema"] = "the producer's declared expectation; the ingest reads the schema from provenance.json itself and refuses a version it cannot map",
         ["sdrf"] = "declared but not read -- the SDRF is found under the run folder and hashed as a file",
+        ["excluded_runs"] = "the producer's judgement of which runs an ANALYSIS should leave out (G85); every run is still searched, ingested and counted the same, so no row changes, and the catalog takes the field at build (run_exclusions)",
         ["raw"] = "the source row itself, which is the container for every field above",
     };
 
@@ -136,9 +140,11 @@ public sealed record Manifest(
     {
         if (!File.Exists(path)) throw new ManifestException($"no ingest manifest at {path}");
         object? doc;
+        YamlDotNet.RepresentationModel.YamlNode? root;
         try
         {
-            doc = PyYaml.LoadFile(path);
+            root = PyYaml.LoadRoot(path);
+            doc = root is null ? null : PyYaml.Plain(root);
         }
         catch (YamlDotNet.Core.YamlException e)
         {
@@ -198,6 +204,7 @@ public sealed record Manifest(
                 Sdrf = row.GetValueOrDefault("sdrf"),
                 Reason = row.GetValueOrDefault("reason"),
                 Notes = row.GetValueOrDefault("notes"),
+                ExcludedRuns = ExcludedRunPairs(DatasetNode(root, i, "excluded_runs"), $"{path}: {accession}"),
                 Raw = row,
             };
         }
@@ -244,6 +251,43 @@ public sealed record Manifest(
         }
         return seen.OrderBy(kv => kv.Key, StringComparer.Ordinal).ThenBy(kv => kv.Value, StringComparer.Ordinal)
             .Select(kv => (kv.Key, kv.Value)).ToList();
+    }
+
+    /// <summary>The node of one field of <c>datasets[index]</c>, or null when the entry does not write it.</summary>
+    private static YamlDotNet.RepresentationModel.YamlNode? DatasetNode(YamlDotNet.RepresentationModel.YamlNode? root, int index, string field)
+    {
+        if (root is not YamlDotNet.RepresentationModel.YamlMappingNode map) return null;
+        var datasets = map.Children.LastOrDefault(kv => kv.Key is YamlDotNet.RepresentationModel.YamlScalarNode { Value: "datasets" }).Value
+            as YamlDotNet.RepresentationModel.YamlSequenceNode;
+        if (datasets is null || index >= datasets.Children.Count) return null;
+        if (datasets.Children[index] is not YamlDotNet.RepresentationModel.YamlMappingNode entry) return null;
+        return entry.Children.LastOrDefault(kv => kv.Key is YamlDotNet.RepresentationModel.YamlScalarNode s && s.Value == field).Value;
+    }
+
+    /// <summary><c>{run: reason}</c> to <c>(run, reason)</c> pairs sorted by run (G85).</summary>
+    /// <remarks>Read from the YAML node, not from <see cref="PyYaml.Plain"/>'s dictionary, because a run name is the
+    /// key's TEXT: PyYAML's typing would read <c>2017_03</c> as the integer 201703, which names no run. A run listed
+    /// twice never gets here: YamlDotNet refuses a duplicate key in any mapping ("Duplicate key"), so the manifest
+    /// is refused as invalid YAML, and two reasons for one run are never silently reduced to one.</remarks>
+    private static IReadOnlyList<(string Run, string Reason)> ExcludedRunPairs(YamlDotNet.RepresentationModel.YamlNode? node, string where)
+    {
+        if (node is null || PyYaml.Plain(node) is null) return [];
+        if (node is not YamlDotNet.RepresentationModel.YamlMappingNode map)
+            throw new ManifestException(
+                $"{where}: excluded_runs must map a run name to the reason it is excluded from analysis, found {PyTypeName(PyYaml.Plain(node))}");
+        var seen = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (key, value) in map.Children)
+        {
+            if (key is not YamlDotNet.RepresentationModel.YamlScalarNode { Value: { Length: > 0 } name } || name.Trim().Length == 0)
+                throw new ManifestException($"{where}: excluded_runs has a key that is not a run name ({PyRepr(PyYaml.Plain(key))})");
+            var reason = PyYaml.Plain(value);
+            if (reason is not string text || text.Trim().Length == 0)
+                throw new ManifestException(
+                    $"{where}: excluded_runs[{PyRepr(name)}] must be a non-empty reason, found {(reason is string ? "an empty str" : PyTypeName(reason))}. "
+                    + "A reader is owed why a searched run is left out of analysis.");
+            seen[name] = text;
+        }
+        return seen.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => (kv.Key, kv.Value)).ToList();
     }
 
     /// <summary>A manifest path, with a relative one taken against the manifest's own directory.</summary>

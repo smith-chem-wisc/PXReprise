@@ -163,11 +163,15 @@ protein", which is the question the repository exists for.
 | `protein_datasets` | 1/accession/dataset | accepted protein groups and peptidoforms, best group q-value |
 | `peptide_index` | 1/base sequence | how many datasets it appears in |
 | `dataset_annotations` | 1/dataset | the producer's notes, flags, status and reason, from the manifest `build` was given |
+| `run_exclusions` | 1/excluded run | runs the manifest's `excluded_runs` leaves out of analysis, with the reason; `run_id` joins `runs` |
 
 `dataset_annotations` is taken from the manifest at **build**, not from the bundle. These fields are not
 identity (rewording a note must not re-id a bundle), so they never reach a bundle at all; a reworded
 note reaches the catalog at the next `build`, with no re-ingest, and moves the catalog id. A dataset the
 manifest does not list keeps NULLs and a `catalog_checks` row of kind `manifest` names it.
+`run_exclusions` is built the same way. Its runs are still in `runs`, `psms` and `quant_values` and in
+every count, so an analysis anti-joins it (`run_id NOT IN (SELECT run_id FROM run_exclusions)`). `build`
+refuses an exclusion that names no run of the dataset's bundle.
 
 `protein_index` carries both `n_datasets` and `n_datasets_1pct` on purpose. `proteins` is the
 search's protein *list*, decoys and sub-threshold matches included, not its answer. An agent asking
