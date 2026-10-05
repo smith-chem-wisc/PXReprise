@@ -250,8 +250,8 @@ public static class Ingester
         var settings = mmSettings;
         if (settings is null && entry.Metamorpheus is not null && S(entry.Metamorpheus).Length > 0)
             settings = Join(Join(manifest.WorkRoot, "mm_settings"), S(entry.Metamorpheus));
-        var registry = settings is not null ? ModRegistry.FromMetaMorpheus(settings) : new ModRegistry();
-        var proforma = new ProformaCache(registry);
+        var registry = settings is not null ? ModRegistry.FromMetaMorpheus(settings, rules) : new ModRegistry();
+        var proforma = new ProformaCache(registry, rules);
 
         // --- samples and runs -----------------------------------------------------------------------------
         var fetchPath = Directory.GetDirectories(runDir).Order(StringComparer.Ordinal)
@@ -467,7 +467,7 @@ public static class Ingester
         var taskFiles = TaskFiles(manifest.WorkRoot, searchProvenance);
         foreach (var path in taskFiles)
             writer.AddSource(path, $"task:{Path.GetFileNameWithoutExtension(path)}", Path.GetFileName(path));
-        var searchModifications = SearchParams.ModificationRows(taskFiles, datasetId, name => registry.Lookup(name)?.UnimodCurie);
+        var searchModifications = SearchParams.ModificationRows(taskFiles, datasetId, name => registry.Lookup(name, rules: rules)?.UnimodCurie);
 
         var resultsPath = Join(resultsDir, "results.txt");
         var results = new Dictionary<string, Dictionary<string, long>>(StringComparer.Ordinal);

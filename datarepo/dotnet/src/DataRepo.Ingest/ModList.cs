@@ -70,7 +70,11 @@ public static class ModList
     }
 
     /// <summary>Yield <see cref="ModEntry"/> rows from a UniProt-style <c>ID/TG/MM/DR</c> flat file (Python <c>_parse_entries</c>).</summary>
-    public static IEnumerable<ModEntry> ParseEntries(string text, string source)
+    /// <remarks>Under <see cref="IngestRules.Current"/> an entry starts clean at its <c>ID</c> line: a <c>TG</c>,
+    /// <c>MM</c> or <c>DR</c> line between a <c>//</c> and the next <c>ID</c> belongs to no entry. Python 0.32.0
+    /// (<see cref="IngestRules.Python0320"/>) carried such lines into the next entry, giving it a target, mass or
+    /// UNIMOD accession its own block never stated (G83 item 2).</remarks>
+    public static IEnumerable<ModEntry> ParseEntries(string text, string source, IngestRules rules = IngestRules.Current)
     {
         string? ident = null, target = null;
         double? mass = null;
@@ -91,8 +95,9 @@ public static class ModList
             {
                 // A new ID without a closing `//` means the previous block ended (ptmlist.txt style).
                 if (!string.IsNullOrEmpty(ident))
-                {
                     yield return new ModEntry(ident, Targets(target ?? ""), unimod, mass, source);
+                if (!string.IsNullOrEmpty(ident) || rules == IngestRules.Current)
+                {
                     target = null;
                     mass = null;
                     unimod = null;
@@ -437,7 +442,7 @@ public sealed class ModRegistry
     /// stored bundle was written on Windows, so that order is the contract (found by CI, 2026-10-04; G83).
     /// Files are decoded as <c>utf-8-sig</c> with <c>errors="replace"</c> (one leading BOM dropped, bad bytes
     /// become U+FFFD).</remarks>
-    public static ModRegistry FromMetaMorpheus(string installDir)
+    public static ModRegistry FromMetaMorpheus(string installDir, IngestRules rules = IngestRules.Current)
     {
         var registry = new ModRegistry();
         const bool windows = true;
@@ -463,7 +468,7 @@ public sealed class ModRegistry
             var bytes = File.ReadAllBytes(path);
             var skip = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF ? 3 : 0;
             var text = utf8.GetString(bytes, skip, bytes.Length - skip);
-            foreach (var entry in ModList.ParseEntries(text, Path.GetFileName(path)))
+            foreach (var entry in ModList.ParseEntries(text, Path.GetFileName(path), rules))
                 registry.Add(entry);
         }
         return registry;
@@ -473,9 +478,16 @@ public sealed class ModRegistry
     /// <remarks><paramref name="name"/> is the part inside the bracket after the category, e.g.
     /// <c>Hydroxylation on K</c> or <c>N6-acetyllysine on K</c>. Some files spell the target into the ID and some
     /// do not, so the full name is tried first and then the name with <c> on &lt;residue&gt;</c> stripped.
-    /// An empty <paramref name="residue"/> counts as none, as Python's falsy test does.</remarks>
-    public ModEntry? Lookup(string name, string? residue = null)
+    /// An empty <paramref name="residue"/> counts as none, as Python's falsy test does.
+    /// <para><b>Under <see cref="IngestRules.Current"/> nothing is guessed</b> (G83 item 1). The residue is read
+    /// the way a <c>TG</c> line is (<see cref="ModList.Targets"/>: <c>Nxs</c> is <c>N</c>, <c>Methionine</c> is
+    /// <c>M</c>), and an entry answers only if it targets that residue, or targets <c>X</c> (any residue, as an
+    /// mzLib motif reads it). With no residue at all, the candidates must agree on accession and mass. Anything
+    /// else is null, so the caller reports the name unresolved. Python 0.32.0 fell back to the first candidate
+    /// carrying a UNIMOD accession, so <c>N6-acetyllysine on S</c> resolved to <c>UNIMOD:1</c>.</para></remarks>
+    public ModEntry? Lookup(string name, string? residue = null, IngestRules rules = IngestRules.Current)
     {
+        if (rules == IngestRules.Current) return StrictLookup(name, residue);
         _byName.TryGetValue(ModList.PyCaseFold(name), out var candidates);
         if (candidates is null && name.Contains(" on ", StringComparison.Ordinal))
         {
@@ -499,5 +511,23 @@ public sealed class ModRegistry
             if (entry.Unimod is not null)
                 return entry;
         return candidates[0];
+    }
+
+    /// <summary><see cref="Lookup"/> under <see cref="IngestRules.Current"/>: the candidates as 0.32.0 found them,
+    /// and an answer only where the residue (or, with none, the candidates' agreement) decides it.</summary>
+    private ModEntry? StrictLookup(string name, string? residue)
+    {
+        _byName.TryGetValue(ModList.PyCaseFold(name), out var candidates);
+        var cut = name.LastIndexOf(" on ", StringComparison.Ordinal);
+        if (candidates is null && cut >= 0)
+            _byName.TryGetValue(ModList.PyCaseFold(name[..cut]), out candidates);
+        if (candidates is null) return null;
+        if (string.IsNullOrEmpty(residue) && cut >= 0) residue = name[(cut + 4)..];
+        IReadOnlySet<string> wanted = string.IsNullOrEmpty(residue) ? new HashSet<string>() : ModList.Targets(residue);
+        if (wanted.Count > 0)
+            return candidates.FirstOrDefault(e => e.Targets.Overlaps(wanted))
+                ?? candidates.FirstOrDefault(e => e.Targets.Contains("X"));
+        // No residue to check: an answer only when every candidate gives the same one.
+        return candidates.Select(e => (e.UnimodCurie, e.MonoisotopicMass)).Distinct().Count() == 1 ? candidates[0] : null;
     }
 }

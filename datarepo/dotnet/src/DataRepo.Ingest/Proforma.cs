@@ -38,8 +38,10 @@ public static class Proforma
     /// <summary>Split a full sequence into (residue, bracket-content) pairs, plus a leading pair.</summary>
     /// <remarks>A bracket before the first residue is returned with an empty residue, which is how an
     /// N-terminal modification announces itself in MetaMorpheus notation. Brackets nest; an unclosed one runs
-    /// to the end, and (as Python's slice does) its content then loses the final code point.</remarks>
-    internal static List<(string Residue, string? Bracket)> Split(string fullSequence)
+    /// to the end. Under <see cref="IngestRules.Python0320"/> its content then loses the final code point (Python's
+    /// <c>[i + 1 : j - 1]</c> slice assumed a closing bracket at <c>j - 1</c>); under <see cref="IngestRules.Current"/>
+    /// the content is everything after the bracket, as written (G83 item 3).</remarks>
+    internal static List<(string Residue, string? Bracket)> Split(string fullSequence, IngestRules rules = IngestRules.Current)
     {
         var output = new List<(string Residue, string? Bracket)>();
         var i = 0;
@@ -60,7 +62,9 @@ public static class Proforma
                 }
                 // Python's full_sequence[i + 1 : j - 1], where j - 1 drops one code point.
                 var end = j - 1;
-                if (depth != 0 && end > i + 1 && char.IsLowSurrogate(fullSequence[end]) && char.IsHighSurrogate(fullSequence[end - 1]))
+                if (depth != 0 && rules == IngestRules.Current)
+                    end = j;  // unclosed: nothing to drop
+                else if (depth != 0 && end > i + 1 && char.IsLowSurrogate(fullSequence[end]) && char.IsHighSurrogate(fullSequence[end - 1]))
                     end--;
                 var content = end > i + 1 ? fullSequence[(i + 1)..end] : "";
                 if (output.Count > 0)
@@ -81,16 +85,37 @@ public static class Proforma
         return output;
     }
 
+    /// <summary>Does a token's <c>on &lt;residue&gt;</c> fit the residue it sits on? Read as a <c>TG</c> line is read, so
+    /// a motif (<c>Nxs</c>) names its first residue; <c>X</c> fits anything.</summary>
+    /// <remarks><b>A terminal bracket is not checked.</b> mzLib builds a reversed decoy with the target's protein
+    /// N-terminal modification still at the N-terminus, now on whatever residue the reversal put there, so
+    /// MetaMorpheus writes <c>[UniProt:N-acetylglycine on G]SVAA...</c> for a decoy. Measured on aging's corpus
+    /// (2026-10-05): 10,601 distinct sequences, 17,667 PSM rows in 87 datasets disagree at the N-terminus, every one
+    /// of them a decoy, and none on a residue. The modification is the one the engine scored, so it keeps its
+    /// accession there.</remarks>
+    private static bool ResidueAgrees(string tokenResidue, long position, string placedOn)
+    {
+        if (position is NTerminus or CTerminus) return true;
+        var named = ModList.Targets(tokenResidue);
+        if (named.Count == 0 || named.Contains("X")) return true;
+        return named.Contains(ModList.PyUpper(placedOn));
+    }
+
     /// <summary>Convert one MetaMorpheus full sequence to ProForma 2.</summary>
     /// <param name="fullSequence">the <c>Full Sequence</c> column of a <c>.psmtsv</c>.</param>
     /// <param name="registry">modifications from the MetaMorpheus install that did the search.</param>
     /// <returns>A <see cref="Peptidoform"/> carrying the ProForma string, the unmodified sequence, where each
     /// modification sits, and the names nothing could resolve.</returns>
-    public static Peptidoform Parse(string fullSequence, ModRegistry registry)
+    /// <remarks>Under <see cref="IngestRules.Current"/> a token on a residue must name that residue (<c>on S</c> on
+    /// an S), or <c>X</c>. A token that names another residue contradicts the sequence, so it is not resolved: it
+    /// keeps its name in an <c>[Info:...]</c> tag and is reported, never given the accession of a modification it
+    /// does not describe. Terminal brackets are exempt (see <see cref="ResidueAgrees"/>). Python 0.32.0 never
+    /// checked (G83 item 1).</remarks>
+    public static Peptidoform Parse(string fullSequence, ModRegistry registry, IngestRules rules = IngestRules.Current)
     {
         if (string.IsNullOrEmpty(fullSequence)) return new Peptidoform("", "");
 
-        var pieces = Split(fullSequence);
+        var pieces = Split(fullSequence, rules);
         var baseResidues = new List<string>();
         var mods = new List<ModPlacement>();
         var unresolved = new List<string>();
@@ -115,16 +140,18 @@ public static class Proforma
                 var category = m.Success ? m.Groups["category"].Value : "";
                 var name = m.Success ? $"{m.Groups["name"].Value} on {m.Groups["residue"].Value}" : token;
                 var target = m.Success ? m.Groups["residue"].Value : null;
-                var entry = registry.Lookup(name, target);
-                var unimod = entry?.UnimodCurie;
-                var mass = entry?.MonoisotopicMass;
-                if (unimod is null && mass is null) unresolved.Add(token);
                 var placedOn = position switch
                 {
                     NTerminus => "N-term",
                     CTerminus => "C-term",
                     _ => baseResidues[(int)position - 1],
                 };
+                var entry = rules == IngestRules.Current && target is not null && !ResidueAgrees(target, position, placedOn)
+                    ? null
+                    : registry.Lookup(name, target, rules);
+                var unimod = entry?.UnimodCurie;
+                var mass = entry?.MonoisotopicMass;
+                if (unimod is null && mass is null) unresolved.Add(token);
                 mods.Add(new ModPlacement(position, placedOn, name, category, unimod, mass));
                 var tag = Tag(name, unimod, mass);
                 if (position == NTerminus) nTermTags.Add(tag);
@@ -196,28 +223,35 @@ public sealed record Peptidoform(string Proforma, string BaseSequence)
 /// <remarks>A dataset's 43k PSMs collapse to a few thousand distinct full sequences, so the same string is
 /// translated over and over. The cache also accumulates the unresolved names, which become one
 /// Finding per dataset rather than one per PSM.</remarks>
-public sealed class ProformaCache(ModRegistry registry)
+public sealed class ProformaCache(ModRegistry registry, IngestRules rules = IngestRules.Current)
 {
     private readonly Dictionary<string, Peptidoform> _cache = new(StringComparer.Ordinal);
 
     public ModRegistry Registry { get; } = registry;
 
-    /// <summary>Each unresolved token with how many sequences (PSMs, peptides, ...) carried it, in first-seen order.</summary>
+    public IngestRules Rules { get; } = rules;
+
+    /// <summary>Each unresolved token with how many sequences carried it, in first-seen order.</summary>
+    /// <remarks>Under <see cref="IngestRules.Current"/> the count is of distinct full sequences. Python 0.32.0
+    /// counted every call, so one sequence was counted once per PSM row, again per peptide row, per site pass and
+    /// per quantified peptide, and the number meant nothing a reader could name (G83 item 4).</remarks>
     public Dictionary<string, long> Unresolved { get; } = new(StringComparer.Ordinal);
 
     /// <summary>Python's <c>cache(full_sequence)</c>.</summary>
     public Peptidoform Get(string fullSequence)
     {
-        if (!_cache.TryGetValue(fullSequence, out var hit))
+        var miss = !_cache.TryGetValue(fullSequence, out var hit);
+        if (miss)
         {
-            hit = Proforma.Parse(fullSequence, Registry);
+            hit = Proforma.Parse(fullSequence, Registry, Rules);
             _cache[fullSequence] = hit;
             foreach (var name in hit.Unresolved)
                 Unresolved[name] = Unresolved.GetValueOrDefault(name);
         }
-        foreach (var name in hit.Unresolved)
-            Unresolved[name] += 1;
-        return hit;
+        if (miss || Rules == IngestRules.Python0320)
+            foreach (var name in hit!.Unresolved)
+                Unresolved[name] += 1;
+        return hit!;
     }
 
     /// <summary>How many distinct full sequences have been parsed.</summary>
