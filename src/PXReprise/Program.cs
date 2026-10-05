@@ -64,10 +64,21 @@ public static class Program
                 var missing = q.Profiles.Where(p => !profiles.ContainsKey(p)).ToList();
                 if (missing.Count > 0)
                     throw new ConfigException(file, $"profile(s) not defined: {string.Join(", ", missing)}");
+                // [designs]: the folder must exist, and the deposits it holds a design for are listed (aging 030 asked
+                // whether validate reads it). Each design is checked against the deposit's files when it is searched.
+                if (q.Designs is { } dg && !Directory.Exists(dg.Dir))
+                    throw new ConfigException(file, $"[designs] dir {dg.Dir} does not exist");
                 return new
                 {
                     question = q.Name, q.Profiles, keywords = q.Keywords.Count, q.Organisms,
                     decisions = q.Relevance.Decisions.Count, holds = q.Holds.Count, overlays = q.Overlays.Keys,
+                    designs = q.Designs is not { } d ? null : new
+                    {
+                        dir = d.Dir,
+                        deposits = Directory.EnumerateFiles(d.Dir, "*.sdrf.tsv").Select(f => Path.GetFileName(f)[..^".sdrf.tsv".Length])
+                            .OrderBy(x => x, StringComparer.Ordinal).ToList(),
+                        condition_columns = d.ConditionColumns,
+                    },
                 };
             }
 

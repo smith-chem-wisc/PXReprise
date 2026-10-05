@@ -8,7 +8,7 @@
 //
 // One factor column per SDRF, because [designs] condition_columns is one list for the whole question and mzLib refuses
 // several factor columns with none declared:
-//   - `factor value[age]` = age_group, where the ages table's `condition` is blank throughout (age is the only factor);
+//   - `factor value[age group]` = age_group (it repeats characteristics[age group], as SDRF-Proteomics expects; aging 030 PXR-A24), where the ages table's `condition` is blank throughout (age is the only factor);
 //   - otherwise `factor value[group]` = design_condition (age and condition together, e.g. young_UBX0101), with
 //     characteristics[age] and characteristics[treatment] carrying the parts.
 // biological_replicate and technical_replicate are the ages table's; every run is fraction 1.
@@ -44,7 +44,7 @@ foreach (string tsv in Directory.EnumerateFiles(agesDir, "PXD*.tsv").Order(Strin
     bool ageOnly = rows.All(r => r["condition"].Length == 0);
     if (ageOnly && rows.Any(r => r["design_condition"] != r["age_group"]))
         throw new InvalidOperationException($"{acc}: condition is blank but design_condition differs from age_group");
-    string factor = ageOnly ? "factor value[age]" : "factor value[group]";
+    string factor = ageOnly ? "factor value[age group]" : "factor value[group]";
 
     var sb = new StringBuilder();
     sb.Append("source name\tcharacteristics[organism]\tcharacteristics[age]\tcharacteristics[age group]\t");
