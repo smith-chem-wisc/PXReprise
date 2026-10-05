@@ -77,10 +77,18 @@ public sealed record Profile(
     DepositPolicy Deposit,
     QcGates Qc,
     string SourceDir = ".",
-    string Design = "none")
+    string Design = "none",
+    string Chemistry = "fixed")
 {
     /// <summary>The values of <c>[quant] design</c>: none, or an experimental design from an SDRF (G15).</summary>
     public static readonly string[] Designs = { "none", "sdrf" };
+
+    /// <summary>
+    /// The values of <c>[engine] chemistry</c> (G19, D22-D27): "fixed" searches every deposit with MetaMorpheus's
+    /// defaults (trypsin, fixed carbamidomethyl), as label-free-dda@1 did; "deposit" reads each deposit's protease and
+    /// cysteine chemistry first and searches with them, or parks it.
+    /// </summary>
+    public static readonly string[] Chemistries = { "fixed", "deposit" };
 
     public string Key => $"{Id}@{Version}";
 
