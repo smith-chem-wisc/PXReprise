@@ -115,17 +115,18 @@ public class DocsTests
                 "--purpose", "how a tutorial fixture behaves");
             Assert.That(publish.Code, Is.EqualTo(0), publish.Stderr);
             var printed = Regex.Match(publish.Stdout, @"id\s+([0-9a-f]{16})").Groups[1].Value;
-            Assert.That(publish.Stdout, Does.Contain("checks   58 run, all passed"));
+            Assert.That(publish.Stdout, Does.Contain("checks   59 run, all passed"));
             Assert.That(publish.Stdout, Does.Contain("wrote    36 files, 1 dataset page"));
 
             // The id a release build of the page's version prints for these bundles. First prove the recomputation
             // has the build's inputs, by reproducing the id this build printed.
             var store = Path.Combine(instance, "store");
-            var bundles = CatalogBuilder.SelectBundles(Manifest.Load("manifest.yaml"), ["PXD999999"], store);
+            var tutorialManifest = Manifest.Load("manifest.yaml");
+            var bundles = CatalogBuilder.SelectBundles(tutorialManifest, ["PXD999999"], store);
             var (artefacts, _) = CatalogBuilder.SelectArtefacts(store, bundles);
-            Assert.That(CatalogBuilder.CatalogId(bundles, [], artefacts), Is.EqualTo(printed),
+            Assert.That(CatalogBuilder.CatalogId(bundles, [], artefacts, manifest: tutorialManifest), Is.EqualTo(printed),
                 "the recomputed catalog id does not reproduce the one this build printed, so its inputs differ from publish's");
-            var catalog = CatalogBuilder.CatalogId(bundles, [], artefacts, packageVersion: version);
+            var catalog = CatalogBuilder.CatalogId(bundles, [], artefacts, packageVersion: version, manifest: tutorialManifest);
 
             var quotedBundles = Regex.Matches(page, @"bundle\s+(?:…/store/PXD999999/)?([0-9a-f]{16})").Select(m => m.Groups[1].Value).ToHashSet();
             var quotedCatalogs = Regex.Matches(page, @"(?:id|catalog)\s+([0-9a-f]{16})").Select(m => m.Groups[1].Value).ToHashSet();

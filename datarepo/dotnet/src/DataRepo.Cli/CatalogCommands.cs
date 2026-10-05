@@ -86,7 +86,7 @@ internal static class CatalogCommands
         if (release is not null) notes["release"] = release;
         if (studyBundles.Count > 0) notes["study"] = studyBundles.ToDictionary(r => r.Layer, r => (object?)r.BundleId);
 
-        var result = CatalogBuilder.BuildCatalog(bundles, output, overwrite, manifest.Instance, notes, studyBundles, artefacts, engineChecks);
+        var result = CatalogBuilder.BuildCatalog(bundles, output, overwrite, manifest.Instance, notes, studyBundles, artefacts, engineChecks, manifest);
         Console.WriteLine($"catalog  {result.Path}");
         Console.WriteLine($"  id       {result.CatalogId}");
         if (result.Skipped)
@@ -100,6 +100,8 @@ internal static class CatalogCommands
         foreach (var check in engineChecks)
             if (!string.IsNullOrEmpty(check.Detail))
                 Console.WriteLine($"  note     {check.Name}: {Cell(check.Observed)} of {Cell(check.Expected)}; {check.Detail}");
+        foreach (var check in result.Checks.Where(c => c.Kind == "manifest" && !string.IsNullOrEmpty(c.Detail)))
+            Console.WriteLine($"  note     {check.Name}: {Cell(check.Observed)} of {Cell(check.Expected)}; {check.Detail}");
         if (result.StudyBundles.Count == 0)
         {
             // Study bundles are opt-in, so a store holding one and a build not asking for it is a legitimate

@@ -172,7 +172,7 @@ public class CatalogTests
             ["manifest"] = manifest.Path,
             ["study"] = study.ToDictionary(r => r.Layer, r => (object?)r.BundleId),
         };
-        return CatalogBuilder.BuildCatalog(bundles, output, overwrite, manifest.Instance, notes, study, artefacts, engineChecks);
+        return CatalogBuilder.BuildCatalog(bundles, output, overwrite, manifest.Instance, notes, study, artefacts, engineChecks, manifest);
     }
 
     private static JsonElement Expected()

@@ -162,6 +162,12 @@ protein", which is the question the repository exists for.
 | `protein_index` | 1/accession | gene, organism, how many datasets have it, and how many have **accepted** evidence for it |
 | `protein_datasets` | 1/accession/dataset | accepted protein groups and peptidoforms, best group q-value |
 | `peptide_index` | 1/base sequence | how many datasets it appears in |
+| `dataset_annotations` | 1/dataset | the producer's notes, flags, status and reason, from the manifest `build` was given |
+
+`dataset_annotations` is taken from the manifest at **build**, not from the bundle. These fields are not
+identity (rewording a note must not re-id a bundle), so they never reach a bundle at all; a reworded
+note reaches the catalog at the next `build`, with no re-ingest, and moves the catalog id. A dataset the
+manifest does not list keeps NULLs and a `catalog_checks` row of kind `manifest` names it.
 
 `protein_index` carries both `n_datasets` and `n_datasets_1pct` on purpose. `proteins` is the
 search's protein *list*, decoys and sub-threshold matches included, not its answer. An agent asking

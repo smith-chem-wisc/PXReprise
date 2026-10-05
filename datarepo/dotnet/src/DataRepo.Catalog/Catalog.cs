@@ -82,6 +82,34 @@ public sealed record StudyBundleRef(string Path, IReadOnlyDictionary<string, obj
 /// <param name="Observed">Null where there was nothing to count (a table no schema knows).</param>
 public sealed record CatalogCheck(string Name, string Kind, bool Ok, long? Observed, long? Expected, string? Detail);
 
+/// <summary>One dataset's NON-content manifest fields as a build's manifest gives them: a row of
+/// <c>dataset_annotations</c> (G84).</summary>
+/// <param name="InManifest">False when the build had no manifest entry for the dataset; every field is then null.</param>
+public sealed record DatasetAnnotation(
+    string DatasetId,
+    string BundleId,
+    bool InManifest,
+    string? Status,
+    string? Reason,
+    string? Notes,
+    IReadOnlyList<string>? Flags,
+    string? ProvenanceSchema,
+    string? Sdrf)
+{
+    /// <summary>The fields as one line of JSON, keys sorted: what the catalog id hashes. Not the manifest's path,
+    /// which moves when the file does while the content stays.</summary>
+    public string Canonical() => PyFormat.Json(new Dictionary<string, object?>(StringComparer.Ordinal)
+    {
+        ["in_manifest"] = InManifest,
+        ["status"] = Status,
+        ["reason"] = Reason,
+        ["notes"] = Notes,
+        ["flags"] = Flags?.Cast<object?>().ToList(),
+        ["provenance_schema"] = ProvenanceSchema,
+        ["sdrf"] = Sdrf,
+    }, sortKeys: true, ensureAscii: true);
+}
+
 /// <summary>What a build did, in the terms an operator or a release checklist needs.</summary>
 public sealed record CatalogResult
 {
@@ -139,15 +167,29 @@ public static class CatalogBuilder
     /// "8" adds <c>samples.&lt;column&gt;_name</c> beside each term-only sample column (G74); "9" loads go's
     /// engine artefacts into <c>protein_localizations</c>, <c>organelle_term_categories</c> and
     /// <c>annotation_sources</c>, with a go coverage check and <c>catalog_tables.kind</c>
-    /// <c>engine:go.annotate_groups</c> (G86). Inside a <see cref="SchemaContract.Python0320"/> scope it stays
-    /// "8" and go is left out, so a parity build is still what Python 0.32.0 built. Same principle as
+    /// <c>engine:go.annotate_groups</c> (G86); "10" adds <c>dataset_annotations</c>, the producer's NON-content
+    /// manifest fields taken from the manifest the build is given, and hashes them into the catalog id (G84).
+    /// Inside a <see cref="SchemaContract.Python0320"/> scope it stays "8", and go and the annotations are left
+    /// out, so a parity build is still what Python 0.32.0 built. Same principle as
     /// <c>manifest.CONTENT_FIELDS</c> one level down -- an id moves when its own content moves, and not
     /// otherwise.</remarks>
-    public static string CatalogVersion => SchemaContract.IsPython0320 ? "8" : "9";
+    public static string CatalogVersion => SchemaContract.IsPython0320 ? "8" : "10";
 
     /// <summary>Whether this build loads go's artefacts: always, except when reproducing Python 0.32.0, which had
     /// no go engine.</summary>
     private static bool GoActive => !SchemaContract.IsPython0320;
+
+    /// <summary>Whether this build writes <c>dataset_annotations</c> and hashes it (G84): always, except when
+    /// reproducing Python 0.32.0, whose catalogs carried no manifest prose.</summary>
+    private static bool AnnotationsActive => !SchemaContract.IsPython0320;
+
+    /// <summary>The derived table holding each dataset's non-content manifest fields (G84).</summary>
+    public const string AnnotationsTable = "dataset_annotations";
+
+    /// <summary>The <see cref="DatasetEntry.NonContentFields"/> that <c>dataset_annotations</c> carries, in column
+    /// order. Every non-content field but <c>raw</c> (the source row, the container of these) is here, and a test
+    /// fails on one that is in neither, so adding a manifest field means deciding whether a reader sees it.</summary>
+    public static readonly IReadOnlyList<string> AnnotationFields = ["status", "reason", "notes", "flags", "provenance_schema", "sdrf"];
 
     /// <summary>The package version a catalog id hashes and <c>catalog_meta.builder_version</c> records
     /// (Python's <c>__version__</c>): this assembly's informational version, without build metadata.</summary>
@@ -198,6 +240,7 @@ public static class CatalogBuilder
         "search_modifications_placed",
         "dataset_databases",
         "protein_genes",
+        AnnotationsTable,
     ];
 
     /// <summary>Views that apply the producing search engine's acceptance rule, so no caller has to restate
@@ -414,6 +457,29 @@ public static class CatalogBuilder
                 ["gene_id"] = "Stable Ensembl gene id, or NULL when the outcome has none.",
                 ["gene_symbol"] = "The pinned Ensembl release's symbol, for display. Group on `gene_id`.",
                 ["artefact_id"] = "The engine artefact the row came from (`catalog_engine_artefacts`).",
+            }),
+        [AnnotationsTable] = new(
+            "One row per dataset: what the producer's manifest says ABOUT it that is not identity -- its "
+            + "notes, flags, status and reason. Taken from the manifest `datarepo build` was given, NOT from "
+            + "the bundle, so a reworded note reaches the catalog at the next build without a re-ingest (G84). "
+            + "These fields never reach a bundle's rows and are not in its content hash, so the bundle holds no "
+            + "copy to disagree with; the catalog id hashes them instead. READ `notes` before quoting a "
+            + "number for a dataset: the producer records there, in prose, what a reader must know, such as "
+            + "runs excluded from analysis that are still in the bundle.",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["in_manifest"] = "False when the build's manifest has no entry for the dataset. Every other "
+                    + "column is then NULL, and the `catalog_checks` row of kind `manifest` names it: NULL "
+                    + "there means not stated, never 'no notes'.",
+                ["status"] = "The manifest's status for the dataset (a built dataset is normally `include`).",
+                ["reason"] = "The producer's reason for the status, verbatim.",
+                ["notes"] = "The producer's notes, verbatim: prose, never parsed by datarepo.",
+                ["flags"] = "The producer's flags, verbatim. `mixed_enrichment` among them is also lifted "
+                    + "into `datasets.enrichment_mixed` at ingest, which is the column to query.",
+                ["provenance_schema"] = "The provenance schema the producer declared. The ingest reads the "
+                    + "schema from provenance.json itself; this is the declaration.",
+                ["sdrf"] = "The SDRF the producer declared. The ingest finds and hashes the SDRF under the "
+                    + "run folder; this is the declaration.",
             }),
         ["psms_1pct"] = new(
             "`psms` with the producing search engine's acceptance rule applied once, so no caller "
@@ -676,11 +742,38 @@ public static class CatalogBuilder
     /// Python's for the same bundles, by design.</remarks>
     /// <param name="packageVersion">The version to hash in place of this build's: what a release build of that
     /// version would print for the same bundles. Only a test needs it (the tutorial's ids, docs/getting-started.md).</param>
+    /// <param name="manifest">The manifest the build is given: its non-content fields for these datasets are part
+    /// of the catalog (G84), so rewording a note moves the id. Null builds as though no dataset had an entry.</param>
     public static string CatalogId(
         IReadOnlyList<BundleRef> bundles,
         IReadOnlyList<StudyBundleRef>? studyBundles = null,
         IReadOnlyList<ArtefactRef>? artefacts = null,
-        string? packageVersion = null)
+        string? packageVersion = null,
+        Manifest? manifest = null) =>
+        CatalogIdOf(bundles, studyBundles, artefacts, packageVersion, Annotations(bundles, manifest));
+
+    /// <summary>Each bundle's dataset with its non-content manifest fields from <paramref name="manifest"/>, in
+    /// dataset order (G84).</summary>
+    /// <remarks>The catalog takes these from the manifest it is BUILT with, not from the bundle, because they are
+    /// not identity: rewording a note must not re-id a bundle (<see cref="DatasetEntry.NonContentFields"/>), and
+    /// before this it therefore waited for the next re-ingest to reach anyone -- in fact it never reached the
+    /// catalog at all, since no ingest wrote it into a row. A dataset the manifest does not list is kept, with
+    /// <see cref="DatasetAnnotation.InManifest"/> false and every field null.</remarks>
+    public static List<DatasetAnnotation> Annotations(IReadOnlyList<BundleRef> bundles, Manifest? manifest) =>
+        bundles.OrderBy(r => r.DatasetId, SourcesPy.CodePointOrder).Select(r =>
+        {
+            if (manifest is null || !manifest.Datasets.TryGetValue(r.DatasetId, out var e))
+                return new DatasetAnnotation(r.DatasetId, r.BundleId, false, null, null, null, null, null, null);
+            return new DatasetAnnotation(r.DatasetId, r.BundleId, true, e.Status, DatasetEntry.Text(e.Reason),
+                DatasetEntry.Text(e.Notes), e.Flags.ToList(), DatasetEntry.Text(e.ProvenanceSchema), DatasetEntry.Text(e.Sdrf));
+        }).ToList();
+
+    private static string CatalogIdOf(
+        IReadOnlyList<BundleRef> bundles,
+        IReadOnlyList<StudyBundleRef>? studyBundles,
+        IReadOnlyList<ArtefactRef>? artefacts,
+        string? packageVersion,
+        IReadOnlyList<DatasetAnnotation> annotations)
     {
         var text = new StringBuilder();
         text.Append($"datarepo/{packageVersion ?? PackageVersion}\ncatalog/{CatalogVersion}\nschema/{SchemaContract.Version}\n");
@@ -698,6 +791,11 @@ public static class CatalogBuilder
         // differently, so they must not share an id.
         foreach (var r in (artefacts ?? []).OrderBy(r => r.Engine, SourcesPy.CodePointOrder).ThenBy(r => r.ArtefactId, SourcesPy.CodePointOrder))
             text.Append($"engine/{r.Engine}\t{r.ArtefactId}\n");
+        // And the producer's prose (G84): two catalogs of the same bundles that tell a reader different notes are
+        // different catalogs. Not the bundle id again -- that is above.
+        if (AnnotationsActive)
+            foreach (var a in annotations.OrderBy(a => a.DatasetId, SourcesPy.CodePointOrder))
+                text.Append($"annotation/{a.DatasetId}\t{a.Canonical()}\n");
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text.ToString())))[..16];
     }
 
@@ -921,6 +1019,9 @@ public static class CatalogBuilder
     /// omission.</param>
     /// <param name="artefacts">Engine artefacts to load, as <see cref="SelectArtefacts"/> returns.</param>
     /// <param name="engineChecks">The coverage checks <see cref="SelectArtefacts"/> returned, recorded with the rest.</param>
+    /// <param name="manifest">The producing instance's manifest. Its non-content fields for each dataset go into
+    /// <c>dataset_annotations</c> and the catalog id (G84); a dataset it does not list says so in
+    /// <c>catalog_checks</c>.</param>
     /// <returns><see cref="CatalogResult.Skipped"/> is true when the catalog was already current.</returns>
     /// <exception cref="CatalogException">No bundles, two bundles for one dataset, a bundle written against a
     /// different schema version, or checks that fail. Nothing is moved into place in those cases.</exception>
@@ -932,7 +1033,8 @@ public static class CatalogBuilder
         IReadOnlyDictionary<string, object?>? notes = null,
         IReadOnlyList<StudyBundleRef>? studyBundles = null,
         IReadOnlyList<ArtefactRef>? artefacts = null,
-        IReadOnlyList<CatalogCheck>? engineChecks = null)
+        IReadOnlyList<CatalogCheck>? engineChecks = null,
+        Manifest? manifest = null)
     {
         if (bundles.Count == 0) throw new CatalogException("no bundles to build a catalog from");
 
@@ -983,7 +1085,8 @@ public static class CatalogBuilder
                     + $"{r.SchemaVersion}, and this build writes {SchemaContract.Version}. Re-run it.");
 
         var datasets = seen.Keys.Order(SourcesPy.CodePointOrder).ToList();
-        var cid = CatalogId(bundles, study, engines);
+        var annotations = Annotations(bundles, manifest);
+        var cid = CatalogIdOf(bundles, study, engines, null, annotations);
         if (!overwrite && ReadCatalogId(@out) == cid)
             return new CatalogResult
             {
@@ -1010,6 +1113,7 @@ public static class CatalogBuilder
                 foreach (var (k, v) in CreateEngineTables(con, engines)) rowCounts[k] = v;
                 foreach (var (k, v) in LoadGoRows(con, bundles, engines)) rowCounts[k] = v;
                 BuildEngineDerived(con, bundles);
+                if (AnnotationsActive) CreateAnnotations(con, annotations);
                 checks = [
                     .. CheckRowCounts(con, bundles),
                     .. CheckIntegrity(con),
@@ -1017,6 +1121,7 @@ public static class CatalogBuilder
                     .. CheckEngines(con, engines.Where(r => r.Engine != Runner.GoEngine).ToList()),
                     .. CheckGo(con, bundles, engines),
                     .. engineChecks ?? [],
+                    .. AnnotationsActive ? [AnnotationCheck(annotations)] : Array.Empty<CatalogCheck>(),
                 ];
                 var failed = checks.Where(c => !c.Ok).ToList();
                 if (failed.Count > 0)
@@ -1046,6 +1151,35 @@ public static class CatalogBuilder
             Path = @out, CatalogId = cid, Datasets = datasets, Bundles = bundles, StudyBundles = study,
             Artefacts = engines, RowCounts = counts, Checks = checks, Indexes = indexes,
         };
+    }
+
+    /// <summary><c>dataset_annotations</c>: one row per dataset, from the build's manifest (G84).</summary>
+    private static void CreateAnnotations(DuckDBConnection con, IReadOnlyList<DatasetAnnotation> annotations)
+    {
+        Exec(con, $@"
+        CREATE TABLE ""{AnnotationsTable}"" (
+            dataset_id VARCHAR, bundle_id VARCHAR, in_manifest BOOLEAN, status VARCHAR, reason VARCHAR,
+            notes VARCHAR, flags VARCHAR[], provenance_schema VARCHAR, sdrf VARCHAR
+        )
+        ");
+        foreach (var a in annotations)
+            Exec(con, $"INSERT INTO \"{AnnotationsTable}\" VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                a.DatasetId, a.BundleId, a.InManifest, a.Status, a.Reason, a.Notes, a.Flags?.ToList(), a.ProvenanceSchema, a.Sdrf);
+    }
+
+    /// <summary>Which datasets the build's manifest annotated. It always passes: a dataset with no entry builds,
+    /// and this row is where that is said.</summary>
+    /// <remarks>There is no "manifest differs from the bundle" case to record: the non-content fields never reach a
+    /// bundle's rows or its content hash, so the bundle holds no copy of them. The manifest is the only source.</remarks>
+    private static CatalogCheck AnnotationCheck(IReadOnlyList<DatasetAnnotation> annotations)
+    {
+        var missing = annotations.Where(a => !a.InManifest).ToList();
+        var detail = missing.Count == 0 ? null
+            : "no entry in the build's manifest for "
+              + string.Join(", ", missing.Select(a => $"{a.DatasetId} ({a.BundleId})"))
+              + $"; its {AnnotationsTable} columns are NULL (a bundle holds no copy of the manifest's non-content fields)";
+        return new CatalogCheck($"{AnnotationsTable} (datasets with a manifest entry)", "manifest", true,
+            annotations.Count - missing.Count, annotations.Count, detail);
     }
 
     /// <summary>One bundle's contribution to a catalog table, with provenance columns prepended.</summary>
@@ -1714,6 +1848,7 @@ public static class CatalogBuilder
         var views = AcceptedViews.Select(kv => kv.Key).Concat(GrainViews.Select(kv => kv.Key)).ToHashSet(StringComparer.Ordinal);
         foreach (var name in DerivedTables.Concat(AcceptedViews.Select(kv => kv.Key)).Concat(GrainViews.Select(kv => kv.Key)))
         {
+            if (name == AnnotationsTable && !AnnotationsActive) continue;
             var rows = Count(con, $"SELECT count(*) FROM \"{name}\"");
             Exec(con, "INSERT INTO catalog_tables VALUES (?, ?, ?)", name, rows, views.Contains(name) ? "view" : "derived");
         }
