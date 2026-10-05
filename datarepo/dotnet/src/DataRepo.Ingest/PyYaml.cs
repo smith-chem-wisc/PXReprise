@@ -60,8 +60,11 @@ public static class PyYaml
         _ => null,
     };
 
-    /// <summary>A mapping in document order; a repeated key keeps its first position and its last value, as
-    /// PyYAML's <c>safe_load</c> does (a dict assignment).</summary>
+    /// <summary>A mapping in document order.</summary>
+    /// <remarks>A repeated key never reaches this: YamlDotNet refuses it as invalid YAML ("Duplicate key"), where
+    /// PyYAML's <c>safe_load</c> kept the last value. So a manifest 0.32.0 read with a repeated key is refused here,
+    /// which is the safer reading of a hand edit (found building G85, 2026-10-05; aging's live manifest has
+    /// none).</remarks>
     private static Dictionary<string, object?> Mapping(YamlMappingNode m)
     {
         var map = new Dictionary<string, object?>(StringComparer.Ordinal);
