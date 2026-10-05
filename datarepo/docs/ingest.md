@@ -461,6 +461,11 @@ Tables the schema defines that no producer fills today: `PtmStoichiometry`, `Gly
 (`go`), `FeatureSet`, `DatasetCandidate` (aging's discovery census, R1), and `Release` /
 `ReleaseChange` (the instance owner's, D8). Each arrives when its producer does.
 
-Also absent, deliberately: `Run.acquisition_datetime` and run-level `instrument_model` from the raw
-header. aging 006 asks dataRepo **not** to parse raw headers; the instrument comes from the archive's
-record via the SDRF, and the date waits for mzLib (pyMzLib's REQ-PYMZ-2).
+dataRepo never parses a raw file header itself (aging 006). From schema 0.0.15 (G87) a run's header facts
+come from the QC report, which PXReprise writes through mzLib's reader (DATAREPO-72): `start_time`,
+`instrument_model`, `instrument_model_accession` and `instrument_serial` per run, a key only when the reader
+gave a value. A start time with no zone (every Thermo RAW header: the instrument's local clock) is stored
+verbatim in `Run.acquisition_start_local` and never in `Run.acquisition_datetime`, which holds only a time
+that carried `Z` or an offset, converted to UTC. The instrument model falls back to the SDRF's when the QC
+report has none, and `Run.instrument_model_source` says which. Deposits searched before PXReprise wrote these
+keys have no time: their raw files are gone, and no ingest change can recover it.

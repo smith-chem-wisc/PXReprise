@@ -1242,7 +1242,7 @@ public static class CatalogBuilder
             }
             if (parts.Count == 0)
             {
-                CreateEmpty(con, table, DatasetProvenance, spec.Columns.Where(c => c.Name != "dataset_id"));
+                CreateEmpty(con, table, DatasetProvenance, SchemaContract.Columns(spec).Where(c => c.Name != "dataset_id"));
                 continue;
             }
             // BY NAME rather than positionally: the bundles all carry one schema version, and a union that lined

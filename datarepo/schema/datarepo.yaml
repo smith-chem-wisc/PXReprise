@@ -18,7 +18,7 @@
 id: https://w3id.org/datarepo/core
 name: datarepo
 title: dataRepo core schema
-version: 0.0.14
+version: 0.0.15
 license: https://creativecommons.org/licenses/by/4.0/
 description: >-
   Generic core schema for an AI-ready repository of reanalyzed public proteomics datasets:
@@ -118,6 +118,20 @@ enums:
         description: >-
           The producer's per-run map (`run_enrichment` in the instance manifest), curated by the
           producer from the deposit's protocol. It must cover every run or the ingest refuses.
+  InstrumentModelSource:
+    description: >-
+      Where a run's `instrument_model` and `instrument_model_accession` came from (G87, PXReprise
+      DATAREPO-72). Both columns always come from the same source. Added in schema 0.0.15.
+    permissible_values:
+      qc_report:
+        description: >-
+          The producer's spectra QC report (`qc_report.json`), whose reader took it from THIS run's
+          raw file header. Per run, and the instrument the file says acquired it.
+      sdrf:
+        description: >-
+          The SDRF's `comment[instrument]`, used when the QC report gives no model. The SDRF is curated
+          metadata, often one value copied to every row of the deposit, so it is not evidence of which
+          machine acquired a given run.
   SdrfStatus:
     description: How far the dataset's SDRF could be trusted (P4).
     permissible_values:
@@ -416,8 +430,12 @@ classes:
       ms2_spectra: {range: integer, description: "Number of MS2 spectra in the file."}
       run_minutes: {range: float, description: "Acquisition length in minutes."}
       qc_pass: {range: boolean, description: "Whether the run passed the producer's spectra QC gate."}
-      instrument_model: {description: "Instrument model from the raw file header."}
-      acquisition_datetime: {range: datetime, description: "From the raw file header (J14 batch/date checks, H4)."}
+      instrument_model: {description: "Instrument model name. From the producer's spectra QC report, which read it from this run's raw file header, when it gives one; otherwise from the SDRF, which is curated and often one value for the whole deposit. `instrument_model_source` says which: read it before treating this as per-run evidence."}
+      instrument_model_source: {range: InstrumentModelSource, description: "Where `instrument_model` and `instrument_model_accession` came from: `qc_report` (this run's raw file header) or `sdrf`. NULL exactly when `instrument_model` is NULL. Added in schema 0.0.15."}
+      instrument_model_accession: {range: uriorcurie, description: "PSI-MS term for the instrument model (e.g. MS:1002416), from the same source as `instrument_model`, verbatim. NULL when that source gave none, which is every Thermo RAW file read by mzLib 1.0.593: NULL means not given, never 'no such term', and nothing here derives a term from the model's name. Added in schema 0.0.15."}
+      instrument_serial: {description: "The instrument's serial number from this run's raw file header, verbatim (e.g. FSN10189), from the producer's spectra QC report. Runs with one serial were acquired on one machine. NULL means not read. Added in schema 0.0.15."}
+      acquisition_datetime: {range: datetime, description: "When acquisition started, in UTC. Filled ONLY when the producer's value carries an explicit zone (`Z` or an offset), and then converted to UTC. A value with no zone is never put here, because it would read as UTC: that is every Thermo RAW header, whose time is the instrument's local clock, and it goes to `acquisition_start_local` instead. NULL means no zoned time was read (J14 batch/date checks, H4)."}
+      acquisition_start_local: {description: "When acquisition started, on the instrument's LOCAL clock with the zone unknown: the producer's value VERBATIM, an ISO 8601 time with no zone (e.g. `2021-03-16T12:09:07.375`), as its raw-file reader gave it (PXReprise: mzLib's ThermoRawFileReader, `FileHeader.CreationDate`). Never shifted or converted. ORDER-SAFE ONLY within one deposit and one raw format: two deposits' instruments can sit in different zones, and an mzML's time is in the converting machine's zone (aging 055, mzLib #1349), so never compare it across deposits or formats, and never as UTC. It sorts correctly as text; `CAST(acquisition_start_local AS TIMESTAMP)` gives a zone-less timestamp. NULL when the value carried a zone (it is then in `acquisition_datetime`) or was not read. Added in schema 0.0.15."}
       enrichment: {range: Enrichment, multivalued: true, description: "Enrichment steps before MS for THIS run (G63): an enrichment is done to what was injected, so it belongs on the run. [none] means whole proteome. NULL means unknown -- a dataset the producer flagged `mixed_enrichment` with no per-run source gets NULL on every run, never the dataset value, which is only true of some of them. Every value other than `none` appears in the dataset's `enrichment` declaration, or the ingest refuses."}
       enrichment_source: {range: RunEnrichmentSource, description: "Where `enrichment` came from. NULL exactly when `enrichment` is NULL."}
 

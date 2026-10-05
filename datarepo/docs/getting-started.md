@@ -11,8 +11,9 @@ are content hashes, so on 1.0.0 you should get the same ones; on another version
 later section says why).
 
 > **This copy is ahead of the 1.0.0 release.** Since 1.0.0, the catalog format has moved to 9 (the go
-> engine), so the released 1.0.0 program prints a different catalog id (`ff7c707e1347b0f7`) and has no
-> go coverage line or "58 run" count. The bundle id is the same. For the page exactly as 1.0.0 prints
+> engine) and the core schema to 0.0.15 (each run's start time and instrument, G87), so the released 1.0.0
+> program prints `schema 0.0.14`, a different bundle id (`26b07fd2d1b11625`) and catalog id
+> (`ff7c707e1347b0f7`), and has no go coverage line or "58 run" count. For the page exactly as 1.0.0 prints
 > it, read it [at the v1.0.0 tag](https://github.com/smith-chem-wisc/dataRepo/blob/v1.0.0/docs/getting-started.md).
 > This note goes away at the next release.
 
@@ -66,7 +67,7 @@ datarepo doctor
 ```
 
 ```
-datarepo 1.0.0  schema 0.0.14
+datarepo 1.0.0  schema 0.0.15
   runtime          .NET 10.0.10
   mzLib            1.0.593.0
   parquet          ParquetSharp 24.0.0.0
@@ -127,7 +128,7 @@ datarepo ingest manifest.yaml PXD999999
 
 ```
 PXD999999
-  bundle   …/store/PXD999999/26b07fd2d1b11625
+  bundle   …/store/PXD999999/dfcc8150205e4b3a
   tables   datasets 1, samples 2, sample_characteristics 8, runs 2, assays 2, psms 60, peptidoforms 40,
            protein_groups 5, proteins 62, ptm_sites 36, ptm_stoichiometry 4, quant_values 37,
            definitions 14, provenance_records 3, findings 6, metrics 18, search_modifications_declared 4
@@ -148,7 +149,7 @@ Three things happened:
   with no biology in it, and so on. One is informational. They travel with the data, so nobody
   reads a count without its caveats.
 
-The bundle's name, `26b07fd2d1b11625`, is a hash of its input files, the schema version and the
+The bundle's name, `dfcc8150205e4b3a`, is a hash of its input files, the schema version and the
 ingester version. Run the command again and it says the bundle is unchanged. Change one byte of
 input and you get a second bundle beside the first, so a result someone cited never changes under
 them.
@@ -179,15 +180,15 @@ datarepo publish manifest.yaml --site site --title "Example repository" --purpos
 
 ```
 catalog  …/example-instance/catalog.duckdb
-  id       7750cbcfbdaa4498
-  dataset  PXD999999    bundle 26b07fd2d1b11625
+  id       45b7576ae7238a59
+  dataset  PXD999999    bundle dfcc8150205e4b3a
   note     logs.resolve_genes coverage (databases with an artefact): 0 of 1; no artefact for 89fb8c7a1140 (PXD999999)
-  note     go.annotate_groups coverage (bundles with an artefact): 0 of 1; no artefact for PXD999999 (26b07fd2d1b11625)
+  note     go.annotate_groups coverage (bundles with an artefact): 0 of 1; no artefact for PXD999999 (dfcc8150205e4b3a)
   tables   assays 2, datasets 1, definitions 14, findings 6, gene_resolutions 0, …
   indexes  22
   checks   58 run, all passed
 site     site
-  catalog  7750cbcfbdaa4498
+  catalog  45b7576ae7238a59
   wrote    36 files, 1 dataset page
   skipped  croissant.json: no --data-url: a Croissant file describes downloadable files, …
   skipped  robots.txt: no --base-url: both need the site's absolute address
@@ -269,7 +270,7 @@ datarepo mcp --catalog catalog.duckdb --check
 
 ```
 catalog  catalog.duckdb
-  id       7750cbcfbdaa4498
+  id       45b7576ae7238a59
   built    … by datarepo 1.0.0
   dataset  PXD999999           58 PSMs at 1%
   tools    datarepo_describe, datarepo_search, datarepo_sql

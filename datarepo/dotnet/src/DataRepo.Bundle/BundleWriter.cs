@@ -172,7 +172,7 @@ public sealed class BundleWriter(string store, string datasetId, string? ingestP
         foreach (var spec in Tables.Core)
         {
             if (!_tables.TryGetValue(spec.Name, out var rows) || rows.Count == 0) continue;
-            var batch = ArrowTables.FromRows(spec.Name, spec.Columns, rows);
+            var batch = ArrowTables.FromRows(spec.Name, SchemaContract.Columns(spec), rows);
             ArrowTables.WriteParquet(batch, Path.Combine(output, $"{spec.Name}.parquet"));
             rowCounts[spec.Name] = (long)batch.Length;
         }

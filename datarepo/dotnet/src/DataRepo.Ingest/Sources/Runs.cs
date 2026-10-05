@@ -8,11 +8,10 @@ namespace DataRepo.Ingest.Sources;
 /// A run is one deposited raw file. Which files exist, and what the archive said about them, comes
 /// from the fetch manifest; what is in them comes from the spectra QC stage.
 ///
-/// Two fields the schema wants are not available yet and are left null rather than derived here:
-/// <c>instrument_model</c> at run level and <c>acquisition_datetime</c>. aging 006 is explicit that neither is
-/// in <c>qc_report.json</c> yet, that pyMzLib has been asked for run-level metadata (REQ-PYMZ-2), and that
-/// dataRepo should <b>not</b> parse raw file headers itself in the meantime. The instrument therefore
-/// comes from the archive's own record via the SDRF, which is project-level, and the date stays NA.
+/// The raw file header's facts (start time, instrument model, its PSI-MS term, serial) come from the QC report,
+/// which PXReprise writes from mzLib's <c>SourceFile</c> (DATAREPO-72, their 52cd138); dataRepo never reads a raw
+/// file itself. Under <see cref="IngestRules.Python0320"/> they are not read, as 0.32.0 did not: the instrument
+/// comes from the SDRF and the date stays NA (<see cref="ApplyRunHeader"/>, G87).
 /// Ported from <c>sources/runs.py</c>.
 /// </remarks>
 public static class Runs
@@ -20,6 +19,16 @@ public static class Runs
     /// <summary>Where a run's enrichment came from (the schema's <c>RunEnrichmentSource</c>).</summary>
     public const string FromDataset = "dataset_declaration";
     public const string FromManifest = "manifest_run_enrichment";
+
+    /// <summary>Where a run's instrument model came from (the schema's <c>InstrumentModelSource</c>).</summary>
+    public const string ModelFromQcReport = "qc_report";
+    public const string ModelFromSdrf = "sdrf";
+
+    /// <summary>An ISO 8601 date-time as PXReprise writes one (.NET <c>yyyy-MM-ddTHH:mm:ss.FFFFFFFK</c>): to the
+    /// second, an optional fraction, and a zone only when the reader gave one.</summary>
+    private static readonly System.Text.RegularExpressions.Regex StartTimePattern = new(
+        @"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,7})?(?<zone>Z|[+-]\d{2}:\d{2})?$",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     /// <summary>The schema's <c>Enrichment</c> vocabulary, in the schema's order (core 0.0.13).</summary>
     /// <remarks>Python reads it from the generated <c>_schema_docs.ENUMS</c>; the C# schema types do not carry
@@ -73,14 +82,18 @@ public static class Runs
     /// and QC'd but not searched, so they are not runs of this dataset's results.</param>
     /// <param name="ns">The search record's definitions namespace (D37): the two run metrics are pipeline
     /// counts and cite its id. The default gives the 0.32.0 rows.</param>
+    /// <param name="rules">Under <see cref="IngestRules.Current"/> the QC report's run-header keys are read
+    /// (<see cref="ApplyRunHeader"/>); under <see cref="IngestRules.Python0320"/> they are not, as 0.32.0 did not.</param>
     /// <returns>Runs, ordered by file name so a bundle is byte-stable, and their metrics.</returns>
+    /// <exception cref="IngestException">A QC report's <c>start_time</c> or header text is malformed.</exception>
     public static (List<Row> Runs, List<Row> Metrics) Build(
         string datasetId,
         IReadOnlyDictionary<string, object?>? fetch,
         IReadOnlyDictionary<string, object?>? qc,
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, object?>> runFacts,
         IReadOnlySet<string>? excluded = null,
-        string ns = Definitions.DefaultNamespace)
+        string ns = Definitions.DefaultNamespace,
+        IngestRules rules = IngestRules.Current)
     {
         excluded ??= new HashSet<string>();
         var qcReport = Truthy(qc) ? qc! : EmptyDict;
@@ -114,7 +127,7 @@ public static class Runs
             if (!Truthy(qcEntryValue)) qcEntryValue = Get(qcReport, runBase);
             var qcEntry = DictOrEmpty(qcEntryValue, $"qc_report {fileName}");
             var facts = runFacts.GetValueOrDefault(runBase) ?? EmptyDict;
-            runs.Add(new Row
+            var run = new Row
             {
                 ["run_id"] = runId,
                 ["dataset_id"] = datasetId,
@@ -134,7 +147,9 @@ public static class Runs
                 // Filled by AssignEnrichment, which needs every run at once to check coverage.
                 ["enrichment"] = null,
                 ["enrichment_source"] = null,
-            });
+            };
+            if (rules == IngestRules.Current) ApplyRunHeader(run, qcEntry, facts, fileName);
+            runs.Add(run);
             foreach (var (name, value, definition) in new[]
             {
                 ("ms2", Get(qcEntry, "ms2"), ms2Definition),
@@ -155,6 +170,82 @@ public static class Runs
         }
         return (runs, metrics);
     }
+
+    /// <summary>Fill a run's header columns from its QC entry, and its instrument from the SDRF where the QC entry has
+    /// none (G87, PXReprise DATAREPO-72).</summary>
+    /// <remarks>
+    /// <list type="bullet">
+    /// <item><b>A missing key means "not read"</b> (PXReprise 013): the column is NULL, never a default.</item>
+    /// <item><b>The model and its PSI-MS term come from one source</b>, recorded in <c>instrument_model_source</c>:
+    /// the QC report when it names a model (this file's header), else the SDRF (<c>comment[instrument]</c>'s NT and
+    /// AC). A QC model is never paired with an SDRF term, which may describe another instrument.</item>
+    /// <item><b>A start time with no zone is never a UTC timestamp.</b> A Thermo RAW header's time is the
+    /// instrument's local clock (aging 055, mzLib #1349), so it is kept verbatim in <c>acquisition_start_local</c>.
+    /// Only a value carrying <c>Z</c> or an offset reaches <c>acquisition_datetime</c>, converted to UTC; it is
+    /// passed as a <see cref="DateTimeOffset"/>, because the writer reads a zoneless string as UTC.</item>
+    /// </list>
+    /// </remarks>
+    /// <exception cref="IngestException"><c>start_time</c> is not an ISO 8601 date-time, or a header key is not text.
+    /// A malformed time would otherwise be stored as one, so the producer's file is refused, not guessed at.</exception>
+    public static void ApplyRunHeader(
+        Row run,
+        IReadOnlyDictionary<string, object?> qcEntry,
+        IReadOnlyDictionary<string, object?> facts,
+        string fileName)
+    {
+        var qcModel = HeaderText(qcEntry, "instrument_model", fileName);
+        var sdrfModel = Get(facts, "instrument_model");
+        if (qcModel is not null)
+        {
+            run["instrument_model"] = qcModel;
+            run["instrument_model_source"] = ModelFromQcReport;
+            run["instrument_model_accession"] = HeaderText(qcEntry, "instrument_model_accession", fileName);
+        }
+        else if (Truthy(sdrfModel))
+        {
+            run["instrument_model"] = sdrfModel;
+            run["instrument_model_source"] = ModelFromSdrf;
+            run["instrument_model_accession"] = Get(facts, "instrument_term");
+        }
+        else
+        {
+            run["instrument_model"] = null;
+            run["instrument_model_source"] = null;
+            run["instrument_model_accession"] = null;
+        }
+        run["instrument_serial"] = HeaderText(qcEntry, "instrument_serial", fileName);
+        var (utc, local) = StartTime(HeaderText(qcEntry, "start_time", fileName), fileName);
+        run["acquisition_datetime"] = utc;
+        run["acquisition_start_local"] = local;
+    }
+
+    /// <summary>A QC report's <c>start_time</c> split by whether it carries a zone.</summary>
+    /// <returns>The UTC instant when the value has <c>Z</c> or an offset; otherwise the value verbatim as a local
+    /// time with the zone unknown. Both null when it was not read.</returns>
+    /// <exception cref="IngestException">The value is not an ISO 8601 date-time.</exception>
+    public static (DateTimeOffset? Utc, string? Local) StartTime(string? value, string fileName)
+    {
+        if (value is null) return (null, null);
+        var match = StartTimePattern.Match(value);
+        if (!match.Success || !DateTimeOffset.TryParse(value, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AssumeUniversal, out var parsed))
+            throw new IngestException(
+                $"qc_report.json gives {fileName} the start_time {Repr(value)}, which is not an ISO 8601 date-time "
+                + "(yyyy-MM-ddTHH:mm:ss, an optional fraction, and Z or an offset only when the reader gave a zone). "
+                + "It is refused rather than stored as a time.");
+        return match.Groups["zone"].Success ? (parsed.ToUniversalTime(), null) : (null, value);
+    }
+
+    /// <summary>A QC entry's text key: null when missing (not read), the string verbatim otherwise.</summary>
+    private static string? HeaderText(IReadOnlyDictionary<string, object?> qcEntry, string key, string fileName) =>
+        Get(qcEntry, key) switch
+        {
+            null => null,
+            string s when s.Trim().Length == 0 => null,
+            string s => s,
+            var other => throw new IngestException(
+                $"qc_report.json gives {fileName} a {key} of {Repr(other)}, which is not text."),
+        };
 
     private static string Examples(IReadOnlyList<string> names, int n = 5)
     {

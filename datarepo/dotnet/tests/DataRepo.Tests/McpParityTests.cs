@@ -193,7 +193,8 @@ public class McpParityTests
     private static readonly Regex Threads = new("(\"threads\",\\s*)\"\\d+\"", RegexOptions.CultureInvariant);
 
     /// <summary>The descriptions schema 0.0.14 rewrote (G76's two columns; covered_zero in the occupancy state and
-    /// floor), by their opening words in 0.0.13 (Python's answers) and in 0.0.14 (this server's). The server describes
+    /// floor) and schema 0.0.15 (G87: <c>runs.instrument_model</c> and <c>runs.acquisition_datetime</c>),
+    /// by their opening words in 0.0.13 (Python's answers) and in the current schema (this server's). The server describes
     /// a column with the schema it was built against, so these, and only these, are expected to differ; a JSON
     /// string cannot hold a bare quote, so each mask ends where its string does, however the answer cut it.</summary>
     private static readonly (Regex Pattern, string Mask)[] SchemaDelta =
@@ -208,6 +209,14 @@ public class McpParityTests
             ("occupancy_state", "quantified, floor, covered_zero, count_only or intensity_unassigned"),
             ("intensity_is_floor", "True for `occupancy_state = floor`: a fraction of 0 whose numerator"),
         }.Select(d => (new Regex(Regex.Escape(d.Item2) + "[^\"]*", RegexOptions.CultureInvariant), $"<{d.Item1}: rewritten in schema 0.0.14>")),
+        // Schema 0.0.15 (G87): the run's instrument and start time, now read per run from the QC report.
+        .. new[]
+        {
+            ("instrument_model", "Instrument model from the raw file header."),
+            ("instrument_model", "Instrument model name. From the producer's spectra QC report"),
+            ("acquisition_datetime", "From the raw file header (J14 batch/date checks, H4)."),
+            ("acquisition_datetime", "When acquisition started, in UTC. Filled ONLY when"),
+        }.Select(d => (new Regex(Regex.Escape(d.Item2) + "[^\"]*", RegexOptions.CultureInvariant), $"<{d.Item1}: rewritten in schema 0.0.15>")),
     ];
 
     public static string Normalise(string text, string catalogPath)
