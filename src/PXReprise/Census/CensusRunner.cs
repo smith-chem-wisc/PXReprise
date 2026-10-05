@@ -14,7 +14,22 @@ public sealed record CensusRow(
     PrideProjectSearchResult Record,
     IReadOnlyList<string> KeywordsHit,
     IReadOnlyList<string> Organisms,
-    string OrganismSource);
+    string OrganismSource,
+    string? Watch = null,
+    string? ReferenceGroupEvidence = null)
+{
+    /// <summary>Queued by <c>census --queue</c>: routed to search, and not on the watch list.</summary>
+    public bool Queueable => Route.Kind == RouteKind.Search && Watch is null;
+}
+
+/// <summary>Why a deposit is on the census's watch list (<c>watch.tsv</c>) and never queued.</summary>
+public static class WatchReason
+{
+    /// <summary>Found only by the question's <c>watch_keywords</c>.</summary>
+    public const string WatchList = "watch_list";
+    /// <summary>Found only by <c>disease_keywords</c>, and its record names no reference group (PXR-A27).</summary>
+    public const string NoReferenceGroup = "no_reference_group_found";
+}
 
 /// <summary>Where a row's <see cref="CensusRow.Organisms"/> came from: the census acts on these, so it says which.</summary>
 public static class OrganismSource
@@ -42,7 +57,9 @@ public sealed record CensusSummary(
     int Queued = 0,
     IReadOnlyDictionary<string, int>? NotQueuedNoDatabase = null,
     string? QueueInstalled = null,
-    IReadOnlyDictionary<string, int>? OrganismSources = null);
+    IReadOnlyDictionary<string, int>? OrganismSources = null,
+    IReadOnlyDictionary<string, int>? QueuedByKeyword = null,
+    IReadOnlyDictionary<string, int>? Watched = null);
 
 /// <summary>
 /// Discovery and routing only, with no downloads: which deposits a question would take, which profile would search
@@ -59,7 +76,7 @@ public sealed class CensusRunner(IProjectSearch search)
 
         var hits = new SortedDictionary<string, (PrideProjectSearchResult R, SortedSet<string> Kw)>(StringComparer.Ordinal);
         var failed = new List<string>();
-        foreach (string kw in q.Keywords)
+        foreach (string kw in q.Keywords.Concat(q.More.Disease).Concat(q.More.Watch))
         {
             List<PrideProjectSearchResult> found;
             try
@@ -95,7 +112,8 @@ public sealed class CensusRunner(IProjectSearch search)
                 && relevance.Verdict != RelevanceVerdict.DecidedInclude)
                 relevance = new RelevanceResult(RelevanceVerdict.NotRelevant, "organism: " + string.Join("; ", organisms));
             var route = Router.Assign(acc, acquisition, relevance, q, profiles);
-            rows.Add(new CensusRow(acc, relevance, acquisition, route, r, kws.ToList(), organisms, source));
+            var (watch, reference) = Watch(q, kws, route, r);
+            rows.Add(new CensusRow(acc, relevance, acquisition, route, r, kws.ToList(), organisms, source, watch, reference));
         }
 
         Directory.CreateDirectory(outDir);
@@ -109,6 +127,15 @@ public sealed class CensusRunner(IProjectSearch search)
         string queueFile = Path.Combine(outDir, "queue.json");
         File.WriteAllText(queueFile, queue.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }), new UTF8Encoding(false));
         record.Output(queueFile);
+        var watched = rows.Where(x => x.Watch is not null).ToList();
+        if (q.More.Disease.Count > 0 || q.More.Watch.Count > 0)
+        {
+            // PXR-A26: the watch list is its own table: discovered and screened, never queued.
+            string watchFile = Path.Combine(outDir, "watch.tsv");
+            WriteTsv(watchFile, watched);
+            record.Output(watchFile);
+        }
+        var queued = new HashSet<string>(queue.Select(x => x!["accession"]!.GetValue<string>()), StringComparer.Ordinal);
 
         var inScope = rows.Where(x => x.Relevance.IsIn).ToList();
         var summary = new CensusSummary(
@@ -120,8 +147,27 @@ public sealed class CensusRunner(IProjectSearch search)
             Count(inScope, x => Snake(x.Acquisition.Instrument.ToString())),
             Count(inScope, x => Snake(x.Acquisition.Labelling.ToString())),
             failed, Path.GetFullPath(outDir), queue.Count, noDatabase,
-            OrganismSources: Count(rows, x => x.OrganismSource));
+            OrganismSources: Count(rows, x => x.OrganismSource),
+            // Per keyword, the deposits the queue would hold: after every screen and the reference-group rule (PXR-A25).
+            QueuedByKeyword: q.Keywords.Concat(q.More.Disease).ToDictionary(k => k,
+                k => rows.Count(x => queued.Contains(x.Accession) && x.KeywordsHit.Contains(k))),
+            Watched: Count(watched, x => x.Watch!));
         return (summary, rows);
+    }
+
+    /// <summary>
+    /// The watch reason, and the reference-group evidence for a disease-only deposit. A deposit found by any of the
+    /// question's <c>keywords</c> keeps today's screen: its comparison may be the question's own (age, for aging).
+    /// </summary>
+    internal static (string? Watch, string? ReferenceGroup) Watch(Question q, IReadOnlySet<string> keywordsHit, Route route, PrideProjectSearchResult r)
+    {
+        if (q.Keywords.Any(keywordsHit.Contains)) return (null, null);
+        if (q.More.Disease.Any(keywordsHit.Contains))
+        {
+            string? evidence = ReferenceGroup.Find(r);
+            return (route.Kind == RouteKind.Search && evidence is null ? WatchReason.NoReferenceGroup : null, evidence);
+        }
+        return (q.More.Watch.Any(keywordsHit.Contains) ? WatchReason.WatchList : null, null);
     }
 
     /// <summary>
@@ -165,7 +211,7 @@ public sealed class CensusRunner(IProjectSearch search)
     {
         var queue = new System.Text.Json.Nodes.JsonArray();
         var missing = new List<string>();
-        foreach (var x in rows.Where(x => x.Route.Kind == RouteKind.Search))
+        foreach (var x in rows.Where(x => x.Queueable))
         {
             var keys = profiles[x.Route.Profile!].Databases.Keys;
             string? organism = x.Organisms.Select(o => keys.FirstOrDefault(k => OrganismMatches(o, k))).FirstOrDefault(k => k is not null);
@@ -199,7 +245,7 @@ public sealed class CensusRunner(IProjectSearch search)
         sb.Append(string.Join('\t', "accession", "relevance", "relevance_evidence", "route", "profile", "route_reason",
             "acquisition", "labelling", "instrument_class", "enrichment", "ms_files", "file_types", "organisms",
             "organism_parts", "diseases", "instruments", "submission_type", "publication_date", "keywords_hit", "title",
-            "organisms_of_record", "organism_source"));
+            "organisms_of_record", "organism_source", "watch", "reference_group"));
         sb.Append('\n');
         foreach (var x in rows)
         {
@@ -214,6 +260,7 @@ public sealed class CensusRunner(IProjectSearch search)
                 string.Join(";", x.Record.Instruments), x.Record.SubmissionType,
                 x.Record.PublicationDate == default ? "" : x.Record.PublicationDate.ToString("yyyy-MM-dd"),
                 string.Join(";", x.KeywordsHit), x.Record.Title, string.Join(";", x.Organisms), x.OrganismSource,
+                x.Watch ?? "", x.ReferenceGroupEvidence ?? "",
             }.Select(Clean)));
             sb.Append('\n');
         }

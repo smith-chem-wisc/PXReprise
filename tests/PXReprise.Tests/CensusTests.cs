@@ -36,6 +36,65 @@ public class CensusTests
         return (exit, doc.RootElement.TryGetProperty("data", out var d) ? d.Clone() : doc.RootElement.Clone());
     }
 
+    // Aging 031/032 (PXR-A25 to A27): disease keywords queue a deposit only with a reference group; watch keywords never.
+    [Test]
+    public async Task DiseaseKeywordsNeedAReferenceGroupAndWatchKeywordsAreNeverQueued()
+    {
+        var s = new FakeSearch();
+        s.Results["type 2 diabetes"] = new() { TestSupport.Record("PXD000300", "Type 2 diabetes muscle") };
+        s.Results["alzheimer"] = new()
+        {
+            TestSupport.Record("PXD000301", "Alzheimer brain proteome versus age-matched controls"),
+            TestSupport.Record("PXD000302", "Alzheimer brain proteome of APP/PS1 mice"),
+            TestSupport.Record("PXD000303", "Type 2 diabetes and Alzheimer brain"),     // also an ordinary keyword
+        };
+        s.Results["heart failure"] = new() { TestSupport.Record("PXD000304", "Heart failure versus healthy hearts") };
+        s.Results["type 2 diabetes"].Add(TestSupport.Record("PXD000303", "Type 2 diabetes and Alzheimer brain"));
+        string dir = TestSupport.TempDir();
+        string q = TestSupport.WriteFile(dir, "question.toml", TestSupport.MinimalQuestion.Replace("[discover]",
+            "[discover]\ndisease_keywords = [\"alzheimer\"]\nwatch_keywords = [\"heart failure\"]"));
+        q = TestSupport.WriteFile(dir, "question.toml", File.ReadAllText(q).Replace("require_any = [", "require_any = [\"alzheimer\", \"heart failure\", "));
+        string outDir = Path.Combine(dir, "out");
+        var (exit, data) = await Run(s, "census", q, "--profiles", TestSupport.ProfilesDir, "--out", outDir);
+        Assert.That(exit, Is.EqualTo(0), data.ToString());
+
+        var queued = JsonDocument.Parse(File.ReadAllText(Path.Combine(outDir, "queue.json"))).RootElement.EnumerateArray()
+            .Select(x => x.GetProperty("accession").GetString()).ToList();
+        Assert.That(queued, Is.EquivalentTo(new[] { "PXD000300", "PXD000301", "PXD000303" }));
+        var watch = File.ReadAllLines(Path.Combine(outDir, "watch.tsv")).Skip(1).Select(l => l.Split('\t')).ToDictionary(c => c[0], c => c[^2]);
+        Assert.That(watch, Is.EqualTo(new Dictionary<string, string>
+        {
+            ["PXD000302"] = "no_reference_group_found",     // disease only, no control named
+            ["PXD000304"] = "watch_list",                   // found only by a watch keyword, though it names a control
+        }));
+        Assert.That(data.GetProperty("queued_by_keyword").GetProperty("alzheimer").GetInt32(), Is.EqualTo(2));
+        Assert.That(data.GetProperty("queued_by_keyword").GetProperty("type 2 diabetes").GetInt32(), Is.EqualTo(2));
+    }
+
+    [TestCase("brains of AD patients and age-matched controls", true)]
+    [TestCase("compared with healthy donors", true)]
+    [TestCase("vehicle-treated mice", true)]
+    [TestCase("young and old mice", true)]
+    [TestCase("WT littermates", true)]
+    [TestCase("quality control was performed with HeLa digests", false)]
+    [TestCase("GAPDH served as a loading control", false)]
+    [TestCase("with control of the false discovery rate at 1%", false)]
+    [TestCase("a controlled vocabulary was used", false)]
+    [TestCase("APP/PS1 mice at 6 months", false)]
+    public void AReferenceGroupIsReadFromTheRecord(string text, bool found)
+    {
+        var r = TestSupport.Record("PXD000305", "Alzheimer brain", text);
+        Assert.That(PXReprise.Discovery.ReferenceGroup.Find(r) is not null, Is.EqualTo(found));
+    }
+
+    [Test]
+    public void AKeywordInTwoListsIsRefused()
+    {
+        string dir = TestSupport.TempDir();
+        string q = TestSupport.WriteFile(dir, "q.toml", TestSupport.MinimalQuestion.Replace("[discover]", "[discover]\nwatch_keywords = [\"Type 2 Diabetes\"]"));
+        Assert.That(() => PXReprise.Config.QuestionLoader.Load(q), Throws.TypeOf<PXReprise.Config.ConfigException>().With.Message.Contains("more than one"));
+    }
+
     // Aging 030 asked whether validate reads [designs]: it lists the deposits with a design, and refuses a missing folder.
     [Test]
     public async Task ValidateListsTheQuestionsDesignsAndRefusesAMissingFolder()
@@ -181,7 +240,7 @@ public class CensusTests
         Assert.That(queue.EnumerateArray().Select(e => (e.GetProperty("accession").GetString(), e.GetProperty("organism_source").GetString())),
             Is.EqualTo(new[] { ("PXD000100", "search_fallback"), ("PXD000104", "search_fallback") }), "never dropped");
         Assert.That(File.ReadAllLines(Path.Combine(outDir, "census.tsv")).Single(l => l.StartsWith("PXD000104")),
-            Does.EndWith("	Homo sapiens (human)	search_fallback"), "SDRF headers are removed from the fallback");
+            Does.EndWith("	Homo sapiens (human)	search_fallback		"), "SDRF headers are removed from the fallback (watch and reference_group follow, empty)");
         Assert.That(data.GetProperty("organism_sources").GetProperty("search_fallback").GetInt32(), Is.EqualTo(5));   // every relevant deposit: 100-104; this fake has no records
         Assert.That(File.ReadAllText(Path.Combine(outDir, "provenance.json")), Does.Contain("PXD000104 organisms from the search index (project record unavailable"));
     }

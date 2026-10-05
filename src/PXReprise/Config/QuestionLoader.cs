@@ -26,7 +26,14 @@ public static class QuestionLoader
         // Exact names, as PRIDE spells them. PRIDE carries one species under several spellings ("Mus musculus (mouse)"
         // and "Mus musculus"), and a substring rule would sweep in "Rattus rattus" with "Rattus norvegicus" (aging S-notes).
         var organisms = disc.StringList("organisms");
+        var diseaseKeywords = disc.StringList("disease_keywords");
+        var watchKeywords = disc.StringList("watch_keywords");
         disc.RefuseUnknownKeys();
+        // One keyword, one meaning: a keyword in two lists would be both queued and never queued.
+        var twice = keywords.Concat(diseaseKeywords).Concat(watchKeywords).GroupBy(k => k, StringComparer.OrdinalIgnoreCase)
+            .Where(g => g.Count() > 1).Select(g => g.Key).ToList();
+        if (twice.Count > 0)
+            throw new ConfigException(file, $"keyword(s) in more than one of keywords / disease_keywords / watch_keywords: {string.Join(", ", twice)}");
 
         var rel = root.OptionalTable("relevance");
         var require = Compile(file, "relevance.require_any", rel?.StringList("require_any") ?? Array.Empty<string>());
@@ -94,7 +101,8 @@ public static class QuestionLoader
         return new Question(name, description, file, profiles, keywords, organisms,
             new RelevanceRules(require, exclude, unless, decisions), overlays, requiredTraits, optionalTraits,
             traitsSource, holds, studyLayer, batch,
-            new PublishSettings(manifest is null ? null : Abs(dir, manifest), command), designs);
+            new PublishSettings(manifest is null ? null : Abs(dir, manifest), command), designs,
+            new DiscoverLists(diseaseKeywords, watchKeywords));
     }
 
     /// <summary>A path in a question file is relative to the file, so a project folder can move.</summary>
