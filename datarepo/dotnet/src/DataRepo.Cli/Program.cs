@@ -42,7 +42,7 @@ namespace DataRepo.Cli
         {
             ["ingest"] = "build a Parquet bundle for one or more datasets",
             ["study"] = "write a study layer's delivered rows as a study bundle",
-            ["manifest"] = "show what the producing instance offers, and check its run_enrichment maps and excluded_runs",
+            ["manifest"] = "show what the producing instance offers, and check its run_enrichment maps, excluded_runs and candidates census",
             ["inspect"] = "summarise a written bundle",
             ["build"] = "load bundles into one DuckDB catalog",
             ["catalog"] = "summarise a built catalog",
@@ -344,11 +344,35 @@ namespace DataRepo.Cli
                     unmatched += problems.Count > 0 ? 1 : 0;
                 }
             }
+            // The discovery census (dataset_candidates): read here exactly as `build` reads it, so a malformed file is
+            // found before a build refuses it. Ingest never reads it.
+            var censusRefused = false;
+            if (manifest.CandidatesPath is not null)
+            {
+                Console.WriteLine();
+                try
+                {
+                    var census = manifest.Candidates()!;
+                    var included = census.Rows.Count(r => r.Included);
+                    var versions = census.Rows.Select(r => r.CensusVersion).Distinct().Order(StringComparer.Ordinal).ToList();
+                    Console.WriteLine($"candidates {census.Path}");
+                    Console.WriteLine($"     {census.Rows.Count} accession(s) screened: {included} included, {census.Rows.Count - included} not"
+                        + (versions.Count > 0 ? $" (census {string.Join(", ", versions)})" : ""));
+                }
+                catch (ManifestException e)
+                {
+                    Console.WriteLine($"candidates {manifest.CandidatesPath}");
+                    Console.WriteLine($"     REFUSED {e.Message}");
+                    censusRefused = true;
+                }
+            }
             if (refused > 0)
                 Console.Error.WriteLine($"{manifest.Path}: {refused} dataset(s) have a run_enrichment map ingest would refuse");
             if (unmatched > 0)
                 Console.Error.WriteLine($"{manifest.Path}: {unmatched} dataset(s) have excluded_runs that are not runs of the dataset; build would refuse them");
-            return refused > 0 || unmatched > 0 ? 1 : 0;
+            if (censusRefused)
+                Console.Error.WriteLine($"{manifest.Path}: the candidates census is malformed; build would refuse it");
+            return refused > 0 || unmatched > 0 || censusRefused ? 1 : 0;
         }
 
         private static int Inspect(string[] argv)

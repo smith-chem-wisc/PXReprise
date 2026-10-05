@@ -169,6 +169,28 @@ does not read it. `datarepo manifest` checks every name against the dataset's ru
 one that is not a run, and `build` refuses such a name, so a misspelt exclusion never leaves the run
 it meant looking fit for analysis.
 
+The **discovery census** (every accession you screened, with its verdict) goes in a tab-separated file
+that the manifest names at the top level, relative to the manifest's folder or absolute:
+
+```yaml
+candidates: candidates.tsv
+```
+
+```text
+census_version	accession	included	exclusion_reason	definition_id
+2026-10-05	PXD036557	true		DEF-AGING-SCREEN
+2026-10-05	PXD000002	false	spectra gate: not HCD Orbitrap	DEF-AGING-SCREEN
+```
+
+The header row is required and names the schema's columns. `census_version`, `accession` and
+`included` are required, and every row must fill them. `exclusion_reason` and `definition_id` may be
+left out of the header, and an empty cell is NULL. `included` is `true` or `false`. Cells are read
+verbatim (no quoting, no trimming), and an accession listed twice is refused. Like `excluded_runs` it
+is not identity: `ingest` never reads it, and the next `build` loads it into `dataset_candidates` and
+hashes the file into the catalog id. `build` names any included accession it holds no dataset for,
+and any dataset the census does not include, in `catalog_checks` (kind `census`) without failing.
+`datarepo manifest` reads the file the way `build` does and exits `1` on a malformed one.
+
 ## 4. Optional: engines and study results
 
 - **`datarepo run`** runs a released engine on stored data and writes its output beside the

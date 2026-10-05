@@ -175,7 +175,10 @@ public static class CatalogBuilder
     /// manifest fields taken from the manifest the build is given, and hashes them into the catalog id (G84), and
     /// <c>run_exclusions</c> from the same manifest's <c>excluded_runs</c> (G85). G85 did not bump it: "10" was
     /// unreleased when G85 joined it (1.1.0 carries both), so no published catalog says "10" without the table, and
-    /// the exclusions themselves are hashed into the id, which moves whenever they do. Inside a <see cref="SchemaContract.Python0320"/> scope it stays "8", and go and the annotations are left
+    /// the exclusions themselves are hashed into the id, which moves whenever they do. The discovery census
+    /// (<c>dataset_candidates</c> from the manifest's <c>candidates</c> TSV, aging 088 AGING-P11) joined "10" on the
+    /// same reasoning: still unreleased, the census file's sha256 is hashed into the id when there is one, and a
+    /// manifest naming none builds the catalog -- and the id -- it built before. Inside a <see cref="SchemaContract.Python0320"/> scope it stays "8", and go and the annotations are left
     /// out, so a parity build is still what Python 0.32.0 built. Same principle as
     /// <c>manifest.CONTENT_FIELDS</c> one level down -- an id moves when its own content moves, and not
     /// otherwise.</remarks>
@@ -591,6 +594,23 @@ public static class CatalogBuilder
                 StringComparer.Ordinal),
         };
 
+    /// <summary>The core table the discovery census fills at build (<see cref="CandidateCensus"/>).</summary>
+    public const string CandidatesTable = CandidateCensus.Table;
+
+    /// <summary>What <c>dataset_candidates</c>' provenance columns mean in a catalog that LOADED a census
+    /// (<c>catalog_tables.kind</c> <c>manifest</c>). Not in <see cref="DerivedColumnDocs"/>, which applies to every
+    /// catalog: where no census was loaded the table is the empty core table, and its columns mean what every core
+    /// table's do.</summary>
+    public static readonly IReadOnlyDictionary<string, string> CensusColumnDocs = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["dataset_id"] = "The catalog's dataset for this accession, or NULL when the catalog holds none -- the "
+            + "usual case for an accession the census excluded, and for an included one ingest has not reached "
+            + "(the `catalog_checks` rows of kind `census` name those). The rows come from the producer's "
+            + "discovery census, the TSV its manifest names as `candidates`, read by `datarepo build` "
+            + "(`catalog_meta.notes.candidates` gives the file and its sha256), not from any bundle.",
+        ["bundle_id"] = "The catalog's bundle for this accession, or NULL when the catalog holds none.",
+    };
+
     // --- discovery and selection ---------------------------------------------------------------------
 
     /// <summary>Every bundle written for one dataset, oldest first.</summary>
@@ -786,7 +806,15 @@ public static class CatalogBuilder
         IReadOnlyList<ArtefactRef>? artefacts = null,
         string? packageVersion = null,
         Manifest? manifest = null) =>
-        CatalogIdOf(bundles, studyBundles, artefacts, packageVersion, Annotations(bundles, manifest), RunExclusions(bundles, manifest));
+        CatalogIdOf(bundles, studyBundles, artefacts, packageVersion, Annotations(bundles, manifest), RunExclusions(bundles, manifest), Census(manifest));
+
+    /// <summary>The discovery census <paramref name="manifest"/> names as <c>candidates</c>, read and checked, or null
+    /// when it names none -- or inside a <see cref="SchemaContract.Python0320"/> scope, whose catalogs had no census.</summary>
+    /// <remarks>Read at build from the manifest the catalog is built with, like <see cref="Annotations"/>: the census is
+    /// about the INSTANCE (every accession the producer screened, most of which have no bundle), so no ingest could
+    /// carry it.</remarks>
+    /// <exception cref="ManifestException">The census file is missing or malformed.</exception>
+    public static CandidateCensus? Census(Manifest? manifest) => AnnotationsActive ? manifest?.Candidates() : null;
 
     /// <summary>Each bundle's runs that <paramref name="manifest"/> excludes from analysis (G85), in dataset then run
     /// order. A dataset the manifest does not list excludes nothing.</summary>
@@ -823,7 +851,8 @@ public static class CatalogBuilder
         IReadOnlyList<ArtefactRef>? artefacts,
         string? packageVersion,
         IReadOnlyList<DatasetAnnotation> annotations,
-        IReadOnlyList<RunExclusion> exclusions)
+        IReadOnlyList<RunExclusion> exclusions,
+        CandidateCensus? census)
     {
         var text = new StringBuilder();
         text.Append($"datarepo/{packageVersion ?? PackageVersion}\ncatalog/{CatalogVersion}\nschema/{SchemaContract.Version}\n");
@@ -851,6 +880,11 @@ public static class CatalogBuilder
         if (AnnotationsActive)
             foreach (var x in exclusions.OrderBy(x => x.DatasetId, SourcesPy.CodePointOrder).ThenBy(x => x.RunName, SourcesPy.CodePointOrder))
                 text.Append($"run-exclusion/{x.DatasetId}\t{PyFormat.Json(new List<object?> { x.RunName, x.Reason }, ensureAscii: true)}\n");
+        // And the discovery census: two catalogs that answer "why is PXDn not here?" differently are different
+        // catalogs. The file's bytes, not its path (a moved file is the same census); no line without one, so a
+        // manifest naming no census keeps the id it had.
+        if (AnnotationsActive && census is not null)
+            text.Append($"candidates/{census.Sha256}\n");
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text.ToString())))[..16];
     }
 
@@ -1142,7 +1176,22 @@ public static class CatalogBuilder
         var datasets = seen.Keys.Order(SourcesPy.CodePointOrder).ToList();
         var annotations = Annotations(bundles, manifest);
         var exclusions = RunExclusions(bundles, manifest);
-        var cid = CatalogIdOf(bundles, study, engines, null, annotations, exclusions);
+        var census = Census(manifest);
+        var cid = CatalogIdOf(bundles, study, engines, null, annotations, exclusions, census);
+        if (census is not null)
+        {
+            // Where the census came from, beside the manifest the CLI records: the path a reader can open and the
+            // sha256 the id hashed. Only when there is one, so a build without a census writes the notes it did.
+            var withCensus = new Dictionary<string, object?>(StringComparer.Ordinal);
+            foreach (var (k, v) in notes ?? new Dictionary<string, object?>()) withCensus[k] = v;
+            withCensus["candidates"] = new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["path"] = BundleWriter.PathText(census.Path),
+                ["sha256"] = census.Sha256,
+                ["rows"] = (long)census.Rows.Count,
+            };
+            notes = withCensus;
+        }
         if (!overwrite && ReadCatalogId(@out) == cid)
             return new CatalogResult
             {
@@ -1174,6 +1223,7 @@ public static class CatalogBuilder
                     CreateAnnotations(con, annotations);
                     CreateRunExclusions(con, exclusions);
                 }
+                if (census is not null) rowCounts[CandidateCensus.Table] = LoadCandidates(con, census, bundles);
                 checks = [
                     .. CheckRowCounts(con, bundles),
                     .. CheckIntegrity(con),
@@ -1183,6 +1233,7 @@ public static class CatalogBuilder
                     .. engineChecks ?? [],
                     .. AnnotationsActive ? [AnnotationCheck(annotations)] : Array.Empty<CatalogCheck>(),
                     .. AnnotationsActive && exclusions.Count > 0 ? [RunExclusionCheck(con, exclusions)] : Array.Empty<CatalogCheck>(),
+                    .. census is not null ? CensusChecks(census, bundles) : Array.Empty<CatalogCheck>(),
                 ];
                 var failed = checks.Where(c => !c.Ok).ToList();
                 if (failed.Count > 0)
@@ -1195,7 +1246,7 @@ public static class CatalogBuilder
                         + $"  - {detail}");
                 }
                 indexes = BuildIndexes(con);
-                WriteCatalogTables(con, bundles, rowCounts, checks, cid, instance, notes, study, studyCounts, engines);
+                WriteCatalogTables(con, bundles, rowCounts, checks, cid, instance, notes, study, studyCounts, engines, census is not null);
             }
         }
         catch
@@ -1239,6 +1290,60 @@ public static class CatalogBuilder
         ");
         foreach (var x in exclusions)
             Exec(con, $"INSERT INTO \"{RunExclusionsTable}\" VALUES (?, ?, ?, ?, ?)", x.DatasetId, x.BundleId, x.RunId, x.RunName, x.Reason);
+    }
+
+    /// <summary>Fills <c>dataset_candidates</c> (created empty with the core tables) from the census, in accession
+    /// order, and returns its row count.</summary>
+    /// <remarks>No bundle wrote these rows, so the two provenance columns cannot name one. They say instead what a
+    /// reader of this table wants first: the catalog's <c>dataset_id</c> and <c>bundle_id</c> for the accession when the
+    /// catalog holds it, NULL when it does not. Where the rows came from is <c>catalog_meta.notes.candidates</c> (the
+    /// file and its sha256) and <c>catalog_tables.kind</c> <c>manifest</c>.</remarks>
+    private static long LoadCandidates(DuckDBConnection con, CandidateCensus census, IReadOnlyList<BundleRef> bundles)
+    {
+        var held = bundles.ToDictionary(r => r.DatasetId, r => r.BundleId, StringComparer.Ordinal);
+        foreach (var row in census.Rows.OrderBy(r => r.Accession, SourcesPy.CodePointOrder))
+        {
+            var bundleId = held.GetValueOrDefault(row.Accession);
+            Exec(con,
+                $"INSERT INTO \"{CandidateCensus.Table}\" (dataset_id, bundle_id, census_version, accession, included, exclusion_reason, definition_id) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                bundleId is null ? null : row.Accession, bundleId, row.CensusVersion, row.Accession, row.Included,
+                row.ExclusionReason, row.DefinitionId);
+        }
+        return census.Rows.Count;
+    }
+
+    /// <summary>The census against the catalog, both ways. Both always PASS: they name, they do not refuse.</summary>
+    /// <remarks>An accession the census includes with no dataset here is normal while ingest catches up with the
+    /// screen, and a catalog dataset the census does not include is the producer's to reconcile, not a reason to
+    /// withhold a catalog. Each is named, so neither is silent: a reader asking "why is PXDn not here?" of a census
+    /// that says it is included is told by this row, and a dataset served without a verdict is told by the other.</remarks>
+    private static CatalogCheck[] CensusChecks(CandidateCensus census, IReadOnlyList<BundleRef> bundles)
+    {
+        var held = bundles.Select(r => r.DatasetId).ToHashSet(StringComparer.Ordinal);
+        var verdict = census.Rows.ToDictionary(r => r.Accession, StringComparer.Ordinal);
+        var included = census.Rows.Where(r => r.Included).Select(r => r.Accession).Order(SourcesPy.CodePointOrder).ToList();
+        var notHeld = included.Where(a => !held.Contains(a)).ToList();
+        var datasets = held.Order(SourcesPy.CodePointOrder).ToList();
+        var absent = datasets.Where(d => !verdict.ContainsKey(d)).ToList();
+        var notIncluded = datasets.Where(d => verdict.TryGetValue(d, out var v) && !v.Included).ToList();
+
+        var problems = new List<string>();
+        if (absent.Count > 0) problems.Add("not in the census: " + string.Join(", ", absent));
+        if (notIncluded.Count > 0)
+            problems.Add("in the census as not included: " + string.Join(", ", notIncluded.Select(d =>
+                verdict[d].ExclusionReason is { } reason ? $"{d} ({reason})" : d)));
+        return
+        [
+            new CatalogCheck($"{CandidateCensus.Table} (included accessions the catalog holds)", "census", true,
+                included.Count - notHeld.Count, included.Count,
+                notHeld.Count == 0 ? null
+                    : "the census includes, and the catalog holds no dataset for: " + string.Join(", ", notHeld)
+                      + " (the census may run ahead of ingest)"),
+            new CatalogCheck($"{CandidateCensus.Table} (catalog datasets the census includes)", "census", true,
+                datasets.Count - absent.Count - notIncluded.Count, datasets.Count,
+                problems.Count == 0 ? null : string.Join("; ", problems)),
+        ];
     }
 
     /// <summary>Whether every excluded run is a run of its dataset's bundle. FAILS otherwise, which stops the build.</summary>
@@ -1839,7 +1944,8 @@ public static class CatalogBuilder
         IReadOnlyDictionary<string, object?>? notes,
         IReadOnlyList<StudyBundleRef> studyBundles,
         IReadOnlyDictionary<string, long> studyCounts,
-        IReadOnlyList<ArtefactRef> artefacts)
+        IReadOnlyList<ArtefactRef> artefacts,
+        bool censusLoaded)
     {
         Exec(con, @"
         CREATE TABLE catalog_meta (
@@ -1939,6 +2045,9 @@ public static class CatalogBuilder
             var name = spec.Name;
             var kind = Runner.EngineTables.TryGetValue(name, out var engine) ? $"engine:{engine}"
                 : GoActive && Runner.GoTables.Contains(name) ? $"engine:{Runner.GoEngine}"
+                // The census is the manifest's, not a bundle's. Only when one was loaded: without it the table is
+                // the empty core table it always was.
+                : censusLoaded && name == CandidateCensus.Table ? "manifest"
                 : "bundle";
             Exec(con, "INSERT INTO catalog_tables VALUES (?, ?, ?)", name, rowCounts.GetValueOrDefault(name, 0), kind);
         }

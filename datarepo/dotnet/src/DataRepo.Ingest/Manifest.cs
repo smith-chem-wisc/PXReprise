@@ -97,6 +97,17 @@ public sealed record Manifest(
     object? Credit,
     IReadOnlyDictionary<string, DatasetEntry> Datasets)
 {
+    /// <summary>The discovery census the manifest names as <c>candidates</c> (absolute; a relative path is taken
+    /// against the manifest's folder), or null when it names none.</summary>
+    /// <remarks>Only the path is read here: the file is parsed by <see cref="Candidates"/>, which <c>build</c> and
+    /// <c>datarepo manifest</c> call. Ingest never does -- the census is an instance-level fact, no row of a bundle,
+    /// so a malformed one must not change an ingest's outcome.</remarks>
+    public string? CandidatesPath { get; init; }
+
+    /// <summary>The census at <see cref="CandidatesPath"/>, read and checked, or null when the manifest names none.</summary>
+    /// <exception cref="ManifestException">The file is missing or malformed (<see cref="CandidateCensus.Load"/>).</exception>
+    public CandidateCensus? Candidates() => CandidatesPath is null ? null : CandidateCensus.Load(CandidatesPath);
+
     /// <summary>One dataset, refusing the ones the producer marked unfit.</summary>
     /// <exception cref="ManifestException">The accession is not in the manifest.</exception>
     /// <exception cref="DatasetExcludedException">Its status is not <c>include</c>.</exception>
@@ -217,7 +228,20 @@ public sealed record Manifest(
             Store: Resolve(map["store"]!, path),
             Licence: map.GetValueOrDefault("licence"),
             Credit: map.GetValueOrDefault("credit"),
-            Datasets: entries);
+            Datasets: entries)
+        {
+            CandidatesPath = CandidatesPathOf(map, path),
+        };
+    }
+
+    /// <summary>The <c>candidates</c> key, resolved, or null when absent. A value that is not a path is refused here.</summary>
+    private static string? CandidatesPathOf(Dictionary<string, object?> map, string path)
+    {
+        if (!map.TryGetValue("candidates", out var value) || value is null) return null;
+        if (value is not string text || text.Trim().Length == 0)
+            throw new ManifestException(
+                $"{path}: candidates must be the path of the discovery census TSV, found {(value is string ? "an empty str" : PyTypeName(value))}");
+        return Resolve(text, path);
     }
 
     private static IReadOnlyList<string> AsTuple(object? value, IReadOnlyList<string> fallback) => value switch

@@ -569,6 +569,10 @@ public sealed partial class CatalogServer : IDisposable
                 }
                 if (!string.IsNullOrEmpty(cdoc.Unit)) entry["unit"] = cdoc.Unit;
             }
+            // The discovery census names no bundle: its provenance columns say whether the catalog holds the accession.
+            else if (table == CatalogBuilder.CandidatesTable && Equals(info?.GetValueOrDefault("kind"), "manifest")
+                     && CatalogBuilder.CensusColumnDocs.TryGetValue(name, out var census))
+                entry["means"] = census;
             else if (name is "dataset_id" or "bundle_id" or "study_layer" or "study_bundle_id")
             {
                 entry["means"] =
