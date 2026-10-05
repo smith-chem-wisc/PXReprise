@@ -4,6 +4,59 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [1.0.0] - unreleased
+
+**dataRepo is now a C# program (D41).** Every command of 0.32.0 is here, in one self-contained executable per
+platform that needs neither Python nor .NET installed. Each part was checked against what the Python 0.32.0
+release actually wrote on aging's real data before anything new was added. All 85 datasets of the live corpus
+ingest to identical rows, catalogs hold identical rows (27M checked), the public site is byte-identical, and
+1,161 MCP tool calls return the same bytes. The Python package is frozen at 0.32.0.
+
+**Every bundle id changes, so an instance re-ingests once.** The ingest path is `cs-1.0.0`, and the core schema
+moves 0.0.13 -> 0.0.14. A catalog refuses bundles from another schema, as before.
+
+### Changed
+- **`peptidoforms.is_unique` now means "maps to one gene", computed from the SEARCHED sequences** (G76, D40).
+  It was parsimony-unique: one accession in MetaMorpheus's list, which was `true` for a fibronectin peptide shared
+  by four isoforms (aging 075).
+  - The new values come from mzLib's `PeptideUniquenessClassifier`. A peptide belongs to every protein whose
+    sequence contains it, whatever the protease. I and L count as one residue. Decoys are ignored. Contaminants
+    count.
+  - `is_unique` is `true` for Unique and SharedWithinGene, `false` for SharedAcrossGenes, and NULL when no
+    searched sequence holds the peptide.
+  - Genes are grouped as mzLib groups them. 46 of 937 within-gene groupings measured rest on a shared Ensembl id
+    alone and can join paralogs (DATAREPO-70).
+- **`peptidoforms.is_isoform_specific` is filled** (G76, D40): `true` when exactly one searched protein sequence
+  contains the peptide. Until now it was NULL on every row.
+- **The site's "Unique peptides at 1% FDR" tile** counts gene-unique sequences in a 0.0.14 catalog, and says
+  so. Its words follow the catalog's schema.
+- **`pep:DEF-PEP`'s version key gains `; iterative on|off|not recorded`** (G81, pep 005). Iterative PEP is a
+  MetaMorpheus setting that changes PEP values, so two searches that differ in it must not share a key.
+- **Definitions follow each stage's namespace** (D37). A stage whose `provenance.json` declares
+  `"definitions": "pxreprise"` has its pipeline counts cite PXReprise's ten definitions. A stage that declares
+  none cites aging's, as before.
+- **Distribution:** a GitHub release now carries `datarepo-<version>-<platform>` archives for win-x64,
+  linux-x64, osx-arm64 and osx-x64. Each is built, run end to end with no .NET on PATH, and checked to report its
+  version. `pip install` is no longer the way in.
+
+### Added
+- **`OccupancyState.covered_zero`** (QuantProject 009, DEF-OCC-COVERED-ZERO). A count entry with numerator 0
+  (`0.00(0/N)`) is a covered, unmodified site: a MEASURED zero.
+  - It is stored as this fifth state, with `intensity_is_floor = false`, never as a censored floor. Its
+    intensity entry prints exactly like a floor's.
+  - Bundles carry QuantProject's occupancy text at v3.6.
+  - Only output from an mzLib carrying #1411 and a MetaMorpheus that opts in has such entries.
+- **`datarepo ingest --json`** (PXReprise 009). It prints one envelope on stdout: per dataset, the status
+  (`ingested`, `unchanged`, `excluded`, `refused` or `error`), the bundle id, row counts, checks, findings and
+  reasons. The human report goes to stderr. Exit codes are unchanged: 0 ok, 1 refused, 2 usage.
+- **`datarepo manifest` checks `run_enrichment` maps by ingest's rules** (PXReprise 009). These are vocabulary,
+  unknown runs, coverage, values declared in `enrichment`, and the `mixed_enrichment` flag. The runs are read
+  where ingest reads them. The command lists every problem in ingest's own words and exits 1 on any.
+
+### Removed
+- Reading through pyMzLib's bridge. mzLib is called directly, which also removes the bridge's size cap on one
+  read.
+
 ## [0.32.0] - 2026-09-30
 
 **A run named with a spectra extension inside its stem now ingests (aging 081, REQ-DATAREPO-7), and
