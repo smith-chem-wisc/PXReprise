@@ -7,6 +7,24 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.3.8 (2026-10-05)
+
+**Updating:** MetaMorpheus unchanged (1.1.11). Machine file unchanged. Safe mid-batch: stop the batch, update, run it
+again. No shipped profile changes, so no result changes.
+
+- **A batch survives a reboot or a crash.** Run the same `batch run` again and it finishes what was cut off:
+  - **A search cut off part-way is searched again.** Before, its half-written output made the next start mark it
+    `search_failed` and never try again. The partial output is moved aside, and the deposit is `search_interrupted`.
+    A fourth cut-off on one deposit settles it.
+  - **A delivery cut off part-way is delivered again.** Before, an ingest that never finished looked delivered.
+  - **A stale `driver.pid` no longer blocks the start.** After a reboot its number can belong to another program;
+    the driver's start time now tells them apart.
+- **`driver.last.json`** in the state directory records the running batch's command line, working directory, pid and
+  start time, so a script or scheduled task can start the batch again after a reboot.
+- **`batch run` no longer deletes the STOP file of a batch that is still running.** A second start is refused, as
+  before, but it used to remove STOP first.
+- **The manifest is never seen half-written.** Each new entry is written to a file beside it, which then replaces it.
+
 ## 0.3.7 (2026-10-04)
 
 **Updating:** MetaMorpheus unchanged (1.1.11). Machine file unchanged. Safe mid-batch: stop the batch, update, run it
