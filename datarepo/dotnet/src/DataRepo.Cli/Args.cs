@@ -30,12 +30,16 @@ public sealed class Args
     public enum Kind { Flag, Value, Append }
 
     /// <summary>One command's grammar.</summary>
-    public sealed class Spec(string prog)
+    /// <param name="prog">The command as typed, e.g. <c>datarepo ingest</c>.</param>
+    /// <param name="description">What the command does, one line; <c>-h</c> prints it under the usage line, and
+    /// docs/cli.md is generated from that output (<c>tools/build_cli_docs.py</c>).</param>
+    public sealed class Spec(string prog, string? description = null)
     {
         private readonly List<(string Name, string Arity, string Help)> _positionals = [];
         private readonly List<(string Long, string? Short, Kind Kind, string? Default, string? Metavar, bool Required, string[]? Choices, string Help)> _options = [];
 
         public string Prog { get; } = prog;
+        public string? Description { get; } = description;
 
         public Spec Positional(string name, string help, string arity = "1")
         {
@@ -50,14 +54,18 @@ public sealed class Args
             return this;
         }
 
+        /// <summary>The placeholder an option's value is shown as: its metavar, <c>{a,b}</c> for choices (as
+        /// argparse shows them), else the option's name upper-cased.</summary>
+        private static string Meta((string Long, string? Short, Kind Kind, string? Default, string? Metavar, bool Required, string[]? Choices, string Help) o) =>
+            o.Metavar ?? (o.Choices is not null ? "{" + string.Join(",", o.Choices) + "}" : o.Long.TrimStart('-').Replace('-', '_').ToUpperInvariant());
+
         public string Usage()
         {
             var parts = new List<string> { $"usage: {Prog} [-h]" };
             foreach (var o in _options)
             {
                 var name = o.Short ?? o.Long;
-                var meta = o.Metavar ?? o.Long.TrimStart('-').Replace('-', '_').ToUpperInvariant();
-                var text = o.Kind == Kind.Flag ? name : $"{name} {meta}";
+                var text = o.Kind == Kind.Flag ? name : $"{name} {Meta(o)}";
                 parts.Add(o.Required ? text : $"[{text}]");
             }
             foreach (var p in _positionals)
@@ -65,22 +73,37 @@ public sealed class Args
             return string.Join(" ", parts);
         }
 
+        /// <summary>What <c>-h</c> prints: usage, the description, then every argument with its help, a value
+        /// option's default, and whether it is required or repeatable.</summary>
         public string Help()
         {
             var lines = new List<string> { Usage(), "" };
+            if (!string.IsNullOrEmpty(Description))
+            {
+                lines.Add(Description);
+                lines.Add("");
+            }
             if (_positionals.Count > 0)
             {
                 lines.Add("positional arguments:");
-                foreach (var p in _positionals) lines.Add($"  {p.Name,-22} {p.Help}");
+                foreach (var p in _positionals)
+                {
+                    var help = p.Help + p.Arity switch { "*" => " (zero or more)", "+" => " (one or more)", _ => "" };
+                    lines.Add($"  {p.Name,-22} {help}");
+                }
                 lines.Add("");
             }
             lines.Add("options:");
             lines.Add($"  {"-h, --help",-22} show this help message and exit");
             foreach (var o in _options)
             {
-                var meta = o.Kind == Kind.Flag ? "" : " " + (o.Metavar ?? o.Long.TrimStart('-').Replace('-', '_').ToUpperInvariant());
+                var meta = o.Kind == Kind.Flag ? "" : " " + Meta(o);
                 var names = (o.Short is null ? "" : o.Short + ", ") + o.Long + meta;
-                lines.Add($"  {names,-22} {o.Help}");
+                var help = o.Help;
+                if (o.Required) help += " (required)";
+                if (o.Kind == Kind.Append) help += help.Contains("repeatable", StringComparison.Ordinal) ? "" : " (repeatable)";
+                if (o.Default is not null) help += $" (default: {o.Default})";
+                lines.Add(names.Length > 22 ? $"  {names}\n  {"",-22} {help}" : $"  {names,-22} {help}");
             }
             return string.Join("\n", lines);
         }

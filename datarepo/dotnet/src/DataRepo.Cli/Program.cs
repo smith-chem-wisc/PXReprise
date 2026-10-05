@@ -36,18 +36,57 @@ namespace DataRepo.Cli
         private static readonly string[] Commands = ["ingest", "study", "manifest", "inspect", "build", "catalog", "query", "site", "publish", "run", "mcp", "doctor"];
         private static readonly string[] Pending = [];
 
+        /// <summary>Each command's one line, as <c>datarepo -h</c> lists it and as its own <c>-h</c> prints it
+        /// under the usage line. docs/cli.md is generated from that output, so this is its only source.</summary>
+        internal static readonly IReadOnlyDictionary<string, string> Summaries = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["ingest"] = "build a Parquet bundle for one or more datasets",
+            ["study"] = "write a study layer's delivered rows as a study bundle",
+            ["manifest"] = "show what the producing instance offers, and check its run_enrichment maps",
+            ["inspect"] = "summarise a written bundle",
+            ["build"] = "load bundles into one DuckDB catalog",
+            ["catalog"] = "summarise a built catalog",
+            ["query"] = "run one read-only SQL query against a catalog",
+            ["site"] = DataRepo.Site.SiteCommand.Summary,
+            ["publish"] = "build the catalog from every ingested dataset, then write the static site",
+            ["run"] = "run a released engine on stored data (the instance operator's step)",
+            ["mcp"] = DataRepo.Mcp.McpCommand.Summary,
+            ["doctor"] = "report this build's version, schema and components, and any registered MCP servers",
+        };
+
+        /// <summary>The top-level usage line.</summary>
+        private static string TopUsage => $"usage: {Prog} [-h] [--version] {{{string.Join(",", Commands.Concat(Pending))}}} ...";
+
+        /// <summary>What <c>datarepo -h</c> prints, in argparse's shape.</summary>
+        internal static string TopHelp()
+        {
+            var lines = new List<string>
+            {
+                TopUsage, "",
+                "Reanalysed public proteomics data as one repository: ingest, build, publish and serve.", "",
+                "commands:",
+            };
+            foreach (var command in Commands) lines.Add($"  {command,-10} {Summaries[command]}");
+            lines.Add("");
+            lines.Add($"`{Prog} <command> -h` describes one command.");
+            lines.Add("");
+            lines.Add("options:");
+            lines.Add($"  {"-h, --help",-10} show this help message and exit");
+            lines.Add($"  {"--version",-10} show program's version number and exit");
+            return string.Join("\n", lines);
+        }
+
         public static int Run(string[] argv)
         {
             if (argv.Length == 0 || argv[0] is "-h" or "--help")
             {
-                var usage = $"usage: {Prog} [-h] [--version] {{{string.Join(",", Commands.Concat(Pending))}}} ...";
                 if (argv.Length == 0)
                 {
-                    Console.Error.WriteLine(usage);
+                    Console.Error.WriteLine(TopUsage);
                     Console.Error.WriteLine($"{Prog}: error: the following arguments are required: command");
                     return 2;
                 }
-                Console.WriteLine(usage);
+                Console.WriteLine(TopHelp());
                 return 0;
             }
             if (argv[0] == "--version")
@@ -72,7 +111,7 @@ namespace DataRepo.Cli
                     "run" => RunCommand.Run(rest),
                     "mcp" => DataRepo.Mcp.McpCommand.Run(rest, Console.Out, Console.Error),
                     "site" => DataRepo.Site.SiteCommand.Run(rest, Console.Out, Console.Error),
-                    "doctor" => Doctor(),
+                    "doctor" => Doctor(rest),
                     _ when Pending.Contains(command) => NotYet(command),
                     _ => Invalid(command),
                 };
@@ -92,7 +131,7 @@ namespace DataRepo.Cli
 
         private static int Invalid(string command)
         {
-            Console.Error.WriteLine($"usage: {Prog} [-h] [--version] {{{string.Join(",", Commands.Concat(Pending))}}} ...");
+            Console.Error.WriteLine(TopUsage);
             Console.Error.WriteLine(
                 $"{Prog}: error: argument command: invalid choice: '{command}' (choose from {string.Join(", ", Commands.Concat(Pending).Select(c => $"'{c}'"))})");
             return 2;
@@ -133,7 +172,7 @@ namespace DataRepo.Cli
 
         private static int Ingest(string[] argv)
         {
-            var args = new Args.Spec($"{Prog} ingest")
+            var args = new Args.Spec($"{Prog} ingest", Summaries["ingest"])
                 .Positional("manifest", "the producing instance's manifest.yaml")
                 .Positional("accession", "datasets to ingest; default is every 'include'", "*")
                 .Option("--store", Args.Kind.Value, "where to write bundles; default is the manifest's store")
@@ -235,7 +274,7 @@ namespace DataRepo.Cli
 
         private static int StudyCommand(string[] argv)
         {
-            var args = new Args.Spec($"{Prog} study")
+            var args = new Args.Spec($"{Prog} study", Summaries["study"])
                 .Positional("manifest", "the study delivery's study.yaml")
                 .Option("--store", Args.Kind.Value, "where to write the bundle; default is the manifest's store")
                 .Option("--overwrite", Args.Kind.Flag, "rewrite a delivery already written")
@@ -257,7 +296,7 @@ namespace DataRepo.Cli
 
         private static int ManifestCommand(string[] argv)
         {
-            var args = new Args.Spec($"{Prog} manifest").Positional("manifest", "").Parse(argv);
+            var args = new Args.Spec($"{Prog} manifest", Summaries["manifest"]).Positional("manifest", "the producing instance's manifest.yaml").Parse(argv);
             var manifest = Manifest.Load(args.Positional("manifest"));
             Console.WriteLine($"instance   {manifest.Instance} (manifest v{manifest.ManifestVersion})");
             Console.WriteLine($"work root  {manifest.WorkRoot}");
@@ -298,7 +337,7 @@ namespace DataRepo.Cli
 
         private static int Inspect(string[] argv)
         {
-            var args = new Args.Spec($"{Prog} inspect")
+            var args = new Args.Spec($"{Prog} inspect", Summaries["inspect"])
                 .Positional("bundle", "bundle directory or its bundle.json")
                 .Option("--json", Args.Kind.Flag, "print the manifest verbatim")
                 .Parse(argv);
@@ -353,8 +392,9 @@ namespace DataRepo.Cli
             return 0;
         }
 
-        private static int Doctor()
+        private static int Doctor(string[] argv)
         {
+            new Args.Spec($"{Prog} doctor", Summaries["doctor"]).Parse(argv);
             Console.WriteLine($"datarepo {BundleWriter.PackageVersion}  schema {SchemaContract.Version}");
             Console.WriteLine($"  runtime          .NET {Environment.Version}");
             Console.WriteLine($"  mzLib            {typeof(Readers.FileReader).Assembly.GetName().Version}");

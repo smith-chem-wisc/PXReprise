@@ -31,8 +31,8 @@ internal static class RunCommand
 
     public static int Run(string[] argv)
     {
-        var a = new Args.Spec("datarepo run")
-            .Positional("engine", "the engine to run")
+        var a = new Args.Spec("datarepo run", Cli.Summaries["run"])
+            .Positional("engine", $"the engine to run: {string.Join(", ", EngineRunner.Engines)}")
             .Positional("accession", "datasets whose searched databases to run on", "+")
             .Option("--store", Args.Kind.Value, "the instance's bundle store", required: true)
             .Option("--input", Args.Kind.Append, "an input file by role; repeatable", metavar: "ROLE=PATH")

@@ -34,7 +34,7 @@ internal static class CatalogCommands
         return pins;
     }
 
-    private static Args.Spec BuildSpec(string prog) => new Args.Spec(prog)
+    private static Args.Spec BuildSpec(string prog) => new Args.Spec(prog, Cli.Summaries["build"])
         .Positional("manifest", "the producing instance's manifest.yaml")
         .Positional("accession", "datasets to load; default is every 'include'", "*")
         .Option("--store", Args.Kind.Value, "where bundles live; default is the manifest's store")
@@ -119,7 +119,7 @@ internal static class CatalogCommands
 
     public static int CatalogSummary(string[] argv)
     {
-        var a = new Args.Spec($"{Prog} catalog")
+        var a = new Args.Spec($"{Prog} catalog", Cli.Summaries["catalog"])
             .Positional("catalog", "the catalog .duckdb file")
             .Option("--json", Args.Kind.Flag, "print the catalog's own tables verbatim")
             .Parse(argv);
@@ -164,10 +164,10 @@ internal static class CatalogCommands
 
     public static int Query(string[] argv)
     {
-        var a = new Args.Spec($"{Prog} query")
+        var a = new Args.Spec($"{Prog} query", Cli.Summaries["query"])
             .Positional("catalog", "the catalog .duckdb file")
             .Positional("sql", "the statement to run")
-            .Option("--format", Args.Kind.Value, "", defaultValue: "table", choices: ["table", "tsv", "json"])
+            .Option("--format", Args.Kind.Value, "how to print the rows", defaultValue: "table", choices: ["table", "tsv", "json"])
             .Option("--limit", Args.Kind.Value, "row cap; 0 for no cap", defaultValue: "50")
             .Parse(argv);
         if (!int.TryParse(a.Value("--limit"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var limit))
@@ -183,7 +183,7 @@ internal static class CatalogCommands
     /// delivery nobody asked for, or push the site anywhere: publishing to a host stays the operator's step.</remarks>
     public static int Publish(string[] argv)
     {
-        var a = new Args.Spec($"{Prog} publish")
+        var a = new Args.Spec($"{Prog} publish", Cli.Summaries["publish"])
             .Positional("manifest", "the producing instance's manifest.yaml")
             .Positional("accession", "datasets to load; default is every 'include' that has a bundle, naming those without", "*")
             .Option("--site", Args.Kind.Value, "the site directory: empty, or a site written before", required: true)

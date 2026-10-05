@@ -28,6 +28,31 @@ public static class SiteCommand
         ["--keyword"] = "a schema.org keyword for every dataset page, e.g. aging; repeatable",
     };
 
+    /// <summary>The command's one line, as <c>datarepo -h</c> lists it.</summary>
+    public const string Summary = "write the public static site for one catalog";
+
+    /// <summary>What <c>datarepo site -h</c> prints.</summary>
+    public static string Help()
+    {
+        var lines = new List<string>
+        {
+            Usage, "", Summary, "",
+            "positional arguments:",
+            $"  {"catalog",-22} the catalog .duckdb file",
+            "",
+            "options:",
+            $"  {"-h, --help",-22} show this help message and exit",
+        };
+        foreach (var (name, help) in Options)
+        {
+            var meta = name switch { "--purpose" => "TEXT", "--keyword" => "WORD", _ => name.TrimStart('-').Replace('-', '_').ToUpperInvariant() };
+            var text = help + (name == "--out" ? " (required)" : "");
+            var names = $"{name} {meta}";
+            lines.Add(names.Length > 22 ? $"  {names}\n  {"",-22} {text}" : $"  {names,-22} {text}");
+        }
+        return string.Join("\n", lines);
+    }
+
     /// <summary>Run the command; returns the process exit code (0 written, 1 refused, 2 usage).</summary>
     public static int Run(IReadOnlyList<string> args, TextWriter stdout, TextWriter stderr)
     {
@@ -39,7 +64,7 @@ public static class SiteCommand
             var arg = args[i];
             if (arg is "-h" or "--help")
             {
-                stdout.WriteLine(Usage);
+                stdout.WriteLine(Help());
                 return 0;
             }
             if (arg.StartsWith("--", StringComparison.Ordinal) && arg.Length > 2)

@@ -19,8 +19,12 @@ public static class McpCommand
         "usage: datarepo mcp [-h] [--catalog CATALOG] [--install] [--list] [--check]\n" +
         "                    [--name NAME] [--config CONFIG] [--force]";
 
+    /// <summary>The command's one line, as <c>datarepo -h</c> lists it.</summary>
+    public const string Summary = "serve one catalog to an agent over stdio (MCP)";
+
     public const string Help =
         Usage + "\n\n" +
+        Summary + "\n\n" +
         "options:\n" +
         "  -h, --help         show this help message and exit\n" +
         "  --catalog CATALOG  the catalog .duckdb file to serve; never auto-discovered\n" +
