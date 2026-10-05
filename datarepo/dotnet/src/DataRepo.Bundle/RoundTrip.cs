@@ -74,9 +74,11 @@ public static class RoundTrip
             }
             var (schema, rows) = ArrowTables.ReadParquet(file);
             allRows[table] = rows;
-            var specSchema = spec.ToArrowSchema();
+            // The columns of the schema the bundle was written against, not this build's.
+            var columns = SchemaContract.ColumnsAt(spec, schemaVersion);
+            var specSchema = (spec with { Columns = columns }).ToArrowSchema();
             var rewrittenPath = Path.Combine(scratchDir, Path.GetFileName(file));
-            ArrowTables.WriteParquet(ArrowTables.FromRows(table, spec.Columns, rows), rewrittenPath);
+            ArrowTables.WriteParquet(ArrowTables.FromRows(table, columns, rows), rewrittenPath);
             var (rewrittenSchema, rewrittenRows) = ArrowTables.ReadParquet(rewrittenPath);
             results.Add(new TableRoundTrip(
                 table,

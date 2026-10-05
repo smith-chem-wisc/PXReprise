@@ -279,7 +279,7 @@ public static class Ingester
 
         var (excluded, excludedReason) = Runs.ExcludedFiles(searchProvenance);
         var runFacts = sdrf.RunFacts.ToDictionary(kv => kv.Key, kv => (IReadOnlyDictionary<string, object?>)kv.Value, StringComparer.Ordinal);
-        var (runRows, runMetrics) = Runs.Build(datasetId, fetch, qc, runFacts, excluded, qcNamespace);
+        var (runRows, runMetrics) = Runs.Build(datasetId, fetch, qc, runFacts, excluded, qcNamespace, rules);
         if (runRows.Count == 0)
             throw new IngestException(
                 $"{datasetId}: no runs found. Neither a fetch manifest nor a QC report was readable "

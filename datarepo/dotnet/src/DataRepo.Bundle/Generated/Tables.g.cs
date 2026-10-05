@@ -5,7 +5,7 @@ namespace DataRepo.Bundle;
 public static partial class Tables
 {
     /// <summary>The core schema's version.</summary>
-    public const string SchemaVersion = "0.0.14";
+    public const string SchemaVersion = "0.0.15";
 
     /// <summary>The core tables, in the schema's order.</summary>
     public static readonly IReadOnlyList<TableSpec> Core =
@@ -105,7 +105,11 @@ public static partial class Tables
             new ColumnSpec("run_minutes", ColumnType.Float64, IsList: false, Nullable: true),
             new ColumnSpec("qc_pass", ColumnType.Boolean, IsList: false, Nullable: true),
             new ColumnSpec("instrument_model", ColumnType.String, IsList: false, Nullable: true),
+            new ColumnSpec("instrument_model_source", ColumnType.String, IsList: false, Nullable: true),
+            new ColumnSpec("instrument_model_accession", ColumnType.String, IsList: false, Nullable: true),
+            new ColumnSpec("instrument_serial", ColumnType.String, IsList: false, Nullable: true),
             new ColumnSpec("acquisition_datetime", ColumnType.TimestampUtc, IsList: false, Nullable: true),
+            new ColumnSpec("acquisition_start_local", ColumnType.String, IsList: false, Nullable: true),
             new ColumnSpec("enrichment", ColumnType.String, IsList: true, Nullable: true),
             new ColumnSpec("enrichment_source", ColumnType.String, IsList: false, Nullable: true),
         ]),

@@ -63,7 +63,7 @@ public static class ArrowTables
     {
         if (!Tables.ByName.TryGetValue(name, out var spec))
             throw new IngestException($"no table named '{name}' in schema {SchemaContract.Version}");
-        return FromRows(name, spec.Columns, rows);
+        return FromRows(name, SchemaContract.Columns(spec), rows);
     }
 
     private static IArrowArray BuildArray(ColumnSpec column, List<object?> values)

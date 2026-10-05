@@ -132,7 +132,7 @@ public class ProvenanceRunsParamsDbTests
             foreach (var ns in new[] { "aging", "pxreprise" })
             {
                 var (runs, metrics) = Runs.Build((string)c["dataset_id"]!, c["fetch"] as Dictionary<string, object?>,
-                    c["qc"] as Dictionary<string, object?>, Facts(c["run_facts"]), names, ns);
+                    c["qc"] as Dictionary<string, object?>, Facts(c["run_facts"]), names, ns, IngestRules.Python0320);
                 Assert.That(Py(new List<object?> { runs, metrics }), Is.EqualTo(Py(c[$"build/{ns}"])), $"{name}: build {ns}");
             }
         }
@@ -318,7 +318,7 @@ public class ProvenanceRunsParamsDbTests
             var qc = inputs["qc_report"] is string q ? Runs.LoadQcReport(Real(q)) : null;
             var (excluded, reason) = Runs.ExcludedFiles(doc);
             Assert.That(Py(new List<object?> { excluded.Order(StringComparer.Ordinal).Cast<object?>().ToList(), reason }), Is.EqualTo(Py(c["excluded_files"])), $"{dir}: excluded_files");
-            var (runs, metrics) = Runs.Build(datasetId, fetch, qc, Facts(inputs["run_facts"]), excluded);
+            var (runs, metrics) = Runs.Build(datasetId, fetch, qc, Facts(inputs["run_facts"]), excluded, rules: IngestRules.Python0320);
             Assert.That(Py(new List<object?> { runs, metrics }), Is.EqualTo(Py(c["build/aging"])), $"{dir}: build");
             var (_, pxrMetrics) = Runs.Build(datasetId, fetch, qc, Facts(inputs["run_facts"]), excluded, "pxreprise");
             Assert.That(Py(pxrMetrics), Is.EqualTo(Py(D(c["build/pxreprise"])["metrics"])), $"{dir}: build pxreprise");
