@@ -4,6 +4,70 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [1.1.0] - 2026-10-05
+
+**Each run's start time and instrument, the 0.32.0 defects fixed, and four things that reach the catalog
+without a re-ingest.** The core schema moves 0.0.14 -> 0.0.15 and the ingest path is `cs-1.1.0`, so **an instance
+re-ingests once**. A store written by 1.0.0 is re-ingested too, and an instance still on the Python package goes
+straight to 1.1.0. The catalog format is 10.
+
+### Added
+- **Each run's start time and instrument** (G87, PXReprise DATAREPO-72), read per run from the producer's
+  `qc_report.json`.
+  - A raw file's start time has no zone: it is the instrument's local clock. It is kept verbatim in the new
+    `runs.acquisition_start_local`, zone unknown, and is safe for ordering only within one deposit and one format.
+  - `runs.acquisition_datetime` is filled only from a value carrying `Z` or an offset, converted to UTC.
+  - New columns: `runs.instrument_serial`, `runs.instrument_model_accession` (PSI-MS) and
+    `runs.instrument_model_source` (`qc_report` or `sdrf`). The model comes from the run's own header when the QC
+    report gives one, and the model and its term always come from one source.
+  - A malformed `start_time` refuses the ingest.
+  - Deposits searched before the producer wrote these keys keep NULL times: their raw files are gone.
+- **`dataset_annotations`** (G84). `datarepo build` takes each dataset's notes, flags, status, reason,
+  `provenance_schema` and `sdrf` from the manifest it is given, and hashes them into `catalog_id`. A reworded note
+  reaches the catalog at the next build, with no re-ingest. Until now, notes never reached a catalog at all.
+- **`excluded_runs: {run: reason}`** (G85). This manifest field lists runs left out of analysis but kept in the
+  bundle.
+  - `datarepo manifest` checks the names (exit 1). `datarepo build` writes them to the new `run_exclusions` table
+    and refuses a name that is not a run.
+  - Changing an exclusion moves the catalog id, never a bundle id.
+  - A run the search never read is not an exclusion: its bundle already records it as an `excluded_from_search`
+    finding.
+- **The producer's discovery census.** With the manifest key `candidates: <tsv>`, `build` fills `dataset_candidates`
+  and hashes the file into the catalog id. `catalog_checks` (kind `census`) names any included accession the catalog
+  holds no dataset for, and any dataset the census does not include. `datarepo manifest` checks the file.
+- **The go engine, `datarepo run go.annotate_groups`** (G86). It annotates each stored search's protein groups with
+  GO through mzLib 1.0.593's `GoGroupAnnotator`, using a `go.obo` and the instance's organelle category map.
+  - Its output is an artefact beside the bundle, which the catalog loads into `protein_localizations`,
+    `organelle_term_categories` and `annotation_sources`.
+  - Contaminant databases are never passed to it.
+  - **It refuses to run until go publishes a definition id** (go GO-D4); an artefact without one could not be
+    cited.
+
+### Fixed
+- **The 0.32.0 behaviours the 1.0.0 port copied for exact parity** (G83). None of these changes a row on aging's
+  corpus today; each closes a class of defect.
+  - The modification lookup no longer guesses when no entry targets the residue, and checks a token against its
+    residue.
+  - Stray TG/MM/DR lines no longer leak into the next modification.
+  - An unclosed bracket keeps its last character.
+  - A multiplexed SDRF no longer keeps the last channel's run facts.
+  - Database sequences are sanitised as mzLib sanitises them (B/Z/J to X).
+  - Duplicate run stems are folded into one run or refused by name.
+  - Every run sharing a base name gets its enrichment.
+  - No MBR metric row is written for a null value.
+  - A modification name without " on " no longer becomes its own residue.
+  - TC ambiguity is chosen by task type.
+  - A FASTA byte-order mark no longer drops the first protein.
+  - A superscript replicate digit no longer crashes the ingest.
+- **`provenance_records.provenance_schema` is optional.** A record that states no schema is NULL. It was stored as
+  the text `None`, a value the record never wrote.
+- **Site:** a protein shard's size now counts its header. 0.32.0 and 1.0.0 measured the entries alone, so a shard
+  just under the 150,000-byte cap was written over it (150,703 bytes on aging's catalog of 2026-10-05).
+
+### Changed
+- **A manifest with a repeated YAML key is refused.** The 1.0.0 reader already did this, and its comment said
+  otherwise; PyYAML kept the last value.
+
 ## [1.0.0] - 2026-10-05
 
 **dataRepo is now a C# program (D41).** Every command of 0.32.0 is here, in one self-contained executable per

@@ -26,9 +26,10 @@ public sealed class BundleWriter(string store, string datasetId, string? ingestP
     /// changed. <b>Bump it in the same commit as any change to what an ingest reads, parses, derives or
     /// writes.</b> The C# line starts apart from the Python one (which ended at 0.22.0) so a C# bundle id
     /// can never collide with a Python one; the operator re-ingests once at the switch (D41). cs-1.0.0 is the
-    /// first released C# ingest path: G76 (D40), G81, D37 and covered_zero, on schema 0.0.14.
+    /// first released C# ingest path: G76 (D40), G81, D37 and covered_zero, on schema 0.0.14. cs-1.1.0: G83's
+    /// fixes to the behaviours 0.32.0 had, and G87's run start time and instrument, on schema 0.0.15.
     /// </remarks>
-    public const string IngesterVersion = "cs-1.0.0";
+    public const string IngesterVersion = "cs-1.1.0";
 
     /// <summary>QPX release the column names are written against (D4). Provisional (G13).</summary>
     public const string QpxVersion = "unpinned";

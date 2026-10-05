@@ -21,7 +21,7 @@ New here? Start with [getting-started.md](getting-started.md), which runs the ma
 | [`query`](#datarepo-query) | run one read-only SQL query against a catalog |
 | [`mcp`](#datarepo-mcp) | serve one catalog to an agent over stdio (MCP) |
 
-`datarepo --version` prints the version. A release build says its version (`datarepo 1.0.0`); a build from source says `0.0.0-dev`.
+`datarepo --version` prints the version. A release build says its version (`datarepo 1.1.0`); a build from source says `0.0.0-dev`.
 
 **Exit status.** `0` when the command did what it was asked, including a no-op it reports (an unchanged bundle or catalog, a delivery already written). `1` when it refused: a dataset the manifest excludes, a check that failed, a file that does not match its record. The reason is on standard error. `2` for a command line it cannot parse.
 
