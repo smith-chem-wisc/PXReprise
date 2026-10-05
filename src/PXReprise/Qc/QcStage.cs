@@ -51,11 +51,23 @@ public static class QcStage
             if (r.Reporters?.Tag is { } tag)
                 report[Path.GetFileName(f)]!["isobaric_reporters"] = new JsonObject
                     { ["tag"] = tag, ["fraction"] = r.Reporters.Fraction, ["spectra_checked"] = r.Reporters.SpectraChecked };
+            // DATAREPO-72: a key only for a value the reader gave; a missing key means "not read".
+            if (r.Run is { } run)
+            {
+                var entry = report[Path.GetFileName(f)]!.AsObject();
+                if (run.StartTime is { } st) entry["start_time"] = st;
+                if (run.InstrumentModel is { } im) entry["instrument_model"] = im;
+                if (run.InstrumentModelAccession is { } ia) entry["instrument_model_accession"] = ia;
+                if (run.InstrumentSerial is { } sn) entry["instrument_serial"] = sn;
+            }
             if (r.FailReasons.Contains(SpectraQc.Unreadable))
                 prov.Note($"{Path.GetFileName(f)}: unreadable; recorded as a failure and skipped");
             else prov.Input(f);
         }
         if (report.Count == 0) throw new UsageException($"no .raw files in {spectraDir}");
+        if (report.Any(kv => kv.Value?["start_time"] is not null))
+            prov.Note("start_time is the reader's value, unconverted: mzLib ThermoRawFileReader, from the .raw file header "
+                      + "(FileHeader.CreationDate), which is the instrument's local clock with no time zone. Never compare it across deposits as UTC.");
         string reportFile = Path.Combine(outDir, "qc_report.json");
         File.WriteAllText(reportFile, report.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
         bool all = report.All(kv => kv.Value!["pass"]!.GetValue<bool>());

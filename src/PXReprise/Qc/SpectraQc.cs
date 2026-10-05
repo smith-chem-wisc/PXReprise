@@ -18,7 +18,15 @@ public sealed record QcFileResult(
     double? RunMinutes,
     IReadOnlyDictionary<string, int>? ChargeStates,
     string? Error = null,
-    ReporterEvidence? Reporters = null);
+    ReporterEvidence? Reporters = null,
+    RunMetadata? Run = null);
+
+/// <summary>
+/// What the raw file says about its own acquisition (DATAREPO-72), recorded while the file still exists: the search's
+/// cleanup deletes it, and nothing downstream re-reads spectra. Each value is the reader's, unconverted; null means
+/// the reader did not give it. A Thermo RAW start time is the instrument's local clock with no zone (mzLib #1349).
+/// </summary>
+public sealed record RunMetadata(string? StartTime, string? InstrumentModel, string? InstrumentModelAccession, string? InstrumentSerial);
 
 /// <summary>
 /// The pre-search gate: keep only high-resolution HCD with MS2 read in the Orbitrap (aging's v1 rule, now the profile's
@@ -37,9 +45,12 @@ public static class SpectraQc
     public static QcFileResult Check(string path, QcGates gates, bool refuseIsobaric = false)
     {
         List<MsDataScan> scans;
+        SourceFile? source;
         try
         {
-            scans = MsDataFileReader.GetDataFile(path).LoadAllStaticData().GetAllScansList();
+            var file = MsDataFileReader.GetDataFile(path).LoadAllStaticData();
+            scans = file.GetAllScansList();
+            source = file.SourceFile;
         }
         catch (Exception e)
         {
@@ -48,7 +59,19 @@ public static class SpectraQc
             string msg = e.Message.Length > 500 ? e.Message[..500] : e.Message;
             return new QcFileResult(false, new[] { Unreadable }, null, 0, null, null, null, null, msg);
         }
-        return Evaluate(scans, gates, refuseIsobaric);
+        return Evaluate(scans, gates, refuseIsobaric) with { Run = Metadata(source) };
+    }
+
+    /// <summary>The source file's acquisition facts; never empty strings, and never a reason to fail QC.</summary>
+    public static RunMetadata? Metadata(SourceFile? source)
+    {
+        if (source is null) return null;
+        static string? Text(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+        // K: nothing for the zone-less value a RAW file holds, Z for a UTC one. Never converted.
+        string? start = source.AcquisitionStartTime is { } t
+            ? t.ToString("yyyy-MM-dd'T'HH:mm:ss.FFFFFFFK", System.Globalization.CultureInfo.InvariantCulture) : null;
+        var m = new RunMetadata(start, Text(source.InstrumentModel?.Name), Text(source.InstrumentModel?.Accession), Text(source.InstrumentSerialNumber));
+        return m is { StartTime: null, InstrumentModel: null, InstrumentModelAccession: null, InstrumentSerial: null } ? null : m;
     }
 
     /// <summary>The verdict from a file's scans; separated from reading so it can be tested without a raw file.</summary>
