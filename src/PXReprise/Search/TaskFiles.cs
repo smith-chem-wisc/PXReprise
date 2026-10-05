@@ -90,7 +90,12 @@ public static class TaskFiles
         // G19 (D23, D24, D27): the deposit's protease and cysteine chemistry, in EVERY task. Mods are per task in
         // MetaMorpheus (no per-file mod keys), so they are per deposit; a per-file protease goes in <raw>.toml instead.
         if (s.Protease is { } protease)
+        {
             text = Replace(text, "^Protease = \".*\"$", $"Protease = \"{protease}\"", "Protease", exactlyOne: true);
+            // MetaMorpheus keeps a second one, SpecificProtease, for judging a peptide fully specific (FDR categories): the
+            // live 1.1.11 check of 2026-10-05 showed Protease = "Glu-C" beside SpecificProtease = "trypsin" when only the first was set.
+            text = Replace(text, "^SpecificProtease = \".*\"$", $"SpecificProtease = \"{protease}\"", "SpecificProtease", exactlyOne: true);
+        }
         if (s.FixedCysMods is not null || s.VariableCysMods is not null)
         {
             text = EditModList(text, "ListOfModsFixed", remove: e => e.EndsWith(" on C", StringComparison.Ordinal) || e.EndsWith(" on U", StringComparison.Ordinal),

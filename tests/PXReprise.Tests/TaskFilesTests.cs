@@ -30,6 +30,7 @@ public class TaskFilesTests
         ListOfModsFixed = "Common Fixed\tCarbamidomethyl on C\t\tCommon Fixed\tCarbamidomethyl on U"
         ListOfModsVariable = "Common Variable\tOxidation on M"
         [CommonParameters.DigestionParams]
+        SpecificProtease = "trypsin"
         Protease = "trypsin"
         """;
 
@@ -39,7 +40,7 @@ public class TaskFilesTests
     {
         var (nem, _) = TaskFiles.Edit(Chemistry, TaskKind.Gptmd, new TaskSettings(8, false, Array.Empty<string>(), Protease: "Glu-C",
             FixedCysMods: Array.Empty<string>(), VariableCysMods: new[] { "Unimod\tNethylmaleimide on C", "Unimod\tNEM:2H(5) on C" }), Known);
-        Assert.That(nem, Does.Contain("Protease = \"Glu-C\""));
+        Assert.That(nem, Does.Contain("\nProtease = \"Glu-C\"").And.Contain("SpecificProtease = \"Glu-C\""), "both protease settings (live 1.1.11 check)");
         Assert.That(nem, Does.Contain("ListOfModsFixed = \"\""), "carbamidomethyl on C and U are gone");
         Assert.That(nem, Does.Contain(@"ListOfModsVariable = ""Common Variable\tOxidation on M\t\tUnimod\tNethylmaleimide on C\t\tUnimod\tNEM:2H(5) on C"""));
 
