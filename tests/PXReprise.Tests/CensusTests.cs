@@ -36,6 +36,27 @@ public class CensusTests
         return (exit, doc.RootElement.TryGetProperty("data", out var d) ? d.Clone() : doc.RootElement.Clone());
     }
 
+    // Aging 030 asked whether validate reads [designs]: it lists the deposits with a design, and refuses a missing folder.
+    [Test]
+    public async Task ValidateListsTheQuestionsDesignsAndRefusesAMissingFolder()
+    {
+        string dir = TestSupport.TempDir();
+        Directory.CreateDirectory(Path.Combine(dir, "designs"));
+        TestSupport.WriteFile(Path.Combine(dir, "designs"), "PXD000201.sdrf.tsv", "source name\n");
+        TestSupport.WriteFile(Path.Combine(dir, "designs"), "PXD000200.sdrf.tsv", "source name\n");
+        string q = TestSupport.WriteFile(dir, "question.toml", TestSupport.MinimalQuestion + "\n[designs]\ndir = \"designs\"\n");
+        var (exit, data) = await Run(new FakeSearch(), "validate", q, "--profiles", TestSupport.ProfilesDir);
+        Assert.That(exit, Is.EqualTo(0));
+        Assert.That(data.GetProperty("designs").GetProperty("deposits").EnumerateArray().Select(x => x.GetString()),
+            Is.EqualTo(new[] { "PXD000200", "PXD000201" }));
+
+        string bad = TestSupport.WriteFile(dir, "bad.toml", TestSupport.MinimalQuestion + "\n[designs]\ndir = \"nowhere\"\n");
+        Assert.That((await Run(new FakeSearch(), "validate", bad, "--profiles", TestSupport.ProfilesDir)).Exit, Is.EqualTo(2), "a config error is a usage error");
+        var plain = (await Run(new FakeSearch(), "validate", TestSupport.WriteFile(dir, "plain.toml", TestSupport.MinimalQuestion),
+            "--profiles", TestSupport.ProfilesDir)).Data;
+        Assert.That(plain.TryGetProperty("designs", out var none) && none.ValueKind != JsonValueKind.Null, Is.False, "no [designs]: none reported");
+    }
+
     [Test]
     public async Task TheCensusRoutesEveryDepositAndWritesItsRecord()
     {

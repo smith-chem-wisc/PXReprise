@@ -1,0 +1,90 @@
+{
+    "datarepo":  "1.0.0",
+    "ok":  true,
+    "exit_code":  0,
+    "reasons":  [
+
+                ],
+    "datasets":  [
+                     {
+                         "accession":  "PXD034059",
+                         "status":  "ingested",
+                         "bundle_id":  "24e3acd215f6ceb5",
+                         "bundle_path":  "F:\\aging_data\\store\\PXD034059\\24e3acd215f6ceb5",
+                         "tables":  {
+                                        "datasets":  1,
+                                        "samples":  44,
+                                        "runs":  44,
+                                        "assays":  44,
+                                        "psms":  60141,
+                                        "peptidoforms":  26067,
+                                        "protein_groups":  84,
+                                        "proteins":  15681,
+                                        "ptm_sites":  118,
+                                        "ptm_stoichiometry":  173,
+                                        "quant_values":  4572,
+                                        "definitions":  17,
+                                        "provenance_records":  3,
+                                        "findings":  9,
+                                        "metrics":  366,
+                                        "search_modifications_declared":  64
+                                    },
+                         "checks":  [
+                                        {
+                                            "name":  "psms_target_1pct",
+                                            "ok":  true,
+                                            "observed":  2005,
+                                            "expected":  2005,
+                                            "source":  "results.txt: All target PSMs with q-value \u003c= 0.01 (aging:DEF-PSM-1PCT v1)"
+                                        },
+                                        {
+                                            "name":  "peptidoforms_target_1pct",
+                                            "ok":  true,
+                                            "observed":  78,
+                                            "expected":  78,
+                                            "source":  "results.txt: All target peptides with q-value \u003c= 0.01"
+                                        },
+                                        {
+                                            "name":  "protein_groups_1pct",
+                                            "ok":  true,
+                                            "observed":  50,
+                                            "expected":  50,
+                                            "source":  "results.txt: All target protein groups with q-value \u003c= 0.01"
+                                        },
+                                        {
+                                            "name":  "runs",
+                                            "ok":  false,
+                                            "observed":  44,
+                                            "expected":  43,
+                                            "source":  "ingest manifest: files"
+                                        },
+                                        {
+                                            "name":  "ms2_spectra",
+                                            "ok":  false,
+                                            "observed":  1418148,
+                                            "expected":  1413356,
+                                            "source":  "provenance.json id_rate.ms2 / results.txt All MS2 Scans"
+                                        }
+                                    ],
+                         "mismatches":  2,
+                         "unresolved_modifications":  {
+
+                                                      },
+                         "unmatched_runs":  {
+
+                                            },
+                         "findings":  [
+                                          "calibration_failed",
+                                          "count_mismatch",
+                                          "high_contamination",
+                                          "low_id_rate",
+                                          "no_design_file",
+                                          "no_sdrf",
+                                          "unplaced_ptm_sites"
+                                      ],
+                         "reasons":  [
+
+                                     ]
+                     }
+                 ]
+}

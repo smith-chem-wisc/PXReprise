@@ -7,6 +7,27 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.3.10 (2026-10-05)
+
+**Updating:** MetaMorpheus unchanged (1.1.11). Machine file unchanged. Safe mid-batch: stop the batch, update, run it
+again. No shipped profile changes, so no search result changes.
+
+- **Immunopeptidomes and peptidomes are no longer searched as tryptic.** Their peptides are not made by a protease, so
+  a tryptic search finds almost nothing (two aging deposits: an identification rate of about 0.0015).
+  - **What the screen reads:** the PRIDE record's text (immunopeptidome, ligandome, peptidomics, MHC or HLA peptides or
+    ligands, an unspecified or absent enzyme) and its project tags (hupo-hipp).
+  - **Where such a deposit goes:** it waits as `waiting_nonspecific_cleavage` until a profile that searches it exists.
+    A profile opts in with `nonspecific_cleavage = true` under `[accepts]`; none does yet.
+- **QC-excluded raw files are recorded for dataRepo again.** The search's `provenance.json` carries `excluded_files`
+  (`files` and `reason`), which dataRepo reads to leave a blank or failed injection out of the deposit's runs. Since
+  the move to C#, such a file was ingested as a run.
+- **dataRepo 1.0.0's JSON result is read.** At batch start PXReprise runs `datarepo --version`. From 1.0.0 on it calls
+  `ingest --json`, and a deposit counts as delivered only when the exit code is 0 and its status is `ingested` or
+  `unchanged`. The state records the status, bundle id and dataRepo's reasons. An older dataRepo is judged by its exit
+  code, as before.
+- **`pxreprise validate` checks `[designs]`.** It refuses a `dir` that does not exist and lists the deposits it holds
+  a design for.
+
 ## 0.3.9 (2026-10-05)
 
 **Updating:** MetaMorpheus unchanged (1.1.11). Machine file unchanged. Safe mid-batch: stop the batch, update, run it

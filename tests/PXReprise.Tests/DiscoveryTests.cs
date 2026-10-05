@@ -94,6 +94,44 @@ public class DiscoveryTests
         Assert.That(Router.Assign(r.Accession, a, Relevance.Evaluate(r, Q().Relevance), Q(), Profiles).Kind, Is.EqualTo(RouteKind.Search));
     }
 
+    // Aging 030 (PXR-A23): immunopeptidomes passed the screen and were searched as tryptic. The sentences are PRIDE's own.
+    [TestCase("Bead coupling and immunopurification of MHC class I peptides were performed as previously described")]   // PXD034059
+    [TestCase("Native MHC-II-peptide complexes were purified using the InvivoMab anti-mouse MHC-II antibody")]          // PXD058775
+    [TestCase("The database search was performed with an unspecified peptide cleavage.")]                                // PXD058775
+    [TestCase("Proteomic and immunopeptidomic analyses reveal a distinct MHC-II antigen repertoire")]                     // PXD058775
+    [TestCase("HLA-bound peptides were eluted with 0.1% TFA")]
+    [TestCase("Endogenous peptides were extracted from the hypothalamus; peptidomics by LC-MS/MS")]
+    public void NonTrypticPeptidesWaitForAProfileThatSearchesThem(string text)
+    {
+        var r = TestSupport.Record("PXD000017", "Liver in type 2 diabetes", text, instruments: new[] { "Q Exactive HF" }, files: new[] { "a.raw" });
+        var a = AcquisitionClassifier.Classify(r);
+        Assert.That(a.NonspecificCleavage, Is.True);
+        var route = Router.Assign(r.Accession, a, Relevance.Evaluate(r, Q().Relevance), Q(), Profiles);
+        Assert.That((route.Kind, route.Reason), Is.EqualTo((RouteKind.WaitingOnCapability, "nonspecific_cleavage")));
+    }
+
+    [Test]
+    public void TheHupoHippTagAloneIsEnough()
+    {
+        var r = TestSupport.Record("PXD000018", "Liver in type 2 diabetes", "senescent cells", instruments: new[] { "Q Exactive HF" }, files: new[] { "a.raw" });
+        r.ProjectTags.Add("Human immuno-peptidome project (hupo-hipp) (b/d-hpp)");
+        var a = AcquisitionClassifier.Classify(r);
+        Assert.That((a.NonspecificCleavage, a.Evidence), Is.EqualTo((true, "project tag: Human immuno-peptidome project (hupo-hipp) (b/d-hpp)")));
+    }
+
+    // Proteome biology that names MHC/HLA, and the other senses of "nonspecific", stay searchable.
+    [TestCase("MHC class I expression was increased in senescent cells")]
+    [TestCase("HLA-B27 transgenic rats develop spondyloarthritis")]
+    [TestCase("nonspecific binding was blocked with 5% BSA")]
+    [TestCase("unspecific binding to the beads was removed by washing")]
+    [TestCase("the phosphopeptidome was enriched with TiO2")]
+    [TestCase("proteins were digested with trypsin (enzyme: Trypsin/P, 2 missed cleavages)")]
+    public void WordsThatOnlyResembleNonTrypticPeptidesAreSearched(string text)
+    {
+        var r = TestSupport.Record("PXD000019", "Liver in type 2 diabetes", text, instruments: new[] { "Q Exactive HF" }, files: new[] { "a.raw" });
+        Assert.That(AcquisitionClassifier.Classify(r).NonspecificCleavage, Is.False);
+    }
+
     [TestCase("Q Exactive HF", InstrumentClass.OrbitrapHcdOnly)]
     [TestCase("Orbitrap Exploris 480", InstrumentClass.OrbitrapHcdOnly)]
     [TestCase("Orbitrap Fusion Lumos", InstrumentClass.OrbitrapHybrid)]

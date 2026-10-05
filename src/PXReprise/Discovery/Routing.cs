@@ -63,6 +63,7 @@ public static class Router
     /// <summary>What the deposit would need, named by the first thing no allowed profile covers.</summary>
     private static string Capability(Acquisition a, IReadOnlyList<string> refusals)
     {
+        if (a.NonspecificCleavage) return "nonspecific_cleavage";
         if (a.Crosslinked) return "crosslinking";
         if (a.Mode == AcquisitionMode.Dia) return "dia";
         if (a.Instrument == InstrumentClass.Timstof) return "timstof";

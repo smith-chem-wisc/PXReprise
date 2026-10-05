@@ -1,0 +1,17 @@
+{
+    "datarepo":  "1.0.0",
+    "ok":  false,
+    "exit_code":  1,
+    "reasons":  [
+
+                ],
+    "datasets":  [
+                     {
+                         "accession":  "PXD999999",
+                         "status":  "refused",
+                         "reasons":  [
+                                         "PXD999999 is not in F:/aging_data/batch/manifest.yaml. Datasets listed: PXD001054, PXD005014"
+                                     ]
+                     }
+                 ]
+}

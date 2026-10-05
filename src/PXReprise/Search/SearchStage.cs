@@ -99,6 +99,7 @@ public static class SearchStage
         prov.Upstream(upstream.ToArray());
         prov.Note($"profile {p.Key}, organism {r.Organism}; searched by PXReprise");
         if (retrieval is not null) prov.Set("database_retrieval", retrieval.DeepClone());
+        if (r.ExcludeFiles.Count > 0) prov.Set("excluded_files", ExcludedFilesRecord(r.ExcludeFiles, qc));
         if (design is not null)
         {
             prov.Set("experimental_design", design);
@@ -326,6 +327,25 @@ public static class SearchStage
         });
         string provFile = prov.Write(outDir);
         return new SearchOutcome(ok, run.ExitCode, run.TimedOut, psms, flags, provFile);
+    }
+
+    /// <summary>
+    /// <c>excluded_files</c> in the shape aging's batch_runner.py wrote and dataRepo reads (DATAREPO-51, aging D52):
+    /// <c>{files, reason}</c>. dataRepo drops these files from the deposit's runs; without the block, a QC-excluded blank
+    /// injection came back as a run (PXD034059: 44 runs against the manifest's 43).
+    /// </summary>
+    internal static JsonObject ExcludedFilesRecord(IReadOnlyCollection<string> excluded, JsonObject qc)
+    {
+        var why = excluded.SelectMany(f => qc[f]?["fail_reasons"]?.AsArray().Select(x => x?.GetValue<string>()) ?? Enumerable.Empty<string?>())
+                          .OfType<string>().Distinct(StringComparer.Ordinal).ToList();
+        bool allFailedQc = excluded.All(f => qc[f]?["pass"]?.GetValue<bool>() == false);
+        return new JsonObject
+        {
+            ["files"] = new JsonArray(excluded.OrderBy(f => f, StringComparer.Ordinal).Select(f => (JsonNode?)f).ToArray()),
+            ["reason"] = allFailedQc && why.Count > 0
+                ? $"D52: failed qc_spectra on {string.Join(", ", why)} (a blank or failed injection); excluded with a record instead of dropping the deposit"
+                : "excluded from the search by --exclude",
+        };
     }
 
     private static string Pct(double x) => (x * 100).ToString("0.00", CultureInfo.InvariantCulture) + "%";
