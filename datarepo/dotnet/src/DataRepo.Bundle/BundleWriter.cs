@@ -25,10 +25,10 @@ public sealed class BundleWriter(string store, string datasetId, string? ingestP
     /// differently or writes a different row, and must NOT move because something else in the package
     /// changed. <b>Bump it in the same commit as any change to what an ingest reads, parses, derives or
     /// writes.</b> The C# line starts apart from the Python one (which ended at 0.22.0) so a C# bundle id
-    /// can never collide with a Python one; the operator re-ingests once at the switch (D41). Phase 1
-    /// writes no operator bundles, so this stays a pre-release value until the ingester ships.
+    /// can never collide with a Python one; the operator re-ingests once at the switch (D41). cs-1.0.0 is the
+    /// first released C# ingest path: G76 (D40), G81, D37 and covered_zero, on schema 0.0.14.
     /// </remarks>
-    public const string IngesterVersion = "cs-0.0.0-dev";
+    public const string IngesterVersion = "cs-1.0.0";
 
     /// <summary>QPX release the column names are written against (D4). Provisional (G13).</summary>
     public const string QpxVersion = "unpinned";
@@ -60,7 +60,7 @@ public sealed class BundleWriter(string store, string datasetId, string? ingestP
     public void Add(string table, IEnumerable<IReadOnlyDictionary<string, object?>> rows)
     {
         if (!Tables.ByName.ContainsKey(table))
-            throw new IngestException($"no table named '{table}' in schema {Tables.SchemaVersion}");
+            throw new IngestException($"no table named '{table}' in schema {SchemaContract.Version}");
         if (!_tables.TryGetValue(table, out var list))
             _tables[table] = list = [];
         list.AddRange(rows);
@@ -125,7 +125,7 @@ public sealed class BundleWriter(string store, string datasetId, string? ingestP
     }
 
     /// <summary>Content hash of the inputs, the schema and the ingest path.</summary>
-    public string BundleId => ComputeBundleId(IngestPath, Tables.SchemaVersion, DatasetId, _sources);
+    public string BundleId => ComputeBundleId(IngestPath, SchemaContract.Version, DatasetId, _sources);
 
     /// <summary>The bundle id rule, exposed so a stored bundle's id can be recomputed from its manifest.</summary>
     /// <remarks>sha256 over <c>datarepo/&lt;ingest path&gt;\nschema/&lt;schema&gt;\n&lt;dataset&gt;\n</c>, then
@@ -183,7 +183,7 @@ public sealed class BundleWriter(string store, string datasetId, string? ingestP
         {
             ["bundle_id"] = BundleId,
             ["dataset_id"] = DatasetId,
-            ["schema_version"] = Tables.SchemaVersion,
+            ["schema_version"] = SchemaContract.Version,
             ["qpx_version"] = QpxVersion,
             // Both versions, because they answer different questions: `version` is what an operator
             // installed, `ingest_path` is what the bundle id was computed from.

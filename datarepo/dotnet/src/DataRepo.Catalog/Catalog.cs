@@ -672,7 +672,7 @@ public static class CatalogBuilder
         IReadOnlyList<ArtefactRef>? artefacts = null)
     {
         var text = new StringBuilder();
-        text.Append($"datarepo/{PackageVersion}\ncatalog/{CatalogVersion}\nschema/{Tables.SchemaVersion}\n");
+        text.Append($"datarepo/{PackageVersion}\ncatalog/{CatalogVersion}\nschema/{SchemaContract.Version}\n");
         // A study layer's tables are part of what a catalog holds, so its version is part of the catalog's
         // identity. Without this, adding a column to `age_effect` would leave two different catalogs sharing an id.
         foreach (var (layer, version) in Tables.StudyVersions.OrderBy(kv => kv.Key, SourcesPy.CodePointOrder))
@@ -737,7 +737,7 @@ public static class CatalogBuilder
             {
                 var sha = r.Inputs.GetValueOrDefault("search_database");
                 if (sha is null || !dbIndex.ContainsKey(sha)) continue;
-                if (r.SchemaVersion != Tables.SchemaVersion)
+                if (r.SchemaVersion != SchemaContract.Version)
                 {
                     stale.Add($"{r.ArtefactId} (schema {r.SchemaVersion})");
                     continue;
@@ -809,10 +809,10 @@ public static class CatalogBuilder
                     $"{r.DatasetId} appears twice ({prior.BundleId} and "
                     + $"{r.BundleId}). A catalog holds one bundle per dataset.");
             seen[r.DatasetId] = r;
-            if (r.SchemaVersion != Tables.SchemaVersion)
+            if (r.SchemaVersion != SchemaContract.Version)
                 throw new CatalogException(
                     $"{r.DatasetId} bundle {r.BundleId} was written against schema "
-                    + $"{r.SchemaVersion}, and this build writes schema {Tables.SchemaVersion}. Re-ingest "
+                    + $"{r.SchemaVersion}, and this build writes schema {SchemaContract.Version}. Re-ingest "
                     + "it, or build with the ingester that wrote it.");
         }
 
@@ -842,10 +842,10 @@ public static class CatalogBuilder
 
         var engines = (artefacts ?? []).ToList();
         foreach (var r in engines)
-            if (r.SchemaVersion != Tables.SchemaVersion)
+            if (r.SchemaVersion != SchemaContract.Version)
                 throw new CatalogException(
                     $"engine artefact {r.ArtefactId} ({r.Engine}) was written against schema "
-                    + $"{r.SchemaVersion}, and this build writes {Tables.SchemaVersion}. Re-run it.");
+                    + $"{r.SchemaVersion}, and this build writes {SchemaContract.Version}. Re-run it.");
 
         var datasets = seen.Keys.Order(SourcesPy.CodePointOrder).ToList();
         var cid = CatalogId(bundles, study, engines);
@@ -1349,7 +1349,7 @@ public static class CatalogBuilder
                 if (!Tables.ByName.ContainsKey(table))
                 {
                     checks.Add(new CatalogCheck($"{r.DatasetId}/{table}", "row_count", false, null, expected,
-                        $"bundle {r.BundleId} claims a table no schema {Tables.SchemaVersion} knows"));
+                        $"bundle {r.BundleId} claims a table no schema {SchemaContract.Version} knows"));
                     continue;
                 }
                 var (observed, _) = CountAndExample(con, $"SELECT count(*), NULL FROM \"{table}\" WHERE bundle_id = ?", r.BundleId);
@@ -1483,7 +1483,7 @@ public static class CatalogBuilder
         Exec(con, "INSERT INTO catalog_meta VALUES (?, ?, ?, ?, 'datarepo', ?, ?, ?, ?, ?)",
             cid,
             CatalogVersion,
-            Tables.SchemaVersion,
+            SchemaContract.Version,
             BundleWriter.QpxVersion,
             PackageVersion,
             // A string, like the bundle's `written_utc`; Python's isoformat(timespec="seconds").

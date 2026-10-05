@@ -2,8 +2,11 @@
 #
 # Every run builds and VERIFIES: each platform's published binary, with no .NET SDK on PATH for the run,
 # ingests the fixture dataset, builds a catalog, answers a query and writes the site. The folders are uploaded
-# as workflow artifacts. There is NO release step here: publishing a release is a person's decision, made
-# when the operator is ready to switch (design/CSHARP_PORT.md, phase 5).
+# as workflow artifacts.
+#
+# Only a release tag (v1.0.0 and later) goes further, and only to a DRAFT release: the version is stamped from
+# the tag (a build that is not a release says 0.0.0-dev and `datarepo run` refuses it), each binary must report
+# exactly that version, and nothing is public until a person publishes the draft.
 name: dotnet-binaries
 
 on:
@@ -13,6 +16,8 @@ on:
     paths:
       - "dotnet/**"
       - ".github/workflows/dotnet-binaries.yml"
+    # 0.x tags are the frozen Python's (binaries.yml).
+    tags: ["v[1-9]*"]
 
 permissions:
   contents: read
@@ -42,11 +47,24 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
+      - name: The version, from the tag on a release
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+            echo "args=-p:Version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-dev" >> "$GITHUB_OUTPUT"
+            echo "args=" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish self-contained
         shell: bash
         run: |
           dotnet publish dotnet/src/DataRepo.Cli -c Release -r ${{ matrix.rid }} --self-contained \
-            -p:SourceRevisionId=${{ github.sha }} -o "$RUNNER_TEMP/datarepo-${{ matrix.rid }}"
+            ${{ steps.version.outputs.args }} -p:SourceRevisionId=${{ github.sha }} \
+            -o "$RUNNER_TEMP/datarepo-${{ matrix.rid }}"
 
       - name: Run it end to end, with no .NET on PATH
         shell: bash
@@ -54,8 +72,9 @@ jobs:
           DR="$RUNNER_TEMP/datarepo-${{ matrix.rid }}/${{ matrix.exe }}"
           export PATH="/usr/bin:/bin"
           export DOTNET_ROOT=""
-          "$DR" --version
+          test "$("$DR" --version | tr -d '\r')" = "datarepo ${{ steps.version.outputs.version }}"
           "$DR" doctor
+          "$DR" manifest tests/data/manifest.yaml
           "$DR" ingest tests/data/manifest.yaml PXD999999 --store "$RUNNER_TEMP/store" \
             --mm-settings tests/data/work_root/mm_settings/1.1.11
           "$DR" build tests/data/manifest.yaml PXD999999 --store "$RUNNER_TEMP/store" --out "$RUNNER_TEMP/catalog.duckdb"
@@ -63,7 +82,51 @@ jobs:
           "$DR" site "$RUNNER_TEMP/catalog.duckdb" --out "$RUNNER_TEMP/site"
           test -f "$RUNNER_TEMP/site/datasets/PXD999999.html"
 
+      # One archive per platform holding a `datarepo/` folder. Unix builds ship .tar.gz, because a zip loses the
+      # executable bit (it did once, with the Python binaries).
+      - name: Package
+        shell: bash
+        run: |
+          name="datarepo-${{ steps.version.outputs.version }}-${{ matrix.rid }}"
+          mkdir -p "$RUNNER_TEMP/pkg" dist
+          cp -R "$RUNNER_TEMP/datarepo-${{ matrix.rid }}" "$RUNNER_TEMP/pkg/datarepo"
+          if [ "${{ matrix.rid }}" = "win-x64" ]; then
+            (cd "$RUNNER_TEMP/pkg" && 7z a -tzip "$GITHUB_WORKSPACE/dist/$name.zip" datarepo > /dev/null)
+          else
+            tar -czf "dist/$name.tar.gz" -C "$RUNNER_TEMP/pkg" datarepo
+          fi
+
+      # Unpack as a user would, with no chmod, and run the unpacked binary: a lost executable bit fails here.
+      - name: Unpack and run the archive
+        shell: bash
+        run: |
+          mkdir unpacked
+          if ls dist/*.zip > /dev/null 2>&1; then (cd unpacked && 7z x ../dist/*.zip > /dev/null); else tar -xzf dist/*.tar.gz -C unpacked; fi
+          test "$(unpacked/datarepo/${{ matrix.exe }} --version | tr -d '\r')" = "datarepo ${{ steps.version.outputs.version }}"
+
       - uses: actions/upload-artifact@v4
         with:
           name: datarepo-${{ matrix.rid }}
-          path: ${{ runner.temp }}/datarepo-${{ matrix.rid }}
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+          if-no-files-found: error
+
+  draft-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Attach to a draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* --draft --verify-tag \
+            --repo "${GITHUB_REPOSITORY}" --title "datarepo ${GITHUB_REF_NAME}" \
+            --notes "Self-contained C# executables, built and verified by the dotnet-binaries workflow. See CHANGELOG.md."

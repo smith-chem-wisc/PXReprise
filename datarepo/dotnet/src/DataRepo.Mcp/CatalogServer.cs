@@ -205,9 +205,9 @@ public sealed partial class CatalogServer : IDisposable
         get
         {
             var served = Identity.SchemaVersion;
-            if (!PyValues.Truthy(served) || Equals(served, Tables.SchemaVersion)) return null;
+            if (!PyValues.Truthy(served) || Equals(served, SchemaContract.Version)) return null;
             return $"This catalog was built against schema {PyValues.Str(served)}; the descriptions here are generated "
-                + $"from schema {Tables.SchemaVersion}, which this server was built against. Where they "
+                + $"from schema {SchemaContract.Version}, which this server was built against. Where they "
                 + "disagree THE CATALOG IS RIGHT and the description is of a later version: a column "
                 + "the prose mentions may not exist here, and a rule it states may not yet hold. Trust "
                 + "the `type`, the `populated` count and the rows over the prose. Rebuilding the "

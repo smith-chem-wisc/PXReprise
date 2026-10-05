@@ -5,7 +5,7 @@ namespace DataRepo.Bundle;
 public static partial class Tables
 {
     /// <summary>The core schema's version.</summary>
-    public const string SchemaVersion = "0.0.13";
+    public const string SchemaVersion = "0.0.14";
 
     /// <summary>The core tables, in the schema's order.</summary>
     public static readonly IReadOnlyList<TableSpec> Core =

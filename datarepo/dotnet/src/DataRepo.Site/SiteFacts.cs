@@ -205,7 +205,7 @@ public static partial class SiteGenerator
             metrics = Rows(con,
                 "SELECT dataset_id, name, value, definition_id FROM metrics WHERE scope = 'dataset' " +
                 "AND name IN ('id_rate', 'contamination_psm_share')");
-            merit = FiguresOfMerit(con);
+            merit = FiguresOfMerit(con, PyText.Str(meta["schema_version"]));
             proteins = ProteinEvidence(con);
         }
 
@@ -324,7 +324,7 @@ public static partial class SiteGenerator
     /// carries a note saying what it counts, because a bare "9,236 proteins" invites the reader to supply
     /// their own definition -- decoys or not, contaminants or not, 1% FDR or anything matched. A figure some
     /// datasets cannot supply says how many did, rather than presenting a partial sum as a total.</remarks>
-    private static List<Dict> FiguresOfMerit(DuckDBConnection con)
+    private static List<Dict> FiguresOfMerit(DuckDBConnection con, string schemaVersion)
     {
         var o = One(con, "SELECT count(*), sum(n_runs), sum(n_psms_1pct), sum(n_ptm_sites) FROM dataset_overview");
         var (nDatasets, runs, psms, sites) = (o[0], o[1], o[2], o[3]);
@@ -346,9 +346,11 @@ public static partial class SiteGenerator
         var byN = new Dictionary<long, long>();
         foreach (var (n, c) in spread) byN[n] = c;
         var (sharedIn, shared) = SharedThreshold(byN);
-        // A peptide sequence at 1% FDR counts as unique when parsimony gave it one protein in EVERY dataset
-        // where it passed; `target` excludes decoys and contaminants. Parsimony-unique, not sequence-unique:
-        // `is_unique` comes from the producer's parsimony list (G76).
+        // A peptide sequence at 1% FDR counts as unique when `is_unique` holds in EVERY dataset where it passed;
+        // `target` excludes decoys and contaminants. What `is_unique` means is the schema's: one gene in the
+        // searched sequences from schema 0.0.14 (G76, D40), parsimony-unique before it. A catalog holds one schema
+        // version only, so the tile's words follow the catalog's.
+        var geneUnique = System.Version.TryParse(schemaVersion, out var sv) && sv >= new System.Version(0, 0, 14);
         o = One(con,
             "SELECT count(*), count(*) FILTER (WHERE u) FROM (" +
             "  SELECT base_sequence, bool_and(coalesce(is_unique, false)) AS u " +
@@ -387,9 +389,10 @@ public static partial class SiteGenerator
             Merit("Raw files searched", runs, "LC-MS/MS runs"),
             Merit("Spectra searched", spectra, ms2Note),
             Merit("PSMs at 1% FDR", psms, "target peptide-spectrum matches, as the search engine counts them"),
-            // G76 (not yet built in C#): the definition of this tile changes with the C# release.
             Merit("Unique peptides at 1% FDR", uniquePeptides,
-                "peptide sequences assigned to a single protein by parsimony in every dataset " +
+                (geneUnique
+                    ? "peptide sequences found in a single gene's proteins in the searched databases, in every dataset "
+                    : "peptide sequences assigned to a single protein by parsimony in every dataset ") +
                 $"that found them, decoys and contaminants excluded; out of {PyText.Thousands(Or0(peptides))} " +
                 "sequences in all"),
             Merit("Proteins identified", proteins,

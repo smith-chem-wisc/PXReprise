@@ -19,6 +19,11 @@ namespace DataRepo.Tests;
 [NonParallelizable]
 public class McpParityTests
 {
+    // Every expectation here was written by Python 0.32.0, on schema 0.0.13.
+    private IDisposable? _schema;
+    [SetUp] public void PinPythonSchema() => _schema = SchemaContract.Python0320();
+    [TearDown] public void UnpinPythonSchema() => _schema?.Dispose();
+
     private static string Fixtures => Path.Combine(TestContext.CurrentContext.TestDirectory, "Fixtures");
     private const string RealCatalog = "F:/aging_data/repo/catalog.duckdb";
 
@@ -187,8 +192,27 @@ public class McpParityTests
     /// CI runner): environment, not output. Found by CI on Linux, 2026-10-04.</summary>
     private static readonly Regex Threads = new("(\"threads\",\\s*)\"\\d+\"", RegexOptions.CultureInvariant);
 
+    /// <summary>The descriptions schema 0.0.14 rewrote (G76's two columns; covered_zero in the occupancy state and
+    /// floor), by their opening words in 0.0.13 (Python's answers) and in 0.0.14 (this server's). The server describes
+    /// a column with the schema it was built against, so these, and only these, are expected to differ; a JSON
+    /// string cannot hold a bare quote, so each mask ends where its string does, however the answer cut it.</summary>
+    private static readonly (Regex Pattern, string Mask)[] SchemaDelta =
+    [
+        .. new[]
+        {
+            ("is_unique", "PARSIMONY-unique: `protein_accessions` holds"),
+            ("is_unique", "GENE-unique, from the SEARCHED sequences"),
+            ("is_isoform_specific", "NOT POPULATED: NULL on every row. The ingester does not compute it yet"),
+            ("is_isoform_specific", "SEQUENCE-unique, from the searched sequences"),
+            ("occupancy_state", "quantified, floor, count_only or intensity_unassigned (DEF-OCC-COUNTONLY)"),
+            ("occupancy_state", "quantified, floor, covered_zero, count_only or intensity_unassigned"),
+            ("intensity_is_floor", "True for `occupancy_state = floor`: a fraction of 0 whose numerator"),
+        }.Select(d => (new Regex(Regex.Escape(d.Item2) + "[^\"]*", RegexOptions.CultureInvariant), $"<{d.Item1}: rewritten in schema 0.0.14>")),
+    ];
+
     public static string Normalise(string text, string catalogPath)
     {
+        foreach (var (pattern, mask) in SchemaDelta) text = pattern.Replace(text, mask);
         text = Threads.Replace(text, "$1\"<cores>\"");
         text = Elapsed.Replace(text, "\"elapsed_seconds\": \"<elapsed>\"");
         text = ServedBy.Replace(text, "\"served_by\": \"datarepo <version>\"");

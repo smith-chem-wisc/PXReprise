@@ -13,6 +13,11 @@ namespace DataRepo.Tests;
 /// <c>Fixtures/study/cases</c> (see its PROVENANCE.md).</remarks>
 public class StudyTests
 {
+    // Every expectation here was written by Python 0.32.0, on schema 0.0.13.
+    private IDisposable? _schema;
+    [SetUp] public void PinPythonSchema() => _schema = SchemaContract.Python0320();
+    [TearDown] public void UnpinPythonSchema() => _schema?.Dispose();
+
     private static readonly string Root = Path.Combine(TestContext.CurrentContext.TestDirectory, "Fixtures", "study");
 
     private static JsonObject Expected() =>

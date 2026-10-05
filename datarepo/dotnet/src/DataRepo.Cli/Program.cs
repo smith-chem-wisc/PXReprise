@@ -355,7 +355,7 @@ namespace DataRepo.Cli
 
         private static int Doctor()
         {
-            Console.WriteLine($"datarepo {BundleWriter.PackageVersion}  schema {Tables.SchemaVersion}");
+            Console.WriteLine($"datarepo {BundleWriter.PackageVersion}  schema {SchemaContract.Version}");
             Console.WriteLine($"  runtime          .NET {Environment.Version}");
             Console.WriteLine($"  mzLib            {typeof(Readers.FileReader).Assembly.GetName().Version}");
             Console.WriteLine($"  parquet          ParquetSharp {typeof(ParquetSharp.ParquetFileReader).Assembly.GetName().Version}");

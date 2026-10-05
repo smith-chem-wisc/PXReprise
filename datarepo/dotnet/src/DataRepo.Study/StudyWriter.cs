@@ -446,7 +446,7 @@ public static class StudyWriter
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         hash.AppendData(Encoding.UTF8.GetBytes(
-            $"datarepo-study/{StudyIngesterVersion}\nschema/{Bundle.Tables.SchemaVersion}\n"
+            $"datarepo-study/{StudyIngesterVersion}\nschema/{Bundle.SchemaContract.Version}\n"
             + $"study/{manifest.Layer}/{Bundle.Tables.StudyVersions[manifest.Layer]}\n"));
         var ordered = sources
             .Select(e => (Role: (string)e["role"]!, Path: (string)e["path"]!, Sha: (string)e["sha256"]!))
@@ -564,7 +564,7 @@ public static class StudyWriter
             ["kind"] = "study",
             ["layer"] = layer,
             ["layer_version"] = Bundle.Tables.StudyVersions[layer],
-            ["schema_version"] = Bundle.Tables.SchemaVersion,
+            ["schema_version"] = Bundle.SchemaContract.Version,
             ["instance"] = manifest.Instance,
             ["delivery"] = manifest.Delivery,
             // Both versions, for the same reason the search bundle records both: `version` is what an

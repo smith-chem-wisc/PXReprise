@@ -56,6 +56,10 @@ public class IngestParityTests
 
             var parity = Ingester.Ingest(Path.Combine(RepoRoot(), "tests", "data", "manifest.yaml"), "PXD999999", store, rules: IngestRules.Python0320);
             Assert.That(parity.BundleId, Is.Not.EqualTo(current.BundleId), "a parity bundle must never share an id with a real one");
+            string SchemaOf(IngestResult r) => System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(r.BundlePath, "bundle.json"))).RootElement.GetProperty("schema_version").GetString()!;
+            Assert.That(SchemaOf(current), Is.EqualTo(Tables.SchemaVersion));
+            Assert.That(SchemaOf(parity), Is.EqualTo(SchemaContract.Python0320SchemaVersion), "a parity bundle is written as Python 0.32.0 wrote it");
+            Assert.That(SchemaContract.Version, Is.EqualTo(Tables.SchemaVersion), "the parity ingest's schema scope ends with the ingest");
         }
         finally
         {

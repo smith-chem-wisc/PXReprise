@@ -203,6 +203,8 @@ public static class Ingester
                 $"{entry.Accession} has status '{entry.Status}' in {manifest.Path} and will not be ingested. "
                 + $"The producer's reason: {(DatasetEntry.Text(entry.Reason) ?? "no reason given").Trim()}");
 
+        // A parity ingest writes and hashes the schema Python 0.32.0 wrote; its rows are valid under both.
+        using var schemaScope = rules == IngestRules.Python0320 ? SchemaContract.Python0320() : null;
         var datasetId = entry.Accession;
         var runDir = manifest.RunDir(entry);
         if (!Directory.Exists(runDir)) throw new IngestException($"{datasetId}: run folder {runDir} does not exist");

@@ -62,7 +62,7 @@ public static class ArrowTables
     public static RecordBatch FromRows(string name, IReadOnlyList<IReadOnlyDictionary<string, object?>> rows)
     {
         if (!Tables.ByName.TryGetValue(name, out var spec))
-            throw new IngestException($"no table named '{name}' in schema {Tables.SchemaVersion}");
+            throw new IngestException($"no table named '{name}' in schema {SchemaContract.Version}");
         return FromRows(name, spec.Columns, rows);
     }
 

@@ -66,7 +66,7 @@ public static class EngineRunner
     public static string ArtefactId(string engine, IReadOnlyDictionary<string, string> release,
         IReadOnlyDictionary<string, string> inputs, string definitionId)
     {
-        var text = new StringBuilder($"runner/{RunnerVersion}\nschema/{Tables.SchemaVersion}\nengine/{engine}\n");
+        var text = new StringBuilder($"runner/{RunnerVersion}\nschema/{SchemaContract.Version}\nengine/{engine}\n");
         foreach (var (key, value) in release.OrderBy(kv => kv.Key, StringComparer.Ordinal)) text.Append($"release/{key}\t{value}\n");
         foreach (var (role, sha) in inputs.OrderBy(kv => kv.Key, StringComparer.Ordinal)) text.Append($"input/{role}\t{sha}\n");
         text.Append($"definition/{definitionId}\n");
@@ -101,7 +101,7 @@ public static class EngineRunner
                 ["engine"] = engine,
                 ["artefact_id"] = artefactId,
                 ["runner_version"] = RunnerVersion,
-                ["schema_version"] = Tables.SchemaVersion,
+                ["schema_version"] = SchemaContract.Version,
                 ["datarepo_version"] = BundleWriter.PackageVersion,
                 ["tables"] = counts,
                 ["written_utc"] = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),

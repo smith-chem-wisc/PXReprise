@@ -12,6 +12,11 @@ namespace DataRepo.Tests;
 /// language. Both sides run DuckDB 1.5.5.</remarks>
 public class CatalogTests
 {
+    // Every expectation here was written by Python 0.32.0, on schema 0.0.13.
+    private IDisposable? _schema;
+    [SetUp] public void PinPythonSchema() => _schema = SchemaContract.Python0320();
+    [TearDown] public void UnpinPythonSchema() => _schema?.Dispose();
+
     private static readonly string FixtureDir = Path.Combine(TestContext.CurrentContext.TestDirectory, "Fixtures", "catalog");
 
     private static string RepoRoot()
