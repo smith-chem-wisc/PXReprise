@@ -84,7 +84,7 @@ public sealed class OccupancyRecords
 /// | <c>*.sdrf.tsv</c> | mzLib <c>SdrfDocument</c> (pyMzLib <c>sdrf.read</c>) | covered since 0.1.1 |
 /// | <c>results.txt</c>, <c>*.toml</c>, <c>Mods/*.txt</c>, <c>*.json</c> | in-house | not file formats pyMzLib owns |
 /// | the searched protein database (<c>.xml</c>, <c>.fasta</c>) | in-house, <c>Sources/ProteinDb</c> | pyMzLib has no protein-database reader; only <c>(accession, sequence)</c> is read, to place PTM sites (DATAREPO-32) |
-/// | go's <c>*_go_annotation.tsv</c>, <c>*_go_category_*.tsv</c> | in-house, <c>Sources/Go</c> | go's writer (mzLib PR B, draft #1353) is unreleased, so pyMzLib has no verb for it yet (pyMzLib 009, S9) |
+/// | go's <c>*_go_annotation.tsv</c>, <c>*_go_category_*.tsv</c> | in-house, <c>Sources/Go</c> | go's writers (<c>GoAnnotationTsv</c>, <c>GoCategoryTsv</c>) are released in mzLib 1.0.593, but mzLib has no reader for them; the module is a contract check more than a parser (G86) |
 /// </para>
 /// <para>
 /// <c>*.sdrf.tsv</c> is the one that has already gone the other way. dataRepo read it as plain TSV because
