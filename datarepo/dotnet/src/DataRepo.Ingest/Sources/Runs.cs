@@ -113,6 +113,7 @@ public static class Runs
         names.RemoveWhere(n => excluded.Contains(n) || excludedStems.Contains(PathStem(n)));
         var byName = new Dictionary<string, IReadOnlyDictionary<string, object?>>(StringComparer.Ordinal);
         foreach (var f in files) byName[PathName(Str(Get(f, "name", "")))] = f;  // later wins, as the dict comprehension
+        var aliases = rules == IngestRules.Current ? OneNamePerRun(names, byName.Keys, datasetId) : [];
 
         var ms2Definition = Definitions.Cite(Definitions.Ms2Count, ns);
         var minutesDefinition = Definitions.Cite(Definitions.RunMinutes, ns);
@@ -125,6 +126,8 @@ public static class Runs
             var entry = byName.GetValueOrDefault(fileName) ?? EmptyDict;
             var qcEntryValue = Get(qcReport, fileName);
             if (!Truthy(qcEntryValue)) qcEntryValue = Get(qcReport, runBase);
+            foreach (var alias in aliases.GetValueOrDefault(fileName) ?? [])
+                if (!Truthy(qcEntryValue)) qcEntryValue = Get(qcReport, alias);
             var qcEntry = DictOrEmpty(qcEntryValue, $"qc_report {fileName}");
             var facts = runFacts.GetValueOrDefault(runBase) ?? EmptyDict;
             var run = new Row
@@ -247,6 +250,37 @@ public static class Runs
                 $"qc_report.json gives {fileName} a {key} of {Repr(other)}, which is not text."),
         };
 
+    /// <summary>One file name per run id (G83 item 11, <see cref="IngestRules.Current"/> only).</summary>
+    /// <remarks>A run id is <c>dataset:stem</c>, so two names with one stem would be two Run rows under one id. The
+    /// QC report can key a run by its stem (<c>b</c>) or by another name for the same file beside the fetch
+    /// manifest's <c>b.raw</c>; those are one run, written under the deposited name, with the others kept as aliases
+    /// for finding its QC entry. Python 0.32.0 wrote a row for each, and the ingest then refused on rows that share
+    /// an id and differ. Two DEPOSITED files with one stem (<c>c.raw</c> and <c>c.mzML</c>) are two files the run id
+    /// cannot tell apart, and that is refused here, by name, rather than by the duplicate check.</remarks>
+    /// <returns>The kept name -> the names folded into it.</returns>
+    /// <exception cref="IngestException">Two deposited files, or two QC-only names that both carry an extension,
+    /// share a stem.</exception>
+    private static Dictionary<string, List<string>> OneNamePerRun(HashSet<string> names, IEnumerable<string> deposited, string datasetId)
+    {
+        var fetched = deposited.ToHashSet(StringComparer.Ordinal);
+        var aliases = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var group in names.Where(n => n.Length > 0).GroupBy(PathStem).Where(g => g.Count() > 1).ToList())
+        {
+            var all = group.Order(CodePointOrder).ToList();
+            var candidates = all.Where(fetched.Contains).ToList();
+            if (candidates.Count == 0) candidates = all.Where(n => n != group.Key).ToList();  // a file name over a bare stem
+            if (candidates.Count != 1)
+                throw new IngestException(
+                    $"{datasetId}: {string.Join(", ", candidates)} share the run id {datasetId}:{group.Key}. A run is "
+                    + "identified by its file name without the extension, so these cannot be told apart, and which one "
+                    + "the search read is not recorded where the ingest can see it. The producer has to resolve it.");
+            var keep = candidates[0];
+            aliases[keep] = all.Where(n => n != keep).ToList();
+            names.ExceptWith(aliases[keep]);
+        }
+        return aliases;
+    }
+
     private static string Examples(IReadOnlyList<string> names, int n = 5)
     {
         var shown = string.Join(", ", names.Take(n));
@@ -282,7 +316,8 @@ public static class Runs
         string datasetId,
         IReadOnlyList<string> declared,
         bool mixed,
-        IReadOnlyList<(string Run, string Value)> runEnrichment)
+        IReadOnlyList<(string Run, string Value)> runEnrichment,
+        IngestRules rules = IngestRules.Current)
     {
         if (runEnrichment.Count == 0)
         {
@@ -301,9 +336,12 @@ public static class Runs
         var given = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var (run, value) in runEnrichment) given[run] = value;
         var distinct = given.Values.ToHashSet(StringComparer.Ordinal);
-        foreach (var (runBase, run) in baseNames)
+        // 0.32.0 filled one run per base name, the last; two runs with one base name left the earlier NULL.
+        // Current fills every run (G83 item 12).
+        var targets = rules == IngestRules.Current ? runs.ToList() : baseNames.Values.ToList();
+        foreach (var run in targets)
         {
-            run["enrichment"] = new List<object?> { given[runBase] };
+            run["enrichment"] = new List<object?> { given[PathStem(Str(run["file_name"]))] };
             run["enrichment_source"] = FromManifest;
         }
         return mixed || distinct.Count > 1;

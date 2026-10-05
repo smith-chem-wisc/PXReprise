@@ -41,6 +41,9 @@ public class StudyTests
             Regex.Replace(text.Replace("\r\n", "\n"), "\"written_utc\": \"[^\"]*\"", "\"written_utc\": <masked>"),
             "\"(version|path)\": \"(?!<declaration)[^\"]*\"", "\"$1\": <masked>");
 
+    private static string MaskedNotes(string text) =>
+        Regex.Replace(text, "\"notes\": \"(?:[^\"\\\\]|\\\\.)*\"", "\"notes\": <masked>");
+
     [TestCaseSource(nameof(Cases))]
     public void EachDeliveryGivesWhatPythonGave(string name)
     {
@@ -195,14 +198,21 @@ public class StudyTests
         var store = TempStore();
         try
         {
-            var result = StudyWriter.WriteStudyBundle(StudyWriter.LoadStudyManifest(delivery), store);
+            var manifest = StudyWriter.LoadStudyManifest(delivery);
+            var result = StudyWriter.WriteStudyBundle(manifest, store);
             var python = Path.Combine(stored, result.BundleId);
             if (!Directory.Exists(python))
                 Assert.Ignore($"no stored bundle {result.BundleId}: the delivery changed after Python last wrote it");
             var differences = RoundTrip.CompareBundles(python, result.BundlePath);
             Assert.That(differences, Is.Empty, string.Join("\n", differences));
-            Assert.That(Masked(File.ReadAllText(Path.Combine(result.BundlePath, StudyWriter.StudyBundleManifest))),
-                Is.EqualTo(Masked(File.ReadAllText(Path.Combine(python, StudyWriter.StudyBundleManifest)))));
+            // `notes` is prose: rewording it keeps the bundle id (ProseDoesNotMoveTheIdAndAByteDoes), so aging can
+            // reword the live delivery after Python wrote the stored bundle (they did, 2026-10-05, aging 427fc31).
+            // Compare everything else to Python's bundle, and the notes to the delivery as it is now.
+            var written = File.ReadAllText(Path.Combine(result.BundlePath, StudyWriter.StudyBundleManifest));
+            Assert.That(MaskedNotes(Masked(written)),
+                Is.EqualTo(MaskedNotes(Masked(File.ReadAllText(Path.Combine(python, StudyWriter.StudyBundleManifest))))));
+            Assert.That(System.Text.Json.JsonDocument.Parse(written).RootElement.GetProperty("notes").GetString(),
+                Is.EqualTo(manifest.Notes as string), "study.json carries the delivery's notes as written now");
             Assert.That(result.RowCounts["sample_ages"], Is.GreaterThan(0));
         }
         finally

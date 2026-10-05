@@ -117,8 +117,13 @@ public static class Sdrf
     internal static string? Name(string? raw) => Clean(ParseValue(raw).GetValueOrDefault("NT", ""));
 
     /// <summary>Python's <c>int(x) if x and x.isdigit() else None</c>.</summary>
-    private static long? Digits(string? value) =>
-        !string.IsNullOrEmpty(value) && PyText.IsDigit(value) ? PyText.ParseDecimalDigits(value) : null;
+    /// <remarks>Under <see cref="IngestRules.Current"/> only decimal digits count: a superscript or other digit that
+    /// is not a decimal (<c>²</c>) is not a number here and gives null. Python's <c>isdigit</c> accepted it and
+    /// <c>int()</c> then raised, so one such cell refused the whole ingest (G83 item 8).</remarks>
+    private static long? Digits(string? value, IngestRules rules) =>
+        string.IsNullOrEmpty(value) ? null
+        : rules == IngestRules.Current ? (value.All(char.IsDigit) ? PyText.ParseDecimalDigits(value) : null)
+        : PyText.IsDigit(value) ? PyText.ParseDecimalDigits(value) : null;
 
     /// <summary>Reads one SDRF into schema rows.</summary>
     /// <param name="path">The deposited (or repaired) SDRF.</param>
@@ -126,7 +131,10 @@ public static class Sdrf
     /// <param name="defaultOrganism">NCBITaxon CURIE from the ingest manifest, used when the SDRF names an
     /// organism this module has no term for.</param>
     /// <param name="log">Reader log to record the backend in.</param>
-    public static SdrfTable Parse(string path, string datasetId, string? defaultOrganism = null, ReaderLog? log = null)
+    /// <param name="rules">Under <see cref="IngestRules.Current"/>, a run named on several rows (a multiplexed run,
+    /// one row per channel) keeps a run-level fact only where every row agrees, and NULL where they differ; Python
+    /// 0.32.0 kept the last row's (G83 item 6).</param>
+    public static SdrfTable Parse(string path, string datasetId, string? defaultOrganism = null, ReaderLog? log = null, IngestRules rules = IngestRules.Current)
     {
         (List<string> header, List<List<string>> rows) = Readers.ReadSdrf(path, log);
         var samples = new Dictionary<string, Row>(StringComparer.Ordinal);
@@ -176,7 +184,7 @@ public static class Sdrf
                     ["material_type"] = Name(Get("material type")) ?? Name(Get("characteristics[material type]")),
                     ["cell_line"] = Name(Get("characteristics[cell line]")),
                     ["individual_id"] = Name(Get("characteristics[individual]")),
-                    ["biological_replicate"] = Digits(replicate),
+                    ["biological_replicate"] = Digits(replicate, rules),
                     ["timepoint"] = Name(Get("characteristics[time]")),
                 };
                 string? defaultSource = Verbatim(Get("comment[characteristics source]"));
@@ -219,18 +227,25 @@ public static class Sdrf
             sampleOfRun[runName] = sampleId;
             string? fraction = Clean(Get("comment[fraction identifier]"));
             string? technical = Clean(Get("comment[technical replicate]"));
-            runFacts[runName] = new Row
+            var facts = new Row
             {
                 ["instrument_model"] = Name(Get("comment[instrument]")),
                 ["instrument_term"] = Term(Get("comment[instrument]")),
-                ["fraction"] = Digits(fraction),
-                ["technical_replicate"] = Digits(technical),
+                ["fraction"] = Digits(fraction, rules),
+                ["technical_replicate"] = Digits(technical, rules),
                 // SDRF-DR10: a drafted `1` is a default nothing established, so where it came from is
                 // carried beside it. NULL until the SDRF writes the column.
                 ["fraction_source"] = Verbatim(Get("comment[fraction identifier source]")),
                 ["technical_replicate_source"] = Verbatim(Get("comment[technical replicate source]")),
                 ["acquisition"] = Name(Get("comment[proteomics data acquisition method]")),
             };
+            if (rules == IngestRules.Current && runFacts.TryGetValue(runName, out var earlier))
+            {
+                // One run, several rows: a fact of the RUN is whatever every row says, and no row's alone.
+                foreach (var key in facts.Keys.ToList())
+                    if (!Equals(earlier.GetValueOrDefault(key), facts[key])) facts[key] = null;
+            }
+            runFacts[runName] = facts;
             string channel = Channel(Get("comment[label]"));
             assays.Add(new Row
             {

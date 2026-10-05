@@ -100,7 +100,7 @@ public static class ProteinDb
     /// direct <c>&lt;sequence&gt;</c> child is read; isoform sequences named inside comments are not entries.
     /// Text is an element's leading text only, as lxml's <c>.text</c>: it stops at the first child element,
     /// comment or processing instruction.</remarks>
-    internal static IEnumerable<(string Accession, string Sequence)> IterUniprotXml(string path)
+    internal static IEnumerable<(string Accession, string Sequence)> IterUniprotXml(string path, IngestRules rules = IngestRules.Current)
     {
         var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Ignore, IgnoreWhitespace = false };
         using var reader = XmlReader.Create(path, settings);
@@ -128,9 +128,21 @@ public static class ProteinDb
                 }
             }
             if (!string.IsNullOrEmpty(accession) && !string.IsNullOrEmpty(sequence))
-                yield return (Strip(accession), string.Concat(SplitWhitespace(sequence)).ToUpperInvariant());
+                yield return (Strip(accession), AsSearched(string.Concat(SplitWhitespace(sequence)), rules));
         }
     }
+
+    /// <summary>A database sequence as the search saw it.</summary>
+    /// <remarks>Under <see cref="IngestRules.Current"/>, mzLib's own <c>ProteinDbLoader.SanitizeAminoAcidSequence</c>
+    /// (<c>'X'</c>), which both of its loaders apply to every sequence before MetaMorpheus digests it: <c>B</c>,
+    /// <c>Z</c>, <c>J</c>, non-ASCII and any other letter that is not a residue become <c>X</c>. So a peptide
+    /// the engine matched across a <c>B</c> reads <c>X</c> there, and it is found in the sequence it was searched
+    /// against. Python 0.32.0 kept the letters (upper-cased), and such peptides could not be placed (G83 item 10:
+    /// 6 mouse and 1 rat proteome proteins).</remarks>
+    private static string AsSearched(string sequence, IngestRules rules) =>
+        rules == IngestRules.Current
+            ? UsefulProteomicsDatabases.ProteinDbLoader.SanitizeAminoAcidSequence(sequence, 'X')
+            : sequence.ToUpperInvariant();
 
     /// <summary>lxml's <c>.text</c> of the element the reader is on: null for an empty element or one whose
     /// first node is not text. Leaves the reader inside the element (or on it, if empty).</summary>
@@ -165,21 +177,26 @@ public static class ProteinDb
         return parts.Length >= 3 && (parts[0] == "sp" || parts[0] == "tr") ? parts[1] : token;
     }
 
-    /// <remarks>Read as Python's text mode reads it: UTF-8 with undecodable bytes replaced, universal newlines,
-    /// and a byte-order mark kept as a character (Python's <c>utf-8</c>, not <c>utf-8-sig</c>).</remarks>
-    internal static IEnumerable<(string Accession, string Sequence)> IterFasta(string path)
+    /// <remarks>Read as Python's text mode reads it: UTF-8 with undecodable bytes replaced and universal newlines.
+    /// Under <see cref="IngestRules.Current"/> a leading byte-order mark is dropped (<c>utf-8-sig</c>); Python
+    /// 0.32.0 read <c>utf-8</c> and kept it as a character, so the first header did not start with <c>&gt;</c> and
+    /// the file's first protein was lost (G83 item 17).</remarks>
+    internal static IEnumerable<(string Accession, string Sequence)> IterFasta(string path, IngestRules rules = IngestRules.Current)
     {
         string? accession = null;
         var chunks = new List<string>();
         using var handle = new StreamReader(path, new UTF8Encoding(false, false), detectEncodingFromByteOrderMarks: false);
         string? raw;
+        var first = true;
         while ((raw = handle.ReadLine()) is not null)
         {
+            if (first && rules == IngestRules.Current && raw.StartsWith('﻿')) raw = raw[1..];
+            first = false;
             var line = Strip(raw);
             if (line.StartsWith('>'))
             {
                 if (!string.IsNullOrEmpty(accession) && chunks.Count > 0)
-                    yield return (accession, string.Concat(chunks).ToUpperInvariant());
+                    yield return (accession, AsSearched(string.Concat(chunks), rules));
                 accession = FastaAccession(line);
                 chunks = [];
             }
@@ -187,7 +204,7 @@ public static class ProteinDb
                 chunks.Add(line);
         }
         if (!string.IsNullOrEmpty(accession) && chunks.Count > 0)
-            yield return (accession, string.Concat(chunks).ToUpperInvariant());
+            yield return (accession, AsSearched(string.Concat(chunks), rules));
     }
 
     /// <summary>MetaMorpheus's own rule for which database is a contaminant panel.</summary>
@@ -203,14 +220,14 @@ public static class ProteinDb
     /// <summary>Add every entry of one UniProt XML or FASTA file.</summary>
     /// <returns>How many entries were read.</returns>
     /// <exception cref="IngestException">Neither <c>.xml</c> nor <c>.fasta</c>/<c>.fa</c>.</exception>
-    public static int ReadDatabase(string path, ProteinSequences into)
+    public static int ReadDatabase(string path, ProteinSequences into, IngestRules rules = IngestRules.Current)
     {
         var name = PathName(path).ToLowerInvariant();
         IEnumerable<(string Accession, string Sequence)> entries;
         if (name.EndsWith(".xml", StringComparison.Ordinal))
-            entries = IterUniprotXml(path);
+            entries = IterUniprotXml(path, rules);
         else if (name.EndsWith(".fasta", StringComparison.Ordinal) || name.EndsWith(".fa", StringComparison.Ordinal))
-            entries = IterFasta(path);
+            entries = IterFasta(path, rules);
         else
             // A gzipped database is legal input to MetaMorpheus but none has been searched yet; refuse
             // rather than silently place nothing.
@@ -245,7 +262,7 @@ public static class ProteinDb
 
     /// <summary>Read every searched database that is on disk, after checking it is the file that was searched.</summary>
     /// <exception cref="IngestException">A database on disk does not match the sha256 the search recorded for it.</exception>
-    public static ProteinSequences Load(IReadOnlyDictionary<string, object?> provenance, string workRoot)
+    public static ProteinSequences Load(IReadOnlyDictionary<string, object?> provenance, string workRoot, IngestRules rules = IngestRules.Current)
     {
         var sequences = new ProteinSequences();
         foreach (var (path, recorded) in SearchedDatabases(provenance, workRoot))
@@ -261,7 +278,7 @@ public static class ProteinDb
                     $"{path} is not the database that was searched: the search provenance recorded " +
                     $"sha256 {Str(recorded)} and the file on disk is {actual}. Sites would be placed against " +
                     "sequences the engine never saw.");
-            var count = ReadDatabase(path, sequences);
+            var count = ReadDatabase(path, sequences, rules);
             sequences.Files.Add(new Dictionary<string, object?>(StringComparer.Ordinal)
             {
                 ["path"] = path,

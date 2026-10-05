@@ -70,14 +70,14 @@ public class ProvenanceRunsParamsDbTests
             var name = (string)c["name"]!;
             var doc = D(c["doc"]);
             var runNames = new RunNameMap(L(c["run_names"]).Cast<string>().ToList());
-            Expect(c["schema_version"], () => (long)Provenance.SchemaVersion(doc), $"{name}: schema_version");
+            Expect(c["schema_version"], () => (long)Provenance.SchemaVersion(doc, IngestRules.Python0320), $"{name}: schema_version");
             Expect(c["definitions_namespace"], () => Provenance.DefinitionsNamespace(doc), $"{name}: definitions_namespace");
-            Expect(c["record_row"], () => Provenance.RecordRow(doc, "PXD000001", "04_search", "sources/provenance_04_search.json", string.Concat(Enumerable.Repeat("ab", 32))), $"{name}: record_row");
+            Expect(c["record_row"], () => Provenance.RecordRow(doc, "PXD000001", "04_search", "sources/provenance_04_search.json", string.Concat(Enumerable.Repeat("ab", 32)), IngestRules.Python0320), $"{name}: record_row");
             Expect(c["finding_rows"], () => Provenance.FindingRows(doc, "PXD000001", "provenance.json flags (04_search)"), $"{name}: finding_rows");
             foreach (var ns in new[] { "aging", "pxreprise" })
             {
                 foreach (var version in new[] { 2, 3 })
-                    Expect(c[$"metric_rows/{version}/{ns}"], () => Provenance.MetricRows(doc, "PXD000001", version, ns), $"{name}: metric_rows {version} {ns}");
+                    Expect(c[$"metric_rows/{version}/{ns}"], () => Provenance.MetricRows(doc, "PXD000001", version, ns, IngestRules.Python0320), $"{name}: metric_rows {version} {ns}");
                 Expect(c[$"contamination_metric_rows/raw/{ns}"], () => Provenance.ContaminationMetricRows(doc, "PXD000001", null, ns), $"{name}: contamination raw {ns}");
                 Expect(c[$"contamination_metric_rows/mapped/{ns}"], () => Provenance.ContaminationMetricRows(doc, "PXD000001", runNames, ns), $"{name}: contamination mapped {ns}");
             }
@@ -92,7 +92,7 @@ public class ProvenanceRunsParamsDbTests
         // The fixture's aging rows are the ones master's 0.32.0 wrote (PROVENANCE.md: compared leaf for leaf).
         var c = Section("provenance").First(x => (string)x["name"]! == "layout 3, every block");
         var doc = D(c["doc"]);
-        Assert.That(Py(Provenance.MetricRows(doc, "PXD000001", 3)), Is.EqualTo(Py(D(c["metric_rows/3/aging"])["value"])));
+        Assert.That(Py(Provenance.MetricRows(doc, "PXD000001", 3, rules: IngestRules.Python0320)), Is.EqualTo(Py(D(c["metric_rows/3/aging"])["value"])));
         Assert.That(Py(Provenance.ContaminationMetricRows(doc, "PXD000001")), Is.EqualTo(Py(D(c["contamination_metric_rows/raw/aging"])["value"])));
     }
 
@@ -146,7 +146,7 @@ public class ProvenanceRunsParamsDbTests
             var name = (string)c["name"]!;
             var runs = L(c["runs"]).Select(r => new Row(D(r))).ToList();
             var pairs = L(c["run_enrichment"]).Select(p => ((string)L(p)[0]!, (string)L(p)[1]!)).ToList();
-            Expect(c["result"], () => Runs.AssignEnrichment(runs, "PXD000002", L(c["declared"]).Cast<string>().ToList(), (bool)c["mixed"]!, pairs), $"{name}: result");
+            Expect(c["result"], () => Runs.AssignEnrichment(runs, "PXD000002", L(c["declared"]).Cast<string>().ToList(), (bool)c["mixed"]!, pairs, IngestRules.Python0320), $"{name}: result");
             var after = runs.Select(r => new Dictionary<string, object?>
             {
                 ["file_name"] = r["file_name"], ["enrichment"] = r["enrichment"], ["enrichment_source"] = r["enrichment_source"],
@@ -169,10 +169,10 @@ public class ProvenanceRunsParamsDbTests
             var name = (string)c["name"]!;
             var files = L(c["files"]).Select(f => RepoPath((string)f!)).ToList();
             var unimod = D(c["unimod"]);
-            var rows = SearchParams.ModificationRows(files, "PXD000001", n => unimod.TryGetValue(n, out var u) ? (string?)u : null);
+            var rows = SearchParams.ModificationRows(files, "PXD000001", n => unimod.TryGetValue(n, out var u) ? (string?)u : null, IngestRules.Python0320);
             Assert.That(Py(rows), Is.EqualTo(Py(c["modification_rows"])), $"{name}: modification_rows");
             Assert.That(SearchParams.PepRegime(files), Is.EqualTo(c["pep_regime"]), $"{name}: pep_regime");
-            Assert.That(SearchParams.TcAmbiguity(files), Is.EqualTo(c["tc_ambiguity"]), $"{name}: tc_ambiguity");
+            Assert.That(SearchParams.TcAmbiguity(files, IngestRules.Python0320), Is.EqualTo(c["tc_ambiguity"]), $"{name}: tc_ambiguity");
             foreach (var (release, expected) in D(c["pep_iterative"]))
                 Assert.That(SearchParams.PepIterative(files, release == "None" ? null : release), Is.EqualTo(expected), $"{name}: pep_iterative {release}");
         }
@@ -201,10 +201,10 @@ public class ProvenanceRunsParamsDbTests
         {
             var rel = (string)read["path"]!;
             var path = RepoPath(rel);
-            var pairs = (rel.EndsWith(".xml") ? ProteinDb.IterUniprotXml(path) : ProteinDb.IterFasta(path))
+            var pairs = (rel.EndsWith(".xml") ? ProteinDb.IterUniprotXml(path, IngestRules.Python0320) : ProteinDb.IterFasta(path, IngestRules.Python0320))
                 .Select(p => (object?)new List<object?> { p.Accession, p.Sequence }).ToList();
             Assert.That(Py(pairs), Is.EqualTo(Py(read["pairs"])), rel);
-            Assert.That((long)ProteinDb.ReadDatabase(path, sequences), Is.EqualTo(read["count"]), rel);
+            Assert.That((long)ProteinDb.ReadDatabase(path, sequences, IngestRules.Python0320), Is.EqualTo(read["count"]), rel);
         }
         var state = D(db["state"]);
         Assert.That((long)sequences.Count, Is.EqualTo(state["len"]));
@@ -213,7 +213,7 @@ public class ProvenanceRunsParamsDbTests
         Assert.That(sequences.DatabaseStatus("NOT_THERE"), Is.Null);
 
         foreach (var (path, expected) in D(db["errors"]))
-            Expect(expected, () => ProteinDb.ReadDatabase(path, new ProteinSequences()), path, Norm);
+            Expect(expected, () => ProteinDb.ReadDatabase(path, new ProteinSequences(), IngestRules.Python0320), path, Norm);
         foreach (var (path, expected) in D(db["is_contaminant_database"]))
             Assert.That(ProteinDb.IsContaminantDatabase(path), Is.EqualTo(expected), path);
         foreach (var o in L(db["occurrences"]).Cast<List<object?>>())
@@ -229,7 +229,7 @@ public class ProvenanceRunsParamsDbTests
             var name = (string)c["name"]!;
             Expect(c["result"], () =>
             {
-                var s = ProteinDb.Load(D(c["provenance"]), workRoot);
+                var s = ProteinDb.Load(D(c["provenance"]), workRoot, IngestRules.Python0320);
                 return new Dictionary<string, object?>
                 {
                     ["len"] = (long)s.Count,
@@ -282,7 +282,7 @@ public class ProvenanceRunsParamsDbTests
         {
             var e = D(value);
             if (!File.Exists(path)) Assert.Fail($"{path} named by the fixture is gone");
-            var pairs = path.EndsWith(".xml", StringComparison.OrdinalIgnoreCase) ? ProteinDb.IterUniprotXml(path) : ProteinDb.IterFasta(path);
+            var pairs = path.EndsWith(".xml", StringComparison.OrdinalIgnoreCase) ? ProteinDb.IterUniprotXml(path, IngestRules.Python0320) : ProteinDb.IterFasta(path, IngestRules.Python0320);
             var sha = Sha256Hex(pairs, out var count, out var distinct, out var distinctSha, out var accessions);
             Assert.That(BundleWriter.Sha256File(path), Is.EqualTo(e["file_sha256"]), $"{path}: the file changed since the fixture was made");
             Assert.That(count, Is.EqualTo(e["entries"]), path);
@@ -303,12 +303,12 @@ public class ProvenanceRunsParamsDbTests
             var datasetId = (string)c["dataset_id"]!;
             var doc = Provenance.Load(Path.Combine(Real(dir), "provenance.json"));
 
-            Expect(c["schema_version"], () => (long)Provenance.SchemaVersion(doc), $"{dir}: schema_version");
+            Expect(c["schema_version"], () => (long)Provenance.SchemaVersion(doc, IngestRules.Python0320), $"{dir}: schema_version");
             Expect(c["definitions_namespace"], () => Provenance.DefinitionsNamespace(doc), $"{dir}: definitions_namespace");
             foreach (var r in L(c["record_rows"]).Cast<Dictionary<string, object?>>())
             {
                 var stage = Path.GetFileName(Path.GetDirectoryName(Real((string)r["path"]!)))!;
-                var row = Provenance.RecordRow(Provenance.Load(Real((string)r["path"]!)), datasetId, stage, $"sources/provenance_{stage}.json", "00");
+                var row = Provenance.RecordRow(Provenance.Load(Real((string)r["path"]!)), datasetId, stage, $"sources/provenance_{stage}.json", "00", IngestRules.Python0320);
                 Assert.That(Py(row), Is.EqualTo(Py(r["row"])), $"{dir}: record_row {r["path"]}");
             }
             Assert.That(Py(Provenance.FindingRows(doc, datasetId, $"provenance.json flags ({Path.GetFileName(dir)})")), Is.EqualTo(Py(c["finding_rows"])), $"{dir}: finding_rows");
@@ -320,14 +320,14 @@ public class ProvenanceRunsParamsDbTests
             Assert.That(Py(new List<object?> { excluded.Order(StringComparer.Ordinal).Cast<object?>().ToList(), reason }), Is.EqualTo(Py(c["excluded_files"])), $"{dir}: excluded_files");
             var (runs, metrics) = Runs.Build(datasetId, fetch, qc, Facts(inputs["run_facts"]), excluded, rules: IngestRules.Python0320);
             Assert.That(Py(new List<object?> { runs, metrics }), Is.EqualTo(Py(c["build/aging"])), $"{dir}: build");
-            var (_, pxrMetrics) = Runs.Build(datasetId, fetch, qc, Facts(inputs["run_facts"]), excluded, "pxreprise");
+            var (_, pxrMetrics) = Runs.Build(datasetId, fetch, qc, Facts(inputs["run_facts"]), excluded, "pxreprise", IngestRules.Python0320);
             Assert.That(Py(pxrMetrics), Is.EqualTo(Py(D(c["build/pxreprise"])["metrics"])), $"{dir}: build pxreprise");
 
             if (c.GetValueOrDefault("assign_enrichment") is Dictionary<string, object?> en)
             {
                 var copy = runs.Select(r => new Row(r)).ToList();
                 var pairs = L(en["run_enrichment"]).Select(p => ((string)L(p)[0]!, (string)L(p)[1]!)).ToList();
-                Expect(en["result"], () => Runs.AssignEnrichment(copy, datasetId, L(en["declared"]).Cast<string>().ToList(), (bool)en["mixed"]!, pairs), $"{dir}: assign_enrichment");
+                Expect(en["result"], () => Runs.AssignEnrichment(copy, datasetId, L(en["declared"]).Cast<string>().ToList(), (bool)en["mixed"]!, pairs, IngestRules.Python0320), $"{dir}: assign_enrichment");
                 Assert.That(Py(copy.Select(r => new List<object?> { r["enrichment"], r["enrichment_source"] }).ToList()), Is.EqualTo(Py(en["after"])), $"{dir}: enrichment after");
             }
 
@@ -335,17 +335,17 @@ public class ProvenanceRunsParamsDbTests
             foreach (var ns in new[] { "aging", "pxreprise" })
             {
                 if (c.TryGetValue($"metric_rows/{ns}", out var expectedMetrics))
-                    Assert.That(Py(Provenance.MetricRows(doc, datasetId, Provenance.SchemaVersion(doc), ns)), Is.EqualTo(Py(expectedMetrics)), $"{dir}: metric_rows {ns}");
+                    Assert.That(Py(Provenance.MetricRows(doc, datasetId, Provenance.SchemaVersion(doc, IngestRules.Python0320), ns, IngestRules.Python0320)), Is.EqualTo(Py(expectedMetrics)), $"{dir}: metric_rows {ns}");
                 Assert.That(Py(Provenance.ContaminationMetricRows(doc, datasetId, runNames, ns)), Is.EqualTo(Py(c[$"contamination_metric_rows/{ns}"])), $"{dir}: contamination {ns}");
             }
 
             var sp = D(c["search_params"]);
             var taskFiles = L(sp["task_files"]).Select(t => Real((string)t!)).ToList();
             var unimod = D(sp["unimod"]);
-            Assert.That(Py(SearchParams.ModificationRows(taskFiles, datasetId, n => unimod.TryGetValue(n, out var u) ? (string?)u : null)), Is.EqualTo(Py(sp["modification_rows"])), $"{dir}: modification_rows");
+            Assert.That(Py(SearchParams.ModificationRows(taskFiles, datasetId, n => unimod.TryGetValue(n, out var u) ? (string?)u : null, IngestRules.Python0320)), Is.EqualTo(Py(sp["modification_rows"])), $"{dir}: modification_rows");
             Assert.That(SearchParams.PepRegime(taskFiles), Is.EqualTo(sp["pep_regime"]), $"{dir}: pep_regime");
             Assert.That(SearchParams.PepIterative(taskFiles, sp["release"] as string), Is.EqualTo(sp["pep_iterative"]), $"{dir}: pep_iterative");
-            Assert.That(SearchParams.TcAmbiguity(taskFiles), Is.EqualTo(sp["tc_ambiguity"]), $"{dir}: tc_ambiguity");
+            Assert.That(SearchParams.TcAmbiguity(taskFiles, IngestRules.Python0320), Is.EqualTo(sp["tc_ambiguity"]), $"{dir}: tc_ambiguity");
             var (dbName, dbSha) = SearchParams.SearchedDatabase(doc);
             Assert.That(Py(new List<object?> { dbName, dbSha }), Is.EqualTo(Py(sp["searched_database"])), $"{dir}: searched_database");
             Assert.That(Py(SearchParams.TaskNames(doc)), Is.EqualTo(Py(sp["task_names"])), $"{dir}: task_names");
@@ -353,7 +353,7 @@ public class ProvenanceRunsParamsDbTests
                 Is.EqualTo(Py(sp["searched_databases"])), $"{dir}: searched_databases");
 
             if (c.GetValueOrDefault("protein_db") is Dictionary<string, object?> expectedDb)
-                Expect(expectedDb, () => SequencesDigest(ProteinDb.Load(doc, AgingData)), $"{dir}: protein_db.load");
+                Expect(expectedDb, () => SequencesDigest(ProteinDb.Load(doc, AgingData, IngestRules.Python0320)), $"{dir}: protein_db.load");
         }
     }
 

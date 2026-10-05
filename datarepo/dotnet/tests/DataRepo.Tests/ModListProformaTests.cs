@@ -102,7 +102,7 @@ public class ModListProformaTests
             var name = q[0].GetString()!;
             var residue = Str(q[1]);
             int? want = q[2].ValueKind == JsonValueKind.Null ? null : q[2].GetInt32();
-            var hit = registry.Lookup(name, residue);
+            var hit = registry.Lookup(name, residue, IngestRules.Python0320);
             int? got = hit is null ? null : entries.FindIndex(e => ReferenceEquals(e, hit));
             if (got != want) diffs.Add($"{label} lookup({JsonSerializer.Serialize(name)}, {JsonSerializer.Serialize(residue)}): C# {got}, Python {want}");
             n++;
@@ -118,7 +118,7 @@ public class ModListProformaTests
         foreach (var c in cases.EnumerateArray())
         {
             var input = c.GetProperty("input").GetString()!;
-            var got = Proforma.Parse(input, registry);
+            var got = Proforma.Parse(input, registry, IngestRules.Python0320);
             var problems = new List<string>();
             if (got.Proforma != c.GetProperty("proforma").GetString()) problems.Add($"proforma {got.Proforma}");
             if (got.BaseSequence != c.GetProperty("base_sequence").GetString()) problems.Add($"base {got.BaseSequence}");
@@ -147,7 +147,7 @@ public class ModListProformaTests
 
     private static void CompareCache(ModRegistry registry, JsonElement expected)
     {
-        var cache = new ProformaCache(registry);
+        var cache = new ProformaCache(registry, IngestRules.Python0320);
         foreach (var s in expected.GetProperty("inputs").EnumerateArray())
             cache.Get(s.GetString()!);
         var want = expected.GetProperty("unresolved").EnumerateObject().Select(p => (p.Name, p.Value.GetInt64())).ToList();
@@ -208,7 +208,7 @@ public class ModListProformaTests
     public void LookupsOnRegistryReadFromFilesMatchPython()
     {
         var expected = Fixture("registry_1.1.11.json");
-        CompareLookups(ModRegistry.FromMetaMorpheus(Path.Combine(Fixtures, "mm_1.1.11")), expected.GetProperty("lookups"), "1.1.11 files");
+        CompareLookups(ModRegistry.FromMetaMorpheus(Path.Combine(Fixtures, "mm_1.1.11"), IngestRules.Python0320), expected.GetProperty("lookups"), "1.1.11 files");
     }
 
     [Test]
@@ -232,7 +232,7 @@ public class ModListProformaTests
         // float(), str.strip/rstrip/splitlines, _targets, IGNORECASE `DR` lines, ptmlist-style blocks and the
         // `+.6f` mass tag, each against Python's own output for one hand-made file.
         var expected = Fixture("synthetic.json");
-        var entries = ModList.ParseEntries(expected.GetProperty("text").GetString()!, "synthetic.txt").ToList();
+        var entries = ModList.ParseEntries(expected.GetProperty("text").GetString()!, "synthetic.txt", IngestRules.Python0320).ToList();
         var diffs = EntryDiffs(entries, expected.GetProperty("entries"), "synthetic");
         Assert.That(diffs, Is.Empty, string.Join("\n", diffs.Take(30)));
 
@@ -323,7 +323,7 @@ public class ModListProformaTests
     [Test]
     public void ParseWithRegistryReadFromFilesMatchesPython()
     {
-        var registry = ModRegistry.FromMetaMorpheus(Path.Combine(Fixtures, "mm_1.1.11"));
+        var registry = ModRegistry.FromMetaMorpheus(Path.Combine(Fixtures, "mm_1.1.11"), IngestRules.Python0320);
         CompareParses(registry, Fixture("parse_1.1.11.json").GetProperty("cases"), "1.1.11 files");
     }
 
