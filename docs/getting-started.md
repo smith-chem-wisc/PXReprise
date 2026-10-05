@@ -49,11 +49,11 @@ D:\tools\pxreprise\pxreprise.exe version
 [dataRepo](https://github.com/smith-chem-wisc/dataRepo) turns the search results into a repository you can query, and
 a website. It is a ready-to-run download: no Python.
 
-1. From the [dataRepo 1.0.0 release](https://github.com/smith-chem-wisc/dataRepo/releases/tag/v1.0.0), download the
-   file for your computer: `datarepo-1.0.0-win-x64.zip`, `datarepo-1.0.0-linux-x64.tar.gz`,
-   `datarepo-1.0.0-osx-arm64.tar.gz` (Apple silicon) or `datarepo-1.0.0-osx-x64.tar.gz` (Intel).
+1. From the [dataRepo 1.1.0 release](https://github.com/smith-chem-wisc/dataRepo/releases/tag/v1.1.0), download the
+   file for your computer: `datarepo-1.1.0-win-x64.zip`, `datarepo-1.1.0-linux-x64.tar.gz`,
+   `datarepo-1.1.0-osx-arm64.tar.gz` (Apple silicon) or `datarepo-1.1.0-osx-x64.tar.gz` (Intel).
 2. Unpack it into `D:\tools`, which makes `D:\tools\datarepo`. On Linux and macOS use `tar -xzf`.
-3. Check it: `D:\tools\datarepo\datarepo.exe --version` should print `datarepo 1.0.0`, and
+3. Check it: `D:\tools\datarepo\datarepo.exe --version` should print `datarepo 1.1.0`, and
    `D:\tools\datarepo\datarepo.exe doctor` should end with `ready`. On macOS, if the program is blocked, run
    `xattr -dr com.apple.quarantine datarepo` once in the folder you unpacked.
 
