@@ -1,0 +1,7 @@
+#!category_map_format 1
+#!map_name fixture
+#!map_version 1
+category	subcategory	anchor_go_id
+nucleus		GO:0005634
+mitochondrion		GO:0005739
+mitochondrion	inner_membrane	GO:0005743

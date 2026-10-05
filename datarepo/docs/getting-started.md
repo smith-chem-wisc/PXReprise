@@ -173,14 +173,15 @@ datarepo publish manifest.yaml --site site --title "Example repository" --purpos
 
 ```
 catalog  …/example-instance/catalog.duckdb
-  id       ff7c707e1347b0f7
+  id       7750cbcfbdaa4498
   dataset  PXD999999    bundle 26b07fd2d1b11625
   note     logs.resolve_genes coverage (databases with an artefact): 0 of 1; no artefact for 89fb8c7a1140 (PXD999999)
+  note     go.annotate_groups coverage (bundles with an artefact): 0 of 1; no artefact for PXD999999 (26b07fd2d1b11625)
   tables   assays 2, datasets 1, definitions 14, findings 6, gene_resolutions 0, …
   indexes  22
-  checks   57 run, all passed
+  checks   58 run, all passed
 site     site
-  catalog  ff7c707e1347b0f7
+  catalog  7750cbcfbdaa4498
   wrote    36 files, 1 dataset page
   skipped  croissant.json: no --data-url: a Croissant file describes downloadable files, …
   skipped  robots.txt: no --base-url: both need the site's absolute address
@@ -189,7 +190,7 @@ site     site
 
 `publish` does two things:
 
-- **It builds the catalog.** That is one DuckDB file holding every ingested dataset, with 57
+- **It builds the catalog.** That is one DuckDB file holding every ingested dataset, with 58
   integrity checks run on the result. Any failed check would have stopped it.
 - **It writes the site.** That is a static website with one page per dataset, an `llms.txt` for
   agents, and JSON for programs. Beside the 36 files is a hidden `.datarepo-site.json`, the marker
@@ -262,7 +263,7 @@ datarepo mcp --catalog catalog.duckdb --check
 
 ```
 catalog  catalog.duckdb
-  id       ff7c707e1347b0f7
+  id       7750cbcfbdaa4498
   built    … by datarepo 1.0.0
   dataset  PXD999999           58 PSMs at 1%
   tools    datarepo_describe, datarepo_search, datarepo_sql

@@ -33,7 +33,7 @@ internal static class RunCommand
     {
         var a = new Args.Spec("datarepo run", Cli.Summaries["run"])
             .Positional("engine", $"the engine to run: {string.Join(", ", EngineRunner.Engines)}")
-            .Positional("accession", "datasets whose searched databases to run on", "+")
+            .Positional("accession", "datasets to run on (logs: their searched databases; go: their protein groups)", "+")
             .Option("--store", Args.Kind.Value, "the instance's bundle store", required: true)
             .Option("--input", Args.Kind.Append, "an input file by role; repeatable", metavar: "ROLE=PATH")
             .Option("--bundle", Args.Kind.Append, "pin a dataset to one bundle id", metavar: "PXD=ID")
@@ -69,12 +69,21 @@ internal static class RunCommand
             pins[value[..at]] = value[(at + 1)..];
         }
         var bundles = PickBundles(store, a.Positionals("accession"), pins, a.Flag("--latest"));
-        var result = LogsEngine.Run(store, bundles, inputs);
+        var go = engine == GoEngine.Engine;
+        // go refuses until go publishes a definition id (GoEngine.DefinitionId, charter S4).
+        var result = go ? GoEngine.Run(store, bundles, inputs, GoEngine.DefinitionId) : LogsEngine.Run(store, bundles, inputs);
         foreach (var reference in result.Written)
         {
             var summary = reference.Record.GetValueOrDefault("engine_summary") as IReadOnlyDictionary<string, object?>;
             Console.WriteLine($"written  {reference.Engine} artefact {reference.ArtefactId}  {reference.Path}");
             Console.WriteLine($"  rows     {PyFormat.Repr(reference.RowCounts.ToDictionary(kv => kv.Key, kv => (object?)kv.Value))}");
+            if (go)
+            {
+                Console.WriteLine($"  groups   {PyFormat.Repr(summary?.GetValueOrDefault("group_status_counts"))}");
+                var unresolved = summary?.GetValueOrDefault("unresolved_go_ids") as IEnumerable<object?> ?? [];
+                Console.WriteLine($"  unresolved GO ids (skipped, go D35) {unresolved.Count()}");
+                continue;
+            }
             Console.WriteLine($"  outcomes {PyFormat.Repr(summary?.GetValueOrDefault("outcome_counts"))}");
             foreach (var caveat in summary?.GetValueOrDefault("caveats") as IEnumerable<object?> ?? [])
                 Console.WriteLine($"  caveat   {caveat}");
@@ -82,7 +91,9 @@ internal static class RunCommand
         foreach (var reference in result.AlreadyDone)
             Console.WriteLine($"done     {reference.Engine} artefact {reference.ArtefactId} already exists; nothing re-run");
         foreach (var name in result.SkippedContaminant)
-            Console.WriteLine($"skipped  {name}: a contaminant database is never resolved");
+            Console.WriteLine(go
+                ? $"skipped  {name}: a contaminant database is not annotation input"
+                : $"skipped  {name}: a contaminant database is never resolved");
         return 0;
     }
 }

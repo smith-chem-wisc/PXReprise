@@ -134,8 +134,8 @@ usage: datarepo run [-h] --store STORE [--input ROLE=PATH] [--bundle PXD=ID] [--
 run a released engine on stored data (the instance operator's step)
 
 positional arguments:
-  engine                 the engine to run: logs.resolve_genes
-  accession              datasets whose searched databases to run on (one or more)
+  engine                 the engine to run: logs.resolve_genes, go.annotate_groups
+  accession              datasets to run on (logs: their searched databases; go: their protein groups) (one or more)
 
 options:
   -h, --help             show this help message and exit

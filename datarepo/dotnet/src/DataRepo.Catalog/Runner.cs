@@ -59,6 +59,19 @@ public static class Runner
     public static readonly IReadOnlyDictionary<string, string> EngineTables =
         new Dictionary<string, string>(StringComparer.Ordinal) { ["gene_resolutions"] = "logs.resolve_genes" };
 
+    /// <summary>go's engine: GO annotation of one search's protein groups (charter section 2, G86).</summary>
+    public const string GoEngine = "go.annotate_groups";
+
+    /// <summary>Core tables go's artefacts fill. Unlike <see cref="EngineTables"/>, a go artefact annotates ONE
+    /// search's protein groups, so its rows belong to that dataset and keep the bundle provenance columns
+    /// (<c>dataset_id</c>, <c>bundle_id</c>): stating the dataset is true here, where for logs it would be false.</summary>
+    public static readonly IReadOnlyList<string> GoTables = ["protein_localizations", "organelle_term_categories", "annotation_sources"];
+
+    /// <summary>The input role of go's protein-group file, and the prefix of each annotation database's role.</summary>
+    public const string GoProteinGroupsRole = "protein_groups";
+
+    public const string GoDatabaseRolePrefix = "annotation_database:";
+
     /// <summary>Every engine artefact in the store (or one engine's), ordered by engine and id.</summary>
     public static List<ArtefactRef> DiscoverArtefacts(string store, string? engine = null)
     {

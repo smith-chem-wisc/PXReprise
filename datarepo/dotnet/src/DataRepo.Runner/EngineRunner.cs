@@ -31,7 +31,7 @@ public static class EngineRunner
     public const string RunnerVersion = "1";
 
     /// <summary>Engines the runner knows.</summary>
-    public static readonly IReadOnlyList<string> Engines = [LogsEngine.Engine];
+    public static readonly IReadOnlyList<string> Engines = [LogsEngine.Engine, GoEngine.Engine];
 
     /// <summary>Which datarepo build is running, or a refusal (aging 063).</summary>
     /// <remarks>A release build carries its version and the commit it was built from (CI stamps both: Version and
@@ -79,9 +79,12 @@ public static class EngineRunner
     /// <summary>Writes one artefact atomically: into a staging directory, then renamed into place.</summary>
     /// <remarks>A failure leaves nothing that discovery would find, so a half-written run can never be mistaken
     /// for "already done".</remarks>
+    /// <param name="files">Other files the artefact keeps, <c>{name in the artefact: source path}</c>, copied in
+    /// before the move (go keeps its own two TSVs, so a reader can re-check them).</param>
     /// <exception cref="RunnerException">The artefact already exists.</exception>
     public static ArtefactRef WriteArtefact(string store, string engine, string artefactId,
-        IReadOnlyDictionary<string, object?> record, IReadOnlyDictionary<string, List<IReadOnlyDictionary<string, object?>>> tables)
+        IReadOnlyDictionary<string, object?> record, IReadOnlyDictionary<string, List<IReadOnlyDictionary<string, object?>>> tables,
+        IReadOnlyDictionary<string, string>? files = null)
     {
         var final = ArtefactDir(store, engine, artefactId);
         if (Directory.Exists(final)) throw new RunnerException($"{final} already exists");
@@ -96,6 +99,8 @@ public static class EngineRunner
                 ArrowTables.WriteParquet(ArrowTables.FromRows(table, rows), Path.Combine(staging, $"{table}.parquet"));
                 counts[table] = (long)rows.Count;
             }
+            foreach (var (name, source) in files ?? new Dictionary<string, string>())
+                File.Copy(source, Path.Combine(staging, name));
             var full = new Dictionary<string, object?>(record, StringComparer.Ordinal)
             {
                 ["engine"] = engine,
