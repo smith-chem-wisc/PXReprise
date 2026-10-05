@@ -1,13 +1,14 @@
 # Getting started
 
-In about ten minutes this page takes you from a fresh clone to a working repository: one dataset
+In about ten minutes this page takes you from a download to a working repository: one dataset
 ingested, a catalog built, a public site written, and an agent able to ask it questions. It uses the
 small example instance that ships in this repository (`tests/data/`), so you need no real data and
 no search run of your own.
 
-Every command and every line of output below was run on this example with datarepo 0.32.0. Long
-paths are shortened to `…`. The ids are content hashes, so on 0.32.0 you should get the same ones;
-on another version they will differ (a later section says why).
+Every command and every line of output below was run on this example with datarepo 1.0.0. Long
+paths are shortened to `…`, and long lines are wrapped. On Windows the paths print with `\`. The ids
+are content hashes, so on 1.0.0 you should get the same ones; on another version they will differ (a
+later section says why).
 
 **Words used here.**
 - A **producer** is the pipeline that searched the data, here MetaMorpheus.
@@ -23,48 +24,60 @@ The [glossary](README.md#glossary) has the rest.
 
 ## 1. Install
 
-You need Python 3.11 or later and git. (Self-contained downloads that need no Python are built and
-verified, but not yet published: see [operating.md](operating.md#without-python-the-self-contained-executable).)
+dataRepo is one self-contained program, `datarepo`. It needs no .NET, no Python and nothing else
+installed. You also need git, to fetch the example instance.
+
+Work in a new, empty folder. First fetch the repository at the release's tag. It is cloned as
+`dataRepo-src` because the program unpacks to a folder named `datarepo`, and on Windows and macOS
+those two names are the same folder:
 
 ```bash
-git clone https://github.com/smith-chem-wisc/dataRepo.git
-cd dataRepo
-python -m venv .venv
+git clone --depth 1 --branch v1.0.0 https://github.com/smith-chem-wisc/dataRepo.git dataRepo-src
 ```
 
-Activate the environment. The command depends on your shell:
+Then download the program for your machine from the
+[v1.0.0 release](https://github.com/smith-chem-wisc/dataRepo/releases/tag/v1.0.0), unpack it, and
+put its folder on your `PATH` for this session:
 
-| Shell | Command |
+| Machine | Commands |
 |---|---|
-| Linux or macOS | `source .venv/bin/activate` |
-| Git Bash on Windows | `source .venv/Scripts/activate` |
-| PowerShell | `.venv\Scripts\Activate.ps1` (if it is blocked: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`) |
-| cmd | `.venv\Scripts\activate.bat` |
+| Linux x64 | `curl -LO https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.0.0/datarepo-1.0.0-linux-x64.tar.gz`<br>`tar -xzf datarepo-1.0.0-linux-x64.tar.gz`<br>`export PATH="$PWD/datarepo:$PATH"` |
+| macOS, Apple silicon | as Linux, with `datarepo-1.0.0-osx-arm64.tar.gz` |
+| macOS, Intel | as Linux, with `datarepo-1.0.0-osx-x64.tar.gz` |
+| Windows, PowerShell | `Invoke-WebRequest https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.0.0/datarepo-1.0.0-win-x64.zip -OutFile datarepo-1.0.0-win-x64.zip`<br>`Expand-Archive datarepo-1.0.0-win-x64.zip -DestinationPath .`<br>`$env:Path = "$PWD\datarepo;" + $env:Path` |
+| Windows, Git Bash | `curl -LO` the `win-x64.zip` as above, `unzip datarepo-1.0.0-win-x64.zip`, then `export PATH="$PWD/datarepo:$PATH"` |
 
-Then install and check:
+Unpack a `.tar.gz` with `tar`, which keeps the program's executable bit. On macOS, an archive
+downloaded with a browser is quarantined and the program is refused as unverified; `curl` does not
+quarantine it, or run `xattr -dr com.apple.quarantine datarepo` on the unpacked folder. You can also
+skip the `PATH` step and call the program by its path (`./datarepo/datarepo`, or
+`.\datarepo\datarepo.exe` on Windows).
+
+Then check it:
 
 ```bash
-pip install ".[readers,mcp]"
 datarepo doctor
 ```
 
-`readers` adds pyMzLib (the `mzlib` package), which parses MetaMorpheus output; `ingest` needs it.
-`mcp` adds the server that agents talk to. `doctor` checks both:
-
 ```
-datarepo 0.32.0  schema 0.0.13
-  pyarrow          25.0.1
-  duckdb           1.5.5
-  pymzlib          0.2.0
-  mzLib bridge     …/site-packages/pymzlib/_dotnet/win-x64/mzlib-bridge.exe
-  mcp SDK          installed
+datarepo 1.0.0  schema 0.0.14
+  runtime          .NET 10.0.10
+  mzLib            1.0.593.0
+  parquet          ParquetSharp 24.0.0.0
+  mcp SDK          ModelContextProtocol 2.2.0.0
   mcp registered   no (`datarepo mcp --catalog <path> --install`)
                    config would be …/.claude.json
 ready
 ```
 
-Your `pyarrow` and `duckdb` versions may be newer. If the last line is not `ready`, the lines above
-it say what is missing.
+Check that the first line says `datarepo 1.0.0`. If it names another version, another `datarepo`
+(an older install, such as the Python package) is earlier on your `PATH` and answering instead, and
+every id below will differ; repeat the `PATH` step, or call the program by its path.
+
+`doctor` names what is inside the program: the .NET runtime it carries, mzLib (which reads
+MetaMorpheus output), the Parquet writer and the MCP server that agents talk to. The `runtime` line
+may name a later .NET patch release. The last two lines say whether a catalog is registered with
+Claude Code yet; section 6 does that.
 
 ## 2. Copy the example instance
 
@@ -73,8 +86,8 @@ have written (`work_root/`). The `go/` folder beside them holds inputs for an op
 this tutorial does not use. Copy it all out, so nothing you make lands inside the repository:
 
 ```bash
-cp -r tests/data ../example-instance      # PowerShell: Copy-Item -Recurse tests\data ..\example-instance
-cd ../example-instance
+cp -r dataRepo-src/tests/data example-instance      # PowerShell: Copy-Item -Recurse dataRepo-src\tests\data example-instance
+cd example-instance
 datarepo manifest manifest.yaml
 ```
 
@@ -108,7 +121,7 @@ datarepo ingest manifest.yaml PXD999999
 
 ```
 PXD999999
-  bundle   …/store/PXD999999/aeb10630abbcaf72
+  bundle   …/store/PXD999999/26b07fd2d1b11625
   tables   datasets 1, samples 2, sample_characteristics 8, runs 2, assays 2, psms 60, peptidoforms 40,
            protein_groups 5, proteins 62, ptm_sites 36, ptm_stoichiometry 4, quant_values 37,
            definitions 14, provenance_records 3, findings 6, metrics 18, search_modifications_declared 4
@@ -129,10 +142,13 @@ Three things happened:
   with no biology in it, and so on. One is informational. They travel with the data, so nobody
   reads a count without its caveats.
 
-The bundle's name, `aeb10630abbcaf72`, is a hash of its input files, the schema version and the
+The bundle's name, `26b07fd2d1b11625`, is a hash of its input files, the schema version and the
 ingester version. Run the command again and it says the bundle is unchanged. Change one byte of
 input and you get a second bundle beside the first, so a result someone cited never changes under
 them.
+
+A pipeline that calls `ingest` can add `--json`: standard output is then one JSON object (each
+dataset's status, bundle id, row counts and checks) and the report above goes to standard error.
 
 Now try the dataset the producer excluded:
 
@@ -146,7 +162,8 @@ PXD000000
            reason: A fixture for the refusal path: …
 ```
 
-It is refused with the producer's own reason, and the command exits with status `1`.
+It is refused with the producer's own reason, and the command exits with status `1`. A `hold`
+dataset (PXD111111 here) is refused the same way.
 
 ## 4. Publish: build the catalog and the site
 
@@ -156,14 +173,14 @@ datarepo publish manifest.yaml --site site --title "Example repository" --purpos
 
 ```
 catalog  …/example-instance/catalog.duckdb
-  id       153cf55067d58441
-  dataset  PXD999999    bundle aeb10630abbcaf72
+  id       ff7c707e1347b0f7
+  dataset  PXD999999    bundle 26b07fd2d1b11625
   note     logs.resolve_genes coverage (databases with an artefact): 0 of 1; no artefact for 89fb8c7a1140 (PXD999999)
   tables   assays 2, datasets 1, definitions 14, findings 6, gene_resolutions 0, …
   indexes  22
   checks   57 run, all passed
 site     site
-  catalog  153cf55067d58441
+  catalog  ff7c707e1347b0f7
   wrote    36 files, 1 dataset page
   skipped  croissant.json: no --data-url: a Croissant file describes downloadable files, …
   skipped  robots.txt: no --base-url: both need the site's absolute address
@@ -175,7 +192,8 @@ site     site
 - **It builds the catalog.** That is one DuckDB file holding every ingested dataset, with 57
   integrity checks run on the result. Any failed check would have stopped it.
 - **It writes the site.** That is a static website with one page per dataset, an `llms.txt` for
-  agents, and JSON for programs.
+  agents, and JSON for programs. Beside the 36 files is a hidden `.datarepo-site.json`, the marker
+  that lists them, so a later run deletes only files it wrote.
 
 Open `site/index.html` in a browser. Every number on it comes from the catalog whose id is in its
 footer. `--purpose` is the question your repository serves, and the pages say it; leave it out and
@@ -191,10 +209,10 @@ the site, add `--base-url` (for the sitemap) and `--data-url` (for download link
 [Croissant](https://mlcommons.org/croissant/) file, which machine-learning tools load). See
 [site.md](site.md).
 
-**Why the ids are what they are.** A bundle id hashes the *ingester's* version, so it moves only
-when ingestion itself changes. A catalog id also hashes the *package* version, so any new release of
-dataRepo gives a new catalog id from the same bundles. Rebuilding a catalog is cheap; re-ingesting is
-not.
+**Why the ids are what they are.** A bundle id hashes the version of the *ingest path* (`cs-1.0.0`),
+so it moves only when ingestion itself changes. A catalog id also hashes the *program's* version, so
+any new release of dataRepo gives a new catalog id from the same bundles. Rebuilding a catalog is
+cheap; re-ingesting is not.
 
 ## 5. Ask it something
 
@@ -244,8 +262,8 @@ datarepo mcp --catalog catalog.duckdb --check
 
 ```
 catalog  catalog.duckdb
-  id       153cf55067d58441
-  built    … by datarepo 0.32.0
+  id       ff7c707e1347b0f7
+  built    … by datarepo 1.0.0
   dataset  PXD999999           58 PSMs at 1%
   tools    datarepo_describe, datarepo_search, datarepo_sql
   empty    26 table(s) present with no rows
@@ -261,10 +279,19 @@ To register the catalog with [Claude Code](https://claude.com/claude-code):
 datarepo mcp --catalog catalog.duckdb --install
 ```
 
-This records the catalog's **absolute** path in your Claude Code user configuration
-(`~/.claude.json`, the path `doctor` printed), under the server name `datarepo`. Restart Claude Code
-to pick it up. `--list` shows what is registered, and [mcp.md](mcp.md) covers other clients and
-removing an entry.
+```
+added  datarepo in …/.claude.json
+  command  …/datarepo/datarepo mcp --catalog …/example-instance/catalog.duckdb
+  tools    datarepo_describe, datarepo_search, datarepo_sql
+  restart Claude Code to pick it up
+```
+
+This records the `datarepo` program's path and the catalog's **absolute** path in your Claude Code
+user configuration, under the server name `datarepo`. That file is `~/.claude.json`
+(`C:\Users\<you>\.claude.json` on Windows), the path `doctor` printed.
+Restart Claude Code to pick it up. Because the program's path is recorded, keep the unpacked
+`datarepo` folder where it is, or run `--install --force` again after moving it. `--list` shows what
+is registered, and [mcp.md](mcp.md) covers other clients and removing an entry.
 
 The agent gets three tools:
 - `describe`: what is here, and what each column means;

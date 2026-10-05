@@ -147,7 +147,42 @@ first accession is not a leader either.
 
 *Tracked as G43.*
 
-## 6 · Contaminant is a per-dataset label
+## 6 · "Unique" means one gene in the searched sequences
+
+This section states the rule from datarepo 1.0.0 (schema 0.0.14); it was not measured on the catalog
+above, which predates it.
+
+`peptidoforms.is_unique` and `peptidoforms.is_isoform_specific` come from the **searched protein
+sequences**, classified by mzLib's `PeptideUniquenessClassifier` (G76, mapped onto the two columns
+by D40). A peptide belongs to a protein when the protein's sequence contains it anywhere, whatever
+the protease; I and L count as one residue; decoys are ignored; contaminants count, because they are
+real sequences in the search space.
+
+| mzLib's class | `is_unique` | `is_isoform_specific` | Meaning |
+|---|---|---|---|
+| Unique | true | true | exactly one searched sequence contains it: it identifies one isoform |
+| SharedWithinGene | true | false | several sequences, all one gene's: it supports the gene, not an isoform |
+| SharedAcrossGenes | false | false | sequences of two or more genes |
+| NotInDatabase | NULL | NULL | no searched sequence holds it, so neither is known |
+
+Four ways to misread it:
+
+- **It is not parsimony, and older catalogs meant parsimony.** Bundles written before 1.0.0 (the
+  Python package, schema 0.0.13 and earlier) stored *parsimony*-uniqueness in `is_unique`: one
+  accession in MetaMorpheus's protein list. Under that rule a fibronectin (P02751) peptide also found
+  in three of its isoforms read `true` (aging 075). Those bundles left `is_isoform_specific` NULL on
+  every row. A catalog holds one schema version, so check `catalog_meta.schema_version` before
+  reading the column: 0.0.14 or later is the rule above.
+- **"One gene" is mzLib's grouping.** A few within-gene groupings rest on a shared Ensembl id alone
+  and can join paralogs: 46 of 937 measured (DATAREPO-70).
+- **It is relative to what was searched.** A database that holds no isoforms cannot make a peptide
+  shared with one, and sequence variants in a UniProt XML are not applied. `is_isoform_specific`
+  true means one sequence *among those searched*, not one in the proteome.
+- **`protein_groups.unique_peptides` is a different number.** It is MetaMorpheus's own count for the
+  group, copied as written. Do not mix the two in one argument. The site's "Unique peptides" tile
+  counts `is_unique`, and its note says which rule the catalog's schema uses.
+
+## 7 · Contaminant is a per-dataset label
 
 MetaMorpheus labels an accession a contaminant by the database it was read from, per search. P02768
 (human albumin) is a **target in the human datasets and a contaminant in the rodent ones**; human
@@ -159,7 +194,7 @@ datasets that label it one (catalog version 7 on). Decoys carry no `organism` an
 `organism_name` anywhere (0 of 321,808), but exclude them explicitly
 (`protein_accession NOT LIKE 'DECOY_%'`) all the same.
 
-## 7 · `pep` is not comparable across datasets
+## 8 · `pep` is not comparable across datasets
 
 MetaMorpheus trains its PEP model afresh on every search, on that search's own targets and decoys,
 so `psms.pep`, `peptidoforms.best_pep` and `psms.pep_q_value` are on a scale set by the search that
@@ -168,7 +203,7 @@ from 0.0 to 1.0 in this catalog, which describes nothing. Rank or threshold with
 across datasets compare counts at a threshold, and across releases use `q_value`. The MCP `sql`
 tool says this whenever a query reads one of the three (datarepo 0.22.0 on).
 
-## 8 · The corpus is narrower than the schema
+## 9 · The corpus is narrower than the schema
 
 | | schema supports | present today |
 |---|---|---|
@@ -190,7 +225,7 @@ sample.
 
 *Tracked as G40, G46.*
 
-## 9 · Depth varies ~170× across datasets
+## 10 · Depth varies ~170× across datasets
 
 ```
 PXD032044   680,855 accepted PSMs
@@ -200,7 +235,7 @@ PXD011314     3,994 accepted PSMs
 "Protein X appears in more PSMs in dataset A" is usually a statement about sequencing depth.
 Normalise, or compare within a dataset.
 
-## 10 · The bundles say what is wrong with themselves — read it
+## 11 · The bundles say what is wrong with themselves — read it
 
 ```sql
 SELECT code, severity, count(*) AS n FROM findings GROUP BY 1, 2 ORDER BY 3 DESC;
@@ -240,8 +275,9 @@ whether its dataset has an open finding that touches it.
   are three different statements.
 - **Use the acceptance views** (`psms_1pct`, …), not the raw tables.
 - **Key on accessions**, not gene symbols (§4), and never on list position (§5).
-- **Exclude decoys explicitly**, and read the contaminant label per dataset (§6).
-- **Never compare raw `pep` across datasets** (§7).
+- **Read `is_unique` for what it is:** one gene in the searched sequences, from datarepo 1.0.0 (§6).
+- **Exclude decoys explicitly**, and read the contaminant label per dataset (§7).
+- **Never compare raw `pep` across datasets** (§8).
 - **Say what you could not check.** Every entry on this page exists because someone wrote down a
   thing they had not verified, and someone else found it later.
 

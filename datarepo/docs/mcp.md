@@ -4,17 +4,20 @@ Serves **one** catalog to an AI agent over stdio, as an MCP server. This is laye
 [architecture](architecture.md) and step 3 of the FRAMEWORK roadmap — the first of the four "doors"
 onto the catalog, and the only one blocked by nobody: no host, no proxy, no operator decision.
 
-```bash
-pip install 'datarepo[mcp]'
+The server is part of the `datarepo` program; nothing else is installed.
 
+```bash
 datarepo mcp --catalog /path/to/catalog.duckdb --install   # register with Claude Code
 datarepo mcp --catalog /path/to/catalog.duckdb --check     # open it and report, without serving
 datarepo mcp --catalog /path/to/catalog.duckdb             # serve (the client runs this, not you)
 datarepo mcp --list                                        # what is registered
-datarepo doctor                                            # SDK present? server registered?
+datarepo doctor                                            # which servers are registered, and where
 ```
 
-`--install` writes the Claude Code config so no JSON is hand-edited. It refuses to repoint an entry
+`--install` writes the Claude Code config so no JSON is hand-edited. The entry it writes starts
+the program that ran `--install`, by its absolute path, with the catalog's absolute path:
+`{"command": "/opt/datarepo-1.0.0/datarepo/datarepo", "args": ["mcp", "--catalog", "/data/repo/catalog.duckdb"]}`.
+So after moving or upgrading the program, run `--install --force` again from the new one. It refuses to repoint an entry
 it did not write (`--force` overrides, `--name` registers a second catalog alongside), keeps the
 rest of the file, and writes through a temporary file — that config is your whole Claude Code
 state, not ours. Restart Claude Code afterwards.
@@ -26,15 +29,16 @@ use it. Register this command, with the catalog's absolute path:
 {
   "mcpServers": {
     "datarepo": {
-      "command": "/path/to/venv/bin/python",
-      "args": ["-m", "datarepo.cli", "mcp", "--catalog", "/abs/path/to/catalog.duckdb"]
+      "command": "/abs/path/to/datarepo/datarepo",
+      "args": ["mcp", "--catalog", "/abs/path/to/catalog.duckdb"]
     }
   }
 }
 ```
 
-`--install --config <file>` writes that entry into another client's JSON config instead of Claude
-Code's.
+On Windows the command is the path of `datarepo.exe` (`C:\path\to\datarepo\datarepo.exe`; in JSON each `\` is written `\\`). `--install --config <file>` writes that
+entry into another client's JSON config instead of Claude Code's; the `CLAUDE_CONFIG_PATH`
+environment variable moves the default.
 
 **Removing an entry.** `claude mcp remove datarepo` (or the name you gave with `--name`), or delete
 the entry from the config file. Nothing else was written anywhere.
@@ -75,8 +79,9 @@ over SQL the agent would write anyway, and several answer questions no measureme
   number, and which metrics cite it.
 - **`"tables"`** — every table with its kind and what one row of it is.
 
-The column meanings are generated from `schema/datarepo.yaml` into `src/datarepo/_schema_docs.py`
-by the same tool that generates the Arrow schemas, and CI fails on drift. A description an agent
+The column meanings are generated from `schema/datarepo.yaml` into
+`dotnet/src/DataRepo.Bundle/Generated/SchemaDocs.g.cs` by the same tool that generates the table
+definitions (`DataRepo.SchemaGen`), and CI fails on drift. A description an agent
 reads therefore cannot fall out of step with the column it describes.
 
 ### `datarepo_search(query, kind=None, limit=25)`
@@ -198,9 +203,11 @@ are built so that "no data" stays distinguishable from "no", in four places:
 The column-level half matters as much as the table-level half. `samples` holds 57 rows with
 `organism_part`, `cell_type`, `disease`, `condition` and `cell_line` NULL on every one, so a search
 for `plasma` returning `rows: 57, hits: 0` reads as a considered negative unless something says the
-columns are empty. `peptidoforms.is_isoform_specific` is NULL on all 394,255 rows while its
-description names the exact question class it answers — the natural query returns a clean,
-confident false negative.
+columns are empty. On a catalog of bundles written before 1.0.0, `peptidoforms.is_isoform_specific`
+is NULL on every row (394,255 in the catalog measured) while its description names the exact
+question class it answers — the natural query returns a clean, confident false negative. From 1.0.0
+it is filled from the searched sequences
+([limitations.md](limitations.md#6--unique-means-one-gene-in-the-searched-sequences)).
 
 Two more presentation traps are handled rather than hidden. `protein_index` is built from the
 search's protein **database**, so `LMNA` and `DECOY_LMNA` both match a search for LMNA: decoys are
@@ -210,7 +217,7 @@ it counts are absent from `protein_groups_1pct` — so its description says so i
 
 ## What the sandbox does, and what it does not
 
-`datarepo_sql` runs inside `datarepo.sandbox`, which is **stage one** of a two-stage design. What
+`datarepo_sql` runs inside the sandbox (`Sandbox` in `DataRepo.Mcp`), which is **stage one** of a two-stage design. What
 ships now bounds **blast radius and provenance**; it is not claimed as a security boundary, because
 locally the agent already has your filesystem through Claude Code. The sqlglot AST allow-list in
 FRAMEWORK section 4 is stage two, for the day a public no-login endpoint exists and the thing being
@@ -218,16 +225,16 @@ bounded is an attacker.
 
 | | |
 |---|---|
-| Connection | `read_only=True` **and** `enable_external_access=false` |
+| Connection | read-only (`ACCESS_MODE=READ_ONLY`) **and** `enable_external_access=false` |
 | Filesystem | `disabled_filesystems='LocalFileSystem'`, set immediately after connecting |
 | Statements | one per call; `SELECT`, `EXPLAIN`, `PRAGMA`, `SHOW` only — refused **by name, before running**, with a message saying what to send instead |
 | Rows | 1,000, with a `truncated` flag and a sentence saying the answer is not whole |
 | Characters | 50,000, dropping **whole rows** — never half a peptidoform |
-| Time | 30 s, enforced by a watchdog thread calling `con.interrupt()` |
+| Time | 30 s, enforced by a watchdog timer that interrupts the connection |
 
 Three things there were measured rather than assumed, on DuckDB 1.5.5, and each is now a test:
 
-- **`read_only=True` alone is not a sandbox.** A read-only connection reads any CSV on disk.
+- **Read-only alone is not a sandbox.** A read-only connection reads any CSV on disk.
 - **`enable_external_access=false` does not close `ATTACH`.** Another DuckDB file could still be
   attached and queried — returning rows that are not in this catalog, under a result labelled with
   this catalog's `catalog_id`. That is a provenance failure before it is a security one, and it is

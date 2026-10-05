@@ -18,29 +18,30 @@ producer's work root                          bundle store
 
 ## Install
 
+`datarepo` is one self-contained program: download the archive for your platform from a
+[release](https://github.com/smith-chem-wisc/dataRepo/releases) and unpack it (see
+[operating.md](operating.md#1-install-one-released-version)). It reads MetaMorpheus output with
+mzLib, which is inside it, so nothing else is installed.
+
 ```bash
-python -m venv .venv
-# Windows: .venv\Scripts\activate    Linux/macOS: source .venv/bin/activate
-pip install ".[readers]"       # readers = pyMzLib (`mzlib`), which parses .psmtsv and SDRF
-datarepo doctor                # says whether this machine can ingest
+datarepo doctor                # what this build is, and whether an MCP server is registered
 ```
 
 `doctor` is the first thing to run on a new machine:
 
 ```
-datarepo 0.32.0
-  pyarrow          25.0.1
-  duckdb           1.5.5
-  pymzlib          0.2.0
-  mzLib bridge     …/site-packages/pymzlib/_dotnet/win-x64/mzlib-bridge.exe
+datarepo 1.0.0  schema 0.0.14
+  runtime          .NET 10.0.10
+  mzLib            1.0.593.0
+  parquet          ParquetSharp 24.0.0.0
+  mcp SDK          ModelContextProtocol 2.2.0.0
 …
 ready
 ```
 
-pyMzLib's wheels are per-platform and carry the mzLib bridge inside them, so on a released version
-nothing has to be built and `PYMZLIB_BRIDGE` is not needed. It is needed only against a source
-checkout, which ships no bridge; `doctor` says so, and points at the path it looked in. There is no
-in-house fallback for `.psmtsv`, by design: parsing producer file formats belongs to pyMzLib.
+The mzLib version is the one that parses `.psmtsv` and SDRF files, so it is part of what a bundle
+was read with. There is no in-house fallback for `.psmtsv`, by design: parsing producer file formats
+belongs to mzLib.
 
 ## Run it
 
@@ -57,9 +58,10 @@ datarepo inspect   /path/to/store/PXD036557/<bundle-id>       # what a bundle ho
 | `--mm-settings DIR` | Read modification definitions from a specific MetaMorpheus install. |
 | `--overwrite` | Rebuild a bundle that already exists at the same content hash. |
 | `-v` | Print every reconciliation check, not only the ones that disagree. |
+| `--json` | Print one JSON object on standard output, and the report on standard error, for a calling pipeline. Its fields are in [cli.md](cli.md#datarepo-ingest). |
 
 Exit codes: `0` success (including "already built, nothing to do"), `1` a refusal or a failure to act
-on, `2` bad usage. Re-running an unchanged dataset is a no-op, so the pipeline can call it after
+on, `2` bad usage. With `--json` the exit code is also in the object, as `exit_code`. Re-running an unchanged dataset is a no-op, so the pipeline can call it after
 every stage.
 
 ## The manifest is the contract
@@ -130,6 +132,11 @@ other than `none` that the declaration does not include, or gives every run one 
 flagged mixed. Both `run_enrichment` and the `mixed_enrichment` flag are content fields: adding either
 moves the bundle id, because the run rows change. No other flag does.
 
+`datarepo manifest` runs the same checks on every map without writing anything: a map `ingest`
+would refuse is printed as `REFUSED`, with the reason, and the command exits `1`. Where the run
+folder is reachable it also checks that the map covers every run; where it is not, it checks the
+values only and says so.
+
 ## The provenance schemas it reads
 
 Each search stage's `provenance.json` names its `schema`. It is read first, because the same field
@@ -142,7 +149,7 @@ name has meant two different counts:
 | `pxreprise-provenance/1` | layout 3, under PXReprise's question-neutral name for the same document |
 
 Anything else is refused, naming the schemas that are read. A new schema name is one line in
-`sources/provenance.LAYOUTS`, and it is added only once its fields are known to match a layout.
+`Provenance.Layouts` (`dotnet/src/DataRepo.Ingest/Sources/Provenance.cs`), and it is added only once its fields are known to match a layout.
 The schema string is kept verbatim in `provenance_records.provenance_schema`, and the file's bytes
 are part of the bundle id, so renaming the schema gives a new bundle id and nothing else changes.
 
@@ -153,13 +160,13 @@ are part of the bundle id, so renaming the schema gives a new bundle id and noth
 | `provenance.json` (search + its declared upstream stages) | dataRepo | `ProvenanceRecord`, `Metric`, `Finding` |
 | `fetch_manifest.json` | dataRepo | `Run` (file names, SHA-256, archive checksum) |
 | `qc_report.json` | dataRepo | `Run` (MS2 count, length, dissociation, QC verdict), `Metric` |
-| `*.sdrf.tsv` | **pyMzLib** | `Sample`, `SampleCharacteristic`, `Assay` |
-| `AllPSMs.psmtsv`, `AllPeptides.psmtsv` | **pyMzLib** | `Psm`, `Peptidoform`, `Protein`, `PtmSite` |
+| `*.sdrf.tsv` | **mzLib** (`SdrfDocument`) | `Sample`, `SampleCharacteristic`, `Assay` |
+| `AllPSMs.psmtsv`, `AllPeptides.psmtsv` | **mzLib** | `Psm`, `Peptidoform`, `Protein`, `PtmSite` |
 | `AllQuantifiedPeptides.tsv`, `AllQuantifiedProteinGroups.tsv`, `AllQuantifiedPeaks.tsv` | dataRepo | `QuantValue`, `ProteinGroup` |
 | the executed task `.toml` files | dataRepo | `SearchModification` |
 | `results.txt` | dataRepo | `Metric`, and the numbers the ingest reconciles against |
 | the searching MetaMorpheus install's `Mods/`, `Data/ptmlist.txt` | dataRepo | UNIMOD accessions for ProForma |
-| every protein database in the search provenance's `inputs` (UniProt `.xml`, `.fasta`) | dataRepo | `PtmSite.position` and `site_type` |
+| every protein database in the search provenance's `inputs` (UniProt `.xml`, `.fasta`) | dataRepo; **mzLib**'s loader for specificity | `PtmSite.position` and `site_type`; `Peptidoform.is_unique` and `is_isoform_specific` |
 
 **PTM site positions come from the searched sequences, not from the psmtsv's spans** (0.15.0,
 DATAREPO-32). MetaMorpheus writes `Start and End Residues In Full Sequence` de-duplicated -- one
@@ -171,17 +178,26 @@ mismatch stops the ingest. The databases are hashed into the bundle id but never
 A single-accession PSM whose protein cannot be found still uses its own spans, since no pairing is
 involved. Anything else that cannot be placed is counted in the `unplaced_ptm_sites` finding.
 
-pyMzLib owns producer file formats. Where dataRepo reads one itself it is because pyMzLib 0.1.x
-cannot, and `bundle.json`'s `readers` block records the reason for every such file, so the in-house
-code is deletable rather than permanent. See the table in
-[`src/datarepo/readers.py`](../src/datarepo/readers.py).
+mzLib owns producer file formats. The program calls mzLib's own readers in-process (mzLib 1.0.593),
+the same types the Python release reached through pyMzLib's bridge, and reproduces that bridge's
+projection, so the rows are the same. Where dataRepo reads a file itself it is because mzLib has no
+reader for it, and `bundle.json`'s `readers` block records which backend read every file, so the
+in-house code is deletable rather than permanent. The table, with the reason for each in-house read,
+is in `Readers` (`dotnet/src/DataRepo.Ingest/Readers.cs`).
 
-That deletion has now happened once. dataRepo read `*.sdrf.tsv` itself because pyMzLib's *generic*
+That deletion has already happened once. dataRepo read `*.sdrf.tsv` itself because pyMzLib's *generic*
 projection joined header and cells with `;`, which SDRF values contain themselves, so the columns
-could not be recovered (DATAREPO-13). pyMzLib 0.1.1 answers that with a dedicated `pymzlib.sdrf`
-module; on the real PXD036557 file it agrees with the deleted code cell for cell, including all 144
-cells containing a `;`. Note that the generic `read_records()` path is unchanged and still lossy on
-an SDRF, so `readers.read_sdrf` calls `pymzlib.sdrf.read` specifically.
+could not be recovered (DATAREPO-13). The dedicated SDRF reader (`pymzlib.sdrf` from pyMzLib 0.1.1,
+mzLib's `SdrfDocument` underneath) answers that; on the real PXD036557 file it agrees with the deleted
+code cell for cell, including all 144 cells containing a `;`. The generic records projection is
+still lossy on an SDRF, so it is never used for one.
+
+**Peptide specificity comes from the searched sequences** (1.0.0, G76). Every protein database the
+search used is loaded with mzLib's own loader, and mzLib's `PeptideUniquenessClassifier` decides,
+for each peptide, whether one sequence, one gene's sequences or several genes' sequences contain it.
+That fills `peptidoforms.is_unique` (one gene) and `is_isoform_specific` (one sequence). Before
+1.0.0, `is_unique` was parsimony-uniqueness read off MetaMorpheus's protein list. The rule and its
+traps are in [limitations.md](limitations.md#6--unique-means-one-gene-in-the-searched-sequences).
 
 ## What it writes
 
@@ -199,8 +215,8 @@ store/PXD036557/6fea2187b2d9f737/
   bundle.json  inputs with hashes, row counts, reader log, reconciliation, modification registry
 ```
 
-Column names, order and types come from the LinkML schema: `tools/build_tables.py` generates
-`src/datarepo/_tables.py` from it, and CI fails if that file is stale. There is no second, drifting
+Column names, order and types come from the LinkML schema: `DataRepo.SchemaGen` generates
+`dotnet/src/DataRepo.Bundle/Generated/Tables.g.cs` from it, and CI fails if that file is stale. There is no second, drifting
 copy of the column list.
 
 ### Rules the writer enforces
@@ -304,8 +320,9 @@ did the search (`Mods/*.txt`, `Data/ptmlist.txt`), which pins it to the version 
 | only a monoisotopic mass | `D[+37.946941]` |
 | neither | `K[Info:Nameless on K]`, plus an `unresolved_modifications` finding |
 
-This translation is a stop-gap. pyMzLib's `psmtsv` records already have a `pro_forma` field; it is
-null for MetaMorpheus files in 0.1.x (DATAREPO-12). When it is populated, this code goes.
+This translation is a stop-gap. pyMzLib's `psmtsv` records have a `pro_forma` field, which was null
+for MetaMorpheus files in 0.1.x (DATAREPO-12) and is filled from 0.4.0. Reading it from mzLib
+directly is the step that lets this code go.
 
 **The registry reads mzLib's resource files, and mzLib's own loader is the authority over them.**
 Reading `Mods/*.txt` and `Data/ptmlist.txt` is not the same as asking the loader: the loader also
@@ -373,25 +390,25 @@ otherwise a terminal placement is `peptide_n_term`.
 
 **C-terminal placements are not classified.** `...K[mod]` is written identically whether the
 modification is on the last residue or on the C-terminus, and the mod file's `PP` line is not parsed
-by `modlist`. Guessing would move existing ids on no evidence, so those rows stay `residue` -- which
+by `ModList`. Guessing would move existing ids on no evidence, so those rows stay `residue` -- which
 is what they have always effectively been. Asked as DATAREPO-26.
 
 ## Reproducing a bundle
 
-A bundle id is a hash of every input, the schema version and `INGESTER_VERSION`, so **two sites
-get the same bundle id exactly when they would write the same rows**. To reproduce one:
+A bundle id is a hash of every input, the schema version and the ingest path's version
+(`BundleWriter.IngesterVersion`, `cs-1.0.0` in 1.0.0), so **two sites get the same bundle id exactly
+when they would write the same rows**. To reproduce one:
 
-1. **Check out the commit that wrote it.** `bundle.json`'s `ingester.ingest_path` is the
-   `INGESTER_VERSION`; build from a commit that carries it, never from a working tree (see
-   `CLAUDE.md`: an id hashed on a version that exists in no commit is reproducible by nobody).
+1. **Use the release that wrote it.** `bundle.json`'s `ingester.version` names the program's version
+   and `ingester.ingest_path` the ingest path's; run a release that carries that ingest path, never a
+   build from a working tree (an id hashed on a version that exists in no release is reproducible by
+   nobody).
 2. **Have every file in `bundle.json`'s `sources`, byte-identical.** Each entry has its sha256.
    Since 0.15.0 that includes **every protein database the search used**, under
    `protein_database:<file name>`, found at the path the search provenance recorded. For aging's
    instance there are two per dataset: the UniProt proteome under `F:/aging_data/db/`, and
    `MetaMorpheusContaminants.xml` **from the MetaMorpheus install that ran the search** -- which is
    not under the data root and has to be kept with it.
-3. **Install `lxml` or not, as you like.** The two XML parsers are tested to read identically; `lxml`
-   is only faster (15 s against 47 s on a 1 GB proteome).
 
 **If a database is missing, the ingest does not fail.** It writes the bundle anyway, and the
 result is not the same bundle:
@@ -407,7 +424,8 @@ A database that is present but **differs** from the searched one (wrong sha256) 
 **Verifying positions.** Every ingest checks each site's residue against its sequence and records
 the result in `bundle.json` under `protein_databases.site_residue_check`; any wrong residue or
 out-of-range position raises `ptm_site_residue_mismatch`. To check a bundle you did not build,
-independently of that bookkeeping:
+independently of that bookkeeping, use `tools/verify_ptm_sites.py` from the Python release (it needs
+the frozen 0.32.0 package installed; it is not part of the C# program):
 
 ```
 python tools/verify_ptm_sites.py <store> [PXD...]                              # 0.15.0+ bundles
@@ -445,4 +463,4 @@ Tables the schema defines that no producer fills today: `PtmStoichiometry`, `Gly
 
 Also absent, deliberately: `Run.acquisition_datetime` and run-level `instrument_model` from the raw
 header. aging 006 asks dataRepo **not** to parse raw headers; the instrument comes from the archive's
-record via the SDRF, and the date waits for pyMzLib REQ-PYMZ-2.
+record via the SDRF, and the date waits for mzLib (pyMzLib's REQ-PYMZ-2).

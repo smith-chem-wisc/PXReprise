@@ -26,8 +26,8 @@ The parts of the proposal below that it settled in practice:
 - **The manifest is the contract.** The ingester reads the producing instance's `manifest.yaml`
   rather than scanning its work root, so which run is canonical and whether it may be loaded is the
   producer's recorded decision (aging thread 006).
-- **Parquet columns come from the schema.** `tools/build_tables.py` generates the Arrow schemas from
-  `schema/datarepo.yaml`, so there is no second column list to drift.
+- **Parquet columns come from the schema.** `DataRepo.SchemaGen` generates the table definitions
+  from `schema/datarepo.yaml`, so there is no second column list to drift.
 - **Bundles are content-addressed.** The directory name hashes the inputs, the schema version and
   the ingester version, which makes re-ingest idempotent and makes a cited bundle safe.
 - **Every bundle recounts itself** against the producer's own totals, and a disagreement becomes a
@@ -52,7 +52,15 @@ The parts of the proposal below that it settled in practice:
 - **Nothing is served that does not hold together.** Row counts, uniqueness and references are
   re-checked against the bundle manifests, and a failed build leaves the previous catalog serving.
 
-Still to build, in order: the Python client and MCP server, then REST and the deploy package.
+**Serving (layer 3)** is implemented for agents and people: `datarepo mcp` serves one catalog over
+MCP ([`mcp.md`](mcp.md)) and `datarepo site` writes a static site from it ([`site.md`](site.md)).
+
+**The program is C#** from 1.0.0 (D41): one .NET solution under `dotnet/`, one project per layer
+(`DataRepo.Ingest`, `DataRepo.Catalog`, `DataRepo.Mcp`, `DataRepo.Site`, …), released as a
+self-contained `datarepo` executable per platform. The Python package it replaced is frozen at
+0.32.0; the port was checked row by row against that release's output on real data.
+
+Still to build: REST and the deploy package.
 
 ## Proposed (not yet locked, gap G1)
 
@@ -60,7 +68,7 @@ Still to build, in order: the Python client and MCP server, then REST and the de
  producer output (psmtsv, FlashLFQ tsv, provenance.json, SDRF, QC)
         │
         ▼
- INGEST     parse (pyMzLib readers) → validate against the LinkML schema → reshape wide→long
+ INGEST     parse (mzLib readers) → validate against the LinkML schema → reshape wide→long
             → attach ontology IDs → mint USIs → one immutable Parquet bundle per dataset
         ▼
  LAYER 1    canonical files: Parquet (ZSTD) per table per dataset, plus the original SDRF and provenance
@@ -68,7 +76,7 @@ Still to build, in order: the Python client and MCP server, then REST and the de
  LAYER 2    one DuckDB catalog with cross-dataset indexes and precomputed summaries
         ▼
  LAYER 3    one code path, several doors:
-            Python client · REST (FastAPI, OpenAPI) · MCP server · static pages · bulk download
+            REST (OpenAPI) · MCP server · static pages · bulk download
 ```
 
 **Why this stack:**

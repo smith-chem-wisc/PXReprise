@@ -27,53 +27,71 @@ whole loop on a small example in ten minutes.
 Each step is idempotent. Re-running it on unchanged inputs does nothing and says so, so a pipeline
 can call every step after every dataset without keeping track of what it already did.
 
-## 1. Pin one released install
+## 1. Install one released version
 
-Run every step from **one released version, installed once and never edited**, for example a venv
-built from a tagged commit:
+Run every step from **one released version, unpacked once and never edited**. Each
+[release](https://github.com/smith-chem-wisc/dataRepo/releases) carries one archive per platform,
+each holding a `datarepo/` folder with the program, `datarepo` (`datarepo.exe` on Windows), and
+everything it needs: the .NET runtime, mzLib, DuckDB and the Parquet writer. Nothing else is
+installed, and no .NET or Python is needed.
 
-```bash
-python -m venv /opt/datarepo-0.32.0
-/opt/datarepo-0.32.0/bin/pip install "datarepo[readers,mcp] @ git+https://github.com/smith-chem-wisc/dataRepo.git@<commit>"
-```
-
-Two things depend on this:
-
-- **A bundle id hashes the ingester's version.** Bundles written by a working tree that nobody
-  committed cannot be reproduced by anyone, so their ids mean nothing.
-- **`datarepo run` refuses an editable install.** It records the exact install behind every engine
-  output, and an editable tree has no fixed identity to record.
-
-Build the catalog and the site with **the same install** that ingested. The builder's version is part
-of the catalog id, and the site's footer names it.
-
-### Without Python: the self-contained executable
-
-A machine with no Python can run dataRepo from a download: a `.zip` for Windows x64, or a
-`.tar.gz` for Linux x64 and macOS arm64 and x64 (unpack it with `tar -xzf`, which keeps the
-executable bits) holding `datarepo/datarepo` (`datarepo.exe` on Windows), with the
-interpreter, DuckDB, pyarrow, pyMzLib and its mzLib bridge inside. Unzip it anywhere and call the
-executable by its path, or point a tool at it (PXReprise's machine file: `datarepo = "…"`). The
-commands, arguments and outputs are the ones in [cli.md](cli.md).
-
-- **Each download is verified by running it.** The `binaries` workflow runs the whole
-  [tutorial](getting-started.md) with the executable on a PATH that holds no Python, and then with
-  the Python install that built it. It fails unless the two produce the same bundle id and catalog
-  id, which means they read and wrote the same rows.
-- **An executable is identified by the commit it was built from.** `datarepo doctor` prints it
-  (`build  executable, commit …`), and `datarepo run` records it with every engine output. A build
-  made from uncommitted changes carries no commit. It still runs, but `run` refuses it, because
-  nothing identifies its code.
-- **Downloads are not published yet.** The workflow builds them on demand and attaches them to a
-  draft release when a version is tagged. Where releases are published is still being decided.
-
-To build one yourself, on the platform you want it for:
+| Platform | Archive |
+|---|---|
+| Windows x64 | `datarepo-<version>-win-x64.zip` |
+| Linux x64 | `datarepo-<version>-linux-x64.tar.gz` |
+| macOS, Apple silicon | `datarepo-<version>-osx-arm64.tar.gz` |
+| macOS, Intel | `datarepo-<version>-osx-x64.tar.gz` |
 
 ```bash
-pip install ".[readers,mcp]" pyinstaller
-python tools/build_binary.py                       # dist/datarepo-<version>-<platform>.zip or .tar.gz
-python tools/packaging/smoke_test.py <unzipped>/datarepo/datarepo
+mkdir -p /opt/datarepo-1.0.0 && cd /opt/datarepo-1.0.0
+curl -LO https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.0.0/datarepo-1.0.0-linux-x64.tar.gz
+tar -xzf datarepo-1.0.0-linux-x64.tar.gz          # tar keeps the executable bit; a zip would lose it
+/opt/datarepo-1.0.0/datarepo/datarepo doctor
 ```
+
+Call the program by its path, put its folder on `PATH`, or point a tool at it (PXReprise's machine
+file: `datarepo = "…"`). On macOS, an archive downloaded with a browser is quarantined and the
+program refused as unverified: download with `curl`, or run `xattr -dr com.apple.quarantine` on the
+unpacked folder. The commands, arguments and outputs are the ones in [cli.md](cli.md).
+
+Three things depend on running a release:
+
+- **A bundle id hashes the ingest path's version** (`cs-1.0.0` in 1.0.0). A bundle written by code
+  nobody released cannot be reproduced by anyone, so its id means nothing.
+- **`datarepo run` refuses a development build.** It records the exact build behind every engine
+  output: the version and the commit the release was built from. A build that reports `0.0.0-dev`,
+  or carries no commit, has no fixed identity to record.
+- **Each download was verified by running it.** The `dotnet-binaries` workflow publishes each
+  platform's program, runs the example instance end to end with no .NET on the machine's `PATH`,
+  checks that it reports the tagged version, and only then attaches the archive to a draft release,
+  which a person publishes.
+
+Build the catalog and the site with **the same version** that ingested. The program's version is
+part of the catalog id, and the site's footer names it.
+
+**Moving from the Python package (0.32.0 and earlier).** The C# program writes the same tables, with
+the changes its [changelog](../CHANGELOG.md) lists (among them, `peptidoforms.is_unique` now means
+one gene in the searched sequences: see [limitations.md](limitations.md#6--unique-means-one-gene-in-the-searched-sequences)).
+Its first ingest path (`cs-1.0.0`) and schema 0.0.14 give every dataset a new bundle id, so
+re-ingest each dataset once with 1.0.0. `build` refuses a bundle written against schema 0.0.13 and
+names it. A Python install is no longer needed for anything.
+
+### Building from source
+
+To build the program yourself you need the [.NET 10 SDK](https://dotnet.microsoft.com/download):
+
+```bash
+git clone https://github.com/smith-chem-wisc/dataRepo.git
+dotnet build dataRepo/dotnet/src/DataRepo.Cli -c Release -o datarepo-dev
+datarepo-dev/datarepo --version                    # datarepo 0.0.0-dev
+```
+
+A source build reports version `0.0.0-dev`, and `datarepo run` refuses it by design. It is for
+development and testing; serve an instance from a release. A self-contained folder like a release's
+comes from `dotnet publish dataRepo/dotnet/src/DataRepo.Cli -c Release -r <rid> --self-contained -o
+<dir>` (`<rid>` is `win-x64`, `linux-x64`, `osx-arm64` or `osx-x64`); a release build also passes
+`-p:Version=<version>` and `-p:SourceRevisionId=<commit>`, which is what
+`.github/workflows/dotnet-binaries.yml` does.
 
 ## 2. Describe your instance: `manifest.yaml`
 
@@ -129,8 +147,13 @@ datarepo ingest manifest.yaml                     # every 'include' dataset
 
 Pass `--mm-settings <MetaMorpheus install>` so modification names resolve against the release that
 searched. Read the output: `WARN` lines and open findings are facts about the dataset, and they
-appear on its page. Large results are read in windows (512 MiB of source each), so a 2 GB psmtsv
-ingests, slowly.
+appear on its page. A pipeline can pass `--json` instead and read one JSON object on standard output
+(each dataset's status, bundle id, row counts, checks and open warnings) and the exit code; the
+human report then goes to standard error. See [cli.md](cli.md#datarepo-ingest).
+
+Run `datarepo manifest manifest.yaml` after editing the manifest. Besides listing the datasets, it
+checks every `run_enrichment` map the way `ingest` would, against the run folder where it can read
+it, and exits `1` on a map `ingest` would refuse, so a wrong map is found before a re-ingest.
 
 ## 4. Optional: engines and study results
 
@@ -198,13 +221,14 @@ Code, run `/mcp`, select the server, and reconnect.
 ## When a dataRepo upgrade needs a re-ingest
 
 The changelog for each release says which of these it changes. Only the first two cost a re-ingest.
+1.0.0 changes both, so moving to it from the Python package is a full re-ingest.
 
 | What changed | Effect on your instance |
 |---|---|
 | core schema version | **re-ingest every dataset.** `build` refuses a bundle written against another schema version, and names it |
-| `INGESTER_VERSION` | **re-ingest to pick up the change.** Old bundles still load, so a catalog can mix them, but a fixed defect stays in the old ones |
+| the ingest path (`cs-1.0.0`, `BundleWriter.IngesterVersion`) | **re-ingest to pick up the change.** Old bundles still load, so a catalog can mix them, but a fixed defect stays in the old ones |
 | a study layer's version | re-deliver that layer; a stored delivery of another layer version is refused |
-| `CATALOG_VERSION`, or the package only | rebuild the catalog (`publish` does it); no re-ingest |
+| the catalog version, or the program only | rebuild the catalog (`publish` does it); no re-ingest |
 
 ## Releases
 

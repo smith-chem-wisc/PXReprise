@@ -14,9 +14,9 @@ benchmark questions the schema can't yet answer, and producer file formats the i
 4. **Missing is not zero.** Never write 0 for "not measured".
 5. **No data in this repo.** Bundles, releases and DOIs belong to an instance (decision D8).
    `examples/` and `tests/data/` hold only tiny fixtures.
-6. **Parsing producer formats belongs to pyMzLib.** If the ingester reads a producer file itself, the
-   reason must be recorded in `src/datarepo/readers.py` and in the bundle's reader log, along with the
-   request that would let the in-house code be deleted.
+6. **Parsing producer formats belongs to mzLib.** If the ingester reads a producer file itself, the
+   reason must be recorded in `Readers` (`dotnet/src/DataRepo.Ingest/Readers.cs`) and in the bundle's
+   reader log, along with the request that would let the in-house code be deleted.
 7. **Never invent an identifier.** An unresolved modification, an unmatched run or a protein group
    the producer did not build is reported as a finding, not filled in with a plausible guess.
 
@@ -33,27 +33,30 @@ linkml-lint --config .linkmllint.yaml schema/datarepo.yaml
 linkml-lint --config .linkmllint.yaml schema/study/aging.yaml
 linkml-validate -s schema/datarepo.yaml -C Bundle examples/minimal_bundle.yaml
 
-# 3. regenerate the reference docs AND the ingester's Arrow schemas, and commit them
+# 3. regenerate the reference docs AND the program's table definitions, and commit them
 python tools/build_docs.py
-python tools/build_tables.py
+dotnet run --project dotnet/src/DataRepo.SchemaGen
 
-# 4. if the change affects what the ingester writes, regenerate the example bundle (needs pyMzLib)
-python tools/build_example_bundle.py
-
-# 5. note the change under "Unreleased" in CHANGELOG.md
+# 4. note the change under "Unreleased" in CHANGELOG.md
 ```
 
 CI runs the same checks. It also confirms that `examples/invalid/` still **fails** validation, that
-`docs/schema/` and `src/datarepo/_tables.py` match the schema, and that real ingester output
-(`examples/ingested_bundle.yaml`) validates.
+`docs/schema/` and `dotnet/src/DataRepo.Bundle/Generated/` match the schema, and that the ingester
+output in `examples/ingested_bundle.yaml` (written by the Python release) validates.
 
 ## Working on the ingester
 
+dataRepo is a C# program (`dotnet/`, solution `DataRepo.slnx`); the Python package under `src/` is
+frozen at 0.32.0 and only tested at that tag. You need the
+[.NET 10 SDK](https://dotnet.microsoft.com/download):
+
 ```bash
-pip install -e . -r requirements-dev.txt
-pip install pymzlib          # parses .psmtsv; `datarepo doctor` says whether its bridge is built
-pytest -q -rs                # tests that parse .psmtsv skip without the bridge
+dotnet test dotnet/DataRepo.slnx                     # every test, including the docs (DocsTests)
+dotnet build dotnet/src/DataRepo.Cli -c Release -o build/cs   # the program, as build/cs/datarepo
+python tools/build_cli_docs.py                       # after changing a command's arguments or help
 ```
+
+`dotnet/PORTING.md` holds the conventions the port follows.
 
 `tests/data/` is a miniature producing instance: a manifest with relative roots, real MetaMorpheus
 `.psmtsv` rows trimmed from PXD036557, and hand-made FlashLFQ tables whose edge cases are the ones

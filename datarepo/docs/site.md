@@ -49,9 +49,12 @@ HTML in it is shown as text.
 
 **The front page's figures of merit** are sums and counts over the catalog: datasets, raw files,
 spectra searched, PSMs at 1% FDR, unique peptides at 1% FDR, proteins identified (decoys and
-contaminants excluded) and PTM sites. Each tile says what it counts. The proteins tile also says how
+contaminants excluded) and PTM sites. Each tile says what it counts. "Unique" follows the catalog's
+schema: from 0.0.14 (datarepo 1.0.0) a peptide found in one gene's proteins in the searched
+databases, before it one assigned to a single protein by parsimony
+([limitations.md](limitations.md#6--unique-means-one-gene-in-the-searched-sequences)). The proteins tile also says how
 many are "in N or more datasets", with N chosen at each build so that count stays near 10,000
-(`site.SHARED_PROTEINS_TARGET`); a fixed N would count more proteins with every dataset added. A figure some datasets don't report says how many did,
+(`SiteGenerator.SharedProteinsTarget`); a fixed N would count more proteins with every dataset added. A figure some datasets don't report says how many did,
 instead of passing off a partial sum as a total.
 
 **`--purpose TEXT`** states the question the instance serves, as the end of "for questions about

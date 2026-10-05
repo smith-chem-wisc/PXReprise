@@ -72,7 +72,7 @@ accession from two datasets would be indistinguishable.
 
 The rule is MetaMorpheus's and it is not guessable, so it is applied once here rather than restated
 in every query. It is the same rule the ingester counts by when a bundle reconciles itself against
-`results.txt`, and a test asserts the SQL and the Python agree, so the two cannot drift. Counting
+`results.txt`, and a test asserts the SQL and the ingester's count agree, so the two cannot drift. Counting
 through these views is what makes the catalog's headline numbers the same numbers the bundle
 reconciled: 26,582 PSMs, 5,541 peptides and 1,652 protein groups for PXD036557.
 
@@ -107,8 +107,8 @@ the split -- is not recoverable.
 
 A **study layer** adds tables keyed on core identifiers and never alters a core table (U5). The core
 schema knows nothing about aging, so another reanalysis project could use it unchanged; the
-aging-specific tables live in `schema/study/aging.yaml` and are generated into `STUDY_TABLES`
-separately from `TABLES`.
+aging-specific tables live in `schema/study/aging.yaml` and are generated into `Tables.Study`
+separately from `Tables.Core` (`dotnet/src/DataRepo.Bundle/Generated/Tables.g.cs`).
 
 | Table | Grain | Definition |
 |---|---|---|
@@ -147,8 +147,8 @@ Loading one also adds `study-unique` and `study-reference` checks, and records t
 **A study layer's version is part of the catalog's identity, and not part of a bundle's.** Adding a
 column to `age_effects` must give a different catalog id, because the catalog holds something
 different; it must *not* give a different bundle id, because the bundles hold byte-identical rows
-from an unchanged ingest path. `CATALOG_VERSION` and `STUDY_VERSIONS` are in `catalog_id` and not in
-`BundleWriter.bundle_id`, which is why adding this whole layer re-identified every catalog and not
+from an unchanged ingest path. `CatalogBuilder.CatalogVersion` and `Tables.StudyVersions` are in
+`catalog_id` and not in `BundleWriter.BundleId`, which is why adding this whole layer re-identified every catalog and not
 one bundle.
 
 ### Cross-dataset tables
@@ -195,7 +195,7 @@ passes, so **a failed build leaves the previous catalog serving**.
   thing a content hash cannot catch: Parquet that was truncated or edited after the manifest was
   written.
 - **Identifiers are unique** within a dataset, and **references resolve** within a dataset — driven
-  by the same lists in `integrity.py` that the ingester checks a bundle against, so there is one
+  by the same lists in `Integrity` (`DataRepo.Bundle`) that the ingester checks a bundle against, so there is one
   statement of what points at what.
 - **Schema version.** A bundle written against a different schema version is refused with the
   version it carries, rather than unioned into columns that no longer mean the same thing.
@@ -223,8 +223,8 @@ datarepo query catalog.duckdb "
 The connection is opened read-only, so a statement that tries to write is refused by DuckDB itself.
 `--limit` caps the rows (50 by default, `0` for none) and `--format` is `table`, `tsv` or `json`.
 
-Any DuckDB client works just as well — this is one ordinary `.duckdb` file. The Python client and
-the MCP tools (roadmap step 3) will call the same catalog rather than a second code path.
+Any DuckDB client works just as well — this is one ordinary `.duckdb` file. The MCP tools
+([mcp.md](mcp.md)) read the same catalog rather than a second code path.
 
 **One trap worth knowing.** `quant_values` is long (D5): a protein group in a run has **two** rows,
 an intensity and a spectral count, told apart by `definition_id`. A query that forgets to filter on

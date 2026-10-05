@@ -21,9 +21,9 @@ The path had to keep three promises.
 
 **Delivering a model result never forces a re-ingest.** A study bundle is separately
 content-addressed. Writing one does not read, touch or re-identify a single search bundle, so a
-re-fit cannot move the id of a bundle somebody has cited. A test asserts exactly that, byte for
-byte, and it is the first test in `tests/test_study_bundle.py` because it is the reason the object
-exists.
+re-fit cannot move the id of a bundle somebody has cited. The Python release asserted exactly that,
+byte for byte, in the first test of its study suite, because it is the reason the object exists; the
+C# `StudyWriter` reproduces that release's study bundles id for id.
 
 **A study layer adds tables and never alters a core one** (U5). True of the files as well as the
 schema: the bundle holds only its layer's tables, and `build` unions it in beside the core.
@@ -94,13 +94,13 @@ The definition's rules are enforced **here**, on the way in, not documented besi
 `<store>/_study/<layer>/<bundle-id>/`, one Parquet file per delivered table plus `study.json`.
 
 The id covers the delivered files by SHA-256, which table each one fills, the layer and its version,
-the schema version and `study.STUDY_INGESTER_VERSION`. It does **not** cover `instance`, `delivery`
+the schema version and `StudyWriter.StudyIngesterVersion`. It does **not** cover `instance`, `delivery`
 or `notes`: rewording a label must not re-identify rows that are byte-identical. That is the
-over-hashing that has already bitten twice (aging thread 021 §4), and `STUDY_CONTENT_FIELDS` /
-`STUDY_NON_CONTENT_FIELDS` classify every manifest field with its reason, with a test that fails on
+over-hashing that has already bitten twice (aging thread 021 §4), and `StudyWriter.StudyContentFields` /
+`StudyNonContentFields` classify every manifest field with its reason, with a test that fails on
 an unclassified one.
 
-`STUDY_INGESTER_VERSION` is separate from `bundle.INGESTER_VERSION` and from `__version__`, for the
+`StudyIngesterVersion` is separate from `BundleWriter.IngesterVersion` and from the program's version, for the
 same reason those are separate from each other: **bump it in the same commit as any change to what
 this module reads, parses, coerces or writes.** A change to how a `.psmtsv` is parsed says nothing
 about a delivered age effect, and neither says anything about the package version.

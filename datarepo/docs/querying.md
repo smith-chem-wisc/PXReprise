@@ -137,6 +137,10 @@ shares nearly all its tryptic peptides with the other actins, so it is identifie
 (`q = 0`) on shared evidence. A filter like `WHERE unique_peptides > 0` would silently delete one of
 the most abundant proteins in the sample.
 
+`unique_peptides` is MetaMorpheus's own count for the group. It is not `peptidoforms.is_unique`,
+which from datarepo 1.0.0 means one gene in the searched sequences; see
+[limitations.md §6](limitations.md#6--unique-means-one-gene-in-the-searched-sequences).
+
 `protein_accessions` is a `VARCHAR[]`, so use `list_contains`, not `LIKE`.
 
 ### Proteins seen in every dataset
