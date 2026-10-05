@@ -232,6 +232,15 @@ public sealed class BatchRunner
         Log($"  datarepo {_m.DataRepo ?? "(none)"}");
         try
         {
+            if (_m.DataRepo is not null)
+            {
+                int vrc; string vout, verr;
+                try { (vrc, vout, verr) = await RunProcessFullAsync(new[] { _m.DataRepo, "--version" }, TimeSpan.FromMinutes(2), ct).ConfigureAwait(false); }
+                catch (System.ComponentModel.Win32Exception ex) { (vrc, vout, verr) = (-1, "", ex.Message); }   // not startable: ingest will say so
+                string version = (vout + verr).Trim().Split('\n')[0].Trim();
+                _ingestJson = vrc == 0 && TakesIngestJson(version);
+                Log($"  datarepo version: {(version.Length > 0 ? version : $"unknown (rc {vrc})")}; ingest reads {(_ingestJson ? "the --json envelope" : "the exit code")}");
+            }
             await ReconcileAsync(queue, ct).ConfigureAwait(false);
             // Pass 1 walks the queue; each later pass walks only the deposits PRIDE or UniProt failed to serve, after a
             // wait. The pass count bounds the loop: an outage longer than fetch_passes waits leaves them for the next run.
@@ -668,9 +677,25 @@ public sealed class BatchRunner
         // G18: the manifest entry already exists, and an entry with no ingest_rc reads as delivered elsewhere. Mark the
         // ingest as begun, so a driver that dies inside it leaves the deposit undelivered and the next start re-ingests.
         Record(e.Accession, ("ingest_rc", -1), ("ingest_out", $"ingest started {DateTime.UtcNow:yyyy-MM-dd'T'HH:mm:ss'Z'} and has not finished"));
-        var (rc, tail) = await RunProcessAsync(new[] { _m.DataRepo, "ingest", manifest, e.Accession }, TimeSpan.FromHours(3), ct).ConfigureAwait(false);
-        Log($"{e.Accession} INGEST rc={rc}\n{tail}");
-        Record(e.Accession, ("ingest_rc", rc), ("ingest_out", tail));
+        int rc;
+        if (_ingestJson)
+        {
+            // datarepo 1.0+: one JSON envelope on stdout, the human report on stderr (dataRepo 010/014, our 011).
+            var (exit, stdout, stderr) = await RunProcessFullAsync(new[] { _m.DataRepo, "ingest", manifest, e.Accession, "--json" }, TimeSpan.FromHours(3), ct).ConfigureAwait(false);
+            var o = IngestEnvelope.Read(stdout, e.Accession, exit);
+            rc = o.Rc;
+            string report = Tail(stderr);
+            Log($"{e.Accession} INGEST rc={rc} status={o.Status ?? "?"}{(o.BundleId is null ? "" : $" bundle={o.BundleId}")}{(o.Mismatches is > 0 ? $" mismatches={o.Mismatches}" : "")}"
+                + (o.Reasons.Count > 0 ? $" reasons: {string.Join(" | ", o.Reasons)}" : "") + $"\n{report}");
+            Record(e.Accession, ("ingest_rc", rc), ("ingest_exit_code", exit), ("ingest_status", o.Status), ("bundle_id", o.BundleId),
+                ("ingest_reasons", new JsonArray(o.Reasons.Select(r => (JsonNode?)r).ToArray())), ("ingest_out", report));
+        }
+        else
+        {
+            (rc, string tail) = await RunProcessAsync(new[] { _m.DataRepo, "ingest", manifest, e.Accession }, TimeSpan.FromHours(3), ct).ConfigureAwait(false);
+            Log($"{e.Accession} INGEST rc={rc}\n{tail}");
+            Record(e.Accession, ("ingest_rc", rc), ("ingest_out", tail));
+        }
         if (rc != 0 || _q.Publish.Command.Count == 0) return;
         // A failed publish is logged, never fatal: the bundle exists, and a stale site is a warning, not a reason to stop.
         var (prc, ptail) = await RunProcessAsync(PublishArgv(_q.Publish.Command, manifest, _m.DataRepo), TimeSpan.FromHours(1), ct).ConfigureAwait(false);
@@ -688,6 +713,15 @@ public sealed class BatchRunner
 
     private static async Task<(int Rc, string Tail)> RunProcessAsync(IReadOnlyList<string> argv, TimeSpan timeout, CancellationToken ct)
     {
+        var (rc, stdout, stderr) = await RunProcessFullAsync(argv, timeout, ct).ConfigureAwait(false);
+        return (rc, Tail((stdout + stderr).Trim()));
+    }
+
+    private static string Tail(string s) => (s = s.Trim()).Length > 1200 ? s[^1200..] : s;
+
+    /// <summary>Exit code 124 with a TIMEOUT line on stderr when <paramref name="timeout"/> passes (the process tree is killed).</summary>
+    private static async Task<(int Rc, string Stdout, string Stderr)> RunProcessFullAsync(IReadOnlyList<string> argv, TimeSpan timeout, CancellationToken ct)
+    {
         var psi = new ProcessStartInfo(argv[0]) { RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true, UseShellExecute = false, CreateNoWindow = true };
         foreach (string a in argv.Skip(1)) psi.ArgumentList.Add(a);
         using var p = Process.Start(psi)!;
@@ -700,11 +734,20 @@ public sealed class BatchRunner
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             p.Kill(entireProcessTree: true);
-            return (124, $"TIMEOUT after {timeout.TotalSeconds:0} s");
+            return (124, "", $"TIMEOUT after {timeout.TotalSeconds:0} s");
         }
-        string all = ((await outTask.ConfigureAwait(false)) + (await errTask.ConfigureAwait(false))).Trim();
-        return (p.ExitCode, all.Length > 1200 ? all[^1200..] : all);
+        return (p.ExitCode, await outTask.ConfigureAwait(false), await errTask.ConfigureAwait(false));
     }
+
+    /// <summary>
+    /// Whether this machine's datarepo takes <c>ingest --json</c>: 1.0.0 and later (the C# executable). 0.32.0 does
+    /// not, and keeps the exit code alone. Read from <c>datarepo --version</c> ("datarepo 1.0.0") once per batch.
+    /// </summary>
+    internal static bool TakesIngestJson(string versionLine) =>
+        System.Text.RegularExpressions.Regex.Match(versionLine, @"datarepo\s+(\d+)\.(\d+)\.(\d+)") is { Success: true } m
+        && int.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture) >= 1;
+
+    private bool _ingestJson;
 
     // ------------------------------------------------------------------ helpers
 
