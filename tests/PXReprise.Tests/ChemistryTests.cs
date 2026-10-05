@@ -107,6 +107,36 @@ public class ChemistryTests
         Assert.That(c.Label.Source, Is.EqualTo(ChemistrySource.PrideQuant), "a label-free SDRF label says nothing; PRIDE's TMT is next");
     }
 
+    // Oracle 2026-10-05: MetaMorpheus's mod strings come from mzLib's lookups, never from a table of ours.
+    [TestCase("UNIMOD:4", "Common Fixed\tCarbamidomethyl on C")]
+    [TestCase("UNIMOD:108", "Unimod\tNethylmaleimide on C")]
+    [TestCase("UNIMOD:776", "Unimod\tNEM:2H(5) on C")]
+    [TestCase("UNIMOD:39", "Unimod\tMethylthio on C")]
+    [TestCase("Unimod:24", "Less Common\tPropionamidation on C")]   // mzLib's own entry; MetaMorpheus 1.1.11's Mods.txt has it too
+    [TestCase("4", "Common Fixed\tCarbamidomethyl on C")]
+    public void CysteineModsResolveToMetaMorpheusStringsThroughMzLib(string unimod, string expected) =>
+        Assert.That(ChemistryDetector.MetaMorpheusModId(unimod, 'C'), Is.EqualTo(expected));
+
+    [Test]
+    public void ProteaseNamesResolveThroughMzLibsDictionary()
+    {
+        foreach (string p in new[] { "trypsin", "Lys-C|P", "Glu-C", "Asp-N", "chymotrypsin|P", "Arg-C", "Lys-N", "non-specific" })
+            Assert.That(ChemistryDetector.ResolveProtease(p), Is.Not.Null, p);
+        Assert.That(ChemistryDetector.ResolveProtease("no such enzyme"), Is.Null);
+    }
+
+    [Test]
+    public void AnSdrfsOwnFixedOrVariableIsKeptAndATmtLabelIsReadByMzLibsAuditor()
+    {
+        string dir = TestSupport.TempDir();
+        string sdrf = "source name\tcomment[data file]\tcomment[modification parameters]\tcomment[modification parameters]\tcomment[label]\n"
+            + "s1\ta.raw\tNT=Nethylmaleimide;AC=UNIMOD:108;TA=C;MT=Variable\tNT=Oxidation;AC=UNIMOD:35;TA=M;MT=Variable\tTMT126\n"
+            + "s2\ta.raw\tNT=Nethylmaleimide;AC=UNIMOD:108;TA=C;MT=Variable\tNT=Oxidation;AC=UNIMOD:35;TA=M;MT=Variable\tTMT127\n";
+        var c = ChemistryDetector.Detect(Project("x"), null, new SdrfDocument(TestSupport.WriteFile(dir, "y.sdrf.tsv", sdrf)), Files);
+        Assert.That(c.CysMods.Select(m => (m.MetaMorpheusId, m.Fixed)), Is.EqualTo(new[] { ("Unimod\tNethylmaleimide on C", false) }), "only cysteine mods, as the SDRF says");
+        Assert.That((c.Label.Value, c.Label.Source), Is.EqualTo(("tmt", ChemistrySource.DepositedSdrf)));
+    }
+
     [Test]
     public void SdrfCellFieldsAreRead() =>
         Assert.That(ChemistryDetector.Field("NT=Carbamidomethyl; AC=UNIMOD:4;TA=C;MT=Fixed", "AC"), Is.EqualTo("UNIMOD:4"));

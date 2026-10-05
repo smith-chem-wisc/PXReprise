@@ -1,4 +1,7 @@
+using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
+using Omics.SequenceConversion;
+using Proteomics.ProteolyticDigestion;
 using Readers;
 using UsefulProteomicsDatabases;
 
@@ -21,8 +24,15 @@ public sealed record ChemistryFact(string Value, string Source, string? Evidence
     public bool Guessed => Source == ChemistrySource.ProtocolText;
 }
 
-/// <summary>A cysteine modification as UniMod names it, and whether the search should hold it fixed or variable.</summary>
-public sealed record CysMod(string Name, string Unimod, bool Fixed);
+/// <summary>
+/// A cysteine modification as UniMod names it, and whether the search should hold it fixed or variable.
+/// <see cref="MetaMorpheusId"/> is the <c>ModificationType\tIdWithMotif</c> string a MetaMorpheus task file takes,
+/// resolved by mzLib (oracle 2026-10-05), or null when mzLib knows no such modification on C.
+/// </summary>
+public sealed record CysMod(string Name, string Unimod, bool Fixed)
+{
+    public string? MetaMorpheusId => ChemistryDetector.MetaMorpheusModId(Unimod, 'C');
+}
 
 /// <summary>
 /// A deposit's chemistry (G19, decided 2026-10-05 as D22 to D24): which protease made its peptides, how its cysteines
@@ -67,6 +77,43 @@ public static class ChemistryDetector
     };
     private const string Trypsin = "trypsin";
     private const string LysC = "Lys-C|P";
+
+    /// <summary>
+    /// The spellings each protease may have in the pinned mzLib, preferred first. mzLib #1186 (open) renames the |P
+    /// variants, so the name is resolved through <see cref="ProteaseDictionary"/> at run time, never hard-coded.
+    /// </summary>
+    private static readonly Dictionary<string, string[]> Spellings = new(StringComparer.Ordinal)
+    {
+        ["trypsin"] = new[] { "trypsin" },
+        ["Lys-C|P"] = new[] { "Lys-C|P", "Lys-C (don't cleave before proline)", "Lys-C" },
+        ["chymotrypsin|P"] = new[] { "chymotrypsin|P", "chymotrypsin (don't cleave before proline)", "chymotrypsin" },
+        ["elastase|P"] = new[] { "elastase|P", "elastase" },
+        ["Glu-C"] = new[] { "Glu-C" }, ["Asp-N"] = new[] { "Asp-N" }, ["Arg-C"] = new[] { "Arg-C" }, ["Lys-N"] = new[] { "Lys-N" },
+        ["non-specific"] = new[] { "non-specific" },
+    };
+
+    /// <summary>The name mzLib's <see cref="ProteaseDictionary"/> knows for a protease, or null when it knows none of its spellings.</summary>
+    public static string? ResolveProtease(string name) =>
+        (Spellings.TryGetValue(name, out var s) ? s : new[] { name }).FirstOrDefault(n => ProteaseDictionary.TryGetProtease(n, out _));
+
+    private static readonly ConcurrentDictionary<(string, char), string?> ModIds = new();
+
+    /// <summary>
+    /// MetaMorpheus's <c>ModificationType\tIdWithMotif</c> for a UNIMOD accession on a residue: mzLib's own mods first
+    /// (Carbamidomethyl on C is "Common Fixed"), then its embedded unimod.xml ("Unimod\tNethylmaleimide on C"). Reused from
+    /// mzLib's sequence conversion (MzLibModificationLookup, UnimodModificationLookup), not a table of ours.
+    /// </summary>
+    public static string? MetaMorpheusModId(string unimod, char residue) => ModIds.GetOrAdd((unimod, residue), key =>
+    {
+        if (UnimodNumber(key.Item1) is not int id) return null;
+        var cm = CanonicalModification.AtResidue(0, key.Item2, $"UNIMOD:{id}", unimodId: id);
+        var resolved = MzLibModificationLookup.ProteinOnly.TryResolve(cm) ?? UnimodModificationLookup.Instance.TryResolve(cm);
+        return resolved?.MzLibModification is { } m ? $"{m.ModificationType}\t{m.IdWithMotif}" : null;
+    });
+
+    /// <summary>The number in "UNIMOD:108", "Unimod:35" or a bare "4" (the SDRF corpus writes all three).</summary>
+    internal static int? UnimodNumber(string s) =>
+        Regex.Match(s.Trim(), @"^(?:unimod:)?(\d+)$", Opt) is { Success: true } m ? int.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture) : null;
 
     // Cell culture: "detached with trypsin", "trypsin-EDTA", "trypsinized" are not digestion.
     private static readonly Regex CultureContext = new(@"detach|harvest|passag|split|subcultur|dissociat", Opt);
@@ -175,15 +222,17 @@ public static class ChemistryDetector
     // ------------------------------------------------------------------ the sources, combined
 
     /// <summary>What one SDRF says: its proteases (per file), alkylants and label; nulls when it says nothing.</summary>
-    internal static (IReadOnlyDictionary<string, string>? ProteasePerFile, IReadOnlyList<string> Alkylants, string? Label) FromSdrf(SdrfDocument doc)
+    internal static (IReadOnlyDictionary<string, string>? ProteasePerFile, IReadOnlyList<string> Alkylants, string? Label, IReadOnlyList<CysMod> CysMods) FromSdrf(SdrfDocument doc)
     {
         var perFile = new Dictionary<string, string>(StringComparer.Ordinal);
         var alkylants = new HashSet<string>(StringComparer.Ordinal);
+        var cysMods = new Dictionary<string, CysMod>(StringComparer.Ordinal);
         string? label = null;
         foreach (var row in doc.Results)
         {
             string file = row["comment[data file]"]?.Trim() ?? "";
-            var agents = row.All("comment[cleavage agent details]").Select(c => CanonicalProtease(Field(c, "NT") ?? c)).OfType<string>().Distinct().ToList();
+            var agents = row.All("comment[cleavage agent details]").Select(c => CanonicalProtease(Field(c, "NT") ?? c) ?? ProteaseByAccession(Field(c, "AC")))
+                .OfType<string>().Distinct().ToList();
             if (agents.Count > 1 && agents.Contains(Trypsin)) agents.Remove(LysC);
             if (agents.Count == 1 && file.Length > 0) perFile[file] = agents[0];
             else if (agents.Count > 1 && file.Length > 0) perFile[file] = string.Join(" + ", agents);
@@ -192,10 +241,26 @@ public static class ChemistryDetector
                 string nt = Field(cell, "NT") ?? "", ac = Field(cell, "AC") ?? "", ta = Field(cell, "TA") ?? "";
                 if (ta.Length > 0 && !ta.Contains('C', StringComparison.OrdinalIgnoreCase)) continue;
                 foreach (var a in Alkylants.Where(a => a.Sdrf.IsMatch(nt) || a.Sdrf.IsMatch(ac))) { alkylants.Add(a.Name); break; }
+                // Any cysteine modification the SDRF names by UNIMOD id, with the SDRF's own fixed or variable (oracle: the
+                // id resolves through mzLib, so this is not limited to the alkylants listed above).
+                if (ta.Contains('C', StringComparison.OrdinalIgnoreCase) && UnimodNumber(ac) is int id && MetaMorpheusModId($"UNIMOD:{id}", 'C') is not null)
+                    cysMods[$"UNIMOD:{id}"] = new CysMod(nt.Length > 0 ? nt : $"UNIMOD:{id}", $"UNIMOD:{id}",
+                        !string.Equals(Field(cell, "MT"), "variable", StringComparison.OrdinalIgnoreCase));
             }
             if (label is null && row["comment[label]"] is { Length: > 0 } l && !LabelFreeWords.IsMatch(l)) label = LabelIn(l, out _) ?? l.Trim();
         }
-        return (perFile.Count > 0 ? perFile : null, alkylants.ToList(), label);
+        // An isobaric label the label column states (TMT, TMTpro, iTRAQ), read by mzLib's auditor (oracle 2026-10-05).
+        if (label is null && SdrfQuantAuditor.Audit(doc) is { Kind: not SdrfQuantKind.NotIsobaric } audit && audit.Families.Count > 0)
+            label = audit.Families[0].StartsWith("itraq", StringComparison.OrdinalIgnoreCase) ? "itraq" : "tmt";
+        return (perFile.Count > 0 ? perFile : null, alkylants.ToList(), label, cysMods.Values.ToList());
+    }
+
+    /// <summary>A protease named by its PSI-MS accession alone ("MS:1001251", or bare "1001251"), via mzLib's dictionary.</summary>
+    private static string? ProteaseByAccession(string? ac)
+    {
+        if (ac is null || Regex.Match(ac, @"(\d{7})") is not { Success: true } m) return null;
+        string acc = "MS:" + m.Groups[1].Value;
+        return ProteaseDictionary.Dictionary.Values.Where(p => p.PsiMsAccessionNumber == acc).Select(p => CanonicalProtease(p.Name)).FirstOrDefault(n => n is not null);
     }
 
     /// <summary>The deposit's chemistry, from every source given, by D22's order. Files are the raw files to be searched.</summary>
@@ -232,14 +297,19 @@ public static class ChemistryDetector
         // Alkylation: an SDRF's cysteine modifications, else PRIDE's identified PTMs, else the text, else carbamidomethyl.
         ChemistryFact alkylation;
         IReadOnlyList<CysMod> mods;
-        var sdrfAlk = sdrfs.FirstOrDefault(s => s.Read.Alkylants.Count > 0);
+        var sdrfAlk = sdrfs.FirstOrDefault(s => s.Read.CysMods.Count > 0 || s.Read.Alkylants.Count > 0);
         var pridePtms = project?.IdentifiedPTMStrings.Select(p => p.Name).Where(n => !string.IsNullOrWhiteSpace(n)).ToList() ?? new List<string>();
         var fromPride = Alkylants.Where(a => pridePtms.Any(p => a.Pride.IsMatch(p))).Select(a => a.Name).ToList();
         // NEM in a lysis buffer is a deubiquitinase inhibitor (PXD047288 and eight siblings, ubiquitin studies), not the
         // alkylation: in the text, NEM counts only near an alkylation, blocking, thiol or cysteine word.
         var fromText = Alkylants.Select(a => (a.Name, M: a.Text.Matches(text).FirstOrDefault(m => !a.Name.StartsWith("N", StringComparison.Ordinal)
                 || AlkylationContext.IsMatch(Window(text, m, 80))))).Where(x => x.M is not null).Select(x => (x.Name, M: x.M!)).ToList();
-        if (sdrfAlk.Read.Alkylants is { Count: > 0 } sa)
+        if (sdrfAlk.Read.CysMods is { Count: > 0 } sm)
+        {
+            mods = sm;   // as the SDRF states them, fixed or variable
+            alkylation = new(string.Join(" + ", sm.Select(m => m.Name)), sdrfAlk.Source);
+        }
+        else if (sdrfAlk.Read.Alkylants is { Count: > 0 } sa)
         {
             mods = CysModsFor(sa);
             alkylation = new(string.Join(" + ", sa), sdrfAlk.Source);
@@ -280,6 +350,19 @@ public static class ChemistryDetector
         else if (quantLabel is not null) label = new(quantLabel, ChemistrySource.PrideQuant, string.Join("; ", quant));
         else if (LabelIn(text, out string? ev) is { } tl) label = new(tl, ChemistrySource.ProtocolText, ev);
         else label = new("label_free", ChemistrySource.Default);
+
+        // Every protease name as the pinned mzLib spells it (ProteaseDictionary). A per-file map is searched through
+        // MetaMorpheus's file-specific parameters (the user, 2026-10-05: calibration carries the protease into X-calib.toml).
+        // A row with two proteases at once, or a protease mzLib does not know, waits.
+        if (perFile is not null)
+        {
+            var resolved = perFile.ToDictionary(kv => kv.Key, kv => ResolveProtease(kv.Value), StringComparer.Ordinal);
+            if (resolved.Values.Any(v => v is null)) park ??= "waiting_multi_protease";
+            else perFile = resolved.ToDictionary(kv => kv.Key, kv => kv.Value!, StringComparer.Ordinal);
+        }
+        else if (ResolveProtease(protease.Value) is { } name) protease = protease with { Value = name };
+        else park ??= "waiting_unknown_protease";
+        if (mods.Any(m => m.MetaMorpheusId is null)) park ??= "waiting_unknown_modification";
 
         return new DepositChemistry(protease, perFile, alkylation, mods, label, park);
     }
