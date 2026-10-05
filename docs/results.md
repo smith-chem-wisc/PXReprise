@@ -18,7 +18,7 @@ Inside a deposit's folder:
 | Folder | Contents |
 |---|---|
 | `02_fetch/` | `fetch_manifest.json`: every downloaded file, with its size and SHA-256. The raw files themselves are deleted after the search. |
-| `02b_qc_probe/`, `02b_qc/` | Quality checks on the probe files, then on every file (`qc_report.json`). |
+| `02b_qc_probe/`, `02b_qc/` | Quality checks on the probe files, then on every file (`qc_report.json`). Each file's entry also records what the file says about itself, while it still exists: `start_time`, `instrument_model`, `instrument_model_accession` and `instrument_serial`, each only when the reader gives it. A Thermo RAW `start_time` is the instrument's local clock with no time zone, written as read and never converted. |
 | `04_search/` | The MetaMorpheus run: `metamorpheus.log`, the exact task settings (`mm/Task Settings/`), and the results. |
 | `04_search/mm/Task3SearchTask/` | **The results.** `AllPSMs.psmtsv` (every peptide-spectrum match), `AllPeptides.psmtsv`, `AllQuantifiedProteinGroups.tsv` and `AllQuantifiedPeptides.tsv` (label-free intensities per file), `results.txt` (the summary). |
 | `05_qc/` | `report.html`, a quality report to open in a browser, and its data (`qc_payload.json`, `tables/`, `figures/`). |

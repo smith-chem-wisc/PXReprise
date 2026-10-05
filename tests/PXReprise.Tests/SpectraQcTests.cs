@@ -16,6 +16,28 @@ public class SpectraQcTests
         Assert.That(SpectraQc.MostCommon(new[] { "x", "y", "y" }, top: 1).Keys, Is.EqualTo(new[] { "y" }));
     }
 
+    // DATAREPO-72: the raw file's own start time, model and serial, recorded as read, before cleanup deletes the file.
+    [Test]
+    public void RunMetadataIsWrittenAsReadAndNeverAsAnEmptyString()
+    {
+        static MassSpectrometry.SourceFile Source(DateTime? start, string? model, string? accession, string? serial) =>
+            new("Thermo nativeID format", "Thermo RAW format", "abc", "SHA-1", "x.raw", null)
+            {
+                AcquisitionStartTime = start,
+                InstrumentModel = model is null ? null! : new MzLibUtil.CvParam { CvLabel = "MS", Accession = accession ?? "", Name = model },
+                InstrumentSerialNumber = serial!,
+            };
+        // A RAW header time has no zone: written with none, and not shifted.
+        var m = SpectraQc.Metadata(Source(new DateTime(2022, 2, 8, 10, 15, 33, DateTimeKind.Unspecified), "Orbitrap Exploris 480", "MS:1003028", "Exploris 480 - 1234"))!;
+        Assert.That(m, Is.EqualTo(new RunMetadata("2022-02-08T10:15:33", "Orbitrap Exploris 480", "MS:1003028", "Exploris 480 - 1234")));
+        Assert.That(SpectraQc.Metadata(Source(new DateTime(2022, 2, 8, 10, 15, 33, 250, DateTimeKind.Utc), null, null, null))!.StartTime,
+            Is.EqualTo("2022-02-08T10:15:33.25Z"), "a time the reader gave as UTC says so");
+        var blanks = SpectraQc.Metadata(Source(new DateTime(2022, 2, 8, 0, 0, 0, DateTimeKind.Unspecified), "  ", "", " "))!;
+        Assert.That((blanks.InstrumentModel, blanks.InstrumentModelAccession, blanks.InstrumentSerial), Is.EqualTo(((string?)null, (string?)null, (string?)null)));
+        Assert.That(SpectraQc.Metadata(Source(null, null, null, null)), Is.Null, "nothing read: no metadata at all");
+        Assert.That(SpectraQc.Metadata(null), Is.Null);
+    }
+
     [Test]
     public void AnUnreadableFileIsAVerdictNotAnException()
     {
