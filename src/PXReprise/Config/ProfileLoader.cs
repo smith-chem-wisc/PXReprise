@@ -24,7 +24,8 @@ public static class ProfileLoader
             acc.StringList("instrument").Select(v => ParseEnum<InstrumentClass>(file, "accepts.instrument", v)).ToList(),
             acc.StringList("file_types"),
             acc.OptionalBool("crosslinking") ?? false,
-            acc.OptionalBool("nonspecific_cleavage") ?? false);
+            acc.OptionalBool("nonspecific_cleavage") ?? false,
+            acc.OptionalBool("top_down") ?? false);
         acc.RefuseUnknownKeys();
 
         var eng = root.RequiredTable("engine");

@@ -7,7 +7,8 @@ public enum ProfileStatus { Available, Pending }
 /// <summary>
 /// What a profile accepts. An empty list means "any value". <see cref="Crosslinking"/> is opt-in (<c>crosslinking =
 /// true</c>): no profile searches linked peptides, so none takes an XL-MS deposit unless it says so. So is
-/// <see cref="NonspecificCleavage"/> (<c>nonspecific_cleavage = true</c>): every profile searches tryptic peptides.
+/// <see cref="NonspecificCleavage"/> (<c>nonspecific_cleavage = true</c>): every profile searches tryptic peptides. And
+/// <see cref="TopDown"/> (<c>top_down = true</c>): every profile searches digested peptides, not intact proteins (D19).
 /// </summary>
 public sealed record ProfileAccepts(
     IReadOnlyList<AcquisitionMode> Modes,
@@ -15,12 +16,14 @@ public sealed record ProfileAccepts(
     IReadOnlyList<InstrumentClass> Instruments,
     IReadOnlyList<string> FileTypes,
     bool Crosslinking = false,
-    bool NonspecificCleavage = false)
+    bool NonspecificCleavage = false,
+    bool TopDown = false)
 {
     /// <summary>Null when accepted, otherwise the first reason it is not.</summary>
     public string? Refusal(Acquisition a)
     {
         if (a.NonspecificCleavage && !NonspecificCleavage) return "nonspecific_cleavage";
+        if (a.TopDown && !TopDown) return "top_down";
         if (a.Crosslinked && !Crosslinking) return "crosslinking";
         if (Modes.Count > 0 && !Modes.Contains(a.Mode)) return $"acquisition {Name(a.Mode)}";
         if (Labellings.Count > 0 && !Labellings.Contains(a.Labelling)) return $"labelling {Name(a.Labelling)}";

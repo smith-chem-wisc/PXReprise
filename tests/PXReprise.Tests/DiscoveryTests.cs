@@ -110,6 +110,37 @@ public class DiscoveryTests
         Assert.That((route.Kind, route.Reason), Is.EqualTo((RouteKind.WaitingOnCapability, "nonspecific_cleavage")));
     }
 
+    // D19: PXD065459 (top-down) and PXD030724 (iDiLeu) ranked near the top of the widened scope; no profile searches them.
+    [TestCase("CZE-MS/MS-based quantitative top-down proteomics reveals significant proteoform differences", "top_down")]   // PXD065459
+    [TestCase("intact protein mass spectrometry of histone variants", "top_down")]
+    [TestCase("In-house synthesized 5-plex isotopic N,N-dimethyl leucine (iDiLeu) tags were used", "dileu_labelling")]   // PXD030724
+    [TestCase("peptides were labelled with 12-plex DiLeu reagents", "dileu_labelling")]
+    public void TopDownAndDiLeuWaitForTheirProfiles(string text, string capability)
+    {
+        var r = TestSupport.Record("PXD000020", "Liver in type 2 diabetes", text, instruments: new[] { "Q Exactive HF" }, files: new[] { "a.raw" });
+        var route = Router.Assign(r.Accession, AcquisitionClassifier.Classify(r), Relevance.Evaluate(r, Q().Relevance), Q(), Profiles);
+        Assert.That((route.Kind, route.Reason), Is.EqualTo((RouteKind.WaitingOnCapability, capability)));
+    }
+
+    // On 795 real records, PRIDE's "Top-down proteomics" keyword sat on 25 bottom-up deposits (PXD077298, PXD052189, ...).
+    [Test]
+    public void ThePrideKeywordTopDownProteomicsAloneIsNotEnough()
+    {
+        var r = TestSupport.Record("PXD000022", "Liver in type 2 diabetes", "digested with trypsin; searched with X! Tandem", instruments: new[] { "Q Exactive HF" }, files: new[] { "a.raw" });
+        r.Keywords.Add("Top-down proteomics");
+        Assert.That(AcquisitionClassifier.Classify(r).TopDown, Is.False);
+    }
+
+    [TestCase("top-down control of feeding by the hypothalamus")]
+    [TestCase("a top-down approach to rank candidate genes")]
+    [TestCase("leucine and isoleucine were not distinguished")]
+    public void WordsThatOnlyResembleTopDownOrDiLeuAreSearched(string text)
+    {
+        var r = TestSupport.Record("PXD000021", "Liver in type 2 diabetes", text, instruments: new[] { "Q Exactive HF" }, files: new[] { "a.raw" });
+        var a = AcquisitionClassifier.Classify(r);
+        Assert.That((a.TopDown, a.Labelling), Is.EqualTo((false, Labelling.LabelFree)));
+    }
+
     [Test]
     public void TheHupoHippTagAloneIsEnough()
     {
@@ -160,3 +191,4 @@ public class DiscoveryTests
         Assert.That(counts, Is.EquivalentTo(new Dictionary<string, int> { [".raw"] = 2, [".d.zip"] = 1, [".mzml"] = 1, [".d"] = 1 }));
     }
 }
+
