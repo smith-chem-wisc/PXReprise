@@ -6,7 +6,8 @@
 //   CMD -t ... -o <dir>  -> Task1CalibrationTask/, Task2GptmdTask/, Task3SearchTask/ with small result tables
 // Environment: FAKE_MM_EXIT=<n> exits with n after writing outputs; FAKE_MM_NO_PROTEIN_GROUPS=1 omits the protein-group
 // table (FlashLFQ failing silently); FAKE_MM_SKIP_QUANT=1 prints the design warning; FAKE_MM_HANG=1 sleeps forever, using
-// no CPU (a hung search); FAKE_MM_BUSY_SECONDS=<n> works silently for n seconds first (MetaMorpheus's long PEP step).
+// no CPU (a hung search); FAKE_MM_BUSY_SECONDS=<n> works silently for n seconds first (MetaMorpheus's long PEP step);
+// FAKE_MM_WARN=<text> prints that line during the first task (MetaMorpheus's warnings, e.g. "Unrecognized mod ...").
 using System.Text;
 
 string Release = Environment.GetEnvironmentVariable("FAKE_MM_RELEASE") ?? "1.1.11";
@@ -24,9 +25,9 @@ void Write(string path, string text) { Directory.CreateDirectory(Path.GetDirecto
 if (args.Contains("-g"))
 {
     string o = Arg("-o")!;
-    Write(Path.Combine(o, "CalibrationTask.toml"), "TaskType = \"Calibrate\"\n\n[CommonParameters]\nMaxThreadsToUsePerFile = 63\nProductMassTolerance = \"±20.0000 PPM\"\n");
-    Write(Path.Combine(o, "GptmdTask.toml"), "TaskType = \"Gptmd\"\n\n[GptmdParameters]\nListOfModsGptmd = \"Common Biological\\tAcetylation on K\\t\\t\"\n\n[CommonParameters]\nMaxThreadsToUsePerFile = 63\n");
-    Write(Path.Combine(o, "SearchTask.toml"), "TaskType = \"Search\"\n\n[SearchParameters]\nMatchBetweenRuns = false\nSearchType = \"Classic\"\nWriteSpectralLibrary = false\nUpdateSpectralLibrary = false\n\n[CommonParameters]\nMaxThreadsToUsePerFile = 63\n");
+    Write(Path.Combine(o, "CalibrationTask.toml"), "TaskType = \"Calibrate\"\n\n[CommonParameters]\nMaxThreadsToUsePerFile = 63\nListOfModsFixed = \"Common Fixed\\tCarbamidomethyl on C\\t\\tCommon Fixed\\tCarbamidomethyl on U\"\nListOfModsVariable = \"Common Variable\\tOxidation on M\"\nProductMassTolerance = \"±20.0000 PPM\"\n\n[CommonParameters.DigestionParams]\nSpecificProtease = \"trypsin\"\nProtease = \"trypsin\"\n");
+    Write(Path.Combine(o, "GptmdTask.toml"), "TaskType = \"Gptmd\"\n\n[GptmdParameters]\nListOfModsGptmd = \"Common Biological\\tAcetylation on K\\t\\t\"\n\n[CommonParameters]\nMaxThreadsToUsePerFile = 63\nListOfModsFixed = \"Common Fixed\\tCarbamidomethyl on C\\t\\tCommon Fixed\\tCarbamidomethyl on U\"\nListOfModsVariable = \"Common Variable\\tOxidation on M\"\n\n[CommonParameters.DigestionParams]\nSpecificProtease = \"trypsin\"\nProtease = \"trypsin\"\n");
+    Write(Path.Combine(o, "SearchTask.toml"), "TaskType = \"Search\"\n\n[SearchParameters]\nMatchBetweenRuns = false\nSearchType = \"Classic\"\nWriteSpectralLibrary = false\nUpdateSpectralLibrary = false\n\n[CommonParameters]\nMaxThreadsToUsePerFile = 63\nListOfModsFixed = \"Common Fixed\\tCarbamidomethyl on C\\t\\tCommon Fixed\\tCarbamidomethyl on U\"\nListOfModsVariable = \"Common Variable\\tOxidation on M\"\n\n[CommonParameters.DigestionParams]\nSpecificProtease = \"trypsin\"\nProtease = \"trypsin\"\n");
     Console.WriteLine($"Welcome to MetaMorpheus\n{Release}\n");
     return 0;
 }
@@ -49,6 +50,7 @@ var spectra = Values("-s").Select(Path.GetFileNameWithoutExtension).ToList();
 foreach (var (task, i) in new[] { "CalibrationTask", "GptmdTask", "SearchTask" }.Select((t, i) => (t, i + 1)))
 {
     Console.WriteLine($"Starting task: Task{i}{task}");
+    if (i == 1 && Environment.GetEnvironmentVariable("FAKE_MM_WARN") is { Length: > 0 } warn) Console.WriteLine(warn);
     Directory.CreateDirectory(Path.Combine(outDir, $"Task{i}{task}"));
     if (task == "SearchTask" && Environment.GetEnvironmentVariable("FAKE_MM_SKIP_QUANT") == "1")
         Console.WriteLine("Error reading experimental design file: Condition \"x\" biorep 2 is missing. Skipping quantification");

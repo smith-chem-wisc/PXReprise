@@ -7,7 +7,8 @@ public enum ProfileStatus { Available, Pending }
 /// <summary>
 /// What a profile accepts. An empty list means "any value". <see cref="Crosslinking"/> is opt-in (<c>crosslinking =
 /// true</c>): no profile searches linked peptides, so none takes an XL-MS deposit unless it says so. So is
-/// <see cref="NonspecificCleavage"/> (<c>nonspecific_cleavage = true</c>): every profile searches tryptic peptides.
+/// <see cref="NonspecificCleavage"/> (<c>nonspecific_cleavage = true</c>): every profile searches tryptic peptides. And
+/// <see cref="TopDown"/> (<c>top_down = true</c>): every profile searches digested peptides, not intact proteins (D19).
 /// </summary>
 public sealed record ProfileAccepts(
     IReadOnlyList<AcquisitionMode> Modes,
@@ -15,12 +16,14 @@ public sealed record ProfileAccepts(
     IReadOnlyList<InstrumentClass> Instruments,
     IReadOnlyList<string> FileTypes,
     bool Crosslinking = false,
-    bool NonspecificCleavage = false)
+    bool NonspecificCleavage = false,
+    bool TopDown = false)
 {
     /// <summary>Null when accepted, otherwise the first reason it is not.</summary>
     public string? Refusal(Acquisition a)
     {
         if (a.NonspecificCleavage && !NonspecificCleavage) return "nonspecific_cleavage";
+        if (a.TopDown && !TopDown) return "top_down";
         if (a.Crosslinked && !Crosslinking) return "crosslinking";
         if (Modes.Count > 0 && !Modes.Contains(a.Mode)) return $"acquisition {Name(a.Mode)}";
         if (Labellings.Count > 0 && !Labellings.Contains(a.Labelling)) return $"labelling {Name(a.Labelling)}";
@@ -74,10 +77,18 @@ public sealed record Profile(
     DepositPolicy Deposit,
     QcGates Qc,
     string SourceDir = ".",
-    string Design = "none")
+    string Design = "none",
+    string Chemistry = "fixed")
 {
     /// <summary>The values of <c>[quant] design</c>: none, or an experimental design from an SDRF (G15).</summary>
     public static readonly string[] Designs = { "none", "sdrf" };
+
+    /// <summary>
+    /// The values of <c>[engine] chemistry</c> (G19, D22-D27): "fixed" searches every deposit with MetaMorpheus's
+    /// defaults (trypsin, fixed carbamidomethyl), as label-free-dda@1 did; "deposit" reads each deposit's protease and
+    /// cysteine chemistry first and searches with them, or parks it.
+    /// </summary>
+    public static readonly string[] Chemistries = { "fixed", "deposit" };
 
     public string Key => $"{Id}@{Version}";
 

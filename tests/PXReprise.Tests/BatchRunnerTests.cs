@@ -173,6 +173,60 @@ public class BatchRunnerTests
         Assert.That(runner.Settled("PXD000217"), Is.EqualTo("search_failed"), "a third: settled like any failed search");
     }
 
+    // G19 (D22-D27): under a profile that reads each deposit's chemistry, the probe reads it before any download, records
+    // it, and holds back a deposit it cannot search as read.
+    private static (BatchRunner Runner, FakeSearch Search, FakeFiles Files, string Dir) DepositChemistryRunner()
+    {
+        string dir = TestSupport.TempDir();
+        string q = TestSupport.MinimalQuestion.Replace("profiles = [\"label-free-dda@1\", \"tmt-dda@1\"]", "profiles = [\"label-free-dda@3\"]")
+            + "\n[batch]\nrun_root = \"runs\"\nstate_dir = \"state\"\nqueue = \"queue.json\"\n";
+        var question = QuestionLoader.Load(TestSupport.WriteFile(dir, "question.toml", q));
+        var machine = Machine.Load(TestSupport.WriteFile(dir, "machine.toml",
+            $"work_root = '{dir}'\nmin_free_gb = 0\n[metamorpheus]\n\"1.1.11\" = 'C:/nowhere/CMD.exe'\n"));
+        var search = new FakeSearch();
+        var files = new FakeFiles { Listing = Enumerable.Range(1, 6).Select(i => new PrideArchiveFile { FileName = $"run{i}.raw", FileSizeBytes = 500_000_000 }).ToList() };
+        return (new BatchRunner(question, Profiles, machine, files, search, "2026-10-05"), search, files, dir);
+    }
+
+    [Test]
+    public async Task UnderADepositChemistryProfileTheProbeReadsTheChemistryFirst()
+    {
+        var (runner, search, files, dir) = DepositChemistryRunner();
+        void Deposit(string acc, string protocol, string[]? ptms = null, string[]? quant = null)
+        {
+            search.Results[acc] = new() { TestSupport.Record(acc, "Type 2 diabetes muscle", protocol, instruments: new[] { "Q Exactive HF" }, files: new[] { "run1.raw" }) };
+            search.Projects[acc] = new PrideProject
+            {
+                Accession = acc, Title = "Type 2 diabetes muscle", SampleProcessingProtocol = protocol,
+                IdentifiedPTMStrings = (ptms ?? Array.Empty<string>()).Select(n => new MzLibUtil.CvParam { Name = n }).ToList(),
+                QuantificationMethods = (quant ?? Array.Empty<string>()).Select(n => new MzLibUtil.CvParam { Name = n }).ToList(),
+            };
+        }
+
+        // The NEM deposits' case: PRIDE lists light NEM, the protocol the heavy partner. Searched, with the chemistry recorded.
+        Deposit("PXD000401", "thiol blocking buffer with d(0) NEM; Cys were alkylated with d(5) NEM; digested with trypsin", new[] { "Nethylmaleimide" });
+        await runner.ProbeAsync(new QueueEntry("PXD000401", "t", "human"), CancellationToken.None);
+        Assert.That(files.Downloads, Is.GreaterThan(0), "past the chemistry: on to the probe download (which this fake refuses)");
+        Assert.That(runner.Settled("PXD000401"), Does.Not.StartWith("waiting_"));
+        var chem = runner.State()["datasets"]!["PXD000401"]!["chemistry"]!;
+        Assert.That(chem["cysteine_mods"]!.AsArray().Select(m => m!["metamorpheus"]!.GetValue<string>()),
+            Is.EqualTo(new[] { "Unimod\tNethylmaleimide on C", "Unimod\tNEM:2H(5) on C" }));
+        Assert.That(File.Exists(Path.Combine(dir, "runs", "PXD000401", "01_chemistry", "chemistry.json")), Is.True);
+
+        int before = files.Downloads;
+        // PRIDE says TMT (PXD027548's case): it waits for a profile that searches the label.
+        Deposit("PXD000402", "digested with trypsin", quant: new[] { "TMT" });
+        Assert.That(await runner.ProbeAsync(new QueueEntry("PXD000402", "t", "human"), CancellationToken.None), Is.Null);
+        Assert.That(runner.Settled("PXD000402"), Is.EqualTo("waiting_tmt_labelling"));
+
+        // Two proteases and file names that do not say which file is which: it waits.
+        Deposit("PXD000403", "aliquots were digested with trypsin or with Glu-C");
+        Assert.That(await runner.ProbeAsync(new QueueEntry("PXD000403", "t", "human"), CancellationToken.None), Is.Null);
+        Assert.That(runner.Settled("PXD000403"), Is.EqualTo("waiting_multi_protease"));
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain("PXD000403 SCREENED OUT (waiting_multi_protease)"));
+        Assert.That(files.Downloads, Is.EqualTo(before), "nothing was downloaded for the two held back: the chemistry is read first");
+    }
+
     // G18: a reboot mid-search left the deposit at "searching" with a half-written 04_search/mm, which MetaMorpheus refuses
     // to reuse; the restart would have settled it as search_failed.
     [Test]

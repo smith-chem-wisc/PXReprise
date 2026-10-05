@@ -21,7 +21,8 @@ public sealed record SearchRequest(
     string? Accession = null,
     bool UseLibrary = true,
     string? CuratedDesign = null,
-    IReadOnlyList<string>? DesignConditionColumns = null);
+    IReadOnlyList<string>? DesignConditionColumns = null,
+    Discovery.DepositChemistry? Chemistry = null);   // G19: required by a profile with [engine] chemistry = "deposit"
 
 public sealed record SearchOutcome(bool Success, int ExitCode, bool TimedOut, int? Psms1Pct, IReadOnlyList<string> Flags, string ProvenanceFile);
 
@@ -140,7 +141,20 @@ public static class SearchStage
             });
 
         var known = TaskFiles.KnownMods(Path.Combine(Path.GetDirectoryName(cmd)!, "Mods"));
-        var settings = new TaskSettings(m.MaxThreads, p.MatchBetweenRuns, p.GptmdExtraMods, SpectralLibraryMode: lib?.Mode);
+        var chem = p.Chemistry == "deposit"
+            ? r.Chemistry ?? throw new UsageException($"{p.Key} reads each deposit's chemistry (G19), and none was given for this search")
+            : null;
+        if (chem?.Park is { } park) throw new SearchSetupException($"the deposit's chemistry cannot be searched as read ({park})");
+        var settings = new TaskSettings(m.MaxThreads, p.MatchBetweenRuns, p.GptmdExtraMods, SpectralLibraryMode: lib?.Mode,
+            Protease: chem is { ProteasePerFile: null } ? chem.Protease.Value : null,
+            FixedCysMods: chem?.CysMods.Where(c => c.Fixed).Select(c => c.MetaMorpheusId!).ToList(),
+            VariableCysMods: chem?.CysMods.Where(c => !c.Fixed).Select(c => c.MetaMorpheusId!).ToList());
+        if (chem is not null)
+        {
+            prov.Set("chemistry", Chemistry(chem));
+            if (chem.AnyGuessed) prov.Note("chemistry includes a guess read from protocol text (D22); see chemistry.*.source");
+            WritePerFileProteases(files, chem.ProteasePerFile, prov);
+        }
         var tomls = new List<string>();
         foreach (var (task, i) in p.Tasks.Select((t, i) => (Enum.Parse<TaskKind>(t), i + 1)))
         {
@@ -226,6 +240,13 @@ public static class SearchStage
             ok = false;
             prov.Note($"FAILED (D48): the run carries ExperimentalDesign.tsv but MetaMorpheus skipped quantification with it: {skipped[0]}");
         }
+        // D27: MetaMorpheus only WARNS when it cannot use a modification or a per-file protease, and searches on without it.
+        foreach (string silent in new[] { "Unrecognized mod", "Problem parsing the file-specific toml" })
+            if (log.Contains(silent, StringComparison.Ordinal))
+            {
+                ok = false;
+                prov.Note($"FAILED (G19/D27): MetaMorpheus logged \"{silent}\", so the search did not use the chemistry it was given: {log.Split('\n').First(l => l.Contains(silent, StringComparison.Ordinal)).Trim()}");
+            }
         prov.Set("success", (JsonNode)ok);
         if (run.ExitCode == 0 && key["AllQuantifiedProteinGroups.tsv"] is null)
             prov.Note("exit 0 but no AllQuantifiedProteinGroups.tsv: FlashLFQ failed silently (pyMM 003 Q4)");
@@ -345,6 +366,48 @@ public static class SearchStage
             ["reason"] = allFailedQc && why.Count > 0
                 ? $"D52: failed qc_spectra on {string.Join(", ", why)} (a blank or failed injection); excluded with a record instead of dropping the deposit"
                 : "excluded from the search by --exclude",
+        };
+    }
+
+    /// <summary>The marker on a per-file toml PXReprise writes, so a stale one is recognised and a hand-written one is never touched.</summary>
+    internal const string PerFileTomlMarker = "# written by PXReprise for a per-file protease (G19); MetaMorpheus file-specific parameters";
+
+    /// <summary>
+    /// G19/D27: one <c>&lt;raw&gt;.toml</c> beside each raw file with its own protease (MetaMorpheus's file-specific
+    /// parameters; calibration carries it into X-calib.toml). Our stale tomls are removed; a toml we did not write is refused.
+    /// </summary>
+    internal static void WritePerFileProteases(IEnumerable<string> rawFiles, IReadOnlyDictionary<string, string>? perFile, AgingProvenance prov)
+    {
+        foreach (string raw in rawFiles)
+        {
+            string toml = Path.Combine(Path.GetDirectoryName(raw)!, Path.GetFileNameWithoutExtension(raw) + ".toml");
+            bool ours = File.Exists(toml) && File.ReadLines(toml).FirstOrDefault() == PerFileTomlMarker;
+            if (File.Exists(toml) && !ours)
+                throw new SearchSetupException($"{toml} exists and was not written by PXReprise: MetaMorpheus would apply it to {Path.GetFileName(raw)}");
+            if (perFile?.TryGetValue(Path.GetFileName(raw), out string? protease) == true)
+            {
+                File.WriteAllText(toml, $"{PerFileTomlMarker}\nDigestionAgent = \"{protease}\"\n");
+                prov.Input(toml);
+            }
+            else if (ours) File.Delete(toml);
+        }
+        if (perFile is not null)
+            prov.Note($"per-file proteases (MetaMorpheus file-specific parameters): {string.Join("; ", perFile.GroupBy(kv => kv.Value).Select(g => $"{g.Key} x{g.Count()}"))}");
+    }
+
+    /// <summary>The chemistry record in a search's provenance: each fact with its source and evidence.</summary>
+    internal static JsonObject Chemistry(Discovery.DepositChemistry c)
+    {
+        static JsonObject Fact(Discovery.ChemistryFact f) => new() { ["value"] = f.Value, ["source"] = f.Source, ["evidence"] = f.Evidence };
+        return new JsonObject
+        {
+            ["protease"] = Fact(c.Protease),
+            ["protease_per_file"] = c.ProteasePerFile is null ? null : new JsonObject(c.ProteasePerFile.Select(kv => KeyValuePair.Create(kv.Key, (JsonNode?)kv.Value))),
+            ["alkylation"] = Fact(c.Alkylation),
+            ["cysteine_mods"] = new JsonArray(c.CysMods.Select(m => (JsonNode?)new JsonObject
+                { ["name"] = m.Name, ["unimod"] = m.Unimod, ["fixed"] = m.Fixed, ["metamorpheus"] = m.MetaMorpheusId }).ToArray()),
+            ["label"] = Fact(c.Label),
+            ["guessed"] = c.AnyGuessed,
         };
     }
 

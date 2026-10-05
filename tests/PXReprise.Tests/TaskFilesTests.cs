@@ -24,6 +24,35 @@ public class TaskFilesTests
         ProductMassTolerance_LowRes = "±0.3500 Absolute"
         """;
 
+    // The lines as MetaMorpheus 1.1.11's CMD -g writes them (PXD060982's 3_SearchTask.toml).
+    private const string Chemistry = """
+        [CommonParameters]
+        ListOfModsFixed = "Common Fixed\tCarbamidomethyl on C\t\tCommon Fixed\tCarbamidomethyl on U"
+        ListOfModsVariable = "Common Variable\tOxidation on M"
+        [CommonParameters.DigestionParams]
+        SpecificProtease = "trypsin"
+        Protease = "trypsin"
+        """;
+
+    // G19 (D23, D24): the deposit's protease and cysteine chemistry; the d0/d5-NEM pair goes in as two variable mods.
+    [Test]
+    public void TheDepositsProteaseAndCysteineModsReplaceTheDefaults()
+    {
+        var (nem, _) = TaskFiles.Edit(Chemistry, TaskKind.Gptmd, new TaskSettings(8, false, Array.Empty<string>(), Protease: "Glu-C",
+            FixedCysMods: Array.Empty<string>(), VariableCysMods: new[] { "Unimod\tNethylmaleimide on C", "Unimod\tNEM:2H(5) on C" }), Known);
+        Assert.That(nem, Does.Contain("\nProtease = \"Glu-C\"").And.Contain("SpecificProtease = \"Glu-C\""), "both protease settings (live 1.1.11 check)");
+        Assert.That(nem, Does.Contain("ListOfModsFixed = \"\""), "carbamidomethyl on C and U are gone");
+        Assert.That(nem, Does.Contain(@"ListOfModsVariable = ""Common Variable\tOxidation on M\t\tUnimod\tNethylmaleimide on C\t\tUnimod\tNEM:2H(5) on C"""));
+
+        var (mmts, _) = TaskFiles.Edit(Chemistry, TaskKind.Search, new TaskSettings(8, false, Array.Empty<string>(),
+            FixedCysMods: new[] { "Unimod\tMethylthio on C" }, VariableCysMods: Array.Empty<string>()), Known);
+        Assert.That(mmts, Does.Contain(@"ListOfModsFixed = ""Unimod\tMethylthio on C"""));
+        Assert.That(mmts, Does.Contain("Protease = \"trypsin\""), "no protease given: the default stays");
+
+        var (same, _) = TaskFiles.Edit(Chemistry, TaskKind.Search, new TaskSettings(8, false, Array.Empty<string>()), Known);
+        Assert.That(same, Is.EqualTo(Chemistry), "no chemistry given: nothing changes (label-free-dda@1)");
+    }
+
     [Test]
     public void OnlyTheNamedSettingsChange()
     {

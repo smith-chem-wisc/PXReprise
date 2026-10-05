@@ -21,7 +21,10 @@ public sealed record TaskSettings(
     string? SearchType = null,
     string? SpectralLibraryMode = null,   // "write" | "update" | null (no library)
     string? ProductMassTolerance = null,  // written exactly as MetaMorpheus writes one, e.g. "±0.3500 Absolute"
-    string? PrecursorMassTolerance = null);
+    string? PrecursorMassTolerance = null,
+    string? Protease = null,                              // G19: the deposit's protease, as mzLib's ProteaseDictionary spells it
+    IReadOnlyList<string>? FixedCysMods = null,           // G19: "Type\tIdWithMotif" (a real TAB); null keeps the default
+    IReadOnlyList<string>? VariableCysMods = null);       //   Carbamidomethyl on C and U; empty lists mean no cysteine mod
 
 public static class TaskFiles
 {
@@ -82,6 +85,22 @@ public static class TaskFiles
                 text = Replace(text, @"^UpdateSpectralLibrary = \w+$", $"UpdateSpectralLibrary = {Bool(mode == "update")}",
                     "UpdateSpectralLibrary", exactlyOne: true);
             }
+        }
+
+        // G19 (D23, D24, D27): the deposit's protease and cysteine chemistry, in EVERY task. Mods are per task in
+        // MetaMorpheus (no per-file mod keys), so they are per deposit; a per-file protease goes in <raw>.toml instead.
+        if (s.Protease is { } protease)
+        {
+            text = Replace(text, "^Protease = \".*\"$", $"Protease = \"{protease}\"", "Protease", exactlyOne: true);
+            // MetaMorpheus keeps a second one, SpecificProtease, for judging a peptide fully specific (FDR categories): the
+            // live 1.1.11 check of 2026-10-05 showed Protease = "Glu-C" beside SpecificProtease = "trypsin" when only the first was set.
+            text = Replace(text, "^SpecificProtease = \".*\"$", $"SpecificProtease = \"{protease}\"", "SpecificProtease", exactlyOne: true);
+        }
+        if (s.FixedCysMods is not null || s.VariableCysMods is not null)
+        {
+            text = EditModList(text, "ListOfModsFixed", remove: e => e.EndsWith(" on C", StringComparison.Ordinal) || e.EndsWith(" on U", StringComparison.Ordinal),
+                add: s.FixedCysMods ?? Array.Empty<string>());
+            text = EditModList(text, "ListOfModsVariable", remove: e => e.EndsWith(" on C", StringComparison.Ordinal), add: s.VariableCysMods ?? Array.Empty<string>());
         }
 
         // Tolerance overrides apply to EVERY task. The "= " in the pattern keeps them off ProductMassTolerance_LowRes.
@@ -147,6 +166,24 @@ public static class TaskFiles
             }
         }
         return found;
+    }
+
+    /// <summary>
+    /// Rewrites one of the task's mod lists: drops the entries <paramref name="remove"/> picks (by "Type\tName"), then
+    /// appends <paramref name="add"/>. The TOML stores the TAB as a literal backslash-t and separates entries with two.
+    /// </summary>
+    internal static string EditModList(string text, string key, Func<string, bool> remove, IReadOnlyList<string> add)
+    {
+        var m = Regex.Match(text, $"^{key} = \"(.*)\"$", RegexOptions.Multiline);
+        if (!m.Success) throw new SearchSetupException($"no {key} line in the task file");
+        var entries = m.Groups[1].Value.Split(@"\t\t").Where(e => e.Length > 0).Where(e => !remove(e.Replace(@"\t", "\t"))).ToList();
+        foreach (string mod in add)
+        {
+            string entry = mod.Replace("\t", @"\t");
+            if (!entries.Contains(entry)) entries.Add(entry);
+        }
+        string list = string.Join(@"\t\t", entries);
+        return text[..m.Groups[1].Index] + list + text[(m.Groups[1].Index + m.Groups[1].Length)..];
     }
 
     private static string Bool(bool b) => b ? "true" : "false";

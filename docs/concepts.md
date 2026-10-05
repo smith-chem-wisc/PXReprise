@@ -31,7 +31,27 @@ is a new version, so every result says exactly which method made it.
 |---|---|---|
 | `label-free-dda@2` | available | label-free DDA, Thermo Orbitrap with HCD, `.raw` files; human, mouse and rat. UniProt databases are downloaded automatically. **Use this one.** |
 | `label-free-dda@1` | available | the same search, with the ageing project's own PTM-annotated databases; only runs where those databases exist |
+| `label-free-dda@3` | available | `@1`, searched with each deposit's own protease and cysteine chemistry (below) |
 | `tmt-dda@1` | pending | TMT-labelled DDA. Not runnable yet: a question that lists it gets a count of the TMT deposits it would unlock |
+
+**A deposit's own chemistry** (`[engine] chemistry = "deposit"`, `label-free-dda@3`). Before any download, PXReprise reads
+which protease made the deposit's peptides, how its cysteines were alkylated, and whether it carries a label.
+- **Where it reads them, in this order:**
+  - the question's own SDRF;
+  - the deposit's SDRF;
+  - PRIDE's list of identified modifications and its quantification method;
+  - the sample-processing protocol;
+  - otherwise MetaMorpheus's defaults: trypsin, carbamidomethyl on C.
+- **What it searches with:** the protease it read, set per raw file when the deposit used several. Another alkylant
+  replaces carbamidomethyl, and a light/heavy pair such as d0/d5-NEM is searched as two variable modifications.
+- **What it records:** each choice and where it came from go into the search's `provenance.json`. A choice read only
+  from protocol text is flagged `chemistry_guessed` in the manifest.
+- **When it waits instead:** if the deposit cannot be searched as read (two proteases with no way to tell the files
+  apart, a protease or modification MetaMorpheus does not know, a label).
+- **When the search fails:** if MetaMorpheus reports it could not use a modification or a per-file protease. It does
+  not search on without them.
+
+The default, `chemistry = "fixed"`, searches every deposit with MetaMorpheus's defaults, as `@1` and `@2` do.
 
 A profile can also take an experimental design (`[quant] design = "sdrf"`, none of the profiles above yet): before the
 search, PXReprise writes MetaMorpheus's `ExperimentalDesign.tsv` from the question's own SDRF for that deposit, or else

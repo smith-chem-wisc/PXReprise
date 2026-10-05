@@ -24,7 +24,8 @@ public static class ProfileLoader
             acc.StringList("instrument").Select(v => ParseEnum<InstrumentClass>(file, "accepts.instrument", v)).ToList(),
             acc.StringList("file_types"),
             acc.OptionalBool("crosslinking") ?? false,
-            acc.OptionalBool("nonspecific_cleavage") ?? false);
+            acc.OptionalBool("nonspecific_cleavage") ?? false,
+            acc.OptionalBool("top_down") ?? false);
         acc.RefuseUnknownKeys();
 
         var eng = root.RequiredTable("engine");
@@ -38,6 +39,9 @@ public static class ProfileLoader
         // Read so published profiles stay valid, but no longer used: a search's limits are the machine's (search_timeout_h,
         // search_stall_minutes), because how long it takes depends on the box and its load, not on the method.
         double timeout = eng.OptionalNumber("timeout_h") ?? 6;
+        string chemistry = eng.OptionalString("chemistry") ?? "fixed";
+        if (!Profile.Chemistries.Contains(chemistry))
+            throw new ConfigException(file, $"engine.chemistry must be one of {string.Join(", ", Profile.Chemistries)}, not '{chemistry}'");
         eng.RefuseUnknownKeys();
 
         var dbs = new SortedDictionary<string, OrganismDatabase>(StringComparer.Ordinal);
@@ -93,7 +97,7 @@ public static class ProfileLoader
 
         root.RefuseUnknownKeys();
         return new Profile(id, version, status, description, accepts, mm, tasks, extraMods, library, timeout, dbs, panel, exclude,
-            method, mbr, deposit, gates, Path.GetDirectoryName(Path.GetFullPath(file))!, design);
+            method, mbr, deposit, gates, Path.GetDirectoryName(Path.GetFullPath(file))!, design, chemistry);
     }
 
     /// <summary>Every <c>*.toml</c> in a directory, keyed by <c>id@version</c>; a duplicate key is refused.</summary>

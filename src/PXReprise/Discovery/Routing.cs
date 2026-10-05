@@ -64,6 +64,7 @@ public static class Router
     private static string Capability(Acquisition a, IReadOnlyList<string> refusals)
     {
         if (a.NonspecificCleavage) return "nonspecific_cleavage";
+        if (a.TopDown) return "top_down";
         if (a.Crosslinked) return "crosslinking";
         if (a.Mode == AcquisitionMode.Dia) return "dia";
         if (a.Instrument == InstrumentClass.Timstof) return "timstof";
@@ -71,6 +72,7 @@ public static class Router
         if (a.Labelling == Labelling.Metabolic) return "metabolic_labelling";
         if (a.Labelling == Labelling.Isobaric) return "isobaric";
         if (a.Labelling == Labelling.O18) return "o18_labelling";
+        if (a.Labelling == Labelling.Dileu) return "dileu_labelling";
         return refusals.Count > 0 ? refusals[0] : "no profile allowed";
     }
 }

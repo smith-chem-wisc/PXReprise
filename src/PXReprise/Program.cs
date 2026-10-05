@@ -13,7 +13,7 @@ namespace PXReprise;
 public static class Program
 {
     /// <summary>The verbs, listed by the <c>version</c> verb. Keep in step with <see cref="Dispatch"/>.</summary>
-    public static readonly string[] Verbs = { "version", "profiles", "validate", "census", "fetch", "qc", "search", "qc-payload", "batch" };
+    public static readonly string[] Verbs = { "version", "profiles", "validate", "census", "rank", "chemistry", "fetch", "qc", "search", "qc-payload", "batch" };
 
     /// <summary>Where profiles are read from when --profiles is not given: beside the executable.</summary>
     public static string DefaultProfilesDir => Path.Combine(AppContext.BaseDirectory, "profiles");
@@ -21,13 +21,13 @@ public static class Program
     public static async Task<int> Main(string[] argv) => await RunAsync(argv, Console.Out, CancellationToken.None);
 
     public static async Task<int> RunAsync(string[] argv, TextWriter stdout, CancellationToken ct,
-        Func<IProjectSearch>? searchFactory = null)
+        Func<IProjectSearch>? searchFactory = null, Func<Census.IRankSource>? rankSource = null)
     {
         try
         {
             var args = new Arguments(argv, new HashSet<string>(StringComparer.Ordinal) { "queue" });
             if (args.Words.Count == 0) throw new UsageException($"a verb is required: {string.Join(", ", Verbs)}");
-            object? data = await Dispatch(args, ct, searchFactory).ConfigureAwait(false);
+            object? data = await Dispatch(args, ct, searchFactory, rankSource).ConfigureAwait(false);
             return Envelope.Ok(stdout, data);
         }
         catch (Exception e)
@@ -37,7 +37,7 @@ public static class Program
         }
     }
 
-    private static async Task<object?> Dispatch(Arguments args, CancellationToken ct, Func<IProjectSearch>? searchFactory)
+    private static async Task<object?> Dispatch(Arguments args, CancellationToken ct, Func<IProjectSearch>? searchFactory, Func<Census.IRankSource>? rankSource = null)
     {
         switch (args.Words[0])
         {
@@ -79,6 +79,59 @@ public static class Program
                             .OrderBy(x => x, StringComparer.Ordinal).ToList(),
                         condition_columns = d.ConditionColumns,
                     },
+                };
+            }
+
+            case "chemistry":
+            {
+                // chemistry --accessions FILE [--designs DIR] [--out DIR]: each deposit's protease, alkylation and label
+                // (G19, D22-D24) from PRIDE's record and the deposit's / question's SDRF; no spectra. One accession per line.
+                args.AllowOnly("accessions", "designs", "out");
+                var accs = File.ReadAllLines(args.Required("accessions")).Select(l => l.Split('\t')[0].Trim())
+                    .Where(a => a.StartsWith("PXD", StringComparison.Ordinal)).Distinct().ToList();
+                string outDir = args.Option("out") ?? Path.Combine(Directory.GetCurrentDirectory(), "chemistry");
+                Directory.CreateDirectory(outDir);
+                var record = new RunRecord("chemistry");
+                record.Input(args.Required("accessions"));
+                using var client = new PrideArchiveClient();
+                IProjectSearch search = searchFactory?.Invoke() ?? new PrideProjectSearch(client);
+                var rows = await new Census.ChemistryRunner(search, rankSource?.Invoke() ?? new Census.PrideRankSource(client))
+                    .RunAsync(accs, args.Option("designs"), outDir, record, ct).ConfigureAwait(false);
+                record.Write(outDir);
+                return new
+                {
+                    deposits = rows.Count, out_dir = Path.GetFullPath(outDir),
+                    differ_from_v1 = rows.Count(r => r.DiffersFromV1().Count > 0),
+                    parked = rows.Count(r => r.Chemistry?.Park is not null),
+                    errors = rows.Count(r => r.Chemistry is null),
+                };
+            }
+
+            case "rank":
+            {
+                // rank <census dir> [--only file] [--out dir] [--large-gb 150] [--max-files 60]: orders a census's queueable
+                // deposits biggest first within the limits (the user, 2026-10-05), from PRIDE file listings; no spectra.
+                // The design read from a deposited SDRF or guessed from file names is written alongside, for information.
+                string censusDir = Positional(args, 1)[0];
+                args.AllowOnly("only", "out", "large-gb", "max-files");
+                IReadOnlyCollection<string>? only = args.Option("only") is { } of
+                    ? File.ReadAllLines(of).Select(l => l.Split('\t')[0].Trim()).Where(a => a.StartsWith("PXD", StringComparison.Ordinal)).ToHashSet(StringComparer.Ordinal)
+                    : null;
+                string outDir = args.Option("out") ?? Path.Combine(censusDir, "rank");
+                double largeGb = args.Option("large-gb") is { } lg ? double.Parse(lg, System.Globalization.CultureInfo.InvariantCulture) : 150;
+                int maxFiles = args.Option("max-files") is { } mf ? int.Parse(mf, System.Globalization.CultureInfo.InvariantCulture) : 60;   // label-free-dda@1 [deposit] max_files
+                Directory.CreateDirectory(outDir);
+                var record = new RunRecord("rank");
+                record.Note("PRIDE is a live index: this ranking is a dated snapshot.");
+                using var client = new PrideArchiveClient();
+                var rows = await new Census.RankRunner(rankSource?.Invoke() ?? new Census.PrideRankSource(client))
+                    .RunAsync(censusDir, only, outDir, largeGb, maxFiles, record, ct).ConfigureAwait(false);
+                record.Write(outDir);
+                return new
+                {
+                    ranked = rows.Count, out_dir = Path.GetFullPath(outDir),
+                    by_tier = rows.GroupBy(r => r.Tier).OrderBy(g => g.Key).ToDictionary(g => g.Key.ToString(System.Globalization.CultureInfo.InvariantCulture), g => g.Count()),
+                    by_design_source = rows.GroupBy(r => r.Design.Source).ToDictionary(g => g.Key, g => g.Count()),
                 };
             }
 

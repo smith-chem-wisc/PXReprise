@@ -56,7 +56,11 @@ The [tutorial](tutorial.md) explains why each rule is written the way it is.
 | Setting | Required | Meaning |
 |---|---|---|
 | `keywords` | yes | PRIDE search terms. Each is searched separately and the results are merged. Be broad; the relevance rules narrow it. |
+| `disease_keywords` | no | More search terms, for diseases rather than the question's own subject (e.g. `["Alzheimer", "Parkinson"]`). A deposit found **only** by these is queued only if its PRIDE text names a reference group (control, healthy, untreated, vehicle, sham, wild type, placebo, age-matched, young, ...); otherwise it goes to the watch list as `no_reference_group_found`. The check is a guess from text: a cell-line control counts. A deposit also found by `keywords` keeps the normal screen. |
+| `watch_keywords` | no | Search terms whose deposits are found, screened and listed in the census's `watch.tsv`, but **never queued**: a place to look for a second dataset without searching it. |
 | `organisms` | no | Exact PRIDE spellings, e.g. `"Homo sapiens (human)"`. Leave out, or `[]`, for all organisms. `label-free-dda@2` has databases for human, mouse and rat; deposits of other organisms are counted but not searched. |
+
+A keyword may appear in only one of `keywords`, `disease_keywords` and `watch_keywords`.
 
 ### `[relevance]`: which deposits count
 

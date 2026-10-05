@@ -38,7 +38,7 @@ public class SearchStageTests
 
     private sealed record Rig(string Root, Machine Machine, Profile Profile, string Spectra, string Qc);
 
-    private static Rig Setup(bool library = true, string machineExtra = "")
+    private static Rig Setup(bool library = true, string machineExtra = "", bool depositChemistry = false)
     {
         string root = TestSupport.TempDir();
         // A MetaMorpheus "install": the fake CMD, and the Mods and Contaminants folders the engine reads beside it.
@@ -64,6 +64,7 @@ public class SearchStageTests
             tasks = ["Calibration", "Gptmd", "Search"]
             gptmd_extra_mods = ["Trypsin Digested\tGG (Ubiquitination Site) on K"]
             spectral_library = {(library ? "true" : "false")}
+            {(depositChemistry ? "chemistry = \"deposit\"" : "")}
             [databases.human]
             proteome = "proteome.xml"
             taxon = 9606
@@ -117,6 +118,68 @@ public class SearchStageTests
         string search = File.ReadAllText(Path.Combine(rig.Root, "run", "04_search_2", "tasks", "3_SearchTask.toml"));
         Assert.That(search, Does.Contain("UpdateSpectralLibrary = true\r\n").And.Contain("WriteSpectralLibrary = false\r\n")
             .And.Contain("MatchBetweenRuns = true\r\n").And.Contain("MaxThreadsToUsePerFile = 4\r\n"));
+    }
+
+    // G19 (D23, D24, D27): the deposit's chemistry reaches MetaMorpheus: cysteine mods in every task, a protease per raw
+    // file in <raw>.toml, and the facts with their sources in the provenance.
+    private static PXReprise.Discovery.DepositChemistry Nem(IReadOnlyDictionary<string, string>? perFile = null) => new(
+        new("Glu-C", PXReprise.Discovery.ChemistrySource.ProtocolText, "digested with Glu-C"), perFile,
+        new("Nethylmaleimide + NEM:2H(5)", PXReprise.Discovery.ChemistrySource.PridePtm),
+        new[] { new PXReprise.Discovery.CysMod("Nethylmaleimide", "UNIMOD:108", false), new PXReprise.Discovery.CysMod("NEM:2H(5)", "UNIMOD:776", false) },
+        new("label_free", PXReprise.Discovery.ChemistrySource.Default), null);
+
+    [Test]
+    public async Task ADepositsChemistryReachesEveryTaskAndEachRawFile()
+    {
+        var rig = Setup(library: false, depositChemistry: true);
+        var perFile = new Dictionary<string, string> { ["a.raw"] = "Glu-C", ["b.raw"] = "Asp-N" };
+        var o = await SearchStage.RunAsync(Req(rig, "04_search") with { Chemistry = Nem(perFile) }, CancellationToken.None);
+        Assert.That(o.Success, Is.True);
+        foreach (string task in new[] { "1_CalibrationTask.toml", "2_GptmdTask.toml", "3_SearchTask.toml" })
+        {
+            string text = File.ReadAllText(Path.Combine(rig.Root, "run", "04_search", "tasks", task));
+            Assert.That(text, Does.Contain("ListOfModsFixed = \"\"").And.Contain(@"Unimod\tNethylmaleimide on C\t\tUnimod\tNEM:2H(5) on C"), task);
+            Assert.That(text, Does.Contain("Protease = \"trypsin\""), "per-file proteases: the task keeps its default");
+        }
+        Assert.That(File.ReadAllText(Path.Combine(rig.Spectra, "a.toml")), Does.StartWith(SearchStage.PerFileTomlMarker).And.Contain("DigestionAgent = \"Glu-C\""));
+        Assert.That(File.ReadAllText(Path.Combine(rig.Spectra, "b.toml")), Does.Contain("DigestionAgent = \"Asp-N\""));
+        var prov = JsonNode.Parse(File.ReadAllText(o.ProvenanceFile))!;
+        Assert.That(prov["chemistry"]!["cysteine_mods"]![1]!["metamorpheus"]!.GetValue<string>(), Is.EqualTo("Unimod\tNEM:2H(5) on C"));
+        Assert.That(prov["chemistry"]!["guessed"]!.GetValue<bool>(), Is.True, "the protease came from protocol text");
+
+        // One protease for the whole deposit goes in the task files, and our stale per-file tomls are removed.
+        var single = await SearchStage.RunAsync(Req(rig, "04_search_2") with { Chemistry = Nem() }, CancellationToken.None);
+        Assert.That(single.Success, Is.True);
+        Assert.That(File.ReadAllText(Path.Combine(rig.Root, "run", "04_search_2", "tasks", "3_SearchTask.toml")), Does.Contain("Protease = \"Glu-C\""));
+        Assert.That(File.Exists(Path.Combine(rig.Spectra, "a.toml")), Is.False);
+    }
+
+    [Test]
+    public void ADepositChemistryProfileRefusesASearchWithoutOneAndAForeignPerFileToml()
+    {
+        var rig = Setup(library: false, depositChemistry: true);
+        Assert.That(async () => await SearchStage.RunAsync(Req(rig, "04_search"), CancellationToken.None),
+            Throws.TypeOf<PXReprise.Cli.UsageException>().With.Message.Contains("chemistry"));
+        TestSupport.WriteFile(rig.Spectra, "a.toml", "Protease = \"trypsin\"\n");
+        Assert.That(async () => await SearchStage.RunAsync(Req(rig, "04_search_x") with { Chemistry = Nem(new Dictionary<string, string> { ["a.raw"] = "Glu-C", ["b.raw"] = "Glu-C" }) }, CancellationToken.None),
+            Throws.TypeOf<SearchSetupException>().With.Message.Contains("not written by PXReprise"));
+    }
+
+    // D27: MetaMorpheus only warns when it cannot use a modification, and searches on without it.
+    [TestCase("Unrecognized mod Unimod\tBogus on C; are you using an old .toml?")]
+    [TestCase("Problem parsing the file-specific toml a.toml: Unrecognized digestion agent")]
+    public async Task ASilentlyIgnoredModificationOrPerFileTomlFailsTheSearch(string warning)
+    {
+        var rig = Setup(library: false, depositChemistry: true);
+        Environment.SetEnvironmentVariable("FAKE_MM_WARN", warning);
+        try
+        {
+            var o = await SearchStage.RunAsync(Req(rig, "04_search") with { Chemistry = Nem() }, CancellationToken.None);
+            Assert.That(o.Success, Is.False);
+            Assert.That(JsonNode.Parse(File.ReadAllText(o.ProvenanceFile))!["notes"]!.AsArray().Select(n => n!.GetValue<string>()),
+                Has.Some.Contains("FAILED (G19/D27)"));
+        }
+        finally { Environment.SetEnvironmentVariable("FAKE_MM_WARN", null); }
     }
 
     [Test]

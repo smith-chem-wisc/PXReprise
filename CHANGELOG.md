@@ -7,6 +7,45 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.3.11 (2026-10-05)
+
+**Updating:** MetaMorpheus unchanged (1.1.11). Machine file unchanged. Safe mid-batch: stop the batch, update, run it
+again. The existing profiles search exactly as before; the new chemistry handling is a new profile a question opts into.
+
+- **A new profile, `label-free-dda@3`, searches each deposit with its own chemistry.** See
+  [Concepts](https://smith-chem-wisc.github.io/PXReprise/concepts.html).
+  - **What it reads, before any download:** the protease, the cysteine alkylation and any label, from the question's
+    SDRF, the deposit's SDRF, PRIDE's identified modifications and quantification method, and the protocol text.
+  - **What it searches with:**
+    - another protease than trypsin;
+    - a different protease per raw file, through MetaMorpheus's per-file settings;
+    - another alkylant than iodoacetamide;
+    - a light/heavy pair such as d0/d5-NEM, as two variable modifications.
+  - **Where names come from:** protease names and modification names come from mzLib, so they match what MetaMorpheus
+    reads.
+  - **What it records:** each choice and its source go into the search's `provenance.json`. A choice read only from
+    protocol text is flagged `chemistry_guessed` in the manifest.
+  - **When a deposit waits:** if it cannot be searched as read (`waiting_multi_protease`, `waiting_unknown_protease`,
+    `waiting_unknown_modification`, `waiting_<label>_labelling`).
+  - Otherwise `@3` is `@1`.
+- **A search fails when MetaMorpheus ignores a setting.** MetaMorpheus only warns about a modification it does not know
+  ("Unrecognized mod") or a per-file settings file it cannot read, then searches on without it. Either now fails the
+  search. No search made so far logged either warning.
+- **Top-down and DiLeu deposits wait** (`waiting_top_down`, `waiting_dileu_labelling`) instead of being searched as
+  label-free bottom-up.
+  - Top-down is read from the title, description and protocols only, because PRIDE's "Top-down proteomics" keyword is
+    often set on bottom-up deposits.
+  - DiLeu is never sent to the isobaric profile, which searches TMT masses.
+- **Two new kinds of discovery keyword in a question's `[discover]`.** See
+  [Writing a question](https://smith-chem-wisc.github.io/PXReprise/questions.html).
+  - `disease_keywords`: a deposit found only by these is queued only if its PRIDE text names a reference group.
+  - `watch_keywords`: deposits are found and screened, never queued.
+  - The census writes `watch.tsv` and counts how many deposits each keyword would queue.
+- **`pxreprise rank`** orders a census's deposits biggest first, within a file-count and size limit, from PRIDE file
+  listings; no spectra are downloaded.
+- **`pxreprise chemistry`** reports each deposit's protease, alkylation and label with their sources, and where they
+  differ from MetaMorpheus's defaults.
+
 ## 0.3.10 (2026-10-05)
 
 **Updating:** MetaMorpheus unchanged (1.1.11). Machine file unchanged. Safe mid-batch: stop the batch, update, run it

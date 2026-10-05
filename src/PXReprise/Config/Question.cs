@@ -38,7 +38,24 @@ public sealed record Question(
     string? StudyLayer,
     BatchSettings? Batch = null,
     PublishSettings? Publish = null,
-    DesignSettings? Designs = null);
+    DesignSettings? Designs = null,
+    DiscoverLists? Lists = null)
+{
+    /// <summary>The <c>[discover]</c> keywords beyond <see cref="Keywords"/>; empty when the question names none.</summary>
+    public DiscoverLists More => Lists ?? DiscoverLists.None;
+}
+
+/// <summary>
+/// Two more kinds of discovery keyword (aging 031/032, PXR-A25 to A27).
+/// <see cref="Disease"/>: searched and queued like <c>keywords</c>, but a deposit found ONLY by these must name a
+/// reference group (control, healthy, untreated, vehicle, young, ...), or it goes to the watch list as
+/// <c>no_reference_group_found</c>: without one it holds no phenotype comparison.
+/// <see cref="Watch"/>: discovered and screened, recorded in the census's <c>watch.tsv</c>, never queued.
+/// </summary>
+public sealed record DiscoverLists(IReadOnlyList<string> Disease, IReadOnlyList<string> Watch)
+{
+    public static readonly DiscoverLists None = new(Array.Empty<string>(), Array.Empty<string>());
+}
 
 /// <summary>
 /// A question's curated experimental designs (G15): one SDRF per deposit, <c>&lt;Dir&gt;/&lt;PXD&gt;.sdrf.tsv</c>, used by a

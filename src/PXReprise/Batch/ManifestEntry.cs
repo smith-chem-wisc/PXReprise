@@ -84,6 +84,15 @@ public static class ManifestEntry
             notes.Add($"POSSIBLY MIXED SAMPLES: the raw file names hold {MixedSamples.Describe(mixed)}. If these are different enrichments, the dataset-level `enrichment` cannot say which run is which; curate `run_enrichment` and the `mixed_enrichment` flag before pooling.");
             flags.Add("possibly_mixed_enrichment");
         }
+        // G19: a deposit searched with its own chemistry says what was used and where each fact came from (D22). A fact read
+        // from protocol text is a guess, flagged as one; the flag is prose (no ingest change).
+        if (state?["chemistry"] is JsonObject chem)
+        {
+            string F(string k) => $"{chem[k]?["value"]} ({chem[k]?["source"]})";
+            var cys = chem["cysteine_mods"]?.AsArray().Select(m => $"{m!["name"]} {(m["fixed"]!.GetValue<bool>() ? "fixed" : "variable")}").ToList() ?? new List<string>();
+            notes.Add($"CHEMISTRY (G19): protease {F("protease")}; cysteine {(cys.Count == 0 ? "unmodified" : string.Join(" + ", cys))} ({chem["alkylation"]?["source"]}); label {F("label")}.");
+            if (chem["guessed"]?.GetValue<bool>() == true) flags.Add("chemistry_guessed");
+        }
         var qcFlags = state?["qc_payload_flags"]?.AsArray().Select(x => x!.GetValue<string>()).ToList() ?? new List<string>();
         if (qcFlags.Count > 0)
             // A note, not a manifest flag: QC reporting is not a property of the data dataRepo stores (05_qc is not ingested).

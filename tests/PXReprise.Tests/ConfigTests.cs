@@ -10,7 +10,19 @@ public class ConfigTests
     public void ShippedProfilesLoadWithTheAgingV1Settings()
     {
         var profiles = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
-        Assert.That(profiles.Keys, Is.EquivalentTo(new[] { "label-free-dda@1", "label-free-dda@2", "tmt-dda@1" }));
+        Assert.That(profiles.Keys, Is.EquivalentTo(new[] { "label-free-dda@1", "label-free-dda@2", "label-free-dda@3", "tmt-dda@1" }));
+
+        // G19: @3 is @1 with the deposit's own chemistry, and nothing else; @1 keeps MetaMorpheus's defaults.
+        var v1 = profiles["label-free-dda@1"];
+        var v3 = profiles["label-free-dda@3"];
+        Assert.That((v1.Chemistry, v3.Chemistry), Is.EqualTo(("fixed", "deposit")));
+        Assert.That(v3 with { Version = 1, Chemistry = "fixed", Description = v1.Description, Databases = v1.Databases, Accepts = v1.Accepts,
+            Tasks = v1.Tasks, GptmdExtraMods = v1.GptmdExtraMods, Deposit = v1.Deposit, Qc = v1.Qc },
+            Is.EqualTo(v1), "every scalar setting but chemistry equals /1's");
+        Assert.That(v3.Databases.Keys, Is.EquivalentTo(v1.Databases.Keys));
+        Assert.That(v3.Tasks, Is.EqualTo(v1.Tasks));
+        Assert.That(v3.Deposit, Is.EqualTo(v1.Deposit));
+        Assert.That(v3.Qc with { Excludable = v1.Qc.Excludable }, Is.EqualTo(v1.Qc));
 
         var lf = profiles["label-free-dda@1"];
         Assert.Multiple(() =>

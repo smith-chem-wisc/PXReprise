@@ -10,8 +10,10 @@ public enum AcquisitionMode { Dda, Dia }
 /// cannot say which the search needs, so no profile takes it and it waits for a hand decision.
 /// <see cref="O18"/>: enzymatic 16O/18O labelling at the C-terminus (PXD028282, aging 017); searched label-free, most
 /// spectra carry a mass shift no label-free profile looks for.
+/// <see cref="Dileu"/>: N,N-dimethyl leucine tags (DiLeu, iDiLeu; PXD030724, D19). Not routed as isobaric: the isobaric
+/// profile searches TMT masses.
 /// </summary>
-public enum Labelling { LabelFree, Isobaric, Metabolic, O18, Mixed }
+public enum Labelling { LabelFree, Isobaric, Metabolic, O18, Mixed, Dileu }
 
 public enum InstrumentClass { OrbitrapHcdOnly, OrbitrapHybrid, Astral, Timstof, ThermoLowRes, Sciex, Waters, BrukerOther, Unknown }
 
@@ -31,7 +33,8 @@ public sealed record Acquisition(
     IReadOnlyDictionary<string, int> MsFiles,
     string? Evidence,
     bool Crosslinked = false,
-    bool NonspecificCleavage = false)
+    bool NonspecificCleavage = false,
+    bool TopDown = false)
 {
     public int MsFileCount => MsFiles.Values.Sum();
 }
@@ -83,6 +86,18 @@ public static class AcquisitionClassifier
         @"non-?specific (enzyme|cleavage|digestion)", @"unspecific (cleavage|digestion)",
     }), Opt);
     private static readonly Regex NonspecificCleavageTag = new(@"hupo-hipp|immuno-?peptidom", Opt);
+
+    // D19 (2026-10-05). PXD065459 (CZE-MS/MS top-down proteomics of AD brain) ranked first among the widened-scope deposits.
+    // Intact proteins need a top-down search, which MetaMorpheus has but no profile runs yet. "Top-down" alone is not
+    // enough: biology says "top-down control".
+    private static readonly Regex TopDownText = new(string.Join("|", new[]
+    {
+        @"top-?down (proteomics|mass spectrometry|MS\b|LC-?MS|analys[ie]s of (intact )?proteins|proteoform)",
+        @"intact[- ]protein (mass spectrometry|analysis|MS\b|LC-?MS)",
+    }), Opt);
+
+    // D19. PXD030724: "5-plex isotopic N,N-dimethyl leucine (iDiLeu) tags".
+    private static readonly Regex DiLeu = new(@"\bi?DiLeu\b|N,N-dimethyl(ated)? leucine", Opt);
     private static readonly Regex CrosslinkingWord = new(@"cross-?link", Opt);
 
     private static readonly Regex Enriched = new(string.Join("|", new[]
@@ -127,10 +142,14 @@ public static class AcquisitionClassifier
         var iso = Isobaric.Match(text);
         var met = Metabolic.Match(text);
         var o18 = O18.Match(text);
-        var labels = new[] { (iso, Labelling.Isobaric), (met, Labelling.Metabolic), (o18, Labelling.O18) }.Where(l => l.Item1.Success).ToList();
+        var dileu = DiLeu.Match(text);
+        var labels = new[] { (iso, Labelling.Isobaric), (met, Labelling.Metabolic), (o18, Labelling.O18), (dileu, Labelling.Dileu) }.Where(l => l.Item1.Success).ToList();
         var labelling = labels.Count switch { 0 => Labelling.LabelFree, 1 => labels[0].Item2, _ => Labelling.Mixed };
         var xl = Crosslink(text);
         var nonspecific = NonspecificCleavageText.Match(text);
+        // Free text only: PRIDE's "Top-down proteomics" keyword is ticked on bottom-up deposits (PXD077298, PXD052189, D19).
+        string prose = string.Join(" ", r.Title, r.ProjectDescription, r.SampleProcessingProtocol, r.DataProcessingProtocol);
+        var topDown = TopDownText.Match(prose);
         string? tag = r.ProjectTags.FirstOrDefault(t => NonspecificCleavageTag.IsMatch(t));
         string enrichment = Enriched.IsMatch(text)
             ? EnrichmentKinds.FirstOrDefault(k => k.Pattern.IsMatch(text)).Kind ?? "other"
@@ -142,9 +161,10 @@ public static class AcquisitionClassifier
             ClassifyInstrument(r.Instruments),
             enrichment,
             CountMsFiles(r.ProjectFileNames),
-            evidence is not null ? Snippet(text, evidence) : tag is not null ? $"project tag: {tag}" : null,
+            evidence is not null ? Snippet(text, evidence) : topDown.Success ? Snippet(prose, topDown) : tag is not null ? $"project tag: {tag}" : null,
             xl is not null,
-            nonspecific.Success || tag is not null);
+            nonspecific.Success || tag is not null,
+            topDown.Success);
     }
 
     /// <summary>The text that says the deposit is crosslinking MS, or null.</summary>

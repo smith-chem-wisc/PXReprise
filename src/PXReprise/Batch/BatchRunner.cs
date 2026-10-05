@@ -420,9 +420,27 @@ public sealed class BatchRunner
         }
 
         // Size gates BEFORE any download: whole deposits only, never subsampled by file size (S43).
-        List<UsefulProteomicsDatabases.PrideArchiveFile> listing;
-        try { listing = (await _files.ListFilesAsync(acc, ct).ConfigureAwait(false)).Where(f => f.FileName.EndsWith(".raw", StringComparison.OrdinalIgnoreCase)).ToList(); }
+        List<UsefulProteomicsDatabases.PrideArchiveFile> all, listing;
+        try { all = await _files.ListFilesAsync(acc, ct).ConfigureAwait(false); }
         catch (Exception ex) when (FetchStage.IsTransient(ex)) { Log($"{acc} size listing failed ({ex.Message}); retry next pass"); return null; }
+        listing = all.Where(f => f.FileName.EndsWith(".raw", StringComparison.OrdinalIgnoreCase)).ToList();
+
+        // G19: a profile that searches with the deposit's own chemistry reads it before any download, and a deposit it cannot
+        // search as read (two proteases with no per-file map, an unknown protease or modification, a label) waits.
+        if (profile.Chemistry == "deposit")
+        {
+            DepositChemistry chem;
+            try { chem = await ChemistryAsync(acc, all, listing.Select(f => f.FileName).ToList(), ct).ConfigureAwait(false); }
+            catch (Exception ex) when (Envelope.IsUnavailable(ex) || FetchStage.IsTransient(ex)) { Log($"{acc} chemistry: PRIDE unavailable ({ex.Message}); retry next pass"); return null; }
+            string? wait = chem.Park ?? (chem.Label.Value == "label_free" ? null : $"waiting_{Slug(chem.Label.Value)}_labelling");
+            if (wait is not null)
+            {
+                Log($"{acc} SCREENED OUT ({wait}): chemistry {Describe(chem)}");
+                Record(acc, ("status", wait), ("detail", Describe(chem)));
+                return null;
+            }
+            Log($"{acc} chemistry: {Describe(chem)}");
+        }
 
         // The same raw files already searched under another accession: refused before any download (PXR-A9).
         // The deposit being searched counts too: it is fetched in full, and the next one is screened alongside it (PXR-A21).
@@ -544,9 +562,25 @@ public sealed class BatchRunner
         string? curated = _q.Designs?.For(acc);
         if (curated is not null && File.Exists(curated) && profile.Design != "sdrf")
             Log($"{acc} note: the question has a design for it ({curated}), but {profile.Key} does not use designs; searching without it");
+        DepositChemistry? chemistry = null;
+        if (profile.Chemistry == "deposit" && !_chemistry.TryGetValue(acc, out chemistry))
+        {
+            // A restart since the probe lost the cache: read it again, from the same sources.
+            try
+            {
+                var all = await _files.ListFilesAsync(acc, ct).ConfigureAwait(false);
+                chemistry = await ChemistryAsync(acc, all, all.Where(f => f.FileName.EndsWith(".raw", StringComparison.OrdinalIgnoreCase)).Select(f => f.FileName).ToList(), ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (Envelope.IsUnavailable(ex) || FetchStage.IsTransient(ex))
+            {
+                Log($"{acc} chemistry: PRIDE unavailable before the search ({ex.Message}); retry next pass");
+                Record(acc, ("status", "search_interrupted"), ("detail", "chemistry could not be read before the search"));
+                return;
+            }
+        }
         var req = new SearchRequest(profile, e.Organism, _m, Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "04_search"),
             Path.Combine(d, "02b_qc"), overlays, excl, _runDate, acc, UseLibrary: library,
-            CuratedDesign: curated, DesignConditionColumns: _q.Designs is { ConditionColumns.Count: > 0 } ds ? ds.ConditionColumns : null);
+            CuratedDesign: curated, DesignConditionColumns: _q.Designs is { ConditionColumns.Count: > 0 } ds ? ds.ConditionColumns : null, Chemistry: chemistry);
         string runtimeRoot = Search.DotnetRuntimes.Root(_m.DotnetRoot);
         var runtimesBefore = Search.DotnetRuntimes.Snapshot(runtimeRoot);
         SearchOutcome outcome;
@@ -788,6 +822,43 @@ public sealed class BatchRunner
     }
 
     private const int MaxSearchInterruptions = 2;
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, DepositChemistry> _chemistry = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// G19: the deposit's chemistry (ChemistryDetector, D22-D24), from PRIDE's project record, the deposit's SDRF (downloaded
+    /// into 01_chemistry, kilobytes) and the question's curated SDRF. Written to 01_chemistry/chemistry.json and the state;
+    /// cached for the search, and read again if a restart lost the cache.
+    /// </summary>
+    private async Task<DepositChemistry> ChemistryAsync(string acc, IReadOnlyList<UsefulProteomicsDatabases.PrideArchiveFile> all,
+        IReadOnlyList<string> rawFiles, CancellationToken ct)
+    {
+        string dir = Path.Combine(Run(acc), "01_chemistry");
+        Directory.CreateDirectory(dir);
+        var project = await _search.TryGetProjectAsync(acc, ct).ConfigureAwait(false);
+        Readers.SdrfDocument? deposited = null, curated = null;
+        var sdrf = all.FirstOrDefault(f => f.FileName.EndsWith(".sdrf.tsv", StringComparison.OrdinalIgnoreCase))
+                   ?? all.FirstOrDefault(f => f.FileName.Contains("sdrf", StringComparison.OrdinalIgnoreCase) && f.FileName.EndsWith(".tsv", StringComparison.OrdinalIgnoreCase));
+        if (sdrf is not null)
+        {
+            string path = Path.Combine(dir, sdrf.FileName);
+            if (!File.Exists(path)) path = await _files.DownloadAsync(sdrf, dir, ct).ConfigureAwait(false);
+            deposited = new Readers.SdrfDocument(path);
+        }
+        if (_q.Designs?.For(acc) is { } c && File.Exists(c)) curated = new Readers.SdrfDocument(c);
+        var chem = ChemistryDetector.Detect(project, curated, deposited, rawFiles);
+        var json = Search.SearchStage.Chemistry(chem);
+        json["sdrf_file"] = sdrf?.FileName;
+        json["curated_sdrf"] = curated is not null;
+        File.WriteAllText(Path.Combine(dir, "chemistry.json"), json.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = Envelope.Json.Encoder }));
+        Record(acc, ("chemistry", json));
+        _chemistry[acc] = chem;
+        return chem;
+    }
+
+    private static string Describe(DepositChemistry c) =>
+        $"protease {c.Protease.Value} [{c.Protease.Source}], cysteine {(c.CysMods.Count == 0 ? "unmodified" : string.Join(" + ", c.CysMods.Select(m => $"{m.Name} {(m.Fixed ? "fixed" : "variable")}")))} [{c.Alkylation.Source}], label {c.Label.Value} [{c.Label.Source}]"
+        + (c.Park is null ? "" : $"; {c.Park}");
 
     /// <summary>
     /// G18: a deposit still marked <c>searching</c> when a driver starts was cut off by the previous driver's death (a
