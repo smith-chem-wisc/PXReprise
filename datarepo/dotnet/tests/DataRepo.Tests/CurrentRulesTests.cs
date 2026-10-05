@@ -460,8 +460,8 @@ public class CurrentRulesTests
         var doc = new Dictionary<string, object?> { ["schema"] = null, ["stage"] = "qc" };
         Assert.Multiple(() =>
         {
-            Assert.That(Provenance.RecordRow(doc, "PXD1", "02b_qc", "p", "00", IngestRules.Current)["provenance_schema"], Is.EqualTo(""));
-            Assert.That(Provenance.RecordRow(new Dictionary<string, object?> { ["stage"] = "qc" }, "PXD1", "02b_qc", "p", "00", IngestRules.Current)["provenance_schema"], Is.EqualTo(""), "as an absent one");
+            Assert.That(Provenance.RecordRow(doc, "PXD1", "02b_qc", "p", "00", IngestRules.Current)["provenance_schema"], Is.Null, "unknown, never a value the record did not write");
+            Assert.That(Provenance.RecordRow(new Dictionary<string, object?> { ["stage"] = "qc" }, "PXD1", "02b_qc", "p", "00", IngestRules.Current)["provenance_schema"], Is.Null, "as an absent one");
             Assert.That(Provenance.RecordRow(doc, "PXD1", "02b_qc", "p", "00", IngestRules.Python0320)["provenance_schema"], Is.EqualTo("None"));
         });
     }

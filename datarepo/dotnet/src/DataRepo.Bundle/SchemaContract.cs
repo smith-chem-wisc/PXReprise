@@ -37,6 +37,15 @@ public static class SchemaContract
         ("0.0.15", "runs", "acquisition_start_local"),
     ];
 
+    /// <summary>Every core column that was required in Python 0.32.0's schema and is optional since, with the version
+    /// that relaxed it. A parity bundle writes it as required, as Python did (the Parquet field's nullability).</summary>
+    /// <remarks>provenance_schema: a record stating no schema was stored as the text "None", a value it never wrote
+    /// (G83 item 16); from 0.0.15 it is NULL.</remarks>
+    public static readonly IReadOnlyList<(string Version, string Table, string Column)> RelaxedColumns =
+    [
+        ("0.0.15", "provenance_records", "provenance_schema"),
+    ];
+
     /// <summary>The table's columns as schema <paramref name="version"/> has them, in the schema's order.</summary>
     public static IReadOnlyList<ColumnSpec> ColumnsAt(TableSpec spec, string version)
     {
@@ -45,7 +54,15 @@ public static class SchemaContract
             .Where(a => a.Table == spec.Name && System.Version.Parse(a.Version) > at)
             .Select(a => a.Column)
             .ToHashSet(StringComparer.Ordinal);
-        return later.Count == 0 ? spec.Columns : spec.Columns.Where(c => !later.Contains(c.Name)).ToList();
+        var stillRequired = RelaxedColumns
+            .Where(r => r.Table == spec.Name && System.Version.Parse(r.Version) > at)
+            .Select(r => r.Column)
+            .ToHashSet(StringComparer.Ordinal);
+        if (later.Count == 0 && stillRequired.Count == 0) return spec.Columns;
+        return spec.Columns
+            .Where(c => !later.Contains(c.Name))
+            .Select(c => stillRequired.Contains(c.Name) ? c with { Nullable = false } : c)
+            .ToList();
     }
 
     /// <summary>The table's columns under the schema version in force here (<see cref="Version"/>).</summary>

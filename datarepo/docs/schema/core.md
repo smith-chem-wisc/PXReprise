@@ -587,7 +587,7 @@ One pipeline stage for one dataset, flattened from provenance.json (original kep
 |---|---|---|---|
 | `dataset_id` | [Dataset](#dataset) | yes | Dataset this row belongs to (ProteomeXchange accession). |
 | `stage` | `string` | yes | Pipeline stage name, e.g. search, fetch, qc. |
-| `provenance_schema` | `string` | yes | e.g. aging-provenance/2. |
+| `provenance_schema` | `string` |  | The record's own `schema` value, e.g. aging-provenance/2. NULL when the record states none (optional from schema 0.0.15; before it, a missing schema was stored as the text None, and never as a value the record wrote). |
 | `started_utc` | `datetime` |  | Stage start time (UTC). |
 | `finished_utc` | `datetime` |  | Stage end time (UTC). |
 | `pipeline_repo` | `string` |  | Repository of the pipeline that produced it. |

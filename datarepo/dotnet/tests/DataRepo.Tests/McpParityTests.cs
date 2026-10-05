@@ -216,6 +216,9 @@ public class McpParityTests
             ("instrument_model", "Instrument model name. From the producer's spectra QC report"),
             ("acquisition_datetime", "From the raw file header (J14 batch/date checks, H4)."),
             ("acquisition_datetime", "When acquisition started, in UTC. Filled ONLY when"),
+            // The new text contains the old one, so it is masked first.
+            ("provenance_schema", "The record's own `schema` value, e.g. aging-provenance/2."),
+            ("provenance_schema", "e.g. aging-provenance/2."),
         }.Select(d => (new Regex(Regex.Escape(d.Item2) + "[^\"]*", RegexOptions.CultureInvariant), $"<{d.Item1}: rewritten in schema 0.0.15>")),
     ];
 

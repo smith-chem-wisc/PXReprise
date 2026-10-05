@@ -806,7 +806,7 @@ classes:
     attributes:
       dataset_id: {range: Dataset, required: true, description: "Dataset this row belongs to (ProteomeXchange accession)."}
       stage: {required: true, description: "Pipeline stage name, e.g. search, fetch, qc."}
-      provenance_schema: {required: true, description: "e.g. aging-provenance/2."}
+      provenance_schema: {description: "The record's own `schema` value, e.g. aging-provenance/2. NULL when the record states none (optional from schema 0.0.15; before it, a missing schema was stored as the text None, and never as a value the record wrote)."}
       started_utc: {range: datetime, description: "Stage start time (UTC)."}
       finished_utc: {range: datetime, description: "Stage end time (UTC)."}
       pipeline_repo: {description: "Repository of the pipeline that produced it."}

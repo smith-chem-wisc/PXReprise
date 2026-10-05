@@ -356,7 +356,7 @@ public static partial class Tables
         [
             new ColumnSpec("dataset_id", ColumnType.String, IsList: false, Nullable: false),
             new ColumnSpec("stage", ColumnType.String, IsList: false, Nullable: false),
-            new ColumnSpec("provenance_schema", ColumnType.String, IsList: false, Nullable: false),
+            new ColumnSpec("provenance_schema", ColumnType.String, IsList: false, Nullable: true),
             new ColumnSpec("started_utc", ColumnType.TimestampUtc, IsList: false, Nullable: true),
             new ColumnSpec("finished_utc", ColumnType.TimestampUtc, IsList: false, Nullable: true),
             new ColumnSpec("pipeline_repo", ColumnType.String, IsList: false, Nullable: true),

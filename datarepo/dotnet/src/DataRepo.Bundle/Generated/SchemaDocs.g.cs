@@ -387,7 +387,7 @@ public static partial class SchemaDocs
         [
             new ColumnDoc("dataset_id", "Dataset this row belongs to (ProteomeXchange accession).", "Dataset", Enum: null, Identifier: false, Multivalued: false, Unit: null),
             new ColumnDoc("stage", "Pipeline stage name, e.g. search, fetch, qc.", "string", Enum: null, Identifier: false, Multivalued: false, Unit: null),
-            new ColumnDoc("provenance_schema", "e.g. aging-provenance/2.", "string", Enum: null, Identifier: false, Multivalued: false, Unit: null),
+            new ColumnDoc("provenance_schema", "The record's own `schema` value, e.g. aging-provenance/2. NULL when the record states none (optional from schema 0.0.15; before it, a missing schema was stored as the text None, and never as a value the record wrote).", "string", Enum: null, Identifier: false, Multivalued: false, Unit: null),
             new ColumnDoc("started_utc", "Stage start time (UTC).", "datetime", Enum: null, Identifier: false, Multivalued: false, Unit: null),
             new ColumnDoc("finished_utc", "Stage end time (UTC).", "datetime", Enum: null, Identifier: false, Multivalued: false, Unit: null),
             new ColumnDoc("pipeline_repo", "Repository of the pipeline that produced it.", "string", Enum: null, Identifier: false, Multivalued: false, Unit: null),

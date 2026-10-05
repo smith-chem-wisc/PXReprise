@@ -143,7 +143,7 @@ public static class Provenance
         {
             ["dataset_id"] = datasetId,
             ["stage"] = Str(Truthy(stage) ? stage : stageDirName),
-            ["provenance_schema"] = rules == IngestRules.Current && Get(doc, "schema", "") is null ? "" : Str(Get(doc, "schema", "")),
+            ["provenance_schema"] = rules == IngestRules.Current ? (Get(doc, "schema", null) is { } schema ? Str(schema) : null) : Str(Get(doc, "schema", "")),
             ["started_utc"] = Get(doc, "started_utc"),
             ["finished_utc"] = Get(doc, "finished_utc"),
             ["pipeline_repo"] = Get(pipeline, "repo"),
