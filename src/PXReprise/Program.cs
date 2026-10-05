@@ -13,7 +13,7 @@ namespace PXReprise;
 public static class Program
 {
     /// <summary>The verbs, listed by the <c>version</c> verb. Keep in step with <see cref="Dispatch"/>.</summary>
-    public static readonly string[] Verbs = { "version", "profiles", "validate", "census", "rank", "fetch", "qc", "search", "qc-payload", "batch" };
+    public static readonly string[] Verbs = { "version", "profiles", "validate", "census", "rank", "chemistry", "fetch", "qc", "search", "qc-payload", "batch" };
 
     /// <summary>Where profiles are read from when --profiles is not given: beside the executable.</summary>
     public static string DefaultProfilesDir => Path.Combine(AppContext.BaseDirectory, "profiles");
@@ -79,6 +79,31 @@ public static class Program
                             .OrderBy(x => x, StringComparer.Ordinal).ToList(),
                         condition_columns = d.ConditionColumns,
                     },
+                };
+            }
+
+            case "chemistry":
+            {
+                // chemistry --accessions FILE [--designs DIR] [--out DIR]: each deposit's protease, alkylation and label
+                // (G19, D22-D24) from PRIDE's record and the deposit's / question's SDRF; no spectra. One accession per line.
+                args.AllowOnly("accessions", "designs", "out");
+                var accs = File.ReadAllLines(args.Required("accessions")).Select(l => l.Split('\t')[0].Trim())
+                    .Where(a => a.StartsWith("PXD", StringComparison.Ordinal)).Distinct().ToList();
+                string outDir = args.Option("out") ?? Path.Combine(Directory.GetCurrentDirectory(), "chemistry");
+                Directory.CreateDirectory(outDir);
+                var record = new RunRecord("chemistry");
+                record.Input(args.Required("accessions"));
+                using var client = new PrideArchiveClient();
+                IProjectSearch search = searchFactory?.Invoke() ?? new PrideProjectSearch(client);
+                var rows = await new Census.ChemistryRunner(search, rankSource?.Invoke() ?? new Census.PrideRankSource(client))
+                    .RunAsync(accs, args.Option("designs"), outDir, record, ct).ConfigureAwait(false);
+                record.Write(outDir);
+                return new
+                {
+                    deposits = rows.Count, out_dir = Path.GetFullPath(outDir),
+                    differ_from_v1 = rows.Count(r => r.DiffersFromV1().Count > 0),
+                    parked = rows.Count(r => r.Chemistry?.Park is not null),
+                    errors = rows.Count(r => r.Chemistry is null),
                 };
             }
 
