@@ -10,6 +10,12 @@ paths are shortened to `…`, and long lines are wrapped. On Windows the paths p
 are content hashes, so on 1.0.0 you should get the same ones; on another version they will differ (a
 later section says why).
 
+> **This copy is ahead of the 1.0.0 release.** Since 1.0.0, the catalog format has moved to 9 (the go
+> engine), so the released 1.0.0 program prints a different catalog id (`ff7c707e1347b0f7`) and has no
+> go coverage line or "58 run" count. The bundle id is the same. For the page exactly as 1.0.0 prints
+> it, read it [at the v1.0.0 tag](https://github.com/smith-chem-wisc/dataRepo/blob/v1.0.0/docs/getting-started.md).
+> This note goes away at the next release.
+
 **Words used here.**
 - A **producer** is the pipeline that searched the data, here MetaMorpheus.
 - An **instance** is one project's collection of reanalysed datasets. It is described by a
