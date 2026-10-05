@@ -136,10 +136,18 @@ public static class CatalogBuilder
     /// <c>dataset_overview.enrichment_mixed</c> (G63); "6" loads engine artefacts (<c>gene_resolutions</c>,
     /// G64) and <c>catalog_engine_artefacts</c>; "7" makes the contaminant label per dataset
     /// (<c>protein_datasets.is_contaminant</c>, <c>protein_index.n_datasets_contaminant</c>; aging 070 57f);
-    /// "8" adds <c>samples.&lt;column&gt;_name</c> beside each term-only sample column (G74). Same principle as
+    /// "8" adds <c>samples.&lt;column&gt;_name</c> beside each term-only sample column (G74); "9" loads go's
+    /// engine artefacts into <c>protein_localizations</c>, <c>organelle_term_categories</c> and
+    /// <c>annotation_sources</c>, with a go coverage check and <c>catalog_tables.kind</c>
+    /// <c>engine:go.annotate_groups</c> (G86). Inside a <see cref="SchemaContract.Python0320"/> scope it stays
+    /// "8" and go is left out, so a parity build is still what Python 0.32.0 built. Same principle as
     /// <c>manifest.CONTENT_FIELDS</c> one level down -- an id moves when its own content moves, and not
     /// otherwise.</remarks>
-    public const string CatalogVersion = "8";
+    public static string CatalogVersion => SchemaContract.IsPython0320 ? "8" : "9";
+
+    /// <summary>Whether this build loads go's artefacts: always, except when reproducing Python 0.32.0, which had
+    /// no go engine.</summary>
+    private static bool GoActive => !SchemaContract.IsPython0320;
 
     /// <summary>The package version a catalog id hashes and <c>catalog_meta.builder_version</c> records
     /// (Python's <c>__version__</c>): this assembly's informational version, without build metadata.</summary>
@@ -771,7 +779,131 @@ public static class CatalogBuilder
                 $"{engine} coverage (databases with an artefact)", "engine-coverage", true,
                 databases.Count - uncovered.Count, databases.Count, detail));
         }
+        if (GoActive) SelectGoArtefacts(store, bundles, chosen, checks);
         return (chosen, checks);
+    }
+
+    /// <summary>What a go artefact for this bundle must have been run on, from the bundle's own <c>sources</c>:
+    /// its protein-group file's sha256, and the sha256 of every TARGET database it searched.</summary>
+    /// <remarks>The contaminant panel is not an annotation input (GoEngine's remarks say why), so it is not part
+    /// of the match either.</remarks>
+    public static (string? ProteinGroups, SortedSet<string> Databases) GoInputsOf(BundleRef bundle)
+    {
+        string? proteinGroups = null;
+        var databases = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var item in SourcesPy.Get(bundle.Manifest, "sources") as IEnumerable<object?> ?? [])
+        {
+            if (item is not IReadOnlyDictionary<string, object?> source) continue;
+            var role = SourcesPy.Str(SourcesPy.Get(source, "role", ""));
+            var sha = SourcesPy.Get(source, "sha256") is string s ? s : null;
+            if (role == "protein_group_quant") proteinGroups = sha;
+            else if (role.StartsWith("protein_database:", StringComparison.Ordinal) && sha is not null
+                     && !ProteinDb.IsContaminantDatabase(SourcesPy.Str(SourcesPy.Get(source, "path", ""))))
+                databases.Add(sha);
+        }
+        return (proteinGroups, databases);
+    }
+
+    /// <summary>A go artefact belongs to a bundle when it annotated that bundle's protein-group file against that
+    /// bundle's target databases, by sha256. Keyed on inputs, as logs' are: a re-ingest that reads the same files
+    /// is served by the same artefact.</summary>
+    public static bool GoArtefactMatches(ArtefactRef artefact, BundleRef bundle)
+    {
+        if (artefact.Engine != Runner.GoEngine) return false;
+        var (proteinGroups, databases) = GoInputsOf(bundle);
+        var inputs = artefact.Inputs;
+        if (proteinGroups is null || inputs.GetValueOrDefault(Runner.GoProteinGroupsRole) != proteinGroups) return false;
+        var annotated = inputs.Where(kv => kv.Key.StartsWith(Runner.GoDatabaseRolePrefix, StringComparison.Ordinal))
+            .Select(kv => kv.Value).ToHashSet(StringComparer.Ordinal);
+        return databases.Count > 0 && annotated.SetEquals(databases);
+    }
+
+    /// <summary>go's artefacts for these bundles (one per bundle at most) and the coverage check (G86).</summary>
+    /// <remarks>As for logs: two artefacts for one bundle (another go.obo release, another category map) are
+    /// refused rather than one picked, and a bundle with none builds without go rows and is named in the check,
+    /// which always passes.</remarks>
+    private static void SelectGoArtefacts(string store, IReadOnlyList<BundleRef> bundles, List<ArtefactRef> chosen, List<CatalogCheck> checks)
+    {
+        var byBundle = new Dictionary<string, List<ArtefactRef>>(StringComparer.Ordinal);
+        var stale = new List<string>();
+        foreach (var r in Runner.DiscoverArtefacts(store, Runner.GoEngine))
+        {
+            var matched = bundles.Where(b => GoArtefactMatches(r, b)).ToList();
+            if (matched.Count == 0) continue;
+            if (r.SchemaVersion != SchemaContract.Version)
+            {
+                stale.Add($"{r.ArtefactId} (schema {r.SchemaVersion})");
+                continue;
+            }
+            foreach (var b in matched)
+            {
+                if (!byBundle.TryGetValue(b.BundleId, out var list)) byBundle[b.BundleId] = list = [];
+                list.Add(r);
+            }
+        }
+        var uncovered = new List<BundleRef>();
+        foreach (var b in bundles.OrderBy(b => b.DatasetId, SourcesPy.CodePointOrder))
+        {
+            if (!byBundle.TryGetValue(b.BundleId, out var refs))
+            {
+                uncovered.Add(b);
+                continue;
+            }
+            if (refs.Count > 1)
+                throw new CatalogException(
+                    $"{Runner.GoEngine}: {refs.Count} artefacts ({string.Join(", ", refs.Select(r => r.ArtefactId))}) annotate "
+                    + $"{b.DatasetId} bundle {b.BundleId} (another go.obo release or category map). A catalog serves one. "
+                    + $"Move the ones it should not serve out of {SourcesPy.PathStr(System.IO.Path.Combine(store, Runner.EngineDir, Runner.GoEngine))}.");
+            if (!chosen.Any(c => c.Engine == refs[0].Engine && c.ArtefactId == refs[0].ArtefactId)) chosen.Add(refs[0]);
+        }
+        string? detail = null;
+        if (uncovered.Count > 0)
+            detail = "no artefact for " + string.Join("; ", uncovered.Select(b => $"{b.DatasetId} ({b.BundleId})"));
+        if (stale.Count > 0)
+            detail = (detail is not null ? detail + "; " : "") + "skipped, other schema: " + string.Join(", ", stale);
+        checks.Add(new CatalogCheck(
+            $"{Runner.GoEngine} coverage (bundles with an artefact)", "engine-coverage", true,
+            bundles.Count - uncovered.Count, bundles.Count, detail));
+    }
+
+    /// <summary>Each bundle and the go artefact that annotated it, in dataset order.</summary>
+    private static List<(BundleRef Bundle, ArtefactRef Artefact)> GoPairs(IReadOnlyList<BundleRef> bundles, IReadOnlyList<ArtefactRef> artefacts) =>
+        bundles.OrderBy(b => b.DatasetId, SourcesPy.CodePointOrder)
+            .SelectMany(b => artefacts.Where(a => GoArtefactMatches(a, b)).Select(a => (b, a)))
+            .ToList();
+
+    /// <summary>go's rows into its three core tables, with the matched bundle's provenance columns.</summary>
+    /// <returns><c>{table: total rows}</c> for the tables that received any.</returns>
+    private static Dictionary<string, long> LoadGoRows(DuckDBConnection con, IReadOnlyList<BundleRef> bundles, IReadOnlyList<ArtefactRef> artefacts)
+    {
+        var counts = new Dictionary<string, long>(StringComparer.Ordinal);
+        if (!GoActive) return counts;
+        foreach (var (bundle, artefact) in GoPairs(bundles, artefacts))
+            foreach (var table in Runner.GoTables)
+            {
+                var path = artefact.TablePath(table);
+                if (path is null) continue;
+                Exec(con,
+                    $"INSERT INTO \"{table}\" BY NAME SELECT {Quote(bundle.DatasetId)} AS dataset_id, "
+                    + $"{Quote(bundle.BundleId)} AS bundle_id, * FROM read_parquet({Quote(AsPosix(path))})");
+                counts[table] = Count(con, $"SELECT count(*) FROM \"{table}\"");
+            }
+        return counts;
+    }
+
+    /// <summary>Every go artefact's rows are all there, under the bundle it was matched to.</summary>
+    private static List<CatalogCheck> CheckGo(DuckDBConnection con, IReadOnlyList<BundleRef> bundles, IReadOnlyList<ArtefactRef> artefacts)
+    {
+        var checks = new List<CatalogCheck>();
+        if (!GoActive) return checks;
+        foreach (var (bundle, artefact) in GoPairs(bundles, artefacts))
+            foreach (var (table, expected) in artefact.RowCounts.OrderBy(kv => kv.Key, SourcesPy.CodePointOrder))
+            {
+                var (observed, _) = CountAndExample(con, $"SELECT count(*), NULL FROM \"{table}\" WHERE bundle_id = ?", bundle.BundleId);
+                checks.Add(new CatalogCheck($"{artefact.Engine}/{artefact.ArtefactId}/{table}", "row_count", observed == expected,
+                    observed, expected, $"engine artefact {artefact.ArtefactId} for {bundle.DatasetId} bundle {bundle.BundleId}"));
+            }
+        return checks;
     }
 
     // --- the build -------------------------------------------------------------------------------------
@@ -876,12 +1008,14 @@ public static class CatalogBuilder
                 BuildDerived(con);
                 studyCounts = CreateStudyTables(con, study);
                 foreach (var (k, v) in CreateEngineTables(con, engines)) rowCounts[k] = v;
+                foreach (var (k, v) in LoadGoRows(con, bundles, engines)) rowCounts[k] = v;
                 BuildEngineDerived(con, bundles);
                 checks = [
                     .. CheckRowCounts(con, bundles),
                     .. CheckIntegrity(con),
                     .. CheckStudy(con, study),
-                    .. CheckEngines(con, engines),
+                    .. CheckEngines(con, engines.Where(r => r.Engine != Runner.GoEngine).ToList()),
+                    .. CheckGo(con, bundles, engines),
                     .. engineChecks ?? [],
                 ];
                 var failed = checks.Where(c => !c.Ok).ToList();
@@ -1572,7 +1706,9 @@ public static class CatalogBuilder
         foreach (var spec in Tables.Core)
         {
             var name = spec.Name;
-            var kind = Runner.EngineTables.TryGetValue(name, out var engine) ? $"engine:{engine}" : "bundle";
+            var kind = Runner.EngineTables.TryGetValue(name, out var engine) ? $"engine:{engine}"
+                : GoActive && Runner.GoTables.Contains(name) ? $"engine:{Runner.GoEngine}"
+                : "bundle";
             Exec(con, "INSERT INTO catalog_tables VALUES (?, ?, ?)", name, rowCounts.GetValueOrDefault(name, 0), kind);
         }
         var views = AcceptedViews.Select(kv => kv.Key).Concat(GrainViews.Select(kv => kv.Key)).ToHashSet(StringComparer.Ordinal);
