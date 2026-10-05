@@ -203,6 +203,66 @@ public sealed class BatchRunner
         return new { accession = acc, previous_status = previous, status = "requeued_user" };
     }
 
+    /// <summary>
+    /// <c>batch research</c>: searches a deposit again whose search finished, e.g. under a profile that reads its chemistry
+    /// (PXR-A29). The deposit's folder is moved aside whole (<c>PXD….superseded-&lt;utc&gt;</c>), never deleted, and its
+    /// state entry is archived in its <c>researched</c> list; the next <c>batch run</c> downloads and searches it again like
+    /// a new deposit, under <paramref name="profile"/> when given (one of the question's profiles), else as routing chooses.
+    /// The delivery already in the repository is untouched until the new search is ingested; the manifest entry is then
+    /// replaced, keeping its status, flags and notes (<see cref="ManifestEntry.Append"/>). Refused while a driver runs, for a
+    /// deposit with no finished search (use <c>batch retry</c>), and for one the manifest excludes.
+    /// </summary>
+    public static object Research(string stateDir, string runRoot, string acc, string reason, string? profile, string? manifest)
+    {
+        string pidFile = Path.Combine(stateDir, "driver.pid"), stateFile = Path.Combine(stateDir, "state.json");
+        if (string.IsNullOrWhiteSpace(reason)) throw new UsageException("--reason must say why the deposit is searched again");
+        if (LiveDriver(pidFile) is int pid) throw new UsageException($"a batch driver is running as pid {pid}; stop it (batch stop) and let it exit first");
+        string dir = Path.Combine(runRoot, acc);
+        if (!File.Exists(Path.Combine(dir, "04_search", "provenance.json")))
+            throw new UsageException($"{acc} has no finished search; use batch retry for a deposit that never searched");
+        if (manifest is not null && File.Exists(manifest))
+        {
+            string text = File.ReadAllText(manifest);
+            if (text.Contains($"accession: {acc}\n") || text.Contains($"accession: {acc}\r"))
+            {
+                var (s, end) = ManifestEntry.Block(text, acc);
+                if (System.Text.RegularExpressions.Regex.Match(text[s..end], @"(?m)^[ \t]+status:[ \t]*(\S+)") is { Success: true } m && m.Groups[1].Value != "include")
+                    throw new UsageException($"{acc} is '{m.Groups[1].Value}' in {manifest}; include it there first");
+            }
+        }
+        if (!File.Exists(stateFile)) throw new UsageException($"no {stateFile}: the batch has not run");
+        var st = JsonNode.Parse(File.ReadAllText(stateFile))!.AsObject();
+        var ds = st["datasets"]!.AsObject();
+        var old = ds[acc] as JsonObject ?? new JsonObject();
+        string now = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'+00:00'");
+        string stamp = dir + $".superseded-{DateTime.UtcNow:yyyyMMdd'T'HHmmss'Z'}", aside = stamp;
+        for (int k = 2; Directory.Exists(aside) || File.Exists(aside); k++) aside = $"{stamp}-{k}";
+        Directory.Move(dir, aside);
+        var history = old["researched"]?.DeepClone() as JsonArray ?? new JsonArray();
+        var previous = old.DeepClone().AsObject();
+        previous.Remove("researched");
+        history.Add(new JsonObject
+        {
+            ["utc"] = now, ["by"] = Environment.UserName, ["reason"] = reason, ["profile"] = profile,
+            ["previous_status"] = old["status"]?.DeepClone(), ["previous_profile"] = old["profile"]?.DeepClone(),
+            ["previous_bundle_id"] = old["bundle_id"]?.DeepClone(), ["moved_to"] = Path.GetFileName(aside),
+            ["previous_entry"] = previous,
+        });
+        var e = new JsonObject
+        {
+            ["status"] = "requeued_user", ["title"] = old["title"]?.DeepClone(), ["organism"] = old["organism"]?.DeepClone(),
+            ["research_profile"] = profile, ["researched"] = history, ["updated_utc"] = now,
+        };
+        if (old["requeued"] is { } rq) e["requeued"] = rq.DeepClone();
+        ds[acc] = e;
+        string tmp = stateFile + ".tmp";
+        File.WriteAllText(tmp, st.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = Envelope.Json.Encoder }));
+        File.Move(tmp, stateFile, overwrite: true);
+        File.AppendAllText(Path.Combine(stateDir, "batch.log"),
+            $"{now}  {acc} RE-SEARCH requested by {Environment.UserName} (was {old["status"]} under {old["profile"]}; {(profile is null ? "profile as routed" : $"profile {profile}")}); folder moved to {Path.GetFileName(aside)}: {reason}\n");
+        return new { accession = acc, previous_status = old["status"]?.GetValue<string>(), status = "requeued_user", moved_to = aside, profile };
+    }
+
     private double FreeGb() => new DriveInfo(Path.GetPathRoot(Path.GetFullPath(_runRoot))!).AvailableFreeSpace / 1e9;
 
     /// <summary>A status the runner does not spend time on again. Clear the state entry to retry.</summary>
@@ -399,6 +459,13 @@ public sealed class BatchRunner
             return null;
         }
         var profile = _profiles[route.Profile!];
+        // batch research --profile: the profile asked for, when the question still names it and it takes this deposit.
+        if (Entry(acc)?["research_profile"]?.GetValue<string>() is { } asked && asked != profile.Key)
+        {
+            string? refusal = !_q.Profiles.Contains(asked) || !_profiles.TryGetValue(asked, out var p) ? "the question no longer names it" : p.Accepts.Refusal(acq);
+            if (refusal is null) { profile = _profiles[asked]; Log($"{acc} RE-SEARCH under {asked} (routing chose {route.Profile})"); }
+            else Log($"{acc} RE-SEARCH asked for {asked}, which cannot take it ({refusal}); searching under {profile.Key} as routed");
+        }
         Record(acc, ("profile", profile.Key));
         if (!profile.Databases.ContainsKey(e.Organism))
         {

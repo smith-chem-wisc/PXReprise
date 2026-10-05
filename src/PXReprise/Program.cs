@@ -262,9 +262,11 @@ public static class Program
                 // pxreprise batch run|status|stop <question.toml> [--machine m.toml] [--run-date D]
                 // pxreprise batch retry <question.toml> <PXD> --reason "..."
                 var rest = args.Words.Skip(1).ToList();
-                if (!(rest.Count == 2 && rest[0] is ("run" or "status" or "stop")) && !(rest.Count == 3 && rest[0] == "retry"))
-                    throw new UsageException("usage: pxreprise batch run|status|stop <question.toml> --machine m.toml, or batch retry <question.toml> <PXD> --reason \"...\"");
-                args.AllowOnly("machine", "profiles", "run-date", "reason");
+                // pxreprise batch research <question.toml> <PXD> --reason "..." [--profile key@n]
+                if (!(rest.Count == 2 && rest[0] is ("run" or "status" or "stop")) && !(rest.Count == 3 && rest[0] is ("retry" or "research")))
+                    throw new UsageException("usage: pxreprise batch run|status|stop <question.toml> --machine m.toml, batch retry <question.toml> <PXD> --reason \"...\", or batch research <question.toml> <PXD> --reason \"...\" [--profile key@n]");
+                args.AllowOnly("machine", "profiles", "run-date", "reason", "profile");
+                if (args.Option("profile") is not null && rest[0] != "research") throw new UsageException("--profile is for batch research only");
                 var q = QuestionLoader.Load(rest[1]);
                 var b = q.Batch ?? throw new ConfigException(q.SourceFile, "a batch needs a [batch] table");
                 Directory.CreateDirectory(b.StateDir);
@@ -273,6 +275,14 @@ public static class Program
                 {
                     case "retry":
                         return Batch.BatchRunner.Requeue(b.StateDir, b.RunRoot, rest[2], args.Required("reason"));
+                    case "research":
+                    {
+                        // The profile must be one the question names: a question is data, and the batch searches only its profiles.
+                        string? key = args.Option("profile");
+                        if (key is not null && !q.Profiles.Contains(key))
+                            throw new UsageException($"--profile {key} is not among the question's profiles ({string.Join(", ", q.Profiles)}); add it to the question first");
+                        return Batch.BatchRunner.Research(b.StateDir, b.RunRoot, rest[2], args.Required("reason"), key, q.Publish?.Manifest);
+                    }
                     case "stop":
                         // Taken at the top of the loop: the search in flight, its cleanup and delivery finish first.
                         await File.WriteAllTextAsync(stop, $"Stop requested {DateTime.UtcNow:o}", ct).ConfigureAwait(false);

@@ -6,7 +6,8 @@ namespace PXReprise.Batch;
 
 /// <summary>
 /// Appends a dataset's <c>include</c> entry to the question's dataRepo manifest, in the shape `datarepo ingest` reads
-/// (the aging batch's entry, field for field). Idempotent: an accession already present is left alone.
+/// (the aging batch's entry, field for field). Idempotent: an accession already present is left alone, except once after
+/// a re-search, which replaces its entry and keeps what was written in the old one.
 /// </summary>
 public static class ManifestEntry
 {
@@ -51,7 +52,22 @@ public static class ManifestEntry
     {
         workRoot = WorkRootOf(manifestPath) ?? workRoot;
         string text = File.ReadAllText(manifestPath);
-        if (text.Contains($"accession: {e.Accession}\n") || text.Contains($"accession: {e.Accession}\r")) return;
+        // A re-search (batch research) replaces the deposit's entry once, keeping what its owner wrote in it: the old
+        // status, any flags, and the old notes, quoted as what the entry said before (aging curates notes by hand).
+        var research = state?["researched"] is JsonArray rs && rs.Count > 0 ? rs[^1] as JsonObject : null;
+        string marker = research is null ? "" : $"RE-SEARCHED {research["utc"]}";
+        (string Status, List<string> Flags, string Notes)? earlier = null;
+        if (text.Contains($"accession: {e.Accession}\n") || text.Contains($"accession: {e.Accession}\r"))
+        {
+            if (research is null) return;
+            var (start, end) = Block(text, e.Accession);
+            string old = text[start..end];
+            if (old.Contains(marker, StringComparison.Ordinal)) return;
+            earlier = (Field(old, "status") ?? "include",
+                       (Field(old, "flags") ?? "").Trim('[', ']').Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).ToList(),
+                       Notes(old));
+            text = text[..start].TrimEnd('\n', '\r') + (end < text.Length ? "\n\n" : "\n") + text[end..];
+        }
         // Count from qc_report.json, never from the raw files: cleanup has already deleted them (dataRepo hashes `files`
         // into the bundle id and reconciles it against the runs, and caught `files: 0` on the very first dataset).
         var qc = JsonNode.Parse(File.ReadAllText(Path.Combine(runDir, "02b_qc", "qc_report.json")))!.AsObject();
@@ -99,12 +115,21 @@ public static class ManifestEntry
             notes.Add($"QC REPORT: the qc-payload stage recorded {string.Join(", ", qcFlags)}; see 05_qc/provenance.json. The search and its results are unaffected.");
         notes.Add($"Searched by PXReprise under profile {profile.Key}" + (extras.Count > 0 ? $", with extra databases {string.Join(", ", extras)}" : "") + ".");
         notes.Add($"{Capitalise(e.Organism)}; {Uncapitalise(profile.Description)}. Raw spectra were deleted after the search; PRIDE is the source of truth and the fetch provenance holds every SHA-256.");
+        if (research is not null)
+        {
+            notes.Add($"{marker} (was {research["previous_profile"] ?? "?"}; the earlier output is in {research["moved_to"]}): {research["reason"]}.");
+            if (earlier is { } was)
+            {
+                foreach (string f in was.Flags) if (!flags.Contains(f)) flags.Add(f);
+                if (was.Notes.Length > 0) notes.Add($"BEFORE THE RE-SEARCH this entry said: \"{was.Notes.Replace('"', '\'')}\"");
+            }
+        }
 
         string run = Path.GetRelativePath(workRoot, runDir).Replace('\\', '/');
         string entry = $"""
 
   - accession: {e.Accession}
-    status: include
+    status: {earlier?.Status ?? "include"}
     title: {JsonSerializer.Serialize(e.Title)}
     run: {run}
     stages:
@@ -128,6 +153,32 @@ public static class ManifestEntry
         string tmp = manifestPath + ".pxreprise-tmp";
         File.WriteAllText(tmp, text.TrimEnd('\n', '\r') + "\n" + entry.TrimEnd('\n') + "\n");
         File.Move(tmp, manifestPath, overwrite: true);
+    }
+
+    /// <summary>The span of <paramref name="acc"/>'s entry: from its <c>- accession:</c> line to the next entry or the end.</summary>
+    internal static (int Start, int End) Block(string text, string acc)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(text, $@"(?m)^[ \t]*- accession: {acc}\r?$");
+        if (!m.Success) throw new InvalidOperationException($"{acc} has no manifest entry");
+        int start = m.Index;
+        var next = System.Text.RegularExpressions.Regex.Match(text[(m.Index + m.Length)..], @"(?m)^[ \t]*- accession: ");
+        return (start, next.Success ? m.Index + m.Length + next.Index : text.Length);
+    }
+
+    private static string? Field(string block, string key) =>
+        System.Text.RegularExpressions.Regex.Match(block, $@"(?m)^[ \t]+{key}:[ \t]*([^\r\n]*)$") is { Success: true } m ? m.Groups[1].Value.Trim() : null;
+
+    /// <summary>A folded <c>notes: &gt;</c> block (or a one-line <c>notes:</c>) as one line of text.</summary>
+    private static string Notes(string block)
+    {
+        var lines = block.Replace("\r", "").Split('\n');
+        int i = Array.FindIndex(lines, l => System.Text.RegularExpressions.Regex.IsMatch(l, @"^[ \t]+notes:"));
+        if (i < 0) return "";
+        string first = lines[i][(lines[i].IndexOf("notes:", StringComparison.Ordinal) + 6)..].Trim();
+        if (first is not (">" or ">-" or "|" or "|-")) return first.Trim('"');
+        int indent = lines[i].Length - lines[i].TrimStart().Length;
+        var body = lines.Skip(i + 1).TakeWhile(l => l.Trim().Length == 0 || l.Length - l.TrimStart().Length > indent).Select(l => l.Trim());
+        return string.Join(" ", body.Where(l => l.Length > 0));
     }
 
     private static string Capitalise(string s) => s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s[1..];

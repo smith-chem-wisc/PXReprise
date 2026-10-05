@@ -496,6 +496,63 @@ public class BatchRunnerTests
         Assert.That(() => BatchRunner.Requeue(state, runs, "PXD000209", "x"), Throws.TypeOf<PXReprise.Cli.UsageException>().With.Message.Contains("finished search"));
     }
 
+    [Test]
+    public void BatchResearchMovesTheSearchedDepositAsideAndRequeuesIt()   // PXR-A29: the NEM deposits under label-free-dda@3
+    {
+        var (runner, _, _, dir) = Runner();
+        string state = Path.Combine(dir, "state"), runs = Path.Combine(dir, "runs"), run = Path.Combine(runs, "PXD001054");
+        Assert.That(() => BatchRunner.Research(state, runs, "PXD001054", "x", null, null),
+            Throws.TypeOf<PXReprise.Cli.UsageException>().With.Message.Contains("batch retry"), "nothing searched yet");
+        Directory.CreateDirectory(Path.Combine(run, "04_search"));
+        File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), """{"success":true}""");
+        runner.Record("PXD001054", ("status", "searched"), ("profile", "label-free-dda@1"), ("title", "Redox"), ("organism", "mouse"),
+            ("bundle_id", "abc"), ("ingest_rc", 0));
+        string manifest = TestSupport.WriteFile(dir, "manifest.yaml", "datasets:\n\n  - accession: PXD001054\n    status: exclude\n");
+        Assert.That(() => BatchRunner.Research(state, runs, "PXD001054", "x", null, manifest),
+            Throws.TypeOf<PXReprise.Cli.UsageException>().With.Message.Contains("'exclude'"));
+        Assert.Throws<PXReprise.Cli.UsageException>(() => BatchRunner.Research(state, runs, "PXD001054", " ", null, null), "a reason is required");
+
+        File.WriteAllText(manifest, "datasets:\n\n  - accession: PXD001054\n    status: include\n");
+        BatchRunner.Research(state, runs, "PXD001054", "NEM capping, aging PXR-A29", "label-free-dda@3", manifest);
+        Assert.That(Directory.Exists(run), Is.False);
+        Assert.That(Directory.GetDirectories(runs, "PXD001054.superseded-*").Single(), Does.Exist);
+        var e = runner.State()["datasets"]!["PXD001054"]!;
+        Assert.That(e["status"]!.GetValue<string>(), Is.EqualTo("requeued_user"));
+        Assert.That(runner.Settled("PXD001054"), Is.Empty);
+        Assert.That((e["research_profile"]!.GetValue<string>(), e["organism"]!.GetValue<string>()), Is.EqualTo(("label-free-dda@3", "mouse")));
+        Assert.That(e["ingest_rc"], Is.Null, "the new search is delivered afresh");
+        var h = e["researched"]![0]!;
+        Assert.That((h["previous_profile"]!.GetValue<string>(), h["previous_bundle_id"]!.GetValue<string>(), h["previous_entry"]!["status"]!.GetValue<string>()),
+            Is.EqualTo(("label-free-dda@1", "abc", "searched")));
+        Assert.That(File.ReadAllText(Path.Combine(state, "batch.log")), Does.Contain("PXD001054 RE-SEARCH requested by").And.Contain("profile label-free-dda@3"));
+    }
+
+    [Test]
+    public void AReSearchReplacesItsManifestEntryOnceAndKeepsWhatTheOwnerWrote()
+    {
+        string dir = TestSupport.TempDir(), run = Path.Combine(dir, "runs", "PXD001054");
+        Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
+        Directory.CreateDirectory(Path.Combine(run, "04_search"));
+        File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(("a.raw", true, Array.Empty<string>())).ToJsonString());
+        File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), """{"tools":{"MetaMorpheus":{"release":"1.1.11"}}}""");
+        string manifest = TestSupport.WriteFile(dir, "manifest.yaml",
+            "datasets:\n\n  - accession: PXD001054\n    status: include\n    flags: [no_design_file, no_output_sdrf, hand_flag]\n    notes: >\n      Searched under @1.\n      Cys peptides missing; re-search planned.\n\n  - accession: PXD018999\n    status: include\n    notes: kept\n");
+        var state = new JsonObject
+        {
+            ["researched"] = new JsonArray(new JsonObject { ["utc"] = "2026-10-05T22:00:00+00:00", ["reason"] = "NEM", ["previous_profile"] = "label-free-dda@1", ["moved_to"] = "PXD001054.superseded-x" }),
+        };
+        var e = new QueueEntry("PXD001054", "Redox", "mouse");
+        ManifestEntry.Append(manifest, e, Profiles["label-free-dda@3"], run, state, dir);
+        ManifestEntry.Append(manifest, e, Profiles["label-free-dda@3"], run, state, dir);
+        string text = File.ReadAllText(manifest);
+        Assert.That(text.Split("accession: PXD001054").Length - 1, Is.EqualTo(1));
+        Assert.That(text, Does.Contain("accession: PXD018999\n    status: include\n    notes: kept"), "the other entries are untouched");
+        Assert.That(text, Does.Contain("RE-SEARCHED 2026-10-05T22:00:00+00:00 (was label-free-dda@1").And.Contain("under profile label-free-dda@3")
+            .And.Contain("BEFORE THE RE-SEARCH this entry said: \"Searched under @1. Cys peptides missing; re-search planned.\"")
+            .And.Contain("hand_flag"));
+        Assert.That(text.Split("BEFORE THE RE-SEARCH").Length - 1, Is.EqualTo(1), "replaced once, never nested");
+    }
+
     private sealed class FakeFiles : IPrideFiles
     {
         public List<PrideArchiveFile> Listing { get; set; } = new();
