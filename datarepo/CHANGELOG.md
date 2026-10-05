@@ -4,7 +4,7 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
-## [1.0.0] - unreleased
+## [1.0.0] - 2026-10-05
 
 **dataRepo is now a C# program (D41).** Every command of 0.32.0 is here, in one self-contained executable per
 platform that needs neither Python nor .NET installed. Each part was checked against what the Python 0.32.0
