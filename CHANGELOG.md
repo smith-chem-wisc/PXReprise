@@ -7,6 +7,19 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.3.9 (2026-10-05)
+
+**Updating:** MetaMorpheus unchanged (1.1.11). Machine file unchanged. Safe mid-batch: stop the batch, update, run it
+again. No shipped profile changes, so no search result changes.
+
+- **Each raw file's acquisition start time and instrument are recorded.** `qc_report.json` gains `start_time`,
+  `instrument_model`, `instrument_model_accession` and `instrument_serial` for each file. These facts exist only in
+  the raw file, which is deleted after the search.
+  - Each key is written only when the reader gives the value, and is never an empty string.
+  - A Thermo RAW start time is the instrument's local clock with no time zone. It is written as read, never converted.
+  - Reading these values never fails a file's QC.
+- The release notes now keep nested list items on their own lines.
+
 ## 0.3.8 (2026-10-05)
 
 **Updating:** MetaMorpheus unchanged (1.1.11). Machine file unchanged. Safe mid-batch: stop the batch, update, run it
