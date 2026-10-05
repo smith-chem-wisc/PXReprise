@@ -23,7 +23,8 @@ public static class ProfileLoader
             acc.StringList("labelling").Select(v => ParseEnum<Labelling>(file, "accepts.labelling", v)).ToList(),
             acc.StringList("instrument").Select(v => ParseEnum<InstrumentClass>(file, "accepts.instrument", v)).ToList(),
             acc.StringList("file_types"),
-            acc.OptionalBool("crosslinking") ?? false);
+            acc.OptionalBool("crosslinking") ?? false,
+            acc.OptionalBool("nonspecific_cleavage") ?? false);
         acc.RefuseUnknownKeys();
 
         var eng = root.RequiredTable("engine");

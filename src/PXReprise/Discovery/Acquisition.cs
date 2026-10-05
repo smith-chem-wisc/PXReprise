@@ -19,6 +19,9 @@ public enum InstrumentClass { OrbitrapHcdOnly, OrbitrapHybrid, Astral, Timstof, 
 /// What a deposit's acquisition is, as far as its PRIDE record says. Routing reads this; nothing else does.
 /// <see cref="Crosslinked"/>: crosslinking MS (XL-MS). Its peptides are linked pairs, which a linear search cannot
 /// identify (PXD062841: calibration failed on 35 of 35 runs, aging 017).
+/// <see cref="NonspecificCleavage"/>: the peptides were not made by a protease the profiles search with: MHC/HLA
+/// immunopeptidomes and endogenous peptidomes (PXD034059 and PXD058775: about 0.0015 identification rate under a tryptic
+/// search, aging 030).
 /// </summary>
 public sealed record Acquisition(
     AcquisitionMode Mode,
@@ -27,7 +30,8 @@ public sealed record Acquisition(
     string Enrichment,
     IReadOnlyDictionary<string, int> MsFiles,
     string? Evidence,
-    bool Crosslinked = false)
+    bool Crosslinked = false,
+    bool NonspecificCleavage = false)
 {
     public int MsFileCount => MsFiles.Values.Sum();
 }
@@ -67,6 +71,18 @@ public static class AcquisitionClassifier
         @"\bDSBU\b", @"\bBS3\b", @"\bcross-?linked peptides\b",
     }), Opt);
     private static readonly Regex AmbiguousReagent = new(@"\b(DSS|PIR)\b", Opt);
+
+    // Aging 030 (PXR-A23). PXD034059 (MHC class I, hupo-hipp tag) and PXD058775 (MHC-II) passed the screen and were
+    // searched as tryptic. MHC/HLA counts only when it names peptides or ligands: "MHC class I expression" is proteome
+    // biology. The enzyme phrases are how authors say they searched without one.
+    private static readonly Regex NonspecificCleavageText = new(string.Join("|", new[]
+    {
+        @"immuno-?peptidom", @"\bligandom", @"\bpeptidom(e|ics)\b", @"endogenous peptides",
+        @"\b(MHC|HLA)[- ]?(class[- ]?)?(II|I|1|2)?[- ]?(-?(bound|associated|presented|eluted)[- ])?(peptide|ligand)",
+        @"unspecified (enzyme|cleavage|peptide cleavage|digestion)", @"\bno[- ]enzyme\b", @"enzyme:? ?(unspecific|unspecified|none)\b",
+        @"non-?specific (enzyme|cleavage|digestion)", @"unspecific (cleavage|digestion)",
+    }), Opt);
+    private static readonly Regex NonspecificCleavageTag = new(@"hupo-hipp|immuno-?peptidom", Opt);
     private static readonly Regex CrosslinkingWord = new(@"cross-?link", Opt);
 
     private static readonly Regex Enriched = new(string.Join("|", new[]
@@ -114,18 +130,21 @@ public static class AcquisitionClassifier
         var labels = new[] { (iso, Labelling.Isobaric), (met, Labelling.Metabolic), (o18, Labelling.O18) }.Where(l => l.Item1.Success).ToList();
         var labelling = labels.Count switch { 0 => Labelling.LabelFree, 1 => labels[0].Item2, _ => Labelling.Mixed };
         var xl = Crosslink(text);
+        var nonspecific = NonspecificCleavageText.Match(text);
+        string? tag = r.ProjectTags.FirstOrDefault(t => NonspecificCleavageTag.IsMatch(t));
         string enrichment = Enriched.IsMatch(text)
             ? EnrichmentKinds.FirstOrDefault(k => k.Pattern.IsMatch(text)).Kind ?? "other"
             : "none";
-        var evidence = new[] { dia, xl ?? Match.Empty }.Concat(labels.Select(l => l.Item1)).FirstOrDefault(m => m.Success);
+        var evidence = new[] { nonspecific, dia, xl ?? Match.Empty }.Concat(labels.Select(l => l.Item1)).FirstOrDefault(m => m.Success);
         return new Acquisition(
             dia.Success ? AcquisitionMode.Dia : AcquisitionMode.Dda,
             labelling,
             ClassifyInstrument(r.Instruments),
             enrichment,
             CountMsFiles(r.ProjectFileNames),
-            evidence is null ? null : Snippet(text, evidence),
-            xl is not null);
+            evidence is not null ? Snippet(text, evidence) : tag is not null ? $"project tag: {tag}" : null,
+            xl is not null,
+            nonspecific.Success || tag is not null);
     }
 
     /// <summary>The text that says the deposit is crosslinking MS, or null.</summary>
