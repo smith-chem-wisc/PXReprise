@@ -131,7 +131,10 @@ public static partial class SiteGenerator
 
     /// <summary><c>{prefix: entries}</c> with every shard under <see cref="MaxShardBytes"/>, prefixes as short
     /// as allows.</summary>
-    private static OrderedDictionary<string, Dict> Shards(Dict entries, int length = 2)
+    /// <param name="overhead">Bytes the written file adds around the entries (its header). 0.32.0 measured the
+    /// entries alone, so a shard just under the cap was written over it once its header was added (150,703 bytes
+    /// on aging's catalog of 2026-10-05).</param>
+    private static OrderedDictionary<string, Dict> Shards(Dict entries, int length = 2, int overhead = 0)
     {
         var groups = new OrderedDictionary<string, Dict>();
         foreach (var (accession, entry) in entries)
@@ -143,9 +146,9 @@ public static partial class SiteGenerator
         var out_ = new OrderedDictionary<string, Dict>();
         foreach (var (prefix, group) in groups)
         {
-            var tooBig = Encoding.UTF8.GetByteCount(JsonCompact(group)) > MaxShardBytes;
+            var tooBig = Encoding.UTF8.GetByteCount(JsonCompact(group)) + overhead > MaxShardBytes;
             if (tooBig && group.Keys.Any(a => a.Length > length))
-                foreach (var (k, v) in Shards(group, length + 1)) out_[k] = v;
+                foreach (var (k, v) in Shards(group, length + 1, overhead)) out_[k] = v;
             else
                 out_[prefix] = group;
         }
@@ -157,9 +160,19 @@ public static partial class SiteGenerator
 
     /// <summary><c>proteins/&lt;shard&gt;.json</c>, <c>genes/&lt;letter&gt;.json</c> and <c>proteins/index.json</c>
     /// (DATAREPO-56).</summary>
+    private const string ProteinsAre =
+            "Accessions with evidence that passed acceptance (an accepted protein group OR an " +
+            "accepted peptidoform) in at least one dataset; decoys excluded, contaminants kept and " +
+            "labelled PER DATASET, because the label is: human albumin is a target in a human search " +
+            "and a contaminant in a rodent one. `best_protein_group_q_value` is NULL where only a " +
+            "peptidoform passed, so a listed dataset is not 'identified at 1% protein FDR'. An " +
+            "accession absent from its shard had no accepted evidence anywhere in this catalog.";
+
     private static OrderedDictionary<string, string> ProteinFiles(Dict proteins, Dict catalog)
     {
-        var shards = Shards(proteins);
+        // The file is the entries inside a header; measure the header once, with the entries' "{}" taken out.
+        var overhead = Encoding.UTF8.GetByteCount(JsonCompact(new Dict { ["catalog"] = catalog, ["proteins_are"] = ProteinsAre, ["proteins"] = new Dict() })) - 2;
+        var shards = Shards(proteins, overhead: overhead);
         var genes = new OrderedDictionary<string, OrderedDictionary<string, List<object?>>>();
         foreach (var (accession, value) in proteins)
         {
@@ -171,17 +184,10 @@ public static partial class SiteGenerator
             if (!bySymbol.TryGetValue(symbol, out var accessions)) bySymbol[symbol] = accessions = [];
             accessions.Add(accession);
         }
-        const string about =
-            "Accessions with evidence that passed acceptance (an accepted protein group OR an " +
-            "accepted peptidoform) in at least one dataset; decoys excluded, contaminants kept and " +
-            "labelled PER DATASET, because the label is: human albumin is a target in a human search " +
-            "and a contaminant in a rodent one. `best_protein_group_q_value` is NULL where only a " +
-            "peptidoform passed, so a listed dataset is not 'identified at 1% protein FDR'. An " +
-            "accession absent from its shard had no accepted evidence anywhere in this catalog.";
         var paths = shards.Keys.ToDictionary(k => k, k => $"proteins/{PyText.Quote(k, safe: "")}.json");
         var files = new OrderedDictionary<string, string>();
         foreach (var (key, entries) in shards.OrderBy(kv => kv.Key, StringComparer.Ordinal))
-            files[paths[key]] = JsonCompact(new Dict { ["catalog"] = catalog, ["proteins_are"] = about, ["proteins"] = entries });
+            files[paths[key]] = JsonCompact(new Dict { ["catalog"] = catalog, ["proteins_are"] = ProteinsAre, ["proteins"] = entries });
         foreach (var (key, entries) in genes.OrderBy(kv => kv.Key, StringComparer.Ordinal))
         {
             var sorted = new Dict();
@@ -205,7 +211,7 @@ public static partial class SiteGenerator
             ["how_to_look_up"] =
                 "Find the LONGEST key of `protein_shards` that the accession starts with, and fetch " +
                 "that shard's `file` (P02768 -> the key 'P02' or 'P0', whichever is listed). By gene " +
-                "symbol, fetch genes/<first letter, upper-cased>.json first. " + about,
+                "symbol, fetch genes/<first letter, upper-cased>.json first. " + ProteinsAre,
             ["protein_shards"] = proteinShards,
             ["gene_shards"] = geneShards,
         });
