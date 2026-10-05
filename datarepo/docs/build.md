@@ -173,6 +173,18 @@ manifest does not list keeps NULLs and a `catalog_checks` row of kind `manifest`
 every count, so an analysis anti-joins it (`run_id NOT IN (SELECT run_id FROM run_exclusions)`). `build`
 refuses an exclusion that names no run of the dataset's bundle.
 
+`dataset_candidates`, the core table that answers "why is PXDn not here?", is also filled at build from
+the manifest: its top-level `candidates` key names the producer's discovery census, a TSV with one row
+per screened accession (format in [operating.md](operating.md#3-ingest-each-dataset)). It is a fact
+about the instance, not about any dataset, so no bundle carries it. The census file's sha256 goes into
+the catalog id, and `catalog_meta.notes.candidates` records its path, sha256 and row count.
+`catalog_tables.kind` is `manifest` for the table when a census was loaded. `dataset_id` and
+`bundle_id` are the catalog's own for the accession, or NULL when the catalog holds none. Two
+`catalog_checks` rows of kind `census` always pass and name the gaps: accessions the census includes
+that the catalog holds no dataset for (a census may run ahead of ingest), and catalog datasets the
+census omits or lists as not included. A manifest without `candidates` leaves the table empty, and
+the catalog id is the same as before.
+
 `protein_index` carries both `n_datasets` and `n_datasets_1pct` on purpose. `proteins` is the
 search's protein *list*, decoys and sub-threshold matches included, not its answer. An agent asking
 "which datasets have this protein" almost always means the second column, so both are there with
