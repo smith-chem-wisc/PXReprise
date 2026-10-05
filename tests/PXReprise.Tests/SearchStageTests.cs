@@ -8,6 +8,24 @@ namespace PXReprise.Tests;
 [NonParallelizable]   // FAKE_MM_* switches are process environment variables
 public class SearchStageTests
 {
+    // dataRepo drops excluded runs only from this block (DATAREPO-51); the C# port had lost it, and PXD034059's QC-excluded
+    // blank came back as a run. The reason is the exact sentence aging's batch_runner.py wrote (PXD047293).
+    [Test]
+    public void QcExcludedFilesAreRecordedForDataRepoInTheShapeThePythonWrote()
+    {
+        var qc = new JsonObject
+        {
+            ["b.raw"] = new JsonObject { ["pass"] = false, ["fail_reasons"] = new JsonArray("too_few_ms2") },
+            ["a.raw"] = new JsonObject { ["pass"] = false, ["fail_reasons"] = new JsonArray("too_few_ms2") },
+            ["c.raw"] = new JsonObject { ["pass"] = true, ["fail_reasons"] = new JsonArray() },
+        };
+        var rec = SearchStage.ExcludedFilesRecord(new[] { "b.raw", "a.raw" }, qc);
+        Assert.That(rec["files"]!.AsArray().Select(x => x!.GetValue<string>()), Is.EqualTo(new[] { "a.raw", "b.raw" }));
+        Assert.That(rec["reason"]!.GetValue<string>(), Is.EqualTo(
+            "D52: failed qc_spectra on too_few_ms2 (a blank or failed injection); excluded with a record instead of dropping the deposit"));
+        Assert.That(SearchStage.ExcludedFilesRecord(new[] { "c.raw" }, qc)["reason"]!.GetValue<string>(), Is.EqualTo("excluded from the search by --exclude"));
+    }
+
     private static string FakeBin
     {
         get
