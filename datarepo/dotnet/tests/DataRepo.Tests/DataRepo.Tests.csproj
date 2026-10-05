@@ -29,6 +29,7 @@
     <ProjectReference Include="..\..\src\DataRepo.Site\DataRepo.Site.csproj" />
     <ProjectReference Include="..\..\src\DataRepo.Runner\DataRepo.Runner.csproj" />
     <ProjectReference Include="..\..\src\DataRepo.Mcp\DataRepo.Mcp.csproj" />
+    <ProjectReference Include="..\..\src\DataRepo.Cli\DataRepo.Cli.csproj" />
   </ItemGroup>
 
   <ItemGroup>

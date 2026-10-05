@@ -18,4 +18,9 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <!-- DocsTests runs the tutorial's commands through Cli.Run in-process, as docs/getting-started.md shows them. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="DataRepo.Tests" />
+  </ItemGroup>
+
 </Project>

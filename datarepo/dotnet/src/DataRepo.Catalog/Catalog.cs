@@ -666,13 +666,16 @@ public static class CatalogBuilder
     /// from a no-op, and a release can record which catalog its citations were checked against. The package
     /// version hashed is this build's (<see cref="PackageVersion"/>), so a C# catalog's id differs from the
     /// Python's for the same bundles, by design.</remarks>
+    /// <param name="packageVersion">The version to hash in place of this build's: what a release build of that
+    /// version would print for the same bundles. Only a test needs it (the tutorial's ids, docs/getting-started.md).</param>
     public static string CatalogId(
         IReadOnlyList<BundleRef> bundles,
         IReadOnlyList<StudyBundleRef>? studyBundles = null,
-        IReadOnlyList<ArtefactRef>? artefacts = null)
+        IReadOnlyList<ArtefactRef>? artefacts = null,
+        string? packageVersion = null)
     {
         var text = new StringBuilder();
-        text.Append($"datarepo/{PackageVersion}\ncatalog/{CatalogVersion}\nschema/{SchemaContract.Version}\n");
+        text.Append($"datarepo/{packageVersion ?? PackageVersion}\ncatalog/{CatalogVersion}\nschema/{SchemaContract.Version}\n");
         // A study layer's tables are part of what a catalog holds, so its version is part of the catalog's
         // identity. Without this, adding a column to `age_effect` would leave two different catalogs sharing an id.
         foreach (var (layer, version) in Tables.StudyVersions.OrderBy(kv => kv.Key, SourcesPy.CodePointOrder))
