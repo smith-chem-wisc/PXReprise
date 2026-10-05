@@ -114,7 +114,11 @@ public static class ManifestEntry
       {string.Join(" ", notes)}
 
 """;
-        File.WriteAllText(manifestPath, text.TrimEnd('\n', '\r') + "\n" + entry.TrimEnd('\n') + "\n");
+        // Write beside it and rename over it: a reader (dataRepo, aging's publish) must never see a half-written manifest
+        // (dataRepo 010 caught one). On one volume the rename is atomic.
+        string tmp = manifestPath + ".pxreprise-tmp";
+        File.WriteAllText(tmp, text.TrimEnd('\n', '\r') + "\n" + entry.TrimEnd('\n') + "\n");
+        File.Move(tmp, manifestPath, overwrite: true);
     }
 
     private static string Capitalise(string s) => s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s[1..];
