@@ -194,8 +194,19 @@ and any dataset the census does not include, in `catalog_checks` (kind `census`)
 ## 4. Optional: engines and study results
 
 - **`datarepo run`** runs a released engine on stored data and writes its output beside the
-  bundles, never into one. Today that engine is logs' gene resolution. See
-  [the charter](../design/CHARTER.md#the-runner-datarepo-ships-it-built-in-datarepo-0200).
+  bundles, never into one. See
+  [the charter](../design/CHARTER.md#the-runner-datarepo-ships-it-built-in-datarepo-0200). Three engines:
+  - `logs.resolve_genes <PXD...> --input gene_set=... --input xref=... --input logs_manifest=...`: protein to
+    Ensembl gene, one artefact per searched database (`gene_resolutions`).
+  - `go.annotate_groups <PXD...> --input ontology=<go.obo> --input category_map=<map.tsv>`: GO-CC terms and
+    organelle categories for each search's protein groups (`protein_localizations`,
+    `organelle_term_categories`). Use one go.obo and one map for every dataset of a catalog, or `build` refuses.
+  - `logs.register_orthology --input snapshot_tar=<compara-N.tar> --input snapshot_manifest=<compara-N.manifest.json>`:
+    takes no accession. It checks one of logs' released orthology snapshots against logs' file contract and
+    registers it. No rows are copied: the snapshot is read in place from
+    `<store>/_engine/logs.register_orthology/<id>/snapshot/` through its own `views.sql`, and the catalog cites it
+    in `catalog_engine_artefacts`. A catalog serves one snapshot, and `build` fails if the gene resolutions it loads
+    used other gene sets than the snapshot's.
 - **`datarepo study`** delivers a study layer's rows, such as age effects, sample ages, or curated
   tissue and cell type. They go into a separately hashed study bundle, so delivering a model result
   never re-identifies a search bundle. See [study.md](study.md).

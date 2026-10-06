@@ -67,6 +67,9 @@ public static class Runner
     /// (<c>dataset_id</c>, <c>bundle_id</c>): stating the dataset is true here, where for logs it would be false.</summary>
     public static readonly IReadOnlyList<string> GoTables = ["protein_localizations", "organelle_term_categories", "annotation_sources"];
 
+    /// <summary>logs' orthology registration (DATAREPO-75): one verified snapshot, read in place, no rows.</summary>
+    public const string OrthologyEngine = "logs.register_orthology";
+
     /// <summary>The input role of go's protein-group file, and the prefix of each annotation database's role.</summary>
     public const string GoProteinGroupsRole = "protein_groups";
 

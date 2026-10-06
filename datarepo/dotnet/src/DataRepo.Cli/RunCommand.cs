@@ -33,7 +33,7 @@ internal static class RunCommand
     {
         var a = new Args.Spec("datarepo run", Cli.Summaries["run"])
             .Positional("engine", $"the engine to run: {string.Join(", ", EngineRunner.Engines)}")
-            .Positional("accession", "datasets to run on (logs: their searched databases; go: their protein groups)", "+")
+            .Positional("accession", "datasets to run on (logs: their searched databases; go: their protein groups; none for logs.register_orthology)", "*")
             .Option("--store", Args.Kind.Value, "the instance's bundle store", required: true)
             .Option("--input", Args.Kind.Append, "an input file by role; repeatable", metavar: "ROLE=PATH")
             .Option("--bundle", Args.Kind.Append, "pin a dataset to one bundle id", metavar: "PXD=ID")
@@ -41,7 +41,7 @@ internal static class RunCommand
             .Parse(argv);
         var engine = a.Positional("engine");
         if (!EngineRunner.Engines.Contains(engine))
-            throw new Args.UsageException("usage: datarepo run [-h] --store STORE [--input ROLE=PATH] [--bundle PXD=ID] [--latest] engine accession [accession ...]",
+            throw new Args.UsageException("usage: datarepo run [-h] --store STORE [--input ROLE=PATH] [--bundle PXD=ID] [--latest] engine [accession ...]",
                 $"argument engine: invalid choice: '{engine}' (choose from {string.Join(", ", EngineRunner.Engines.Select(e => $"'{e}'"))})");
         var store = a.Value("--store")!;
         var inputs = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -68,7 +68,28 @@ internal static class RunCommand
             if (at < 0 || at == value.Length - 1) throw new CatalogException($"--bundle wants <accession>=<bundle id>, got {PyFormat.Repr(value)}");
             pins[value[..at]] = value[(at + 1)..];
         }
-        var bundles = PickBundles(store, a.Positionals("accession"), pins, a.Flag("--latest"));
+        var accessions = a.Positionals("accession");
+        if (engine == OrthologyEngine.Engine)
+        {
+            // A snapshot belongs to no dataset: it is registered once per store and cited by every catalog built there.
+            if (accessions.Count > 0)
+                throw new RunnerException($"{engine} registers one snapshot for the whole store and takes no accession (given {string.Join(", ", accessions)}).");
+            var registered = OrthologyEngine.Run(store, inputs);
+            foreach (var reference in registered.Written)
+            {
+                var snapshot = reference.Record.GetValueOrDefault("snapshot") as IReadOnlyDictionary<string, object?>;
+                Console.WriteLine($"written  {reference.Engine} artefact {reference.ArtefactId}  {reference.Path}");
+                Console.WriteLine($"  snapshot {snapshot?.GetValueOrDefault("tag")}  id {snapshot?.GetValueOrDefault("snapshot_id")}");
+                Console.WriteLine($"  read it  {System.IO.Path.Combine(reference.Path, OrthologyEngine.SnapshotDir)} through its views.sql");
+            }
+            foreach (var reference in registered.AlreadyDone)
+                Console.WriteLine($"done     {reference.Engine} artefact {reference.ArtefactId} already exists; nothing re-run");
+            return 0;
+        }
+        if (accessions.Count == 0)
+            throw new Args.UsageException("usage: datarepo run [-h] --store STORE [--input ROLE=PATH] [--bundle PXD=ID] [--latest] engine [accession ...]",
+                $"{engine} needs at least one accession");
+        var bundles = PickBundles(store, accessions, pins, a.Flag("--latest"));
         var go = engine == GoEngine.Engine;
         // go's published definition id (go D40); GoEngine.Run refuses a call without one.
         var result = go ? GoEngine.Run(store, bundles, inputs, GoEngine.DefinitionId) : LogsEngine.Run(store, bundles, inputs);

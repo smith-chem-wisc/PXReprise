@@ -129,13 +129,13 @@ options:
 Run a released engine on stored data (the instance operator's step).
 
 ```text
-usage: datarepo run [-h] --store STORE [--input ROLE=PATH] [--bundle PXD=ID] [--latest] engine accession [accession ...]
+usage: datarepo run [-h] --store STORE [--input ROLE=PATH] [--bundle PXD=ID] [--latest] engine [accession ...]
 
 run a released engine on stored data (the instance operator's step)
 
 positional arguments:
-  engine                 the engine to run: logs.resolve_genes, go.annotate_groups
-  accession              datasets to run on (logs: their searched databases; go: their protein groups) (one or more)
+  engine                 the engine to run: logs.resolve_genes, go.annotate_groups, logs.register_orthology
+  accession              datasets to run on (logs: their searched databases; go: their protein groups; none for logs.register_orthology) (zero or more)
 
 options:
   -h, --help             show this help message and exit

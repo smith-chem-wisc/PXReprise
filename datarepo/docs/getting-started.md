@@ -180,7 +180,7 @@ catalog  …/example-instance/catalog.duckdb
   note     go.annotate_groups coverage (bundles with an artefact): 0 of 1; no artefact for PXD999999 (695a592f6bdfbf63)
   tables   assays 2, datasets 1, definitions 14, findings 6, gene_resolutions 0, …
   indexes  22
-  checks   59 run, all passed
+  checks   60 run, all passed
 site     site
   catalog  13d4c5e2dd5eb83c
   wrote    36 files, 1 dataset page

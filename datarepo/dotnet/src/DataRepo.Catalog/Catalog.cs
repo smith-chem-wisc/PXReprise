@@ -966,8 +966,68 @@ public static class CatalogBuilder
                 $"{engine} coverage (databases with an artefact)", "engine-coverage", true,
                 databases.Count - uncovered.Count, databases.Count, detail));
         }
-        if (GoActive) SelectGoArtefacts(store, bundles, chosen, checks);
+        if (GoActive)
+        {
+            SelectGoArtefacts(store, bundles, chosen, checks);
+            SelectOrthology(store, chosen, checks);
+        }
         return (chosen, checks);
+    }
+
+    /// <summary>The registered orthology snapshot a catalog cites (DATAREPO-75, logs 031): at most one.</summary>
+    /// <remarks>
+    /// <para>A snapshot belongs to no bundle and fills no table: it is read in place, from the artefact's
+    /// <c>snapshot/</c> directory, through its own <c>views.sql</c>. Loading it puts one row in
+    /// <c>catalog_engine_artefacts</c> and its id into the catalog id, so a catalog names exactly the snapshot it serves.</para>
+    /// <para>Two registered snapshots are refused rather than one picked, as two go or logs artefacts for one input
+    /// are: which one a catalog serves is the operator's decision. None is not a failure; the check says so.</para>
+    /// </remarks>
+    private static void SelectOrthology(string store, List<ArtefactRef> chosen, List<CatalogCheck> checks)
+    {
+        var all = Runner.DiscoverArtefacts(store, Runner.OrthologyEngine);
+        var current = all.Where(r => r.SchemaVersion == SchemaContract.Version).ToList();
+        var stale = all.Where(r => r.SchemaVersion != SchemaContract.Version).Select(r => $"{r.ArtefactId} (schema {r.SchemaVersion})").ToList();
+        if (current.Count > 1)
+            throw new CatalogException(
+                $"{Runner.OrthologyEngine}: {current.Count} snapshots are registered ({string.Join(", ", current.Select(r => r.ArtefactId))}). "
+                + "A catalog serves one. Move the ones it should not serve out of "
+                + $"{SourcesPy.PathStr(System.IO.Path.Combine(store, Runner.EngineDir, Runner.OrthologyEngine))}.");
+        chosen.AddRange(current);
+        string? detail = current.Count == 0 ? "no snapshot registered" : null;
+        if (stale.Count > 0) detail = (detail is not null ? detail + "; " : "") + "skipped, other schema: " + string.Join(", ", stale);
+        checks.Add(new CatalogCheck($"{Runner.OrthologyEngine} (snapshots registered)", "engine-coverage", true, current.Count, 1, detail));
+    }
+
+    /// <summary>logs 031: the registered snapshot's gene sets are the ones the loaded gene resolutions used.</summary>
+    /// <remarks>Each <c>gene_resolutions</c> row carries the <c>gene_set_sha256</c> it was resolved against, and the
+    /// snapshot's manifest names one gene set per species. A row whose gene set is not one of the snapshot's means
+    /// the two were built from different Ensembl gene sets, and a gene id joined across them could mean another gene,
+    /// so the build fails. Checked here, where both are loaded together, rather than at registration, where
+    /// either could still change.</remarks>
+    public static List<CatalogCheck> CheckOrthology(DuckDBConnection con, IReadOnlyList<ArtefactRef> artefacts)
+    {
+        var snapshot = artefacts.SingleOrDefault(a => a.Engine == Runner.OrthologyEngine);
+        if (snapshot is null) return [];
+        var record = SourcesPy.Get(snapshot.Record, "snapshot") as IReadOnlyDictionary<string, object?> ?? new Dictionary<string, object?>();
+        var sets = (SourcesPy.Get(record, "gene_set_sha256") as IReadOnlyDictionary<string, object?>)?
+            .Values.Select(v => SourcesPy.Str(v)).ToHashSet(StringComparer.Ordinal) ?? [];
+        var used = new List<string>();
+        using (var cmd = con.CreateCommand())
+        {
+            cmd.CommandText = "SELECT DISTINCT gene_set_sha256 FROM gene_resolutions WHERE gene_set_sha256 IS NOT NULL ORDER BY 1";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read()) used.Add(reader.GetString(0));
+        }
+        var foreign = used.Where(s => !sets.Contains(s)).ToList();
+        return
+        [
+            new CatalogCheck($"{Runner.OrthologyEngine}/{snapshot.ArtefactId} gene sets (gene_resolutions)", "engine-consistency",
+                foreign.Count == 0, foreign.Count, 0,
+                foreign.Count == 0
+                    ? $"{used.Count} gene set(s) in gene_resolutions, all the snapshot's"
+                    : $"gene_resolutions used gene set(s) {string.Join(", ", foreign.Select(s => s[..Math.Min(12, s.Length)]))} that the "
+                      + "snapshot was not built from: re-resolve with logs' gene sets, or register the snapshot built from these"),
+        ];
     }
 
     /// <summary>What a go artefact for this bundle must have been run on, from the bundle's own <c>sources</c>:
@@ -1254,6 +1314,7 @@ public static class CatalogBuilder
                     .. CheckStudy(con, study),
                     .. CheckEngines(con, engines.Where(r => r.Engine != Runner.GoEngine).ToList()),
                     .. CheckGo(con, bundles, engines),
+                    .. CheckOrthology(con, engines),
                     .. engineChecks ?? [],
                     .. AnnotationsActive ? [AnnotationCheck(annotations)] : Array.Empty<CatalogCheck>(),
                     .. AnnotationsActive && exclusions.Count > 0 ? [RunExclusionCheck(con, exclusions)] : Array.Empty<CatalogCheck>(),
