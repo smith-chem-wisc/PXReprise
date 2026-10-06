@@ -19,7 +19,7 @@ against the search engine's own totals. It then builds **one catalog** from them
 It is built for questions that span datasets, such as *"which mitochondrial proteins decline with age
 in skeletal muscle, in how many datasets, and show me the spectra"*. Agents are the main users.
 
-> **Status: released**, datarepo **1.2.0**, core schema **0.0.15**. One self-contained program
+> **Status: released**, datarepo **1.3.0**, core schema **0.0.15**. One self-contained program
 > for Windows, Linux and macOS: no .NET, Python or other install needed. `ingest`, `study`, `run`,
 > `build`, `publish`, `site`, `query` and the MCP server are working. They run against the
 > [aging project](https://github.com/trishorts/aging)'s corpus of about 60 reanalysed datasets,
@@ -31,10 +31,10 @@ in skeletal muscle, in how many datasets, and show me the spectra"*. Agents are 
 
 ```bash
 # the program: one archive per platform (win-x64 .zip; linux-x64, osx-arm64, osx-x64 .tar.gz)
-curl -LO https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.2.0/datarepo-1.2.0-linux-x64.tar.gz
-tar -xzf datarepo-1.2.0-linux-x64.tar.gz && export PATH="$PWD/datarepo:$PATH"
+curl -LO https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.3.0/datarepo-1.3.0-linux-x64.tar.gz
+tar -xzf datarepo-1.3.0-linux-x64.tar.gz && export PATH="$PWD/datarepo:$PATH"
 # the example instance, from this repository
-git clone --depth 1 --branch v1.2.0 https://github.com/smith-chem-wisc/dataRepo.git dataRepo-src
+git clone --depth 1 --branch v1.3.0 https://github.com/smith-chem-wisc/dataRepo.git dataRepo-src
 cp -r dataRepo-src/tests/data example-instance && cd example-instance
 
 datarepo ingest  manifest.yaml PXD999999                  # one dataset's search output -> a bundle

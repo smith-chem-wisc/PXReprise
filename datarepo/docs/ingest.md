@@ -30,7 +30,7 @@ datarepo doctor                # what this build is, and whether an MCP server i
 `doctor` is the first thing to run on a new machine:
 
 ```
-datarepo 1.2.0  schema 0.0.15
+datarepo 1.3.0  schema 0.0.15
   runtime          .NET 10.0.10
   mzLib            1.0.593.0
   parquet          ParquetSharp 24.0.0.0
@@ -396,7 +396,7 @@ is what they have always effectively been. Asked as DATAREPO-26.
 ## Reproducing a bundle
 
 A bundle id is a hash of every input, the schema version and the ingest path's version
-(`BundleWriter.IngesterVersion`, `cs-1.1.0` in 1.1.0 and 1.2.0), so **two sites get the same bundle id exactly
+(`BundleWriter.IngesterVersion`, `cs-1.1.0` in 1.1.0 to 1.3.0), so **two sites get the same bundle id exactly
 when they would write the same rows**. To reproduce one:
 
 1. **Use the release that wrote it.** `bundle.json`'s `ingester.version` names the program's version

@@ -4,6 +4,32 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [1.3.0] - 2026-10-06
+
+**An orthology snapshot can be registered and cited.** The ingest path stays `cs-1.1.0` and the schema 0.0.15, so
+there is **no re-ingest**, and the catalog format stays 10.
+
+### Added
+- **`datarepo run logs.register_orthology`** (logs DATAREPO-75). It takes no accession, only
+  `--input snapshot_tar=<compara-N.tar>` and `--input snapshot_manifest=<compara-N.manifest.json>` from logs'
+  release.
+  - It checks the snapshot against `logs:DEF-ORTHOLOGY v1`'s file contract and refuses on any failure:
+    - the tar and the manifest must be a release logs published (by sha256);
+    - the format must be `ensembl-orthology-snapshot`, version 1 and no other;
+    - every listed file must match its sha256, bytes and rows, and no unlisted file may be present;
+    - `views.sql` must load, and `pair_status` must give every gene exactly one status in every direction.
+  - **No rows are copied.** The snapshot is read in place from the artefact's `snapshot/` directory, through its own
+    `views.sql`.
+  - Its record carries the release tag, both sha256s, `snapshot_id`, the format, the species, the gene-set sha256s
+    and logs' attribution.
+- **`build` cites the registered snapshot** in `catalog_engine_artefacts` and the catalog id.
+  - Two registered snapshots are refused.
+  - The build fails if the loaded `gene_resolutions` used a gene set the snapshot was not built from.
+  - Every catalog gains one check row for this, whether or not a snapshot is registered.
+
+### Changed
+- `datarepo run` takes zero or more accessions (none for `logs.register_orthology`; at least one for the others).
+
 ## [1.2.0] - 2026-10-06
 
 **The go engine runs.** go published its definition, `go:DEF-GROUP-GO-ANNOTATION v1` (go 023, go D40), and
