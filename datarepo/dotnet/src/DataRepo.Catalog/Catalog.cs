@@ -157,7 +157,7 @@ public sealed record DerivedDoc(string Description, IReadOnlyDictionary<string, 
 /// <para>Every SQL statement is the Python's, run on the same DuckDB engine version (DuckDB.NET 1.5.5 ships
 /// DuckDB 1.5.5), so the work is done where the Python did it: in SQL.</para>
 /// </remarks>
-public static class CatalogBuilder
+public static partial class CatalogBuilder
 {
     /// <summary>Bumped when a build produces a different catalog from the same bundles.</summary>
     /// <remarks>Part of the content hash, so a change to the builder gives every catalog a new id even from
@@ -181,8 +181,10 @@ public static class CatalogBuilder
     /// manifest naming none builds the catalog -- and the id -- it built before. Inside a <see cref="SchemaContract.Python0320"/> scope it stays "8", and go and the annotations are left
     /// out, so a parity build is still what Python 0.32.0 built. Same principle as
     /// <c>manifest.CONTENT_FIELDS</c> one level down -- an id moves when its own content moves, and not
-    /// otherwise.</remarks>
-    public static string CatalogVersion => SchemaContract.IsPython0320 ? "8" : "10";
+    /// otherwise. "11" loads the ptmQtl engines' artefacts into <c>ptm_pairs</c> and <c>trait_effects</c>, with a
+    /// catalog column <c>artefact_id</c> on both and NULL <c>dataset_id</c> / <c>bundle_id</c> on pooled rows
+    /// (<c>CatalogPtmQtl.cs</c>).</remarks>
+    public static string CatalogVersion => SchemaContract.IsPython0320 ? "8" : "11";
 
     /// <summary>Whether this build loads go's artefacts: always, except when reproducing Python 0.32.0, which had
     /// no go engine.</summary>
@@ -970,6 +972,7 @@ public static class CatalogBuilder
         {
             SelectGoArtefacts(store, bundles, chosen, checks);
             SelectOrthology(store, chosen, checks);
+            SelectPtmQtl(store, bundles, chosen, checks);
         }
         return (chosen, checks);
     }
@@ -1301,6 +1304,7 @@ public static class CatalogBuilder
                 studyCounts = CreateStudyTables(con, study);
                 foreach (var (k, v) in CreateEngineTables(con, engines)) rowCounts[k] = v;
                 foreach (var (k, v) in LoadGoRows(con, bundles, engines)) rowCounts[k] = v;
+                foreach (var (k, v) in LoadPtmQtlRows(con, bundles, engines)) rowCounts[k] = v;
                 BuildEngineDerived(con, bundles);
                 if (AnnotationsActive)
                 {
@@ -1312,9 +1316,10 @@ public static class CatalogBuilder
                     .. CheckRowCounts(con, bundles),
                     .. CheckIntegrity(con),
                     .. CheckStudy(con, study),
-                    .. CheckEngines(con, engines.Where(r => r.Engine != Runner.GoEngine).ToList()),
+                    .. CheckEngines(con, engines.Where(r => r.Engine != Runner.GoEngine && !PtmQtlTables.ContainsKey(r.Engine)).ToList()),
                     .. CheckGo(con, bundles, engines),
                     .. CheckOrthology(con, engines),
+                    .. CheckPtmQtl(con, engines),
                     .. engineChecks ?? [],
                     .. AnnotationsActive ? [AnnotationCheck(annotations)] : Array.Empty<CatalogCheck>(),
                     .. AnnotationsActive && exclusions.Count > 0 ? [RunExclusionCheck(con, exclusions)] : Array.Empty<CatalogCheck>(),
@@ -2130,6 +2135,7 @@ public static class CatalogBuilder
             var name = spec.Name;
             var kind = Runner.EngineTables.TryGetValue(name, out var engine) ? $"engine:{engine}"
                 : GoActive && Runner.GoTables.Contains(name) ? $"engine:{Runner.GoEngine}"
+                : GoActive && PtmQtlTables.Values.Contains(name) ? "engine:ptmqtl"
                 // The census is the manifest's, not a bundle's. Only when one was loaded: without it the table is
                 // the empty core table it always was.
                 : censusLoaded && name == CandidateCensus.Table ? "manifest"

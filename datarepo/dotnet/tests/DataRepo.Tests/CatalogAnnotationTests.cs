@@ -96,7 +96,7 @@ public class CatalogAnnotationTests
         Assert.That(row[2], Is.Null, "the fixture entry has no notes");
         Assert.That(row[3], Is.EqualTo(new List<string> { "low_id_rate", "no_design_file" }));
         Assert.That(row[4], Is.EqualTo("aging-provenance/2"));
-        Assert.That(CatalogBuilder.RunQuery(before.Path, "SELECT catalog_version FROM catalog_meta").Rows.Single()[0], Is.EqualTo("10"));
+        Assert.That(CatalogBuilder.RunQuery(before.Path, "SELECT catalog_version FROM catalog_meta").Rows.Single()[0], Is.EqualTo("11"));
         var check = before.Checks.Single(c => c.Kind == "manifest");
         Assert.That((check.Ok, check.Observed, check.Expected, check.Detail), Is.EqualTo((true, (long?)1, (long?)1, (string?)null)));
 

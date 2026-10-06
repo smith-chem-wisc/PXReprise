@@ -4,6 +4,28 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [Unreleased] - 1.4.0, waiting on an mzLib release carrying #1430
+
+**ptmQtl's engines.** The release that carries them needs mzLib 1.0.595 or later. That mzLib also writes
+UniProt-named modifications as UNIMOD ids in ProForma (#1403), so the ingest path moves and **an instance re-ingests
+once**. The catalog format is 11.
+
+### Added
+- **`datarepo run ptmqtl.site_pairs | ptmqtl.pool_pairs | ptmqtl.site_traits`** (ptmQtl 025; our 026, 031). These
+  apply `ptmQtl:DEF-PTM-PAIR v2` and `ptmQtl:DEF-SITE-TRAIT v1` through mzLib only.
+  - `site_pairs` gives same-molecule and co-varying pairs per search.
+  - `pool_pairs` pools them per species, from the stored artefacts.
+  - `site_traits` gives site-trait fits per search and trait.
+  - Inputs: `--input enrichment=<tsv>` (the operator's PTM-enriched deposits) and, for `site_traits`,
+    `--input traits=<tsv>`.
+  - Each artefact records whether its search predates mzLib 1.0.592: such a search lacks protein N-termini after
+    Met removal.
+- **`build` loads them** into `ptm_pairs` and `trait_effects`.
+  - Every ptmQtl row carries a new catalog column, `artefact_id`.
+  - Pooled rows have NULL `dataset_id` and `bundle_id`.
+  - One enrichment list per catalog; two artefacts for one slot are refused.
+  - Every catalog gains one coverage check row.
+
 ## [1.3.0] - 2026-10-06
 
 **An orthology snapshot can be registered and cited.** The ingest path stays `cs-1.1.0` and the schema 0.0.15, so

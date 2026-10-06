@@ -288,6 +288,85 @@ public class PtmQtlEngineTests
         finally { Remove(store); }
     }
 
+    private static string RepoRoot()
+    {
+        for (var dir = new DirectoryInfo(TestContext.CurrentContext.TestDirectory); dir is not null; dir = dir.Parent)
+            if (File.Exists(Path.Combine(dir.FullName, "schema", "datarepo.yaml"))) return dir.FullName;
+        throw new DirectoryNotFoundException("repository root");
+    }
+
+    private static void CopyTree(string from, string to)
+    {
+        foreach (var d in Directory.EnumerateDirectories(from, "*", SearchOption.AllDirectories))
+            Directory.CreateDirectory(Path.Combine(to, Path.GetRelativePath(from, d)));
+        foreach (var f in Directory.EnumerateFiles(from, "*", SearchOption.AllDirectories))
+            File.Copy(f, Path.Combine(to, Path.GetRelativePath(from, f)));
+    }
+
+    /// <summary>The engine's artefact writer, with given rows, as if a ptmqtl engine had run.</summary>
+    private static DataRepo.Catalog.ArtefactRef WriteArtefact(string store, string engine, Dictionary<string, string> inputs, Dictionary<string, object?> summary, List<Row> rows) =>
+        EngineRunner.WriteArtefact(store, engine, EngineRunner.ArtefactId(engine, new Dictionary<string, string> { ["mzlib"] = "test" }, inputs, PtmQtlCore.PairDefinition),
+            new Dictionary<string, object?>
+            {
+                ["definition_id"] = PtmQtlCore.PairDefinition,
+                ["inputs"] = inputs.ToDictionary(kv => kv.Key, kv => (object?)kv.Value),
+                ["engine_summary"] = summary,
+            },
+            new Dictionary<string, List<IReadOnlyDictionary<string, object?>>> { ["ptm_pairs"] = rows.Cast<IReadOnlyDictionary<string, object?>>().ToList() });
+
+    /// <summary>The fixture search ingested into a scratch store, a dataset artefact and a pooled one on it (holding the
+    /// reference case's rows: the fixture stores no occupancy, so the engine gives it no pairs), and a catalog built.</summary>
+    [Test]
+    public void TheCatalogLoadsDatasetAndPooledRowsEachUnderItsArtefact()
+    {
+        var root = Scratch();
+        try
+        {
+            CopyTree(Path.Combine(RepoRoot(), "tests", "data"), Path.Combine(root, "data"));
+            var manifestPath = Path.Combine(root, "data", "manifest.yaml");
+            var store = Path.Combine(root, "store");
+            var bundle = DataRepo.Catalog.BundleRef.Load(DataRepo.Ingest.Ingester.Ingest(manifestPath, "PXD999999", store).BundlePath);
+            var reference = Datasets();
+            var d1 = PtmQtlCore.SitePairs(reference.Single(d => d.DatasetId == "D1"));
+            var pooledRows = PtmQtlCore.Pool("mouse", reference.SelectMany(ds => PtmQtlCore.SitePairs(ds).Pairs.Select(p => (ds.DatasetId, p.Pair, p.A, p.B))));
+            var artefact = WriteArtefact(store, PtmQtlEngine.SitePairsEngine, new() { ["bundle"] = bundle.BundleId, ["enrichment"] = "e1" },
+                new() { ["species"] = "mouse" }, d1.Rows);
+            var pool = WriteArtefact(store, PtmQtlEngine.PoolPairsEngine, new() { ["site_pairs:PXD999999"] = artefact.ArtefactId, ["enrichment"] = "e1" },
+                new() { ["species"] = "mouse" }, pooledRows);
+            var expected = (long)d1.Rows.Count;
+
+            var manifest = DataRepo.Ingest.Manifest.Load(manifestPath);
+            var bundles = DataRepo.Catalog.CatalogBuilder.SelectBundles(manifest, ["PXD999999"], store);
+            var (artefacts, checks) = DataRepo.Catalog.CatalogBuilder.SelectArtefacts(store, bundles);
+            Assert.That(artefacts.Select(a => a.ArtefactId), Does.Contain(artefact.ArtefactId));
+            var output = Path.Combine(root, "catalog.duckdb");
+            DataRepo.Catalog.CatalogBuilder.BuildCatalog(bundles, output, instance: manifest.Instance, artefacts: artefacts, engineChecks: checks);
+            using (var con = new DuckDB.NET.Data.DuckDBConnection($"DataSource={output};ACCESS_MODE=READ_ONLY"))
+            {
+                con.Open();
+                long Scalar(string sql) { using var c = con.CreateCommand(); c.CommandText = sql; return Convert.ToInt64(c.ExecuteScalar()); }
+                Assert.That(Scalar($"SELECT count(*) FROM ptm_pairs WHERE artefact_id = '{artefact.ArtefactId}' AND dataset_id = 'PXD999999' AND bundle_id = '{bundle.BundleId}'"), Is.EqualTo(expected));
+                Assert.That(Scalar("SELECT count(*) FROM catalog_tables WHERE table_name = 'ptm_pairs' AND kind = 'engine:ptmqtl'"), Is.EqualTo(1));
+                Assert.That(Scalar($"SELECT count(*) FROM catalog_engine_artefacts WHERE artefact_id = '{artefact.ArtefactId}'"), Is.EqualTo(1));
+                // Pooled rows: no bundle, their own artefact, scope meta:<species>.
+                Assert.That(Scalar($"SELECT count(*) FROM ptm_pairs WHERE artefact_id = '{pool.ArtefactId}' AND dataset_id IS NULL AND bundle_id IS NULL AND scope = 'meta:mouse'"),
+                    Is.EqualTo(pooledRows.Count).And.GreaterThan(0));
+                Assert.That(Scalar("SELECT count(*) FROM catalog_checks WHERE kind = 'row_count' AND name LIKE 'ptmqtl.%' AND ok"), Is.EqualTo(2));
+            }
+
+            // A pooled artefact whose input site_pairs artefact is not in the catalog is left out, not loaded.
+            WriteArtefact(store, PtmQtlEngine.PoolPairsEngine, new() { ["site_pairs:PXD999999"] = "0000000000000000", ["enrichment"] = "e1" },
+                new() { ["species"] = "rat" }, pooledRows);
+            Assert.That(DataRepo.Catalog.CatalogBuilder.SelectArtefacts(store, bundles).Artefacts.Count(a => a.Engine == PtmQtlEngine.PoolPairsEngine), Is.EqualTo(1));
+
+            // A second enrichment list for the same bundle: two artefacts for one slot are refused, not picked.
+            WriteArtefact(store, PtmQtlEngine.SitePairsEngine, new() { ["bundle"] = bundle.BundleId, ["enrichment"] = "e2" }, new() { ["species"] = "mouse" }, d1.Rows);
+            Assert.That(() => DataRepo.Catalog.CatalogBuilder.SelectArtefacts(store, bundles),
+                Throws.TypeOf<DataRepo.Bundle.CatalogException>().With.Message.Contains("another enrichment list"));
+        }
+        finally { Remove(root); }
+    }
+
     [Test]
     public void ANameHoldingBracketsIsReadWhole()
     {
