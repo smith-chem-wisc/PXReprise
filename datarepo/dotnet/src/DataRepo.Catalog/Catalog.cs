@@ -1043,6 +1043,8 @@ public static class CatalogBuilder
                     + $"Move the ones it should not serve out of {SourcesPy.PathStr(System.IO.Path.Combine(store, Runner.EngineDir, Runner.GoEngine))}.");
             if (!chosen.Any(c => c.Engine == refs[0].Engine && c.ArtefactId == refs[0].ArtefactId)) chosen.Add(refs[0]);
         }
+        RequireOneOntologyAndMap(store, bundles.Where(b => byBundle.ContainsKey(b.BundleId))
+            .Select(b => (b.DatasetId, byBundle[b.BundleId][0])).ToList());
         string? detail = null;
         if (uncovered.Count > 0)
             detail = "no artefact for " + string.Join("; ", uncovered.Select(b => $"{b.DatasetId} ({b.BundleId})"));
@@ -1051,6 +1053,28 @@ public static class CatalogBuilder
         checks.Add(new CatalogCheck(
             $"{Runner.GoEngine} coverage (bundles with an artefact)", "engine-coverage", true,
             bundles.Count - uncovered.Count, bundles.Count, detail));
+    }
+
+    /// <summary>go GO-D9 (go 024): one catalog serves one go.obo and one category map, by sha256, so a category
+    /// compared across its datasets was assigned under one ontology and one map.</summary>
+    /// <remarks>A go.obo or map change re-annotates every dataset together (re-annotation needs no re-search). The
+    /// UniProt annotation database is per dataset by GO-D5 and is not part of this rule.</remarks>
+    /// <exception cref="CatalogException">The artefacts these bundles matched used two or more of either.</exception>
+    public static void RequireOneOntologyAndMap(string store, IReadOnlyList<(string DatasetId, ArtefactRef Artefact)> annotated)
+    {
+        foreach (var role in new[] { "ontology", "category_map" })
+        {
+            var used = annotated.GroupBy(p => p.Artefact.Inputs.GetValueOrDefault(role) ?? "(none)", StringComparer.Ordinal).ToList();
+            if (used.Count < 2) continue;
+            static string Datasets(IEnumerable<(string DatasetId, ArtefactRef Artefact)> pairs) =>
+                string.Join(", ", pairs.Select(p => p.DatasetId).Distinct(StringComparer.Ordinal).Order(SourcesPy.CodePointOrder));
+            throw new CatalogException(
+                $"{Runner.GoEngine}: these bundles were annotated under {used.Count} different {role} files ("
+                + string.Join("; ", used.OrderBy(g => g.Key, SourcesPy.CodePointOrder).Select(g => $"{g.Key[..Math.Min(12, g.Key.Length)]}: {Datasets(g)}"))
+                + "). A catalog serves one go.obo and one category map, so a category means the same thing in every "
+                + "dataset (go GO-D9). Re-annotate the others with the same --input, or move their artefacts out of "
+                + $"{SourcesPy.PathStr(System.IO.Path.Combine(store, Runner.EngineDir, Runner.GoEngine))}.");
+        }
     }
 
     /// <summary>Each bundle and the go artefact that annotated it, in dataset order.</summary>

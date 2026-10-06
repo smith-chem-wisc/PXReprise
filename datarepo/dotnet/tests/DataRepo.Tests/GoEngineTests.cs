@@ -284,4 +284,23 @@ public class GoEngineTests
         Assert.That(() => CatalogBuilder.SelectArtefacts(Store, bundles),
             Throws.TypeOf<CatalogException>().With.Message.Contains("2 artefacts").And.Message.Contains("A catalog serves one"));
     }
+
+    private static ArtefactRef Annotated(string id, string ontology, string map) => new("unused", new Dictionary<string, object?>
+    {
+        ["engine"] = GoEngine.Engine, ["artefact_id"] = id,
+        ["inputs"] = new Dictionary<string, object?> { ["ontology"] = ontology, ["category_map"] = map, ["protein_groups"] = id },
+    });
+
+    [TestCase("ontology")]
+    [TestCase("category_map")]
+    public void ACatalogServesOneOntologyAndOneMap(string differing)
+    {
+        // go GO-D9 (go 024): a category compared across datasets must come from one go.obo and one map.
+        var a = Annotated("a", "obo1", "map1");
+        var b = differing == "ontology" ? Annotated("b", "obo2", "map1") : Annotated("b", "obo1", "map2");
+        CatalogBuilder.RequireOneOntologyAndMap(Store, [("PXD1", a), ("PXD2", Annotated("c", "obo1", "map1"))]);
+        Assert.That(() => CatalogBuilder.RequireOneOntologyAndMap(Store, [("PXD1", a), ("PXD2", b)]),
+            Throws.TypeOf<CatalogException>().With.Message.Contains($"2 different {differing} files")
+                .And.Message.Contains(": PXD1").And.Message.Contains(": PXD2").And.Message.Contains("GO-D9"));
+    }
 }
