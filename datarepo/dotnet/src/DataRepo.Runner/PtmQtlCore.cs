@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using DataRepo.Bundle;
 using Quantification.PtmQtl;
 
@@ -17,9 +16,15 @@ public sealed record StoredOccupancyCell(string Run, string Protein, int Positio
 /// <param name="RunToSample">Every run's sample: a fraction maps to its sample, an injection to itself (S4).</param>
 /// <param name="Unimod">IdWithMotif -> UNIMOD accession, for the cross-dataset key (S5). An IdWithMotif without one keys by itself.</param>
 /// <param name="Enriched">The deposit captures a modified form (S3): type P only.</param>
+/// <param name="CategoryNames">Every MetaMorpheus name the dataset's peptidoforms carry, from which each IdWithMotif's
+/// category is read (S2). Null means the observations' own names, as in ptmQtl's reference case.</param>
 public sealed record PtmQtlDataset(string DatasetId, string Species, IReadOnlyList<PeptidoformObservation> Observations,
     IReadOnlyList<StoredOccupancyCell> Occupancy, IReadOnlyDictionary<string, string> RunToSample,
-    IReadOnlyDictionary<string, string> Unimod, bool Enriched);
+    IReadOnlyDictionary<string, string> Unimod, bool Enriched, IReadOnlyList<string>? CategoryNames = null)
+{
+    /// <summary>Each IdWithMotif's category (S2).</summary>
+    public Dictionary<string, string> Categories() => PtmQtlCore.Categories(CategoryNames ?? Observations.Select(o => o.FullSequence));
+}
 
 /// <summary>One site of a stored pair, with what pooling needs to rebuild the mzLib site and key it (S5).</summary>
 public sealed record PairSite(string Protein, int Position, char Residue, string Modification, bool ProteinNTerm, string CanonicalKey)
@@ -57,7 +62,22 @@ public static class PtmQtlCore
     /// <summary>The fraction of a dataset's runs in which a site must be quantified to enter type A.</summary>
     public const double MinQuantifiedFraction = 0.7;
 
-    private static readonly Regex Bracket = new(@"\[([^\[\]:]+):([^\[\]]+)\]", RegexOptions.CultureInvariant);
+    /// <summary>The <c>Category:IdWithMotif</c> names in a MetaMorpheus full sequence, outermost brackets only.</summary>
+    /// <remarks>Scanned by bracket depth, not by a pattern: a name may itself hold brackets, as the metal adducts do
+    /// (<c>[Metal:Cu[I] on D]</c>), and a flat pattern silently misses those.</remarks>
+    public static IEnumerable<string> ModificationNames(string fullSequence)
+    {
+        int depth = 0, start = -1;
+        for (var i = 0; i < fullSequence.Length; i++)
+        {
+            if (fullSequence[i] == '[')
+            {
+                if (depth++ == 0) start = i + 1;
+            }
+            else if (fullSequence[i] == ']' && depth > 0 && --depth == 0)
+                yield return fullSequence[start..i];
+        }
+    }
 
     /// <summary>S2, on a <c>Category:IdWithMotif</c> name.</summary>
     /// <remarks>An <c>AspN Digested</c> site on D is refused: the human SUMO entries target D, but they are lysine
@@ -76,13 +96,20 @@ public static class PtmQtlCore
 
     /// <summary>Each IdWithMotif's category, from the MetaMorpheus names of the dataset's peptidoforms (S2).</summary>
     /// <exception cref="RunnerException">One IdWithMotif carries two categories in one dataset: its class is undecidable.</exception>
-    public static Dictionary<string, string> Categories(IEnumerable<PeptidoformObservation> observations)
+    public static Dictionary<string, string> Categories(IEnumerable<PeptidoformObservation> observations) =>
+        Categories(observations.Select(o => o.FullSequence));
+
+    /// <summary>Each IdWithMotif's category, from MetaMorpheus full sequences (S2).</summary>
+    /// <exception cref="RunnerException">One IdWithMotif carries two categories: its class is undecidable.</exception>
+    public static Dictionary<string, string> Categories(IEnumerable<string> fullSequences)
     {
         var categories = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var o in observations)
-            foreach (Match m in Bracket.Matches(o.FullSequence))
+        foreach (var sequence in fullSequences)
+            foreach (var name in ModificationNames(sequence))
             {
-                var (category, idm) = (m.Groups[1].Value, m.Groups[2].Value);
+                var colon = name.IndexOf(':');
+                if (colon <= 0) continue;
+                var (category, idm) = (name[..colon], name[(colon + 1)..]);
                 if (!categories.TryAdd(idm, category) && categories[idm] != category)
                     throw new RunnerException(
                         $"the modification '{idm}' is written with two categories ('{categories[idm]}', '{category}') in one dataset, "
@@ -199,7 +226,7 @@ public static class PtmQtlCore
         var produced = PtmPairEngine.Physical(observations, IsBiological).Select(p => (p, isA: false)).ToList();
         if (!dataset.Enriched)
         {
-            var occupancy = Occupancy(dataset, Categories(dataset.Observations), leftOut);
+            var occupancy = Occupancy(dataset, dataset.Categories(), leftOut);
             produced.AddRange(PtmPairEngine.CoVarying(occupancy, observations, minQuantifiedFraction: MinQuantifiedFraction, excludeCeiling: true)
                 .Select(p => (p, isA: true)));
         }
@@ -255,7 +282,7 @@ public static class PtmQtlCore
             throw new RunnerException($"{dataset.DatasetId} captures a modified form (ptmQtl S3): no site-trait fit is computed on it.");
         var leftOut = new Dictionary<string, long>(StringComparer.Ordinal);
         var nterms = ProteinNTerms(dataset);
-        var occupancy = Occupancy(dataset, Categories(dataset.Observations), leftOut);
+        var occupancy = Occupancy(dataset, dataset.Categories(), leftOut);
         var rows = new List<Row>();
         var fits = new List<Row>();
         foreach (var e in SiteTraitEffects.Fit(occupancy, trait, replicate, options: new SiteTraitOptions()))

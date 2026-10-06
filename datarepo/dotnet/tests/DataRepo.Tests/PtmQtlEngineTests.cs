@@ -155,6 +155,32 @@ public class PtmQtlEngineTests
             Throws.TypeOf<RunnerException>().With.Message.Contains("ptmQtl S3"));
     }
 
+    /// <summary>A real bundle from aging's store, read and run (scratch, read-only; skipped where the store is absent).</summary>
+    [Test, Category("RealData")]
+    public void ARealBundleReadsAndRuns()
+    {
+        const string bundlePath = "F:/aging_data/repo/store/PXD035107/8d3e89df26f138e5";
+        if (!Directory.Exists(bundlePath)) Assert.Ignore("aging's store is not on this machine");
+        var (dataset, counts) = PtmQtlBundle.Read(DataRepo.Catalog.BundleRef.Load(bundlePath), enriched: false);
+        TestContext.Out.WriteLine(string.Join("\n", counts.Select(kv => $"{kv.Key}: {kv.Value}")));
+        Assert.That(dataset.Observations, Is.Not.Empty);
+        Assert.That(dataset.Occupancy, Is.Not.Empty);
+        var pairs = PtmQtlCore.SitePairs(dataset);
+        TestContext.Out.WriteLine($"rows {pairs.Rows.Count}: P {pairs.Rows.Count(r => (string)r["result_type"]! == "P")}, "
+            + $"A {pairs.Rows.Count(r => (string)r["result_type"]! == "A")}; left out: "
+            + string.Join(", ", pairs.LeftOut.Select(kv => $"{kv.Key} {kv.Value}")));
+        Assert.That(DataRepo.Bundle.ArrowTables.FromRows("ptm_pairs", pairs.Rows).Length, Is.EqualTo(pairs.Rows.Count),
+            "the rows fit the ptm_pairs schema");
+    }
+
+    [Test]
+    public void ANameHoldingBracketsIsReadWhole()
+    {
+        Assert.That(PtmQtlCore.ModificationNames("PEPD[Metal:Cu[I] on D]S[Common Biological:Phosphorylation on S]K"),
+            Is.EqualTo(new[] { "Metal:Cu[I] on D", "Common Biological:Phosphorylation on S" }));
+        Assert.That(PtmQtlCore.Categories(new[] { "AD[Metal:Fe[III] on D]K" })["Fe[III] on D"], Is.EqualTo("Metal"));
+    }
+
     [Test]
     public void AModificationWrittenWithTwoCategoriesIsRefused()
     {
