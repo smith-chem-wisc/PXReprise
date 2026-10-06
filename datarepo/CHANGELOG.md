@@ -4,6 +4,30 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [1.2.0] - 2026-10-06
+
+**The go engine runs.** go published its definition, `go:DEF-GROUP-GO-ANNOTATION v1` (go 023, go D40), and
+`datarepo run go.annotate_groups` now runs under it. The ingest path stays `cs-1.1.0` and the schema 0.0.15, so
+**no re-ingest**: bundle ids do not move. Install 1.2.0, annotate the stored bundles, and rebuild. The catalog
+format stays 10. Every catalog id moves, as with any release.
+
+### Changed
+- **`protein_localizations` qualifiers are per accession** (go GO-D7). Each row's `inherited`, `propagated` and
+  `evidence` describe its own accession, taken from go's per-member columns:
+  - `inherited`: the accession is in `accession_inherited`;
+  - `propagated`: the accession is not in `accession_direct`;
+  - `evidence`: the accession's own codes from `evidence_by_member`.
+
+  Before, go's pooled group flags were copied onto every member, so in a multi-member group one member's direct
+  IDA annotation was stated on another's row. No catalog ever held such rows: the engine refused until this release.
+  `protein_group`, `q_value`, `n_members` and `n_with` stay group-level.
+- A go row whose per-member columns contradict it refuses the run.
+
+### Added
+- **A catalog serves one go.obo and one category map** (go GO-D9). A build whose go artefacts used two of either
+  (by sha256) is refused and names which datasets used which, so a category means the same thing in every
+  dataset. To change either file, re-annotate every dataset with it; re-annotation needs no re-search.
+
 ## [1.1.0] - 2026-10-05
 
 **Each run's start time and instrument, the 0.32.0 defects fixed, and four things that reach the catalog
