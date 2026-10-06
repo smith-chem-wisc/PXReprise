@@ -5,7 +5,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="mzLib" Version="1.0.593" />
+    <PackageReference Include="mzLib" Version="1.0.595-pr1430.b2d218d" />
     <PackageReference Include="YamlDotNet" Version="18.1.0" />
   </ItemGroup>
 
