@@ -173,6 +173,121 @@ public class PtmQtlEngineTests
             "the rows fit the ptm_pairs schema");
     }
 
+    private static readonly Dictionary<string, object?> StandInInstall = new()
+    {
+        ["distribution"] = "datarepo", ["version"] = "test", ["source"] = "test-stand-in", ["commit"] = "0",
+    };
+
+    private static string Scratch() => Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), "datarepo-ptmqtl-" + Guid.NewGuid().ToString("N"))).FullName;
+
+    private static void Remove(string dir)
+    {
+        try { Directory.Delete(dir, true); }
+        catch (IOException) { /* a DuckDB file still mapped on Windows; the temp folder is the OS's to clear */ }
+    }
+
+    [Test]
+    public void PairsStoredAndReadBackPoolExactlyAsInMemory()
+    {
+        // P22: pool_pairs works from site_pairs artefacts, never from bundles, so the stored pairs must rebuild
+        // mzLib's pairs exactly. Here the reference case is pooled both ways and every cell compared.
+        var dir = Scratch();
+        try
+        {
+            var inMemory = new List<(string, PtmPair, PairSite, PairSite)>();
+            var stored = new List<(string, PtmPair, PairSite, PairSite)>();
+            foreach (var ds in Datasets())
+            {
+                var pairs = PtmQtlCore.SitePairs(ds).Pairs;
+                inMemory.AddRange(pairs.Select(p => (ds.DatasetId, p.Pair, p.A, p.B)));
+                var file = PtmQtlEngine.WritePairSites(pairs, Path.Combine(dir, ds.DatasetId + ".tsv"));
+                stored.AddRange(PtmQtlEngine.ReadPairSites(file).Select(p => (ds.DatasetId, p.Pair, p.A, p.B)));
+            }
+            var (a, b) = (PtmQtlCore.Pool("mouse", inMemory), PtmQtlCore.Pool("mouse", stored));
+            Assert.That(b, Has.Count.EqualTo(a.Count).And.Count.GreaterThan(0));
+            for (var i = 0; i < a.Count; i++)
+                foreach (var (column, value) in a[i])
+                    Assert.That(Cell(b[i][column]), Is.EqualTo(Cell(value)), $"row {i}, {column}");
+        }
+        finally { Remove(dir); }
+    }
+
+    [Test]
+    public void FractionsOfOneSampleCombineAndAnythingElseIsRefused()
+    {
+        var map = PtmQtlBundle.RunToSample([("f1", "S1", 1), ("f2", "S1", 2), ("r3", "S3", null)], "test");
+        Assert.That(map, Is.EquivalentTo(new Dictionary<string, string> { ["f1"] = "S1", ["f2"] = "S1", ["r3"] = "r3" }));
+        Assert.That(() => PtmQtlBundle.RunToSample([("i1", "S8", null), ("i2", "S8", null)], "test"),
+            Throws.TypeOf<RunnerException>().With.Message.Contains("not distinct fractions").And.Message.Contains("ptmQtl S4"));
+        Assert.That(() => PtmQtlBundle.RunToSample([("i1", "S8", 1), ("i2", "S8", 1)], "test"), Throws.TypeOf<RunnerException>());
+    }
+
+    [Test]
+    public void ATraitTableMustNameOneTraitAndAgreeWithinASample()
+    {
+        var dir = Scratch();
+        try
+        {
+            var runToSample = new Dictionary<string, string> { ["f1"] = "S1", ["f2"] = "S1", ["r3"] = "r3" };
+            string Write(string body)
+            {
+                var path = Path.Combine(dir, "t.tsv");
+                File.WriteAllText(path, "dataset\trun\treplicate\ttrait_id\tvalue\n" + body);
+                return path;
+            }
+            var (id, trait, replicate) = PtmQtlEngine.Traits(Write("D\tf1\tA\tage\t3\nD\tf2\tA\tage\t3\nD\tr3\tB\tage\t12\n"), "D", runToSample);
+            Assert.That((id, trait["S1"], replicate["r3"]), Is.EqualTo(("age", 3.0, "B")));
+            Assert.That(() => PtmQtlEngine.Traits(Write("D\tf1\tA\tage\t3\nD\tf2\tA\tage\t4\n"), "D", runToSample),
+                Throws.TypeOf<RunnerException>().With.Message.Contains("disagree"));
+            Assert.That(() => PtmQtlEngine.Traits(Write("D\tf1\tA\tage\t3\nD\tr3\tB\tweight\t9\n"), "D", runToSample),
+                Throws.TypeOf<RunnerException>().With.Message.Contains("one trait per file"));
+            Assert.That(() => PtmQtlEngine.Traits(Write("D\tzz\tA\tage\t3\n"), "D", runToSample),
+                Throws.TypeOf<RunnerException>().With.Message.Contains("not a run of the bundle"));
+        }
+        finally { Remove(dir); }
+    }
+
+    /// <summary>site_pairs on two real mouse bundles, then pool_pairs over their artefacts (scratch store; the
+    /// bundles are read in place, read-only).</summary>
+    [Test, Category("RealData")]
+    public void TwoRealBundlesPairAndPool()
+    {
+        string[] paths = ["F:/aging_data/repo/store/PXD035107/8d3e89df26f138e5", "F:/aging_data/repo/store/PXD017944/26c4f6a212cb80a6"];
+        if (paths.Any(p => !Directory.Exists(p))) Assert.Ignore("aging's store is not on this machine");
+        var bundles = paths.Select(DataRepo.Catalog.BundleRef.Load).ToList();
+        var store = Scratch();
+        try
+        {
+            var enrichment = Path.Combine(store, "enrichment.tsv");
+            File.WriteAllText(enrichment, "dataset\tenriched_ptm\n");
+            var inputs = new Dictionary<string, string> { ["enrichment"] = enrichment };
+            var written = PtmQtlEngine.SitePairs(store, bundles, inputs, StandInInstall).Written;
+            Assert.That(written, Has.Count.EqualTo(2));
+            foreach (var a in written)
+            {
+                var summary = (IReadOnlyDictionary<string, object?>)a.Record["engine_summary"]!;
+                var gate = (IReadOnlyDictionary<string, object?>)summary["search_gate"]!;
+                Assert.That(gate["lacks_met_removed_protein_n_term"], Is.EqualTo(true), "MetaMorpheus 1.1.11 pins mzLib 1.0.591 (S6)");
+                Assert.That(a.RowCounts["ptm_pairs"], Is.EqualTo((long)summary["rows_p"]! + (long)summary["rows_a"]!));
+                TestContext.Out.WriteLine($"{summary["dataset_id"]}: P {summary["rows_p"]}, A {summary["rows_a"]}");
+            }
+            Assert.That(PtmQtlEngine.SitePairs(store, bundles, inputs, StandInInstall).AlreadyDone, Has.Count.EqualTo(2), "the same inputs are already done");
+
+            var pooled = PtmQtlEngine.PoolPairs(store, bundles, inputs, StandInInstall).Written.Single();
+            var pooledSummary = (IReadOnlyDictionary<string, object?>)pooled.Record["engine_summary"]!;
+            Assert.That(pooledSummary["species"], Is.EqualTo("NCBITaxon:10090"));
+            TestContext.Out.WriteLine($"meta: P {pooledSummary["rows_p"]}, A {pooledSummary["rows_a"]}");
+            var rows = DataRepo.Bundle.ArrowTables.ReadParquet(pooled.TablePath("ptm_pairs")!).Rows;
+            Assert.That(rows.All(r => (string)r["scope"]! == "meta:NCBITaxon:10090" && (long)r["n_datasets"]! == 2));
+
+            // Another enrichment list is other artefacts: pooling refuses until site_pairs ran under it.
+            File.WriteAllText(enrichment, "dataset\tenriched_ptm\nPXD017944\tphospho\n");
+            Assert.That(() => PtmQtlEngine.PoolPairs(store, bundles, inputs, StandInInstall),
+                Throws.TypeOf<RunnerException>().With.Message.Contains("Run ptmqtl.site_pairs on them first"));
+        }
+        finally { Remove(store); }
+    }
+
     [Test]
     public void ANameHoldingBracketsIsReadWhole()
     {

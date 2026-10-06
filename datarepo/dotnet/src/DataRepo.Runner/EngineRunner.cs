@@ -31,7 +31,11 @@ public static class EngineRunner
     public const string RunnerVersion = "1";
 
     /// <summary>Engines the runner knows.</summary>
-    public static readonly IReadOnlyList<string> Engines = [LogsEngine.Engine, GoEngine.Engine, OrthologyEngine.Engine];
+    public static readonly IReadOnlyList<string> Engines =
+    [
+        LogsEngine.Engine, GoEngine.Engine, OrthologyEngine.Engine,
+        PtmQtlEngine.SitePairsEngine, PtmQtlEngine.PoolPairsEngine, PtmQtlEngine.SiteTraitsEngine,
+    ];
 
     /// <summary>Which datarepo build is running, or a refusal (aging 063).</summary>
     /// <remarks>A release build carries its version and the commit it was built from (CI stamps both: Version and
