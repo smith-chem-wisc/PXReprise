@@ -70,7 +70,7 @@ internal static class RunCommand
         }
         var bundles = PickBundles(store, a.Positionals("accession"), pins, a.Flag("--latest"));
         var go = engine == GoEngine.Engine;
-        // go refuses until go publishes a definition id (GoEngine.DefinitionId, charter S4).
+        // go's published definition id (go D40); GoEngine.Run refuses a call without one.
         var result = go ? GoEngine.Run(store, bundles, inputs, GoEngine.DefinitionId) : LogsEngine.Run(store, bundles, inputs);
         foreach (var reference in result.Written)
         {

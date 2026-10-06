@@ -78,8 +78,9 @@ public sealed class GoCategories
 /// <c>n_with</c>, <c>inherited</c>, <c>propagated</c>) IS stored, from schema 0.0.10 (D28: one schema change
 /// with the runner's <c>gene_resolutions</c>).</item>
 /// <item><b>go D33's per-member columns</b> (<c>accession_direct</c>, <c>accession_inherited</c>,
-/// <c>evidence_by_member</c>). They are checked by name and read, but not stored: storing them is a schema
-/// decision not yet taken. <c>inherited</c> (stored) also covers a sequence variant from D34 on.</item>
+/// <c>evidence_by_member</c>) as columns. They are not stored as they stand; each accession's row takes its own
+/// <c>inherited</c>, <c>propagated</c> and <c>evidence</c> from them instead (GO-D7, see
+/// <see cref="LocalizationRows"/>). <c>inherited</c> also covers a sequence variant from D34 on.</item>
 /// </list>
 /// <para>Header keys this reader does not use, such as D35's optional <c>#!unresolved_go_ids</c>, are kept in
 /// <c>Header</c> and otherwise ignored.</para>
@@ -464,31 +465,107 @@ public static class Go
 
     public static string SourceId(GoAnnotation annotation) => $"go:{annotation.GoRelease}:{annotation.Sha256[..12]}";
 
+    /// <summary>go's <c>evidence_by_member</c> cell, <c>member=code,code;member=code</c>, as member -> codes.</summary>
+    /// <exception cref="IngestException">An entry with no <c>=</c>, or a member named twice.</exception>
+    public static Dictionary<string, List<string>> EvidenceByMember(string cell)
+    {
+        var result = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var entry in SplitCell(cell))
+        {
+            var at = entry.IndexOf('=');
+            if (at <= 0)
+                throw new IngestException($"evidence_by_member entry {Repr(entry)} is not `member=code,code`");
+            if (!result.TryAdd(entry[..at], entry[(at + 1)..].Split(',').Where(c => c.Length > 0).ToList()))
+                throw new IngestException($"evidence_by_member names {Repr(entry[..at])} twice");
+        }
+        return result;
+    }
+
+    /// <summary>One go row's per-member qualifiers (go D33), checked against its pooled ones.</summary>
+    /// <exception cref="IngestException">A per-member column names an accession outside <c>accession_used</c>,
+    /// <c>evidence_by_member</c> does not cover exactly <c>accession_used</c>, or the pooled <c>inherited</c> /
+    /// <c>propagated</c> are not what the per-member columns give. Each is go's writer breaking its own contract,
+    /// and a per-accession row built from it would be wrong.</exception>
+    private static (HashSet<string> Direct, HashSet<string> Inherited, Dictionary<string, List<string>> Evidence) PerMember(
+        Dictionary<string, string> row, List<string> used)
+    {
+        var where = $"group {row["protein_group"]}, term {row["go_id"]}";
+        var usedSet = used.ToHashSet(StringComparer.Ordinal);
+        var direct = SplitCell(row["accession_direct"]).ToHashSet(StringComparer.Ordinal);
+        var inherited = SplitCell(row["accession_inherited"]).ToHashSet(StringComparer.Ordinal);
+        Dictionary<string, List<string>> evidence;
+        try { evidence = EvidenceByMember(row["evidence_by_member"]); }
+        catch (IngestException e) { throw new IngestException($"{where}: {e.Message}"); }
+        foreach (var (column, members) in new[] { ("accession_direct", direct), ("accession_inherited", inherited) })
+        {
+            var outside = members.Where(m => !usedSet.Contains(m)).OrderBy(m => m, CodePointOrder).ToList();
+            if (outside.Count > 0)
+                throw new IngestException($"{where}: {column} names {ListRepr(outside)}, which accession_used does not");
+        }
+        if (!evidence.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(usedSet))
+            throw new IngestException(
+                $"{where}: evidence_by_member covers {ListRepr(evidence.Keys.OrderBy(k => k, CodePointOrder))}, "
+                + $"not accession_used {ListRepr(used)} (go D33)");
+        if (Flag(row["propagated"]) != (direct.Count == 0))
+            throw new IngestException($"{where}: propagated {Repr(row["propagated"])} but accession_direct {Repr(row["accession_direct"])} (go D33)");
+        if (Flag(row["inherited"]) != inherited.SetEquals(usedSet))
+            throw new IngestException($"{where}: inherited {Repr(row["inherited"])} but accession_inherited {Repr(row["accession_inherited"])} (go D33)");
+        return (direct, inherited, evidence);
+    }
+
     /// <summary><c>protein_localizations</c>: one row per (accession, CC term), over <c>accession_used</c> only (go D22).</summary>
-    /// <remarks>A group member that does not carry a term gets no row for it. Evidence codes stay <c>;</c>-joined
-    /// as go wrote them.</remarks>
-    public static List<Row> LocalizationRows(GoAnnotation annotation)
+    /// <remarks>
+    /// <para>A group member that does not carry a term gets no row for it.</para>
+    /// <para>Each row is a fact about its accession, so its qualifiers are that member's (go D33, GO-D7, as
+    /// <c>go:DEF-GROUP-GO-ANNOTATION v1</c> states them): <c>inherited</c> = the accession is in
+    /// <c>accession_inherited</c>; <c>propagated</c> = it is not in <c>accession_direct</c>; <c>evidence</c> = its
+    /// own codes from <c>evidence_by_member</c>, <c>;</c>-joined like go's <c>evidence</c>, NULL when it has none.
+    /// <c>protein_group</c>, <c>q_value</c>, <c>n_members</c> and <c>n_with</c> stay the group's.</para>
+    /// <para><see cref="IngestRules.Python0320"/> keeps the pooled group-level qualifiers that <c>sources/go.py</c>
+    /// copied onto every member, for the reader's parity cases only; no ingest or run ever wrote such rows (the
+    /// engine refused until the definition was published).</para>
+    /// </remarks>
+    public static List<Row> LocalizationRows(GoAnnotation annotation, IngestRules rules = IngestRules.Current)
     {
         var src = SourceId(annotation);
         var output = new Dictionary<(string Accession, string Term), Row>();
         foreach (var row in annotation.Rows)
         {
             if (row["go_id"].Length == 0 || row["aspect"] != CellularComponent) continue;
-            foreach (var accession in SplitCell(row["accession_used"]))
+            var used = SplitCell(row["accession_used"]);
+            var members = rules == IngestRules.Current ? PerMember(row, used) : default;
+            foreach (var accession in used)
+            {
+                string? evidence;
+                bool? inherited, propagated;
+                if (rules == IngestRules.Current)
+                {
+                    var codes = members.Evidence[accession];
+                    evidence = codes.Count > 0 ? string.Join(';', codes) : null;
+                    inherited = members.Inherited.Contains(accession);
+                    propagated = !members.Direct.Contains(accession);
+                }
+                else
+                {
+                    evidence = row["evidence"].Length > 0 ? row["evidence"] : null;
+                    inherited = Flag(row["inherited"]);
+                    propagated = Flag(row["propagated"]);
+                }
                 output[(accession, row["go_id"])] = new Row
                 {
                     ["protein_accession"] = accession,
                     ["compartment"] = row["go_id"],
                     ["go_release"] = annotation.GoRelease,
-                    ["evidence"] = row["evidence"].Length > 0 ? row["evidence"] : null,
+                    ["evidence"] = evidence,
                     ["source_id"] = src,
                     ["protein_group"] = row["protein_group"],
                     ["q_value"] = PyFloat(row["q_value"]),
                     ["n_members"] = PyInt(row["n_members"]),
                     ["n_with"] = PyInt(row["n_with"]),
-                    ["inherited"] = Flag(row["inherited"]),
-                    ["propagated"] = Flag(row["propagated"]),
+                    ["inherited"] = inherited,
+                    ["propagated"] = propagated,
                 };
+            }
         }
         return output.Keys
             .OrderBy(k => k.Accession, CodePointOrder).ThenBy(k => k.Term, CodePointOrder)

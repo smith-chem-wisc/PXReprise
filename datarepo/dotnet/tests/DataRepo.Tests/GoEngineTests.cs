@@ -181,19 +181,25 @@ public class GoEngineTests
     }
 
     [Test]
-    public void WithoutADefinitionIdNothingRunsAndTheCliRefuses()
+    public void WithoutADefinitionIdNothingRuns()
     {
-        // go has published none (charter S4). This assertion flips the day it does, with the one line that enables it.
-        Assert.That(GoEngine.DefinitionId, Is.Null);
         Assert.That(() => GoEngine.Run(Store, [], Inputs, null, StandInInstall),
-            Throws.TypeOf<RunnerException>().With.Message.Contains("go has published no definition id"));
-        var bundle = IngestWithGo();
+            Throws.TypeOf<RunnerException>().With.Message.Contains("no definition id was given").And.Message.Contains("could not be cited"));
+        Assert.That(() => GoEngine.Run(Store, [], Inputs, "", StandInInstall), Throws.TypeOf<RunnerException>());
+        Assert.That(Directory.Exists(Path.Combine(Store, DataRepo.Catalog.Runner.EngineDir)), Is.False, "nothing was written");
+    }
+
+    [Test]
+    public void TheEngineRunsUnderGosPublishedDefinition()
+    {
+        // go 023 (GO-D4, go D40): the id is go's, copied verbatim, never one dataRepo made up (D24).
+        Assert.That(GoEngine.DefinitionId, Is.EqualTo("go:DEF-GROUP-GO-ANNOTATION v1"));
+        // The CLI passes it; the run gets past the definition check (this tree is a development build, which the
+        // runner refuses next, by design: aging 063).
+        IngestWithGo();
         Assert.That(() => RunCommand.Run(["go.annotate_groups", "PXD999999", "--store", Store,
                 "--input", $"ontology={Ontology}", "--input", $"category_map={Map}"]),
-            Throws.TypeOf<RunnerException>().With.Message.Contains("go has published no definition id")
-                .And.Message.Contains("could not be cited"));
-        Assert.That(Directory.Exists(Path.Combine(Store, DataRepo.Catalog.Runner.EngineDir)), Is.False, "nothing was written");
-        Assert.That(bundle.DatasetId, Is.EqualTo("PXD999999"));
+            Throws.TypeOf<RunnerException>().With.Message.Not.Contains("no definition id"));
     }
 
     [Test]

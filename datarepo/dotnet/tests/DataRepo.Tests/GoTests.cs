@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using DataRepo.Bundle;
+using DataRepo.Ingest;
 using DataRepo.Ingest.Sources;
 
 namespace DataRepo.Tests;
@@ -197,9 +198,10 @@ public class GoTests
     }
 
     [Test]
-    public void GosPerRowEvidenceIsStoredAsGoWroteIt()
+    public void GosGroupColumnsAreStoredAsGoWroteThemAndItsQualifiersPerAccession()
     {
-        // Schema 0.0.10 (D28): the columns go's D22/D29 rows carry, taken with gene_resolutions.
+        // Schema 0.0.10 (D28): the columns go's D22/D29 rows carry, taken with gene_resolutions. GO-D7 (go 023):
+        // inherited, propagated and evidence are the accession's own, from go D33's per-member columns.
         var annotation = Go.ReadAnnotation(Annotation, allowPrerelease: true);
         var rows = Go.LocalizationRows(annotation);
         var source = new Dictionary<(string, string), Dictionary<string, string>>();
@@ -208,15 +210,86 @@ public class GoTests
                 source[(a, r["go_id"])] = r;
         foreach (var row in rows)
         {
-            var want = source[((string)row["protein_accession"]!, (string)row["compartment"]!)];
+            var accession = (string)row["protein_accession"]!;
+            var want = source[(accession, (string)row["compartment"]!)];
             Assert.That(row["protein_group"], Is.EqualTo(want["protein_group"]));
             Assert.That(row["q_value"], Is.EqualTo(double.Parse(want["q_value"], System.Globalization.CultureInfo.InvariantCulture)));
             Assert.That((row["n_members"], row["n_with"]), Is.EqualTo(((object?)long.Parse(want["n_members"]), (object?)long.Parse(want["n_with"]))));
-            Assert.That(row["propagated"], Is.EqualTo(want["propagated"] == "true"));
-            Assert.That(row["inherited"], Is.EqualTo(want["inherited"] == "true"));
+            Assert.That(row["propagated"], Is.EqualTo(!want["accession_direct"].Split(';').Contains(accession)));
+            Assert.That(row["inherited"], Is.EqualTo(want["accession_inherited"].Split(';').Contains(accession)));
+            var own = want["evidence_by_member"].Split(';').Single(e => e.StartsWith(accession + "=", StringComparison.Ordinal));
+            Assert.That(row["evidence"], Is.EqualTo(own[(accession.Length + 1)..].Replace(',', ';')));
         }
         Assert.That(rows.Any(r => (bool)r["propagated"]!) && rows.Any(r => !(bool)r["propagated"]!));
         Assert.That(ArrowTables.FromRows("protein_localizations", rows).Length, Is.EqualTo(rows.Count));
+    }
+
+    [Test]
+    public void AMultiMemberRowGivesEachAccessionItsOwnQualifiers()
+    {
+        // go 023's example on the fixture's first two-member CC row, whose members' evidence already differs
+        // (P0C0S5 IDA and IPI, Q71UI9 IPI only), edited so P0C0S5 alone cites the term directly. The pooled flags
+        // would give Q71UI9 P0C0S5's directness and its IDA.
+        var annotation = Go.ReadAnnotation(Copy(Annotation, t => EditFirstTwoMemberRow(t, (names, r) =>
+        {
+            r[names.IndexOf("accession_direct")] = "P0C0S5";
+            r[names.IndexOf("propagated")] = "false";
+        })), allowPrerelease: true);
+        var mixed = annotation.Rows.Single(r => r["accession_direct"] == "P0C0S5" && r["accession_used"] == "P0C0S5;Q71UI9");
+        Assert.That(mixed["evidence_by_member"], Is.EqualTo("P0C0S5=ECO:0000314,ECO:0000353;Q71UI9=ECO:0000353"), "premise");
+        var rows = Go.LocalizationRows(annotation).Where(r => (string)r["compartment"]! == mixed["go_id"])
+            .ToDictionary(r => (string)r["protein_accession"]!);
+        Assert.That(mixed["propagated"], Is.EqualTo("false"), "premise: go's pooled row reads direct");
+        Assert.That((rows["P0C0S5"]["propagated"], rows["P0C0S5"]["evidence"]), Is.EqualTo(((object?)false, (object?)"ECO:0000314;ECO:0000353")));
+        Assert.That((rows["Q71UI9"]["propagated"], rows["Q71UI9"]["evidence"]), Is.EqualTo(((object?)true, (object?)"ECO:0000353")));
+        // The pooled reading, kept for go.py's parity cases only, is the defect GO-D7 names.
+        var pooled = Go.LocalizationRows(annotation, IngestRules.Python0320).Single(r =>
+            (string)r["protein_accession"]! == "Q71UI9" && (string)r["compartment"]! == mixed["go_id"]);
+        Assert.That((pooled["propagated"], pooled["evidence"]), Is.EqualTo(((object?)false, (object?)"ECO:0000314;ECO:0000353")));
+    }
+
+    [Test]
+    public void AnInheritedMemberIsInheritedOnItsOwnRowWhateverTheOthersAre()
+    {
+        // Mark Q71UI9 as inherited on a row both members carry: the pooled flag stays false (not EVERY member
+        // inherited), but Q71UI9's own row must read true and P0C0S5's false.
+        var annotation = Go.ReadAnnotation(Copy(Annotation, MarkInherited), allowPrerelease: true);
+        var row = annotation.Rows.First(r => r["accession_inherited"] == "Q71UI9");
+        var rows = Go.LocalizationRows(annotation).Where(r => (string)r["compartment"]! == row["go_id"])
+            .ToDictionary(r => (string)r["protein_accession"]!);
+        Assert.That(row["inherited"], Is.EqualTo("false"));
+        Assert.That((rows["Q71UI9"]["inherited"], rows["P0C0S5"]["inherited"]), Is.EqualTo(((object?)true, (object?)false)));
+    }
+
+    /// <summary>The first two-member CC row: <c>accession_inherited</c> becomes <c>Q71UI9</c>, with <c>inherited</c> false.</summary>
+    private static string MarkInherited(string text) => EditFirstTwoMemberRow(text, (names, r) => r[names.IndexOf("accession_inherited")] = "Q71UI9");
+
+    private static string EditFirstTwoMemberRow(string text, Action<List<string>, List<string>> edit) =>
+        RewriteTable(text, (names, rows) =>
+        {
+            var target = rows.First(r => r[names.IndexOf("aspect")] == "cellular_component" && r[names.IndexOf("accession_used")] == "P0C0S5;Q71UI9");
+            edit(names, target);
+            return (names, rows);
+        });
+
+    [TestCase("evidence_by_member", "P0C0S5=ECO:0000314", "evidence_by_member covers ['P0C0S5'], not accession_used ['P0C0S5', 'Q71UI9']")]
+    [TestCase("evidence_by_member", "P0C0S5=ECO:0000314;Q71UI9=ECO:1;X1=ECO:2", "evidence_by_member covers")]
+    [TestCase("evidence_by_member", "P0C0S5;Q71UI9=ECO:1", "is not `member=code,code`")]
+    [TestCase("evidence_by_member", "P0C0S5=ECO:1;P0C0S5=ECO:2;Q71UI9=ECO:1", "names 'P0C0S5' twice")]
+    [TestCase("accession_direct", "X1", "accession_direct names ['X1'], which accession_used does not")]
+    [TestCase("accession_inherited", "X1", "accession_inherited names ['X1'], which accession_used does not")]
+    [TestCase("accession_inherited", "P0C0S5;Q71UI9", "inherited 'false' but accession_inherited 'P0C0S5;Q71UI9'")]
+    [TestCase("propagated", "false", "propagated 'false' but accession_direct ''")]
+    public void PerMemberColumnsThatContradictTheRowAreRefused(string column, string value, string message)
+    {
+        // The fixture's first two-member CC row has accession_direct empty and propagated true.
+        var annotation = Go.ReadAnnotation(Copy(Annotation, t => EditFirstTwoMemberRow(t, (names, r) =>
+        {
+            Assert.That((r[names.IndexOf("accession_direct")], r[names.IndexOf("propagated")]), Is.EqualTo(("", "true")), "premise");
+            r[names.IndexOf(column)] = value;
+        })), allowPrerelease: true);
+        Assert.That(Assert.Throws<IngestException>(() => Go.LocalizationRows(annotation))!.Message,
+            Does.Contain(message).And.Contains("group P0C0S5|Q71UI9"));
     }
 
     [Test]
@@ -381,7 +454,7 @@ public class GoTests
         Assert.That(Py(CategoriesSummary(categories)), Is.EqualTo(Py(Cases["categories"])));
         Assert.That(Go.SourceId(annotation), Is.EqualTo(Cases["source_id"]));
         Assert.That(Py(Go.SourceRow(annotation)), Is.EqualTo(Py(Cases["source_row"])));
-        var localizations = Go.LocalizationRows(annotation);
+        var localizations = Go.LocalizationRows(annotation, IngestRules.Python0320); // go.py's pooled qualifiers (GO-D7 changed them)
         Assert.That(localizations, Has.Count.EqualTo(L(Cases["localization_rows"]).Count).And.Count.EqualTo(139));
         Assert.That(Py(localizations), Is.EqualTo(Py(Cases["localization_rows"])));
         var categoryRows = Go.CategoryRows(categories, annotation);
@@ -427,7 +500,8 @@ public class GoTests
             {
                 var annotation = Expect(c["read"], () => Go.ReadAnnotation(path, allow), AnnotationSummary, $"{name}: read");
                 if (annotation is null) continue;
-                Expect(c["localization_rows"], () => Go.LocalizationRows(annotation), Digest, $"{name}: localization rows");
+                // go.py copied go's pooled qualifiers onto every member; GO-D7 changed that (see the tests below).
+                Expect(c["localization_rows"], () => Go.LocalizationRows(annotation, IngestRules.Python0320), Digest, $"{name}: localization rows");
                 Assert.That(Py(Go.SourceRow(annotation)), Is.EqualTo(Py(c["source_row"])), $"{name}: source row");
             }
             else

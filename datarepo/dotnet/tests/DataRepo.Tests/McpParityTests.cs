@@ -220,6 +220,17 @@ public class McpParityTests
             ("provenance_schema", "The record's own `schema` value, e.g. aging-provenance/2."),
             ("provenance_schema", "e.g. aging-provenance/2."),
         }.Select(d => (new Regex(Regex.Escape(d.Item2) + "[^\"]*", RegexOptions.CultureInvariant), $"<{d.Item1}: rewritten in schema 0.0.15>")),
+        // GO-D7 (go 023): protein_localizations' qualifiers are per accession. Descriptions only, no column changed.
+        .. new[]
+        {
+            // The new text contains the old one, so it is masked first.
+            ("evidence", "Evidence code or note from the source. For go's rows"),
+            ("evidence", "Evidence code or note from the source."),
+            ("inherited", "go's `inherited`: the term reached this accession"),
+            ("inherited", "True when THIS accession is in go's `accession_inherited`"),
+            ("propagated", "go's `propagated`: the term was reached by ancestor propagation"),
+            ("propagated", "True when THIS accession is not in go's `accession_direct`"),
+        }.Select(d => (new Regex(Regex.Escape(d.Item2) + "[^\"]*", RegexOptions.CultureInvariant), $"<{d.Item1}: rewritten for GO-D7>")),
     ];
 
     public static string Normalise(string text, string catalogPath)

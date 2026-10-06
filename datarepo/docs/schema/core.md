@@ -455,14 +455,14 @@ Protein -> GO-CC term, as supplied by `go`. Never computed here. One row per (ac
 | `protein_accession` | [Protein](#protein) | yes | UniProt (or custom-database) accession, isoform suffix kept. |
 | `compartment` | `uriorcurie` | yes | GO-CC term the protein's own entry carries, directly or by propagation (go's `go_id`). Named `compartment` as in `organelle_age_summaries`, and because published queries join on it. |
 | `go_release` | `string` | yes | GO ontology release, from the file header (go D9). With `compartment`, the key into organelle_term_categories: an ancestor edge moving between releases moves a term's category with the map unchanged (go 004 section 3). |
-| `evidence` | `string` |  | Evidence code or note from the source. |
+| `evidence` | `string` |  | Evidence code or note from the source. For go's rows, THIS accession's own ECO codes for the term, `;`-joined, from go's `evidence_by_member` (go D33, GO-D7) -- never another member's; NULL when it has none. |
 | `source_id` | [AnnotationSource](#annotationsource) | yes | Annotation source (owner + version) this row comes from. |
 | `protein_group` | `string` |  | go's `protein_group`: the MetaMorpheus group this accession was annotated in, its accessions `\|`-joined in the producer's (alphabetical, not ranked) order. An accession sits in one group or the file is refused. Filled by go's released output (schema 0.0.10). |
 | `q_value` | `float` |  | The GROUP's protein q-value, as go copies it from the search (go D29). The same on every row of one group. Every non-decoy group is written, so filter on it: go's header counters count at `q_value <= counter_q_value_max`. (range 0..1) |
 | `n_members` | `integer` |  | Accessions in the group (go D22). (range 1..None) |
 | `n_with` | `integer` |  | Group accessions whose own entry carries this term (go D22). `n_with < n_members` means the term is not true of the whole group. (range 1..None) |
-| `inherited` | `boolean` |  | go's `inherited`: the term reached this accession from another entry rather than its own (go D22). Read it before treating the row as the entry's own annotation. |
-| `propagated` | `boolean` |  | go's `propagated`: the term was reached by ancestor propagation over is_a and part_of, not annotated directly. |
+| `inherited` | `boolean` |  | True when THIS accession is in go's `accession_inherited`: an isoform or sequence variant that took the term from its entry rather than its own (go D33, D34, D37; GO-D7). Per accession, not go's pooled group flag. Read it before treating the row as the entry's own annotation. |
+| `propagated` | `boolean` |  | True when THIS accession is not in go's `accession_direct`: it carries the term only through a descendant, by ancestor propagation over is_a and part_of (go D33, GO-D7). Per accession, not go's pooled group flag. |
 
 ## OrganelleTermCategory
 

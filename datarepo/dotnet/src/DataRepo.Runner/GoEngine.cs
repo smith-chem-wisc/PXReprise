@@ -46,17 +46,18 @@ public sealed record GoBundleInputs(
 /// <para><b>Unknown GO ids are skipped and recorded</b> (<see cref="SkipUnknownGoIds"/>, go D35): a UniProt
 /// release newer than the pinned go.obo cites ids the release lacks, and refusing would cost a whole dataset for
 /// one term. mzLib's writer then writes <c>#!unresolved_go_ids N</c>, and <c>run.json</c> lists the ids.</para>
-/// <para><b>No definition id yet.</b> go has published none (charter S4; asked as GO-D4, our go 021), and dataRepo
-/// never defines another project's number (D24), so <see cref="DefinitionId"/> is null and <see cref="Run"/>
-/// refuses without one. When go publishes, set <see cref="DefinitionId"/>; that one line enables the CLI.</para>
+/// <para><b>The definition is go's:</b> <see cref="DefinitionId"/>, published in <c>go/design/DEFINITIONS.md</c>
+/// (go D40, go 023 GO-D4). dataRepo never defines another project's number (D24), so <see cref="Run"/> still
+/// refuses a call that passes none. Each <c>protein_localizations</c> row carries its own accession's qualifiers,
+/// as that definition states (GO-D7, <see cref="Go.LocalizationRows"/>).</para>
 /// </remarks>
 public static class GoEngine
 {
     public const string Engine = DataRepo.Catalog.Runner.GoEngine;
 
-    /// <summary>go's definition id for these rows: NONE PUBLISHED (charter S4, our go 021 GO-D4).</summary>
-    /// <remarks>Enabling the engine is setting this to the id go publishes, e.g. <c>"go:DEF-... v1"</c>.</remarks>
-    public const string? DefinitionId = null;
+    /// <summary>go's definition id for these rows (go D40, go 023 GO-D4). v1 is what mzLib 1.0.593 does; go's D39
+    /// (a shuffled entrapment copy carries no GO) will be v2.</summary>
+    public const string DefinitionId = "go:DEF-GROUP-GO-ANNOTATION v1";
 
     /// <summary>The roles the operator supplies; the protein groups and databases come from the bundle.</summary>
     public static readonly IReadOnlyList<string> Roles = ["ontology", "category_map"];
@@ -174,8 +175,8 @@ public static class GoEngine
     }
 
     /// <summary>Annotates every bundle not already annotated with these inputs, one artefact per bundle.</summary>
-    /// <param name="definitionId">go's definition id for the rows. <see cref="DefinitionId"/> in production, which
-    /// is null until go publishes one, so this refuses; tests pass an obviously fake id.</param>
+    /// <param name="definitionId">go's definition id for the rows: <see cref="DefinitionId"/> in production; tests
+    /// pass an obviously fake id. Refused when null or empty.</param>
     /// <param name="install">The datarepo install record; <see cref="EngineRunner.InstallIdentity"/> when null. Tests pass one.</param>
     /// <param name="release">The engine release; <see cref="Release"/> when null.</param>
     /// <exception cref="RunnerException">No definition id, a missing or mismatched input, a development datarepo,
@@ -186,9 +187,8 @@ public static class GoEngine
     {
         if (string.IsNullOrEmpty(definitionId))
             throw new RunnerException(
-                $"{Engine}: go has published no definition id for these rows (charter S4; asked as GO-D4 in "
-                + "dataRepo's go 021). dataRepo never defines another project's number (D24), and an artefact "
-                + "without one could not be cited, so the engine does not run until go publishes one.");
+                $"{Engine}: no definition id was given for these rows (go's is {DefinitionId}). dataRepo never "
+                + "defines another project's number (D24), and an artefact without one could not be cited.");
         var missing = Roles.Where(r => !inputs.ContainsKey(r)).ToList();
         if (missing.Count > 0)
             throw new RunnerException($"{Engine} needs --input {string.Join("=<path>, --input ", missing)}=<path>.");
