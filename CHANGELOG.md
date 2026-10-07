@@ -29,6 +29,11 @@ version that made them.
   - **the search writes its own SDRF**, `experiment.sdrf.tsv`, stamped with the deposit's ProteomeXchange accession
     (`[engine] write_sdrf = true`; MetaMorpheus #2816, #2870);
   - **new PTM-annotated databases**, `*_agingPTM-v2.xml`;
+  - **Run-level QC and contamination read protein-group columns through the design.** With a design, FlashLFQ names
+    protein-group columns by sample (`aged_1`), not by file. Each label is now mapped to its one file through the
+    search's `ExperimentalDesign.tsv`. A sample spanning several files (fractions, re-injections) gets no run-level value,
+    and the payload's notes say so. Before this, the 1.1.12 trial reported `pg_missing_frac_msms = 1` for every run and
+    lost `contaminant_intensity_frac`.
   - **MetaMorpheus's contaminant panel without the UPS spike-in standard**, used as it is
     (`MetaMorpheusContaminants_NoUPS.xml`, 216 entries; MetaMorpheus #2858). It ships under `profiles/lists/` because
     the MetaMorpheus 1.1.12 install does not have it yet. All 48 UPS proteins are out, including the 7 human ones

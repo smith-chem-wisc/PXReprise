@@ -107,9 +107,12 @@ public static class SearchMetrics
         {
             var pgs = Tsv.Read(proteinGroups).Where(ProteinGroupAt1Pct).ToList();
             var cols = pgs.Count > 0 ? pgs[0].Keys.Where(k => k.StartsWith("Intensity_", StringComparison.Ordinal)).ToList() : new List<string>();
+            // G27: with a design the columns are samples; a per-file share needs a sample that is exactly one file.
+            var columns = ProteinGroupColumns.ForTable(proteinGroups);
             var sharedSet = shared is null ? null : new HashSet<string>(shared, StringComparer.Ordinal);
             foreach (string col in cols)
             {
+                if (columns.FileOf(col["Intensity_".Length..]) is not { } file) continue;
                 double tot = 0, con = 0, conUpper = 0;
                 foreach (var r in pgs)
                 {
@@ -124,7 +127,6 @@ public static class SearchMetrics
                         if (td == "C" || (accs.Count > 0 && accs.All(sharedSet.Contains))) conUpper += v;
                     }
                 }
-                string file = col["Intensity_".Length..];
                 perFile[file] = tot != 0 ? PyRound(con / tot, 4) : null;
                 if (sharedSet is not null) upper[file] = tot != 0 ? PyRound(conUpper / tot, 4) : null;
             }
