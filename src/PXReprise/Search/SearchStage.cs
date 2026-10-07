@@ -210,7 +210,9 @@ public static class SearchStage
         if (p.GptmdExtraMods.Count > 0) prov.Set("gptmd_extra_mods", new JsonArray(p.GptmdExtraMods.Select(x => (JsonNode?)x).ToArray()));
 
         // 2. one invocation for the whole chain
-        string shippedPanel = Path.Combine(Path.GetDirectoryName(cmd)!, "Contaminants", p.ContaminantPanel);
+        string shippedPanel = p.ContaminantFile is { } own
+            ? p.ListPath(own)
+            : Path.Combine(Path.GetDirectoryName(cmd)!, "Contaminants", p.ContaminantPanel);
         if (!File.Exists(shippedPanel)) throw new UsageException($"contaminant database missing at {shippedPanel}");
         // The panel as searched: the shipped one, or its content-addressed reduced copy (aging D54). The file name must
         // keep "Contaminants": MetaMorpheus marks a -d database as contaminant by its name.
@@ -220,6 +222,11 @@ public static class SearchStage
         {
             prov.Set("contaminant_panel", panelRecord);
             prov.Note($"contaminant panel reduced by {panelRecord["excluded"]!.AsArray().Count} entries ({Path.GetFileName(p.ContaminantExclude)}, D54)");
+        }
+        else if (p.ContaminantFile is not null)
+        {
+            prov.Set("contaminant_panel", ContaminantPanel.ShippedRecord(contaminants));
+            prov.Note($"contaminant panel {Path.GetFileName(contaminants)}, shipped with the profile and used as it is (D35)");
         }
         // Never pre-create the settings dir: MetaMorpheus seeds it only when it does not exist (an empty one crashes it).
         string settingsDir = Path.Combine(m.MetaMorpheusSettingsRoot, release);

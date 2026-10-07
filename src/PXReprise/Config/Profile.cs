@@ -79,7 +79,8 @@ public sealed record Profile(
     string SourceDir = ".",
     string Design = "none",
     string Chemistry = "fixed",
-    bool WriteSdrf = false)
+    bool WriteSdrf = false,
+    string? ContaminantFile = null)   // D35: a panel shipped under lists/, used as it is; null = ContaminantPanel from MetaMorpheus
 {
     /// <summary>The values of <c>[quant] design</c>: none, or an experimental design from an SDRF (G15).</summary>
     public static readonly string[] Designs = { "none", "sdrf" };

@@ -28,7 +28,13 @@ version that made them.
     design. A fractionated deposit needs a curated SDRF: under the default, each fraction counts as a sample;
   - **the search writes its own SDRF**, `experiment.sdrf.tsv`, stamped with the deposit's ProteomeXchange accession
     (`[engine] write_sdrf = true`; MetaMorpheus #2816, #2870);
-  - **new PTM-annotated databases**, `*_agingPTM-v2.xml`.
+  - **new PTM-annotated databases**, `*_agingPTM-v2.xml`;
+  - **MetaMorpheus's contaminant panel without the UPS spike-in standard**, used as it is
+    (`MetaMorpheusContaminants_NoUPS.xml`, 216 entries; MetaMorpheus #2858). It ships under `profiles/lists/` because
+    the MetaMorpheus 1.1.12 install does not have it yet. All 48 UPS proteins are out, including the 7 human ones
+    (albumin, transferrins, lactalbumin, lysozyme, haemoglobins) that the older `contaminant_panel_exclude_v1.tsv`
+    kept. In mouse and rat searches, fewer native proteins are therefore labelled contaminant. A profile now names a
+    shipped panel with `[contaminants] file = "..."`, or MetaMorpheus's own with `panel = "..."`.
 
   Known result changes from 1.1.11 to 1.1.12, so do not pool or diff across the boundary:
   - protein N-terminal occupancy now counts Met-removed forms (mzLib #1337);

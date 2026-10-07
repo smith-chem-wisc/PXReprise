@@ -66,8 +66,17 @@ public static class ProfileLoader
         }
 
         var con = root.RequiredTable("contaminants");
-        string panel = con.RequiredString("panel");
+        // "panel": a file in the pinned MetaMorpheus's Contaminants folder. "file": a panel shipped with the profiles under
+        // lists/ (D35: MetaMorpheus's NoUPS panel, released after the pin). Exactly one; "exclude" reduces a "panel" only.
+        string? panel = con.OptionalString("panel");
+        string? shipped = con.OptionalString("file");
         string? exclude = con.OptionalString("exclude");
+        if ((panel is null) == (shipped is null))
+            throw new ConfigException(file, "[contaminants] needs exactly one of panel (a MetaMorpheus file) or file (shipped under lists/)");
+        if (shipped is not null && exclude is not null)
+            throw new ConfigException(file, "[contaminants] exclude reduces a MetaMorpheus panel; a shipped file is used as it is");
+        if (shipped is not null && !shipped.Contains("Contaminants", StringComparison.Ordinal))
+            throw new ConfigException(file, $"[contaminants] file '{shipped}' must keep \"Contaminants\" in its name: MetaMorpheus marks a database as contaminant by its name");
         con.RefuseUnknownKeys();
 
         var quant = root.RequiredTable("quant");
@@ -99,8 +108,9 @@ public static class ProfileLoader
         qc.RefuseUnknownKeys();
 
         root.RefuseUnknownKeys();
-        return new Profile(id, version, status, description, accepts, mm, tasks, extraMods, library, timeout, dbs, panel, exclude,
-            method, mbr, deposit, gates, Path.GetDirectoryName(Path.GetFullPath(file))!, design, chemistry, writeSdrf);
+        return new Profile(id, version, status, description, accepts, mm, tasks, extraMods, library, timeout, dbs,
+            panel ?? Path.GetFileName(shipped!), exclude,
+            method, mbr, deposit, gates, Path.GetDirectoryName(Path.GetFullPath(file))!, design, chemistry, writeSdrf, shipped);
     }
 
     /// <summary>Every <c>*.toml</c> in a directory, keyed by <c>id@version</c>; a duplicate key is refused.</summary>

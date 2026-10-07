@@ -48,9 +48,11 @@ proteome = "uniprotkb_proteome_UP000002494_AND_revi_2026-09-22_agingPTM-v2.xml"
 taxon = 10116
 
 [contaminants]
-panel = "MetaMorpheusContaminants.xml"
-# The human spike-in standard removed (aging D54, S58): it is not a contaminant, and it hid native proteins.
-exclude = "contaminant_panel_exclude_v1.tsv"
+# D35 (the user, 2026-10-07): MetaMorpheus's own panel without the UPS1/UPS2 spike-in standard, AS IS (216 entries, all 48
+# UPS proteins out). MetaMorpheus #2858 merged after the 1.1.12 tag, so the file ships here (lists/, its provenance
+# beside it). It replaces aging's D54 exclusion list, which kept 7 human UPS proteins (albumin, transferrins,
+# lactalbumin, lysozyme, haemoglobins). MetaMorpheusContaminants_UPS.xml only where a study declares UPS (held, D35).
+file = "MetaMorpheusContaminants_NoUPS.xml"
 
 [quant]
 method = "flashlfq"

@@ -67,6 +67,14 @@ public static class ContaminantPanel
         });
     }
 
+    /// <summary>The provenance of a panel shipped with the profiles and searched as it is (D35).</summary>
+    public static JsonObject ShippedRecord(string panel) => new()
+    {
+        ["source"] = panel, ["searched"] = panel, ["searched_sha256"] = Sha(panel),
+        ["entries"] = Entry.Matches(File.ReadAllText(panel, Encoding.UTF8)).Count,
+        ["decision"] = "PXReprise D35: MetaMorpheus's NoUPS panel as it is; the UPS spike-in standard is not a contaminant",
+    };
+
     private static string Sha(string path)
     {
         using var s = File.OpenRead(path);

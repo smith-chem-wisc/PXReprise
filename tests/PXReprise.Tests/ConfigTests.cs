@@ -12,12 +12,15 @@ public class ConfigTests
         var profiles = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
         Assert.That(profiles.Keys, Is.EquivalentTo(new[] { "label-free-dda@1", "label-free-dda@2", "label-free-dda@3", "label-free-dda@4", "tmt-dda@1" }));
 
-        // D28: @4 is @3 on MetaMorpheus 1.1.12 with an SDRF design, the search's own SDRF and the agingPTM-v2 databases.
+        // D28: @4 is @3 on MetaMorpheus 1.1.12 with an SDRF design, the search's own SDRF and the agingPTM-v2 databases;
+        // D35: and MetaMorpheus's NoUPS contaminant panel as it is, in place of /3's panel minus aging's D54 list.
         var v3x = profiles["label-free-dda@3"];
         var v4 = profiles["label-free-dda@4"];
         Assert.That((v4.MetaMorpheus, v4.Design, v4.WriteSdrf, v4.Chemistry), Is.EqualTo(("1.1.12", "sdrf", true, "deposit")));
         Assert.That(v4.Databases.Values.Select(d => d.Proteome), Is.All.EndWith("_agingPTM-v2.xml"));
+        Assert.That((v4.ContaminantFile, v4.ContaminantExclude), Is.EqualTo(("MetaMorpheusContaminants_NoUPS.xml", (string?)null)));
         Assert.That(v4 with { Version = 3, MetaMorpheus = "1.1.11", Design = "none", WriteSdrf = false, TimeoutHours = v3x.TimeoutHours,
+            ContaminantPanel = v3x.ContaminantPanel, ContaminantExclude = v3x.ContaminantExclude, ContaminantFile = v3x.ContaminantFile,
             Description = v3x.Description, Databases = v3x.Databases, Accepts = v3x.Accepts, Tasks = v3x.Tasks,
             GptmdExtraMods = v3x.GptmdExtraMods, Deposit = v3x.Deposit, Qc = v3x.Qc, SourceDir = v3x.SourceDir },
             Is.EqualTo(v3x), "every other scalar setting equals /3's");
@@ -71,7 +74,7 @@ public class ConfigTests
     private static bool SameSearch(Profile a, Profile b) =>
         a.MetaMorpheus == b.MetaMorpheus && a.Tasks.SequenceEqual(b.Tasks) && a.GptmdExtraMods.SequenceEqual(b.GptmdExtraMods)
         && a.SpectralLibrary == b.SpectralLibrary && a.TimeoutHours == b.TimeoutHours && a.ContaminantPanel == b.ContaminantPanel
-        && a.ContaminantExclude == b.ContaminantExclude && a.QuantMethod == b.QuantMethod && a.MatchBetweenRuns == b.MatchBetweenRuns
+        && a.ContaminantExclude == b.ContaminantExclude && a.ContaminantFile == b.ContaminantFile && a.QuantMethod == b.QuantMethod && a.MatchBetweenRuns == b.MatchBetweenRuns
         && a.Deposit == b.Deposit && a.Qc.Ms2Analyzer == b.Qc.Ms2Analyzer && a.Qc.MinMs2 == b.Qc.MinMs2
         && a.Qc.MinFractionOrbitrapHcd == b.Qc.MinFractionOrbitrapHcd && a.Qc.Excludable.SequenceEqual(b.Qc.Excludable)
         && a.Qc.MaxExcludedFraction == b.Qc.MaxExcludedFraction && a.Accepts.Modes.SequenceEqual(b.Accepts.Modes)
