@@ -213,6 +213,40 @@ public class SearchStageTests
         finally { Environment.SetEnvironmentVariable("FAKE_MM_SKIP_QUANT", null); }
     }
 
+    // QuantProject U15: MetaMorpheus can drop an invalid design after one Warn and quantify design-less, with no marker.
+    [Test]
+    public async Task ADesignQuantificationSilentlyIgnoredFailsTheSearch()
+    {
+        var rig = Setup(library: false);
+        var names = Directory.GetFiles(rig.Spectra, "*.raw").Select(Path.GetFileNameWithoutExtension).Order(StringComparer.Ordinal).ToList();
+        TestSupport.WriteFile(rig.Spectra, "ExperimentalDesign.tsv", "FileName\tCondition\tBiorep\tFraction\tTechrep\n"
+            + string.Concat(names.Select((n, i) => $"{n}\t{(i % 2 == 0 ? "young" : "old")}\t{i / 2 + 1}\t1\t1\n")));
+        var used = await SearchStage.RunAsync(Req(rig, "04_search_used"), CancellationToken.None);
+        Assert.That(used.Success, Is.True, "a design the search used passes");
+
+        Environment.SetEnvironmentVariable("FAKE_MM_IGNORE_DESIGN", "1");
+        try
+        {
+            var o = await SearchStage.RunAsync(Req(rig, "04_search_ignored"), CancellationToken.None);
+            Assert.That(o.Success, Is.False);
+            string prov = File.ReadAllText(Path.Combine(rig.Root, "run", "04_search_ignored", "provenance.json"));
+            Assert.That(prov, Does.Contain("QuantProject U15"));
+        }
+        finally { Environment.SetEnvironmentVariable("FAKE_MM_IGNORE_DESIGN", null); }
+    }
+
+    [Test]
+    public void QuantMissesDesignCountsSamplesNotFiles()
+    {
+        string dir = TestSupport.TempDir();
+        string design = TestSupport.WriteFile(dir, "ExperimentalDesign.tsv", "FileName\tCondition\tBiorep\tFraction\tTechrep\n"
+            + "a1\tyoung\t1\t1\t1\na2\tyoung\t1\t2\t1\nb1\told\t1\t1\t1\nb2\told\t2\t1\t1\n");
+        string ok = TestSupport.WriteFile(dir, "ok.tsv", "Protein Accession\tIntensity_young_1\tIntensity_old_1\tIntensity_old_2\n");
+        string perFile = TestSupport.WriteFile(dir, "files.tsv", "Protein Accession\tIntensity_a1\tIntensity_a2\tIntensity_b1\tIntensity_b2\n");
+        Assert.That(SearchStage.QuantMissesDesign(design, ok), Is.Null, "two fractions of one sample are one column");
+        Assert.That(SearchStage.QuantMissesDesign(design, perFile), Does.Contain("4 Intensity_ columns for 3 design samples"));
+    }
+
     // 2026-09-29: PXD069093 sat in MetaMorpheus's PEP step for hours on a busy box, silent but using ~49 cores, and a
     // wall-clock limit was about to kill it. Slow is not hung: only a search that uses no CPU is killed early.
     [Test]

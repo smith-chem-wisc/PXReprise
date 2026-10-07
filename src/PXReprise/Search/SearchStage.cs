@@ -34,6 +34,24 @@ public sealed record SearchOutcome(bool Success, int ExitCode, bool TimedOut, in
 public static class SearchStage
 {
     public const string SkipQuantSuffix = ". Skipping quantification";
+
+    /// <summary>
+    /// Null when the protein-group table was quantified with the design: one <c>Intensity_</c> sample column per
+    /// distinct (condition, biorep) of <c>ExperimentalDesign.tsv</c>, each condition named in at least one. Design-less,
+    /// MetaMorpheus writes one column per FILE instead. Otherwise the reason.
+    /// </summary>
+    public static string? QuantMissesDesign(string designFile, string proteinGroupsFile)
+    {
+        var rows = Tsv.Read(designFile).Select(d => (Condition: d.GetValueOrDefault("Condition", ""), Biorep: d.GetValueOrDefault("Biorep", ""))).ToList();
+        int samples = rows.Distinct().Count();
+        var columns = Tsv.Header(proteinGroupsFile).Where(c => c.StartsWith("Intensity_", StringComparison.Ordinal)).ToList();
+        var unnamed = rows.Select(x => x.Condition).Distinct(StringComparer.Ordinal)
+            .Where(c => !columns.Any(col => col.StartsWith($"Intensity_{c}_", StringComparison.Ordinal))).ToList();
+        if (columns.Count != samples || unnamed.Count > 0)
+            return $"{columns.Count} Intensity_ columns for {samples} design samples"
+                   + (unnamed.Count > 0 ? $"; condition(s) with no column: {string.Join(", ", unnamed)}" : "");
+        return null;
+    }
     private const double FlagMinIdRate = 0.15, FlagMaxContaminantIntensityShare = 0.05;
 
     public static async Task<SearchOutcome> RunAsync(SearchRequest r, CancellationToken ct)
@@ -248,6 +266,14 @@ public static class SearchStage
                 ok = false;
                 prov.Note($"FAILED (G19/D27): MetaMorpheus logged \"{silent}\", so the search did not use the chemistry it was given: {log.Split('\n').First(l => l.Contains(silent, StringComparison.Ordinal)).Trim()}");
             }
+        // QuantProject U15: an ExperimentalDesign.tsv that fails MetaMorpheus's validation costs one Warn, and the search
+        // quantifies design-less with no marker. The table must carry one sample column per design sample.
+        string designFile = Path.Combine(r.SpectraDir, "ExperimentalDesign.tsv");
+        if (ok && hasDesign && key["AllQuantifiedProteinGroups.tsv"] is { } pgFile && QuantMissesDesign(designFile, pgFile) is { } why)
+        {
+            ok = false;
+            prov.Note($"FAILED (QuantProject U15): the run carries ExperimentalDesign.tsv but quantification did not use it: {why}");
+        }
         prov.Set("success", (JsonNode)ok);
         if (run.ExitCode == 0 && key["AllQuantifiedProteinGroups.tsv"] is null)
             prov.Note("exit 0 but no AllQuantifiedProteinGroups.tsv: FlashLFQ failed silently (pyMM 003 Q4)");
@@ -333,8 +359,18 @@ public static class SearchStage
         }
         if (!hasDesign)
             flags.Add("no_design_file: FlashLFQ treated each file as its own biorep under one blank condition; no normalization; not usable for condition comparisons (owner: QuantProject projection)");
+        // MetaMorpheus #2816: a failed SDRF write never fails the search; it leaves SdrfWriter_crash.txt (sdrf PXR-E1).
+        string? sdrfCrash = Directory.Exists(mm) ? Directory.EnumerateFiles(mm, "SdrfWriter_crash.txt", SearchOption.AllDirectories).FirstOrDefault() : null;
+        if (sdrfCrash is not null)
+        {
+            flags.Add($"output_sdrf_failed: MetaMorpheus could not write the search's SDRF; the results stand ({Path.GetRelativePath(outDir, sdrfCrash)})");
+            prov.Output(sdrfCrash);
+        }
         if (!Directory.Exists(mm) || !Directory.EnumerateFiles(mm, "*.sdrf.tsv", SearchOption.AllDirectories).Any())
-            flags.Add("no_output_sdrf: no reanalysis SDRF written (WriteSdrf is MetaMorpheus #2816, unreleased)");
+            flags.Add(p.WriteSdrf ? "no_output_sdrf: the profile asked for the search's SDRF and none was written"
+                                  : "no_output_sdrf: no reanalysis SDRF written (the profile does not set write_sdrf)");
+        else
+            foreach (string sdrf in Directory.EnumerateFiles(mm, "*.sdrf.tsv", SearchOption.AllDirectories)) prov.Output(sdrf);
         if (p.MatchBetweenRuns && files.Count < 2)
             prov.Note("MatchBetweenRuns is on but only one spectra file was searched: MBR has nothing to transfer.");
 
