@@ -12,9 +12,11 @@ public sealed record ProbeVerdict(IReadOnlyList<ProbeFinding> Parks, string? Mea
 /// Judges a deposit's probe runs against what the text said (D34: the spectra win where they can measure). Thresholds,
 /// each with its source:
 /// <list type="bullet">
-/// <item>species: a run's species is the one with at least <see cref="DominantShare"/> of its species-specific PSMs, once
-/// there are at least <see cref="MinSpeciesPsms"/>; a run dominated by another species parks <c>waiting_species</c>, a run
-/// with no dominant species <c>waiting_mixed_species</c> (D35; PXD044773's mouse runs searched as human, aging S83);</item>
+/// <item>species (the user, 2026-10-07, from the G31 calibration: pure rat runs are only 62-88% rat because reviewed rat is
+/// thin, so a share threshold mistakes a thin database for a second species): once a run has at least
+/// <see cref="MinSpeciesPsms"/> species-specific PSMs, ANOTHER species with more of them than the expected one parks
+/// <c>waiting_species</c>, and the expected species under <see cref="MixedBelow"/> of them parks
+/// <c>waiting_mixed_species</c> (D35; PXD044773's mouse runs searched as human, aging S83);</item>
 /// <item>enrichment: phospho at <see cref="EnrichedPhospho"/> or GG at <see cref="EnrichedGg"/> of a run's PSMs, the
 /// rule BuildPtmDb's --exclude-enriched applies (whole proteomes run 0.1-0.3% phospho; GG has a small baseline because a
 /// double carbamidomethyl on K has its mass);</item>
@@ -26,7 +28,7 @@ public sealed record ProbeVerdict(IReadOnlyList<ProbeFinding> Parks, string? Mea
 public static class ProbeJudge
 {
     public const int MinSpeciesPsms = 50;
-    public const double DominantShare = 0.80;
+    public const double MixedBelow = 0.50;
     public const double EnrichedPhospho = 0.05;
     public const double EnrichedGg = 0.02;
     public const double MinCysteineShare = 0.02;
@@ -55,16 +57,24 @@ public static class ProbeJudge
         {
             int n = m.SpeciesSpecificPsms;
             if (n < MinSpeciesPsms) { notes.Add($"{run}: species not judged ({n} species-specific PSMs < {MinSpeciesPsms})"); continue; }
-            var top = m.SpeciesPsms.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key, StringComparer.Ordinal).First();
             string shares = string.Join(", ", m.SpeciesPsms.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Key} {kv.Value}"));
-            if ((double)top.Value / n < DominantShare) mixed.Add($"{run} ({shares}; {m.SharedSpeciesPsms} shared)");
-            else if (expectedSpecies is not null && top.Key != expectedSpecies) wrong.Add($"{run} ({shares})");
+            if (expectedSpecies is null)
+            {
+                // No expectation to compare with: only a run that no species dominates is called.
+                int top = m.SpeciesPsms.Values.DefaultIfEmpty(0).Max();
+                if ((double)top / n < MixedBelow) mixed.Add($"{run} ({shares}; {m.SharedSpeciesPsms} shared)");
+                continue;
+            }
+            int expected = m.SpeciesPsms.GetValueOrDefault(expectedSpecies);
+            int topOther = m.SpeciesPsms.Where(kv => kv.Key != expectedSpecies).Select(kv => kv.Value).DefaultIfEmpty(0).Max();
+            if (topOther > expected) wrong.Add($"{run} ({shares})");
+            else if ((double)expected / n < MixedBelow) mixed.Add($"{run} ({shares}; {m.SharedSpeciesPsms} shared)");
         }
         if (expectedSpecies is null) notes.Add("species not compared: the deposit's organism has no known UniProt name");
         if (wrong.Count > 0)
-            parks.Add(new("waiting_species", $"expected {expectedSpecies}; {wrong.Count} of {runs.Count} probe run(s) are another species: {string.Join("; ", wrong)}"));
+            parks.Add(new("waiting_species", $"expected {expectedSpecies}; {wrong.Count} of {runs.Count} probe run(s) have more PSMs specific to another species: {string.Join("; ", wrong)}"));
         if (mixed.Count > 0)
-            parks.Add(new("waiting_mixed_species", $"no species reaches {DominantShare:P0} of the species-specific PSMs in {string.Join("; ", mixed)}"));
+            parks.Add(new("waiting_mixed_species", $"the expected species holds under {MixedBelow:P0} of the species-specific PSMs in {string.Join("; ", mixed)}"));
 
         // Enrichment, measured.
         var enriched = runs.Where(kv => kv.Value.PhosphoShare >= EnrichedPhospho || kv.Value.GgShare >= EnrichedGg).ToList();

@@ -90,8 +90,16 @@ public class ProbeSearchTests
         var wrong = ProbeJudge.Judge(new Dictionary<string, RunMeasures> { ["a"] = Run(human: 900), ["b"] = Run(mouse: 850, human: 40) }, "Homo sapiens", true, false);
         Assert.That(wrong.Parks.Select(p => p.Park), Is.EqualTo(new[] { "waiting_species" }));
         Assert.That(wrong.Parks[0].Evidence, Does.Contain("b (Mus musculus 850"));
-        var mixed = ProbeJudge.Judge(new Dictionary<string, RunMeasures> { ["a"] = Run(human: 500, mouse: 400) }, "Homo sapiens", true, false);
+        // The expected species leads but holds under half (a xenograft-like run): mixed.
+        var mixed = ProbeJudge.Judge(new Dictionary<string, RunMeasures> { ["a"] = Run(human: 400, mouse: 350) with
+            { SpeciesPsms = new Dictionary<string, int> { ["Homo sapiens"] = 400, ["Mus musculus"] = 350, ["Rattus norvegicus"] = 250 } } },
+            "Homo sapiens", true, false);
         Assert.That(mixed.Parks.Select(p => p.Park), Is.EqualTo(new[] { "waiting_mixed_species" }));
+        // G31 calibration: pure rat muscle is only 62% rat (reviewed rat is thin) and must pass; so must a run at 55%.
+        var ratMuscle = new Dictionary<string, RunMeasures> { ["a"] = Run(mouse: 1176) with
+            { SpeciesPsms = new Dictionary<string, int> { ["Rattus norvegicus"] = 2743, ["Mus musculus"] = 1176, ["Homo sapiens"] = 478 } } };
+        Assert.That(ProbeJudge.Judge(ratMuscle, "Rattus norvegicus", true, false).Parks, Is.Empty);
+        Assert.That(ProbeJudge.Judge(new Dictionary<string, RunMeasures> { ["a"] = Run(human: 500, mouse: 400) }, "Homo sapiens", true, false).Parks, Is.Empty);
         var few = ProbeJudge.Judge(new Dictionary<string, RunMeasures> { ["a"] = Run(mouse: 30) }, "Homo sapiens", true, false);
         Assert.That((few.Parks.Count, few.Notes.Single(n => n.Contains("not judged"))), Is.EqualTo((0, "a: species not judged (30 species-specific PSMs < 50)")));
     }
@@ -110,6 +118,37 @@ public class ProbeSearchTests
         var tiny = new Dictionary<string, RunMeasures> { ["a"] = Run(human: 900, peptides: 50, cys: 0) };
         Assert.That(ProbeJudge.Judge(tiny, "Homo sapiens", true, false).Parks, Is.Empty, "under 100 peptides: not judged");
         Assert.That(ProbeJudge.Judge(new Dictionary<string, RunMeasures> { ["a"] = Run(human: 900, cys: 10) }, "Homo sapiens", true, false).Parks, Is.Empty, "exactly 2% passes");
+    }
+
+    /// <summary>
+    /// The G31 calibration (results/calibration_probe_2026-10-07, real probe searches of 14 deposits) replayed through the
+    /// species rule: every single-species run passes, rat muscle included, and only PXD044773's two mouse runs (recorded
+    /// as human; aging S83) are called another species.
+    /// </summary>
+    [Test]
+    public void TheCalibrationRunsAreJudgedAsTheirDepositsAre()
+    {
+        string tsv = Fixture("probe", "calibration_2026-10-07.tsv");   // a copy of results/calibration_probe_2026-10-07/calibration.tsv
+        var lines = File.ReadAllLines(tsv);
+        var h = lines[0].Split('\t');
+        int C(string name) => Array.IndexOf(h, name);
+        var latin = new Dictionary<string, string> { ["human"] = "Homo sapiens", ["mouse"] = "Mus musculus", ["rat"] = "Rattus norvegicus" };
+        var called = new List<string>();
+        foreach (var r in lines.Skip(1).Select(l => l.Split('\t')))
+        {
+            var species = new Dictionary<string, int>
+            {
+                ["Homo sapiens"] = int.Parse(r[C("human")]), ["Mus musculus"] = int.Parse(r[C("mouse")]), ["Rattus norvegicus"] = int.Parse(r[C("rat")]),
+            };
+            var m = new RunMeasures(int.Parse(r[C("psms")]), species, int.Parse(r[C("shared")]), 1000, 1000, 150, 1, 1);
+            var v = ProbeJudge.Judge(new Dictionary<string, RunMeasures> { [r[C("run")]] = m }, latin[r[C("expected")]], false, false);
+            called.AddRange(v.Parks.Select(p => $"{r[C("accession")]} {r[C("run")]} {p.Park}"));
+        }
+        Assert.That(lines, Has.Length.GreaterThan(30), "the committed calibration is read");
+        Assert.That(called, Is.EquivalentTo(new[]
+        {
+            "PXD044773 QEp21-5401_Norton_294D waiting_species", "PXD044773 QEp21-5426_Norton_303V waiting_species",
+        }));
     }
 
     [TestCase(25, 1, "phospho")]
