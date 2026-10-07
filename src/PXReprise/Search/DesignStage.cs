@@ -88,6 +88,8 @@ public static class DesignStage
         ["conditions"] = new JsonArray(d.Files.Select(f => f.Condition).Distinct().Order(StringComparer.Ordinal).Select(c => (JsonNode?)c).ToArray()),
         ["files"] = d.Files.Count,
         ["notes"] = new JsonArray(d.Notes.Select(n => (JsonNode?)n).ToArray()),
+        // QuantProject 012 (PXR-U1): mzLib's whole account, kept per deposit; replicate numbers change when #1426 ships.
+        ["report"] = d.Report(),
     };
 
     private static string Sha(string path)
