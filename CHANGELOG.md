@@ -7,6 +7,68 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.0 (unreleased: waits on the MetaMorpheus 1.1.12 trial)
+
+**Updating:** **MetaMorpheus 1.1.12** (mzLib 1.0.594) for the new profile `label-free-dda@4`; 1.1.11 stays for the
+older profiles. **Machine file changes:**
+- add `"1.1.12" = "<path to 1.1.12's CMD.exe>"` under `[metamorpheus]`;
+- before the first ingest of a 1.1.12 search, `metamorpheus_settings_root` must hold a `1.1.12` folder (a copy of the
+  install), or datarepo resolves no modification and says so only in its findings;
+- keep `fetch_stall_minutes` at 5 or more (below).
+
+**Not for mid-batch:** stop the batch, let it drain, update, then start it again. Results already searched keep the
+version that made them.
+
+- **A new profile, `label-free-dda@4`:** `@3` (each deposit's own chemistry) on MetaMorpheus 1.1.12, with three more
+  changes:
+  - **an experimental design from SDRF** (`[quant] design = "sdrf"`). The question's curated SDRF comes first, then the
+    deposit's own, through mzLib's `SdrfLabelFreeDesign`. With neither, the search runs without a design and is
+    flagged `no_design_file`;
+  - **the search writes its own SDRF**, `experiment.sdrf.tsv`, stamped with the deposit's ProteomeXchange accession
+    (`[engine] write_sdrf = true`; MetaMorpheus #2816, #2870);
+  - **new PTM-annotated databases**, `*_agingPTM-v2.xml`.
+
+  Known result changes from 1.1.11 to 1.1.12, so do not pool or diff across the boundary:
+  - protein N-terminal occupancy now counts Met-removed forms (mzLib #1337);
+  - PEP is trained iteratively (MetaMorpheus #2844);
+  - four modifications gain Unimod accessions;
+  - PEP is faster (#2841).
+- **PTM databases are rebuilt for every new pipeline build** (`tools/ptm-db/BuildPtmDb.cs`):
+  - from a copy of the live catalog, never the file a publish may be writing;
+  - **a site is never added from a deposit that enriches that PTM**, whether the enrichment is declared or measured
+    (any run with at least 5% phospho or 2% GG among its 1% target PSMs);
+  - the builder now reads the catalog with DuckDB 1.5.5, the version dataRepo writes with.
+- **Per-deposit exceptions, as question data** (`[exceptions.PXD…]`):
+  - a deposit can have its own `max_files`, `max_file_mb`, `max_est_ms2` and `defer_if_median_file_mb`;
+  - it can choose its own runs with `include_files` / `exclude_files` (case-insensitive regular expressions on raw file
+    names);
+  - a reason is required;
+  - a deposit deferred earlier gets one more look when an exception is added;
+  - every use is logged, kept in fetch provenance (`subset_by_question`) and noted in the manifest
+    (`question_exception`).
+- **A search fails when MetaMorpheus ignores its design.** MetaMorpheus can drop an invalid design after one warning
+  and quantify without it. The protein table must now carry one sample column per design sample.
+- **New flags:**
+  - `cysteine_poor`: under 5% of 1% target peptides contain cysteine (whole proteomes run 12-26%), which usually means
+    the lab used an alkylant the search did not. Written to the manifest for non-enriched deposits only;
+  - `output_sdrf_failed`: MetaMorpheus's SDRF writer crashed; the results stand.
+- **Chemistry:**
+  - NEM named as the only alkylant, even in a lysis buffer, is searched as variable NEM on C;
+  - MMTS blocking is read as Methylthio;
+  - two resolutions of one UNIMOD id must agree on mass, or the deposit waits (`waiting_unknown_modification`).
+- **Fetch (mzLib 1.0.594: retry and resume inside PRIDE's client):**
+  - an empty FTP listing, which mzLib now throws, is retried as before;
+  - SDRF downloads are retried and size-checked like raw files;
+  - an SDRF present only in PRIDE's FTP tree is flagged `sdrf_ftp_only`;
+  - provenance says why `pride_checksum` is empty (PRIDE's REST list never fills it).
+- **Census:** a `factor value[biological replicate]` column is no longer read as an experimental factor.
+- **Manifest:**
+  - `no_design_file` and `no_output_sdrf` now come from what the search did;
+  - a re-search keeps every key it does not write (an owner's `excluded_runs`, `restrictions`, ...).
+- **QC payload:** a file left out of the search is listed with `"excluded": true` (qctemplates 0.2.0).
+- **`pxreprise batch research <question.toml> <PXD> --reason "..." [--profile key@n]`** searches a finished deposit again under another
+  profile. The earlier output is moved aside, and the manifest entry is replaced once, keeping what its owner wrote.
+
 ## 0.3.11 (2026-10-05)
 
 **Updating:** MetaMorpheus unchanged (1.1.11). Machine file unchanged. Safe mid-batch: stop the batch, update, run it
