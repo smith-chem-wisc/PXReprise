@@ -57,6 +57,8 @@ foreach (var (task, i) in new[] { "CalibrationTask", "GptmdTask", "SearchTask" }
     Console.WriteLine($"Finished task: Task{i}{task}");
 }
 File.WriteAllText(Path.Combine(outDir, "Task2GptmdTask", "db-GPTMD.xml"), "<uniprot/>");
+// GPTMD writes the contaminants separately, under a name that sorts before the proteome's (as MetaMorpheus does).
+File.WriteAllText(Path.Combine(outDir, "Task2GptmdTask", "MetaMorpheusContaminantsGPTMD.xml"), "<uniprot><!-- contaminants --></uniprot>");
 string sd = Path.Combine(outDir, "Task3SearchTask");
 // 8 target, 1 contaminant, 1 decoy PSM at q <= 0.01, plus one above the cut-off.
 File.WriteAllText(Path.Combine(sd, "AllPSMs.psmtsv"), "QValue\tDecoy/Contaminant/Target\n" + string.Concat(Enumerable.Repeat("0.001\tT\n", 8)) + "0.002\tC\n0.003\tD\n0.5\tT\n");

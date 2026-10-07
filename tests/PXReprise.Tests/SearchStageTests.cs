@@ -114,6 +114,12 @@ public class SearchStageTests
             // P04264 is in both the panel and the proteome: the shared list the upper bound uses.
             Assert.That((int)p1["contamination"]!["shared_accessions_n"]!, Is.EqualTo(1));
             Assert.That(p1["gptmd_extra_mods"]!.AsArray(), Has.Count.EqualTo(1));
+            // G33: every database GPTMD wrote is an output with its sha256, the proteome the search loaded included,
+            // not just the first file found (that was the contaminants).
+            var gptmdOutputs = p1["outputs"]!.AsArray().Where(o => o!["path"]!.GetValue<string>().EndsWith("GPTMD.xml", StringComparison.Ordinal)).ToList();
+            Assert.That(gptmdOutputs.Select(o => Path.GetFileName(o!["path"]!.GetValue<string>())),
+                Is.EquivalentTo(new[] { "db-GPTMD.xml", "MetaMorpheusContaminantsGPTMD.xml" }));
+            Assert.That(gptmdOutputs.All(o => o!["sha256"]!.GetValue<string>().Length == 64));
         });
         string search = File.ReadAllText(Path.Combine(rig.Root, "run", "04_search_2", "tasks", "3_SearchTask.toml"));
         Assert.That(search, Does.Contain("UpdateSpectralLibrary = true\r\n").And.Contain("WriteSpectralLibrary = false\r\n")

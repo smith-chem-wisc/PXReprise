@@ -304,7 +304,9 @@ public static class SearchStage
         if (run.ExitCode == 0 && key["AllQuantifiedProteinGroups.tsv"] is null)
             prov.Note("exit 0 but no AllQuantifiedProteinGroups.tsv: FlashLFQ failed silently (pyMM 003 Q4)");
         foreach (string? v in key.Values) if (v is not null) prov.Output(v);
-        foreach (string gptmd in Directory.Exists(mm) ? Directory.EnumerateFiles(mm, "*GPTMD.xml", SearchOption.AllDirectories).Take(1) : Enumerable.Empty<string>())
+        // Every database GPTMD wrote, each with its sha256 (G33): the search task loads these, not the inputs. Taking only
+        // the first one found recorded the contaminant file and never the proteome the search actually used.
+        foreach (string gptmd in Directory.Exists(mm) ? Directory.EnumerateFiles(mm, "*GPTMD.xml", SearchOption.AllDirectories).Order(StringComparer.Ordinal) : Enumerable.Empty<string>())
             prov.Output(gptmd);
         prov.Output(Path.Combine(outDir, "metamorpheus.log"));
         if (File.Exists(Path.Combine(mm, "allResults.txt"))) prov.Output(Path.Combine(mm, "allResults.txt"));
