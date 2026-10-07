@@ -34,6 +34,14 @@ version that made them.
     search's `ExperimentalDesign.tsv`. A sample spanning several files (fractions, re-injections) gets no run-level value,
     and the payload's notes say so. Before this, the 1.1.12 trial reported `pg_missing_frac_msms = 1` for every run and
     lost `contaminant_intensity_frac`.
+  - **Fragmentation per file, from the MS2 headers (new profile option, unused by any shipped profile):** with
+    `[engine] fragmentation = "per_file"`:
+    - QC decides each file's `DissociationType` from its own scans: HCD, CID, ETD or EThcD; LowCID for CID read in an
+      ion trap; Autodetect only for a high-resolution mix of supported types;
+    - QC fails an unsupported or mixed-analyzer file (`unsupported_fragmentation`);
+    - the search writes the type into the file's `<raw>.toml`, beside its protease.
+  - **An unmodelled thiol reagent parks the deposit.** NBF-Cl named in a protocol, with no modelled alkylant beside it,
+    now waits as `waiting_unknown_alkylant` instead of being searched as carbamidomethyl.
   - **MetaMorpheus's contaminant panel without the UPS spike-in standard**, used as it is
     (`MetaMorpheusContaminants_NoUPS.xml`, 216 entries; MetaMorpheus #2858). It ships under `profiles/lists/` because
     the MetaMorpheus 1.1.12 install does not have it yet. All 48 UPS proteins are out, including the 7 human ones

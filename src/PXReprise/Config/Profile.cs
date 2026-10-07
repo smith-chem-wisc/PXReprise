@@ -80,8 +80,19 @@ public sealed record Profile(
     string Design = "none",
     string Chemistry = "fixed",
     bool WriteSdrf = false,
-    string? ContaminantFile = null)   // D35: a panel shipped under lists/, used as it is; null = ContaminantPanel from MetaMorpheus
+    string? ContaminantFile = null,   // D35: a panel shipped under lists/, used as it is; null = ContaminantPanel from MetaMorpheus
+    string Fragmentation = "fixed",   // D32: "per_file" writes each file's DissociationType from its MS2 headers
+    string LowResProductTolerance = Profile.DefaultLowResProductTolerance)
 {
+    /// <summary>The values of <c>[engine] fragmentation</c>.</summary>
+    public static readonly string[] Fragmentations = { "fixed", "per_file" };
+
+    /// <summary>
+    /// The product tolerance written for a LowCID file: MetaMorpheus's own LowCID calibration test writes
+    /// <c>±0.5000 Absolute</c> (CalibrationTests.cs:350). A profile may name another.
+    /// </summary>
+    public const string DefaultLowResProductTolerance = "±0.5000 Absolute";
+
     /// <summary>The values of <c>[quant] design</c>: none, or an experimental design from an SDRF (G15).</summary>
     public static readonly string[] Designs = { "none", "sdrf" };
 

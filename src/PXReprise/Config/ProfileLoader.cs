@@ -45,6 +45,14 @@ public static class ProfileLoader
         // MetaMorpheus 1.1.12+ (#2816, #2870; sdrf PXR-E1/E2): each search writes experiment.sdrf.tsv, stamped with the
         // deposit's accession. A key the pinned MetaMorpheus lacks fails the task-file edit, never silently.
         bool writeSdrf = eng.OptionalBool("write_sdrf") ?? false;
+        // D32 (G24): "fixed" keeps the task's DissociationType for every file; "per_file" writes each file's type, read from
+        // its MS2 headers at QC, into its <raw>.toml, with low_res_product_tolerance for CID read in an ion trap (LowCID).
+        string fragmentation = eng.OptionalString("fragmentation") ?? "fixed";
+        if (!Profile.Fragmentations.Contains(fragmentation))
+            throw new ConfigException(file, $"engine.fragmentation must be one of {string.Join(", ", Profile.Fragmentations)}, not '{fragmentation}'");
+        string lowResTolerance = eng.OptionalString("low_res_product_tolerance") ?? Profile.DefaultLowResProductTolerance;
+        if (!System.Text.RegularExpressions.Regex.IsMatch(lowResTolerance, @"^±\d+\.\d{4} (PPM|Absolute)$"))
+            throw new ConfigException(file, $"engine.low_res_product_tolerance must be written as MetaMorpheus writes one, e.g. \"±0.5000 Absolute\", not '{lowResTolerance}'");
         eng.RefuseUnknownKeys();
 
         var dbs = new SortedDictionary<string, OrganismDatabase>(StringComparer.Ordinal);
@@ -110,7 +118,7 @@ public static class ProfileLoader
         root.RefuseUnknownKeys();
         return new Profile(id, version, status, description, accepts, mm, tasks, extraMods, library, timeout, dbs,
             panel ?? Path.GetFileName(shipped!), exclude,
-            method, mbr, deposit, gates, Path.GetDirectoryName(Path.GetFullPath(file))!, design, chemistry, writeSdrf, shipped);
+            method, mbr, deposit, gates, Path.GetDirectoryName(Path.GetFullPath(file))!, design, chemistry, writeSdrf, shipped, fragmentation, lowResTolerance);
     }
 
     /// <summary>Every <c>*.toml</c> in a directory, keyed by <c>id@version</c>; a duplicate key is refused.</summary>

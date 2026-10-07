@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using PXReprise.Cli;
 using PXReprise.Config;
 using PXReprise.Provenance;
+using PXReprise.Qc;
 
 namespace PXReprise.Search;
 
@@ -193,8 +194,12 @@ public static class SearchStage
         {
             prov.Set("chemistry", Chemistry(chem));
             if (chem.AnyGuessed) prov.Note("chemistry includes a guess read from protocol text (D22); see chemistry.*.source");
-            WritePerFileProteases(files, chem.ProteasePerFile, prov);
         }
+        var fragmentation = FragmentationFromQc(qc, files, p);
+        if (fragmentation is not null)
+            prov.Set("fragmentation", new JsonObject(fragmentation.Select(kv => KeyValuePair.Create(kv.Key, (JsonNode?)new JsonObject
+                { ["dissociation_type"] = kv.Value.DissociationType, ["low_res"] = kv.Value.LowRes, ["evidence"] = kv.Value.Evidence }))));
+        WritePerFileSettings(files, chem?.ProteasePerFile, fragmentation, p.LowResProductTolerance, prov);
         var tomls = new List<string>();
         foreach (var (task, i) in p.Tasks.Select((t, i) => (Enum.Parse<TaskKind>(t), i + 1)))
         {
@@ -447,26 +452,57 @@ public static class SearchStage
     internal const string PerFileTomlMarker = "# written by PXReprise for a per-file protease (G19); MetaMorpheus file-specific parameters";
 
     /// <summary>
-    /// G19/D27: one <c>&lt;raw&gt;.toml</c> beside each raw file with its own protease (MetaMorpheus's file-specific
-    /// parameters; calibration carries it into X-calib.toml). Our stale tomls are removed; a toml we did not write is refused.
+    /// One <c>&lt;raw&gt;.toml</c> beside each raw file with the settings that file needs alone (MetaMorpheus's
+    /// file-specific parameters; calibration carries them into X-calib.toml): its protease (G19/D27) and its
+    /// fragmentation from its MS2 headers (D32, G24), with <paramref name="lowResProductTolerance"/> for LowCID. Only keys
+    /// MetaMorpheus's FileSpecificParameters accepts are written; one unknown key would make it drop the whole file.
+    /// Our stale tomls are removed; a toml we did not write is refused.
     /// </summary>
-    internal static void WritePerFileProteases(IEnumerable<string> rawFiles, IReadOnlyDictionary<string, string>? perFile, AgingProvenance prov)
+    internal static void WritePerFileSettings(IEnumerable<string> rawFiles, IReadOnlyDictionary<string, string>? proteasePerFile,
+        IReadOnlyDictionary<string, FragmentationCall>? fragmentationPerFile, string lowResProductTolerance, AgingProvenance prov)
     {
         foreach (string raw in rawFiles)
         {
+            string name = Path.GetFileName(raw);
             string toml = Path.Combine(Path.GetDirectoryName(raw)!, Path.GetFileNameWithoutExtension(raw) + ".toml");
             bool ours = File.Exists(toml) && File.ReadLines(toml).FirstOrDefault() == PerFileTomlMarker;
             if (File.Exists(toml) && !ours)
-                throw new SearchSetupException($"{toml} exists and was not written by PXReprise: MetaMorpheus would apply it to {Path.GetFileName(raw)}");
-            if (perFile?.TryGetValue(Path.GetFileName(raw), out string? protease) == true)
+                throw new SearchSetupException($"{toml} exists and was not written by PXReprise: MetaMorpheus would apply it to {name}");
+            var lines = new List<string>();
+            if (proteasePerFile?.TryGetValue(name, out string? protease) == true) lines.Add($"DigestionAgent = \"{protease}\"");
+            if (fragmentationPerFile?.TryGetValue(name, out var call) == true)
             {
-                File.WriteAllText(toml, $"{PerFileTomlMarker}\nDigestionAgent = \"{protease}\"\n");
+                if (call.DissociationType is null)
+                    throw new SearchSetupException($"{name}: its fragmentation cannot be searched per file ({call.Unsupported}); QC should have failed it");
+                lines.Add($"DissociationType = \"{call.DissociationType}\"");
+                if (call.LowRes) lines.Add($"ProductMassTolerance = \"{lowResProductTolerance}\"");
+            }
+            if (lines.Count > 0)
+            {
+                File.WriteAllText(toml, PerFileTomlMarker + "\n" + string.Join("\n", lines) + "\n");
                 prov.Input(toml);
             }
             else if (ours) File.Delete(toml);
         }
-        if (perFile is not null)
-            prov.Note($"per-file proteases (MetaMorpheus file-specific parameters): {string.Join("; ", perFile.GroupBy(kv => kv.Value).Select(g => $"{g.Key} x{g.Count()}"))}");
+        if (proteasePerFile is not null)
+            prov.Note($"per-file proteases (MetaMorpheus file-specific parameters): {string.Join("; ", proteasePerFile.GroupBy(kv => kv.Value).Select(g => $"{g.Key} x{g.Count()}"))}");
+        if (fragmentationPerFile is not null)
+            prov.Note($"per-file fragmentation from the MS2 headers (D32): {string.Join("; ", fragmentationPerFile.GroupBy(kv => kv.Value.DissociationType).Select(g => $"{g.Key} x{g.Count()}"))}");
+    }
+
+    /// <summary>D32: each searched file's fragmentation as QC decided it; null unless the profile writes it per file.</summary>
+    internal static IReadOnlyDictionary<string, FragmentationCall>? FragmentationFromQc(JsonObject qc, IEnumerable<string> files, Profile p)
+    {
+        if (p.Fragmentation != "per_file") return null;
+        var o = new Dictionary<string, FragmentationCall>(StringComparer.Ordinal);
+        foreach (string f in files.Select(Path.GetFileName)!)
+        {
+            if (qc[f!]?["fragmentation"] is not JsonObject fr)
+                throw new SearchSetupException($"{f}: the profile writes fragmentation per file, but QC recorded none for it: run `pxreprise qc` again");
+            o[f!] = new FragmentationCall(fr["dissociation_type"]?.GetValue<string>(), fr["low_res"]?.GetValue<bool>() ?? false,
+                fr["unsupported"]?.GetValue<string>(), fr["evidence"]?.GetValue<string>() ?? "");
+        }
+        return o;
     }
 
     /// <summary>The chemistry record in a search's provenance: each fact with its source and evidence.</summary>
