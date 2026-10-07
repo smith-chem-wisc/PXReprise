@@ -70,6 +70,18 @@ public class ChemistryTests
         Assert.That(c.CysMods.Single().MetaMorpheusId, Does.EndWith("on C"), "MetaMorpheus can search it");
     }
 
+    // PXD058611 (aging 061, S82, PXR-A54): thiols blocked with NBF-Cl, 0.20% cysteine peptides. No modelled modification, so
+    // the deposit waits; before, it fell through to the default carbamidomethyl.
+    [TestCase("Free thiols were blocked with NBF-Cl before labelling with DCP-Bio1")]
+    [TestCase("lysed in buffer containing 4-chloro-7-nitrobenzofurazan")]
+    public void AnUnmodelledThiolReagentParksInsteadOfDefaulting(string protocol)
+    {
+        var c = ChemistryDetector.Detect(Project(protocol), null, null, Files);
+        Assert.That((c.Park, c.CysMods.Count, c.Alkylation.Source), Is.EqualTo(("waiting_unknown_alkylant", 0, ChemistrySource.ProtocolText)));
+        var both = ChemistryDetector.Detect(Project(protocol + "; peptides were alkylated with iodoacetamide"), null, null, Files);
+        Assert.That((both.Park, both.CysMods.Single().Name), Is.EqualTo(((string?)null, "Carbamidomethyl")), "a modelled alkylant named beside it wins");
+    }
+
     [TestCase("alkylated with 55 mM iodoacetamide", "Carbamidomethyl", true)]
     [TestCase("alkylated with chloroacetamide (CAA)", "Carbamidomethyl", true)]
     [TestCase("cysteines were alkylated with acrylamide", "Propionamide", true)]

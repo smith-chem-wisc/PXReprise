@@ -191,6 +191,14 @@ public static class ChemistryDetector
             new(@"\b4-vinylpyridine\b|\bvinylpyridine\b", Opt)),
     };
 
+    /// <summary>
+    /// Thiol reagents a protocol can name that have no modelled cysteine modification (aging 061, S82: PXD058611 blocks
+    /// thiols with NBF-Cl). Named with no modelled alkylant beside them, the deposit WAITS (waiting_unknown_alkylant),
+    /// never searched with the default carbamidomethyl.
+    /// </summary>
+    private static readonly Regex UnmodelledThiolReagent =
+        new(@"\bNBF-?Cl\b|4-chloro-7-nitrobenzofurazan|7-chloro-4-nitrobenz(o-2-oxa-1,3-)?diazole", Opt);
+
     private static readonly Regex AlkylationContext = new(@"alkylat|block|thiol|cystein|\bCys\b|derivati[sz]", Opt);
 
     private static readonly Regex NoAlkylation = new(@"without (reduction and )?alkylation|\bnot (reduced and )?alkylated\b|\bno alkylation\b|alkylation (step )?was omitted|omitt?ing (the )?alkylation", Opt);
@@ -347,6 +355,12 @@ public static class ChemistryDetector
             var a = Alkylants.First(x => x.Name == "Nethylmaleimide");
             mods = new[] { new CysMod(a.Name, a.Unimod, false) };
             alkylation = new(a.Name, ChemistrySource.ProtocolText, $"the only alkylant named, outside an alkylation step; variable (aging PXR-A37): {Snip(text, lysisNem)}");
+        }
+        else if (UnmodelledThiolReagent.Match(text) is { Success: true } unmodelled)
+        {
+            mods = Array.Empty<CysMod>();
+            alkylation = new(unmodelled.Value, ChemistrySource.ProtocolText, $"a thiol reagent with no modelled modification: {Snip(text, unmodelled)}");
+            park ??= "waiting_unknown_alkylant";
         }
         else
         {
