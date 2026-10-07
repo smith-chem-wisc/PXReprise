@@ -68,16 +68,26 @@ public class DesignStageTests
     }
 
     [Test]
-    public void WithNothingUsableTheSearchRunsWithoutADesignAndSaysWhy()
+    public void WithNothingUsableTheSearchGetsPXRepriseDefaultSdrfAndDesign()
     {
         var (spectra, metadata, files) = Run();
         Sdrf(metadata, "only.sdrf.tsv", factor: null);
         File.WriteAllText(Path.Combine(metadata, "junk_sdrf.tsv"), "not an sdrf");
-        var rec = DesignStage.Prepare(spectra, files, null, null);
-        Assert.That((rec["source"]!.GetValue<string>(), rec["written"]!.GetValue<bool>()), Is.EqualTo(("none", false)));
+        var rec = DesignStage.Prepare(spectra, files, null, null, "mouse", "PXD000001");
+        Assert.That((rec["source"]!.GetValue<string>(), rec["written"]!.GetValue<bool>()), Is.EqualTo((DesignStage.DefaultSource, true)));
         Assert.That(rec["deposit_sdrfs_refused"]!.AsArray(), Has.Count.EqualTo(2));
-        Assert.That(File.Exists(Path.Combine(spectra, DesignStage.FileName)), Is.False);
-        Assert.That(DesignStage.Prepare(TestSupport.TempDir(), files, null, null)["reason"]!.GetValue<string>(), Does.Contain("no deposited SDRF"));
+        Assert.That(rec["conditions"]!.AsArray().Select(c => c!.GetValue<string>()), Is.EqualTo(new[] { DesignStage.DefaultCondition }));
+        string sdrf = rec["sdrf"]!.GetValue<string>();
+        Assert.That(Path.GetFileName(sdrf), Is.EqualTo("PXD000001.pxreprise_default.sdrf.tsv"));
+        Assert.That(Path.GetDirectoryName(sdrf), Is.Not.EqualTo(Path.GetFullPath(metadata)), "never where a later attempt reads deposit SDRFs");
+        Assert.That(File.ReadAllText(sdrf), Does.Contain("mus musculus"));
+        var tsv = File.ReadAllLines(Path.Combine(spectra, DesignStage.FileName));
+        Assert.That(tsv.Skip(1).Select(l => l.Split('\t')[2]), Is.EqualTo(new[] { "1", "2", "3", "4" }), "each file its own biological replicate");
+
+        // A second attempt still finds no deposit SDRF: its own default is not read back as the deposit's.
+        var again = DesignStage.Prepare(spectra, files, null, null, "mouse", "PXD000001");
+        Assert.That(again["deposit_sdrfs_refused"]!.AsArray(), Has.Count.EqualTo(2));
+        Assert.That(DesignStage.Prepare(Run().Spectra, files, null, null)["reason"]!.GetValue<string>(), Does.Contain("no deposited SDRF"));
     }
 
     [Test]

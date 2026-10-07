@@ -22,8 +22,10 @@ version that made them.
 - **A new profile, `label-free-dda@4`:** `@3` (each deposit's own chemistry) on MetaMorpheus 1.1.12, with three more
   changes:
   - **an experimental design from SDRF** (`[quant] design = "sdrf"`). The question's curated SDRF comes first, then the
-    deposit's own, through mzLib's `SdrfLabelFreeDesign`. With neither, the search runs without a design and is
-    flagged `no_design_file`;
+    deposit's own, through mzLib's `SdrfLabelFreeDesign`. With neither, PXReprise writes its own default SDRF
+    (`pxreprise_sdrf/<PXD>.pxreprise_default.sdrf.tsv`: one condition, `all`, and each file its own biological
+    replicate) and builds the design from that, so no search runs without one. MetaMorpheus quantifies with MBR from the
+    design. A fractionated deposit needs a curated SDRF: under the default, each fraction counts as a sample;
   - **the search writes its own SDRF**, `experiment.sdrf.tsv`, stamped with the deposit's ProteomeXchange accession
     (`[engine] write_sdrf = true`; MetaMorpheus #2816, #2870);
   - **new PTM-annotated databases**, `*_agingPTM-v2.xml`.

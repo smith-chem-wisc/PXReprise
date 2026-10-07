@@ -56,7 +56,8 @@ exclude = "contaminant_panel_exclude_v1.tsv"
 method = "flashlfq"
 mbr = true
 # D-1 (the user, 2026-10-07): ExperimentalDesign.tsv from the question's curated SDRF, else the deposit's, through mzLib's
-# SdrfLabelFreeDesign (the reader MetaMorpheus's --sdrfDesign uses); none usable = design-less, flagged no_design_file.
+# SdrfLabelFreeDesign (the reader MetaMorpheus's --sdrfDesign uses). D31 (the user, 2026-10-07): none usable = PXReprise's
+# default SDRF (one condition, each file its own biological replicate), so every search is quantified with a design.
 design = "sdrf"
 
 [deposit]
