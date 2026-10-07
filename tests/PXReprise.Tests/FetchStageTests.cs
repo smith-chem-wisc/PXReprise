@@ -86,6 +86,29 @@ public class FetchStageTests
         Assert.That(prov, Does.Contain("subset_of_deposit: 3 of 4 raw files").And.Contain("aging-provenance/3"));
     }
 
+    [Test]
+    public void MzLib594sEmptyFtpRootThrowIsReadAsAnEmptyListing()   // pride 005, PXR-S1: the S52 / PXD058248 case
+    {
+        // The exact shape mzLib 1.0.594 throws: no status code, no inner exception.
+        var empty = new HttpRequestException("PRIDE FTP listing of project PXD058248's root directory came back empty although the project exists.");
+        Assert.That(PrideFiles.IsEmptyFtpRoot(empty), Is.True);
+        Assert.That(PrideFiles.IsEmptyFtpRoot(new HttpRequestException("came back empty", null, System.Net.HttpStatusCode.NotFound)), Is.False);
+        Assert.That(PrideFiles.IsEmptyFtpRoot(new HttpRequestException("came back empty", new IOException("reset"))), Is.False);
+        Assert.That(FetchStage.IsTransient(empty), Is.False, "the reason the adapter must catch it: our retry would not");
+    }
+
+    [Test]
+    public async Task AnSdrfDownloadIsRetriedAndAnFtpOnlySdrfIsFlagged()   // pride 007, PXR-S8
+    {
+        string dir = TestSupport.TempDir();
+        var pride = new FlakyPride { FailuresBeforeSuccess = 1, Files = { F("x.sdrf.tsv", 5) }, Ftp = { "x.sdrf.tsv", "y_sdrf.tsv" } };
+        var r = new FetchRequest("PXD000001", Path.Combine(dir, "02_fetch"), Pick.All, 60, 5000, ".raw", 2, 3, TimeSpan.Zero, TimeSpan.Zero, dir);
+        var manifest = await FetchStage.RunAsync(r, pride, CancellationToken.None);
+        Assert.That(manifest["sdrf"]!.AsArray(), Has.Count.EqualTo(1));
+        string prov = File.ReadAllText(Path.Combine(dir, "02_fetch", "provenance.json"));
+        Assert.That(prov, Does.Contain("sdrf_ftp_only: y_sdrf.tsv").And.Contain("PXR-S6"));
+    }
+
     private sealed class FlakyPride : IPrideFiles
     {
         public int FailuresBeforeSuccess;

@@ -22,8 +22,25 @@ public sealed class PrideFiles(PrideArchiveClient client) : IPrideFiles
     public Task<List<PrideArchiveFile>> ListFilesAsync(string accession, CancellationToken ct) =>
         client.GetProjectFilesAsync(accession, cancellationToken: ct);
 
-    public async Task<List<string>> ListFtpNamesAsync(string accession, CancellationToken ct) =>
-        (await client.GetProjectFilesFromFtpAsync(accession, ct).ConfigureAwait(false)).Select(f => Path.GetFileName(f.RelativePath)).ToList();
+    public async Task<List<string>> ListFtpNamesAsync(string accession, CancellationToken ct)
+    {
+        try
+        {
+            return (await client.GetProjectFilesFromFtpAsync(accession, ct).ConfigureAwait(false)).Select(f => Path.GetFileName(f.RelativePath)).ToList();
+        }
+        catch (HttpRequestException e) when (IsEmptyFtpRoot(e))
+        {
+            return new List<string>();   // the caller's empty-listing retry (S52) decides, as it did on mzLib 1.0.593
+        }
+    }
+
+    /// <summary>
+    /// mzLib 1.0.594 (#1412) throws, after its own retries, where 1.0.593 returned an empty list: "PRIDE FTP listing of
+    /// project X's root directory came back empty although the project exists". It carries no status code and no inner
+    /// exception, so it is neither unavailability nor a transient status; pride 005 (PXR-S1) names the two marks.
+    /// </summary>
+    public static bool IsEmptyFtpRoot(HttpRequestException e) =>
+        e.StatusCode is null && e.InnerException is null && e.Message.Contains("came back empty", StringComparison.Ordinal);
 
     /// <summary>overwrite=false: a complete file is skipped, so re-running a fetch is cheap.</summary>
     public Task<string> DownloadAsync(PrideArchiveFile file, string dir, CancellationToken ct) =>
@@ -42,8 +59,11 @@ public sealed record FetchRequest(string Accession, string OutDir, Pick Pick, in
 /// <summary>
 /// One accession's raw files (and SDRF, if deposited), with the engine's retry policy. mzLib's client never retries
 /// by design; the caller owns the policy (aging fetch.py, S33/S52): transport failures and the HTTP statuses EBI has
-/// returned transiently (403, 408, 429, 5xx) are retried; anything else fails at once. A retry is not a resume: a
-/// transfer that dies at 90% pays for the whole file again until PRIDE's client resumes (pride REQ-PRIDE-1).
+/// returned transiently (403, 408, 429, 5xx) are retried; anything else fails at once. Since mzLib 1.0.594 (#1412) the
+/// client itself retries each call 3 times and RESUMES a broken download from its <c>.partial</c> (plus
+/// <c>.partial.validator</c>, both left in the spectra folder on purpose), so our attempts sit on top of its own. Keep
+/// <c>fetch_stall_minutes</c> at 5 or more: a cancellation deletes the <c>.partial</c>, and mzLib's own recovery can be
+/// silent for up to 3 minutes (pride 005, PXR-S2).
 /// </summary>
 public static class FetchStage
 {
@@ -51,6 +71,8 @@ public static class FetchStage
 
     public static bool IsTransient(Exception e) =>
         Envelope.IsUnavailable(e) || (e is HttpRequestException && TransientStatus.IsMatch(e.Message));
+
+    private static bool IsSdrf(string name) => name.Contains("sdrf", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Up to three probe files: the median by size, and the first and last by name. One median file cannot see a
@@ -113,7 +135,11 @@ public static class FetchStage
         raws = raws.Where(f => f.FileSizeBytes <= (long)r.MaxFileMb * 1_000_000).ToList();
         int nOversize = nListed - raws.Count;
         var chosen = Choose(raws, r.Pick, r.MaxFiles);
-        var sdrfs = rest.Where(f => f.FileName.Contains("sdrf", StringComparison.OrdinalIgnoreCase)).ToList();
+        var sdrfs = rest.Where(f => IsSdrf(f.FileName)).ToList();
+        // PRIDE's REST list can miss submitted files that the FTP tree holds (pride 007, PXR-S8). An SDRF there is
+        // flagged, as a missing raw is; fetching it waits for pride's SDRF verb, which reads both lists.
+        var sdrfFtpOnly = ftp.Where(IsSdrf).Except(sdrfs.Select(f => f.FileName), StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
+        if (sdrfFtpOnly.Count > 0) flags.Add($"sdrf_ftp_only: {string.Join(", ", sdrfFtpOnly)} (in the FTP tree, not in PRIDE's file list; not fetched)");
         prov.Set("raw_files_listed", (JsonNode)nListed);
         prov.Set("raw_files_chosen", (JsonNode)chosen.Count);
         // A subset of a deposit is a design decision; it is allowed (a probe needs few files) but never silent (S43).
@@ -156,7 +182,8 @@ public static class FetchStage
         if (sdrfs.Count > 0)
         {
             Directory.CreateDirectory(metaDir);
-            foreach (var s in sdrfs) gotSdrf.Add(await pride.DownloadAsync(s, metaDir, ct).ConfigureAwait(false));
+            foreach (var s in sdrfs)
+                gotSdrf.Add((await DownloadWithRetry(pride, s, metaDir, r.MaxAttempts, r.Backoff, ct, r.StallAfter, log).ConfigureAwait(false)).Path);
         }
 
         var files = new JsonArray();
@@ -180,7 +207,9 @@ public static class FetchStage
         string manifestFile = Path.Combine(outDir, "fetch_manifest.json");
         File.WriteAllText(manifestFile, manifest.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
         if (!files.Any(f => f!["pride_checksum"] is not null))
-            prov.Note("PRIDE supplied no checksum; integrity rests on the local SHA-256 only (REQ-PRIDE-2).");
+            prov.Note("pride_checksum is null because PRIDE's REST file list leaves it empty (pride 007, PXR-S6), not because PRIDE "
+                      + "has none: its MD5s are served only by /files/checksum (mzLib #1427, unreleased). Integrity rests on the "
+                      + "local SHA-256 and PRIDE's listed size.");
         foreach (var (p, _, _) in results) prov.Output(p);
         foreach (string s in gotSdrf) prov.Output(s);
         prov.Output(manifestFile);
