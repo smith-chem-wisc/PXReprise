@@ -24,7 +24,9 @@ public sealed record TaskSettings(
     string? PrecursorMassTolerance = null,
     string? Protease = null,                              // G19: the deposit's protease, as mzLib's ProteaseDictionary spells it
     IReadOnlyList<string>? FixedCysMods = null,           // G19: "Type\tIdWithMotif" (a real TAB); null keeps the default
-    IReadOnlyList<string>? VariableCysMods = null);       //   Carbamidomethyl on C and U; empty lists mean no cysteine mod
+    IReadOnlyList<string>? VariableCysMods = null,        //   Carbamidomethyl on C and U; empty lists mean no cysteine mod
+    bool WriteSdrf = false,                               // MetaMorpheus 1.1.12+: experiment.sdrf.tsv beside the results
+    string? ProteomeXchangeAccession = null);             //   stamped into it; only with WriteSdrf
 
 public static class TaskFiles
 {
@@ -85,6 +87,10 @@ public static class TaskFiles
                 text = Replace(text, @"^UpdateSpectralLibrary = \w+$", $"UpdateSpectralLibrary = {Bool(mode == "update")}",
                     "UpdateSpectralLibrary", exactlyOne: true);
             }
+            if (s.WriteSdrf)
+                text = WriteSdrfLines(text, s.ProteomeXchangeAccession);
+            else if (s.ProteomeXchangeAccession is not null)
+                throw new SearchSetupException("a ProteomeXchange accession is stamped only into a written SDRF (WriteSdrf)");
         }
 
         // G19 (D23, D24, D27): the deposit's protease and cysteine chemistry, in EVERY task. Mods are per task in
@@ -184,6 +190,24 @@ public static class TaskFiles
         }
         string list = string.Join(@"\t\t", entries);
         return text[..m.Groups[1].Index] + list + text[(m.Groups[1].Index + m.Groups[1].Length)..];
+    }
+
+    private static readonly Regex PxAccession = new(@"^R?PXD\d{6,}$", RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// <c>WriteSdrf = true</c> (MetaMorpheus #2816), and the deposit's accession (#2870). <c>CMD -g</c> of 1.1.12 writes
+    /// <c>WriteSdrf</c> but not <c>ProteomeXchangeAccession</c>, so the accession is inserted on the next line, inside the
+    /// same [SearchParameters] table; an accession line already there is replaced.
+    /// </summary>
+    private static string WriteSdrfLines(string text, string? accession)
+    {
+        text = Replace(text, @"^WriteSdrf = \w+$", "WriteSdrf = true", "WriteSdrf", exactlyOne: true);
+        if (accession is null) return text;
+        if (!PxAccession.IsMatch(accession)) throw new SearchSetupException($"'{accession}' is not a ProteomeXchange accession (PXD followed by digits)");
+        string line = $"ProteomeXchangeAccession = \"{accession}\"";
+        return Regex.IsMatch(text, "^ProteomeXchangeAccession = .*$", RegexOptions.Multiline)
+            ? Replace(text, "^ProteomeXchangeAccession = .*$", line, "ProteomeXchangeAccession", exactlyOne: true)
+            : Regex.Replace(text, @"^WriteSdrf = true$", "WriteSdrf = true\n" + line, RegexOptions.Multiline);
     }
 
     private static string Bool(bool b) => b ? "true" : "false";

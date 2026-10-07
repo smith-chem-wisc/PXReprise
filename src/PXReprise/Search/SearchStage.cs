@@ -148,7 +148,8 @@ public static class SearchStage
         var settings = new TaskSettings(m.MaxThreads, p.MatchBetweenRuns, p.GptmdExtraMods, SpectralLibraryMode: lib?.Mode,
             Protease: chem is { ProteasePerFile: null } ? chem.Protease.Value : null,
             FixedCysMods: chem?.CysMods.Where(c => c.Fixed).Select(c => c.MetaMorpheusId!).ToList(),
-            VariableCysMods: chem?.CysMods.Where(c => !c.Fixed).Select(c => c.MetaMorpheusId!).ToList());
+            VariableCysMods: chem?.CysMods.Where(c => !c.Fixed).Select(c => c.MetaMorpheusId!).ToList(),
+            WriteSdrf: p.WriteSdrf, ProteomeXchangeAccession: p.WriteSdrf ? r.Accession : null);
         if (chem is not null)
         {
             prov.Set("chemistry", Chemistry(chem));

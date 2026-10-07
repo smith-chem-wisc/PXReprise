@@ -42,6 +42,9 @@ public static class ProfileLoader
         string chemistry = eng.OptionalString("chemistry") ?? "fixed";
         if (!Profile.Chemistries.Contains(chemistry))
             throw new ConfigException(file, $"engine.chemistry must be one of {string.Join(", ", Profile.Chemistries)}, not '{chemistry}'");
+        // MetaMorpheus 1.1.12+ (#2816, #2870; sdrf PXR-E1/E2): each search writes experiment.sdrf.tsv, stamped with the
+        // deposit's accession. A key the pinned MetaMorpheus lacks fails the task-file edit, never silently.
+        bool writeSdrf = eng.OptionalBool("write_sdrf") ?? false;
         eng.RefuseUnknownKeys();
 
         var dbs = new SortedDictionary<string, OrganismDatabase>(StringComparer.Ordinal);
@@ -97,7 +100,7 @@ public static class ProfileLoader
 
         root.RefuseUnknownKeys();
         return new Profile(id, version, status, description, accepts, mm, tasks, extraMods, library, timeout, dbs, panel, exclude,
-            method, mbr, deposit, gates, Path.GetDirectoryName(Path.GetFullPath(file))!, design, chemistry);
+            method, mbr, deposit, gates, Path.GetDirectoryName(Path.GetFullPath(file))!, design, chemistry, writeSdrf);
     }
 
     /// <summary>Every <c>*.toml</c> in a directory, keyed by <c>id@version</c>; a duplicate key is refused.</summary>
