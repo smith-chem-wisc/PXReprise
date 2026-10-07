@@ -85,6 +85,12 @@ public static class ManifestEntry
         // since label-free-dda@4 (D28).
         var searchFlags = search["flags"]?.AsArray().Select(x => x!.GetValue<string>()).ToList() ?? new List<string> { "no_design_file", "no_output_sdrf" };
         var flags = new[] { "no_design_file", "no_output_sdrf" }.Where(f => searchFlags.Any(x => x.StartsWith(f + ":", StringComparison.Ordinal) || x == f)).ToList();
+        // aging 043 (PXR-A37): too few cysteine peptides for a whole proteome points to an alkylant the search did not use.
+        if (enrichment == "none" && searchFlags.FirstOrDefault(f => f.StartsWith("cysteine_poor:", StringComparison.Ordinal)) is { } cysPoor)
+        {
+            flags.Add("cysteine_poor");
+            notes.Add($"CYSTEINE-POOR: {cysPoor["cysteine_poor: ".Length..]}.");
+        }
         if (enrichment != "none")
         {
             string ev = (state?["screen_evidence"]?.GetValue<string>() ?? "").Replace('"', '\'');

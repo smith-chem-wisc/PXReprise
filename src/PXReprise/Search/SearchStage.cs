@@ -35,6 +35,27 @@ public static class SearchStage
 {
     public const string SkipQuantSuffix = ". Skipping quantification";
 
+    /// <summary>The cysteine-containing share of 1% target peptides below which a search is flagged cysteine_poor.</summary>
+    public const double CysteinePoorBelow = 0.05;
+
+    /// <summary>
+    /// The share of target peptides at q &lt;= 0.01 in <c>AllPeptides.psmtsv</c> whose base sequence holds a C, or null
+    /// when the table lacks the columns or has no such peptide.
+    /// </summary>
+    public static double? CysteineShare(string allPeptides)
+    {
+        var header = Tsv.Header(allPeptides);
+        if (!new[] { "QValue", "Decoy/Contaminant/Target", "Base Sequence" }.All(header.Contains)) return null;
+        int n = 0, c = 0;
+        foreach (var row in Tsv.Read(allPeptides))
+        {
+            if (row["Decoy/Contaminant/Target"] != "T" || !(Tsv.Number(row["QValue"]) <= 0.01)) continue;
+            n++;
+            if (row["Base Sequence"].Contains('C')) c++;
+        }
+        return n == 0 ? null : SearchMetrics.PyRound((double)c / n, 4);
+    }
+
     /// <summary>
     /// Null when the protein-group table was quantified with the design: one <c>Intensity_</c> sample column per
     /// distinct (condition, biorep) of <c>ExperimentalDesign.tsv</c>, each condition named in at least one. Design-less,
@@ -371,6 +392,15 @@ public static class SearchStage
                                   : "no_output_sdrf: no reanalysis SDRF written (the profile does not set write_sdrf)");
         else
             foreach (string sdrf in Directory.EnumerateFiles(mm, "*.sdrf.tsv", SearchOption.AllDirectories)) prov.Output(sdrf);
+        // aging 043 (PXR-A37): a whole proteome runs 12-26% cysteine-containing target peptides at 1%; every chemistry
+        // mismatch found so far (NEM, MMTS searched as carbamidomethyl) sat below 5%. A measurement and a flag, never a gate:
+        // an enrichment is cysteine-poor by design, so the manifest keeps the flag only for non-enriched deposits.
+        if (key["AllPeptides.psmtsv"] is { } peptides && CysteineShare(peptides) is double cys)
+        {
+            prov.Set("cysteine_peptide_share", (JsonNode)cys);
+            if (cys < CysteinePoorBelow)
+                flags.Add($"cysteine_poor: {Pct(cys)} of 1% target peptides contain C (whole proteomes: 12-26%); check the alkylant (aging PXR-A37)");
+        }
         if (p.MatchBetweenRuns && files.Count < 2)
             prov.Note("MatchBetweenRuns is on but only one spectra file was searched: MBR has nothing to transfer.");
 

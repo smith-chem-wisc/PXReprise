@@ -46,12 +46,28 @@ public class ChemistryTests
         Assert.That(c.CysMods.Select(m => (m.Name, m.Fixed)), Is.EqualTo(new[] { ("Nethylmaleimide", false), ("NEM:2H(5)", false) }));
     }
 
-    // PXD047288 and eight siblings: ubiquitin studies; NEM in the lysis buffer inhibits deubiquitinases.
+    // PXD047288 and nine siblings (aging 043, PXR-A37; the user's D-3): NEM in the lysis buffer inhibits deubiquitinases AND
+    // caps every free cysteine (the deposits are 0.2-3.2% Cys). With no other alkylant named, it IS the alkylant, variable.
     [Test]
-    public void NemInALysisBufferIsNotTheAlkylation()
+    public void NemInALysisBufferIsTheAlkylantWhenNoOtherIsNamed()
     {
         var c = ChemistryDetector.Detect(Project("Samples were homogenized in denaturing lysis buffer (0.05% SDS) with 70mM NEM, briefly centrifuged"), null, null, Files);
-        Assert.That((c.Alkylation.Value, c.Alkylation.Source), Is.EqualTo(("Carbamidomethyl", ChemistrySource.Default)));
+        Assert.That((c.Alkylation.Value, c.Alkylation.Source), Is.EqualTo(("Nethylmaleimide", ChemistrySource.ProtocolText)));
+        Assert.That(c.CysMods, Is.EqualTo(new[] { new CysMod("Nethylmaleimide", "UNIMOD:108", false) }));
+
+        var both = ChemistryDetector.Detect(Project("Tissue was lysed in RIPA buffer with 10 mM NEM to inhibit deubiquitinases. Proteins were "
+            + "precipitated overnight, resuspended in urea, digested on beads with Lys-C and then trypsin; peptides were reduced with DTT and "
+            + "alkylated with iodoacetamide"), null, null, Files);
+        Assert.That(both.CysMods.Select(m => (m.Name, m.Fixed)), Is.EqualTo(new[] { ("Carbamidomethyl", true) }), "another alkylant named wins");
+    }
+
+    // PXD013640 (aging 049): "blocked with 200 mM MMTS", searched with carbamidomethyl fixed. PXD053288 the same (aging 055).
+    [Test]
+    public void MmtsBlockingIsMethylthio()
+    {
+        var c = ChemistryDetector.Detect(Project("Free thiols were blocked with 200 mM MMTS in HEN buffer"), null, null, Files);
+        Assert.That((c.CysMods.Single().Name, c.CysMods.Single().Fixed), Is.EqualTo(("Methylthio", true)));
+        Assert.That(c.CysMods.Single().MetaMorpheusId, Does.EndWith("on C"), "MetaMorpheus can search it");
     }
 
     [TestCase("alkylated with 55 mM iodoacetamide", "Carbamidomethyl", true)]

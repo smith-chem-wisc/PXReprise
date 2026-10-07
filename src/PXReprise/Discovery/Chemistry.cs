@@ -107,9 +107,18 @@ public static class ChemistryDetector
     {
         if (UnimodNumber(key.Item1) is not int id) return null;
         var cm = CanonicalModification.AtResidue(0, key.Item2, $"UNIMOD:{id}", unimodId: id);
-        var resolved = MzLibModificationLookup.ProteinOnly.TryResolve(cm) ?? UnimodModificationLookup.Instance.TryResolve(cm);
-        return resolved?.MzLibModification is { } m ? $"{m.ModificationType}\t{m.IdWithMotif}" : null;
+        var ours = MzLibModificationLookup.ProteinOnly.TryResolve(cm)?.MzLibModification;
+        var unimod = UnimodModificationLookup.Instance.TryResolve(cm)?.MzLibModification;
+        // bridge 002 (PXR-B6, mzLib issue #1418): a lookup that cannot narrow its candidates returns the first one on the
+        // residue, whatever its mass, without a warning. Two resolutions of one UNIMOD id must agree on mass, or the mod is
+        // unknown and the deposit waits (waiting_unknown_modification) instead of being searched with the wrong chemistry.
+        if (ours is not null && unimod is not null && ours.MonoisotopicMass is double a && unimod.MonoisotopicMass is double b && Math.Abs(a - b) > MassAgreement)
+            return null;
+        return (ours ?? unimod) is { } m ? $"{m.ModificationType}\t{m.IdWithMotif}" : null;
     });
+
+    /// <summary>Daltons within which two resolutions of one UNIMOD id are the same chemistry.</summary>
+    internal const double MassAgreement = 0.001;
 
     /// <summary>The number in "UNIMOD:108", "Unimod:35" or a bare "4" (the SDRF corpus writes all three).</summary>
     internal static int? UnimodNumber(string s) =>
@@ -304,6 +313,10 @@ public static class ChemistryDetector
         // alkylation: in the text, NEM counts only near an alkylation, blocking, thiol or cysteine word.
         var fromText = Alkylants.Select(a => (a.Name, M: a.Text.Matches(text).FirstOrDefault(m => !a.Name.StartsWith("N", StringComparison.Ordinal)
                 || AlkylationContext.IsMatch(Window(text, m, 80))))).Where(x => x.M is not null).Select(x => (x.Name, M: x.M!)).ToList();
+        // aging 043 (PXR-A37, the user's D-3, 2026-10-07): NEM named ANYWHERE with no other alkylant named IS the alkylant.
+        // 70 mM NEM in a denaturing lysis buffer caps every free cysteine (the ten Jarome deposits are 0.2-3.2% Cys). Searched
+        // VARIABLE: cysteines disulfide-bonded at lysis escape it.
+        Match? lysisNem = fromText.Count == 0 && Alkylants.First(a => a.Name == "Nethylmaleimide").Text.Match(text) is { Success: true } nem ? nem : null;
         if (sdrfAlk.Read.CysMods is { Count: > 0 } sm)
         {
             mods = sm;   // as the SDRF states them, fixed or variable
@@ -328,6 +341,12 @@ public static class ChemistryDetector
         {
             mods = CysModsFor(fromText.Select(x => x.Name).ToList());
             alkylation = new(string.Join(" + ", fromText.Select(x => x.Name)), ChemistrySource.ProtocolText, string.Join(" | ", fromText.Select(x => Snip(text, x.M))));
+        }
+        else if (lysisNem is not null)
+        {
+            var a = Alkylants.First(x => x.Name == "Nethylmaleimide");
+            mods = new[] { new CysMod(a.Name, a.Unimod, false) };
+            alkylation = new(a.Name, ChemistrySource.ProtocolText, $"the only alkylant named, outside an alkylation step; variable (aging PXR-A37): {Snip(text, lysisNem)}");
         }
         else
         {

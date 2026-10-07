@@ -235,6 +235,17 @@ public class SearchStageTests
         finally { Environment.SetEnvironmentVariable("FAKE_MM_IGNORE_DESIGN", null); }
     }
 
+    // aging 043 (PXR-A37): the Jarome NEM deposits ran 0.2-3.2% Cys; whole proteomes 12-26%.
+    [Test]
+    public void CysteineShareCountsTargetPeptidesAtOnePercent()
+    {
+        string dir = TestSupport.TempDir();
+        string f = TestSupport.WriteFile(dir, "AllPeptides.psmtsv", "Base Sequence\tQValue\tDecoy/Contaminant/Target\n"
+            + "PEPCK\t0.001\tT\nPEPTIDEK\t0.001\tT\nPEPTIDER\t0.001\tT\nAAAAK\t0.001\tT\nCCCK\t0.001\tD\nCCCR\t0.5\tT\nCCK\t0.001\tC\n");
+        Assert.That(SearchStage.CysteineShare(f), Is.EqualTo(0.25), "1 of 4 target peptides at 1%; decoys, contaminants and q > 1% left out");
+        Assert.That(SearchStage.CysteineShare(TestSupport.WriteFile(dir, "old.psmtsv", "QValue\n0.001\n")), Is.Null, "not measurable is null, not 0");
+    }
+
     [Test]
     public void QuantMissesDesignCountsSamplesNotFiles()
     {
