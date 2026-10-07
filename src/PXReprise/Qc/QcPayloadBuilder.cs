@@ -447,7 +447,7 @@ public static class QcPayloadBuilder
     /// <paramref name="qcDir"/> holds <c>qc_report.json</c> (its <c>run_minutes</c>).
     /// </summary>
     public static QcPayloadResult Build(string searchDir, string qcDir, string accession, string runLabel,
-        string? metamorpheusVersion, QcBins bins, IEnumerable<string>? extraNotes = null)
+        string? metamorpheusVersion, QcBins bins, IEnumerable<string>? extraNotes = null, IEnumerable<string>? excludedFiles = null)
     {
         if (string.IsNullOrEmpty(accession)) throw new ArgumentException("an accession is required: an unnamed payload is useless once two datasets exist");
         string mm = Path.Combine(searchDir, "mm");
@@ -468,6 +468,7 @@ public static class QcPayloadBuilder
         var peaks = ParsePeaks(Path.Combine(task, "AllQuantifiedPeaks.tsv"));
         var pg = ParseProteinGroups(Path.Combine(task, "AllQuantifiedProteinGroups.tsv"));
 
+        var excluded = (excludedFiles ?? Array.Empty<string>()).Select(Stem).ToHashSet(StringComparer.Ordinal);
         var names = new SortedSet<string>(counts.Keys, StringComparer.Ordinal);
         names.UnionWith(psmMetrics.Keys);
         names.UnionWith(runMinutes.Keys);
@@ -488,7 +489,11 @@ public static class QcPayloadBuilder
             if (pg.Quantified is int qn and > 0)
                 m["pg_missing_frac_msms"] = SearchMetrics.PyRound((double)(qn - pg.Present.GetValueOrDefault(name)) / qn, 4);
             if (pg.ContaminantIntensity.TryGetValue(name, out double ci)) m["contaminant_intensity_frac"] = ci;
-            files.Add(new JsonObject { ["file"] = name, ["metrics"] = m, ["distributions"] = dists.GetValueOrDefault(name)?.DeepClone() ?? new JsonObject() });
+            var entry = new JsonObject { ["file"] = name, ["metrics"] = m, ["distributions"] = dists.GetValueOrDefault(name)?.DeepClone() ?? new JsonObject() };
+            // qc D12 (qctemplates 0.2.0, qc PXR-C1): a file left OUT of the search stays listed, marked excluded, so it
+            // trips no gate and counts toward no dataset number. A file searched with zero results is a real 0 (qc D6), never this.
+            if (excluded.Contains(name)) entry["excluded"] = true;
+            files.Add(entry);
         }
 
         var notes = new JsonArray
