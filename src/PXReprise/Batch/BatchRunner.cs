@@ -446,6 +446,10 @@ public sealed class BatchRunner
 
         var acq = AcquisitionClassifier.Classify(rec.Record);
         var route = Router.Assign(acc, acq, new RelevanceResult(RelevanceVerdict.DecidedInclude, "queued"), _q, _profiles);
+        // D30/D32: what experiment this is, fact by fact with sources, written at every exit of this stage.
+        var xr = new ExperimentRecord(acc);
+        xr.Species(e.Organism, "queue (the census reads it from the PRIDE project record)");
+        xr.Screen(acq);
         if (acq.Enrichment != "none")
         {
             // Searched, and ANNOTATED: an enrichment is not a whole proteome, and its intensities must never be pooled as one.
@@ -461,6 +465,7 @@ public sealed class BatchRunner
             };
             Log($"{acc} SCREENED OUT ({status}): {route.Reason}");
             Record(acc, ("status", status), ("screen_evidence", acq.Evidence), ("route", route.Reason));
+            Experiment(acc, xr, status, route.Reason);
             return null;
         }
         var profile = _profiles[route.Profile!];
@@ -476,6 +481,7 @@ public sealed class BatchRunner
         {
             Log($"{acc} SKIPPED: {profile.Key} has no database for organism '{e.Organism}'");
             Record(acc, ("status", "skipped_organism"));
+            Experiment(acc, xr, "skipped_organism", $"{profile.Key} has no database for '{e.Organism}'");
             return null;
         }
         // A UniProt database is downloaded (once) before any PRIDE download, so an outage costs nothing and is retried.
@@ -508,6 +514,7 @@ public sealed class BatchRunner
             {
                 Log($"{acc} SKIPPED: the question's file selection keeps no raw file");
                 Record(acc, ("status", "skipped_selection_empty"));
+                Experiment(acc, xr, "skipped_selection_empty", exception.Describe());
                 return null;
             }
         }
@@ -519,11 +526,13 @@ public sealed class BatchRunner
             DepositChemistry chem;
             try { chem = await ChemistryAsync(acc, all, listing.Select(f => f.FileName).ToList(), ct).ConfigureAwait(false); }
             catch (Exception ex) when (Envelope.IsUnavailable(ex) || FetchStage.IsTransient(ex)) { Log($"{acc} chemistry: PRIDE unavailable ({ex.Message}); retry next pass"); return null; }
+            xr.Chemistry(chem);
             string? wait = chem.Park ?? (chem.Label.Value == "label_free" ? null : $"waiting_{Slug(chem.Label.Value)}_labelling");
             if (wait is not null)
             {
                 Log($"{acc} SCREENED OUT ({wait}): chemistry {Describe(chem)}");
                 Record(acc, ("status", wait), ("detail", Describe(chem)));
+                Experiment(acc, xr, wait, Describe(chem));
                 return null;
             }
             Log($"{acc} chemistry: {Describe(chem)}");
@@ -539,6 +548,7 @@ public sealed class BatchRunner
         {
             Log($"{acc} SCREENED OUT (excluded_duplicate): all {listing.Count} raw files (name and size) are in {original}, {When(original)}");
             Record(acc, ("status", "excluded_duplicate"), ("duplicate_of", original));
+            Experiment(acc, xr, "excluded_duplicate", $"all {listing.Count} raw files are in {original}");
             return null;
         }
         foreach (var (other, shared) in dup.Partial)
@@ -552,6 +562,7 @@ public sealed class BatchRunner
             string why = sizes.Count > dep.MaxFiles ? $"{sizes.Count} raw files > {dep.MaxFiles}" : $"{oversize.Count} file(s) above {dep.MaxFileMb} MB";
             Log($"{acc} DEFERRED: {why}. A subset would be a design decision made by file size (S43); it waits for SDRF -> experimental-design selection.");
             Record(acc, ("status", "deferred_needs_design_selection"), ("n_files", sizes.Count), ("total_gb", Math.Round(sizes.Sum() / 1000, 1)), ("detail", why));
+            Experiment(acc, xr, "deferred_needs_design_selection", why);
             return null;
         }
         if (sizes.Count > 0 && dep.DeferIfMedianFileMb > 0 && sizes[sizes.Count / 2] > dep.DeferIfMedianFileMb)
@@ -559,6 +570,7 @@ public sealed class BatchRunner
             double med = sizes[sizes.Count / 2];
             Log($"{acc} DEFERRED: median file {med:0} MB > {dep.DeferIfMedianFileMb} MB ({sizes.Count} files, {sizes.Sum() / 1000:0.0} GB). EBI drops these mid-transfer and a retry re-pays from zero (S40).");
             Record(acc, ("status", "deferred_large_files"), ("median_file_mb", Math.Round(med)), ("n_files", sizes.Count));
+            Experiment(acc, xr, "deferred_large_files", $"median file {med:0} MB");
             return null;
         }
 
@@ -574,7 +586,13 @@ public sealed class BatchRunner
             return null;
         }
         var (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate);
-        if (RoutedByReporters(acc, report, "PROBE")) return null;
+        xr.Probe(report);
+        if (RoutedByReporters(acc, report, "PROBE"))
+        {
+            string status = Entry(acc)?["status"]?.GetValue<string>() ?? "isobaric";
+            Experiment(acc, xr, status, "isobaric reporter ions in the probe files' own spectra");
+            return null;
+        }
         var excl = QcExclusion(report, profile.Qc);
         bool ok = allPass || excl is { Count: > 0 };
         if (!allPass && ok) Log($"{acc} PROBE qc: {string.Join(", ", excl!)} fail only on excludable reasons; continuing (decided at full QC)");
@@ -583,6 +601,8 @@ public sealed class BatchRunner
         if (!ok)
         {
             Record(acc, ("status", "skipped_acquisition"), ("detail", Reasons(report)));
+            bool fragmentation = report.Any(kv => kv.Value!["fail_reasons"]?.AsArray().Any(r => r?.GetValue<string>() == Qc.SpectraQc.UnsupportedFragmentation) == true);
+            Experiment(acc, xr, "skipped_acquisition", Reasons(report), fragmentation ? Qc.SpectraQc.UnsupportedFragmentation : null);
             return null;
         }
         var ms2 = report.Select(kv => kv.Value!["ms2"]!.GetValue<int>()).Where(x => x > 0).ToList();
@@ -593,10 +613,29 @@ public sealed class BatchRunner
             {
                 Log($"{acc} DEFERRED: estimated {est / 1e6:0.00}M MS2 ({sizes.Count} files x {ms2.Average():N0}) > {dep.MaxEstimatedMs2 / 1e6:0.0}M.");
                 Record(acc, ("status", "deferred_search_too_large"), ("est_ms2", Math.Round(est)), ("n_files", sizes.Count));
+                Experiment(acc, xr, "deferred_search_too_large", $"estimated {est / 1e6:0.00}M MS2");
                 return null;
             }
         }
+        Experiment(acc, xr, "probed", $"to be searched under {profile.Key}");
         return profile;
+    }
+
+    /// <summary>
+    /// D30/D32/D34: writes the deposit's experiment record and notes, and announces a park that needs a person
+    /// (<see cref="DecisionsNeeded"/>; <paramref name="park"/> overrides <paramref name="outcome"/> as the park's name).
+    /// Never fails the batch: a record that cannot be written is logged.
+    /// </summary>
+    private void Experiment(string acc, ExperimentRecord xr, string outcome, string? detail, string? park = null)
+    {
+        try
+        {
+            var decision = DecisionsNeeded.Announce(_runRoot, acc, park ?? outcome, detail);
+            if (decision is not null) Log($"{acc} DECISION NEEDED ({park ?? outcome}): {decision.Question} Listed in {DecisionsNeeded.FileName}.");
+            xr.Write(Run(acc), outcome, detail, decision);
+        }
+        catch (IOException ex) { Log($"{acc} experiment record not written: {ex.Message}"); }
+        catch (UnauthorizedAccessException ex) { Log($"{acc} experiment record not written: {ex.Message}"); }
     }
 
     /// <summary>The whole deposit, or nothing: anything short of every listed file is a failure that says what it got (S43).</summary>

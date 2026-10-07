@@ -40,6 +40,12 @@ version that made them.
       ion trap; Autodetect only for a high-resolution mix of supported types;
     - QC fails an unsupported or mixed-analyzer file (`unsupported_fragmentation`);
     - the search writes the type into the file's `<raw>.toml`, beside its protease.
+  - **Every deposit gets an experiment record, and every park that needs a person is announced.**
+    - At the probe stage each deposit gets `01_experiment/experiment.json` and `experiment_notes.md`: every fact with
+      its source and evidence, guesses marked, each probe run's measured fragmentation and reporter ions.
+    - A park that needs a person's decision is listed once in the run root's `decisions_needed.tsv`, with the
+      evidence and the choices: an unknown protease, modification or alkylant; several proteases; mixed labelling;
+      too many files for a whole search; unsupported fragmentation.
   - **An unmodelled thiol reagent parks the deposit.** NBF-Cl named in a protocol, with no modelled alkylant beside it,
     now waits as `waiting_unknown_alkylant` instead of being searched as carbamidomethyl.
   - **MetaMorpheus's contaminant panel without the UPS spike-in standard**, used as it is

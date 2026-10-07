@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using PXReprise.Batch;
 using PXReprise.Config;
+using PXReprise.Discovery;
 using PXReprise.Fetch;
 using UsefulProteomicsDatabases;
 
@@ -271,6 +272,18 @@ public class BatchRunnerTests
         Assert.That(runner.Settled("PXD000403"), Is.EqualTo("waiting_multi_protease"));
         Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain("PXD000403 SCREENED OUT (waiting_multi_protease)"));
         Assert.That(files.Downloads, Is.EqualTo(before), "nothing was downloaded for the two held back: the chemistry is read first");
+
+        // D34: the park that needs a person is ANNOUNCED; the one that waits on a capability (a TMT profile) is not. Both
+        // still get their experiment record and notes (D30, D32).
+        var decisions = File.ReadAllLines(Path.Combine(dir, "runs", DecisionsNeeded.FileName));
+        Assert.That(decisions.Skip(1).Select(l => (l.Split('\t')[1], l.Split('\t')[2])), Is.EqualTo(new[] { ("PXD000403", "waiting_multi_protease") }));
+        Assert.That(File.ReadAllText(Path.Combine(dir, "runs", "PXD000403", ExperimentRecord.Folder, ExperimentRecord.NotesFile)),
+            Does.Contain("## A person must decide").And.Contain("| protease | multiple (GUESS) | protocol_text |"));
+        var tmt = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "runs", "PXD000402", ExperimentRecord.Folder, ExperimentRecord.JsonFile)))!;
+        Assert.That((tmt["outcome"]!.GetValue<string>(), tmt["decision_needed"]), Is.EqualTo(("waiting_tmt_labelling", (JsonNode?)null)));
+        Assert.That(tmt["facts"]!["label"]!["source"]!.GetValue<string>(), Is.EqualTo(ChemistrySource.PrideQuant));
+        await runner.ProbeAsync(new QueueEntry("PXD000403", "t", "human"), CancellationToken.None);
+        Assert.That(File.ReadAllLines(Path.Combine(dir, "runs", DecisionsNeeded.FileName)), Has.Length.EqualTo(2), "announced once, not once per pass");
     }
 
     // G18: a reboot mid-search left the deposit at "searching" with a half-written 04_search/mm, which MetaMorpheus refuses
