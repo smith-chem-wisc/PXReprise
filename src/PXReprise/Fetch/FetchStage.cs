@@ -52,9 +52,14 @@ public enum Pick { All, ProbeSpread, MedianSize, FirstByName }
 /// <param name="StallAfter">A download whose <c>.partial</c> file has not grown for this long is abandoned and retried
 /// (zero turns the watch off). mzLib has its own 2-minute body stall guard; this one also covers a read that never
 /// answers its cancellation (a first-run on 2026-10-03 sat 6 h on two frozen <c>.partial</c> files).</param>
+/// <param name="Select">The question's own choice of raw files (an <c>[exceptions]</c> entry, D28), with its reason; null
+/// takes every raw file. It is applied before any other rule and is always recorded.</param>
 public sealed record FetchRequest(string Accession, string OutDir, Pick Pick, int MaxFiles, int MaxFileMb, string Extension,
     int ParallelDownloads, int MaxAttempts, TimeSpan Backoff, TimeSpan ListingBackoff, string WorkRoot,
-    TimeSpan StallAfter = default);
+    TimeSpan StallAfter = default, FileSelection? Select = null);
+
+/// <summary>Which raw files of a deposit a question searches, and why (<c>[exceptions]</c>, PXReprise D28).</summary>
+public sealed record FileSelection([property: System.Text.Json.Serialization.JsonIgnore] Func<string, bool> Keeps, string Reason);
 
 /// <summary>
 /// One accession's raw files (and SDRF, if deposited), with the engine's retry policy. mzLib's client never retries
@@ -130,6 +135,15 @@ public static class FetchStage
         string ext = r.Extension.ToLowerInvariant();
         var raws = rest.Where(f => f.FileName.ToLowerInvariant().EndsWith(ext, StringComparison.Ordinal)).ToList();
         var ftpRaw = ftp.Where(n => n.ToLowerInvariant().EndsWith(ext, StringComparison.Ordinal)).ToHashSet(StringComparer.Ordinal);
+        int nDeposit = raws.Count;
+        if (r.Select is { } sel)
+        {
+            // The question's choice of runs (D28): a design decision it states, never one made here by size (S43).
+            raws = raws.Where(f => sel.Keeps(f.FileName)).ToList();
+            ftpRaw = ftpRaw.Where(sel.Keeps).ToHashSet(StringComparer.Ordinal);
+            prov.Set("question_file_selection", new JsonObject { ["reason"] = sel.Reason, ["selected"] = raws.Count, ["of"] = nDeposit });
+            flags.Add($"subset_by_question: {raws.Count} of {nDeposit} raw files, chosen by the question ({sel.Reason})");
+        }
         var missingFromRest = ftpRaw.Except(raws.Select(f => f.FileName)).OrderBy(n => n, StringComparer.Ordinal).ToList();
         int nListed = raws.Count;
         raws = raws.Where(f => f.FileSizeBytes <= (long)r.MaxFileMb * 1_000_000).ToList();
@@ -200,7 +214,8 @@ public static class FetchStage
         }
         var manifest = new JsonObject
         {
-            ["accession"] = r.Accession, ["rest_raw_count"] = nListed, ["ftp_raw_count"] = ftpRaw.Count,
+            // rest_raw_count counts the raw files this fetch is responsible for: after the question's selection, if any.
+            ["accession"] = r.Accession, ["rest_raw_count"] = nListed, ["deposit_raw_count"] = nDeposit, ["ftp_raw_count"] = ftpRaw.Count,
             ["raw_missing_from_rest_manifest"] = new JsonArray(missingFromRest.Select(n => (JsonNode?)n).ToArray()),
             ["files"] = files, ["sdrf"] = new JsonArray(gotSdrf.Select(n => (JsonNode?)n).ToArray()),
         };

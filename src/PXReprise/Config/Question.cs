@@ -39,8 +39,12 @@ public sealed record Question(
     BatchSettings? Batch = null,
     PublishSettings? Publish = null,
     DesignSettings? Designs = null,
-    DiscoverLists? Lists = null)
+    DiscoverLists? Lists = null,
+    IReadOnlyDictionary<string, DepositException>? Exceptions = null)
 {
+    /// <summary>The question's exception for one deposit, or null.</summary>
+    public DepositException? ExceptionFor(string accession) => Exceptions?.GetValueOrDefault(accession);
+
     /// <summary>The <c>[discover]</c> keywords beyond <see cref="Keywords"/>; empty when the question names none.</summary>
     public DiscoverLists More => Lists ?? DiscoverLists.None;
 }
@@ -65,6 +69,50 @@ public sealed record DiscoverLists(IReadOnlyList<string> Disease, IReadOnlyList<
 public sealed record DesignSettings(string Dir, IReadOnlyList<string> ConditionColumns)
 {
     public string For(string accession) => Path.Combine(Dir, $"{accession}.sdrf.tsv");
+}
+
+/// <summary>
+/// A question's exception for one deposit (<c>[exceptions.PXD...]</c>; PXReprise D28, the user's D-2): the deposit's own
+/// value for any of the profile's <c>[deposit]</c> caps, and which of its raw files to search. Data, never code; every use
+/// is recorded in provenance and the manifest note. <see cref="IncludeFiles"/> / <see cref="ExcludeFiles"/> are
+/// case-insensitive regexes on raw file names: choosing runs is a design decision (S43), so it is the question's to state.
+/// </summary>
+public sealed record DepositException(
+    string Accession,
+    string Reason,
+    Regex? IncludeFiles = null,
+    Regex? ExcludeFiles = null,
+    int? MaxFiles = null,
+    int? MaxFileMb = null,
+    long? MaxEstimatedMs2 = null,
+    int? DeferIfMedianFileMb = null)
+{
+    public bool SelectsFiles => IncludeFiles is not null || ExcludeFiles is not null;
+
+    public bool Keeps(string fileName) =>
+        (IncludeFiles is null || IncludeFiles.IsMatch(fileName)) && (ExcludeFiles is null || !ExcludeFiles.IsMatch(fileName));
+
+    /// <summary>The profile's deposit policy with this deposit's own caps.</summary>
+    public DepositPolicy Apply(DepositPolicy p) => p with
+    {
+        MaxFiles = MaxFiles ?? p.MaxFiles,
+        MaxFileMb = MaxFileMb ?? p.MaxFileMb,
+        MaxEstimatedMs2 = MaxEstimatedMs2 ?? p.MaxEstimatedMs2,
+        DeferIfMedianFileMb = DeferIfMedianFileMb ?? p.DeferIfMedianFileMb,
+    };
+
+    /// <summary>One line for logs, provenance and the manifest note.</summary>
+    public string Describe()
+    {
+        var parts = new List<string>();
+        if (IncludeFiles is not null) parts.Add($"include_files /{IncludeFiles}/");
+        if (ExcludeFiles is not null) parts.Add($"exclude_files /{ExcludeFiles}/");
+        if (MaxFiles is { } mf) parts.Add($"max_files {mf}");
+        if (MaxFileMb is { } mm) parts.Add($"max_file_mb {mm}");
+        if (MaxEstimatedMs2 is { } me) parts.Add($"max_est_ms2 {me}");
+        if (DeferIfMedianFileMb is { } dm) parts.Add($"defer_if_median_file_mb {dm}");
+        return $"{string.Join(", ", parts)} ({Reason})";
+    }
 }
 
 /// <summary>Where a question's batch keeps its run folders and its own state (queue, state.json, log, STOP).</summary>

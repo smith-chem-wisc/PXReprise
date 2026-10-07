@@ -97,12 +97,34 @@ public static class QuestionLoader
             dg.RefuseUnknownKeys();
         }
 
+        // D28 (D-2): per-deposit exceptions to the profile's [deposit] caps and file selection.
+        var exceptions = new SortedDictionary<string, DepositException>(StringComparer.Ordinal);
+        if (root.OptionalTable("exceptions") is { } ex)
+        {
+            foreach (string acc in ex.Keys.ToList())
+            {
+                if (!IsAccession(acc)) throw new ConfigException(file, $"'exceptions' key '{acc}' is not a PXD accession");
+                var t = ex.RequiredTable(acc);
+                Regex? Rx(string key) => t.OptionalString(key) is { } s
+                    ? TryRegex(s) ?? throw new ConfigException(file, $"exceptions.{acc}.{key} is not a valid regular expression: '{s}'")
+                    : null;
+                int? Int(string key) => t.OptionalInteger(key) is { } v ? checked((int)v) : null;
+                var e = new DepositException(acc, t.RequiredString("reason"), Rx("include_files"), Rx("exclude_files"),
+                    Int("max_files"), Int("max_file_mb"), t.OptionalInteger("max_est_ms2"), Int("defer_if_median_file_mb"));
+                t.RefuseUnknownKeys();
+                if (!e.SelectsFiles && e.MaxFiles is null && e.MaxFileMb is null && e.MaxEstimatedMs2 is null && e.DeferIfMedianFileMb is null)
+                    throw new ConfigException(file, $"exceptions.{acc} changes nothing: give a cap or include_files / exclude_files");
+                exceptions[acc] = e;
+            }
+            ex.RefuseUnknownKeys();
+        }
+
         root.RefuseUnknownKeys();
         return new Question(name, description, file, profiles, keywords, organisms,
             new RelevanceRules(require, exclude, unless, decisions), overlays, requiredTraits, optionalTraits,
             traitsSource, holds, studyLayer, batch,
             new PublishSettings(manifest is null ? null : Abs(dir, manifest), command), designs,
-            new DiscoverLists(diseaseKeywords, watchKeywords));
+            new DiscoverLists(diseaseKeywords, watchKeywords), exceptions);
     }
 
     /// <summary>A path in a question file is relative to the file, so a project folder can move.</summary>
@@ -133,6 +155,12 @@ public static class QuestionLoader
     }
 
     private static bool IsAccession(string s) => Regex.IsMatch(s, @"^PXD\d{6}$");
+
+    private static Regex? TryRegex(string pattern)
+    {
+        try { return new Regex(pattern, Opt); }
+        catch (ArgumentException) { return null; }
+    }
 
     private static IReadOnlyList<Regex> Compile(string file, string key, IReadOnlyList<string> patterns)
     {

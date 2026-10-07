@@ -270,6 +270,11 @@ public sealed class BatchRunner
     {
         if (_q.Holds.ContainsKey(acc)) return "on_hold_user";
         string? s = Entry(acc)?["status"]?.GetValue<string>();
+        // A deposit deferred by a cap, or settled by size, gets ONE more look when the question adds an exception for it:
+        // the exception is recorded on that look, so a deposit that still does not fit settles again (D28).
+        if (s is not null && (s.StartsWith("deferred_", StringComparison.Ordinal) || s == "skipped_selection_empty")
+            && _q.ExceptionFor(acc) is { } ex && Entry(acc)?["exception"]?.GetValue<string>() != ex.Describe())
+            return "";
         return s is not null && (s is "fetch_failed" or "probe_fetch_failed" or "search_failed"
                                  || s.StartsWith("deferred_", StringComparison.Ordinal) || s.StartsWith("skipped_", StringComparison.Ordinal)
                                  || s.StartsWith("excluded_", StringComparison.Ordinal) || s.StartsWith("waiting_", StringComparison.Ordinal))
@@ -491,6 +496,21 @@ public sealed class BatchRunner
         try { all = await _files.ListFilesAsync(acc, ct).ConfigureAwait(false); }
         catch (Exception ex) when (FetchStage.IsTransient(ex)) { Log($"{acc} size listing failed ({ex.Message}); retry next pass"); return null; }
         listing = all.Where(f => f.FileName.EndsWith(".raw", StringComparison.OrdinalIgnoreCase)).ToList();
+        // D28 (D-2): the question's exception for this deposit, if any: its own caps and its own choice of runs.
+        var exception = _q.ExceptionFor(acc);
+        if (exception is not null)
+        {
+            int before = listing.Count;
+            if (exception.SelectsFiles) listing = listing.Where(f => exception.Keeps(f.FileName)).ToList();
+            Log($"{acc} EXCEPTION (question): {exception.Describe()}" + (exception.SelectsFiles ? $"; {listing.Count} of {before} raw files selected" : ""));
+            Record(acc, ("exception", exception.Describe()));
+            if (listing.Count == 0)
+            {
+                Log($"{acc} SKIPPED: the question's file selection keeps no raw file");
+                Record(acc, ("status", "skipped_selection_empty"));
+                return null;
+            }
+        }
 
         // G19: a profile that searches with the deposit's own chemistry reads it before any download, and a deposit it cannot
         // search as read (two proteases with no per-file map, an unknown protease or modification, a label) waits.
@@ -525,7 +545,7 @@ public sealed class BatchRunner
             Log($"{acc} shares {shared} of {listing.Count} raw files (name and size) with {other}, {When(other)}; not a duplicate, continuing");
 
         var sizes = listing.Select(f => f.FileSizeBytes / 1e6).OrderBy(x => x).ToList();
-        var dep = profile.Deposit;
+        var dep = DepositFor(acc, profile);
         var oversize = sizes.Where(s => s > dep.MaxFileMb).ToList();
         if (sizes.Count > dep.MaxFiles || oversize.Count > 0)
         {
@@ -586,7 +606,7 @@ public sealed class BatchRunner
         JsonObject manifest;
         try
         {
-            manifest = await FetchStage.RunAsync(FetchRequestFor(acc, Pick.All, profile.Deposit), _files, ct, m => Log($"{acc} FETCH {m}")).ConfigureAwait(false);
+            manifest = await FetchStage.RunAsync(FetchRequestFor(acc, Pick.All, DepositFor(acc, profile)), _files, ct, m => Log($"{acc} FETCH {m}")).ConfigureAwait(false);
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
@@ -1000,7 +1020,11 @@ public sealed class BatchRunner
     private FetchRequest FetchRequestFor(string acc, Pick pick, DepositPolicy dep) =>
         new(acc, Path.Combine(Run(acc), "02_fetch"), pick, pick == Pick.All ? dep.MaxFiles : 1, dep.MaxFileMb, ".raw",
             _m.ParallelDownloads, _m.FetchAttempts, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(60), _m.WorkRoot,
-            TimeSpan.FromMinutes(_m.FetchStallMinutes));
+            TimeSpan.FromMinutes(_m.FetchStallMinutes),
+            _q.ExceptionFor(acc) is { SelectsFiles: true } ex ? new FileSelection(ex.Keeps, ex.Describe()) : null);
+
+    /// <summary>The profile's deposit caps, with the question's exception for this deposit applied (D28).</summary>
+    private DepositPolicy DepositFor(string acc, Profile profile) => _q.ExceptionFor(acc)?.Apply(profile.Deposit) ?? profile.Deposit;
 
     private string ParamsFile(string acc, Profile profile)
     {

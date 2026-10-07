@@ -109,6 +109,21 @@ public class FetchStageTests
         Assert.That(prov, Does.Contain("sdrf_ftp_only: y_sdrf.tsv").And.Contain("PXR-S6"));
     }
 
+    // D28: a question's choice of runs is applied first, recorded, and is what "the whole deposit" means afterwards.
+    [Test]
+    public async Task AQuestionsFileSelectionIsFetchedAndRecorded()
+    {
+        string dir = TestSupport.TempDir();
+        var pride = new FlakyPride { Files = { F("rat_1.raw", 10), F("rat_2.raw", 10), F("macaque_1.raw", 10) }, Ftp = { "rat_1.raw", "rat_2.raw", "macaque_1.raw" } };
+        var r = new FetchRequest("PXD027971", Path.Combine(dir, "02_fetch"), Pick.All, 60, 5000, ".raw", 2, 3, TimeSpan.Zero, TimeSpan.Zero, dir,
+            Select: new FileSelection(n => n.StartsWith("rat", StringComparison.Ordinal), "rat files only (aging 044)"));
+        var manifest = await FetchStage.RunAsync(r, pride, CancellationToken.None);
+        Assert.That((manifest["rest_raw_count"]!.GetValue<int>(), manifest["deposit_raw_count"]!.GetValue<int>()), Is.EqualTo((2, 3)));
+        Assert.That(manifest["raw_missing_from_rest_manifest"]!.AsArray(), Is.Empty, "an unselected FTP file is not 'missing'");
+        string prov = File.ReadAllText(Path.Combine(dir, "02_fetch", "provenance.json"));
+        Assert.That(prov, Does.Contain("subset_by_question: 2 of 3 raw files").And.Contain("rat files only (aging 044)"));
+    }
+
     private sealed class FlakyPride : IPrideFiles
     {
         public int FailuresBeforeSuccess;

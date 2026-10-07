@@ -74,6 +74,52 @@ public class BatchRunnerTests
         Assert.That(files.Downloads, Is.Zero);
     }
 
+    // D28 (the user's D-2; aging 044): a question releases a deferred deposit by exception, with its own caps or its own
+    // choice of runs. The deposit gets ONE more look; if it still does not fit, it settles again instead of looping.
+    [Test]
+    public async Task AQuestionExceptionReleasesADeferredDepositOnce()
+    {
+        var (runner, search, files, dir) = Runner();
+        search.Results["PXD000203"] = new() { TestSupport.Record("PXD000203", "Type 2 diabetes muscle") };
+        files.Listing = Enumerable.Range(0, 61).Select(i => new PrideArchiveFile { FileName = i < 40 ? $"hippo{i}.raw" : $"cortex{i}.raw", FileSizeBytes = 500_000_000 }).ToList();
+        Assert.That(await runner.ProbeAsync(new QueueEntry("PXD000203", "t", "human"), CancellationToken.None), Is.Null);
+        Assert.That(runner.Settled("PXD000203"), Is.EqualTo("deferred_needs_design_selection"));
+
+        // The same state, read by a question that now names an exception.
+        string q = TestSupport.MinimalQuestion + "\n[batch]\nrun_root = \"runs\"\nstate_dir = \"state\"\nqueue = \"queue.json\"\n"
+            + "[exceptions.PXD000203]\nreason = \"the hippocampus runs only\"\ninclude_files = \"^hippo\"\n";
+        var withEx = new BatchRunner(QuestionLoader.Load(TestSupport.WriteFile(dir, "question.toml", q)), Profiles,
+            Machine.Load(Path.Combine(dir, "machine.toml")), files, search, "2026-09-28");
+        Assert.That(withEx.Settled("PXD000203"), Is.Empty, "an exception added after the deferral earns one more look");
+        Assert.That(await withEx.ProbeAsync(new QueueEntry("PXD000203", "t", "human"), CancellationToken.None), Is.Null);
+        var e = withEx.State()["datasets"]!["PXD000203"]!;
+        Assert.That(e["exception"]!.GetValue<string>(), Does.Contain("include_files /^hippo/").And.Contain("the hippocampus runs only"));
+        Assert.That(e["status"]!.GetValue<string>(), Is.Not.EqualTo("deferred_needs_design_selection"), "40 runs fit the 60-file cap: " + e.ToJsonString());
+        Assert.That(files.Downloads, Is.GreaterThan(0), "the probe went ahead: " + e.ToJsonString());
+
+        string q2 = TestSupport.MinimalQuestion + "\n[batch]\nrun_root = \"runs\"\nstate_dir = \"state\"\nqueue = \"queue.json\"\n"
+            + "[exceptions.PXD000204]\nreason = \"still too many\"\nmax_files = 5\n";
+        var tight = new BatchRunner(QuestionLoader.Load(TestSupport.WriteFile(dir, "question2.toml", q2)), Profiles,
+            Machine.Load(Path.Combine(dir, "machine.toml")), files, search, "2026-09-28");
+        search.Results["PXD000204"] = new() { TestSupport.Record("PXD000204", "Type 2 diabetes liver") };
+        files.Listing = Enumerable.Range(0, 10).Select(i => new PrideArchiveFile { FileName = $"g{i}.raw", FileSizeBytes = 500_000_000 }).ToList();
+        Assert.That(await tight.ProbeAsync(new QueueEntry("PXD000204", "t", "human"), CancellationToken.None), Is.Null);
+        Assert.That(tight.Settled("PXD000204"), Is.EqualTo("deferred_needs_design_selection"), "settled again under the exception, no loop");
+    }
+
+    [Test]
+    public void AnExceptionMustNameItsReasonAndChangeSomething()
+    {
+        string dir = TestSupport.TempDir();
+        Assert.Throws<ConfigException>(() => QuestionLoader.Load(TestSupport.WriteFile(dir, "a.toml", TestSupport.MinimalQuestion + "\n[exceptions.PXD000203]\nmax_files = 90\n")));
+        Assert.Throws<ConfigException>(() => QuestionLoader.Load(TestSupport.WriteFile(dir, "b.toml", TestSupport.MinimalQuestion + "\n[exceptions.PXD000203]\nreason = \"x\"\n")));
+        Assert.Throws<ConfigException>(() => QuestionLoader.Load(TestSupport.WriteFile(dir, "c.toml", TestSupport.MinimalQuestion + "\n[exceptions.PXD000203]\nreason = \"x\"\nexclude_files = \"(\"\n")));
+        var q = QuestionLoader.Load(TestSupport.WriteFile(dir, "d.toml", TestSupport.MinimalQuestion + "\n[exceptions.PXD000203]\nreason = \"x\"\nexclude_files = \"atg5ko\"\nmax_est_ms2 = 0\n"));
+        var ex = q.ExceptionFor("PXD000203")!;
+        Assert.That((ex.Keeps("P25_vesicle_1.raw"), ex.Keeps("ATG5KO_1.raw")), Is.EqualTo((true, false)), "case-insensitive");
+        Assert.That(ex.Apply(Profiles["label-free-dda@4"].Deposit).MaxEstimatedMs2, Is.Zero);
+    }
+
     // PXR-A9: PXD012985 was PXD011740 deposited again, and was fetched and searched in full before anyone saw it.
     [Test]
     public async Task ADepositWhoseRawFilesAreAlreadySearchedIsRefusedBeforeAnyDownload()
