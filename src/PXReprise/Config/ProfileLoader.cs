@@ -53,6 +53,11 @@ public static class ProfileLoader
         string lowResTolerance = eng.OptionalString("low_res_product_tolerance") ?? Profile.DefaultLowResProductTolerance;
         if (!System.Text.RegularExpressions.Regex.IsMatch(lowResTolerance, @"^±\d+\.\d{4} (PPM|Absolute)$"))
             throw new ConfigException(file, $"engine.low_res_product_tolerance must be written as MetaMorpheus writes one, e.g. \"±0.5000 Absolute\", not '{lowResTolerance}'");
+        // D32/D34/D35 slice 3: a short search of the probe files against every species database, measuring species,
+        // cysteine share and phospho/GG before the full download. Off unless a profile turns it on.
+        bool probeSearch = eng.OptionalBool("probe_search") ?? false;
+        double probeMinutes = eng.OptionalNumber("probe_search_minutes") ?? 60;
+        if (probeMinutes <= 0) throw new ConfigException(file, "engine.probe_search_minutes must be positive");
         eng.RefuseUnknownKeys();
 
         var dbs = new SortedDictionary<string, OrganismDatabase>(StringComparer.Ordinal);
@@ -118,7 +123,7 @@ public static class ProfileLoader
         root.RefuseUnknownKeys();
         return new Profile(id, version, status, description, accepts, mm, tasks, extraMods, library, timeout, dbs,
             panel ?? Path.GetFileName(shipped!), exclude,
-            method, mbr, deposit, gates, Path.GetDirectoryName(Path.GetFullPath(file))!, design, chemistry, writeSdrf, shipped, fragmentation, lowResTolerance);
+            method, mbr, deposit, gates, Path.GetDirectoryName(Path.GetFullPath(file))!, design, chemistry, writeSdrf, shipped, fragmentation, lowResTolerance, probeSearch, probeMinutes);
     }
 
     /// <summary>Every <c>*.toml</c> in a directory, keyed by <c>id@version</c>; a duplicate key is refused.</summary>

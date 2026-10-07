@@ -521,12 +521,14 @@ public sealed class BatchRunner
 
         // G19: a profile that searches with the deposit's own chemistry reads it before any download, and a deposit it cannot
         // search as read (two proteases with no per-file map, an unknown protease or modification, a label) waits.
+        DepositChemistry? chemistry = null;
         if (profile.Chemistry == "deposit")
         {
             DepositChemistry chem;
             try { chem = await ChemistryAsync(acc, all, listing.Select(f => f.FileName).ToList(), ct).ConfigureAwait(false); }
             catch (Exception ex) when (Envelope.IsUnavailable(ex) || FetchStage.IsTransient(ex)) { Log($"{acc} chemistry: PRIDE unavailable ({ex.Message}); retry next pass"); return null; }
             xr.Chemistry(chem);
+            chemistry = chem;
             string? wait = chem.Park ?? (chem.Label.Value == "label_free" ? null : $"waiting_{Slug(chem.Label.Value)}_labelling");
             if (wait is not null)
             {
@@ -617,8 +619,60 @@ public sealed class BatchRunner
                 return null;
             }
         }
+        if (profile.ProbeSearch && !await ProbeSearchAsync(e, profile, acq, chemistry, report, xr, ct).ConfigureAwait(false))
+            return null;
         Experiment(acc, xr, "probed", $"to be searched under {profile.Key}");
         return profile;
+    }
+
+    /// <summary>The probe search, for tests: (profile, machine, spectra, chemistry, fragmentation, outDir) -> AllPSMs.psmtsv.</summary>
+    internal Func<Profile, Machine, IReadOnlyList<string>, DepositChemistry?, IReadOnlyDictionary<string, Qc.FragmentationCall>?, string, CancellationToken, Task<string>>
+        ProbeSearchRunner { get; init; } = Search.ProbeSearch.RunAsync;
+
+    /// <summary>
+    /// D32/D34/D35 slice 3: a short search of the probe files measures each run's species, cysteine share and phospho/GG
+    /// share. A measurement that contradicts the record parks the deposit and is announced; a measured enrichment is
+    /// recorded beside the screen's. False when the deposit stops here.
+    /// </summary>
+    private async Task<bool> ProbeSearchAsync(QueueEntry e, Profile profile, Acquisition acq, DepositChemistry? chemistry,
+        JsonObject probeQc, ExperimentRecord xr, CancellationToken ct)
+    {
+        string acc = e.Accession, d = Run(acc);
+        var spectra = Directory.EnumerateFiles(Path.Combine(d, "02_fetch", "spectra"), "*.raw")
+            .OrderBy(f => Path.GetFileName(f), StringComparer.Ordinal).ToList();
+        IReadOnlyDictionary<string, Qc.RunMeasures> runs;
+        try
+        {
+            var fragmentation = Search.SearchStage.FragmentationFromQc(probeQc, spectra, profile);
+            string psms = await ProbeSearchRunner(profile, _m, spectra, chemistry, fragmentation, Path.Combine(d, "02c_probe_search"), ct).ConfigureAwait(false);
+            runs = Qc.ProbeMeasures.FromAllPsms(psms);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            Log($"{acc} PROBE SEARCH FAILED ({ex.GetType().Name}): {ex.Message}");
+            Record(acc, ("status", "probe_search_failed"), ("detail", ex.Message));
+            Experiment(acc, xr, "probe_search_failed", ex.Message);
+            return false;
+        }
+        xr.ProbeSearch(runs);
+        bool expectCarbamidomethyl = chemistry is null || chemistry.CysMods.Any(c => c.Name == "Carbamidomethyl" && c.Fixed);
+        var verdict = Qc.ProbeJudge.Judge(runs, Qc.ProbeJudge.SpeciesName(e.Organism), expectCarbamidomethyl, acq.Enrichment != "none");
+        foreach (string note in verdict.Notes) Log($"{acc} PROBE SEARCH: {note}");
+        Log($"{acc} PROBE SEARCH " + string.Join("; ", runs.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv =>
+            $"{kv.Key}: psms={kv.Value.Psms} species={string.Join("/", kv.Value.SpeciesPsms.OrderByDescending(s => s.Value).Select(s => $"{s.Key}:{s.Value}"))} cys={kv.Value.CysteineShare:P1}")));
+        if (verdict.MeasuredEnrichment is { } measured)
+        {
+            // D34: measured beside the screen's call, never overwriting it here; the record says both.
+            xr.Fact("enrichment_measured", measured, "probe_search", string.Join("; ", verdict.Notes.Where(n => n.StartsWith("measured", StringComparison.Ordinal))));
+            Record(acc, ("enrichment_measured", measured));
+        }
+        if (verdict.Parks.Count == 0) return true;
+        foreach (var extra in verdict.Parks.Skip(1)) DecisionsNeeded.Announce(_runRoot, acc, extra.Park, extra.Evidence);
+        var first = verdict.Parks[0];
+        Log($"{acc} PROBE SEARCH PARKS ({first.Park}): {first.Evidence}");
+        Record(acc, ("status", first.Park), ("detail", first.Evidence));
+        Experiment(acc, xr, first.Park, first.Evidence);
+        return false;
     }
 
     /// <summary>

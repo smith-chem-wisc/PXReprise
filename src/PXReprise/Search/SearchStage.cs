@@ -215,14 +215,7 @@ public static class SearchStage
         if (p.GptmdExtraMods.Count > 0) prov.Set("gptmd_extra_mods", new JsonArray(p.GptmdExtraMods.Select(x => (JsonNode?)x).ToArray()));
 
         // 2. one invocation for the whole chain
-        string shippedPanel = p.ContaminantFile is { } own
-            ? p.ListPath(own)
-            : Path.Combine(Path.GetDirectoryName(cmd)!, "Contaminants", p.ContaminantPanel);
-        if (!File.Exists(shippedPanel)) throw new UsageException($"contaminant database missing at {shippedPanel}");
-        // The panel as searched: the shipped one, or its content-addressed reduced copy (aging D54). The file name must
-        // keep "Contaminants": MetaMorpheus marks a -d database as contaminant by its name.
-        var (contaminants, panelRecord) = ContaminantPanel.Resolve(shippedPanel,
-            p.ContaminantExclude is null ? null : p.ListPath(p.ContaminantExclude), Path.Combine(m.DatabaseDir, "contaminants"));
+        var (contaminants, panelRecord) = Contaminants(p, m);
         if (panelRecord is not null)
         {
             prov.Set("contaminant_panel", panelRecord);
@@ -488,6 +481,21 @@ public static class SearchStage
             prov.Note($"per-file proteases (MetaMorpheus file-specific parameters): {string.Join("; ", proteasePerFile.GroupBy(kv => kv.Value).Select(g => $"{g.Key} x{g.Count()}"))}");
         if (fragmentationPerFile is not null)
             prov.Note($"per-file fragmentation from the MS2 headers (D32): {string.Join("; ", fragmentationPerFile.GroupBy(kv => kv.Value.DissociationType).Select(g => $"{g.Key} x{g.Count()}"))}");
+    }
+
+    /// <summary>
+    /// The contaminant database a search uses: the profile's shipped panel (D35), or MetaMorpheus's own, reduced by an
+    /// exclusion list when the profile names one (aging D54). The file name keeps "Contaminants": MetaMorpheus marks a
+    /// -d database as contaminant by its name. Shared by the search and the probe search, so both use the same panel.
+    /// </summary>
+    internal static (string Path, JsonObject? Record) Contaminants(Profile p, Machine m)
+    {
+        string shippedPanel = p.ContaminantFile is { } own
+            ? p.ListPath(own)
+            : Path.Combine(Path.GetDirectoryName(m.CmdFor(p.MetaMorpheus))!, "Contaminants", p.ContaminantPanel);
+        if (!File.Exists(shippedPanel)) throw new UsageException($"contaminant database missing at {shippedPanel}");
+        return ContaminantPanel.Resolve(shippedPanel,
+            p.ContaminantExclude is null ? null : p.ListPath(p.ContaminantExclude), Path.Combine(m.DatabaseDir, "contaminants"));
     }
 
     /// <summary>D32: each searched file's fragmentation as QC decided it; null unless the profile writes it per file.</summary>

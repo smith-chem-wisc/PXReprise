@@ -30,6 +30,12 @@ public static class DecisionsNeeded
             "exclude one group of files ([exceptions]); split into one search per group (waits on dataRepo R8); or exclude the deposit"),
         ["deferred_needs_design_selection"] = new("The deposit is larger than a search takes whole. Which files make the experiment?",
             "select files by name ([exceptions] include/exclude) or lift the cap for it ([exceptions]); or exclude the deposit"),
+        ["waiting_species"] = new("The probe runs' own spectra say another species than the deposit's record (D35).",
+            "record each run's species in a curated SDRF; approve and search that species; or exclude the deposit"),
+        ["waiting_mixed_species"] = new("A probe run holds several species and none dominates: a mixed sample (xenograft, infection, spike-in) or a mislabel.",
+            "say what the sample is in a curated SDRF (mixed samples wait for sdrf's plan, sdrf 008); or exclude the deposit"),
+        ["waiting_alkylation_check"] = new("Carbamidomethyl was expected, but the probe runs have almost no cysteine peptides: the cysteines were blocked some other way, or not at all.",
+            "name the reagent in a curated SDRF; search with no fixed cysteine modification; or exclude the deposit"),
         ["unsupported_fragmentation"] = new("Some files' MS2 fragmentation cannot be searched per file (an unsupported type, no header, or ion-trap and Orbitrap MS2 mixed).",
             "exclude those files ([exceptions]); or exclude the deposit until a profile supports them"),
     };

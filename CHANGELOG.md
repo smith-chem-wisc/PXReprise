@@ -40,6 +40,15 @@ version that made them.
       ion trap; Autodetect only for a high-resolution mix of supported types;
     - QC fails an unsupported or mixed-analyzer file (`unsupported_fragmentation`);
     - the search writes the type into the file's `<raw>.toml`, beside its protease.
+  - **A probe search before the full download (new profile option, unused by any shipped profile):** with
+    `[engine] probe_search = true`:
+    - the probe files are searched briefly against every species database the profile has, with variable phospho and
+      GG;
+    - each run's species, cysteine-peptide share and phospho/GG shares are measured and kept in the experiment record;
+    - a run of another species parks `waiting_species`; a run mixing species parks `waiting_mixed_species`; a deposit
+      expected to be carbamidomethylated but with almost no cysteine peptides parks `waiting_alkylation_check`. Each
+      park is announced;
+    - a measured enrichment is recorded beside the screen's call.
   - **Every deposit gets an experiment record, and every park that needs a person is announced.**
     - At the probe stage each deposit gets `01_experiment/experiment.json` and `experiment_notes.md`: every fact with
       its source and evidence, guesses marked, each probe run's measured fragmentation and reporter ions.

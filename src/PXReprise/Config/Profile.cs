@@ -82,7 +82,9 @@ public sealed record Profile(
     bool WriteSdrf = false,
     string? ContaminantFile = null,   // D35: a panel shipped under lists/, used as it is; null = ContaminantPanel from MetaMorpheus
     string Fragmentation = "fixed",   // D32: "per_file" writes each file's DissociationType from its MS2 headers
-    string LowResProductTolerance = Profile.DefaultLowResProductTolerance)
+    string LowResProductTolerance = Profile.DefaultLowResProductTolerance,
+    bool ProbeSearch = false,         // D32 slice 3: measure species, cysteine and phospho/GG on the probe files first
+    double ProbeSearchMinutes = 60)
 {
     /// <summary>The values of <c>[engine] fragmentation</c>.</summary>
     public static readonly string[] Fragmentations = { "fixed", "per_file" };

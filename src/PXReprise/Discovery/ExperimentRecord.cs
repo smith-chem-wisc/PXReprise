@@ -69,6 +69,25 @@ public sealed class ExperimentRecord
         }
     }
 
+    /// <summary>The probe search's measurements per run (D34: measured facts), keyed by the raw file's name.</summary>
+    public void ProbeSearch(IReadOnlyDictionary<string, Qc.RunMeasures> runs)
+    {
+        foreach (var (stem, m) in runs)
+        {
+            var run = Run(_runs.Select(kv => kv.Key).FirstOrDefault(k => Path.GetFileNameWithoutExtension(k) == stem) ?? stem);
+            run["probe_search"] = new JsonObject
+            {
+                ["psms_1pct"] = m.Psms,
+                ["species_psms"] = new JsonObject(m.SpeciesPsms.Select(kv => KeyValuePair.Create(kv.Key, (JsonNode?)kv.Value))),
+                ["shared_species_psms"] = m.SharedSpeciesPsms,
+                ["peptides"] = m.Peptides,
+                ["cysteine_share"] = m.CysteineShare is { } c ? Math.Round(c, 4) : null,
+                ["phospho_share"] = m.PhosphoShare is { } p ? Math.Round(p, 4) : null,
+                ["gg_share"] = m.GgShare is { } g ? Math.Round(g, 4) : null,
+            };
+        }
+    }
+
     private JsonObject Run(string file)
     {
         if (_runs[file] is not JsonObject o) _runs[file] = o = new JsonObject();

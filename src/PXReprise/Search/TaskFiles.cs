@@ -212,6 +212,33 @@ public static class TaskFiles
 
     private static string Bool(bool b) => b ? "true" : "false";
 
+    /// <summary>
+    /// Sets one existing <c>key = value</c> line of a task file (<paramref name="tomlValue"/> as it is written, quotes
+    /// included for strings). The key must exist exactly once: a missing key means the pinned MetaMorpheus lacks it.
+    /// </summary>
+    public static string Set(string text, string key, string tomlValue)
+    {
+        bool crlf = text.Contains("\r\n");
+        string lf = crlf ? text.Replace("\r\n", "\n") : text;
+        lf = Replace(lf, $"^{Regex.Escape(key)} = .*$", $"{key} = {tomlValue}", key, exactlyOne: true);
+        return crlf ? lf.Replace("\n", "\r\n") : lf;
+    }
+
+    /// <summary>Adds variable modifications (<c>"Category\tName"</c>), each checked against the pinned MetaMorpheus's list.</summary>
+    public static string AddVariableMods(string text, IReadOnlyList<string> mods, IReadOnlySet<(string Category, string Name)> knownMods)
+    {
+        foreach (string mod in mods)
+        {
+            var parts = mod.Split('\t');
+            if (parts.Length != 2 || !knownMods.Contains((parts[0], parts[1])))
+                throw new SearchSetupException($"the pinned MetaMorpheus has no modification '{mod.Replace("\t", " / ")}'");
+        }
+        bool crlf = text.Contains("\r\n");
+        string lf = crlf ? text.Replace("\r\n", "\n") : text;
+        lf = EditModList(lf, "ListOfModsVariable", remove: _ => false, add: mods);
+        return crlf ? lf.Replace("\n", "\r\n") : lf;
+    }
+
     private static string Replace(string text, string pattern, string replacement, string setting, bool exactlyOne)
     {
         int n = 0;
