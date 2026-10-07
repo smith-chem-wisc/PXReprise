@@ -1,0 +1,27 @@
+dataset	excluded_class	source
+PXD007999	phospho	measured: 1/30 runs with phospho >= 5% of 1% target PSMs, max 6.1%
+PXD011314	phospho	measured: 10/17 runs with phospho >= 5% of 1% target PSMs, max 11.5%
+PXD014097	phospho	declared: phosphopeptides (aging results/enrichment_targets_2026-10-07.tsv); measured: 12/12 runs with phospho >= 5% of 1% target PSMs, max 81.3%
+PXD017475	phospho	measured: 1/19 runs with phospho >= 5% of 1% target PSMs, max 8.2%
+PXD018097	phospho	measured: 6/12 runs with phospho >= 5% of 1% target PSMs, max 89.1%
+PXD026608	phospho	declared: phosphopeptides (aging results/enrichment_targets_2026-10-07.tsv); measured: 12/12 runs with phospho >= 5% of 1% target PSMs, max 84.2%
+PXD029116	phospho	measured: 3/30 runs with phospho >= 5% of 1% target PSMs, max 6.5%
+PXD032044	GG	measured: 1/44 runs with GG >= 2% of 1% target PSMs, max 2.3%
+PXD035107	phospho	declared: phosphopeptides (aging results/enrichment_targets_2026-10-07.tsv); measured: 8/8 runs with phospho >= 5% of 1% target PSMs, max 85.7%
+PXD035171	phospho	declared: phosphopeptides (aging results/enrichment_targets_2026-10-07.tsv); measured: 14/14 runs with phospho >= 5% of 1% target PSMs, max 69.6%
+PXD047288	GG	declared: K48 polyubiquitin (TUBE) (aging results/enrichment_targets_2026-10-07.tsv); measured: 5/36 runs with GG >= 2% of 1% target PSMs, max 3.0%
+PXD047288	phospho	measured: 3/36 runs with phospho >= 5% of 1% target PSMs, max 5.8%
+PXD047289	GG	declared: K48 polyubiquitin (TUBE) (aging results/enrichment_targets_2026-10-07.tsv)
+PXD047292	GG	declared: K48 polyubiquitin (TUBE) (aging results/enrichment_targets_2026-10-07.tsv)
+PXD047293	GG	declared: K48 polyubiquitin (TUBE) (aging results/enrichment_targets_2026-10-07.tsv)
+PXD047293	phospho	measured: 2/34 runs with phospho >= 5% of 1% target PSMs, max 14.3%
+PXD051203	GG	declared: K48 polyubiquitin (TUBE) (aging results/enrichment_targets_2026-10-07.tsv); measured: 8/39 runs with GG >= 2% of 1% target PSMs, max 2.9%
+PXD051644	GG	declared: K48 polyubiquitin (TUBE) (aging results/enrichment_targets_2026-10-07.tsv); measured: 1/23 runs with GG >= 2% of 1% target PSMs, max 3.2%
+PXD056433	GG	declared: M1 polyubiquitin (TUBE) (aging results/enrichment_targets_2026-10-07.tsv)
+PXD056458	GG	declared: M1 polyubiquitin (TUBE) (aging results/enrichment_targets_2026-10-07.tsv)
+PXD058248	GG	declared: K63 polyubiquitin (TUBE) (aging results/enrichment_targets_2026-10-07.tsv)
+PXD058248	phospho	measured: 1/38 runs with phospho >= 5% of 1% target PSMs, max 6.3%
+PXD058253	GG	declared: K63 polyubiquitin (TUBE) (aging results/enrichment_targets_2026-10-07.tsv); measured: 10/38 runs with GG >= 2% of 1% target PSMs, max 5.0%
+PXD058253	phospho	measured: 10/38 runs with phospho >= 5% of 1% target PSMs, max 15.7%
+PXD060982	phospho	declared: phosphopeptides (aging results/enrichment_targets_2026-10-07.tsv); measured: 8/8 runs with phospho >= 5% of 1% target PSMs, max 95.1%
+PXD073999	GG	measured: 2/12 runs with GG >= 2% of 1% target PSMs, max 5.4%

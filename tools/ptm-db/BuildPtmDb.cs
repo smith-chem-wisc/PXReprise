@@ -1,4 +1,4 @@
-#:package DuckDB.NET.Data.Full@1.2.0
+#:package DuckDB.NET.Data.Full@1.5.5
 #:property PublishAot=false
 #:property JsonSerializerIsReflectionEnabledByDefault=true
 // PTM-annotated proteomes (aging D59): each organism's reviewed UniProt proteome XML, plus the biological PTM sites
@@ -16,7 +16,7 @@
 // description="<IdWithMotif>">, inserted before the entry's top-level <sequence length=...> line.
 //
 //   dotnet run BuildPtmDb.cs -- --catalog C.duckdb --out DIR --tag agingPTM-v2 --xml mouse=P.xml [--xml human=P.xml ...]
-//                               [--min-psms 5] [--sites-out DIR]
+//                               [--min-psms 5] [--sites-out DIR] [--exclude-enriched data/ptm-db/enriched_ptm_exclusions_<date>.tsv]
 //   dotnet run BuildPtmDb.cs -- --from-sites DIR ...   use DIR/sites_<organism>.tsv instead of the catalog (to prove the
 //                               port: v1's site lists must rebuild v1's XMLs byte for byte)
 //
@@ -49,11 +49,23 @@ if (xmls.Count == 0 || xmls.Keys.Any(k => !Orgs.Values.Contains(k))) return Usag
 Directory.CreateDirectory(outDir);
 Directory.CreateDirectory(sitesOut);
 string mode = opt.GetValueOrDefault("mode")?[0] ?? "proteome";
-if (mode == "isoforms") return RunIsoforms(catalog, fromSites, outDir, sitesOut, tag, minPsms, xmls);
+// --exclude-enriched FILE (the user, 2026-10-07): a site of a PTM class is not counted from a deposit that ENRICHES that
+// class (phospho from a phospho enrichment, GG from a ubiquitin pulldown); applied to regular searches, enriched-for
+// sites would flood them with false positives. FILE (declared): dataset<TAB>excluded_classes (comma-separated Bio
+// classes)[<TAB>source]. To it the catalog adds MEASURED enrichment: any run whose 1% target PSMs carry phospho at
+// >= --enriched-phospho-pct (5; whole proteomes run 0.1-0.3%) or GG at >= --enriched-gg-pct (2) excludes that class for
+// the deposit. The list used is written to --sites-out as enriched_exclusions_used.tsv.
+string? exclFile = opt.GetValueOrDefault("exclude-enriched")?[0];
+double phPct = double.Parse(opt.GetValueOrDefault("enriched-phospho-pct")?[0] ?? "5", System.Globalization.CultureInfo.InvariantCulture);
+double ggPct = double.Parse(opt.GetValueOrDefault("enriched-gg-pct")?[0] ?? "2", System.Globalization.CultureInfo.InvariantCulture);
+var exclRows = exclFile is null ? new List<Exclusion>() : Exclusions(exclFile, catalog, phPct, ggPct);
+var excluded = ModSet(exclRows);
+JsonNode? exclProv = exclFile is null ? null : WriteExclusions(exclFile, catalog is not null, phPct, ggPct, sitesOut, exclRows);
+if (mode == "isoforms") return RunIsoforms(catalog, fromSites, outDir, sitesOut, tag, minPsms, xmls, excluded, exclProv);
 if (mode != "proteome") return Usage("--mode is proteome (the default) or isoforms");
 
 var all = Stopwatch.StartNew();
-var (meta, rows) = fromSites is null ? Select(catalog!, minPsms) : (null, FromSites(fromSites, xmls.Keys));
+var (meta, rows) = fromSites is null ? Select(catalog!, minPsms, excluded) : (null, FromSites(fromSites, xmls.Keys));
 var prov = new JsonObject
 {
     ["built_utc"] = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'+00:00'"),
@@ -67,6 +79,7 @@ var prov = new JsonObject
         ["modifications"] = new JsonArray(Bio.Keys.Order(StringComparer.Ordinal).Select(k => (JsonNode)k).ToArray()),
         ["excluded_if_uniprot_modified_residue_same_class"] = true,
         ["uniprot_overlap_ignored_for"] = new JsonArray(NotLoadedByMzLib.Order(StringComparer.Ordinal).Select(k => (JsonNode)k).ToArray()),
+        ["enriched_for_excluded"] = exclProv,
     },
     ["note"] = "The sites come from searches of the corpus these databases then search; the PSM floor limits that feedback.",
     ["dotnet"] = Environment.Version.ToString(),
@@ -118,7 +131,7 @@ return 0;
 
 // ---------------------------------------------------------------------------------------------------------------
 
-static (JsonObject Meta, List<Site> Rows) Select(string catalog, int minPsms)
+static (JsonObject Meta, List<Site> Rows) Select(string catalog, int minPsms, HashSet<string> excluded)
 {
     using var con = new DuckDBConnection($"Data Source={catalog};ACCESS_MODE=READ_ONLY");
     con.Open();
@@ -143,7 +156,7 @@ static (JsonObject Meta, List<Site> Rows) Select(string catalog, int minPsms)
                  count(DISTINCT s.dataset_id)::BIGINT, sum(s.n_psms)::BIGINT, string_agg(DISTINCT s.dataset_id, ',' ORDER BY s.dataset_id)
           FROM ptm_sites s JOIN org o USING (dataset_id)
           WHERE s.target_decoy='target' AND s.best_q_value<=0.01 AND s.best_ambiguity_level='1'
-            AND s.modification_name IN ({names})
+            AND s.modification_name IN ({names}){NotExcluded(excluded)}
           GROUP BY 1,2,3,4 HAVING sum(s.n_psms) >= {minPsms}";
         using var r = c.ExecuteReader();
         while (r.Read())
@@ -156,7 +169,8 @@ static (JsonObject Meta, List<Site> Rows) Select(string catalog, int minPsms)
 
 // ---------------------------------------------------------------------------------------------- --mode isoforms
 
-static int RunIsoforms(string? catalog, string? fromSites, string outDir, string sitesOut, string tag, int minPsms, Dictionary<string, string> xmls)
+static int RunIsoforms(string? catalog, string? fromSites, string outDir, string sitesOut, string tag, int minPsms, Dictionary<string, string> xmls,
+    HashSet<string> excluded, JsonNode? exclProv)
 {
     var all = Stopwatch.StartNew();
     JsonObject? meta = null;
@@ -172,7 +186,7 @@ static int RunIsoforms(string? catalog, string? fromSites, string outDir, string
         }));
     if (catalog is not null)
     {
-        var verdicts = IsoformVerdicts(catalog, out meta);
+        var verdicts = IsoformVerdicts(catalog, out meta).Where(v => !excluded.Contains(v.Dataset + "|" + v.Mod)).ToList();
         var tsv = new StringBuilder("organism\tdataset_id\taccession\tcanonical\tposition\tresidue\tmodification\tn_psms\tn_groups\tgroup_has_canonical\tisoform_only_group\tcanonical_in_dataset\tverdict\r\n");
         foreach (var v in verdicts)
             tsv.Append($"{v.Org}\t{v.Dataset}\t{v.Acc}\t{v.Canonical}\t{v.Pos}\t{v.Res}\t{v.Mod}\t{v.Psms}\t{v.Groups}\t{Py(v.HasCanonical)}\t{Py(v.IsoformOnly)}\t{Py(v.CanonicalInDataset)}\t{v.Verdict}\r\n");
@@ -197,7 +211,7 @@ static int RunIsoforms(string? catalog, string? fromSites, string outDir, string
     {
         ["built_utc"] = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'+00:00'"),
         ["script"] = "PXReprise tools/ptm-db/BuildPtmDb.cs --mode isoforms (C# port of aging results/ptm_db_2026-09-27/isoform_sites.py)",
-        ["tag"] = tag, ["catalog"] = meta, ["from_sites"] = fromSites,
+        ["tag"] = tag, ["catalog"] = meta, ["from_sites"] = fromSites, ["enriched_for_excluded"] = exclProv?.DeepClone(),
         ["rule"] = "site on an isoform accession, reported in a 1%-FDR target protein group that lists the isoform and not its canonical " +
                    $"(MetaMorpheus parsimony); >= {minPsms} PSMs summed over those datasets",
         ["dotnet"] = Environment.Version.ToString(),
@@ -232,6 +246,67 @@ static int RunIsoforms(string? catalog, string? fromSites, string outDir, string
     File.WriteAllText(provFile, prov.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
     Console.WriteLine($"provenance: {provFile}");
     return 0;
+}
+
+/// <summary>Declared exclusions (the file) plus measured ones (the catalog's runs), one row per (dataset, class).</summary>
+static List<Exclusion> Exclusions(string file, string? catalog, double phPct, double ggPct)
+{
+    var rows = new SortedDictionary<(string, string), string>();
+    foreach (var p in File.ReadLines(file).Skip(1).Where(l => l.Trim().Length > 0).Select(l => l.Split('\t')))
+        foreach (string cls in p[1].Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (!Bio.Values.Any(v => v.Class == cls)) throw new InvalidDataException($"{file}: {p[0]}: '{cls}' is not a class this builder selects");
+            rows[(p[0], cls)] = p.Length > 2 && p[2].Length > 0 ? p[2] : "declared";
+        }
+    if (catalog is not null)
+    {
+        using var con = new DuckDBConnection($"Data Source={catalog};ACCESS_MODE=READ_ONLY");
+        con.Open();
+        using var c = con.CreateCommand();
+        // The peptidoform spells a mod as the ingesting mzLib serialised it: phospho is UNIMOD:21 throughout; GG was
+        // [Info:GG (Ubiquitination Site) on K] before mzLib #1328 and UNIMOD:121 after.
+        c.CommandText = @"
+          SELECT dataset_id, count(*)::BIGINT,
+                 count(*) FILTER (WHERE 100.0 * ph / n >= $ph)::BIGINT, max(100.0 * ph / n)::DOUBLE,
+                 count(*) FILTER (WHERE 100.0 * gg / n >= $gg)::BIGINT, max(100.0 * gg / n)::DOUBLE
+          FROM (SELECT dataset_id, run_id, count(*) n,
+                       count(*) FILTER (WHERE peptidoform LIKE '%UNIMOD:21]%') ph,
+                       count(*) FILTER (WHERE peptidoform LIKE '%UNIMOD:121]%' OR peptidoform LIKE '%GG (Ubiquitination Site)%') gg
+                FROM psms_1pct WHERE target_decoy = 'target' GROUP BY 1, 2)
+          GROUP BY 1";
+        c.Parameters.Add(new DuckDBParameter("ph", phPct));
+        c.Parameters.Add(new DuckDBParameter("gg", ggPct));
+        using var r = c.ExecuteReader();
+        while (r.Read())
+            foreach (var (cls, hit, max, thr) in new[] { ("phospho", r.GetInt64(2), r.GetDouble(3), phPct), ("GG", r.GetInt64(4), r.GetDouble(5), ggPct) })
+                if (hit > 0)
+                {
+                    string m = $"measured: {hit}/{r.GetInt64(1)} runs with {cls} >= {thr:0.##}% of 1% target PSMs, max {max:0.0}%";
+                    var key = (r.GetString(0), cls);
+                    rows[key] = rows.TryGetValue(key, out string? d) ? d + "; " + m : m;
+                }
+    }
+    return rows.Select(kv => new Exclusion(kv.Key.Item1, kv.Key.Item2, kv.Value)).ToList();
+}
+
+/// <summary>"dataset|modification name" for every Bio modification of each excluded (dataset, class).</summary>
+static HashSet<string> ModSet(List<Exclusion> rows) =>
+    rows.SelectMany(e => Bio.Where(kv => kv.Value.Class == e.Class).Select(kv => e.Dataset + "|" + kv.Key)).ToHashSet(StringComparer.Ordinal);
+
+static string NotExcluded(HashSet<string> excluded) => excluded.Count == 0 ? "" :
+    $"\n            AND (s.dataset_id || '|' || s.modification_name) NOT IN ({string.Join(",", excluded.Order(StringComparer.Ordinal).Select(e => "'" + e.Replace("'", "''") + "'"))})";
+
+static JsonNode WriteExclusions(string file, bool measured, double phPct, double ggPct, string sitesOut, List<Exclusion> rows)
+{
+    string used = Path.Combine(sitesOut, "enriched_exclusions_used.tsv");
+    File.WriteAllText(used, "dataset\texcluded_class\tsource\r\n" + string.Concat(rows.Select(e => $"{e.Dataset}\t{e.Class}\t{e.Source}\r\n")));
+    return new JsonObject
+    {
+        ["rule"] = "a site of a PTM class is not counted from a deposit that enriches that class (user, 2026-10-07)",
+        ["declared_file"] = file, ["declared_sha256"] = Sha(file),
+        ["measured"] = measured ? new JsonObject { ["phospho_pct_min"] = phPct, ["gg_pct_min"] = ggPct, ["over"] = "1% target PSMs per run (psms_1pct)" } : null,
+        ["used_file"] = used, ["used_sha256"] = Sha(used), ["rows"] = rows.Count,
+    };
 }
 
 /// <summary>One row per (dataset, isoform site): the groups it was reported in, and the verdict of aging's rule.</summary>
@@ -426,6 +501,8 @@ record Site(string Organism, string Accession, int Position, string Modification
 {
     public char Residue { get; init; }
 }
+
+record Exclusion(string Dataset, string Class, string Source);
 
 record IsoVerdict(string Org, string Dataset, string Acc, string Canonical, int Pos, string Res, string Mod, long Psms, long Groups,
     bool? HasCanonical, bool? IsoformOnly, bool CanonicalInDataset, string Verdict);
