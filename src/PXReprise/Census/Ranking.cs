@@ -30,12 +30,17 @@ public static class Ranking
     /// <summary>
     /// The design a deposited SDRF states: a group per distinct combination of its <c>factor value[...]</c> columns,
     /// replicates counted as distinct <c>source name</c>s. Null when no factor value varies, which for design purposes is
-    /// no SDRF at all (mzLib's <see cref="SdrfSampleInformativeness"/>).
+    /// no SDRF at all (mzLib's <see cref="SdrfSampleInformativeness"/>). A replicate numbering is not a factor: mzLib
+    /// 1.0.594's <c>FactorValueVaries</c> counts <c>factor value[biological replicate]</c> (sdrf 005, PXR-E6; PXD036819,
+    /// PXD070189), so those columns are left out here and one other factor column must vary. Drop this guard when sdrf's
+    /// mzLib fix ships.
     /// </summary>
     public static DesignGuess? FromSdrf(SdrfDocument doc)
     {
         if (!SdrfSampleInformativeness.Assess(doc).FactorValueVaries) return null;
-        var factors = doc.Header.Where(h => h.StartsWith("factor value[", StringComparison.OrdinalIgnoreCase)).Distinct().ToList();
+        var factors = doc.Header.Where(h => h.StartsWith("factor value[", StringComparison.OrdinalIgnoreCase) && !IsReplicateFactor(h)).Distinct().ToList();
+        if (!factors.Any(f => doc.Results.Select(row => row[f]?.Trim() ?? "").Where(IsRealValue).Distinct(StringComparer.Ordinal).Skip(1).Any()))
+            return null;
         var groups = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
         var fractions = new HashSet<string>(StringComparer.Ordinal);
         foreach (var row in doc.Results)
@@ -48,6 +53,12 @@ public static class Ranking
         }
         return new DesignGuess("sdrf", groups.ToDictionary(g => g.Key, g => g.Value.Count), Math.Max(1, fractions.Count));
     }
+
+    private static bool IsReplicateFactor(string header) =>
+        header.Contains("biological replicate", StringComparison.OrdinalIgnoreCase) || header.Contains("technical replicate", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsRealValue(string v) =>
+        v.Length > 0 && !v.Equals("not available", StringComparison.OrdinalIgnoreCase) && !v.Equals("not applicable", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// The design raw-file names suggest, e.g. <c>SCR096_X002_WT1_M1</c>: names are split into tokens; a position that

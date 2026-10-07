@@ -51,6 +51,21 @@ public class RankingTests
         Assert.That(Ranking.FromSdrf(new SdrfDocument(TestSupport.WriteFile(dir, "b.sdrf.tsv", flat))), Is.Null, "no factor varies: as good as no SDRF");
     }
 
+    [Test]
+    public void AReplicateNumberIsNotAFactor()   // sdrf 005, PXR-E6: mzLib's FactorValueVaries counts it (PXD036819, PXD070189)
+    {
+        string dir = TestSupport.TempDir();
+        string onlyReps = "source name\tcharacteristics[organism]\tcomment[data file]\tfactor value[organism part]\tfactor value[biological replicate]\n"
+            + string.Join("", Enumerable.Range(1, 6).Select(i => $"s{i}\tHomo sapiens\tf{i}.raw\tliver\t{i}\n"));
+        Assert.That(Ranking.FromSdrf(new SdrfDocument(TestSupport.WriteFile(dir, "r.sdrf.tsv", onlyReps))), Is.Null,
+            "one tissue and six replicate numbers is no design, not six one-sample groups");
+
+        string real = "source name\tcharacteristics[organism]\tcomment[data file]\tfactor value[age]\tfactor value[biological replicate]\n"
+            + string.Join("", from a in new[] { "3 month", "24 month" } from i in Enumerable.Range(1, 4) select $"{a}_{i}\tMus musculus\t{a}_{i}.raw\t{a}\t{i}\n");
+        var d = Ranking.FromSdrf(new SdrfDocument(TestSupport.WriteFile(dir, "s.sdrf.tsv", real)))!;
+        Assert.That((d.Groups, d.Power), Is.EqualTo((2, 4)), "groups by age only; the replicate column does not split them");
+    }
+
     // The user's rule (2026-10-05): bigger is better, within the limits; deposits rarely state their design well enough to rank on.
     [Test]
     public void BiggerIsBetterWithinTheLimitsAndTooLargeGoesLast()
