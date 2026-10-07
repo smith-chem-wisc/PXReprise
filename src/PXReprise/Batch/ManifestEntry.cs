@@ -56,7 +56,7 @@ public static class ManifestEntry
         // status, any flags, and the old notes, quoted as what the entry said before (aging curates notes by hand).
         var research = state?["researched"] is JsonArray rs && rs.Count > 0 ? rs[^1] as JsonObject : null;
         string marker = research is null ? "" : $"RE-SEARCHED {research["utc"]}";
-        (string Status, List<string> Flags, string Notes)? earlier = null;
+        (string Status, List<string> Flags, string Notes, string Kept)? earlier = null;
         if (text.Contains($"accession: {e.Accession}\n") || text.Contains($"accession: {e.Accession}\r"))
         {
             if (research is null) return;
@@ -65,7 +65,7 @@ public static class ManifestEntry
             if (old.Contains(marker, StringComparison.Ordinal)) return;
             earlier = (Field(old, "status") ?? "include",
                        (Field(old, "flags") ?? "").Trim('[', ']').Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).ToList(),
-                       Notes(old));
+                       Notes(old), Unowned(old));
             text = text[..start].TrimEnd('\n', '\r') + (end < text.Length ? "\n\n" : "\n") + text[end..];
         }
         // Count from qc_report.json, never from the raw files: cleanup has already deleted them (dataRepo hashes `files`
@@ -81,7 +81,10 @@ public static class ManifestEntry
         var extras = search["extra_databases"]?.AsArray().Select(x => Path.GetFileName(x!.GetValue<string>())).ToList() ?? new List<string>();
 
         var notes = new List<string>();
-        var flags = new List<string> { "no_design_file", "no_output_sdrf" };
+        // From what the search did (its provenance flags), no longer assumed: an SDRF design and the search's own SDRF exist
+        // since label-free-dda@4 (D28).
+        var searchFlags = search["flags"]?.AsArray().Select(x => x!.GetValue<string>()).ToList() ?? new List<string> { "no_design_file", "no_output_sdrf" };
+        var flags = new[] { "no_design_file", "no_output_sdrf" }.Where(f => searchFlags.Any(x => x.StartsWith(f + ":", StringComparison.Ordinal) || x == f)).ToList();
         if (enrichment != "none")
         {
             string ev = (state?["screen_evidence"]?.GetValue<string>() ?? "").Replace('"', '\'');
@@ -120,7 +123,8 @@ public static class ManifestEntry
             notes.Add($"{marker} (was {research["previous_profile"] ?? "?"}; the earlier output is in {research["moved_to"]}): {research["reason"]}.");
             if (earlier is { } was)
             {
-                foreach (string f in was.Flags) if (!flags.Contains(f)) flags.Add(f);
+                // The two the search decides are the NEW search's, never carried over.
+                foreach (string f in was.Flags) if (!flags.Contains(f) && f is not ("no_design_file" or "no_output_sdrf")) flags.Add(f);
                 if (was.Notes.Length > 0) notes.Add($"BEFORE THE RE-SEARCH this entry said: \"{was.Notes.Replace('"', '\'')}\"");
             }
         }
@@ -144,7 +148,7 @@ public static class ManifestEntry
     provenance_schema: aging-provenance/3
     enrichment: [{enrichment}]
     flags: [{string.Join(", ", flags)}]
-    notes: >
+{earlier?.Kept ?? ""}    notes: >
       {string.Join(" ", notes)}
 
 """;
@@ -163,6 +167,33 @@ public static class ManifestEntry
         int start = m.Index;
         var next = System.Text.RegularExpressions.Regex.Match(text[(m.Index + m.Length)..], @"(?m)^[ \t]*- accession: ");
         return (start, next.Success ? m.Index + m.Length + next.Index : text.Length);
+    }
+
+    /// <summary>The keys this writer produces; any other key of an entry belongs to its owner (aging's `excluded_runs`,
+    /// `run_enrichment`, `restrictions`, ...) and survives a re-search verbatim.</summary>
+    private static readonly HashSet<string> Owned = new(StringComparer.Ordinal)
+    {
+        "accession", "status", "title", "run", "stages", "search_results", "files", "organism", "acquisition", "quant_method",
+        "metamorpheus", "provenance_schema", "enrichment", "flags", "notes",
+    };
+
+    /// <summary>Every key of the entry this writer does not own, with its nested lines, as written (LF line ends).</summary>
+    internal static string Unowned(string block)
+    {
+        var lines = block.Replace("\r", "").Split('\n');
+        var key = System.Text.RegularExpressions.Regex.Match(block, @"(?m)^([ \t]+)status:");
+        int indent = key.Success ? key.Groups[1].Value.Length : 4;
+        var kept = new System.Text.StringBuilder();
+        bool keeping = false;
+        foreach (string l in lines.Skip(1))
+        {
+            int ind = l.Length - l.TrimStart().Length;
+            if (l.Trim().Length > 0 && ind == indent && System.Text.RegularExpressions.Regex.Match(l.Trim(), @"^([A-Za-z_][\w-]*):") is { Success: true } m)
+                keeping = !Owned.Contains(m.Groups[1].Value);
+            else if (l.Trim().Length > 0 && ind < indent) keeping = false;
+            if (keeping && l.Trim().Length > 0) kept.Append(new string(' ', 4)).Append(l[indent..]).Append('\n');
+        }
+        return kept.ToString();
     }
 
     private static string? Field(string block, string key) =>

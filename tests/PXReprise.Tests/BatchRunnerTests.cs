@@ -553,6 +553,31 @@ public class BatchRunnerTests
         Assert.That(text.Split("BEFORE THE RE-SEARCH").Length - 1, Is.EqualTo(1), "replaced once, never nested");
     }
 
+    // aging 042 (PXR-A36): keys the batch does not write are the owner's, and survive a re-search verbatim. The two
+    // search-decided flags come from the new search's provenance (D28: @4 has a design and writes its own SDRF).
+    [Test]
+    public void AReSearchKeepsKeysItDoesNotOwnAndTakesTheDesignFlagsFromTheNewSearch()
+    {
+        string dir = TestSupport.TempDir(), run = Path.Combine(dir, "runs", "PXD012753");
+        Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
+        Directory.CreateDirectory(Path.Combine(run, "04_search"));
+        File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(("a.raw", true, Array.Empty<string>())).ToJsonString());
+        File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), """{"tools":{"MetaMorpheus":{"release":"1.1.12"}},"flags":["low_core_use: 3 avg cores"]}""");
+        string manifest = TestSupport.WriteFile(dir, "manifest.yaml",
+            "datasets:\n\n  - accession: PXD012753\n    status: include\n    flags: [no_design_file, no_output_sdrf]\n"
+            + "    excluded_runs:\n      20170317_VM_17: \"242 PSMs (aging S72, D68)\"\n      20170317_VM_18: \"326 PSMs\"\n"
+            + "    restrictions: {protein_statistics: \"few PSMs\"}\n    notes: >\n      Searched under @1.\n");
+        var state = new JsonObject
+        {
+            ["researched"] = new JsonArray(new JsonObject { ["utc"] = "2026-10-08T00:00:00+00:00", ["reason"] = "1.1.12", ["previous_profile"] = "label-free-dda@1", ["moved_to"] = "x" }),
+        };
+        ManifestEntry.Append(manifest, new QueueEntry("PXD012753", "Muscle", "mouse"), Profiles["label-free-dda@4"], run, state, dir);
+        string text = File.ReadAllText(manifest);
+        Assert.That(text, Does.Contain("    excluded_runs:\n      20170317_VM_17: \"242 PSMs (aging S72, D68)\"\n      20170317_VM_18: \"326 PSMs\"\n"));
+        Assert.That(text, Does.Contain("    restrictions: {protein_statistics: \"few PSMs\"}\n"));
+        Assert.That(text, Does.Contain("    flags: []").And.Contain("metamorpheus: \"1.1.12\""));
+    }
+
     private sealed class FakeFiles : IPrideFiles
     {
         public List<PrideArchiveFile> Listing { get; set; } = new();
