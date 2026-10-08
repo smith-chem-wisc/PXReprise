@@ -124,6 +124,75 @@ public class FetchStageTests
         Assert.That(prov, Does.Contain("subset_by_question: 2 of 3 raw files").And.Contain("rat files only (aging 044)"));
     }
 
+    // 2026-10-08: EBI wrote "<Error><Code>ConnectionClosedException..." into 8 of ~25 PXD012307 files, at PRIDE's size.
+    [Test]
+    public void TheIntegrityCheckFindsEbisErrorTextAnywhereAndHashesTheWholeFile()
+    {
+        string dir = TestSupport.TempDir();
+        var data = new byte[(1 << 22) + 100];
+        string clean = Path.Combine(dir, "clean.raw");
+        File.WriteAllBytes(clean, data);
+        string expected = Convert.ToHexStringLower(System.Security.Cryptography.SHA1.HashData(data));
+        Assert.That(Integrity.Check(clean), Is.EqualTo((expected, (long?)null)));
+        Assert.That(Integrity.Problem(clean, expected), Is.Null);
+        Assert.That(Integrity.Problem(clean, expected.ToUpperInvariant()), Is.Null, "PRIDE's case does not matter");
+        Assert.That(Integrity.Problem(clean, new string('0', 40)), Does.StartWith("sha1 "));
+
+        // Split across the 4 MiB read boundary: the scan must still see it.
+        int at = (1 << 22) - 5;
+        Integrity.EbiErrorMarker.CopyTo(data.AsSpan(at));
+        string split = Path.Combine(dir, "split.raw");
+        File.WriteAllBytes(split, data);
+        Assert.That(Integrity.Check(split).ErrorAt, Is.EqualTo(at));
+        Assert.That(Integrity.Problem(split, null), Does.StartWith($"EBI error response inside the file at byte {at:N0}"),
+            "with no SHA-1 from PRIDE the error text alone condemns the file");
+    }
+
+    [Test]
+    public async Task AFileWithEbisErrorTextInsideIsDownloadedAgain()
+    {
+        string dir = TestSupport.TempDir();
+        var lines = new List<string>();
+        var pride = new FlakyPride { CorruptFirst = 1, Files = { F("a.raw", 100) }, Ftp = { "a.raw" } };
+        var r = new FetchRequest("PXD000001", Path.Combine(dir, "02_fetch"), Pick.All, 60, 5000, ".raw", 1, 3, TimeSpan.Zero, TimeSpan.Zero, dir);
+        var manifest = await FetchStage.RunAsync(r, pride, CancellationToken.None, lines.Add);
+        string path = manifest["files"]![0]!["file"]!.GetValue<string>();
+        Assert.That(Integrity.Check(path).ErrorAt, Is.Null, "the file kept is the clean second download");
+        Assert.That(lines, Has.Some.Contains("is not PRIDE's file (EBI error response inside the file at byte 1"));
+        Assert.That(lines, Has.Some.Contains("attempt 2"));
+    }
+
+    [Test]
+    public async Task AFileWhoseSha1IsNotPridesIsRefusedAfterEveryAttempt()
+    {
+        string dir = TestSupport.TempDir();
+        var pride = new FlakyPride { Files = { F("a.raw", 100) }, Ftp = { "a.raw" } };
+        string zeros = Convert.ToHexStringLower(System.Security.Cryptography.SHA1.HashData(new byte[100]));
+        var good = new FetchRequest("PXD000001", Path.Combine(dir, "ok", "02_fetch"), Pick.All, 60, 5000, ".raw", 1, 2, TimeSpan.Zero, TimeSpan.Zero, dir,
+            Sha1Source: (a, ct) => Task.FromResult<IReadOnlyDictionary<string, string>>(new Dictionary<string, string> { ["a.raw"] = zeros }));
+        Assert.That((await FetchStage.RunAsync(good, pride, CancellationToken.None))["files"]!.AsArray(), Has.Count.EqualTo(1));
+
+        var wrong = good with { OutDir = Path.Combine(dir, "bad", "02_fetch"),
+            Sha1Source = (a, ct) => Task.FromResult<IReadOnlyDictionary<string, string>>(new Dictionary<string, string> { ["a.raw"] = new string('f', 40) }) };
+        var ex = Assert.ThrowsAsync<HttpRequestException>(() => FetchStage.RunAsync(wrong, pride, CancellationToken.None));
+        Assert.That(ex!.Message, Does.Contain("2 attempts all failed").And.Contain("PRIDE lists ffff"));
+    }
+
+    [Test]
+    public async Task ACorruptedFileAlreadyOnDiskIsReplaced()
+    {
+        string dir = TestSupport.TempDir();
+        string spectra = Path.Combine(dir, "02_fetch", "spectra");
+        Directory.CreateDirectory(spectra);
+        var bad = new byte[100];
+        Integrity.EbiErrorMarker.CopyTo(bad.AsSpan(50));
+        File.WriteAllBytes(Path.Combine(spectra, "a.raw"), bad);   // the right size, from an earlier fetch or by hand
+        var pride = new FlakyPride { Files = { F("a.raw", 100) }, Ftp = { "a.raw" } };
+        var r = new FetchRequest("PXD000001", Path.Combine(dir, "02_fetch"), Pick.All, 60, 5000, ".raw", 1, 3, TimeSpan.Zero, TimeSpan.Zero, dir);
+        await FetchStage.RunAsync(r, pride, CancellationToken.None);
+        Assert.That(Integrity.Check(Path.Combine(spectra, "a.raw")).ErrorAt, Is.Null);
+    }
+
     private sealed class FlakyPride : IPrideFiles
     {
         public int FailuresBeforeSuccess;
@@ -144,12 +213,20 @@ public class FetchStageTests
             Directory.CreateDirectory(dir);
             string p = Path.Combine(dir, f.FileName);
             if (File.Exists(p)) return Task.FromResult(p);   // mzLib's overwrite: false skips on existence alone
-            File.WriteAllBytes(p, new byte[f.FileSizeBytes - Short]);
+            var bytes = new byte[f.FileSizeBytes - Short];
+            // EBI's storage error written into the data, the file keeping its size (2026-10-08, PXD012307).
+            if (Interlocked.Increment(ref _writes) <= CorruptFirst && bytes.Length > 40)
+                "<Error><Code>ConnectionClosedException"u8.CopyTo(bytes.AsSpan(1));
+            File.WriteAllBytes(p, bytes);
             return Task.FromResult(p);
         }
 
         /// <summary>Bytes each download comes up short by.</summary>
         public int Short;
+
+        /// <summary>How many downloads arrive with EBI's error response inside them.</summary>
+        public int CorruptFirst;
+        private int _writes;
     }
 
     [Test]

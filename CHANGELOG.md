@@ -7,6 +7,23 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.3 (unreleased)
+
+**Updating:** no MetaMorpheus change, no machine-file change. **Safe mid-batch?** No: stop the batch, let it drain,
+update, then start it again.
+
+- **Every downloaded raw file is checked against PRIDE before it is searched.** On 2026-10-08, EBI's storage wrote its own
+  error response (`<Error><Code>ConnectionClosedException…`, about 200 bytes) into the data of files it served, over HTTPS
+  and over Aspera alike, and each file kept exactly PRIDE's size. 8 of about 25 PXD012307 transfers carried it. One of
+  them was a file the batch had already fetched and would have searched.
+  - The fetch now hashes each file (SHA-1) against PRIDE's own checksum, read from PRIDE's v3 file list, and scans it
+    for that error text.
+  - A file that fails is deleted and fetched again, as a dropped transfer is. Files already on disk from an earlier
+    fetch are checked the same way.
+  - The check also runs where PRIDE gives no checksum; the error text alone condemns a file then.
+- **Deposits searched before 0.4.3 were checked by size only.** Their raw files were deleted after searching, so they
+  cannot be checked now. The catch-up re-searches (D39) fetch them again, with this check.
+
 ## 0.4.2 (unreleased)
 
 **Updating:** no MetaMorpheus change (1.1.12). **Machine file:** nothing required. The aging box turns on

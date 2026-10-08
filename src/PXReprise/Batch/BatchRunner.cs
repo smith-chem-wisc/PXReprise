@@ -1263,7 +1263,11 @@ public sealed class BatchRunner
         new(acc, Path.Combine(Run(acc), "02_fetch"), pick, pick == Pick.All ? dep.MaxFiles : 1, dep.MaxFileMb, ".raw",
             _m.ParallelDownloads, _m.FetchAttempts, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(60), _m.WorkRoot,
             TimeSpan.FromMinutes(_m.FetchStallMinutes),
-            _q.ExceptionFor(acc) is { SelectsFiles: true } ex ? new FileSelection(ex.Keeps, ex.Describe()) : null);
+            _q.ExceptionFor(acc) is { SelectsFiles: true } ex ? new FileSelection(ex.Keeps, ex.Describe()) : null,
+            Sha1Source ?? Integrity.PrideSha1Async);
+
+    /// <summary>Where a fetch gets PRIDE's SHA-1s; tests replace it (null in production means PRIDE's v3 file list).</summary>
+    internal Func<string, CancellationToken, Task<IReadOnlyDictionary<string, string>>>? Sha1Source { get; set; }
 
     /// <summary>The profile's deposit caps, with the question's exception for this deposit applied (D28).</summary>
     private DepositPolicy DepositFor(string acc, Profile profile) => _q.ExceptionFor(acc)?.Apply(profile.Deposit) ?? profile.Deposit;

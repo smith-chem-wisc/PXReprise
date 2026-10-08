@@ -12,6 +12,10 @@ public class BatchRunnerTests
     private static readonly IReadOnlyDictionary<string, Profile> Profiles = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
     private static QcGates Gates => Profiles["label-free-dda@1"].Qc;
 
+    /// <summary>No PRIDE SHA-1s in offline tests (the error-text scan still runs).</summary>
+    private static Task<IReadOnlyDictionary<string, string>> NoSha1(string acc, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyDictionary<string, string>>(new Dictionary<string, string>());
+
     private static JsonObject Report(params (string File, bool Pass, string[] Reasons)[] files)
     {
         var o = new JsonObject();
@@ -41,7 +45,7 @@ public class BatchRunnerTests
             $"work_root = '{dir}'\nmin_free_gb = 0\n{extraMachine}[metamorpheus]\n\"1.1.11\" = 'C:/nowhere/CMD.exe'\n"));
         var search = new FakeSearch();
         var files = new FakeFiles();
-        return (new BatchRunner(question, Profiles, machine, files, search, "2026-09-28"), search, files, dir);
+        return (new BatchRunner(question, Profiles, machine, files, search, "2026-09-28") { Sha1Source = NoSha1 }, search, files, dir);
     }
 
     [Test]
@@ -329,7 +333,7 @@ public class BatchRunnerTests
             $"work_root = '{dir}'\nmin_free_gb = 0\n[metamorpheus]\n\"1.1.11\" = 'C:/nowhere/CMD.exe'\n"));
         var search = new FakeSearch();
         var files = new FakeFiles { Listing = Enumerable.Range(1, 6).Select(i => new PrideArchiveFile { FileName = $"run{i}.raw", FileSizeBytes = 500_000_000 }).ToList() };
-        return (new BatchRunner(question, Profiles, machine, files, search, "2026-10-05"), search, files, dir);
+        return (new BatchRunner(question, Profiles, machine, files, search, "2026-10-05") { Sha1Source = NoSha1 }, search, files, dir);
     }
 
     [Test]
