@@ -4,6 +4,29 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [1.3.1] - 2026-10-08
+
+**A search with an experimental design ingests again** (PXReprise PXR-R9). 1.3.0 refused every one, and since
+2026-10-07 every search in the aging batch has a design. The ingest path stays `cs-1.1.0` and the schema 0.0.15, so
+**no re-ingest**: every bundle 1.3.0 could write is written byte for byte as before, under the same id. The catalog
+format stays 10.
+
+### Fixed
+- **Protein-group columns labelled by sample.** With a design, MetaMorpheus names the `AllQuantifiedProteinGroups.tsv`
+  columns `{Condition}_{Biorep}` (`Intensity_all_1`), one per sample over its fractions and technical replicates. 1.3.0
+  read each label as a run name, so the quantities pointed at assays that do not exist and the bundle check refused the
+  whole deposit. Now:
+  - **Every column that holds a value names a searched run:** the table is read exactly as before, and the design is
+    not opened.
+  - **Otherwise:** the search's own `ExperimentalDesign.tsv` places each column:
+    - a sample of one file goes to that run's assay, with the values a per-file table would have written;
+    - a sample of several files belongs to no run. Its protein-group quantities and occupancy are not stored, never
+      split onto runs, and the new `sample_quant_not_stored` warning names it (G92, U19).
+  - The design is then hashed into the bundle id and copied into `sources/`.
+  - A label that names neither a run nor a design sample refuses the ingest by name, and so does a sample-labelled
+    table with no design. Before, the refusal named an assay key and not the cause.
+- PTM site occupancy (`ptm_stoichiometry`) is placed the same way. `sample_label` keeps MetaMorpheus's label verbatim.
+
 ## [1.3.0] - 2026-10-06
 
 **An orthology snapshot can be registered and cited.** The ingest path stays `cs-1.1.0` and the schema 0.0.15, so

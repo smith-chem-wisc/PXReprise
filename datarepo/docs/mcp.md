@@ -16,7 +16,7 @@ datarepo doctor                                            # which servers are r
 
 `--install` writes the Claude Code config so no JSON is hand-edited. The entry it writes starts
 the program that ran `--install`, by its absolute path, with the catalog's absolute path:
-`{"command": "/opt/datarepo-1.3.0/datarepo/datarepo", "args": ["mcp", "--catalog", "/data/repo/catalog.duckdb"]}`.
+`{"command": "/opt/datarepo-1.3.1/datarepo/datarepo", "args": ["mcp", "--catalog", "/data/repo/catalog.duckdb"]}`.
 So after moving or upgrading the program, run `--install --force` again from the new one. It refuses to repoint an entry
 it did not write (`--force` overrides, `--name` registers a second catalog alongside), keeps the
 rest of the file, and writes through a temporary file — that config is your whole Claude Code
