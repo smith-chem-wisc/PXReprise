@@ -7,6 +7,24 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.4 (unreleased)
+
+**Updating:** no MetaMorpheus change. **Machine file:** two optional keys, `aspera_ascp` and `aspera_key`, go together.
+- `aspera_ascp`: the path of IBM Aspera's `ascp.exe`, version 4.4.4 or newer. IBM Aspera for Desktop installs one at
+  `C:\Program Files\IBM Aspera\transferd\bin\ascp.exe`; Aspera Connect's 4.4.3 is too old.
+- `aspera_key`: EBI's public key, published in EMBL-EBI KB0011565.
+
+With neither, nothing changes. **Not for mid-batch.**
+
+- **Raw files arrive over IBM Aspera first, HTTPS after.**
+  - **Speed:** EBI serves PRIDE over Aspera at about five times the HTTPS rate measured on the aging box (4 sessions
+    about 10 MB/s, HTTPS about 2 MB/s).
+  - **Retries:** a file gets 3 Aspera attempts. Each is a fresh download into a private folder, never resumed, because a
+    resume gave corrupted files. Sessions start 10 seconds apart. After 3 failures, HTTPS takes over.
+  - **Checks:** every file is checked as in 0.4.3, whichever way it came.
+- **PRIDE's MD5 is used where it has no SHA-1.** Newer deposits leave the file list's SHA-1 empty; their MD5s come from
+  PRIDE's `files/checksum/{accession}`. A file is checked against whichever PRIDE gives, and always for EBI's error text.
+
 ## 0.4.3 (unreleased)
 
 **Updating:** no MetaMorpheus change, no machine-file change. **Safe mid-batch?** No: stop the batch, let it drain,

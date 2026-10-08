@@ -1,4 +1,5 @@
 using System.Net;
+using MzLibUtil;
 using PXReprise.Fetch;
 using UsefulProteomicsDatabases;
 
@@ -133,7 +134,10 @@ public class FetchStageTests
         string clean = Path.Combine(dir, "clean.raw");
         File.WriteAllBytes(clean, data);
         string expected = Convert.ToHexStringLower(System.Security.Cryptography.SHA1.HashData(data));
-        Assert.That(Integrity.Check(clean), Is.EqualTo((expected, (long?)null)));
+        string md5 = Convert.ToHexStringLower(System.Security.Cryptography.MD5.HashData(data));
+        Assert.That(Integrity.Check(clean), Is.EqualTo((expected, md5, (long?)null)));
+        Assert.That(Integrity.Problem(clean, md5), Is.Null, "newer deposits: PRIDE's MD5 (32 hex) is checked as MD5");
+        Assert.That(Integrity.Problem(clean, new string('0', 32)), Does.StartWith("md5 "));
         Assert.That(Integrity.Problem(clean, expected), Is.Null);
         Assert.That(Integrity.Problem(clean, expected.ToUpperInvariant()), Is.Null, "PRIDE's case does not matter");
         Assert.That(Integrity.Problem(clean, new string('0', 40)), Does.StartWith("sha1 "));
@@ -191,6 +195,36 @@ public class FetchStageTests
         var r = new FetchRequest("PXD000001", Path.Combine(dir, "02_fetch"), Pick.All, 60, 5000, ".raw", 1, 3, TimeSpan.Zero, TimeSpan.Zero, dir);
         await FetchStage.RunAsync(r, pride, CancellationToken.None);
         Assert.That(Integrity.Check(Path.Combine(spectra, "a.raw")).ErrorAt, Is.Null);
+    }
+
+    // 2026-10-08: Aspera first (about 5x HTTPS here), HTTPS after, so a broken Aspera setup never costs a deposit.
+    [Test]
+    public void AsperasSourceIsReadFromPridesLocationWithTheLeadingSlashEbiUses()
+    {
+        var f = F("x.raw", 10);
+        Assert.That(Aspera.Source(f), Is.Null, "no Aspera location listed");
+        f.PublicFileLocations.Add(new CvParam { Accession = "PRIDE:0000469", Name = "FTP Protocol", Value = "ftp://ftp.pride.ebi.ac.uk/pride/data/archive/2019/01/PXD012307/x.raw" });
+        f.PublicFileLocations.Add(new CvParam { Accession = "PRIDE:0000468", Name = "Aspera Protocol", Value = "prd_ascp@fasp.ebi.ac.uk:pride/data/archive/2019/01/PXD012307/x.raw" });
+        Assert.That(Aspera.Source(f), Is.EqualTo("prd_ascp@fasp.ebi.ac.uk:/pride/data/archive/2019/01/PXD012307/x.raw"));
+    }
+
+    [Test]
+    public async Task AnAsperaClientThatCannotRunFallsBackToHttpsAfterItsAttempts()
+    {
+        string dir = TestSupport.TempDir();
+        var lines = new List<string>();
+        var f = F("a.raw", 100);
+        f.PublicFileLocations.Add(new CvParam { Accession = "PRIDE:0000468", Name = "Aspera Protocol", Value = "prd_ascp@fasp.ebi.ac.uk:pride/data/a.raw" });
+        var pride = new FlakyPride { Files = { f }, Ftp = { "a.raw" } };
+        var r = new FetchRequest("PXD000001", Path.Combine(dir, "02_fetch"), Pick.All, 60, 5000, ".raw", 1, 4, TimeSpan.Zero, TimeSpan.Zero, dir,
+            Aspera: new AsperaClient(Path.Combine(dir, "no_such_ascp.exe"), Path.Combine(dir, "key"), Attempts: 2));
+        var manifest = await FetchStage.RunAsync(r, pride, CancellationToken.None, lines.Add);
+        Assert.That(File.Exists(manifest["files"]![0]!["file"]!.GetValue<string>()), "HTTPS delivered it");
+        Assert.That(lines.Count(l => l.Contains("ascp could not start")), Is.EqualTo(2), "two Aspera attempts, then HTTPS");
+        Assert.That(lines, Has.Some.Contains("attempt 3"));
+        Assert.That(Directory.Exists(Path.Combine(dir, "02_fetch", "spectra", ".aspera")) &&
+                    Directory.EnumerateFileSystemEntries(Path.Combine(dir, "02_fetch", "spectra", ".aspera")).Any(), Is.False,
+            "no Aspera staging folder is left behind");
     }
 
     private sealed class FlakyPride : IPrideFiles

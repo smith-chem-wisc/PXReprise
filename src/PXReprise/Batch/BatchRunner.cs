@@ -1264,7 +1264,8 @@ public sealed class BatchRunner
             _m.ParallelDownloads, _m.FetchAttempts, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(60), _m.WorkRoot,
             TimeSpan.FromMinutes(_m.FetchStallMinutes),
             _q.ExceptionFor(acc) is { SelectsFiles: true } ex ? new FileSelection(ex.Keeps, ex.Describe()) : null,
-            Sha1Source ?? Integrity.PrideSha1Async);
+            Sha1Source ?? Integrity.PrideChecksumsAsync,
+            _m.AsperaAscp is { } ascp ? new AsperaClient(ascp, _m.AsperaKey!, StartGap: TimeSpan.FromSeconds(10)) : null);
 
     /// <summary>Where a fetch gets PRIDE's SHA-1s; tests replace it (null in production means PRIDE's v3 file list).</summary>
     internal Func<string, CancellationToken, Task<IReadOnlyDictionary<string, string>>>? Sha1Source { get; set; }

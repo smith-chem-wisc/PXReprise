@@ -57,7 +57,8 @@ public enum Pick { All, ProbeSpread, MedianSize, FirstByName }
 public sealed record FetchRequest(string Accession, string OutDir, Pick Pick, int MaxFiles, int MaxFileMb, string Extension,
     int ParallelDownloads, int MaxAttempts, TimeSpan Backoff, TimeSpan ListingBackoff, string WorkRoot,
     TimeSpan StallAfter = default, FileSelection? Select = null,
-    [property: System.Text.Json.Serialization.JsonIgnore] Func<string, CancellationToken, Task<IReadOnlyDictionary<string, string>>>? Sha1Source = null);
+    [property: System.Text.Json.Serialization.JsonIgnore] Func<string, CancellationToken, Task<IReadOnlyDictionary<string, string>>>? Sha1Source = null,
+    AsperaClient? Aspera = null);
 
 /// <summary>Which raw files of a deposit a question searches, and why (<c>[exceptions]</c>, PXReprise D28).</summary>
 public sealed record FileSelection([property: System.Text.Json.Serialization.JsonIgnore] Func<string, bool> Keeps, string Reason);
@@ -179,7 +180,7 @@ public static class FetchStage
                 try
                 {
                     results[i] = await DownloadWithRetry(pride, f, spectraDir, r.MaxAttempts, r.Backoff, ct, r.StallAfter, log,
-                        expectedSha1: sha1.GetValueOrDefault(f.FileName), verify: true).ConfigureAwait(false);
+                        expectedChecksum: sha1.GetValueOrDefault(f.FileName), verify: true, aspera: r.Aspera).ConfigureAwait(false);
                     var (_, s, a) = results[i];
                     log?.Invoke($"{Interlocked.Increment(ref done)} of {chosen.Count} done: {f.FileName} {f.FileSizeBytes / 1e6:0} MB in {s:0} s"
                                 + (a > 1 ? $", attempt {a}" : ""));
@@ -264,7 +265,8 @@ public static class FetchStage
     /// </summary>
     public static async Task<(string Path, double Seconds, int Attempts)> DownloadWithRetry(IPrideFiles pride, PrideArchiveFile f,
         string dir, int attempts, TimeSpan backoff, CancellationToken ct, TimeSpan stallAfter = default, Action<string>? log = null,
-        TimeSpan? poll = null, TimeSpan? abandonGrace = null, string? expectedSha1 = null, bool verify = false)
+        TimeSpan? poll = null, TimeSpan? abandonGrace = null, string? expectedChecksum = null, bool verify = false,
+        AsperaClient? aspera = null)
     {
         var sw = Stopwatch.StartNew();
         Exception? last = null;
@@ -278,7 +280,13 @@ public static class FetchStage
             }
             try
             {
-                string path = await Watched(pride, f, dir, stallAfter, poll ?? TimeSpan.FromSeconds(15), abandonGrace ?? TimeSpan.FromSeconds(30), ct).ConfigureAwait(false);
+                // Aspera first, for the first aspera.Attempts attempts at a file not yet on disk; HTTPS after that, so a
+                // broken Aspera setup costs a few attempts, never the deposit. A file already present is checked, not refetched.
+                bool overAspera = aspera is not null && a <= aspera.Attempts && !File.Exists(target) && Aspera.Source(f) is not null;
+                string path = overAspera
+                    ? await Aspera.DownloadAsync(aspera!, f, dir, ct).ConfigureAwait(false)
+                    : await Watched(pride, f, dir, stallAfter, poll ?? TimeSpan.FromSeconds(15), abandonGrace ?? TimeSpan.FromSeconds(30), ct).ConfigureAwait(false);
+                if (overAspera) log?.Invoke($"{f.FileName} arrived over Aspera (attempt {a})");
                 long got = new FileInfo(path).Length;
                 if (f.FileSizeBytes > 0 && got != f.FileSizeBytes)
                 {
@@ -287,7 +295,7 @@ public static class FetchStage
                 }
                 // The right size is not the right file: EBI can write its own error response into the data (Integrity).
                 // A file already on disk from an earlier fetch is checked the same way.
-                if (verify && Integrity.Problem(path, expectedSha1) is { } bad)
+                if (verify && Integrity.Problem(path, expectedChecksum) is { } bad)
                 {
                     log?.Invoke($"{f.FileName} is not PRIDE's file ({bad}): deleted, downloading again");
                     File.Delete(path);
