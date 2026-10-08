@@ -118,7 +118,9 @@ public class FragmentationTests
         Assert.Throws<Config.ConfigException>(() => Config.ProfileLoader.Load(TestSupport.WriteFile(dir, "b.toml", src.Replace("[engine]", "[engine]\nfragmentation = \"guess\""))));
         Assert.Throws<Config.ConfigException>(() => Config.ProfileLoader.Load(TestSupport.WriteFile(dir, "c.toml",
             src.Replace("[engine]", "[engine]\nfragmentation = \"per_file\"\nlow_res_product_tolerance = \"0.5 Da\""))));
-        Assert.That(Config.ProfileLoader.LoadDirectory(TestSupport.ProfilesDir).Values.Select(x => x.Fragmentation), Has.All.EqualTo("fixed"),
-            "no shipped profile changes behaviour (D26): per_file arrives with a new profile version");
+        var shipped = Config.ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
+        Assert.That(shipped.Where(kv => kv.Key != "label-free-dda-lowres@1").Select(kv => kv.Value.Fragmentation), Has.All.EqualTo("fixed"),
+            "no shipped profile changes behaviour (D26): per_file arrives with a new profile");
+        Assert.That(shipped["label-free-dda-lowres@1"].Fragmentation, Is.EqualTo("per_file"), "the ion-trap profile is the one that writes it");
     }
 }

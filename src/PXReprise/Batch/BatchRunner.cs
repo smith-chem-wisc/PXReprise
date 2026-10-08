@@ -703,6 +703,19 @@ public sealed class BatchRunner
         }
         var excl = QcExclusion(report, profile.Qc);
         bool ok = allPass || excl is { Count: > 0 };
+        // MS2 read in the ion trap: a question that names a low-res profile (no Orbitrap-HCD gate, per-file fragmentation)
+        // searches it there instead of skipping it (the user, 2026-10-07: "Do whatever you can"). The screen never routes to
+        // that profile directly; only the spectra can.
+        if (!ok && OnlyLowRes(report, profile.Qc) && LowResProfile(acq, profile) is { } low)
+        {
+            Log($"{acc} PROBE qc: MS2 not read in the Orbitrap (low_res_ms2); routing to {low.Key}");
+            profile = low;
+            Record(acc, ("profile", profile.Key), ("routed_low_res", true));
+            (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate);
+            xr.Probe(report);
+            excl = QcExclusion(report, profile.Qc);
+            ok = allPass || excl is { Count: > 0 };
+        }
         if (!allPass && ok) Log($"{acc} PROBE qc: {string.Join(", ", excl!)} fail only on excludable reasons; continuing (decided at full QC)");
         Log($"{acc} PROBE qc {(ok ? "ok" : "FAILED")} " + string.Join("; ", report.Take(4).Select(kv =>
             $"{kv.Key}: hcd={kv.Value!["fraction_orbitrap_hcd"]} ms2={kv.Value["ms2"]} min={kv.Value["run_minutes"]}")));
@@ -730,6 +743,25 @@ public sealed class BatchRunner
         Experiment(acc, xr, "probed", $"to be searched under {profile.Key}");
         return profile;
     }
+
+    /// <summary>
+    /// True when the files fail on <c>low_res_ms2</c> and on nothing else that the gates do not already allow (an
+    /// excludable reason such as one blank run). A file that is unreadable or has too few MS2 stays a skip.
+    /// </summary>
+    internal static bool OnlyLowRes(JsonObject report, QcGates gates)
+    {
+        var reasons = report.SelectMany(kv => kv.Value!["fail_reasons"]?.AsArray().Select(r => r!.GetValue<string>()) ?? Enumerable.Empty<string>()).ToList();
+        return reasons.Contains(Qc.SpectraQc.LowResMs2)
+            && reasons.All(r => r == Qc.SpectraQc.LowResMs2 || gates.Excludable.Contains(r));
+    }
+
+    /// <summary>The question's low-res profile for this deposit: available, after <paramref name="current"/> in the
+    /// question's order, without the Orbitrap-HCD gate, writing fragmentation per file, and accepting the deposit.</summary>
+    internal Profile? LowResProfile(Acquisition acq, Profile current) =>
+        _q.Profiles.SkipWhile(k => k != current.Key).Skip(1)
+            .Select(k => _profiles.TryGetValue(k, out var p) ? p : null)
+            .FirstOrDefault(p => p is { Status: ProfileStatus.Available, Fragmentation: "per_file" } && p.Qc.MinFractionOrbitrapHcd == 0
+                                 && p.Accepts.Refusal(acq) is null);
 
     /// <summary>The probe search, for tests: (profile, machine, spectra, chemistry, fragmentation, outDir) -> AllPSMs.psmtsv.</summary>
     internal Func<Profile, Machine, IReadOnlyList<string>, DepositChemistry?, IReadOnlyDictionary<string, Qc.FragmentationCall>?, string, CancellationToken, Task<string>>

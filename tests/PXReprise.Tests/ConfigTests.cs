@@ -10,7 +10,19 @@ public class ConfigTests
     public void ShippedProfilesLoadWithTheAgingV1Settings()
     {
         var profiles = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
-        Assert.That(profiles.Keys, Is.EquivalentTo(new[] { "label-free-dda@1", "label-free-dda@2", "label-free-dda@3", "label-free-dda@4", "tmt-dda@1" }));
+        Assert.That(profiles.Keys, Is.EquivalentTo(new[] { "label-free-dda@1", "label-free-dda@2", "label-free-dda@3", "label-free-dda@4",
+            "label-free-dda@5", "label-free-dda-lowres@1", "tmt-dda@1" }));
+
+        // D38: @5 is @4 on UniProt's canonical proteomes (agingPTM-v3), with the deposit caps raised (120 files, 3M MS2).
+        var v4a = profiles["label-free-dda@4"];
+        var v5 = profiles["label-free-dda@5"];
+        Assert.That(v5.Databases.Values.Select(d => d.Proteome), Is.All.EndWith("_all_genecentric_2026_03_agingPTM-v3.xml"));
+        Assert.That((v5.Deposit.MaxFiles, v5.Deposit.MaxEstimatedMs2), Is.EqualTo((120, 3_000_000)));
+        Assert.That(v5 with { Version = 4, Description = v4a.Description, Databases = v4a.Databases, Deposit = v4a.Deposit,
+            Accepts = v4a.Accepts, Tasks = v4a.Tasks, GptmdExtraMods = v4a.GptmdExtraMods, Qc = v4a.Qc, SourceDir = v4a.SourceDir },
+            Is.EqualTo(v4a), "every other scalar setting equals /4's");
+        Assert.That((v5.Deposit with { MaxFiles = 60, MaxEstimatedMs2 = 1_500_000 }, v5.Qc with { Excludable = v4a.Qc.Excludable }), Is.EqualTo((v4a.Deposit, v4a.Qc)));
+        Assert.That(v5.Tasks, Is.EqualTo(v4a.Tasks));
 
         // D28: @4 is @3 on MetaMorpheus 1.1.12 with an SDRF design, the search's own SDRF and the agingPTM-v2 databases;
         // D35: and MetaMorpheus's NoUPS contaminant panel as it is, in place of /3's panel minus aging's D54 list.

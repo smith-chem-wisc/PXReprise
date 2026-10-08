@@ -7,7 +7,30 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
-## 0.4.1 (unreleased)
+## 0.4.2 (unreleased)
+
+**Updating:** no MetaMorpheus change (1.1.12). **Machine file:** nothing required. The aging box turns on
+`catch_up_every = 4` (D39). **Databases:** profile `label-free-dda@5` names three new files under `database_dir`:
+`UP000005640_all_genecentric_2026_03_agingPTM-v3.xml`, `UP000000589_...` and `UP000002494_...`. They are built by
+`tools/ptm-db/BuildPtmDb.cs` from UniProt's canonical proteomes (see `data/ptm-db/agingPTM-v3/`).
+
+**Not for mid-batch:** stop the batch, let it drain, update, then start it again.
+
+- **A new profile, `label-free-dda@5`:** `@4` on UniProt's **canonical** reference proteomes (D38). That is one protein
+  per gene, Swiss-Prot plus TrEMBL for genes Swiss-Prot lacks: human 20,652, mouse 21,860, rat 21,471 entries, against
+  20,416, 17,277 and 8,228 reviewed. agingPTM-v3 carries v2's sites. The deposit caps rise to 120 raw files and 3,000,000
+  estimated MS2 (were 60 and 1,500,000), because MetaMorpheus 1.1.12 and two search slots search much faster.
+- **A new profile for MS2 read in the ion trap, `label-free-dda-lowres@1`.** It runs the Search task only: no
+  calibration until low-res calibration is merged in MetaMorpheus, and no GPTMD (the user). It searches against the same
+  canonical agingPTM-v3 XML, with fragmentation written per file (ion-trap CID as LowCID, product tolerance
+  ±0.5000 Absolute), and keeps no spectral library. The screen never routes a deposit to it. A probe whose files fail
+  only `low_res_ms2` under the question's earlier profile is re-checked under it, when the question names it. 34 aging
+  deposits were skipped as `low_res_ms2` before this profile existed.
+- **`BuildPtmDb.cs` reads either UniProt namespace.** It used to read only `http://uniprot.org/uniprot`, which UniProt's
+  REST files use; UniProt's FTP files declare `https://` and were read as empty. It now refuses to write a database
+  that matches fewer than half of the sites, instead of writing it with zero sites.
+
+## 0.4.1 (unreleased, superseded by 0.4.2 before it ran)
 
 **Updating:** no MetaMorpheus change (1.1.12 as in 0.4.0). **Machine file:** two optional keys, both off by default:
 - `search_slots` (default 1): how many searches run at once;

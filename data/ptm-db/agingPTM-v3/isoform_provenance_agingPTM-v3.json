@@ -1,0 +1,66 @@
+{
+  "built_utc": "2026-10-08T01:16:36\u002B00:00",
+  "script": "PXReprise tools/ptm-db/BuildPtmDb.cs --mode isoforms (C# port of aging results/ptm_db_2026-09-27/isoform_sites.py)",
+  "tag": "agingPTM-v3",
+  "catalog": null,
+  "from_sites": "F:\\pxreprise_ptmdb_v2\\sites",
+  "enriched_for_excluded": null,
+  "rule": "site on an isoform accession, reported in a 1%-FDR target protein group that lists the isoform and not its canonical (MetaMorpheus parsimony); \u003E= 5 PSMs summed over those datasets",
+  "dotnet": "10.0.10",
+  "organisms": {
+    "human": {
+      "source_xml": "F:\\aging_data\\db\\aging_isoforms_tier1-2_human.xml",
+      "source_sha256": "6a197486b2cafa0c3c6e52b2027d0a0537ca70e087cad38faedbdfa0ec21ca6f",
+      "output_xml": "F:\\pxreprise_ptmdb_v3\\out\\aging_isoforms_tier1-2_human_agingPTM-v3.xml",
+      "output_sha256": "e887b4d5fa27828bad3754071f189495e199ecbc5134b98e3a48229876cff565",
+      "sites_written": 273,
+      "sites_by_accession": {
+        "P02545-2": 18,
+        "P02545-6": 1,
+        "P02751-1": 40,
+        "P02751-13": 93,
+        "P02751-8": 99,
+        "P04637-4": 1,
+        "P10636-2": 4,
+        "P10636-7": 5,
+        "P10636-8": 5,
+        "P29590-5": 7
+      },
+      "selected_accessions_not_in_this_xml": [
+        "P00387-2",
+        "P06396-2",
+        "P33316-2"
+      ]
+    },
+    "mouse": {
+      "source_xml": "F:\\aging_data\\db\\aging_isoforms_tier1-2_mouse.xml",
+      "source_sha256": "cadf19071e9bd4d86e86c1a7038b95cde6fb8533e7ff49f618191fd42ea98022",
+      "output_xml": "F:\\pxreprise_ptmdb_v3\\out\\aging_isoforms_tier1-2_mouse_agingPTM-v3.xml",
+      "output_sha256": "25e3737826aff117fbd45fdbbf767fafb8dafcee87c2a9228f9291bfc1ad7676",
+      "sites_written": 26,
+      "sites_by_accession": {
+        "P10637-2": 7,
+        "P10637-4": 13,
+        "P10637-5": 1,
+        "Q62261-2": 5
+      },
+      "selected_accessions_not_in_this_xml": [
+        "P13020-2",
+        "P97807-2"
+      ]
+    },
+    "rat": {
+      "source_xml": "F:\\aging_data\\db\\aging_isoforms_tier1-2_rat.xml",
+      "source_sha256": "9fa7e1082067d4d19993f0d2a8af91dffb8ef8a240edbbfcb49829f2bb189178",
+      "output_xml": "F:\\pxreprise_ptmdb_v3\\out\\aging_isoforms_tier1-2_rat_agingPTM-v3.xml",
+      "output_sha256": "57be2589cd3e013e6f85d5a3390372a335141297f2bd1069e59f668ebab64527",
+      "sites_written": 9,
+      "sites_by_accession": {
+        "P19332-5": 4,
+        "P19332-7": 5
+      },
+      "selected_accessions_not_in_this_xml": []
+    }
+  },
+  "wall_s": 0.2
+}

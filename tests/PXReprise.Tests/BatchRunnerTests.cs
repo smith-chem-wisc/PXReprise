@@ -291,6 +291,22 @@ public class BatchRunnerTests
             Is.Null, "nothing left once the old ones are taken");
     }
 
+    // Ion-trap MS2 (low_res_ms2) is searched under a low-res profile when the question names one, never anything else.
+    [Test]
+    public void OnlyALowResFailureIsRoutedToTheLowResProfile()
+    {
+        var gates = Profiles["label-free-dda@5"].Qc;
+        Assert.That(BatchRunner.OnlyLowRes(Report(("a.raw", false, new[] { "low_res_ms2" }), ("b.raw", false, new[] { "low_res_ms2" })), gates), Is.True);
+        Assert.That(BatchRunner.OnlyLowRes(Report(("a.raw", false, new[] { "low_res_ms2" }), ("b.raw", false, new[] { "too_few_ms2" })), gates), Is.True,
+            "one blank run is excludable, as anywhere else");
+        Assert.That(BatchRunner.OnlyLowRes(Report(("a.raw", false, new[] { "low_res_ms2", "unreadable" })), gates), Is.False);
+        Assert.That(BatchRunner.OnlyLowRes(Report(("a.raw", false, new[] { "too_few_ms2" })), gates), Is.False, "no low_res_ms2 at all");
+
+        var lowres = Profiles["label-free-dda-lowres@1"];
+        Assert.That((lowres.Qc.MinFractionOrbitrapHcd, lowres.Fragmentation, lowres.SpectralLibrary, string.Join(",", lowres.Tasks)),
+            Is.EqualTo((0.0, "per_file", false, "Search")), "no Orbitrap gate, per-file LowCID, no library, Search only (the user)");
+    }
+
     [Test]
     public void SearchSlotsAndCatchUpAreReadFromTheMachineAndChecked()
     {

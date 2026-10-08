@@ -105,6 +105,14 @@ foreach (var (org, src) in xmls.OrderBy(kv => kv.Key, StringComparer.Ordinal))
         kept.Add(k);
         (keep.TryGetValue(k.Accession, out var l) ? l : keep[k.Accession] = new()).Add(k);
     }
+    // A database that matches almost none of the sites is a reading failure, not a selection (agingPTM-v3's first build
+    // read 0 entries from an https-namespace file and wrote 0 sites without complaint).
+    int offered = rows.Count(r => r.Organism == org), absent = drop.GetValueOrDefault("not_in_canonical_xml");
+    if (seq.Count == 0 || (offered > 0 && absent * 2 > offered))
+    {
+        Console.Error.WriteLine($"{org}: STOP. {src} gave {seq.Count} entries, and {absent} of {offered} sites' accessions are not in it.");
+        return 1;
+    }
     string dst = Path.Combine(outDir, Path.GetFileName(src).Replace(".xml", $"_{tag}.xml"));
     int written = Annotate(src, dst, keep);
     string tsv = Path.Combine(sitesOut, $"sites_{org}.tsv");
@@ -399,11 +407,15 @@ static List<Site> FromSites(string dir, IEnumerable<string> orgs) =>
 /// <summary>(accession, position) -> chemistry classes of UniProt 'modified residue' features; accession -> sequence.</summary>
 static (Dictionary<(string, int), HashSet<string>> Ann, Dictionary<string, string> Seq) LoadUniprot(string xml)
 {
-    XNamespace ns = "http://uniprot.org/uniprot";
     var ann = new Dictionary<(string, int), HashSet<string>>();
     var seq = new Dictionary<string, string>(StringComparer.Ordinal);
     using var reader = XmlReader.Create(xml, new XmlReaderSettings { DtdProcessing = DtdProcessing.Ignore, IgnoreWhitespace = true });
     reader.MoveToContent();
+    // The document's own namespace: UniProt's REST files declare http://uniprot.org/uniprot, its FTP reference proteomes
+    // https://uniprot.org/uniprot (2026_03). Hard-coding one read every FTP entry as absent (agingPTM-v3, 2026-10-08).
+    XNamespace ns = reader.NamespaceURI;
+    if (ns.NamespaceName is not ("http://uniprot.org/uniprot" or "https://uniprot.org/uniprot"))
+        throw new InvalidDataException($"{xml}: root namespace '{ns.NamespaceName}' is not UniProt's");
     while (!reader.EOF)
     {
         if (reader.NodeType != XmlNodeType.Element || reader.LocalName != "entry" || reader.NamespaceURI != ns.NamespaceName) { reader.Read(); continue; }
