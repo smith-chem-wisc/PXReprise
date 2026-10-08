@@ -8,8 +8,7 @@ each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 **A search with an experimental design ingests again** (PXReprise PXR-R9). 1.3.0 refused every one, and since
 2026-10-07 every search in the aging batch has a design. The ingest path stays `cs-1.1.0` and the schema 0.0.15, so
-**no re-ingest**: every bundle 1.3.0 could write is written byte for byte as before, under the same id. The catalog
-format stays 10.
+**no re-ingest**: every bundle 1.3.0 could write gets the same rows under the same id. The catalog format stays 10.
 
 ### Fixed
 - **Protein-group columns labelled by sample.** With a design, MetaMorpheus names the `AllQuantifiedProteinGroups.tsv`
