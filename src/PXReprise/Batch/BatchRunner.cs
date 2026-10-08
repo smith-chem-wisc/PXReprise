@@ -34,10 +34,14 @@ public sealed class BatchRunner
     private readonly string _stateDir, _runRoot;
     private readonly object _gate = new();
     private bool _libraryOk = true;
-    private volatile string? _searching;
+    private readonly HashSet<string> _searching = new(StringComparer.Ordinal);
+    private int _started;
 
-    /// <summary>The deposit being searched while the next one is screened and fetched; null between searches.</summary>
-    internal string? Searching { get => _searching; set => _searching = value; }
+    /// <summary>The deposits being searched (up to search_slots) while the next one is screened and fetched.</summary>
+    internal IReadOnlyList<string> Searching { get { lock (_searching) return _searching.ToList(); } }
+
+    internal void SearchStarted(string acc) { lock (_searching) _searching.Add(acc); }
+    internal void SearchEnded(string acc) { lock (_searching) _searching.Remove(acc); }
 
     public BatchRunner(Question q, IReadOnlyDictionary<string, Profile> profiles, Machine m, IPrideFiles files, IProjectSearch search, string runDate)
     {
@@ -212,11 +216,12 @@ public sealed class BatchRunner
     /// replaced, keeping its status, flags and notes (<see cref="ManifestEntry.Append"/>). Refused while a driver runs, for a
     /// deposit with no finished search (use <c>batch retry</c>), and for one the manifest excludes.
     /// </summary>
-    public static object Research(string stateDir, string runRoot, string acc, string reason, string? profile, string? manifest)
+    public static object Research(string stateDir, string runRoot, string acc, string reason, string? profile, string? manifest, bool byDriver = false)
     {
         string pidFile = Path.Combine(stateDir, "driver.pid"), stateFile = Path.Combine(stateDir, "state.json");
         if (string.IsNullOrWhiteSpace(reason)) throw new UsageException("--reason must say why the deposit is searched again");
-        if (LiveDriver(pidFile) is int pid) throw new UsageException($"a batch driver is running as pid {pid}; stop it (batch stop) and let it exit first");
+        // The driver itself may re-search (D39 catch-up, under its own state lock); anyone else waits for it to exit.
+        if (!byDriver && LiveDriver(pidFile) is int pid) throw new UsageException($"a batch driver is running as pid {pid}; stop it (batch stop) and let it exit first");
         string dir = Path.Combine(runRoot, acc);
         if (!File.Exists(Path.Combine(dir, "04_search", "provenance.json")))
             throw new UsageException($"{acc} has no finished search; use batch retry for a deposit that never searched");
@@ -334,29 +339,53 @@ public sealed class BatchRunner
     /// <summary>One walk of <paramref name="queue"/>. True when it ran out; false when STOP, the disk floor or cancellation ended it.</summary>
     private async Task<bool> WalkAsync(IReadOnlyList<QueueEntry> queue, CancellationToken ct)
     {
-        int i = 0;
-        (QueueEntry Entry, Profile Profile)? pending = null;
-        while (!ct.IsCancellationRequested)
+        // Up to search_slots searches run at once (the user, 2026-10-07: "start a second search immediately following any
+        // complete download"). The next deposit is screened, probed and fetched while they run (network-bound), and starts
+        // as soon as it is downloaded and a slot is free. With one slot this is the old rhythm: search one, fetch the next.
+        int slots = Math.Max(1, _m.SearchSlots);
+        var running = new List<(Task Task, string Organism)>();
+        var consumed = new HashSet<string>(StringComparer.Ordinal);
+        bool ranOut = false;
+        try
         {
-            if (File.Exists(StopFile)) { Log("STOP file present: finishing"); return false; }
-            if (FreeGb() < _m.MinFreeGb) { Log($"free space {FreeGb():0} GB below {_m.MinFreeGb:0} GB floor: stopping"); return false; }
-            if (pending is null)
+            while (!ct.IsCancellationRequested)
             {
-                (pending, i) = await NextReadyAsync(queue, i, ct).ConfigureAwait(false);
-                if (pending is null) return !ct.IsCancellationRequested && !File.Exists(StopFile);
+                if (File.Exists(StopFile)) { Log($"STOP file present: finishing ({running.Count} search(es) under way finish first)"); break; }
+                if (FreeGb() < _m.MinFreeGb) { Log($"free space {FreeGb():0} GB below {_m.MinFreeGb:0} GB floor: stopping"); break; }
+                var busy = running.Select(r => r.Organism).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var ready = await NextReadyAsync(queue, consumed, busy, ct).ConfigureAwait(false);
+                if (ready is null) { ranOut = !ct.IsCancellationRequested && !File.Exists(StopFile); break; }
+                while (running.Count >= slots)
+                {
+                    var done = await Task.WhenAny(running.Select(r => r.Task)).ConfigureAwait(false);
+                    running.RemoveAll(r => r.Task == done);
+                    await done.ConfigureAwait(false);   // a search that threw ends the driver, as it always did
+                }
+                var (e, profile) = ready.Value;
+                // Task.Run: the search begins with the full-file QC, which is synchronous and must not hold up the next fetch.
+                running.Add((Task.Run(() => SearchSlotAsync(e, profile, ct), CancellationToken.None), e.Organism));
             }
-            var (e, profile) = pending.Value;
-            pending = null;
-            // While this dataset searches (hours), the next one is screened, probed and fetched (network-bound).
-            Searching = e.Accession;
-            var search = SearchAndDeliverAsync(e, profile, ct);
-            var next = NextReadyAsync(queue, i, ct);
-            try { await Task.WhenAll(search, next).ConfigureAwait(false); }
-            finally { Searching = null; }
-            (pending, i) = next.Result;
         }
-        return false;
+        finally
+        {
+            // STOP drains: every search under way finishes and is delivered before the walk ends.
+            await Task.WhenAll(running.Select(r => r.Task)).ConfigureAwait(false);
+        }
+        return ranOut;
     }
+
+    private async Task SearchSlotAsync(QueueEntry e, Profile profile, CancellationToken ct)
+    {
+        SearchStarted(e.Accession);
+        try { await (SearchForTest ?? SearchAndDeliverAsync)(e, profile, ct).ConfigureAwait(false); }
+        finally { SearchEnded(e.Accession); }
+    }
+
+    /// <summary>Tests only: replaces the probe and the whole-deposit fetch (returns the profile, or null to skip).</summary>
+    internal Func<QueueEntry, CancellationToken, Task<Profile?>>? PrepareForTest { get; set; }
+
+    /// <summary>Tests only: replaces the search and its delivery.</summary>
+    internal Func<QueueEntry, Profile, CancellationToken, Task>? SearchForTest { get; set; }
 
     /// <summary>Waits between passes, watching for STOP each minute. False when STOP or cancellation ended the wait.</summary>
     private async Task<bool> WaitAsync(TimeSpan wait, CancellationToken ct)
@@ -408,19 +437,96 @@ public sealed class BatchRunner
         Record(acc, ("status", probe ? "probe_fetch_unavailable" : "fetch_unavailable"), ("detail", why), ("unavailable_passes", used));
     }
 
-    private async Task<((QueueEntry, Profile)? Ready, int Index)> NextReadyAsync(IReadOnlyList<QueueEntry> queue, int i, CancellationToken ct)
+    /// <summary>
+    /// The next deposit ready to search: screened, probed and fully fetched. In queue order, except that a deposit of a
+    /// species no running search has goes first (the user: "just try to alternate species"), because two searches of one
+    /// species cannot both extend its spectral library: the second to finish is refused registration, by design. Every
+    /// <c>catch_up_every</c>-th start is a catch-up re-search instead, when one is due (D39). Null when nothing is left.
+    /// </summary>
+    private async Task<(QueueEntry, Profile)?> NextReadyAsync(IReadOnlyList<QueueEntry> queue, HashSet<string> consumed,
+        IReadOnlySet<string> busy, CancellationToken ct)
     {
-        while (i < queue.Count && !ct.IsCancellationRequested && !File.Exists(StopFile))
+        while (!ct.IsCancellationRequested && !File.Exists(StopFile))
         {
-            var e = queue[i++];
-            if (File.Exists(Path.Combine(Run(e.Accession), "04_search", "provenance.json"))) continue;
-            string settled = Settled(e.Accession);
-            if (settled.Length > 0) { Log($"{e.Accession} skipped: {settled} on a previous pass"); continue; }
+            bool catchUpTurn = _m.CatchUpEvery > 0 && (_started + 1) % _m.CatchUpEvery == 0;
+            var catchUp = catchUpTurn ? CatchUpCandidate(queue, consumed, busy) : null;
+            var e = catchUp ?? PickNext(queue, consumed, busy);
+            if (e is null) return null;
+            consumed.Add(e.Accession);
+            if (catchUp is not null && !StartCatchUp(e)) continue;
             Record(e.Accession, ("status", "probing"), ("title", e.Title), ("organism", e.Organism));
-            var profile = await ProbeAsync(e, ct).ConfigureAwait(false);
-            if (profile is not null && await FetchWholeAsync(e, profile, ct).ConfigureAwait(false)) return ((e, profile), i);
+            Profile? profile;
+            if (PrepareForTest is { } prepare) profile = await prepare(e, ct).ConfigureAwait(false);
+            else
+            {
+                profile = await ProbeAsync(e, ct).ConfigureAwait(false);
+                if (profile is not null && !await FetchWholeAsync(e, profile, ct).ConfigureAwait(false)) profile = null;
+            }
+            if (profile is not null)
+            {
+                _started++;
+                return (e, profile);
+            }
         }
-        return (null, i);
+        return null;
+    }
+
+    /// <summary>The first queued deposit not yet done, preferring one whose species no running search has.</summary>
+    private QueueEntry? PickNext(IReadOnlyList<QueueEntry> queue, HashSet<string> consumed, IReadOnlySet<string> busy)
+    {
+        QueueEntry? first = null;
+        foreach (var x in queue)
+        {
+            if (consumed.Contains(x.Accession)) continue;
+            if (File.Exists(Path.Combine(Run(x.Accession), "04_search", "provenance.json"))) { consumed.Add(x.Accession); continue; }
+            string settled = Settled(x.Accession);
+            if (settled.Length > 0) { Log($"{x.Accession} skipped: {settled} on a previous pass"); consumed.Add(x.Accession); continue; }
+            if (!busy.Contains(x.Organism)) return x;
+            first ??= x;
+        }
+        return first;
+    }
+
+    /// <summary>
+    /// D39's catch-up: a deposit searched under a profile the question no longer names, ordered by gain (the user,
+    /// 2026-10-07): rat first, then a deposit the question now has a curated design for, then the oldest. A species no
+    /// running search has goes first among them. Null when none is due.
+    /// </summary>
+    internal QueueEntry? CatchUpCandidate(IReadOnlyList<QueueEntry> queue, ISet<string> consumed, IReadOnlySet<string> busy)
+    {
+        var picks = new List<(QueueEntry E, int Rank, string When)>();
+        foreach (var (acc, node) in State()["datasets"]!.AsObject())
+        {
+            if (consumed.Contains(acc) || node is not JsonObject o || o["status"]?.GetValue<string>() != "searched") continue;
+            string? had = o["profile"]?.GetValue<string>();
+            if (had is not null && _q.Profiles.Contains(had)) continue;
+            if (!File.Exists(Path.Combine(Run(acc), "04_search", "provenance.json"))) continue;
+            var qe = queue.FirstOrDefault(x => x.Accession == acc)
+                     ?? (o["organism"]?.GetValue<string>() is { } org ? new QueueEntry(acc, o["title"]?.GetValue<string>() ?? "", org) : null);
+            if (qe is null) continue;
+            int rank = qe.Organism.Equals("rat", StringComparison.OrdinalIgnoreCase) ? 0
+                : _q.Designs?.For(acc) is { } design && File.Exists(design) ? 1 : 2;
+            picks.Add((qe, rank, o["updated_utc"]?.GetValue<string>() ?? ""));
+        }
+        return picks.OrderBy(p => busy.Contains(p.E.Organism) ? 1 : 0).ThenBy(p => p.Rank)
+            .ThenBy(p => p.When, StringComparer.Ordinal).Select(p => p.E).FirstOrDefault();
+    }
+
+    /// <summary>Moves a catch-up deposit's earlier search aside, as <c>batch research</c> does. False when refused.</summary>
+    private bool StartCatchUp(QueueEntry e)
+    {
+        try
+        {
+            lock (_gate)
+                Research(_stateDir, _runRoot, e.Accession, $"D39 catch-up re-search (one in {_m.CatchUpEvery})", null, _q.Publish?.Manifest, byDriver: true);
+            Log($"{e.Accession} RE-SEARCH (catch-up, one in {_m.CatchUpEvery}): earlier search moved aside");
+            return true;
+        }
+        catch (UsageException ex)
+        {
+            Log($"{e.Accession} catch-up refused: {ex.Message}");
+            return false;
+        }
     }
 
     /// <summary>
@@ -542,10 +648,10 @@ public sealed class BatchRunner
 
         // The same raw files already searched under another accession: refused before any download (PXR-A9).
         // The deposit being searched counts too: it is fetched in full, and the next one is screened alongside it (PXR-A21).
-        string? searching = Searching;
+        var searching = Searching;
         var dup = DuplicateScreen.Check(acc, listing.Select(f => (f.FileName, f.FileSizeBytes)).ToList(),
-            DuplicateScreen.Index(DuplicateRoots(), searching is null ? null : new[] { Run(searching) }));
-        string When(string other) => other == searching ? "being searched now" : "already searched";
+            DuplicateScreen.Index(DuplicateRoots(), searching.Count == 0 ? null : searching.Select(Run).ToArray()));
+        string When(string other) => searching.Contains(other) ? "being searched now" : "already searched";
         if (dup.DuplicateOf is { } original)
         {
             Log($"{acc} SCREENED OUT (excluded_duplicate): all {listing.Count} raw files (name and size) are in {original}, {When(original)}");
@@ -874,7 +980,18 @@ public sealed class BatchRunner
 
     // ------------------------------------------------------------------ delivery
 
+    private readonly SemaphoreSlim _delivering = new(1, 1);
+
+    /// <summary>One delivery at a time: two searches may finish together, and the manifest, the store and the publish
+    /// script are shared.</summary>
     private async Task DeliverAsync(QueueEntry e, Profile profile, CancellationToken ct)
+    {
+        await _delivering.WaitAsync(ct).ConfigureAwait(false);
+        try { await DeliverOneAsync(e, profile, ct).ConfigureAwait(false); }
+        finally { _delivering.Release(); }
+    }
+
+    private async Task DeliverOneAsync(QueueEntry e, Profile profile, CancellationToken ct)
     {
         if (_q.Publish?.Manifest is not { } manifest) return;
         try

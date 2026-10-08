@@ -7,6 +7,28 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.1 (unreleased)
+
+**Updating:** no MetaMorpheus change (1.1.12 as in 0.4.0). **Machine file:** two optional keys, both off by default:
+- `search_slots` (default 1): how many searches run at once;
+- `catch_up_every` (default 0 = off): every Nth search started is a re-search of a deposit searched under a profile
+  the question no longer names (D39).
+
+**Not for mid-batch:** stop the batch, let it drain, update, then start it again.
+
+- **Searches run side by side** (`search_slots = 2` on the aging box; the user: "start a second search immediately
+  following any complete download"). A deposit starts searching as soon as it is downloaded and a slot is free, and the
+  next one is screened and fetched meanwhile. One slot keeps the old rhythm.
+  - **Another species goes first:** while a search runs, the next deposit is the first queued one of another species,
+    if any. Two searches of one species cannot both extend its spectral library: the second to finish is refused
+    registration (no spectrum is lost; that run's library stays in its folder) and the search itself still succeeds.
+  - **Shared steps stay one at a time:** delivery (manifest, ingest, publish) and spectral-library registration.
+- **Catch-up re-searches** (D39, off until the canonical-proteome profile): every Nth start re-searches an old deposit.
+  The earlier search is moved aside as `batch research` does. Order by gain: rat first, then deposits the question has
+  a curated design for, then the oldest, preferring a species no running search has.
+- **Every database GPTMD wrote is recorded** with its sha256 (G33). Before, only the first one found was recorded,
+  which was the contaminant file, never the proteome the final search loaded.
+
 ## 0.4.0 (unreleased: waits on the MetaMorpheus 1.1.12 trial)
 
 **Updating:** **MetaMorpheus 1.1.12** (mzLib 1.0.594) for the new profile `label-free-dda@4`; 1.1.11 stays for the

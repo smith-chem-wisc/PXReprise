@@ -169,7 +169,7 @@ public class BatchRunnerTests
         Assert.That(runner.Settled("PXD000222"), Is.Not.EqualTo("excluded_duplicate"), "fetched but neither searched nor in flight: not evidence");
 
         runner.Record("PXD000222", ("status", "probing"));
-        runner.Searching = "PXD000221";
+        runner.SearchStarted("PXD000221");
         Assert.That(await runner.ProbeAsync(new QueueEntry("PXD000222", "t", "human"), CancellationToken.None), Is.Null);
         Assert.That(runner.Settled("PXD000222"), Is.EqualTo("excluded_duplicate"));
         Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain("are in PXD000221, being searched now"));
@@ -222,6 +222,87 @@ public class BatchRunnerTests
 
     // G19 (D22-D27): under a profile that reads each deposit's chemistry, the probe reads it before any download, records
     // it, and holds back a deposit it cannot search as read.
+    // The user, 2026-10-07: "start a second search immediately following any complete download", "just try to alternate
+    // species" (two searches of one species cannot both extend its spectral library).
+    [Test]
+    public async Task WithTwoSlotsADownloadedDepositStartsAtOnceAndAnotherSpeciesGoesFirst()
+    {
+        var (runner, _, _, _) = Runner(extraMachine: "search_slots = 2\n");
+        var started = new List<string>();
+        int running = 0, most = 0;
+        runner.PrepareForTest = (e, ct) => { runner.Record(e.Accession, ("status", "fetched")); return Task.FromResult<Profile?>(Profiles["label-free-dda@1"]); };
+        runner.SearchForTest = async (e, p, ct) =>
+        {
+            lock (started) { started.Add(e.Accession); most = Math.Max(most, ++running); }
+            await Task.Delay(300, ct);
+            lock (started) running--;
+        };
+        var queue = new[]
+        {
+            new QueueEntry("PXD000901", "a", "mouse"), new QueueEntry("PXD000902", "b", "mouse"),
+            new QueueEntry("PXD000903", "c", "human"), new QueueEntry("PXD000904", "d", "mouse"),
+        };
+
+        await runner.RunAsync(queue, CancellationToken.None);
+
+        Assert.That(most, Is.EqualTo(2), "two searches ran at once");
+        Assert.That(started, Is.EqualTo(new[] { "PXD000901", "PXD000903", "PXD000902", "PXD000904" }),
+            "the human deposit jumps the second mouse one while a mouse search runs; then queue order");
+        Assert.That(runner.Searching, Is.Empty);
+    }
+
+    [Test]
+    public async Task WithOneSlotSearchesRunOneAtATimeInQueueOrder()
+    {
+        var (runner, _, _, _) = Runner();
+        var started = new List<string>();
+        int running = 0, most = 0;
+        runner.PrepareForTest = (e, ct) => { runner.Record(e.Accession, ("status", "fetched")); return Task.FromResult<Profile?>(Profiles["label-free-dda@1"]); };
+        runner.SearchForTest = async (e, p, ct) =>
+        {
+            lock (started) { started.Add(e.Accession); most = Math.Max(most, ++running); }
+            await Task.Delay(50, ct);
+            lock (started) running--;
+        };
+        await runner.RunAsync(new[] { new QueueEntry("PXD000911", "a", "mouse"), new QueueEntry("PXD000912", "b", "human") }, CancellationToken.None);
+        Assert.That(most, Is.EqualTo(1));
+        Assert.That(started, Is.EqualTo(new[] { "PXD000911", "PXD000912" }));
+    }
+
+    // D39: catch-up re-searches by gain (rat, then a curated design, then oldest), another species first.
+    [Test]
+    public void CatchUpPicksRatFirstAndPrefersASpeciesNotRunning()
+    {
+        var (runner, _, _, dir) = Runner();
+        foreach (var (acc, org, when) in new[] { ("PXD000921", "mouse", "1"), ("PXD000922", "rat", "3"), ("PXD000923", "human", "2"), ("PXD000924", "mouse", "0") })
+        {
+            runner.Record(acc, ("status", "searched"), ("profile", "label-free-dda@0"), ("organism", org), ("title", acc));
+            Directory.CreateDirectory(Path.Combine(dir, "runs", acc, "04_search")); TestSupport.WriteFile(Path.Combine(dir, "runs", acc, "04_search"), "provenance.json", "{}");
+        }
+        // Searched under a profile the question still names: never due.
+        runner.Record("PXD000925", ("status", "searched"), ("profile", "label-free-dda@1"), ("organism", "rat"));
+        Directory.CreateDirectory(Path.Combine(dir, "runs", "PXD000925", "04_search")); TestSupport.WriteFile(Path.Combine(dir, "runs", "PXD000925", "04_search"), "provenance.json", "{}");
+        var none = new HashSet<string>();
+
+        Assert.That(runner.CatchUpCandidate(Array.Empty<QueueEntry>(), none, new HashSet<string>())!.Accession, Is.EqualTo("PXD000922"), "rat first");
+        Assert.That(runner.CatchUpCandidate(Array.Empty<QueueEntry>(), none, new HashSet<string> { "rat" })!.Accession, Is.Not.EqualTo("PXD000922"),
+            "a rat search is running: another species first");
+        Assert.That(runner.CatchUpCandidate(Array.Empty<QueueEntry>(), new HashSet<string> { "PXD000922", "PXD000921", "PXD000923", "PXD000924" }, new HashSet<string>()),
+            Is.Null, "nothing left once the old ones are taken");
+    }
+
+    [Test]
+    public void SearchSlotsAndCatchUpAreReadFromTheMachineAndChecked()
+    {
+        var (_, _, _, dir) = Runner();
+        var m = Machine.Load(TestSupport.WriteFile(dir, "m2.toml", $"work_root = '{dir}'\nsearch_slots = 2\ncatch_up_every = 4\n[metamorpheus]\n\"1.1.11\" = 'x'\n"));
+        Assert.That((m.SearchSlots, m.CatchUpEvery), Is.EqualTo((2, 4)));
+        var d = Machine.Load(TestSupport.WriteFile(dir, "m3.toml", $"work_root = '{dir}'\n[metamorpheus]\n\"1.1.11\" = 'x'\n"));
+        Assert.That((d.SearchSlots, d.CatchUpEvery), Is.EqualTo((1, 0)), "one slot, no catch-up unless asked");
+        Assert.That(() => Machine.Load(TestSupport.WriteFile(dir, "m4.toml", $"work_root = '{dir}'\ncatch_up_every = 1\n[metamorpheus]\n\"1.1.11\" = 'x'\n")),
+            Throws.InstanceOf<ConfigException>(), "every search a re-search would never search anything new");
+    }
+
     private static (BatchRunner Runner, FakeSearch Search, FakeFiles Files, string Dir) DepositChemistryRunner()
     {
         string dir = TestSupport.TempDir();
