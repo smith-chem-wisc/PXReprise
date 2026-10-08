@@ -6,7 +6,8 @@ namespace DataRepo.Ingest.Sources;
 /// <remarks>
 /// <para>FlashLFQ writes one column per run (<c>Intensity_&lt;run&gt;</c>, <c>SpectralCount_&lt;run&gt;</c>);
 /// the schema stores quantities long, one row per (assay, feature, definition), because that shape survives
-/// TMT channels and DIA without a schema change (D5). Melting is the whole job here.</para>
+/// TMT channels and DIA without a schema change (D5). Melting is the whole job here. With an experimental design
+/// the protein-group columns are per SAMPLE instead, and <see cref="SampleColumns"/> places them (PXR-R9).</para>
 /// <para>Two producer-side rules are enforced while melting. <b>Missing is missing</b>: a <c>NotDetected</c>
 /// cell or a zero intensity produces no row, never a zero, because a zero would read downstream as a measured
 /// absence. And <b>every number carries a definition</b>, which lets intensity and spectral count share one
@@ -165,14 +166,31 @@ public static class Quant
             && g.GetValueOrDefault("q_value") is double q && q <= 0.01);
 
     /// <summary>Reads <c>AllQuantifiedProteinGroups.tsv</c> into ProteinGroup rows and their QuantValues.</summary>
+    /// <remarks>With an experimental design MetaMorpheus labels these columns by sample, not by run; where each
+    /// one goes is <see cref="SampleColumns"/>'s decision (PXR-R9).</remarks>
     /// <returns>The groups, their quantities (intensity and spectral count as separate rows told apart by
-    /// definition), and the producer-style group count at 1% FDR, for reconciling.</returns>
-    public static (List<Row> Groups, List<Row> Quants, long ProducerCount) ProteinGroupRows(
+    /// definition), the producer-style group count at 1% FDR, for reconciling, and how the columns were placed.</returns>
+    /// <exception cref="IngestException">A column holding a value can be placed on no run (see
+    /// <see cref="SampleColumns.ForTable"/>).</exception>
+    public static (List<Row> Groups, List<Row> Quants, long ProducerCount, SampleColumns Columns) ProteinGroupRows(
         string path, string datasetId, RunNameMap runNames, ReaderLog? log = null, IngestRules rules = IngestRules.Current)
     {
         var (header, rows) = Readers.ReadTsv(path, log, NoReader, rules);
         var intensityCols = WideColumns(header, "Intensity");
         var countCols = WideColumns(header, "SpectralCount");
+
+        // Only a value that becomes a row decides anything: a column with none, or with values only on rows the melt
+        // skips, writes no row, today or before.
+        var holding = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var row in Readers.IterDicts(header, rows))
+        {
+            if (Split(Cell(row, "Protein Accession")).Count == 0) continue;
+            foreach (var (reported, column) in intensityCols)
+                if (Intensity(Cell(row, column)) is not null) holding.Add(reported);
+            foreach (var (reported, column) in countCols)
+                if (Number(Cell(row, column)) is not null) holding.Add(reported);
+        }
+        var placement = SampleColumns.ForTable(path, datasetId, holding, runNames, log, rules);
 
         var groups = new List<Row>();
         var quants = new List<Row>();
@@ -211,7 +229,20 @@ public static class Quant
                 {
                     var value = parse(Cell(row, column));
                     if (value is null) continue;
-                    var run = runNames.Resolve(reported) ?? reported;
+                    string run;
+                    if (!placement.BySample)
+                    {
+                        run = runNames.Resolve(reported) ?? reported;
+                    }
+                    else if (placement.SampleOf(reported)?.Run is { } sampleRun)
+                    {
+                        run = sampleRun;
+                    }
+                    else
+                    {
+                        placement.Withhold(reported, definition);
+                        continue;
+                    }
                     quants.Add(new Row
                     {
                         ["assay_id"] = $"{datasetId}:{run}:label_free",
@@ -226,6 +257,6 @@ public static class Quant
                 }
             }
         }
-        return (groups, quants, AcceptedGroupCount(groups));
+        return (groups, quants, AcceptedGroupCount(groups), placement);
     }
 }

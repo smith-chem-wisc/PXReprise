@@ -196,17 +196,19 @@ public static class Occupancy
         return $"{datasetId}:{accession}:{sequence[(int)position - 1]}{position}:{name}{suffix}";
     }
 
-    /// <summary><c>ptm_stoichiometry</c> rows for one label-free, design-less search.</summary>
+    /// <summary><c>ptm_stoichiometry</c> rows for one label-free search.</summary>
     /// <param name="path">The search's <c>AllQuantifiedProteinGroups.tsv</c> (or <c>AllProteinGroups.tsv</c>).</param>
     /// <param name="runNames">Deposited run names, to map each <c>&lt;label&gt;</c> to a run.</param>
     /// <param name="sequences">The searched databases, to assign segments and read residues.</param>
     /// <param name="siteIds">The bundle's <c>ptm_sites</c> keys; an entry keyed elsewhere is not stored.</param>
     /// <param name="groupIds">The bundle's protein group ids.</param>
     /// <param name="assayIds">The bundle's assay ids; a run with no label-free assay stores nothing.</param>
+    /// <param name="columns">How the same table's quantity columns were placed. When they are design samples, a
+    /// label is placed the same way: one file is that run, several files are no run (PXR-R9).</param>
     public static OccupancyResult Rows(
         string path, string datasetId, RunNameMap runNames, ProteinSequences sequences,
         IReadOnlySet<string> siteIds, IReadOnlySet<string> groupIds, IReadOnlySet<string> assayIds, ReaderLog? log = null,
-        IngestRules rules = IngestRules.Current)
+        IngestRules rules = IngestRules.Current, SampleColumns? columns = null)
     {
         var read = Readers.ReadOccupancy(path, log);
         // A private map: a label that is not a run must not be reported as an unmatched USI run name.
@@ -253,11 +255,27 @@ public static class Occupancy
                 output.Count("protein group not in the bundle", nEntries);
                 continue;
             }
-            var run = labels.Resolve(label);
-            if (run is null)
+            string? run;
+            if (columns is { BySample: true })
             {
-                output.Count("label is not a deposited run (a design's sample group?)", nEntries);
-                continue;
+                var sample = columns.SampleOf(label);
+                run = sample?.Run;
+                if (run is null)
+                {
+                    output.Count(sample is null
+                        ? "label is neither a deposited run nor a sample of the design"
+                        : "sample has no single run (several files, or a file that is not a run)", nEntries);
+                    continue;
+                }
+            }
+            else
+            {
+                run = labels.Resolve(label);
+                if (run is null)
+                {
+                    output.Count("label is not a deposited run (a design's sample group?)", nEntries);
+                    continue;
+                }
             }
             var assigned = Assign(segments, accessions, sequences);
             if (assigned is null)

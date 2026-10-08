@@ -400,11 +400,19 @@ public static class Ingester
         var proteinGroups = new List<Row>();
         long proteinGroupCount = 0;
         var proteinGroupQuant = new List<Row>();
+        SampleColumns? sampleColumns = null;
         var pgPath = Join(resultsDir, "AllQuantifiedProteinGroups.tsv");
         if (File.Exists(pgPath))
         {
             writer.AddSource(pgPath, "protein_group_quant");
-            (proteinGroups, proteinGroupQuant, proteinGroupCount) = Quant.ProteinGroupRows(pgPath, datasetId, runNames, log, rules);
+            (proteinGroups, proteinGroupQuant, proteinGroupCount, sampleColumns) = Quant.ProteinGroupRows(pgPath, datasetId, runNames, log, rules);
+            // The design reaches rows only when it placed the columns, so only then is it an input (PXR-R9). Copied,
+            // so a reader can see which files each sample holds.
+            if (sampleColumns.BySample)
+            {
+                writer.AddSource(sampleColumns.DesignPath!, "experimental_design", SampleColumns.DesignFileName);
+                findings.AddRange(SampleColumnFindings(sampleColumns, datasetId));
+            }
         }
 
         var searches = SearchParams.TaskNames(searchProvenance).Select(t => t.ToLowerInvariant()).ToList();
@@ -582,7 +590,7 @@ public static class Ingester
             var occ = Occupancy.Rows(pgPath, datasetId, runNames, sequences,
                 ptmSites.Select(s => (string)s["ptm_site_id"]!).ToHashSet(StringComparer.Ordinal),
                 proteinGroups.Select(g => (string)g["protein_group_id"]!).ToHashSet(StringComparer.Ordinal),
-                assays.Select(a => (string)a["assay_id"]!).ToHashSet(StringComparer.Ordinal), log, rules);
+                assays.Select(a => (string)a["assay_id"]!).ToHashSet(StringComparer.Ordinal), log, rules, sampleColumns);
             stoichiometry = occ.Rows;
             occupancyNote = new OrderedDictionary<string, object?>
             {
@@ -702,6 +710,15 @@ public static class Ingester
             ["site_residue_check"] = siteCheck,
         };
         writer.Notes["occupancy"] = occupancyNote;
+        if (sampleColumns is { BySample: true })
+            writer.Notes["protein_group_columns"] = new OrderedDictionary<string, object?>
+            {
+                ["labelled_by"] = "sample",
+                ["design"] = BundleWriter.PathText(sampleColumns.DesignPath!),
+                ["withheld_values"] = sampleColumns.Withheld.ToDictionary(
+                    kv => kv.Key, kv => (object?)kv.Value.ToDictionary(d => d.Key, d => (object?)d.Value, StringComparer.Ordinal),
+                    StringComparer.Ordinal),
+            };
         writer.Notes["reconciliation"] = checks.Select(c => c.AsDict()).ToList();
         writer.Notes["collapsed_duplicates"] = collapsed.Select(c => new OrderedDictionary<string, object?>
         {
@@ -1007,6 +1024,27 @@ public static class Ingester
             });
         }
         return rows;
+    }
+
+    /// <summary>The design samples whose protein-group values have no run and were not stored (PXR-R9, G92).</summary>
+    private static List<Row> SampleColumnFindings(SampleColumns columns, string datasetId)
+    {
+        if (columns.Withheld.Count == 0) return [];
+        var total = columns.Withheld.Values.Sum(d => d.Values.Sum());
+        var shown = columns.Withheld.Keys.Take(10)
+            .Select(l => $"{l} ({columns.SampleOf(l)?.WhyNoRun})").ToList();
+        var more = columns.Withheld.Count > 10 ? $"; and {columns.Withheld.Count - 10} more" : "";
+        return
+        [
+            Finding(datasetId, "sample_quant_not_stored", "warning",
+                $"The protein-group table is labelled by sample through the search's {SampleColumns.DesignFileName}, and "
+                + $"{columns.Withheld.Count} sample(s) have no single run: {string.Join("; ", shown)}{more}. A stored "
+                + "quantity belongs to one assay (one run), and a sample's value belongs to none, so it is never split "
+                + $"onto runs: {total} protein-group value(s) (intensity and spectral count) of these samples are not "
+                + "stored, nor is their PTM site occupancy. Peptide quantities are per file and are stored. A missing "
+                + "protein-group quantity for these samples therefore means 'not stored', not 'not measured'. The design "
+                + "is in this bundle's sources."),
+        ];
     }
 
     /// <summary>Every occupancy entry the ingest read and did not store, said once, by reason (D29).</summary>

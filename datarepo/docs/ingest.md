@@ -30,7 +30,7 @@ datarepo doctor                # what this build is, and whether an MCP server i
 `doctor` is the first thing to run on a new machine:
 
 ```
-datarepo 1.3.0  schema 0.0.15
+datarepo 1.3.1  schema 0.0.15
   runtime          .NET 10.0.10
   mzLib            1.0.593.0
   parquet          ParquetSharp 24.0.0.0
@@ -163,6 +163,7 @@ are part of the bundle id, so renaming the schema gives a new bundle id and noth
 | `*.sdrf.tsv` | **mzLib** (`SdrfDocument`) | `Sample`, `SampleCharacteristic`, `Assay` |
 | `AllPSMs.psmtsv`, `AllPeptides.psmtsv` | **mzLib** | `Psm`, `Peptidoform`, `Protein`, `PtmSite` |
 | `AllQuantifiedPeptides.tsv`, `AllQuantifiedProteinGroups.tsv`, `AllQuantifiedPeaks.tsv` | dataRepo | `QuantValue`, `ProteinGroup` |
+| `ExperimentalDesign.tsv` beside the protein-group table, only when that table is labelled by sample | dataRepo | which run each protein-group `QuantValue` and `PtmStoichiometry` row belongs to |
 | the executed task `.toml` files | dataRepo | `SearchModification` |
 | `results.txt` | dataRepo | `Metric`, and the numbers the ingest reconciles against |
 | the searching MetaMorpheus install's `Mods/`, `Data/ptmlist.txt` | dataRepo | UNIMOD accessions for ProForma |
@@ -198,6 +199,27 @@ for each peptide, whether one sequence, one gene's sequences or several genes' s
 That fills `peptidoforms.is_unique` (one gene) and `is_isoform_specific` (one sequence). Before
 1.0.0, `is_unique` was parsimony-uniqueness read off MetaMorpheus's protein list. The rule and its
 traps are in [limitations.md](limitations.md#6--unique-means-one-gene-in-the-searched-sequences).
+
+**With an experimental design, the protein-group columns are samples, not runs** (1.3.1, PXReprise's PXR-R9).
+When a search defines conditions or fractions, MetaMorpheus labels every `Intensity_`, `SpectralCount_`,
+`CountOccupancy_` and `IntensityOccupancy_` column of `AllQuantifiedProteinGroups.tsv` by sample,
+`{Condition}_{Biorep}` (`Intensity_all_1`). Each column holds one value for the sample, over all of its fractions and
+technical replicates. The peptide and peak tables stay per file. The ingest makes the same switch, once per table:
+
+- **Every column that holds a value names a searched run:** the table is read exactly as before, and the design is
+  not opened.
+- **Otherwise:** the search's own `ExperimentalDesign.tsv` places each label. A label is the design's `Condition` and
+  `Biorep` joined by `_`, never an SDRF `source name`, which MetaMorpheus writes with a space.
+  - A sample of **one file** goes to that run's assay. Its values are exactly what a per-file table would have
+    written.
+  - A sample of **several files** belongs to no run, and a stored quantity belongs to one assay. Its protein-group
+    values and its occupancy are therefore **not stored**, and are never split onto runs. The
+    `sample_quant_not_stored` finding names each such sample.
+  - The design is then an input: it is hashed into the bundle id and copied into `sources/`.
+- **A label that names neither a run nor a design sample** refuses the ingest, by name. So does a sample-labelled
+  table with no design beside it.
+
+Up to 1.3.0 the ingest read every label as a run name, and refused every search that had a design.
 
 ## What it writes
 
@@ -396,7 +418,7 @@ is what they have always effectively been. Asked as DATAREPO-26.
 ## Reproducing a bundle
 
 A bundle id is a hash of every input, the schema version and the ingest path's version
-(`BundleWriter.IngesterVersion`, `cs-1.1.0` in 1.1.0 to 1.3.0), so **two sites get the same bundle id exactly
+(`BundleWriter.IngesterVersion`, `cs-1.1.0` in 1.1.0 to 1.3.1), so **two sites get the same bundle id exactly
 when they would write the same rows**. To reproduce one:
 
 1. **Use the release that wrote it.** `bundle.json`'s `ingester.version` names the program's version
@@ -451,6 +473,7 @@ It exits 1 on any failure. Against aging's 0.9.0 bundles it fails (PXD036557: 29
 | `unplaced_ptm_sites` | warning | Some (PSM, protein) pairs got no `ptm_sites` row because the stored peptide is not in that protein's sequence (typically a level 4/5 PSM whose protein carries a different candidate peptide), the protein has no sequence in the searched databases, or a database was missing. Counts are in `bundle.json` under `protein_databases`. |
 | `collapsed_duplicate_rows` | info | The producer wrote a row more than once, identical in every column; the copies were dropped. |
 | `metric_conflict` | warning | One metric reached the bundle from two sources under one definition, and they disagree. |
+| `sample_quant_not_stored` | warning | A protein-group column is a design sample with no single run (several files, a file that is not a run, or a run another sample also names). Its protein-group quantities and occupancy are not stored, so a missing value there means "not stored", not "not measured". |
 
 The producer's own flags arrive as findings too, keeping their original text.
 

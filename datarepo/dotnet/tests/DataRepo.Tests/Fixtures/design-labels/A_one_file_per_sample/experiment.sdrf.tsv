@@ -1,0 +1,3 @@
+source name	characteristics[organism]	characteristics[biological replicate]	assay name	comment[label]	comment[fraction identifier]	comment[technical replicate]	comment[data file]	comment[searched data file]	factor value[condition]
+all 1	NT=Homo sapiens;AC=NCBITaxon:9606	1	run QE-002106_GM1_a-calib	NT=label free sample;AC=MS:1002038	1	1	QE-002106_GM1_a.raw	QE-002106_GM1_a-calib.mzML	all
+all 2	NT=Homo sapiens;AC=NCBITaxon:9606	2	run QE-002107_GM1_b-calib	NT=label free sample;AC=MS:1002038	1	1	QE-002107_GM1_b.raw	QE-002107_GM1_b-calib.mzML	all
