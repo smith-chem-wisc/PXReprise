@@ -151,7 +151,7 @@ public static class ManifestEntry
     stages:
       qc: 02b_qc
       search: 04_search
-    search_results: 04_search/mm/Task3SearchTask
+    search_results: 04_search/mm/{SearchTaskFolder(profile)}
     files: {nfiles}
     organism: NCBITaxon:{taxon}
     acquisition: DDA
@@ -169,6 +169,18 @@ public static class ManifestEntry
         string tmp = manifestPath + ".pxreprise-tmp";
         File.WriteAllText(tmp, text.TrimEnd('\n', '\r') + "\n" + entry.TrimEnd('\n') + "\n");
         File.Move(tmp, manifestPath, overwrite: true);
+    }
+
+    /// <summary>
+    /// The folder MetaMorpheus writes the Search task's results to: <c>Task{N}SearchTask</c>, N the Search task's place in
+    /// the profile's task list, numbered as <c>SearchStage</c> numbers the TOMLs. A Search-only profile
+    /// (label-free-dda-lowres@1) writes <c>Task1SearchTask</c>, which a hard-coded Task3 sent dataRepo looking past (G34).
+    /// </summary>
+    internal static string SearchTaskFolder(Profile profile)
+    {
+        int n = profile.Tasks.ToList().LastIndexOf("Search") + 1;
+        if (n == 0) throw new InvalidOperationException($"{profile.Key} has no Search task, so it has no search results to ingest");
+        return $"Task{n}SearchTask";
     }
 
     /// <summary>The span of <paramref name="acc"/>'s entry: from its <c>- accession:</c> line to the next entry or the end.</summary>

@@ -7,6 +7,18 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.5 (unreleased)
+
+**Updating:** no MetaMorpheus change, no machine-file change. **Safe mid-batch?** No: stop the batch, let it drain,
+update, then start it again.
+
+- **Deposits searched under `label-free-dda-lowres@1` now ingest.** That profile runs MetaMorpheus's Search task alone,
+  so its results are in `Task1SearchTask`. The manifest entry always named `Task3SearchTask`, so `datarepo ingest`
+  refused every deposit searched under it (PXD059520, 2026-10-08). The entry now names the folder from the Search
+  task's place in the profile's task list. Three-task profiles still give `Task3SearchTask`.
+  - **An entry written before 0.4.5 is not rewritten:** the batch never edits an existing entry. Change its
+    `search_results` to `04_search/mm/Task1SearchTask` by hand. The next start re-ingests it with no new search.
+
 ## 0.4.4 (unreleased)
 
 **Updating:** no MetaMorpheus change. **Machine file:** two optional keys, `aspera_ascp` and `aspera_key`, go together.

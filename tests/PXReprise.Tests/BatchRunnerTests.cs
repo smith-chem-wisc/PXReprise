@@ -530,6 +530,23 @@ public class BatchRunnerTests
         Assert.That(text, Does.Contain("flags: [no_design_file, no_output_sdrf, enriched, qc_excluded_files]").And.Contain("iso.xml"));
     }
 
+    // G34: PXD059520 was searched under the Search-only ion-trap profile, whose results are in Task1SearchTask; the entry
+    // named Task3SearchTask and datarepo refused it. The folder follows the Search task's place in the profile's task list.
+    [TestCase("label-free-dda@5", "Task3SearchTask")]
+    [TestCase("label-free-dda-lowres@1", "Task1SearchTask")]
+    [TestCase("tmt-dda@1", "Task3SearchTask")]
+    public void TheManifestEntryNamesTheFolderTheProfilesSearchTaskWrites(string profile, string folder)
+    {
+        string dir = TestSupport.TempDir(), run = Path.Combine(dir, "runs", "PXD059520");
+        Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
+        Directory.CreateDirectory(Path.Combine(run, "04_search"));
+        File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(("a.raw", true, Array.Empty<string>())).ToJsonString());
+        File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), """{"tools":{"MetaMorpheus":{"release":"1.1.12"}}}""");
+        string manifest = TestSupport.WriteFile(dir, "manifest.yaml", "manifest_version: 1\ndatasets:\n");
+        ManifestEntry.Append(manifest, new QueueEntry("PXD059520", "Retina", "rat"), Profiles[profile], run, null, dir);
+        Assert.That(File.ReadAllText(manifest), Does.Contain($"    search_results: 04_search/mm/{folder}\n"));
+    }
+
     [Test]
     public void ANewQuestionGetsAManifestWhoseRunsAreRelativeToItsOwnWorkRoot()
     {
