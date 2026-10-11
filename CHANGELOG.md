@@ -9,9 +9,11 @@ A new version of the engine never changes a finished result. Methods live in ver
 
 ## 0.4.6 (unreleased)
 
-**Updating:** no MetaMorpheus change (1.1.12), no machine-file change. **Safe mid-batch?** No: stop the batch, let it
-drain, update, then start it again. **New profiles:** `label-free-dda@6` and `label-free-dda-lowres@2`. Nothing changes
-for a question until it names them; profiles already named keep searching exactly as before.
+**Updating:** no MetaMorpheus change (1.1.12). **Machine file:** nothing required. Recommended: point `datarepo` at
+datarepo 1.3.2, whose catalog build no longer crashes while something reads the catalog; no re-ingest, and the aging
+box moves to it with this release. **Safe mid-batch?** No: stop the batch, let it drain, update, then start it again.
+**New profiles:** `label-free-dda@6` and `label-free-dda-lowres@2`. Nothing changes for a question until it names them;
+profiles already named keep searching exactly as before.
 
 - **Profile `label-free-dda-lowres@2`: MS2 fragmented by HCD and read in the ion trap is searched** (a Fusion, Lumos or
   Eclipse "HCD-IT" method; PXD057407).
@@ -45,6 +47,14 @@ for a question until it names them; profiles already named keep searching exactl
 - **Every ingest's and publish's whole output is kept.** It goes to `<state dir>/outputs/<accession>_<step>_<time>.log`.
   `batch.log` and `state.json` keep the 1,200-character tail, as before, plus the file's path (`ingest_log`,
   `publish_log`). The tail alone lost a .NET exception's type and message twice (PXR-R14).
+- **A search whose label-free quantification MetaMorpheus skipped is still never delivered.** MetaMorpheus 1.1.12 can
+  drop quantification with only a warning: in Calibrate, GPTMD, Search, when a file fails calibration and its name is
+  inside another file's (A1 and A10; QuantProject 049, fix MetaMorpheus #2784, not merged).
+  - PXReprise already fails such a search: its "Skipping quantification" warning, or a missing
+    `AllQuantifiedPeptides.tsv`, makes the search unsuccessful (D48). A test now pins this exact case.
+  - None of the 117 searches on the aging box was affected (checked 2026-10-11).
+- **datarepo 1.3.2's exit code 70** (an unexpected error) is handled like any failed ingest: not delivered, ingested
+  again at the next start. Its last-line message is now kept in full (G38).
 - **Docs:** the profile table in Concepts lists every shipped profile (it stopped at `@3`), with the note that all but
   `@2` need the ageing project's databases. It also says which profiles take an experimental design, and how a profile
   models a thiol reagent.

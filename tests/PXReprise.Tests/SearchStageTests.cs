@@ -219,6 +219,27 @@ public class SearchStageTests
         finally { Environment.SetEnvironmentVariable("FAKE_MM_SKIP_QUANT", null); }
     }
 
+    // QuantProject 049 (PXR-T8): MetaMorpheus 1.1.12 (fix #2784, unmerged) drops label-free quantification in
+    // Calibrate -> GPTMD -> Search when a file fails calibration and its name is inside another file's (A1 and A10). Its
+    // only sign is this warning; AllQuantifiedProteinGroups.tsv is still written. A search that logs it is never delivered.
+    [Test]
+    public async Task TheCalibrationNameCollisionThatSkipsQuantificationFailsTheSearch()
+    {
+        var rig = Setup(library: false);
+        TestSupport.WriteFile(rig.Spectra, "ExperimentalDesign.tsv", "FileName\tCondition\tBiorep\tFraction\tTechrep\n");
+        Environment.SetEnvironmentVariable("FAKE_MM_WARN",
+            "Error reading experimental design file: Experimental design file did not contain the file(s): 20160312_02_A1-calib.mzML. Skipping quantification");
+        try
+        {
+            var o = await SearchStage.RunAsync(Req(rig, "04_search"), CancellationToken.None);
+            Assert.That(o.Success, Is.False);
+            Assert.That(o.Flags, Has.Some.StartsWith("quantification_skipped"));
+            Assert.That(JsonNode.Parse(File.ReadAllText(o.ProvenanceFile))!["notes"]!.AsArray().Select(n => n!.GetValue<string>()),
+                Has.Some.Contains("FAILED (D48)").And.Some.Contains("A1-calib.mzML"));
+        }
+        finally { Environment.SetEnvironmentVariable("FAKE_MM_WARN", null); }
+    }
+
     // QuantProject U15: MetaMorpheus can drop an invalid design after one Warn and quantify design-less, with no marker.
     [Test]
     public async Task ADesignQuantificationSilentlyIgnoredFailsTheSearch()
