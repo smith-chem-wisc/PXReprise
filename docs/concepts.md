@@ -32,7 +32,15 @@ is a new version, so every result says exactly which method made it.
 | `label-free-dda@2` | available | label-free DDA, Thermo Orbitrap with HCD, `.raw` files; human, mouse and rat. UniProt databases are downloaded automatically. **Use this one.** |
 | `label-free-dda@1` | available | the same search, with the ageing project's own PTM-annotated databases; only runs where those databases exist |
 | `label-free-dda@3` | available | `@1`, searched with each deposit's own protease and cysteine chemistry (below) |
+| `label-free-dda@4` | available | `@3` on MetaMorpheus 1.1.12, with an experimental design (below), the ageing project's second database release, and MetaMorpheus's contaminant panel |
+| `label-free-dda@5` | available | `@4` on UniProt's canonical reference proteomes (one protein per gene) with the ageing project's sites added; larger deposits accepted (120 files, an estimated 3 million MS2 spectra) |
+| `label-free-dda@6` | available | `@5`, plus a thiol reagent with no UniMod entry searched with a modification the profile ships (below); the first is NBF-Cl |
+| `label-free-dda-lowres@1` | available | label-free DDA whose MS2 is read in the ion trap (CID): MetaMorpheus's Search task alone, each file's fragmentation written from its own scans, no spectral library. A deposit is sent here only when its probe files fail the Orbitrap check and nothing else |
+| `label-free-dda-lowres@2` | available | `lowres@1`, plus MS2 fragmented by HCD and read in the ion trap (a Fusion, Lumos or Eclipse "HCD-IT" method) |
 | `tmt-dda@1` | pending | TMT-labelled DDA. Not runnable yet: a question that lists it gets a count of the TMT deposits it would unlock |
+
+Every profile but `@2` needs the ageing project's own databases in the machine's `database_dir`, and runs only where they
+exist.
 
 **A deposit's own chemistry** (`[engine] chemistry = "deposit"`, `label-free-dda@3`). Before any download, PXReprise reads
 which protease made the deposit's peptides, how its cysteines were alkylated, and whether it carries a label.
@@ -47,14 +55,19 @@ which protease made the deposit's peptides, how its cysteines were alkylated, an
 - **What it records:** each choice and where it came from go into the search's `provenance.json`. A choice read only
   from protocol text is flagged `chemistry_guessed` in the manifest.
 - **When it waits instead:** if the deposit cannot be searched as read (two proteases with no way to tell the files
-  apart, a protease or modification MetaMorpheus does not know, a label).
+  apart, a protease or modification MetaMorpheus does not know, a label). A thiol reagent with no UniMod entry, such as
+  NBF-Cl, waits too, unless the profile models it.
+- **A profile can model such a reagent** (`label-free-dda@6`). It ships a MetaMorpheus modification file
+  (`[engine] custom_modifications`, under `profiles/lists/`) and maps the reagent to one of its modifications
+  (`[thiol_reagents]`). The deposit is then searched with that modification, variable. Before such a search,
+  PXReprise copies the file into the MetaMorpheus settings folder the search uses.
 - **When the search fails:** if MetaMorpheus reports it could not use a modification or a per-file protease. It does
   not search on without them.
 
 The default, `chemistry = "fixed"`, searches every deposit with MetaMorpheus's defaults, as `@1` and `@2` do.
 
-A profile can also take an experimental design (`[quant] design = "sdrf"`, none of the profiles above yet): before the
-search, PXReprise writes MetaMorpheus's `ExperimentalDesign.tsv` from the question's own SDRF for that deposit, or else
+A profile can also take an experimental design (`[quant] design = "sdrf"`, `label-free-dda@4` onward and both `lowres`
+profiles): before the search, PXReprise writes MetaMorpheus's `ExperimentalDesign.tsv` from the question's own SDRF for that deposit, or else
 from the deposit's, so quantification knows the conditions and replicates. Without one, every file is quantified as its
 own sample.
 

@@ -7,6 +7,52 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.6 (unreleased)
+
+**Updating:** no MetaMorpheus change (1.1.12), no machine-file change. **Safe mid-batch?** No: stop the batch, let it
+drain, update, then start it again. **New profiles:** `label-free-dda@6` and `label-free-dda-lowres@2`. Nothing changes
+for a question until it names them; profiles already named keep searching exactly as before.
+
+- **Profile `label-free-dda-lowres@2`: MS2 fragmented by HCD and read in the ion trap is searched** (a Fusion, Lumos or
+  Eclipse "HCD-IT" method; PXD057407).
+  - `@1` refuses such a file as "not a fragmentation MetaMorpheus can be told per file". `@2` searches it as HCD at the
+    profile's low-resolution product tolerance (±0.5 Da), written into the file's own settings, as `@1` does for ion-trap
+    CID.
+  - A file that mixes ion-trap and Orbitrap MS2, or ion-trap CID and ion-trap HCD, is still refused: a file gets one
+    fragmentation.
+  - The new profile key behind it is `engine.ion_trap_hcd`, which needs `fragmentation = "per_file"`.
+- **Profile `label-free-dda@6`: a thiol reagent with no UniMod entry can be searched with a modification the profile
+  ships.** The first is NBF-Cl (4-chloro-7-nitrobenzofurazan; PXD058611).
+  - **Before:** such a deposit waited as `waiting_unknown_alkylant`. Under `@6` it is searched with "NBF on C"
+    (C6HN3O3, +163.00179 Da) as a VARIABLE modification and no fixed cysteine modification.
+  - **Why variable:** a probe search found NBF on 76-86% of the identified cysteines, and the rest unmodified
+    (`results/nbf-probe_2026-10-11`).
+  - **Two new profile keys:**
+    - `engine.custom_modifications` names a MetaMorpheus modification file shipped under `profiles/lists/`, here
+      `PXReprise_custom_modifications_v1.txt`. It is read at load with mzLib's own reader, so a malformed entry stops
+      the profile from loading.
+    - `[thiol_reagents]` maps a reagent the chemistry reads to one of that file's modifications on C.
+  - **Before a search or probe search that uses one, PXReprise copies the file into the MetaMorpheus settings folder
+    the run reads** (`metamorpheus_settings_root`, `Mods`).
+    - When that folder does not exist yet, MetaMorpheus is asked to create it first (`-g --mmsettings`). It is never
+      created by hand.
+    - A different file already there under the same name is refused, never replaced: a changed list ships under a new
+      name.
+  - **Everything else in `@6` is `@5`:** the same databases, tasks and settings. A deposit that names no such reagent is
+    searched exactly as under `@5`.
+  - **In provenance,** a custom modification has `"unimod": null` and its MetaMorpheus id (`PXReprise\tNBF on C`), and
+    the installed file is recorded as an input.
+- **Every ingest's and publish's whole output is kept.** It goes to `<state dir>/outputs/<accession>_<step>_<time>.log`.
+  `batch.log` and `state.json` keep the 1,200-character tail, as before, plus the file's path (`ingest_log`,
+  `publish_log`). The tail alone lost a .NET exception's type and message twice (PXR-R14).
+- **Docs:** the profile table in Concepts lists every shipped profile (it stopped at `@3`), with the note that all but
+  `@2` need the ageing project's databases. It also says which profiles take an experimental design, and how a profile
+  models a thiol reagent.
+- **Checked live before release (2026-10-11),** through the engine's own search code on scratch folders:
+  - `@6` on PXD058611 run 199: the settings folder was seeded and the file installed; NBF variable in all three tasks;
+    no "Unrecognized mod"; 12,989 target PSMs at 1%; NBF on 86% of cysteine PSMs.
+  - `lowres@2` on a PXD057407 file: PENDING (the first copy came from EBI corrupted and is being fetched again).
+
 ## 0.4.5 (unreleased)
 
 **Updating:** no MetaMorpheus change, no machine-file change. **Safe mid-batch?** No: stop the batch, let it drain,
