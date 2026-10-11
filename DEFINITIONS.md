@@ -1,7 +1,7 @@
 # Definitions
 
 PXReprise's pipeline counts, and what each one means. Every number PXReprise writes into a `provenance.json` carries a
-definition ID, `pxreprise:<ID> v<n>`. **PXReprise owns these ten.** They describe how the engine counts. They say
+definition ID, `pxreprise:<ID> v<n>`. **PXReprise owns these thirteen.** They describe how the engine counts. They say
 nothing about any biological question. Quantitative definitions (intensities, match-between-runs, contaminant
 intensity) belong to QuantProject and keep its IDs (`QuantProject:DEF-QC-9`, ...). PXReprise never redefines another
 project's number.
@@ -21,7 +21,9 @@ dataset figure is the sum and nothing is invented. A 1% FDR count is not, becaus
 **Changing a definition.** The text of a published version never changes. A changed meaning gets a new version
 (`v2`), and data keep the version that produced them.
 
-All ten were checked against MetaMorpheus 1.1.11's source code and its output.
+The first ten were checked against MetaMorpheus 1.1.11's source code and its output. The three per-run counts
+(`...-1PCT-RUN`, 2026-10-11) were checked against MetaMorpheus 1.1.12's output columns. They have no `aging:` twin with
+the same meaning (below).
 
 ---
 
@@ -76,6 +78,47 @@ predicate is `Protein QValue <= 0.01` and not decoy, so **contaminant groups are
 lines, which exclude them. Verified on PXD036557: 1,652 groups that are not decoys, against 1,623 that are strictly `T`.
 MetaMorpheus has no leading, razor or representative protein. A group is an unordered set whose accession string is
 sorted alphabetically, so no quantity may be built on "the first member".
+
+## pxreprise:DEF-PSM-1PCT-RUN v1
+
+**Grain:** run.
+
+The run's share of the whole search's 1% target PSM set (`pxreprise:DEF-PSM-1PCT`). It counts the rows of the whole
+search's `AllPSMs.psmtsv` whose `File Name` is the run and that pass that definition's predicate: `Decoy/Contaminant/Target`
+is exactly `T`, `QValue <= 0.01`, `QValue Notch <= 0.01`, and the PSM is not notch-ambiguous
+(`pxreprise:DEF-PSM-NOTCH-AMBIGUOUS`). The FDR is the whole search's, never recomputed on the run. Every PSM belongs to
+one run, so the run counts partition the dataset's set and sum to the predicate's dataset count.
+
+It is NOT the number `aging:DEF-PSM-1PCT-RUN v1` named. That one is `results.txt`'s per-file line
+`<file> - Target PSMs with q-value <= 0.01`, for which MetaMorpheus recomputes the FDR on that file's PSMs alone. The two are
+not comparable (aging 072 PXR-A58, qc 009 PXR-C5). It IS the target rows of the population `aging:DEF-PSM-1PCT-INFILE v1`
+already describes (whole-search q-values; `AllPSMs.psmtsv` is written before the per-file recalculation).
+
+## pxreprise:DEF-PEPTIDE-1PCT-RUN v1
+
+**Grain:** run.
+
+The peptides of the whole search's 1% target peptide set (`pxreprise:DEF-PEPTIDE-1PCT`, one per full sequence) that at
+least one of the run's PSMs in `pxreprise:DEF-PSM-1PCT-RUN` supports. A PSM supports a peptide when its `Full Sequence`
+equals the peptide's. A PSM whose full sequence is ambiguous (contains `|`) supports none. A peptide seen in several runs
+counts in each, so the run counts sum to more than the dataset count. It replaces `aging:DEF-PEPTIDE-1PCT-RUN v1`, the
+per-file line `<file> - Target peptides with q-value <= 0.01` (FDR recomputed on the file), with a different meaning.
+
+## pxreprise:DEF-PROTEINGROUP-1PCT-RUN v1
+
+**Grain:** run.
+
+The protein groups of the whole search's 1% set (`pxreprise:DEF-PROTEINGROUP-1PCT`: `Protein QValue <= 0.01` and not
+decoy, so contaminant groups count) that at least one of the run's PSMs in `pxreprise:DEF-PSM-1PCT-RUN` supports. A PSM
+supports a group when its `Base Sequence` is one of the group's `Unique Peptides` or `Shared Peptides`. MetaMorpheus 1.1.12
+lists both as base sequences without modifications, separated by `|`. Groups are formed once, on the whole search, and
+never per run. A group seen in several runs counts in each. It replaces `aging:DEF-PROTEINGROUP-1PCT-RUN v1`, the per-file
+line `<file> - Target protein groups with q-value <= 0.01` (the whole search's groups re-scored and re-FDR'd on the file's
+PSMs alone), with a different meaning. The rule is the one qc accepted (qc 009, PXR-C5).
+
+**The filter of all three.** v1 uses today's rule: q-value and notch q-value at 0.01. When PXReprise's D36 filter (PEP
+q-value first, else notch q-value, else q-value) enters the pipeline (G30), it arrives as v2 of each, and data keep the
+version that produced them.
 
 ## pxreprise:DEF-ID-RATE v1
 
