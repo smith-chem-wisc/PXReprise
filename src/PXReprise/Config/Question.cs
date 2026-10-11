@@ -120,6 +120,8 @@ public sealed record BatchSettings(string RunRoot, string StateDir, string Queue
 
 /// <summary>
 /// How a question's searched datasets reach its repository: the dataRepo manifest the batch appends to, and the command
-/// run after every ingest (rebuild the catalog, regenerate the site). The command is the question's own.
+/// that publishes what was ingested (rebuild the catalog, regenerate the site). The command is the question's own; when
+/// it runs is ours (D41 rule 6): at most every <paramref name="EveryHours"/> (0 = after each ingest), only when something
+/// was delivered since the last successful publish, and killed after <paramref name="TimeoutHours"/>.
 /// </summary>
-public sealed record PublishSettings(string? Manifest, IReadOnlyList<string> Command);
+public sealed record PublishSettings(string? Manifest, IReadOnlyList<string> Command, double EveryHours = 6, double TimeoutHours = 4);
