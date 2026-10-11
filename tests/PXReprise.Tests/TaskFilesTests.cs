@@ -42,8 +42,10 @@ public class TaskFilesTests
         string text = File.ReadAllText(Path.Combine(TestContext.CurrentContext.TestDirectory, "Fixtures", "mm-1.1.12", "SearchTask.toml"));
         var (edited, _) = TaskFiles.Edit(text, TaskKind.Search,
             new TaskSettings(8, true, Array.Empty<string>(), WriteSdrf: true, ProteomeXchangeAccession: "PXD017058"), Known);
-        Assert.That(edited, Does.Contain("WriteSdrf = true\r\nProteomeXchangeAccession = \"PXD017058\"\r\nIterativePepTraining = true"));
-        Assert.That(edited.Replace("WriteSdrf = true\r\nProteomeXchangeAccession = \"PXD017058\"", "WriteSdrf = false")
+        // The fixture's own line ends: CRLF in a Windows checkout, LF on Linux CI. The edit keeps whichever it finds.
+        string nl = text.Contains("\r\n") ? "\r\n" : "\n";
+        Assert.That(edited, Does.Contain($"WriteSdrf = true{nl}ProteomeXchangeAccession = \"PXD017058\"{nl}IterativePepTraining = true"));
+        Assert.That(edited.Replace($"WriteSdrf = true{nl}ProteomeXchangeAccession = \"PXD017058\"", "WriteSdrf = false")
             .Replace("MatchBetweenRuns = true", "MatchBetweenRuns = false").Replace("MaxThreadsToUsePerFile = 8", "MaxThreadsToUsePerFile = 63"),
             Is.EqualTo(text), "nothing else changes");
 
