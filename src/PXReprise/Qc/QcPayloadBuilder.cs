@@ -392,7 +392,12 @@ public static class QcPayloadBuilder
 
     /// <summary>What pass one of the protein-group table gives: null <see cref="Quantified"/> means not measurable.</summary>
     public sealed record ProteinGroupPass(int? Quantified, IReadOnlyDictionary<string, int> Present, JsonObject RunsPer,
-        IReadOnlyDictionary<string, double> ContaminantIntensity);
+        IReadOnlyDictionary<string, double> ContaminantIntensity, IReadOnlyList<string>? MultiFileSamples = null,
+        IReadOnlySet<string>? Runs = null)
+    {
+        /// <summary>Whether the table has a column for this run alone (G27): only then is a run-grain metric measurable.</summary>
+        public bool Measures(string run) => Runs is null || Runs.Contains(run);
+    }
 
     /// <summary>
     /// Pass one: the dataset's quantified protein groups (not decoy, Protein QValue &lt;= 0.01, the DEF-PROTEINGROUP-1PCT
@@ -406,9 +411,16 @@ public static class QcPayloadBuilder
         var empty = new ProteinGroupPass(null, new Dictionary<string, int>(), new JsonObject(), new Dictionary<string, double>());
         if (!File.Exists(path)) return empty;
         var fields = Tsv.Header(path);
-        var counts = fields.Where(c => c.StartsWith("SpectralCount_", StringComparison.Ordinal)).Select(c => (c, Stem(c["SpectralCount_".Length..]))).ToList();
-        var inten = fields.Where(c => c.StartsWith("Intensity_", StringComparison.Ordinal)).Select(c => (c, Stem(c["Intensity_".Length..]))).ToList();
-        if (counts.Count == 0) return empty;
+        // G27: with a design the columns are samples; each is mapped to its one file, or left out when it spans several.
+        var columns = ProteinGroupColumns.ForTable(path);
+        List<(string c, string)> Runs(string prefix) => fields.Where(c => c.StartsWith(prefix, StringComparison.Ordinal))
+            .Select(c => (c, f: columns.FileOf(c[prefix.Length..]))).Where(x => x.f is not null).Select(x => (x.c, Stem(x.f))).ToList();
+        var counts = Runs("SpectralCount_");
+        var inten = Runs("Intensity_");
+        if (counts.Count == 0)
+            return columns.MultiFileSamples.Count > 0
+                ? empty with { MultiFileSamples = columns.MultiFileSamples, Runs = new HashSet<string>(StringComparer.Ordinal) }
+                : empty;
         var present = new Dictionary<string, int>(StringComparer.Ordinal);
         var runsPer = new SortedDictionary<int, int>();
         var contamInt = new Dictionary<string, double>(StringComparer.Ordinal);
@@ -437,7 +449,8 @@ public static class QcPayloadBuilder
             if (t > 0) contam[f] = SearchMetrics.PyRound(contamInt.GetValueOrDefault(f) / t, 4);
         var rp = new JsonObject();
         foreach (var (k, v) in runsPer) rp[k.ToString(CultureInfo.InvariantCulture)] = v;
-        return new ProteinGroupPass(quantified, present, rp, contam);
+        return new ProteinGroupPass(quantified, present, rp, contam, columns.MultiFileSamples,
+            counts.Select(x => x.Item2).ToHashSet(StringComparer.Ordinal));
     }
 
     // ------------------------------------------------------------------ the payload
@@ -447,7 +460,7 @@ public static class QcPayloadBuilder
     /// <paramref name="qcDir"/> holds <c>qc_report.json</c> (its <c>run_minutes</c>).
     /// </summary>
     public static QcPayloadResult Build(string searchDir, string qcDir, string accession, string runLabel,
-        string? metamorpheusVersion, QcBins bins, IEnumerable<string>? extraNotes = null)
+        string? metamorpheusVersion, QcBins bins, IEnumerable<string>? extraNotes = null, IEnumerable<string>? excludedFiles = null)
     {
         if (string.IsNullOrEmpty(accession)) throw new ArgumentException("an accession is required: an unnamed payload is useless once two datasets exist");
         string mm = Path.Combine(searchDir, "mm");
@@ -468,6 +481,7 @@ public static class QcPayloadBuilder
         var peaks = ParsePeaks(Path.Combine(task, "AllQuantifiedPeaks.tsv"));
         var pg = ParseProteinGroups(Path.Combine(task, "AllQuantifiedProteinGroups.tsv"));
 
+        var excluded = (excludedFiles ?? Array.Empty<string>()).Select(Stem).ToHashSet(StringComparer.Ordinal);
         var names = new SortedSet<string>(counts.Keys, StringComparer.Ordinal);
         names.UnionWith(psmMetrics.Keys);
         names.UnionWith(runMinutes.Keys);
@@ -485,10 +499,14 @@ public static class QcPayloadBuilder
             Merge(psmMetrics.GetValueOrDefault(name));
             Merge(peaks.GetValueOrDefault(name));
             // Pass two: per-file metrics that needed the dataset first. Omitted, never zeroed, when not measurable.
-            if (pg.Quantified is int qn and > 0)
+            if (pg.Quantified is int qn and > 0 && pg.Measures(name))
                 m["pg_missing_frac_msms"] = SearchMetrics.PyRound((double)(qn - pg.Present.GetValueOrDefault(name)) / qn, 4);
             if (pg.ContaminantIntensity.TryGetValue(name, out double ci)) m["contaminant_intensity_frac"] = ci;
-            files.Add(new JsonObject { ["file"] = name, ["metrics"] = m, ["distributions"] = dists.GetValueOrDefault(name)?.DeepClone() ?? new JsonObject() });
+            var entry = new JsonObject { ["file"] = name, ["metrics"] = m, ["distributions"] = dists.GetValueOrDefault(name)?.DeepClone() ?? new JsonObject() };
+            // qc D12 (qctemplates 0.2.0, qc PXR-C1): a file left OUT of the search stays listed, marked excluded, so it
+            // trips no gate and counts toward no dataset number. A file searched with zero results is a real 0 (qc D6), never this.
+            if (excluded.Contains(name)) entry["excluded"] = true;
+            files.Add(entry);
         }
 
         var notes = new JsonArray
@@ -507,6 +525,11 @@ public static class QcPayloadBuilder
             : "pg_missing_frac_msms is NOT REPORTED for this run: the protein-group table carries no "
               + "SpectralCount_ columns, so the _msms variant is not measurable. Absent means not "
               + "measured, not zero.");
+        if (pg.MultiFileSamples is { Count: > 0 } multi)
+            notes.Add("The protein-group table is labelled by sample (the experimental design), and "
+                      + $"{multi.Count} sample(s) span several runs ({string.Join(", ", multi.Take(5))}): their runs have no "
+                      + "pg_missing_frac_msms or contaminant_intensity_frac, because a sample's combined value is not a run's. "
+                      + "Absent means not measurable, not zero.");
         if (!bins.FromQc)
             notes.Add("Histogram bins came from a VENDORED copy of qc's canonical edges, because qctemplates "
                       + "is not installed here. The payload is valid and renders, but its figures may not line "

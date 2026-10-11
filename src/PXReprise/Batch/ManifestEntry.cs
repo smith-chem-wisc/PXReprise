@@ -6,7 +6,8 @@ namespace PXReprise.Batch;
 
 /// <summary>
 /// Appends a dataset's <c>include</c> entry to the question's dataRepo manifest, in the shape `datarepo ingest` reads
-/// (the aging batch's entry, field for field). Idempotent: an accession already present is left alone.
+/// (the aging batch's entry, field for field). Idempotent: an accession already present is left alone, except once after
+/// a re-search, which replaces its entry and keeps what was written in the old one.
 /// </summary>
 public static class ManifestEntry
 {
@@ -51,7 +52,22 @@ public static class ManifestEntry
     {
         workRoot = WorkRootOf(manifestPath) ?? workRoot;
         string text = File.ReadAllText(manifestPath);
-        if (text.Contains($"accession: {e.Accession}\n") || text.Contains($"accession: {e.Accession}\r")) return;
+        // A re-search (batch research) replaces the deposit's entry once, keeping what its owner wrote in it: the old
+        // status, any flags, and the old notes, quoted as what the entry said before (aging curates notes by hand).
+        var research = state?["researched"] is JsonArray rs && rs.Count > 0 ? rs[^1] as JsonObject : null;
+        string marker = research is null ? "" : $"RE-SEARCHED {research["utc"]}";
+        (string Status, List<string> Flags, string Notes, string Kept)? earlier = null;
+        if (text.Contains($"accession: {e.Accession}\n") || text.Contains($"accession: {e.Accession}\r"))
+        {
+            if (research is null) return;
+            var (start, end) = Block(text, e.Accession);
+            string old = text[start..end];
+            if (old.Contains(marker, StringComparison.Ordinal)) return;
+            earlier = (Field(old, "status") ?? "include",
+                       (Field(old, "flags") ?? "").Trim('[', ']').Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).ToList(),
+                       Notes(old), Unowned(old));
+            text = text[..start].TrimEnd('\n', '\r') + (end < text.Length ? "\n\n" : "\n") + text[end..];
+        }
         // Count from qc_report.json, never from the raw files: cleanup has already deleted them (dataRepo hashes `files`
         // into the bundle id and reconciles it against the runs, and caught `files: 0` on the very first dataset).
         var qc = JsonNode.Parse(File.ReadAllText(Path.Combine(runDir, "02b_qc", "qc_report.json")))!.AsObject();
@@ -65,7 +81,22 @@ public static class ManifestEntry
         var extras = search["extra_databases"]?.AsArray().Select(x => Path.GetFileName(x!.GetValue<string>())).ToList() ?? new List<string>();
 
         var notes = new List<string>();
-        var flags = new List<string> { "no_design_file", "no_output_sdrf" };
+        // From what the search did (its provenance flags), no longer assumed: an SDRF design and the search's own SDRF exist
+        // since label-free-dda@4 (D28).
+        var searchFlags = search["flags"]?.AsArray().Select(x => x!.GetValue<string>()).ToList() ?? new List<string> { "no_design_file", "no_output_sdrf" };
+        var flags = new[] { "no_design_file", "no_output_sdrf" }.Where(f => searchFlags.Any(x => x.StartsWith(f + ":", StringComparison.Ordinal) || x == f)).ToList();
+        // D28 (D-2): a question exception changed this deposit's caps or chose its runs; never silent.
+        if (state?["exception"]?.GetValue<string>() is { } exception)
+        {
+            notes.Add($"QUESTION EXCEPTION: {exception}.");
+            flags.Add("question_exception");
+        }
+        // aging 043 (PXR-A37): too few cysteine peptides for a whole proteome points to an alkylant the search did not use.
+        if (enrichment == "none" && searchFlags.FirstOrDefault(f => f.StartsWith("cysteine_poor:", StringComparison.Ordinal)) is { } cysPoor)
+        {
+            flags.Add("cysteine_poor");
+            notes.Add($"CYSTEINE-POOR: {cysPoor["cysteine_poor: ".Length..]}.");
+        }
         if (enrichment != "none")
         {
             string ev = (state?["screen_evidence"]?.GetValue<string>() ?? "").Replace('"', '\'');
@@ -99,18 +130,28 @@ public static class ManifestEntry
             notes.Add($"QC REPORT: the qc-payload stage recorded {string.Join(", ", qcFlags)}; see 05_qc/provenance.json. The search and its results are unaffected.");
         notes.Add($"Searched by PXReprise under profile {profile.Key}" + (extras.Count > 0 ? $", with extra databases {string.Join(", ", extras)}" : "") + ".");
         notes.Add($"{Capitalise(e.Organism)}; {Uncapitalise(profile.Description)}. Raw spectra were deleted after the search; PRIDE is the source of truth and the fetch provenance holds every SHA-256.");
+        if (research is not null)
+        {
+            notes.Add($"{marker} (was {research["previous_profile"] ?? "?"}; the earlier output is in {research["moved_to"]}): {research["reason"]}.");
+            if (earlier is { } was)
+            {
+                // The two the search decides are the NEW search's, never carried over.
+                foreach (string f in was.Flags) if (!flags.Contains(f) && f is not ("no_design_file" or "no_output_sdrf")) flags.Add(f);
+                if (was.Notes.Length > 0) notes.Add($"BEFORE THE RE-SEARCH this entry said: \"{was.Notes.Replace('"', '\'')}\"");
+            }
+        }
 
         string run = Path.GetRelativePath(workRoot, runDir).Replace('\\', '/');
         string entry = $"""
 
   - accession: {e.Accession}
-    status: include
+    status: {earlier?.Status ?? "include"}
     title: {JsonSerializer.Serialize(e.Title)}
     run: {run}
     stages:
       qc: 02b_qc
       search: 04_search
-    search_results: 04_search/mm/Task3SearchTask
+    search_results: 04_search/mm/{SearchTaskFolder(profile)}
     files: {nfiles}
     organism: NCBITaxon:{taxon}
     acquisition: DDA
@@ -119,7 +160,7 @@ public static class ManifestEntry
     provenance_schema: aging-provenance/3
     enrichment: [{enrichment}]
     flags: [{string.Join(", ", flags)}]
-    notes: >
+{earlier?.Kept ?? ""}    notes: >
       {string.Join(" ", notes)}
 
 """;
@@ -128,6 +169,71 @@ public static class ManifestEntry
         string tmp = manifestPath + ".pxreprise-tmp";
         File.WriteAllText(tmp, text.TrimEnd('\n', '\r') + "\n" + entry.TrimEnd('\n') + "\n");
         File.Move(tmp, manifestPath, overwrite: true);
+    }
+
+    /// <summary>
+    /// The folder MetaMorpheus writes the Search task's results to: <c>Task{N}SearchTask</c>, N the Search task's place in
+    /// the profile's task list, numbered as <c>SearchStage</c> numbers the TOMLs. A Search-only profile
+    /// (label-free-dda-lowres@1) writes <c>Task1SearchTask</c>, which a hard-coded Task3 sent dataRepo looking past (G34).
+    /// </summary>
+    internal static string SearchTaskFolder(Profile profile)
+    {
+        int n = profile.Tasks.ToList().LastIndexOf("Search") + 1;
+        if (n == 0) throw new InvalidOperationException($"{profile.Key} has no Search task, so it has no search results to ingest");
+        return $"Task{n}SearchTask";
+    }
+
+    /// <summary>The span of <paramref name="acc"/>'s entry: from its <c>- accession:</c> line to the next entry or the end.</summary>
+    internal static (int Start, int End) Block(string text, string acc)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(text, $@"(?m)^[ \t]*- accession: {acc}\r?$");
+        if (!m.Success) throw new InvalidOperationException($"{acc} has no manifest entry");
+        int start = m.Index;
+        var next = System.Text.RegularExpressions.Regex.Match(text[(m.Index + m.Length)..], @"(?m)^[ \t]*- accession: ");
+        return (start, next.Success ? m.Index + m.Length + next.Index : text.Length);
+    }
+
+    /// <summary>The keys this writer produces; any other key of an entry belongs to its owner (aging's `excluded_runs`,
+    /// `run_enrichment`, `restrictions`, ...) and survives a re-search verbatim.</summary>
+    private static readonly HashSet<string> Owned = new(StringComparer.Ordinal)
+    {
+        "accession", "status", "title", "run", "stages", "search_results", "files", "organism", "acquisition", "quant_method",
+        "metamorpheus", "provenance_schema", "enrichment", "flags", "notes",
+    };
+
+    /// <summary>Every key of the entry this writer does not own, with its nested lines, as written (LF line ends).</summary>
+    internal static string Unowned(string block)
+    {
+        var lines = block.Replace("\r", "").Split('\n');
+        var key = System.Text.RegularExpressions.Regex.Match(block, @"(?m)^([ \t]+)status:");
+        int indent = key.Success ? key.Groups[1].Value.Length : 4;
+        var kept = new System.Text.StringBuilder();
+        bool keeping = false;
+        foreach (string l in lines.Skip(1))
+        {
+            int ind = l.Length - l.TrimStart().Length;
+            if (l.Trim().Length > 0 && ind == indent && System.Text.RegularExpressions.Regex.Match(l.Trim(), @"^([A-Za-z_][\w-]*):") is { Success: true } m)
+                keeping = !Owned.Contains(m.Groups[1].Value);
+            else if (l.Trim().Length > 0 && ind < indent) keeping = false;
+            if (keeping && l.Trim().Length > 0) kept.Append(new string(' ', 4)).Append(l[indent..]).Append('\n');
+        }
+        return kept.ToString();
+    }
+
+    private static string? Field(string block, string key) =>
+        System.Text.RegularExpressions.Regex.Match(block, $@"(?m)^[ \t]+{key}:[ \t]*([^\r\n]*)$") is { Success: true } m ? m.Groups[1].Value.Trim() : null;
+
+    /// <summary>A folded <c>notes: &gt;</c> block (or a one-line <c>notes:</c>) as one line of text.</summary>
+    private static string Notes(string block)
+    {
+        var lines = block.Replace("\r", "").Split('\n');
+        int i = Array.FindIndex(lines, l => System.Text.RegularExpressions.Regex.IsMatch(l, @"^[ \t]+notes:"));
+        if (i < 0) return "";
+        string first = lines[i][(lines[i].IndexOf("notes:", StringComparison.Ordinal) + 6)..].Trim();
+        if (first is not (">" or ">-" or "|" or "|-")) return first.Trim('"');
+        int indent = lines[i].Length - lines[i].TrimStart().Length;
+        var body = lines.Skip(i + 1).TakeWhile(l => l.Trim().Length == 0 || l.Length - l.TrimStart().Length > indent).Select(l => l.Trim());
+        return string.Join(" ", body.Where(l => l.Length > 0));
     }
 
     private static string Capitalise(string s) => s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s[1..];

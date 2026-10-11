@@ -48,6 +48,27 @@ public sealed class MetaMorpheusRunner(string cmd, string dotnet, string? dotnet
         return (release, argv);
     }
 
+    /// <summary>
+    /// G40: makes MetaMorpheus seed <paramref name="settingsDir"/>, as it does for any settings folder that does not exist
+    /// (an empty one crashes it, so it is never created by hand). <c>-g --mmsettings</c> seeds it and writes only default
+    /// task files, into a scratch folder deleted afterwards (checked on 1.1.12, 2026-10-11).
+    /// </summary>
+    public void SeedSettings(string settingsDir)
+    {
+        string scratch = Path.Combine(Path.GetTempPath(), "pxreprise-mmseed-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Capture(Launch.Concat(new[] { "-g", "-o", scratch, "--mmsettings", settingsDir }).ToList(), out int rc);
+            if (rc != 0 || !Directory.Exists(Path.Combine(settingsDir, "Mods")))
+                throw new SearchSetupException($"MetaMorpheus -g --mmsettings {settingsDir} exited {rc} without seeding it");
+        }
+        finally
+        {
+            try { if (Directory.Exists(scratch)) Directory.Delete(scratch, recursive: true); }
+            catch (IOException) { }
+        }
+    }
+
     /// <summary>The build's commit, from the help text's "CMD 1.0.0+&lt;40-hex sha&gt;".</summary>
     public string Commit()
     {

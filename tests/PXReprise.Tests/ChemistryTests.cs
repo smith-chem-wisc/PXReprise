@@ -46,12 +46,60 @@ public class ChemistryTests
         Assert.That(c.CysMods.Select(m => (m.Name, m.Fixed)), Is.EqualTo(new[] { ("Nethylmaleimide", false), ("NEM:2H(5)", false) }));
     }
 
-    // PXD047288 and eight siblings: ubiquitin studies; NEM in the lysis buffer inhibits deubiquitinases.
+    // PXD047288 and nine siblings (aging 043, PXR-A37; the user's D-3): NEM in the lysis buffer inhibits deubiquitinases AND
+    // caps every free cysteine (the deposits are 0.2-3.2% Cys). With no other alkylant named, it IS the alkylant, variable.
     [Test]
-    public void NemInALysisBufferIsNotTheAlkylation()
+    public void NemInALysisBufferIsTheAlkylantWhenNoOtherIsNamed()
     {
         var c = ChemistryDetector.Detect(Project("Samples were homogenized in denaturing lysis buffer (0.05% SDS) with 70mM NEM, briefly centrifuged"), null, null, Files);
-        Assert.That((c.Alkylation.Value, c.Alkylation.Source), Is.EqualTo(("Carbamidomethyl", ChemistrySource.Default)));
+        Assert.That((c.Alkylation.Value, c.Alkylation.Source), Is.EqualTo(("Nethylmaleimide", ChemistrySource.ProtocolText)));
+        Assert.That(c.CysMods, Is.EqualTo(new[] { new CysMod("Nethylmaleimide", "UNIMOD:108", false) }));
+
+        var both = ChemistryDetector.Detect(Project("Tissue was lysed in RIPA buffer with 10 mM NEM to inhibit deubiquitinases. Proteins were "
+            + "precipitated overnight, resuspended in urea, digested on beads with Lys-C and then trypsin; peptides were reduced with DTT and "
+            + "alkylated with iodoacetamide"), null, null, Files);
+        Assert.That(both.CysMods.Select(m => (m.Name, m.Fixed)), Is.EqualTo(new[] { ("Carbamidomethyl", true) }), "another alkylant named wins");
+    }
+
+    // PXD013640 (aging 049): "blocked with 200 mM MMTS", searched with carbamidomethyl fixed. PXD053288 the same (aging 055).
+    [Test]
+    public void MmtsBlockingIsMethylthio()
+    {
+        var c = ChemistryDetector.Detect(Project("Free thiols were blocked with 200 mM MMTS in HEN buffer"), null, null, Files);
+        Assert.That((c.CysMods.Single().Name, c.CysMods.Single().Fixed), Is.EqualTo(("Methylthio", true)));
+        Assert.That(c.CysMods.Single().MetaMorpheusId, Does.EndWith("on C"), "MetaMorpheus can search it");
+    }
+
+    // PXD058611 (aging 061, S82, PXR-A54): thiols blocked with NBF-Cl, 0.20% cysteine peptides. No modelled modification, so
+    // the deposit waits; before, it fell through to the default carbamidomethyl.
+    [TestCase("Free thiols were blocked with NBF-Cl before labelling with DCP-Bio1")]
+    [TestCase("lysed in buffer containing 4-chloro-7-nitrobenzofurazan")]
+    public void AnUnmodelledThiolReagentParksInsteadOfDefaulting(string protocol)
+    {
+        var c = ChemistryDetector.Detect(Project(protocol), null, null, Files);
+        Assert.That((c.Park, c.CysMods.Count, c.Alkylation.Source), Is.EqualTo(("waiting_unknown_alkylant", 0, ChemistrySource.ProtocolText)));
+        var both = ChemistryDetector.Detect(Project(protocol + "; peptides were alkylated with iodoacetamide"), null, null, Files);
+        Assert.That((both.Park, both.CysMods.Single().Name), Is.EqualTo(((string?)null, "Carbamidomethyl")), "a modelled alkylant named beside it wins");
+    }
+
+    // G40 (aging 072 PXR-A69, our 074): a profile that ships a modification for the reagent searches it VARIABLE instead
+    // of parking (the PXD058611 probe: NBF on 76-86% of identified cysteines, 14-24% unmodified).
+    [TestCase("Free thiols were blocked with NBF-Cl before labelling with DCP-Bio1")]
+    [TestCase("lysed in buffer containing 4-chloro-7-nitrobenzofurazan")]
+    public void AThiolReagentTheProfileModelsIsSearchedVariable(string protocol)
+    {
+        var reagents = new Dictionary<string, string> { ["NBF-Cl"] = "PXReprise\tNBF on C" };
+        var c = ChemistryDetector.Detect(Project(protocol), null, null, Files, reagents);
+        Assert.That(c.Park, Is.Null);
+        Assert.That(c.Alkylation.Value, Is.EqualTo("NBF-Cl"), "the reagent's canonical name, however the protocol spells it");
+        Assert.That(c.CysMods, Is.EqualTo(new[] { new CysMod("NBF", "", false, "PXReprise\tNBF on C") }));
+        Assert.That(c.CysMods.Single().MetaMorpheusId, Is.EqualTo("PXReprise\tNBF on C"));
+        Assert.That(c.Alkylation.Evidence, Does.Contain("variable PXReprise NBF on C"));
+
+        var other = ChemistryDetector.Detect(Project(protocol), null, null, Files, new Dictionary<string, string>());
+        Assert.That(other.Park, Is.EqualTo("waiting_unknown_alkylant"), "a profile that models no reagent parks it, as before");
+        var named = ChemistryDetector.Detect(Project(protocol + "; peptides were alkylated with iodoacetamide"), null, null, Files, reagents);
+        Assert.That(named.CysMods.Single().Name, Is.EqualTo("Carbamidomethyl"), "a modelled alkylant named beside it still wins");
     }
 
     [TestCase("alkylated with 55 mM iodoacetamide", "Carbamidomethyl", true)]

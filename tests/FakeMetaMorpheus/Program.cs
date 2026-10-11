@@ -27,7 +27,7 @@ if (args.Contains("-g"))
     string o = Arg("-o")!;
     Write(Path.Combine(o, "CalibrationTask.toml"), "TaskType = \"Calibrate\"\n\n[CommonParameters]\nMaxThreadsToUsePerFile = 63\nListOfModsFixed = \"Common Fixed\\tCarbamidomethyl on C\\t\\tCommon Fixed\\tCarbamidomethyl on U\"\nListOfModsVariable = \"Common Variable\\tOxidation on M\"\nProductMassTolerance = \"±20.0000 PPM\"\n\n[CommonParameters.DigestionParams]\nSpecificProtease = \"trypsin\"\nProtease = \"trypsin\"\n");
     Write(Path.Combine(o, "GptmdTask.toml"), "TaskType = \"Gptmd\"\n\n[GptmdParameters]\nListOfModsGptmd = \"Common Biological\\tAcetylation on K\\t\\t\"\n\n[CommonParameters]\nMaxThreadsToUsePerFile = 63\nListOfModsFixed = \"Common Fixed\\tCarbamidomethyl on C\\t\\tCommon Fixed\\tCarbamidomethyl on U\"\nListOfModsVariable = \"Common Variable\\tOxidation on M\"\n\n[CommonParameters.DigestionParams]\nSpecificProtease = \"trypsin\"\nProtease = \"trypsin\"\n");
-    Write(Path.Combine(o, "SearchTask.toml"), "TaskType = \"Search\"\n\n[SearchParameters]\nMatchBetweenRuns = false\nSearchType = \"Classic\"\nWriteSpectralLibrary = false\nUpdateSpectralLibrary = false\n\n[CommonParameters]\nMaxThreadsToUsePerFile = 63\nListOfModsFixed = \"Common Fixed\\tCarbamidomethyl on C\\t\\tCommon Fixed\\tCarbamidomethyl on U\"\nListOfModsVariable = \"Common Variable\\tOxidation on M\"\n\n[CommonParameters.DigestionParams]\nSpecificProtease = \"trypsin\"\nProtease = \"trypsin\"\n");
+    Write(Path.Combine(o, "SearchTask.toml"), "TaskType = \"Search\"\n\n[SearchParameters]\nMatchBetweenRuns = false\nSearchType = \"Classic\"\nWriteSpectralLibrary = false\nUpdateSpectralLibrary = false\nWriteSdrf = false\n\n[CommonParameters]\nMaxThreadsToUsePerFile = 63\nListOfModsFixed = \"Common Fixed\\tCarbamidomethyl on C\\t\\tCommon Fixed\\tCarbamidomethyl on U\"\nListOfModsVariable = \"Common Variable\\tOxidation on M\"\n\n[CommonParameters.DigestionParams]\nSpecificProtease = \"trypsin\"\nProtease = \"trypsin\"\n");
     Console.WriteLine($"Welcome to MetaMorpheus\n{Release}\n");
     return 0;
 }
@@ -57,13 +57,23 @@ foreach (var (task, i) in new[] { "CalibrationTask", "GptmdTask", "SearchTask" }
     Console.WriteLine($"Finished task: Task{i}{task}");
 }
 File.WriteAllText(Path.Combine(outDir, "Task2GptmdTask", "db-GPTMD.xml"), "<uniprot/>");
+// GPTMD writes the contaminants separately, under a name that sorts before the proteome's (as MetaMorpheus does).
+File.WriteAllText(Path.Combine(outDir, "Task2GptmdTask", "MetaMorpheusContaminantsGPTMD.xml"), "<uniprot><!-- contaminants --></uniprot>");
 string sd = Path.Combine(outDir, "Task3SearchTask");
 // 8 target, 1 contaminant, 1 decoy PSM at q <= 0.01, plus one above the cut-off.
 File.WriteAllText(Path.Combine(sd, "AllPSMs.psmtsv"), "QValue\tDecoy/Contaminant/Target\n" + string.Concat(Enumerable.Repeat("0.001\tT\n", 8)) + "0.002\tC\n0.003\tD\n0.5\tT\n");
 File.WriteAllText(Path.Combine(sd, "AllPeptides.psmtsv"), "QValue\n0.001\n");
 File.WriteAllText(Path.Combine(sd, "AllQuantifiedPeptides.tsv"), "Sequence\nPEPTIDE\n");
-string cols = string.Join("\t", spectra.Select(s => $"Intensity_{s}"));
-string Row(string acc, string name, string org, string td, string q, string v) => $"{acc}\t{name}\t{org}\t{td}\t{q}\t" + string.Join("\t", spectra.Select(_ => v)) + "\n";
+// As MetaMorpheus labels sample columns: one per design (condition, biorep) when ExperimentalDesign.tsv beside the first
+// spectra file is used, else one per file. FAKE_MM_IGNORE_DESIGN=1 is MetaMorpheus quantifying design-less after a Warn
+// (QuantProject U15).
+string? designFile = Values("-s").Select(s => Path.Combine(Path.GetDirectoryName(Path.GetFullPath(s))!, "ExperimentalDesign.tsv")).FirstOrDefault();
+var samples = designFile is not null && File.Exists(designFile) && Environment.GetEnvironmentVariable("FAKE_MM_IGNORE_DESIGN") != "1"
+              && Environment.GetEnvironmentVariable("FAKE_MM_SKIP_QUANT") != "1"
+    ? File.ReadAllLines(designFile).Skip(1).Where(l => l.Length > 0).Select(l => l.Split('\t')).Select(f => $"{f[1]}_{f[2]}").Distinct().ToList()
+    : spectra;
+string cols = string.Join("\t", samples.Select(s => $"Intensity_{s}"));
+string Row(string acc, string name, string org, string td, string q, string v) => $"{acc}\t{name}\t{org}\t{td}\t{q}\t" + string.Join("\t", samples.Select(_ => v)) + "\n";
 if (Environment.GetEnvironmentVariable("FAKE_MM_NO_PROTEIN_GROUPS") != "1")
     File.WriteAllText(Path.Combine(sd, "AllQuantifiedProteinGroups.tsv"),
         $"Protein Accession\tProtein Full Name\tOrganism\tProtein Decoy/Contaminant/Target\tProtein QValue\t{cols}\n"
@@ -87,6 +97,10 @@ if (searchToml is not null)
     }
     else if (cfg.Contains("WriteSpectralLibrary = true"))
         File.WriteAllText(Path.Combine(sd, "SpectralLibrary_2026-09-28-12-00-00.msp"), "Name: PEPTIDEK/2\nName: PEPTIDER/2\n");
+    // MetaMorpheus #2816: the search's own SDRF; a failure leaves SdrfWriter_crash.txt and never fails the search.
+    if (cfg.Contains("WriteSdrf = true"))
+        File.WriteAllText(Path.Combine(sd, Environment.GetEnvironmentVariable("FAKE_MM_SDRF_CRASH") == "1" ? "SdrfWriter_crash.txt" : "experiment.sdrf.tsv"),
+            "source name\tcomment[proteomexchange accession number]\n");
 }
 File.WriteAllText(Path.Combine(outDir, "allResults.txt"), "fake run\n");
 return int.TryParse(Environment.GetEnvironmentVariable("FAKE_MM_EXIT"), out int rc) ? rc : 0;

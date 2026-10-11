@@ -10,6 +10,8 @@ namespace PXReprise.Search;
 /// the deposit's own. mzLib's <see cref="SdrfLabelFreeDesign"/> checks each the way MetaMorpheus reads it and refuses
 /// rather than repairs, because MetaMorpheus skips quantification on a bad design with only a warning. Deposited SDRFs
 /// rarely say more than the tissue: on the aging corpus 22 of 23 were refused (2026-10-04), so the curated one counts.
+/// With neither usable, PXReprise writes its own default SDRF and the design comes from that (D31): no search is
+/// design-less.
 /// </summary>
 public static class DesignStage
 {
@@ -21,9 +23,11 @@ public static class DesignStage
     /// <param name="searchedFiles">The spectra files the search reads; rows for any other file are dropped.</param>
     /// <param name="curated">The question's SDRF for this deposit; ignored when the file does not exist.</param>
     /// <param name="conditionColumns">The factor columns a curated design's condition is built from; null for its only one.</param>
+    /// <param name="organism">The profile's organism key, written into a default SDRF.</param>
+    /// <param name="accession">The deposit's accession, naming a default SDRF.</param>
     /// <exception cref="SearchSetupException">A curated design MetaMorpheus would not accept. It is fixed, not searched around.</exception>
     public static JsonObject Prepare(string spectraDir, IReadOnlyList<string> searchedFiles, string? curated,
-        IReadOnlyList<string>? conditionColumns)
+        IReadOnlyList<string>? conditionColumns, string? organism = null, string? accession = null)
     {
         string target = Path.Combine(spectraDir, FileName);
         File.Delete(target);   // never one left by an earlier attempt or by hand
@@ -57,13 +61,61 @@ public static class DesignStage
                 ["refusals"] = new JsonArray((error is null ? d!.Refusals.Take(5) : new[] { error }).Select(x => (JsonNode?)x).ToArray()),
             });
         }
-        return new JsonObject
-        {
-            ["source"] = "none", ["written"] = false,
-            ["reason"] = deposited.Count == 0 ? "no curated design and no deposited SDRF" : "no curated design; every deposited SDRF was refused",
-            ["deposit_sdrfs_refused"] = refused,
-        };
+        // D31 (the user, 2026-10-07): every searched set of files gets an SDRF and a design. With neither SDRF usable, ours
+        // says only what design-less quantification assumes, on the record: one condition, each file its own sample.
+        string why = deposited.Count == 0 ? "no curated design and no deposited SDRF" : "no curated design; every deposited SDRF was refused";
+        string fallback = WriteDefaultSdrf(spectraDir, searchedFiles, organism, accession);
+        var made = Read(fallback, searchedFiles, null, out string? fallbackError);
+        if (made is null || !made.IsValid)
+            throw new SearchSetupException($"PXReprise's default SDRF {fallback} is refused: {fallbackError ?? string.Join(" | ", made!.Refusals.Take(5))}");
+        made.WriteExperimentalDesignTsv(target);
+        var record = Record(DefaultSource, fallback, made);
+        record["reason"] = why;
+        if (refused.Count > 0) record["deposit_sdrfs_refused"] = refused;
+        return record;
     }
+
+    /// <summary>The provenance <c>source</c> of a design from <see cref="WriteDefaultSdrf"/>.</summary>
+    public const string DefaultSource = "pxreprise_default";
+
+    /// <summary>The condition every file of a default design is in.</summary>
+    public const string DefaultCondition = "all";
+
+    /// <summary>
+    /// Writes PXReprise's own SDRF for the searched files (D31): one row per file, all in <see cref="DefaultCondition"/>,
+    /// each file its own biological replicate, fraction 1, technical replicate 1. It sits in <c>pxreprise_sdrf</c> beside
+    /// the fetch's <c>metadata</c>, never in it, so a later attempt does not read it back as the deposit's. A fractionated
+    /// deposit is wrong under it (each fraction a sample) until a curated SDRF or sdrf's drafter replaces it.
+    /// </summary>
+    private static string WriteDefaultSdrf(string spectraDir, IReadOnlyList<string> searchedFiles, string? organism, string? accession)
+    {
+        string dir = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(spectraDir))!, "pxreprise_sdrf");
+        Directory.CreateDirectory(dir);
+        string path = Path.Combine(dir, $"{(string.IsNullOrEmpty(accession) ? "deposit" : accession)}.{DefaultSource}.sdrf.tsv");
+        var lines = new List<string>
+        {
+            "source name\tcharacteristics[organism]\tcharacteristics[biological replicate]\tassay name\tcomment[label]\t"
+            + "comment[data file]\tcomment[technical replicate]\tcomment[fraction identifier]\tfactor value[group]",
+        };
+        int i = 0;
+        foreach (string f in searchedFiles.Select(Path.GetFileName).Order(StringComparer.Ordinal))
+        {
+            i++;
+            lines.Add($"sample {i}\t{OrganismName(organism)}\t{i}\trun {i}\tlabel free sample\t{f}\t1\t1\t{DefaultCondition}");
+        }
+        File.WriteAllLines(path, lines);
+        return path;
+    }
+
+    /// <summary>The SDRF spelling of a profile's organism key; anything else is written as given, or "not available".</summary>
+    private static string OrganismName(string? organism) => organism?.ToLowerInvariant() switch
+    {
+        null or "" => "not available",
+        "human" => "homo sapiens",
+        "mouse" => "mus musculus",
+        "rat" => "rattus norvegicus",
+        var o => o,
+    };
 
     private static SdrfLabelFreeDesign? Read(string sdrf, IReadOnlyList<string> searchedFiles, IReadOnlyList<string>? conditionColumns, out string? error)
     {
@@ -88,6 +140,8 @@ public static class DesignStage
         ["conditions"] = new JsonArray(d.Files.Select(f => f.Condition).Distinct().Order(StringComparer.Ordinal).Select(c => (JsonNode?)c).ToArray()),
         ["files"] = d.Files.Count,
         ["notes"] = new JsonArray(d.Notes.Select(n => (JsonNode?)n).ToArray()),
+        // QuantProject 012 (PXR-U1): mzLib's whole account, kept per deposit; replicate numbers change when #1426 ships.
+        ["report"] = d.Report(),
     };
 
     private static string Sha(string path)

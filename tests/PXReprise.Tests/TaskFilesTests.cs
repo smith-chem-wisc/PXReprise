@@ -34,6 +34,29 @@ public class TaskFilesTests
         Protease = "trypsin"
         """;
 
+    // sdrf PXR-E1/E2 on the real 1.1.12 default (CMD -g, 2026-10-07): WriteSdrf is edited; the accession, which -g
+    // does not write, is inserted under it in [SearchParameters]. Every other byte stays MetaMorpheus's.
+    [Test]
+    public void OnMetaMorpheus1112TheSearchWritesAnSdrfStampedWithTheAccession()
+    {
+        string text = File.ReadAllText(Path.Combine(TestContext.CurrentContext.TestDirectory, "Fixtures", "mm-1.1.12", "SearchTask.toml"));
+        var (edited, _) = TaskFiles.Edit(text, TaskKind.Search,
+            new TaskSettings(8, true, Array.Empty<string>(), WriteSdrf: true, ProteomeXchangeAccession: "PXD017058"), Known);
+        Assert.That(edited, Does.Contain("WriteSdrf = true\r\nProteomeXchangeAccession = \"PXD017058\"\r\nIterativePepTraining = true"));
+        Assert.That(edited.Replace("WriteSdrf = true\r\nProteomeXchangeAccession = \"PXD017058\"", "WriteSdrf = false")
+            .Replace("MatchBetweenRuns = true", "MatchBetweenRuns = false").Replace("MaxThreadsToUsePerFile = 8", "MaxThreadsToUsePerFile = 63"),
+            Is.EqualTo(text), "nothing else changes");
+
+        var (again, _) = TaskFiles.Edit(edited, TaskKind.Search,
+            new TaskSettings(8, true, Array.Empty<string>(), WriteSdrf: true, ProteomeXchangeAccession: "PXD000001"), Known);
+        Assert.That(again, Does.Contain("ProteomeXchangeAccession = \"PXD000001\"").And.Not.Contain("PXD017058"), "replaced, not added twice");
+
+        Assert.Throws<SearchSetupException>(() => TaskFiles.Edit(text, TaskKind.Search,
+            new TaskSettings(8, true, Array.Empty<string>(), WriteSdrf: true, ProteomeXchangeAccession: "MSV000001"), Known));
+        Assert.Throws<SearchSetupException>(() => TaskFiles.Edit(Search, TaskKind.Search,
+            new TaskSettings(8, true, Array.Empty<string>(), WriteSdrf: true), Known), "1.1.11 has no WriteSdrf: refused, never silent");
+    }
+
     // G19 (D23, D24): the deposit's protease and cysteine chemistry; the d0/d5-NEM pair goes in as two variable mods.
     [Test]
     public void TheDepositsProteaseAndCysteineModsReplaceTheDefaults()

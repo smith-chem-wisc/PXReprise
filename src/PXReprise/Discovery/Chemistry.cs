@@ -27,11 +27,12 @@ public sealed record ChemistryFact(string Value, string Source, string? Evidence
 /// <summary>
 /// A cysteine modification as UniMod names it, and whether the search should hold it fixed or variable.
 /// <see cref="MetaMorpheusId"/> is the <c>ModificationType\tIdWithMotif</c> string a MetaMorpheus task file takes,
-/// resolved by mzLib (oracle 2026-10-05), or null when mzLib knows no such modification on C.
+/// resolved by mzLib (oracle 2026-10-05), or null when mzLib knows no such modification on C. A modification no
+/// UniMod entry describes (G40: NBF) carries its <see cref="CustomId"/> from the profile's own modification file instead.
 /// </summary>
-public sealed record CysMod(string Name, string Unimod, bool Fixed)
+public sealed record CysMod(string Name, string Unimod, bool Fixed, string? CustomId = null)
 {
-    public string? MetaMorpheusId => ChemistryDetector.MetaMorpheusModId(Unimod, 'C');
+    public string? MetaMorpheusId => CustomId ?? ChemistryDetector.MetaMorpheusModId(Unimod, 'C');
 }
 
 /// <summary>
@@ -107,9 +108,18 @@ public static class ChemistryDetector
     {
         if (UnimodNumber(key.Item1) is not int id) return null;
         var cm = CanonicalModification.AtResidue(0, key.Item2, $"UNIMOD:{id}", unimodId: id);
-        var resolved = MzLibModificationLookup.ProteinOnly.TryResolve(cm) ?? UnimodModificationLookup.Instance.TryResolve(cm);
-        return resolved?.MzLibModification is { } m ? $"{m.ModificationType}\t{m.IdWithMotif}" : null;
+        var ours = MzLibModificationLookup.ProteinOnly.TryResolve(cm)?.MzLibModification;
+        var unimod = UnimodModificationLookup.Instance.TryResolve(cm)?.MzLibModification;
+        // bridge 002 (PXR-B6, mzLib issue #1418): a lookup that cannot narrow its candidates returns the first one on the
+        // residue, whatever its mass, without a warning. Two resolutions of one UNIMOD id must agree on mass, or the mod is
+        // unknown and the deposit waits (waiting_unknown_modification) instead of being searched with the wrong chemistry.
+        if (ours is not null && unimod is not null && ours.MonoisotopicMass is double a && unimod.MonoisotopicMass is double b && Math.Abs(a - b) > MassAgreement)
+            return null;
+        return (ours ?? unimod) is { } m ? $"{m.ModificationType}\t{m.IdWithMotif}" : null;
     });
+
+    /// <summary>Daltons within which two resolutions of one UNIMOD id are the same chemistry.</summary>
+    internal const double MassAgreement = 0.001;
 
     /// <summary>The number in "UNIMOD:108", "Unimod:35" or a bare "4" (the SDRF corpus writes all three).</summary>
     internal static int? UnimodNumber(string s) =>
@@ -181,6 +191,28 @@ public static class ChemistryDetector
         ("Pyridylethyl", "UNIMOD:31", new(@"pyridylethyl|UNIMOD:31\b", Opt), new(@"pyridylethyl", Opt),
             new(@"\b4-vinylpyridine\b|\bvinylpyridine\b", Opt)),
     };
+
+    /// <summary>
+    /// Thiol reagents a protocol can name that have no UniMod cysteine modification (aging 061, S82: PXD058611 blocks
+    /// thiols with NBF-Cl). Named with no modelled alkylant beside them, the deposit WAITS (waiting_unknown_alkylant),
+    /// never searched with the default carbamidomethyl, unless the profile models the reagent with a modification of its
+    /// own (G40, <c>[thiol_reagents]</c>): then it is searched with that modification, variable.
+    /// </summary>
+    private static readonly (string Name, Regex Text)[] UnmodelledThiolReagents =
+    {
+        ("NBF-Cl", new(@"\bNBF-?Cl\b|4-chloro-7-nitrobenzofurazan|7-chloro-4-nitrobenz(o-2-oxa-1,3-)?diazole", Opt)),
+    };
+
+    /// <summary>"NBF" from <c>"PXReprise\tNBF on C"</c>: the modification's ID, its short name in logs and records.</summary>
+    internal static string CustomModName(string metaMorpheusId)
+    {
+        string idWithMotif = metaMorpheusId[(metaMorpheusId.IndexOf('\t') + 1)..];
+        int on = idWithMotif.LastIndexOf(" on ", StringComparison.Ordinal);
+        return on > 0 ? idWithMotif[..on] : idWithMotif;
+    }
+
+    /// <summary>The names a profile's <c>[thiol_reagents]</c> may map (G40).</summary>
+    public static IReadOnlyList<string> UnmodelledThiolReagentNames { get; } = UnmodelledThiolReagents.Select(r => r.Name).ToArray();
 
     private static readonly Regex AlkylationContext = new(@"alkylat|block|thiol|cystein|\bCys\b|derivati[sz]", Opt);
 
@@ -264,7 +296,11 @@ public static class ChemistryDetector
     }
 
     /// <summary>The deposit's chemistry, from every source given, by D22's order. Files are the raw files to be searched.</summary>
-    public static DepositChemistry Detect(PrideProject? project, SdrfDocument? curated, SdrfDocument? deposited, IReadOnlyList<string> rawFiles)
+    /// <param name="thiolReagents">The profile's <c>[thiol_reagents]</c> (G40): a reagent name from
+    /// <see cref="UnmodelledThiolReagentNames"/> to the <c>Type\tIdWithMotif</c> of the profile's own modification for it.
+    /// Null: every such reagent parks the deposit, as before.</param>
+    public static DepositChemistry Detect(PrideProject? project, SdrfDocument? curated, SdrfDocument? deposited, IReadOnlyList<string> rawFiles,
+        IReadOnlyDictionary<string, string>? thiolReagents = null)
     {
         var sdrfs = new[] { (curated, ChemistrySource.CuratedSdrf), (deposited, ChemistrySource.DepositedSdrf) }
             .Where(s => s.Item1 is not null).Select(s => (Read: FromSdrf(s.Item1!), Source: s.Item2)).ToList();
@@ -304,6 +340,10 @@ public static class ChemistryDetector
         // alkylation: in the text, NEM counts only near an alkylation, blocking, thiol or cysteine word.
         var fromText = Alkylants.Select(a => (a.Name, M: a.Text.Matches(text).FirstOrDefault(m => !a.Name.StartsWith("N", StringComparison.Ordinal)
                 || AlkylationContext.IsMatch(Window(text, m, 80))))).Where(x => x.M is not null).Select(x => (x.Name, M: x.M!)).ToList();
+        // aging 043 (PXR-A37, the user's D-3, 2026-10-07): NEM named ANYWHERE with no other alkylant named IS the alkylant.
+        // 70 mM NEM in a denaturing lysis buffer caps every free cysteine (the ten Jarome deposits are 0.2-3.2% Cys). Searched
+        // VARIABLE: cysteines disulfide-bonded at lysis escape it.
+        Match? lysisNem = fromText.Count == 0 && Alkylants.First(a => a.Name == "Nethylmaleimide").Text.Match(text) is { Success: true } nem ? nem : null;
         if (sdrfAlk.Read.CysMods is { Count: > 0 } sm)
         {
             mods = sm;   // as the SDRF states them, fixed or variable
@@ -328,6 +368,29 @@ public static class ChemistryDetector
         {
             mods = CysModsFor(fromText.Select(x => x.Name).ToList());
             alkylation = new(string.Join(" + ", fromText.Select(x => x.Name)), ChemistrySource.ProtocolText, string.Join(" | ", fromText.Select(x => Snip(text, x.M))));
+        }
+        else if (lysisNem is not null)
+        {
+            var a = Alkylants.First(x => x.Name == "Nethylmaleimide");
+            mods = new[] { new CysMod(a.Name, a.Unimod, false) };
+            alkylation = new(a.Name, ChemistrySource.ProtocolText, $"the only alkylant named, outside an alkylation step; variable (aging PXR-A37): {Snip(text, lysisNem)}");
+        }
+        else if (UnmodelledThiolReagents.Select(r => (r.Name, M: r.Text.Match(text))).FirstOrDefault(x => x.M.Success) is { M: not null } unmodelled)
+        {
+            if (thiolReagents?.TryGetValue(unmodelled.Name, out string? custom) == true)
+            {
+                // G40: the profile ships a modification for this reagent. Variable, never fixed: the PXD058611 probe found
+                // 14-24% of identified cysteines unmodified (results/nbf-probe_2026-10-11).
+                mods = new[] { new CysMod(CustomModName(custom), "", false, custom) };
+                alkylation = new(unmodelled.Name, ChemistrySource.ProtocolText,
+                    $"a thiol reagent the profile models as variable {custom.Replace('\t', ' ')}: {Snip(text, unmodelled.M)}");
+            }
+            else
+            {
+                mods = Array.Empty<CysMod>();
+                alkylation = new(unmodelled.Name, ChemistrySource.ProtocolText, $"a thiol reagent with no modelled modification: {Snip(text, unmodelled.M)}");
+                park ??= "waiting_unknown_alkylant";
+            }
         }
         else
         {

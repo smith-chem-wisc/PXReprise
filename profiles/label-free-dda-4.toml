@@ -1,0 +1,80 @@
+# label-free-dda/4: label-free-dda/3 moved to MetaMorpheus 1.1.12 / mzLib 1.0.594 (PXReprise D28, design/PLAN_mm-1.1.12.md),
+# with an experimental design from SDRF (D-1), the search's own SDRF stamped with the accession (sdrf PXR-E1/E2), and the
+# agingPTM-v2 databases (D29: rebuilt for this build; enriched-for PTMs never added). Every other setting is /3's.
+# Results already searched keep the version that produced them (push forward, aging D41). Changing a value here makes a
+# NEW version.
+# label-free-dda/3: label-free-dda/1 (aging's PTM-annotated databases) with the deposit's own chemistry (G19).
+# label-free-dda/1: the aging pipeline's v1, as it searched the aging corpus (aging pipeline/params.json and
+# instance/batch_runner.py at b1e2140, 2026-09-27).
+id = "label-free-dda"
+version = 4
+status = "available"
+description = "Label-free DDA, high-resolution HCD with MS2 read in the Orbitrap; MetaMorpheus 1.1.12 Calibrate/GPTMD/Search, FlashLFQ with MBR and an SDRF design; protease and cysteine chemistry read from each deposit; agingPTM-v2 databases"
+
+[accepts]
+acquisition = ["dda"]
+labelling = ["label_free"]
+# Hybrids MAY read MS2 in the ion trap, so QC checks the files (aging S37: PXD060431). Astral MS2 is not the Orbitrap.
+instrument = ["orbitrap_hcd_only", "orbitrap_hybrid"]
+file_types = [".raw"]
+
+[engine]
+# G19 (D22-D27): each deposit's protease and cysteine chemistry are read first (curated SDRF, deposited SDRF, PRIDE
+# identified PTMs / quantification, protocol text) and searched with, or the deposit waits.
+chemistry = "deposit"
+metamorpheus = "1.1.12"
+tasks = ["Calibration", "Gptmd", "Search"]
+gptmd_extra_mods = ["Trypsin Digested\tGG (Ubiquitination Site) on K"]
+spectral_library = true   # per organism, written then updated (aging D33)
+# Each search writes experiment.sdrf.tsv beside its results, stamped with the deposit's ProteomeXchange accession
+# (MetaMorpheus #2816, #2870). It describes the search, not the samples, and names no database (sdrf PXR-E7).
+write_sdrf = true
+# NOT IN FORCE (read so the file stays valid): a search's limits are the machine's search_timeout_h (48) and
+# search_stall_minutes (90). The user asked for 8 h here on 2026-10-07; recorded as their figure, enforced by neither.
+timeout_h = 8
+
+# Database FILE NAMES; the directory is machine configuration. agingPTM-v2 (D29), built 2026-10-07 from aging's catalog
+# fedb05c27090147e (data/ptm-db/agingPTM-v2/). The aging isoform database is NOT here: it is aging's overlay.
+[databases.human]
+proteome = "uniprotkb_proteome_UP000005640_AND_revi_2026_09_18_agingPTM-v2.xml"
+taxon = 9606
+
+[databases.mouse]
+proteome = "uniprotkb_proteome_UP000000589_AND_revi_2026-09-22_agingPTM-v2.xml"
+taxon = 10090
+
+[databases.rat]
+proteome = "uniprotkb_proteome_UP000002494_AND_revi_2026-09-22_agingPTM-v2.xml"
+taxon = 10116
+
+[contaminants]
+# D35 (the user, 2026-10-07): MetaMorpheus's own panel without the UPS1/UPS2 spike-in standard, AS IS (216 entries, all 48
+# UPS proteins out). MetaMorpheus #2858 merged after the 1.1.12 tag, so the file ships here (lists/, its provenance
+# beside it). It replaces aging's D54 exclusion list, which kept 7 human UPS proteins (albumin, transferrins,
+# lactalbumin, lysozyme, haemoglobins). MetaMorpheusContaminants_UPS.xml only where a study declares UPS (held, D35).
+file = "MetaMorpheusContaminants_NoUPS.xml"
+
+[quant]
+method = "flashlfq"
+mbr = true
+# D-1 (the user, 2026-10-07): ExperimentalDesign.tsv from the question's curated SDRF, else the deposit's, through mzLib's
+# SdrfLabelFreeDesign (the reader MetaMorpheus's --sdrfDesign uses). D31 (the user, 2026-10-07): none usable = PXReprise's
+# default SDRF (one condition, each file its own biological replicate), so every search is quantified with a design.
+design = "sdrf"
+
+[deposit]
+whole = true              # every raw file or none (aging S43); more than max_files is deferred, never subsampled
+max_files = 60
+probe = "probe_spread"    # median by size plus first and last by name, never the smallest (aging G38)
+max_est_ms2 = 1_500_000   # aging D58; a deposit above it runs only by a question's [exceptions] (D28, D-2)
+max_file_mb = 5000
+# EBI drops very large transfers (aging S40). mzLib 1.0.594 now resumes a broken download (#1412), but that is untried
+# here at this size, so the gate stays; a question's [exceptions] releases a deposit from it.
+defer_if_median_file_mb = 2200
+
+[qc]
+ms2_analyzer = "orbitrap"
+min_fraction_orbitrap_hcd = 0.9
+min_ms2 = 5000
+excludable = ["too_few_ms2"]   # a blank or failed injection may be excluded with a record (aging D52)
+max_excluded_frac = 0.10

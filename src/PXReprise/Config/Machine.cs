@@ -27,7 +27,11 @@ public sealed record Machine(
     double SearchTimeoutHours = 48,
     double SearchStallMinutes = 90,
     string? DotnetRoot = null,
-    double FetchStallMinutes = 5)
+    double FetchStallMinutes = 5,
+    int SearchSlots = 1,
+    int CatchUpEvery = 0,
+    string? AsperaAscp = null,
+    string? AsperaKey = null)
 {
     public static Machine Load(string file)
     {
@@ -68,7 +72,21 @@ public sealed record Machine(
         string? dotnetRoot = root.OptionalString("dotnet_root");
         // A download whose file has not grown for this long is abandoned and retried (0 = off).
         double fetchStall = root.OptionalNumber("fetch_stall_minutes") ?? 5;
+        // Searches run at once (the user, 2026-10-07: a downloaded deposit starts its search at once, never waiting on the
+        // previous one). Each search still gets max_threads; one search leaves most of a large machine idle.
+        int slots = checked((int)(root.OptionalInteger("search_slots") ?? 1));
+        // D39: every Nth search started is a catch-up re-search of a deposit searched under a profile the question no
+        // longer names (0 = off).
+        int catchUp = checked((int)(root.OptionalInteger("catch_up_every") ?? 0));
+        // IBM Aspera, tried before HTTPS for each raw file (2026-10-08): EBI requires ascp >= 4.4.4 with encryption on and
+        // its public key (KB0011565). Both or neither; off when absent.
+        string? ascp = root.OptionalString("aspera_ascp"), asperaKey = root.OptionalString("aspera_key");
         root.RefuseUnknownKeys();
+        if ((ascp is null) != (asperaKey is null)) throw new ConfigException(file, "'aspera_ascp' and 'aspera_key' go together");
+        if (ascp is not null && !File.Exists(ascp)) throw new ConfigException(file, $"'aspera_ascp' = '{ascp}' does not exist");
+        if (asperaKey is not null && !File.Exists(asperaKey)) throw new ConfigException(file, $"'aspera_key' = '{asperaKey}' does not exist");
+        if (slots < 1) throw new ConfigException(file, "'search_slots' must be 1 or more");
+        if (catchUp is < 0 or 1) throw new ConfigException(file, "'catch_up_every' must be 0 (off) or 2 or more");
         if (fetchStall < 0) throw new ConfigException(file, "'fetch_stall_minutes' must not be negative (0 turns the stall check off)");
         if (dotnetRoot is not null && !Directory.Exists(Path.Combine(dotnetRoot, "shared", "Microsoft.NETCore.App")))
             throw new ConfigException(file, $"'dotnet_root' = '{dotnetRoot}' holds no shared\\Microsoft.NETCore.App: copy a .NET install there (dotnet, host, shared)");
@@ -77,7 +95,7 @@ public sealed record Machine(
         if (passWait < 0) throw new ConfigException(file, "'pass_wait_minutes' must not be negative");
         if (searchTimeout <= 0) throw new ConfigException(file, "'search_timeout_h' must be positive");
         if (stall < 0) throw new ConfigException(file, "'search_stall_minutes' must not be negative (0 turns the stall check off)");
-        return new Machine(file, workRoot, dbDir, mm, settings, threads, dotnet, licence, libraries, minFree, datarepo, attempts, parallel, qcPython, passes, passWait, searchTimeout, stall, dotnetRoot, fetchStall);
+        return new Machine(file, workRoot, dbDir, mm, settings, threads, dotnet, licence, libraries, minFree, datarepo, attempts, parallel, qcPython, passes, passWait, searchTimeout, stall, dotnetRoot, fetchStall, slots, catchUp, ascp, asperaKey);
     }
 
     public string CmdFor(string release) =>

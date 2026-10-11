@@ -47,6 +47,22 @@ public static class QcStage
                     ["run_minutes"] = r.RunMinutes,
                     ["charge_states"] = Obj(r.ChargeStates!),
                 };
+            // D32 (G24): the file's fragmentation from its own MS2 headers, written into its <raw>.toml at search time.
+            if (profile.Fragmentation == "per_file" && r.Ms2AnalyzerDissociation is { } pairs)
+            {
+                var call = Fragmentation.Decide(pairs, profile.IonTrapHcd);
+                var entry = report[Path.GetFileName(f)]!.AsObject();
+                entry["fragmentation"] = new JsonObject
+                {
+                    ["dissociation_type"] = call.DissociationType, ["low_res"] = call.LowRes,
+                    ["unsupported"] = call.Unsupported, ["evidence"] = call.Evidence,
+                };
+                if (call.Unsupported is not null)
+                {
+                    entry["pass"] = false;
+                    entry["fail_reasons"]!.AsArray().Add(SpectraQc.UnsupportedFragmentation);
+                }
+            }
             // Only when found: such a deposit is never ingested, so dataRepo's qc_report.json shape is unchanged.
             if (r.Reporters?.Tag is { } tag)
                 report[Path.GetFileName(f)]!["isobaric_reporters"] = new JsonObject

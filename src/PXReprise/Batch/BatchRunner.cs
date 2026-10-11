@@ -34,10 +34,14 @@ public sealed class BatchRunner
     private readonly string _stateDir, _runRoot;
     private readonly object _gate = new();
     private bool _libraryOk = true;
-    private volatile string? _searching;
+    private readonly HashSet<string> _searching = new(StringComparer.Ordinal);
+    private int _started;
 
-    /// <summary>The deposit being searched while the next one is screened and fetched; null between searches.</summary>
-    internal string? Searching { get => _searching; set => _searching = value; }
+    /// <summary>The deposits being searched (up to search_slots) while the next one is screened and fetched.</summary>
+    internal IReadOnlyList<string> Searching { get { lock (_searching) return _searching.ToList(); } }
+
+    internal void SearchStarted(string acc) { lock (_searching) _searching.Add(acc); }
+    internal void SearchEnded(string acc) { lock (_searching) _searching.Remove(acc); }
 
     public BatchRunner(Question q, IReadOnlyDictionary<string, Profile> profiles, Machine m, IPrideFiles files, IProjectSearch search, string runDate)
     {
@@ -203,6 +207,67 @@ public sealed class BatchRunner
         return new { accession = acc, previous_status = previous, status = "requeued_user" };
     }
 
+    /// <summary>
+    /// <c>batch research</c>: searches a deposit again whose search finished, e.g. under a profile that reads its chemistry
+    /// (PXR-A29). The deposit's folder is moved aside whole (<c>PXD….superseded-&lt;utc&gt;</c>), never deleted, and its
+    /// state entry is archived in its <c>researched</c> list; the next <c>batch run</c> downloads and searches it again like
+    /// a new deposit, under <paramref name="profile"/> when given (one of the question's profiles), else as routing chooses.
+    /// The delivery already in the repository is untouched until the new search is ingested; the manifest entry is then
+    /// replaced, keeping its status, flags and notes (<see cref="ManifestEntry.Append"/>). Refused while a driver runs, for a
+    /// deposit with no finished search (use <c>batch retry</c>), and for one the manifest excludes.
+    /// </summary>
+    public static object Research(string stateDir, string runRoot, string acc, string reason, string? profile, string? manifest, bool byDriver = false)
+    {
+        string pidFile = Path.Combine(stateDir, "driver.pid"), stateFile = Path.Combine(stateDir, "state.json");
+        if (string.IsNullOrWhiteSpace(reason)) throw new UsageException("--reason must say why the deposit is searched again");
+        // The driver itself may re-search (D39 catch-up, under its own state lock); anyone else waits for it to exit.
+        if (!byDriver && LiveDriver(pidFile) is int pid) throw new UsageException($"a batch driver is running as pid {pid}; stop it (batch stop) and let it exit first");
+        string dir = Path.Combine(runRoot, acc);
+        if (!File.Exists(Path.Combine(dir, "04_search", "provenance.json")))
+            throw new UsageException($"{acc} has no finished search; use batch retry for a deposit that never searched");
+        if (manifest is not null && File.Exists(manifest))
+        {
+            string text = File.ReadAllText(manifest);
+            if (text.Contains($"accession: {acc}\n") || text.Contains($"accession: {acc}\r"))
+            {
+                var (s, end) = ManifestEntry.Block(text, acc);
+                if (System.Text.RegularExpressions.Regex.Match(text[s..end], @"(?m)^[ \t]+status:[ \t]*(\S+)") is { Success: true } m && m.Groups[1].Value != "include")
+                    throw new UsageException($"{acc} is '{m.Groups[1].Value}' in {manifest}; include it there first");
+            }
+        }
+        if (!File.Exists(stateFile)) throw new UsageException($"no {stateFile}: the batch has not run");
+        var st = JsonNode.Parse(File.ReadAllText(stateFile))!.AsObject();
+        var ds = st["datasets"]!.AsObject();
+        var old = ds[acc] as JsonObject ?? new JsonObject();
+        string now = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'+00:00'");
+        string stamp = dir + $".superseded-{DateTime.UtcNow:yyyyMMdd'T'HHmmss'Z'}", aside = stamp;
+        for (int k = 2; Directory.Exists(aside) || File.Exists(aside); k++) aside = $"{stamp}-{k}";
+        Directory.Move(dir, aside);
+        var history = old["researched"]?.DeepClone() as JsonArray ?? new JsonArray();
+        var previous = old.DeepClone().AsObject();
+        previous.Remove("researched");
+        history.Add(new JsonObject
+        {
+            ["utc"] = now, ["by"] = Environment.UserName, ["reason"] = reason, ["profile"] = profile,
+            ["previous_status"] = old["status"]?.DeepClone(), ["previous_profile"] = old["profile"]?.DeepClone(),
+            ["previous_bundle_id"] = old["bundle_id"]?.DeepClone(), ["moved_to"] = Path.GetFileName(aside),
+            ["previous_entry"] = previous,
+        });
+        var e = new JsonObject
+        {
+            ["status"] = "requeued_user", ["title"] = old["title"]?.DeepClone(), ["organism"] = old["organism"]?.DeepClone(),
+            ["research_profile"] = profile, ["researched"] = history, ["updated_utc"] = now,
+        };
+        if (old["requeued"] is { } rq) e["requeued"] = rq.DeepClone();
+        ds[acc] = e;
+        string tmp = stateFile + ".tmp";
+        File.WriteAllText(tmp, st.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = Envelope.Json.Encoder }));
+        File.Move(tmp, stateFile, overwrite: true);
+        File.AppendAllText(Path.Combine(stateDir, "batch.log"),
+            $"{now}  {acc} RE-SEARCH requested by {Environment.UserName} (was {old["status"]} under {old["profile"]}; {(profile is null ? "profile as routed" : $"profile {profile}")}); folder moved to {Path.GetFileName(aside)}: {reason}\n");
+        return new { accession = acc, previous_status = old["status"]?.GetValue<string>(), status = "requeued_user", moved_to = aside, profile };
+    }
+
     private double FreeGb() => new DriveInfo(Path.GetPathRoot(Path.GetFullPath(_runRoot))!).AvailableFreeSpace / 1e9;
 
     /// <summary>A status the runner does not spend time on again. Clear the state entry to retry.</summary>
@@ -210,6 +275,11 @@ public sealed class BatchRunner
     {
         if (_q.Holds.ContainsKey(acc)) return "on_hold_user";
         string? s = Entry(acc)?["status"]?.GetValue<string>();
+        // A deposit deferred by a cap, or settled by size, gets ONE more look when the question adds an exception for it:
+        // the exception is recorded on that look, so a deposit that still does not fit settles again (D28).
+        if (s is not null && (s.StartsWith("deferred_", StringComparison.Ordinal) || s == "skipped_selection_empty")
+            && _q.ExceptionFor(acc) is { } ex && Entry(acc)?["exception"]?.GetValue<string>() != ex.Describe())
+            return "";
         return s is not null && (s is "fetch_failed" or "probe_fetch_failed" or "search_failed"
                                  || s.StartsWith("deferred_", StringComparison.Ordinal) || s.StartsWith("skipped_", StringComparison.Ordinal)
                                  || s.StartsWith("excluded_", StringComparison.Ordinal) || s.StartsWith("waiting_", StringComparison.Ordinal))
@@ -269,29 +339,53 @@ public sealed class BatchRunner
     /// <summary>One walk of <paramref name="queue"/>. True when it ran out; false when STOP, the disk floor or cancellation ended it.</summary>
     private async Task<bool> WalkAsync(IReadOnlyList<QueueEntry> queue, CancellationToken ct)
     {
-        int i = 0;
-        (QueueEntry Entry, Profile Profile)? pending = null;
-        while (!ct.IsCancellationRequested)
+        // Up to search_slots searches run at once (the user, 2026-10-07: "start a second search immediately following any
+        // complete download"). The next deposit is screened, probed and fetched while they run (network-bound), and starts
+        // as soon as it is downloaded and a slot is free. With one slot this is the old rhythm: search one, fetch the next.
+        int slots = Math.Max(1, _m.SearchSlots);
+        var running = new List<(Task Task, string Organism)>();
+        var consumed = new HashSet<string>(StringComparer.Ordinal);
+        bool ranOut = false;
+        try
         {
-            if (File.Exists(StopFile)) { Log("STOP file present: finishing"); return false; }
-            if (FreeGb() < _m.MinFreeGb) { Log($"free space {FreeGb():0} GB below {_m.MinFreeGb:0} GB floor: stopping"); return false; }
-            if (pending is null)
+            while (!ct.IsCancellationRequested)
             {
-                (pending, i) = await NextReadyAsync(queue, i, ct).ConfigureAwait(false);
-                if (pending is null) return !ct.IsCancellationRequested && !File.Exists(StopFile);
+                if (File.Exists(StopFile)) { Log($"STOP file present: finishing ({running.Count} search(es) under way finish first)"); break; }
+                if (FreeGb() < _m.MinFreeGb) { Log($"free space {FreeGb():0} GB below {_m.MinFreeGb:0} GB floor: stopping"); break; }
+                var busy = running.Select(r => r.Organism).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var ready = await NextReadyAsync(queue, consumed, busy, ct).ConfigureAwait(false);
+                if (ready is null) { ranOut = !ct.IsCancellationRequested && !File.Exists(StopFile); break; }
+                while (running.Count >= slots)
+                {
+                    var done = await Task.WhenAny(running.Select(r => r.Task)).ConfigureAwait(false);
+                    running.RemoveAll(r => r.Task == done);
+                    await done.ConfigureAwait(false);   // a search that threw ends the driver, as it always did
+                }
+                var (e, profile) = ready.Value;
+                // Task.Run: the search begins with the full-file QC, which is synchronous and must not hold up the next fetch.
+                running.Add((Task.Run(() => SearchSlotAsync(e, profile, ct), CancellationToken.None), e.Organism));
             }
-            var (e, profile) = pending.Value;
-            pending = null;
-            // While this dataset searches (hours), the next one is screened, probed and fetched (network-bound).
-            Searching = e.Accession;
-            var search = SearchAndDeliverAsync(e, profile, ct);
-            var next = NextReadyAsync(queue, i, ct);
-            try { await Task.WhenAll(search, next).ConfigureAwait(false); }
-            finally { Searching = null; }
-            (pending, i) = next.Result;
         }
-        return false;
+        finally
+        {
+            // STOP drains: every search under way finishes and is delivered before the walk ends.
+            await Task.WhenAll(running.Select(r => r.Task)).ConfigureAwait(false);
+        }
+        return ranOut;
     }
+
+    private async Task SearchSlotAsync(QueueEntry e, Profile profile, CancellationToken ct)
+    {
+        SearchStarted(e.Accession);
+        try { await (SearchForTest ?? SearchAndDeliverAsync)(e, profile, ct).ConfigureAwait(false); }
+        finally { SearchEnded(e.Accession); }
+    }
+
+    /// <summary>Tests only: replaces the probe and the whole-deposit fetch (returns the profile, or null to skip).</summary>
+    internal Func<QueueEntry, CancellationToken, Task<Profile?>>? PrepareForTest { get; set; }
+
+    /// <summary>Tests only: replaces the search and its delivery.</summary>
+    internal Func<QueueEntry, Profile, CancellationToken, Task>? SearchForTest { get; set; }
 
     /// <summary>Waits between passes, watching for STOP each minute. False when STOP or cancellation ended the wait.</summary>
     private async Task<bool> WaitAsync(TimeSpan wait, CancellationToken ct)
@@ -343,19 +437,96 @@ public sealed class BatchRunner
         Record(acc, ("status", probe ? "probe_fetch_unavailable" : "fetch_unavailable"), ("detail", why), ("unavailable_passes", used));
     }
 
-    private async Task<((QueueEntry, Profile)? Ready, int Index)> NextReadyAsync(IReadOnlyList<QueueEntry> queue, int i, CancellationToken ct)
+    /// <summary>
+    /// The next deposit ready to search: screened, probed and fully fetched. In queue order, except that a deposit of a
+    /// species no running search has goes first (the user: "just try to alternate species"), because two searches of one
+    /// species cannot both extend its spectral library: the second to finish is refused registration, by design. Every
+    /// <c>catch_up_every</c>-th start is a catch-up re-search instead, when one is due (D39). Null when nothing is left.
+    /// </summary>
+    private async Task<(QueueEntry, Profile)?> NextReadyAsync(IReadOnlyList<QueueEntry> queue, HashSet<string> consumed,
+        IReadOnlySet<string> busy, CancellationToken ct)
     {
-        while (i < queue.Count && !ct.IsCancellationRequested && !File.Exists(StopFile))
+        while (!ct.IsCancellationRequested && !File.Exists(StopFile))
         {
-            var e = queue[i++];
-            if (File.Exists(Path.Combine(Run(e.Accession), "04_search", "provenance.json"))) continue;
-            string settled = Settled(e.Accession);
-            if (settled.Length > 0) { Log($"{e.Accession} skipped: {settled} on a previous pass"); continue; }
+            bool catchUpTurn = _m.CatchUpEvery > 0 && (_started + 1) % _m.CatchUpEvery == 0;
+            var catchUp = catchUpTurn ? CatchUpCandidate(queue, consumed, busy) : null;
+            var e = catchUp ?? PickNext(queue, consumed, busy);
+            if (e is null) return null;
+            consumed.Add(e.Accession);
+            if (catchUp is not null && !StartCatchUp(e)) continue;
             Record(e.Accession, ("status", "probing"), ("title", e.Title), ("organism", e.Organism));
-            var profile = await ProbeAsync(e, ct).ConfigureAwait(false);
-            if (profile is not null && await FetchWholeAsync(e, profile, ct).ConfigureAwait(false)) return ((e, profile), i);
+            Profile? profile;
+            if (PrepareForTest is { } prepare) profile = await prepare(e, ct).ConfigureAwait(false);
+            else
+            {
+                profile = await ProbeAsync(e, ct).ConfigureAwait(false);
+                if (profile is not null && !await FetchWholeAsync(e, profile, ct).ConfigureAwait(false)) profile = null;
+            }
+            if (profile is not null)
+            {
+                _started++;
+                return (e, profile);
+            }
         }
-        return (null, i);
+        return null;
+    }
+
+    /// <summary>The first queued deposit not yet done, preferring one whose species no running search has.</summary>
+    private QueueEntry? PickNext(IReadOnlyList<QueueEntry> queue, HashSet<string> consumed, IReadOnlySet<string> busy)
+    {
+        QueueEntry? first = null;
+        foreach (var x in queue)
+        {
+            if (consumed.Contains(x.Accession)) continue;
+            if (File.Exists(Path.Combine(Run(x.Accession), "04_search", "provenance.json"))) { consumed.Add(x.Accession); continue; }
+            string settled = Settled(x.Accession);
+            if (settled.Length > 0) { Log($"{x.Accession} skipped: {settled} on a previous pass"); consumed.Add(x.Accession); continue; }
+            if (!busy.Contains(x.Organism)) return x;
+            first ??= x;
+        }
+        return first;
+    }
+
+    /// <summary>
+    /// D39's catch-up: a deposit searched under a profile the question no longer names, ordered by gain (the user,
+    /// 2026-10-07): rat first, then a deposit the question now has a curated design for, then the oldest. A species no
+    /// running search has goes first among them. Null when none is due.
+    /// </summary>
+    internal QueueEntry? CatchUpCandidate(IReadOnlyList<QueueEntry> queue, ISet<string> consumed, IReadOnlySet<string> busy)
+    {
+        var picks = new List<(QueueEntry E, int Rank, string When)>();
+        foreach (var (acc, node) in State()["datasets"]!.AsObject())
+        {
+            if (consumed.Contains(acc) || node is not JsonObject o || o["status"]?.GetValue<string>() != "searched") continue;
+            string? had = o["profile"]?.GetValue<string>();
+            if (had is not null && _q.Profiles.Contains(had)) continue;
+            if (!File.Exists(Path.Combine(Run(acc), "04_search", "provenance.json"))) continue;
+            var qe = queue.FirstOrDefault(x => x.Accession == acc)
+                     ?? (o["organism"]?.GetValue<string>() is { } org ? new QueueEntry(acc, o["title"]?.GetValue<string>() ?? "", org) : null);
+            if (qe is null) continue;
+            int rank = qe.Organism.Equals("rat", StringComparison.OrdinalIgnoreCase) ? 0
+                : _q.Designs?.For(acc) is { } design && File.Exists(design) ? 1 : 2;
+            picks.Add((qe, rank, o["updated_utc"]?.GetValue<string>() ?? ""));
+        }
+        return picks.OrderBy(p => busy.Contains(p.E.Organism) ? 1 : 0).ThenBy(p => p.Rank)
+            .ThenBy(p => p.When, StringComparer.Ordinal).Select(p => p.E).FirstOrDefault();
+    }
+
+    /// <summary>Moves a catch-up deposit's earlier search aside, as <c>batch research</c> does. False when refused.</summary>
+    private bool StartCatchUp(QueueEntry e)
+    {
+        try
+        {
+            lock (_gate)
+                Research(_stateDir, _runRoot, e.Accession, $"D39 catch-up re-search (one in {_m.CatchUpEvery})", null, _q.Publish?.Manifest, byDriver: true);
+            Log($"{e.Accession} RE-SEARCH (catch-up, one in {_m.CatchUpEvery}): earlier search moved aside");
+            return true;
+        }
+        catch (UsageException ex)
+        {
+            Log($"{e.Accession} catch-up refused: {ex.Message}");
+            return false;
+        }
     }
 
     /// <summary>
@@ -381,6 +552,10 @@ public sealed class BatchRunner
 
         var acq = AcquisitionClassifier.Classify(rec.Record);
         var route = Router.Assign(acc, acq, new RelevanceResult(RelevanceVerdict.DecidedInclude, "queued"), _q, _profiles);
+        // D30/D32: what experiment this is, fact by fact with sources, written at every exit of this stage.
+        var xr = new ExperimentRecord(acc);
+        xr.Species(e.Organism, "queue (the census reads it from the PRIDE project record)");
+        xr.Screen(acq);
         if (acq.Enrichment != "none")
         {
             // Searched, and ANNOTATED: an enrichment is not a whole proteome, and its intensities must never be pooled as one.
@@ -396,14 +571,23 @@ public sealed class BatchRunner
             };
             Log($"{acc} SCREENED OUT ({status}): {route.Reason}");
             Record(acc, ("status", status), ("screen_evidence", acq.Evidence), ("route", route.Reason));
+            Experiment(acc, xr, status, route.Reason);
             return null;
         }
         var profile = _profiles[route.Profile!];
+        // batch research --profile: the profile asked for, when the question still names it and it takes this deposit.
+        if (Entry(acc)?["research_profile"]?.GetValue<string>() is { } asked && asked != profile.Key)
+        {
+            string? refusal = !_q.Profiles.Contains(asked) || !_profiles.TryGetValue(asked, out var p) ? "the question no longer names it" : p.Accepts.Refusal(acq);
+            if (refusal is null) { profile = _profiles[asked]; Log($"{acc} RE-SEARCH under {asked} (routing chose {route.Profile})"); }
+            else Log($"{acc} RE-SEARCH asked for {asked}, which cannot take it ({refusal}); searching under {profile.Key} as routed");
+        }
         Record(acc, ("profile", profile.Key));
         if (!profile.Databases.ContainsKey(e.Organism))
         {
             Log($"{acc} SKIPPED: {profile.Key} has no database for organism '{e.Organism}'");
             Record(acc, ("status", "skipped_organism"));
+            Experiment(acc, xr, "skipped_organism", $"{profile.Key} has no database for '{e.Organism}'");
             return null;
         }
         // A UniProt database is downloaded (once) before any PRIDE download, so an outage costs nothing and is retried.
@@ -424,19 +608,39 @@ public sealed class BatchRunner
         try { all = await _files.ListFilesAsync(acc, ct).ConfigureAwait(false); }
         catch (Exception ex) when (FetchStage.IsTransient(ex)) { Log($"{acc} size listing failed ({ex.Message}); retry next pass"); return null; }
         listing = all.Where(f => f.FileName.EndsWith(".raw", StringComparison.OrdinalIgnoreCase)).ToList();
+        // D28 (D-2): the question's exception for this deposit, if any: its own caps and its own choice of runs.
+        var exception = _q.ExceptionFor(acc);
+        if (exception is not null)
+        {
+            int before = listing.Count;
+            if (exception.SelectsFiles) listing = listing.Where(f => exception.Keeps(f.FileName)).ToList();
+            Log($"{acc} EXCEPTION (question): {exception.Describe()}" + (exception.SelectsFiles ? $"; {listing.Count} of {before} raw files selected" : ""));
+            Record(acc, ("exception", exception.Describe()));
+            if (listing.Count == 0)
+            {
+                Log($"{acc} SKIPPED: the question's file selection keeps no raw file");
+                Record(acc, ("status", "skipped_selection_empty"));
+                Experiment(acc, xr, "skipped_selection_empty", exception.Describe());
+                return null;
+            }
+        }
 
         // G19: a profile that searches with the deposit's own chemistry reads it before any download, and a deposit it cannot
         // search as read (two proteases with no per-file map, an unknown protease or modification, a label) waits.
+        DepositChemistry? chemistry = null;
         if (profile.Chemistry == "deposit")
         {
             DepositChemistry chem;
-            try { chem = await ChemistryAsync(acc, all, listing.Select(f => f.FileName).ToList(), ct).ConfigureAwait(false); }
+            try { chem = await ChemistryAsync(acc, all, listing.Select(f => f.FileName).ToList(), profile, ct).ConfigureAwait(false); }
             catch (Exception ex) when (Envelope.IsUnavailable(ex) || FetchStage.IsTransient(ex)) { Log($"{acc} chemistry: PRIDE unavailable ({ex.Message}); retry next pass"); return null; }
+            xr.Chemistry(chem);
+            chemistry = chem;
             string? wait = chem.Park ?? (chem.Label.Value == "label_free" ? null : $"waiting_{Slug(chem.Label.Value)}_labelling");
             if (wait is not null)
             {
                 Log($"{acc} SCREENED OUT ({wait}): chemistry {Describe(chem)}");
                 Record(acc, ("status", wait), ("detail", Describe(chem)));
+                Experiment(acc, xr, wait, Describe(chem));
                 return null;
             }
             Log($"{acc} chemistry: {Describe(chem)}");
@@ -444,27 +648,29 @@ public sealed class BatchRunner
 
         // The same raw files already searched under another accession: refused before any download (PXR-A9).
         // The deposit being searched counts too: it is fetched in full, and the next one is screened alongside it (PXR-A21).
-        string? searching = Searching;
+        var searching = Searching;
         var dup = DuplicateScreen.Check(acc, listing.Select(f => (f.FileName, f.FileSizeBytes)).ToList(),
-            DuplicateScreen.Index(DuplicateRoots(), searching is null ? null : new[] { Run(searching) }));
-        string When(string other) => other == searching ? "being searched now" : "already searched";
+            DuplicateScreen.Index(DuplicateRoots(), searching.Count == 0 ? null : searching.Select(Run).ToArray()));
+        string When(string other) => searching.Contains(other) ? "being searched now" : "already searched";
         if (dup.DuplicateOf is { } original)
         {
             Log($"{acc} SCREENED OUT (excluded_duplicate): all {listing.Count} raw files (name and size) are in {original}, {When(original)}");
             Record(acc, ("status", "excluded_duplicate"), ("duplicate_of", original));
+            Experiment(acc, xr, "excluded_duplicate", $"all {listing.Count} raw files are in {original}");
             return null;
         }
         foreach (var (other, shared) in dup.Partial)
             Log($"{acc} shares {shared} of {listing.Count} raw files (name and size) with {other}, {When(other)}; not a duplicate, continuing");
 
         var sizes = listing.Select(f => f.FileSizeBytes / 1e6).OrderBy(x => x).ToList();
-        var dep = profile.Deposit;
+        var dep = DepositFor(acc, profile);
         var oversize = sizes.Where(s => s > dep.MaxFileMb).ToList();
         if (sizes.Count > dep.MaxFiles || oversize.Count > 0)
         {
             string why = sizes.Count > dep.MaxFiles ? $"{sizes.Count} raw files > {dep.MaxFiles}" : $"{oversize.Count} file(s) above {dep.MaxFileMb} MB";
             Log($"{acc} DEFERRED: {why}. A subset would be a design decision made by file size (S43); it waits for SDRF -> experimental-design selection.");
             Record(acc, ("status", "deferred_needs_design_selection"), ("n_files", sizes.Count), ("total_gb", Math.Round(sizes.Sum() / 1000, 1)), ("detail", why));
+            Experiment(acc, xr, "deferred_needs_design_selection", why);
             return null;
         }
         if (sizes.Count > 0 && dep.DeferIfMedianFileMb > 0 && sizes[sizes.Count / 2] > dep.DeferIfMedianFileMb)
@@ -472,6 +678,7 @@ public sealed class BatchRunner
             double med = sizes[sizes.Count / 2];
             Log($"{acc} DEFERRED: median file {med:0} MB > {dep.DeferIfMedianFileMb} MB ({sizes.Count} files, {sizes.Sum() / 1000:0.0} GB). EBI drops these mid-transfer and a retry re-pays from zero (S40).");
             Record(acc, ("status", "deferred_large_files"), ("median_file_mb", Math.Round(med)), ("n_files", sizes.Count));
+            Experiment(acc, xr, "deferred_large_files", $"median file {med:0} MB");
             return null;
         }
 
@@ -487,15 +694,36 @@ public sealed class BatchRunner
             return null;
         }
         var (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate);
-        if (RoutedByReporters(acc, report, "PROBE")) return null;
+        xr.Probe(report);
+        if (RoutedByReporters(acc, report, "PROBE"))
+        {
+            string status = Entry(acc)?["status"]?.GetValue<string>() ?? "isobaric";
+            Experiment(acc, xr, status, "isobaric reporter ions in the probe files' own spectra");
+            return null;
+        }
         var excl = QcExclusion(report, profile.Qc);
         bool ok = allPass || excl is { Count: > 0 };
+        // MS2 read in the ion trap: a question that names a low-res profile (no Orbitrap-HCD gate, per-file fragmentation)
+        // searches it there instead of skipping it (the user, 2026-10-07: "Do whatever you can"). The screen never routes to
+        // that profile directly; only the spectra can.
+        if (!ok && OnlyLowRes(report, profile.Qc) && LowResProfile(acq, profile) is { } low)
+        {
+            Log($"{acc} PROBE qc: MS2 not read in the Orbitrap (low_res_ms2); routing to {low.Key}");
+            profile = low;
+            Record(acc, ("profile", profile.Key), ("routed_low_res", true));
+            (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate);
+            xr.Probe(report);
+            excl = QcExclusion(report, profile.Qc);
+            ok = allPass || excl is { Count: > 0 };
+        }
         if (!allPass && ok) Log($"{acc} PROBE qc: {string.Join(", ", excl!)} fail only on excludable reasons; continuing (decided at full QC)");
         Log($"{acc} PROBE qc {(ok ? "ok" : "FAILED")} " + string.Join("; ", report.Take(4).Select(kv =>
             $"{kv.Key}: hcd={kv.Value!["fraction_orbitrap_hcd"]} ms2={kv.Value["ms2"]} min={kv.Value["run_minutes"]}")));
         if (!ok)
         {
             Record(acc, ("status", "skipped_acquisition"), ("detail", Reasons(report)));
+            bool fragmentation = report.Any(kv => kv.Value!["fail_reasons"]?.AsArray().Any(r => r?.GetValue<string>() == Qc.SpectraQc.UnsupportedFragmentation) == true);
+            Experiment(acc, xr, "skipped_acquisition", Reasons(report), fragmentation ? Qc.SpectraQc.UnsupportedFragmentation : null);
             return null;
         }
         var ms2 = report.Select(kv => kv.Value!["ms2"]!.GetValue<int>()).Where(x => x > 0).ToList();
@@ -506,10 +734,100 @@ public sealed class BatchRunner
             {
                 Log($"{acc} DEFERRED: estimated {est / 1e6:0.00}M MS2 ({sizes.Count} files x {ms2.Average():N0}) > {dep.MaxEstimatedMs2 / 1e6:0.0}M.");
                 Record(acc, ("status", "deferred_search_too_large"), ("est_ms2", Math.Round(est)), ("n_files", sizes.Count));
+                Experiment(acc, xr, "deferred_search_too_large", $"estimated {est / 1e6:0.00}M MS2");
                 return null;
             }
         }
+        if (profile.ProbeSearch && !await ProbeSearchAsync(e, profile, acq, chemistry, report, xr, ct).ConfigureAwait(false))
+            return null;
+        Experiment(acc, xr, "probed", $"to be searched under {profile.Key}");
         return profile;
+    }
+
+    /// <summary>
+    /// True when the files fail on <c>low_res_ms2</c> and on nothing else that the gates do not already allow (an
+    /// excludable reason such as one blank run). A file that is unreadable or has too few MS2 stays a skip.
+    /// </summary>
+    internal static bool OnlyLowRes(JsonObject report, QcGates gates)
+    {
+        var reasons = report.SelectMany(kv => kv.Value!["fail_reasons"]?.AsArray().Select(r => r!.GetValue<string>()) ?? Enumerable.Empty<string>()).ToList();
+        return reasons.Contains(Qc.SpectraQc.LowResMs2)
+            && reasons.All(r => r == Qc.SpectraQc.LowResMs2 || gates.Excludable.Contains(r));
+    }
+
+    /// <summary>The question's low-res profile for this deposit: available, after <paramref name="current"/> in the
+    /// question's order, without the Orbitrap-HCD gate, writing fragmentation per file, and accepting the deposit.</summary>
+    internal Profile? LowResProfile(Acquisition acq, Profile current) =>
+        _q.Profiles.SkipWhile(k => k != current.Key).Skip(1)
+            .Select(k => _profiles.TryGetValue(k, out var p) ? p : null)
+            .FirstOrDefault(p => p is { Status: ProfileStatus.Available, Fragmentation: "per_file" } && p.Qc.MinFractionOrbitrapHcd == 0
+                                 && p.Accepts.Refusal(acq) is null);
+
+    /// <summary>The probe search, for tests: (profile, machine, spectra, chemistry, fragmentation, outDir) -> AllPSMs.psmtsv.</summary>
+    internal Func<Profile, Machine, IReadOnlyList<string>, DepositChemistry?, IReadOnlyDictionary<string, Qc.FragmentationCall>?, string, CancellationToken, Task<string>>
+        ProbeSearchRunner { get; init; } = Search.ProbeSearch.RunAsync;
+
+    /// <summary>
+    /// D32/D34/D35 slice 3: a short search of the probe files measures each run's species, cysteine share and phospho/GG
+    /// share. A measurement that contradicts the record parks the deposit and is announced; a measured enrichment is
+    /// recorded beside the screen's. False when the deposit stops here.
+    /// </summary>
+    private async Task<bool> ProbeSearchAsync(QueueEntry e, Profile profile, Acquisition acq, DepositChemistry? chemistry,
+        JsonObject probeQc, ExperimentRecord xr, CancellationToken ct)
+    {
+        string acc = e.Accession, d = Run(acc);
+        var spectra = Directory.EnumerateFiles(Path.Combine(d, "02_fetch", "spectra"), "*.raw")
+            .OrderBy(f => Path.GetFileName(f), StringComparer.Ordinal).ToList();
+        IReadOnlyDictionary<string, Qc.RunMeasures> runs;
+        try
+        {
+            var fragmentation = Search.SearchStage.FragmentationFromQc(probeQc, spectra, profile);
+            string psms = await ProbeSearchRunner(profile, _m, spectra, chemistry, fragmentation, Path.Combine(d, "02c_probe_search"), ct).ConfigureAwait(false);
+            runs = Qc.ProbeMeasures.FromAllPsms(psms);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            Log($"{acc} PROBE SEARCH FAILED ({ex.GetType().Name}): {ex.Message}");
+            Record(acc, ("status", "probe_search_failed"), ("detail", ex.Message));
+            Experiment(acc, xr, "probe_search_failed", ex.Message);
+            return false;
+        }
+        xr.ProbeSearch(runs);
+        bool expectCarbamidomethyl = chemistry is null || chemistry.CysMods.Any(c => c.Name == "Carbamidomethyl" && c.Fixed);
+        var verdict = Qc.ProbeJudge.Judge(runs, Qc.ProbeJudge.SpeciesName(e.Organism), expectCarbamidomethyl, acq.Enrichment != "none");
+        foreach (string note in verdict.Notes) Log($"{acc} PROBE SEARCH: {note}");
+        Log($"{acc} PROBE SEARCH " + string.Join("; ", runs.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv =>
+            $"{kv.Key}: psms={kv.Value.Psms} species={string.Join("/", kv.Value.SpeciesPsms.OrderByDescending(s => s.Value).Select(s => $"{s.Key}:{s.Value}"))} cys={kv.Value.CysteineShare:P1}")));
+        if (verdict.MeasuredEnrichment is { } measured)
+        {
+            // D34: measured beside the screen's call, never overwriting it here; the record says both.
+            xr.Fact("enrichment_measured", measured, "probe_search", string.Join("; ", verdict.Notes.Where(n => n.StartsWith("measured", StringComparison.Ordinal))));
+            Record(acc, ("enrichment_measured", measured));
+        }
+        if (verdict.Parks.Count == 0) return true;
+        foreach (var extra in verdict.Parks.Skip(1)) DecisionsNeeded.Announce(_runRoot, acc, extra.Park, extra.Evidence);
+        var first = verdict.Parks[0];
+        Log($"{acc} PROBE SEARCH PARKS ({first.Park}): {first.Evidence}");
+        Record(acc, ("status", first.Park), ("detail", first.Evidence));
+        Experiment(acc, xr, first.Park, first.Evidence);
+        return false;
+    }
+
+    /// <summary>
+    /// D30/D32/D34: writes the deposit's experiment record and notes, and announces a park that needs a person
+    /// (<see cref="DecisionsNeeded"/>; <paramref name="park"/> overrides <paramref name="outcome"/> as the park's name).
+    /// Never fails the batch: a record that cannot be written is logged.
+    /// </summary>
+    private void Experiment(string acc, ExperimentRecord xr, string outcome, string? detail, string? park = null)
+    {
+        try
+        {
+            var decision = DecisionsNeeded.Announce(_runRoot, acc, park ?? outcome, detail);
+            if (decision is not null) Log($"{acc} DECISION NEEDED ({park ?? outcome}): {decision.Question} Listed in {DecisionsNeeded.FileName}.");
+            xr.Write(Run(acc), outcome, detail, decision);
+        }
+        catch (IOException ex) { Log($"{acc} experiment record not written: {ex.Message}"); }
+        catch (UnauthorizedAccessException ex) { Log($"{acc} experiment record not written: {ex.Message}"); }
     }
 
     /// <summary>The whole deposit, or nothing: anything short of every listed file is a failure that says what it got (S43).</summary>
@@ -519,7 +837,7 @@ public sealed class BatchRunner
         JsonObject manifest;
         try
         {
-            manifest = await FetchStage.RunAsync(FetchRequestFor(acc, Pick.All, profile.Deposit), _files, ct, m => Log($"{acc} FETCH {m}")).ConfigureAwait(false);
+            manifest = await FetchStage.RunAsync(FetchRequestFor(acc, Pick.All, DepositFor(acc, profile)), _files, ct, m => Log($"{acc} FETCH {m}")).ConfigureAwait(false);
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
@@ -569,7 +887,7 @@ public sealed class BatchRunner
             try
             {
                 var all = await _files.ListFilesAsync(acc, ct).ConfigureAwait(false);
-                chemistry = await ChemistryAsync(acc, all, all.Where(f => f.FileName.EndsWith(".raw", StringComparison.OrdinalIgnoreCase)).Select(f => f.FileName).ToList(), ct).ConfigureAwait(false);
+                chemistry = await ChemistryAsync(acc, all, all.Where(f => f.FileName.EndsWith(".raw", StringComparison.OrdinalIgnoreCase)).Select(f => f.FileName).ToList(), profile, ct).ConfigureAwait(false);
             }
             catch (Exception ex) when (Envelope.IsUnavailable(ex) || FetchStage.IsTransient(ex))
             {
@@ -694,7 +1012,18 @@ public sealed class BatchRunner
 
     // ------------------------------------------------------------------ delivery
 
+    private readonly SemaphoreSlim _delivering = new(1, 1);
+
+    /// <summary>One delivery at a time: two searches may finish together, and the manifest, the store and the publish
+    /// script are shared.</summary>
     private async Task DeliverAsync(QueueEntry e, Profile profile, CancellationToken ct)
+    {
+        await _delivering.WaitAsync(ct).ConfigureAwait(false);
+        try { await DeliverOneAsync(e, profile, ct).ConfigureAwait(false); }
+        finally { _delivering.Release(); }
+    }
+
+    private async Task DeliverOneAsync(QueueEntry e, Profile profile, CancellationToken ct)
     {
         if (_q.Publish?.Manifest is not { } manifest) return;
         try
@@ -715,26 +1044,63 @@ public sealed class BatchRunner
         if (_ingestJson)
         {
             // datarepo 1.0+: one JSON envelope on stdout, the human report on stderr (dataRepo 010/014, our 011).
-            var (exit, stdout, stderr) = await RunProcessFullAsync(new[] { _m.DataRepo, "ingest", manifest, e.Accession, "--json" }, TimeSpan.FromHours(3), ct).ConfigureAwait(false);
+            var argv = new[] { _m.DataRepo, "ingest", manifest, e.Accession, "--json" };
+            var (exit, stdout, stderr) = await RunProcessFullAsync(argv, TimeSpan.FromHours(3), ct).ConfigureAwait(false);
+            string full = KeepOutput(OutputDir, e.Accession, "ingest", argv, exit, stdout, stderr, DateTime.UtcNow);
             var o = IngestEnvelope.Read(stdout, e.Accession, exit);
             rc = o.Rc;
             string report = Tail(stderr);
             Log($"{e.Accession} INGEST rc={rc} status={o.Status ?? "?"}{(o.BundleId is null ? "" : $" bundle={o.BundleId}")}{(o.Mismatches is > 0 ? $" mismatches={o.Mismatches}" : "")}"
-                + (o.Reasons.Count > 0 ? $" reasons: {string.Join(" | ", o.Reasons)}" : "") + $"\n{report}");
+                + (o.Reasons.Count > 0 ? $" reasons: {string.Join(" | ", o.Reasons)}" : "") + $" (full output {full})\n{report}");
             Record(e.Accession, ("ingest_rc", rc), ("ingest_exit_code", exit), ("ingest_status", o.Status), ("bundle_id", o.BundleId),
-                ("ingest_reasons", new JsonArray(o.Reasons.Select(r => (JsonNode?)r).ToArray())), ("ingest_out", report));
+                ("ingest_reasons", new JsonArray(o.Reasons.Select(r => (JsonNode?)r).ToArray())), ("ingest_out", report), ("ingest_log", full));
         }
         else
         {
-            (rc, string tail) = await RunProcessAsync(new[] { _m.DataRepo, "ingest", manifest, e.Accession }, TimeSpan.FromHours(3), ct).ConfigureAwait(false);
-            Log($"{e.Accession} INGEST rc={rc}\n{tail}");
-            Record(e.Accession, ("ingest_rc", rc), ("ingest_out", tail));
+            var argv = new[] { _m.DataRepo, "ingest", manifest, e.Accession };
+            var (exit, stdout, stderr) = await RunProcessFullAsync(argv, TimeSpan.FromHours(3), ct).ConfigureAwait(false);
+            string full = KeepOutput(OutputDir, e.Accession, "ingest", argv, exit, stdout, stderr, DateTime.UtcNow);
+            rc = exit;
+            string tail = Tail((stdout + stderr).Trim());
+            Log($"{e.Accession} INGEST rc={rc} (full output {full})\n{tail}");
+            Record(e.Accession, ("ingest_rc", rc), ("ingest_out", tail), ("ingest_log", full));
         }
         if (rc != 0 || _q.Publish.Command.Count == 0) return;
         // A failed publish is logged, never fatal: the bundle exists, and a stale site is a warning, not a reason to stop.
-        var (prc, ptail) = await RunProcessAsync(PublishArgv(_q.Publish.Command, manifest, _m.DataRepo), TimeSpan.FromHours(1), ct).ConfigureAwait(false);
-        Log($"{e.Accession} PUBLISH rc={prc}\n{ptail}");
-        Record(e.Accession, ("publish_rc", prc), ("publish_out", ptail));
+        // G38 (promised to dataRepo, our 032): the whole output goes to a file; batch.log and state keep only the tail.
+        var pargv = PublishArgv(_q.Publish.Command, manifest, _m.DataRepo);
+        var (prc, pout, perr) = await RunProcessFullAsync(pargv, TimeSpan.FromHours(1), ct).ConfigureAwait(false);
+        string pfull = KeepOutput(OutputDir, e.Accession, "publish", pargv, prc, pout, perr, DateTime.UtcNow);
+        string ptail = Tail((pout + perr).Trim());
+        Log($"{e.Accession} PUBLISH rc={prc} (full output {pfull})\n{ptail}");
+        Record(e.Accession, ("publish_rc", prc), ("publish_out", ptail), ("publish_log", pfull));
+    }
+
+    /// <summary>Where each ingest's and publish's whole output is kept (G38).</summary>
+    private string OutputDir => Path.Combine(_stateDir, "outputs");
+
+    /// <summary>
+    /// G38: writes a step's whole stdout and stderr, never cut, to <c>&lt;dir&gt;/&lt;accession&gt;_&lt;step&gt;_&lt;utc&gt;.log</c>
+    /// and returns the path. batch.log and state.json keep only the tail, which loses a .NET exception's type and message
+    /// (PXR-R14). A file that cannot be written is reported in the returned text, never thrown: the step itself succeeded.
+    /// </summary>
+    internal static string KeepOutput(string dir, string accession, string step, IReadOnlyList<string> argv, int rc,
+        string stdout, string stderr, DateTime utc)
+    {
+        string path = Path.Combine(dir, $"{accession}_{step}_{utc:yyyyMMdd'T'HHmmss'Z'}.log");
+        try
+        {
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(path,
+                $"# {step} of {accession}, finished {utc:yyyy-MM-dd'T'HH:mm:ss'Z'}, exit code {rc}\n" +
+                $"# command: {string.Join(" ", argv.Select(a => a.Contains(' ') ? $"\"{a}\"" : a))}\n" +
+                $"## stdout\n{stdout}\n## stderr\n{stderr}\n");
+            return path;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return $"(not kept: {ex.Message})";
+        }
     }
 
     /// <summary>
@@ -744,12 +1110,6 @@ public sealed class BatchRunner
     internal static List<string> PublishArgv(IReadOnlyList<string> command, string manifest, string datarepo) =>
         command.Select(c => c.Replace("{manifest_dir}", Path.GetDirectoryName(Path.GetFullPath(manifest))!.Replace('\\', '/'))
                              .Replace("{manifest}", manifest).Replace("{datarepo}", datarepo)).ToList();
-
-    private static async Task<(int Rc, string Tail)> RunProcessAsync(IReadOnlyList<string> argv, TimeSpan timeout, CancellationToken ct)
-    {
-        var (rc, stdout, stderr) = await RunProcessFullAsync(argv, timeout, ct).ConfigureAwait(false);
-        return (rc, Tail((stdout + stderr).Trim()));
-    }
 
     private static string Tail(string s) => (s = s.Trim()).Length > 1200 ? s[^1200..] : s;
 
@@ -831,7 +1191,7 @@ public sealed class BatchRunner
     /// cached for the search, and read again if a restart lost the cache.
     /// </summary>
     private async Task<DepositChemistry> ChemistryAsync(string acc, IReadOnlyList<UsefulProteomicsDatabases.PrideArchiveFile> all,
-        IReadOnlyList<string> rawFiles, CancellationToken ct)
+        IReadOnlyList<string> rawFiles, Profile profile, CancellationToken ct)
     {
         string dir = Path.Combine(Run(acc), "01_chemistry");
         Directory.CreateDirectory(dir);
@@ -846,7 +1206,8 @@ public sealed class BatchRunner
             deposited = new Readers.SdrfDocument(path);
         }
         if (_q.Designs?.For(acc) is { } c && File.Exists(c)) curated = new Readers.SdrfDocument(c);
-        var chem = ChemistryDetector.Detect(project, curated, deposited, rawFiles);
+        // G40: a profile that ships a modification for a thiol reagent (NBF-Cl) searches such a deposit instead of parking it.
+        var chem = ChemistryDetector.Detect(project, curated, deposited, rawFiles, profile.ThiolReagents);
         var json = Search.SearchStage.Chemistry(chem);
         json["sdrf_file"] = sdrf?.FileName;
         json["curated_sdrf"] = curated is not null;
@@ -933,7 +1294,16 @@ public sealed class BatchRunner
     private FetchRequest FetchRequestFor(string acc, Pick pick, DepositPolicy dep) =>
         new(acc, Path.Combine(Run(acc), "02_fetch"), pick, pick == Pick.All ? dep.MaxFiles : 1, dep.MaxFileMb, ".raw",
             _m.ParallelDownloads, _m.FetchAttempts, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(60), _m.WorkRoot,
-            TimeSpan.FromMinutes(_m.FetchStallMinutes));
+            TimeSpan.FromMinutes(_m.FetchStallMinutes),
+            _q.ExceptionFor(acc) is { SelectsFiles: true } ex ? new FileSelection(ex.Keeps, ex.Describe()) : null,
+            Sha1Source ?? Integrity.PrideChecksumsAsync,
+            _m.AsperaAscp is { } ascp ? new AsperaClient(ascp, _m.AsperaKey!, StartGap: TimeSpan.FromSeconds(10)) : null);
+
+    /// <summary>Where a fetch gets PRIDE's SHA-1s; tests replace it (null in production means PRIDE's v3 file list).</summary>
+    internal Func<string, CancellationToken, Task<IReadOnlyDictionary<string, string>>>? Sha1Source { get; set; }
+
+    /// <summary>The profile's deposit caps, with the question's exception for this deposit applied (D28).</summary>
+    private DepositPolicy DepositFor(string acc, Profile profile) => _q.ExceptionFor(acc)?.Apply(profile.Deposit) ?? profile.Deposit;
 
     private string ParamsFile(string acc, Profile profile)
     {

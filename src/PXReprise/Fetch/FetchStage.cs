@@ -22,8 +22,25 @@ public sealed class PrideFiles(PrideArchiveClient client) : IPrideFiles
     public Task<List<PrideArchiveFile>> ListFilesAsync(string accession, CancellationToken ct) =>
         client.GetProjectFilesAsync(accession, cancellationToken: ct);
 
-    public async Task<List<string>> ListFtpNamesAsync(string accession, CancellationToken ct) =>
-        (await client.GetProjectFilesFromFtpAsync(accession, ct).ConfigureAwait(false)).Select(f => Path.GetFileName(f.RelativePath)).ToList();
+    public async Task<List<string>> ListFtpNamesAsync(string accession, CancellationToken ct)
+    {
+        try
+        {
+            return (await client.GetProjectFilesFromFtpAsync(accession, ct).ConfigureAwait(false)).Select(f => Path.GetFileName(f.RelativePath)).ToList();
+        }
+        catch (HttpRequestException e) when (IsEmptyFtpRoot(e))
+        {
+            return new List<string>();   // the caller's empty-listing retry (S52) decides, as it did on mzLib 1.0.593
+        }
+    }
+
+    /// <summary>
+    /// mzLib 1.0.594 (#1412) throws, after its own retries, where 1.0.593 returned an empty list: "PRIDE FTP listing of
+    /// project X's root directory came back empty although the project exists". It carries no status code and no inner
+    /// exception, so it is neither unavailability nor a transient status; pride 005 (PXR-S1) names the two marks.
+    /// </summary>
+    public static bool IsEmptyFtpRoot(HttpRequestException e) =>
+        e.StatusCode is null && e.InnerException is null && e.Message.Contains("came back empty", StringComparison.Ordinal);
 
     /// <summary>overwrite=false: a complete file is skipped, so re-running a fetch is cheap.</summary>
     public Task<string> DownloadAsync(PrideArchiveFile file, string dir, CancellationToken ct) =>
@@ -35,15 +52,25 @@ public enum Pick { All, ProbeSpread, MedianSize, FirstByName }
 /// <param name="StallAfter">A download whose <c>.partial</c> file has not grown for this long is abandoned and retried
 /// (zero turns the watch off). mzLib has its own 2-minute body stall guard; this one also covers a read that never
 /// answers its cancellation (a first-run on 2026-10-03 sat 6 h on two frozen <c>.partial</c> files).</param>
+/// <param name="Select">The question's own choice of raw files (an <c>[exceptions]</c> entry, D28), with its reason; null
+/// takes every raw file. It is applied before any other rule and is always recorded.</param>
 public sealed record FetchRequest(string Accession, string OutDir, Pick Pick, int MaxFiles, int MaxFileMb, string Extension,
     int ParallelDownloads, int MaxAttempts, TimeSpan Backoff, TimeSpan ListingBackoff, string WorkRoot,
-    TimeSpan StallAfter = default);
+    TimeSpan StallAfter = default, FileSelection? Select = null,
+    [property: System.Text.Json.Serialization.JsonIgnore] Func<string, CancellationToken, Task<IReadOnlyDictionary<string, string>>>? Sha1Source = null,
+    AsperaClient? Aspera = null);
+
+/// <summary>Which raw files of a deposit a question searches, and why (<c>[exceptions]</c>, PXReprise D28).</summary>
+public sealed record FileSelection([property: System.Text.Json.Serialization.JsonIgnore] Func<string, bool> Keeps, string Reason);
 
 /// <summary>
 /// One accession's raw files (and SDRF, if deposited), with the engine's retry policy. mzLib's client never retries
 /// by design; the caller owns the policy (aging fetch.py, S33/S52): transport failures and the HTTP statuses EBI has
-/// returned transiently (403, 408, 429, 5xx) are retried; anything else fails at once. A retry is not a resume: a
-/// transfer that dies at 90% pays for the whole file again until PRIDE's client resumes (pride REQ-PRIDE-1).
+/// returned transiently (403, 408, 429, 5xx) are retried; anything else fails at once. Since mzLib 1.0.594 (#1412) the
+/// client itself retries each call 3 times and RESUMES a broken download from its <c>.partial</c> (plus
+/// <c>.partial.validator</c>, both left in the spectra folder on purpose), so our attempts sit on top of its own. Keep
+/// <c>fetch_stall_minutes</c> at 5 or more: a cancellation deletes the <c>.partial</c>, and mzLib's own recovery can be
+/// silent for up to 3 minutes (pride 005, PXR-S2).
 /// </summary>
 public static class FetchStage
 {
@@ -51,6 +78,8 @@ public static class FetchStage
 
     public static bool IsTransient(Exception e) =>
         Envelope.IsUnavailable(e) || (e is HttpRequestException && TransientStatus.IsMatch(e.Message));
+
+    private static bool IsSdrf(string name) => name.Contains("sdrf", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Up to three probe files: the median by size, and the first and last by name. One median file cannot see a
@@ -108,12 +137,25 @@ public static class FetchStage
         string ext = r.Extension.ToLowerInvariant();
         var raws = rest.Where(f => f.FileName.ToLowerInvariant().EndsWith(ext, StringComparison.Ordinal)).ToList();
         var ftpRaw = ftp.Where(n => n.ToLowerInvariant().EndsWith(ext, StringComparison.Ordinal)).ToHashSet(StringComparer.Ordinal);
+        int nDeposit = raws.Count;
+        if (r.Select is { } sel)
+        {
+            // The question's choice of runs (D28): a design decision it states, never one made here by size (S43).
+            raws = raws.Where(f => sel.Keeps(f.FileName)).ToList();
+            ftpRaw = ftpRaw.Where(sel.Keeps).ToHashSet(StringComparer.Ordinal);
+            prov.Set("question_file_selection", new JsonObject { ["reason"] = sel.Reason, ["selected"] = raws.Count, ["of"] = nDeposit });
+            flags.Add($"subset_by_question: {raws.Count} of {nDeposit} raw files, chosen by the question ({sel.Reason})");
+        }
         var missingFromRest = ftpRaw.Except(raws.Select(f => f.FileName)).OrderBy(n => n, StringComparer.Ordinal).ToList();
         int nListed = raws.Count;
         raws = raws.Where(f => f.FileSizeBytes <= (long)r.MaxFileMb * 1_000_000).ToList();
         int nOversize = nListed - raws.Count;
         var chosen = Choose(raws, r.Pick, r.MaxFiles);
-        var sdrfs = rest.Where(f => f.FileName.Contains("sdrf", StringComparison.OrdinalIgnoreCase)).ToList();
+        var sdrfs = rest.Where(f => IsSdrf(f.FileName)).ToList();
+        // PRIDE's REST list can miss submitted files that the FTP tree holds (pride 007, PXR-S8). An SDRF there is
+        // flagged, as a missing raw is; fetching it waits for pride's SDRF verb, which reads both lists.
+        var sdrfFtpOnly = ftp.Where(IsSdrf).Except(sdrfs.Select(f => f.FileName), StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
+        if (sdrfFtpOnly.Count > 0) flags.Add($"sdrf_ftp_only: {string.Join(", ", sdrfFtpOnly)} (in the FTP tree, not in PRIDE's file list; not fetched)");
         prov.Set("raw_files_listed", (JsonNode)nListed);
         prov.Set("raw_files_chosen", (JsonNode)chosen.Count);
         // A subset of a deposit is a design decision; it is allowed (a probe needs few files) but never silent (S43).
@@ -126,6 +168,10 @@ public static class FetchStage
         prov.Command(new[] { "mzLib.PrideArchiveClient.DownloadFileAsync" }.Concat(chosen.Concat(sdrfs).Select(f => f.FileName)).Append("overwrite=False"));
         var results = new (string Path, double Seconds, int Attempts)[chosen.Count];
         int done = 0;
+        // 2026-10-08: every raw file is checked against PRIDE's SHA-1 where PRIDE gives one, and always for EBI's own error
+        // response written into the data (Integrity); a file that fails is deleted and fetched again.
+        var sha1 = r.Sha1Source is null ? new Dictionary<string, string>() : await r.Sha1Source(r.Accession, ct).ConfigureAwait(false);
+        prov.Set("pride_sha1_known", (JsonNode)chosen.Count(f => sha1.ContainsKey(f.FileName)));
         using (var gate = new SemaphoreSlim(Math.Max(1, r.ParallelDownloads)))
         {
             await Task.WhenAll(chosen.Select(async (f, i) =>
@@ -133,7 +179,8 @@ public static class FetchStage
                 await gate.WaitAsync(ct).ConfigureAwait(false);
                 try
                 {
-                    results[i] = await DownloadWithRetry(pride, f, spectraDir, r.MaxAttempts, r.Backoff, ct, r.StallAfter, log).ConfigureAwait(false);
+                    results[i] = await DownloadWithRetry(pride, f, spectraDir, r.MaxAttempts, r.Backoff, ct, r.StallAfter, log,
+                        expectedChecksum: sha1.GetValueOrDefault(f.FileName), verify: true, aspera: r.Aspera).ConfigureAwait(false);
                     var (_, s, a) = results[i];
                     log?.Invoke($"{Interlocked.Increment(ref done)} of {chosen.Count} done: {f.FileName} {f.FileSizeBytes / 1e6:0} MB in {s:0} s"
                                 + (a > 1 ? $", attempt {a}" : ""));
@@ -156,7 +203,8 @@ public static class FetchStage
         if (sdrfs.Count > 0)
         {
             Directory.CreateDirectory(metaDir);
-            foreach (var s in sdrfs) gotSdrf.Add(await pride.DownloadAsync(s, metaDir, ct).ConfigureAwait(false));
+            foreach (var s in sdrfs)
+                gotSdrf.Add((await DownloadWithRetry(pride, s, metaDir, r.MaxAttempts, r.Backoff, ct, r.StallAfter, log).ConfigureAwait(false)).Path);
         }
 
         var files = new JsonArray();
@@ -173,14 +221,17 @@ public static class FetchStage
         }
         var manifest = new JsonObject
         {
-            ["accession"] = r.Accession, ["rest_raw_count"] = nListed, ["ftp_raw_count"] = ftpRaw.Count,
+            // rest_raw_count counts the raw files this fetch is responsible for: after the question's selection, if any.
+            ["accession"] = r.Accession, ["rest_raw_count"] = nListed, ["deposit_raw_count"] = nDeposit, ["ftp_raw_count"] = ftpRaw.Count,
             ["raw_missing_from_rest_manifest"] = new JsonArray(missingFromRest.Select(n => (JsonNode?)n).ToArray()),
             ["files"] = files, ["sdrf"] = new JsonArray(gotSdrf.Select(n => (JsonNode?)n).ToArray()),
         };
         string manifestFile = Path.Combine(outDir, "fetch_manifest.json");
         File.WriteAllText(manifestFile, manifest.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
         if (!files.Any(f => f!["pride_checksum"] is not null))
-            prov.Note("PRIDE supplied no checksum; integrity rests on the local SHA-256 only (REQ-PRIDE-2).");
+            prov.Note("pride_checksum is null because PRIDE's REST file list leaves it empty (pride 007, PXR-S6), not because PRIDE "
+                      + "has none: its MD5s are served only by /files/checksum (mzLib #1427, unreleased). Integrity rests on the "
+                      + "local SHA-256 and PRIDE's listed size.");
         foreach (var (p, _, _) in results) prov.Output(p);
         foreach (string s in gotSdrf) prov.Output(s);
         prov.Output(manifestFile);
@@ -214,7 +265,8 @@ public static class FetchStage
     /// </summary>
     public static async Task<(string Path, double Seconds, int Attempts)> DownloadWithRetry(IPrideFiles pride, PrideArchiveFile f,
         string dir, int attempts, TimeSpan backoff, CancellationToken ct, TimeSpan stallAfter = default, Action<string>? log = null,
-        TimeSpan? poll = null, TimeSpan? abandonGrace = null)
+        TimeSpan? poll = null, TimeSpan? abandonGrace = null, string? expectedChecksum = null, bool verify = false,
+        AsperaClient? aspera = null)
     {
         var sw = Stopwatch.StartNew();
         Exception? last = null;
@@ -228,11 +280,28 @@ public static class FetchStage
             }
             try
             {
-                string path = await Watched(pride, f, dir, stallAfter, poll ?? TimeSpan.FromSeconds(15), abandonGrace ?? TimeSpan.FromSeconds(30), ct).ConfigureAwait(false);
+                // Aspera first, for the first aspera.Attempts attempts at a file not yet on disk; HTTPS after that, so a
+                // broken Aspera setup costs a few attempts, never the deposit. A file already present is checked, not refetched.
+                bool overAspera = aspera is not null && a <= aspera.Attempts && !File.Exists(target) && Aspera.Source(f) is not null;
+                string path = overAspera
+                    ? await Aspera.DownloadAsync(aspera!, f, dir, ct).ConfigureAwait(false)
+                    : await Watched(pride, f, dir, stallAfter, poll ?? TimeSpan.FromSeconds(15), abandonGrace ?? TimeSpan.FromSeconds(30), ct).ConfigureAwait(false);
+                if (overAspera) log?.Invoke($"{f.FileName} arrived over Aspera (attempt {a})");
                 long got = new FileInfo(path).Length;
-                if (f.FileSizeBytes <= 0 || got == f.FileSizeBytes) return (path, Math.Round(sw.Elapsed.TotalSeconds, 1), a);
-                File.Delete(path);
-                throw new HttpIOException(HttpRequestError.ResponseEnded, $"{f.FileName}: received {got:N0} bytes, PRIDE lists {f.FileSizeBytes:N0}");
+                if (f.FileSizeBytes > 0 && got != f.FileSizeBytes)
+                {
+                    File.Delete(path);
+                    throw new HttpIOException(HttpRequestError.ResponseEnded, $"{f.FileName}: received {got:N0} bytes, PRIDE lists {f.FileSizeBytes:N0}");
+                }
+                // The right size is not the right file: EBI can write its own error response into the data (Integrity).
+                // A file already on disk from an earlier fetch is checked the same way.
+                if (verify && Integrity.Problem(path, expectedChecksum) is { } bad)
+                {
+                    log?.Invoke($"{f.FileName} is not PRIDE's file ({bad}): deleted, downloading again");
+                    File.Delete(path);
+                    throw new HttpIOException(HttpRequestError.InvalidResponse, $"{f.FileName}: {bad}");
+                }
+                return (path, Math.Round(sw.Elapsed.TotalSeconds, 1), a);
             }
             catch (Exception e) when (IsTransient(e))
             {

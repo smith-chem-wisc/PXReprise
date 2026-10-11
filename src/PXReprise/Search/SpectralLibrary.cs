@@ -81,7 +81,15 @@ public static class SpectralLibrary
         if (produced.Count == 0)
             throw new SearchSetupException($"spectral_library: {plan.Mode} mode was configured but no {plan.OutputPattern} was written to {searchTaskDir}. The library was NOT advanced.");
         string src = Path.Combine(searchTaskDir, produced[^1]!);
+        // Two searches can finish together (search_slots > 1): one registers at a time, and the second then sees the
+        // first's version and is refused below rather than overwriting it.
+        lock (RegistryGate) return RegisterLocked(plan, src, runLabel, accession, metamorpheus);
+    }
 
+    private static readonly object RegistryGate = new();
+
+    private static JsonObject RegisterLocked(LibraryPlan plan, string src, string runLabel, string accession, string metamorpheus)
+    {
         var reg = ReadRegistry(plan.Root);
         var organisms = reg["organisms"]!.AsObject();
         if (organisms[plan.Organism] is not JsonObject entry)

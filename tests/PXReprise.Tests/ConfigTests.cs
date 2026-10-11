@@ -10,7 +10,55 @@ public class ConfigTests
     public void ShippedProfilesLoadWithTheAgingV1Settings()
     {
         var profiles = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
-        Assert.That(profiles.Keys, Is.EquivalentTo(new[] { "label-free-dda@1", "label-free-dda@2", "label-free-dda@3", "tmt-dda@1" }));
+        Assert.That(profiles.Keys, Is.EquivalentTo(new[] { "label-free-dda@1", "label-free-dda@2", "label-free-dda@3", "label-free-dda@4",
+            "label-free-dda@5", "label-free-dda@6", "label-free-dda-lowres@1", "label-free-dda-lowres@2", "tmt-dda@1" }));
+
+        // G40: @6 is @5 plus a shipped modification file and NBF-Cl mapped to it; nothing else.
+        var v5b = profiles["label-free-dda@5"];
+        var v6 = profiles["label-free-dda@6"];
+        Assert.That((v5b.CustomModifications, v5b.ThiolReagents), Is.EqualTo(((string?)null, (IReadOnlyDictionary<string, string>?)null)));
+        Assert.That(v6 with { Version = 5, CustomModifications = null, ThiolReagents = null, Description = v5b.Description, Databases = v5b.Databases,
+            Accepts = v5b.Accepts, Tasks = v5b.Tasks, GptmdExtraMods = v5b.GptmdExtraMods, Deposit = v5b.Deposit, Qc = v5b.Qc },
+            Is.EqualTo(v5b), "every other scalar setting equals /5's");
+        Assert.That((v6.Tasks, v6.GptmdExtraMods, v6.Deposit, v6.Qc with { Excludable = v5b.Qc.Excludable }), Is.EqualTo((v5b.Tasks, v5b.GptmdExtraMods, v5b.Deposit, v5b.Qc)));
+        Assert.That(v6.Qc.Excludable, Is.EqualTo(v5b.Qc.Excludable));
+        Assert.That(v6.Databases.Select(kv => (kv.Key, kv.Value.Proteome)), Is.EquivalentTo(v5b.Databases.Select(kv => (kv.Key, kv.Value.Proteome))),
+            "no database change, so no D29 rebuild");
+
+        // PXR-A68: lowres@2 is lowres@1 plus ion-trap HCD, and nothing else; @1 keeps refusing it.
+        var low1 = profiles["label-free-dda-lowres@1"];
+        var low2 = profiles["label-free-dda-lowres@2"];
+        Assert.That((low1.IonTrapHcd, low2.IonTrapHcd), Is.EqualTo((false, true)));
+        Assert.That(low2 with { Version = 1, IonTrapHcd = false, Description = low1.Description, Databases = low1.Databases,
+            Accepts = low1.Accepts, Tasks = low1.Tasks, GptmdExtraMods = low1.GptmdExtraMods, Deposit = low1.Deposit, Qc = low1.Qc },
+            Is.EqualTo(low1), "every other scalar setting equals lowres@1's");
+        Assert.That((low2.Tasks, low2.Deposit, low2.Qc with { Excludable = low1.Qc.Excludable }), Is.EqualTo((low1.Tasks, low1.Deposit, low1.Qc)));
+        Assert.That(low2.Databases.Select(kv => (kv.Key, kv.Value.Proteome)), Is.EquivalentTo(low1.Databases.Select(kv => (kv.Key, kv.Value.Proteome))));
+
+        // D38: @5 is @4 on UniProt's canonical proteomes (agingPTM-v3), with the deposit caps raised (120 files, 3M MS2).
+        var v4a = profiles["label-free-dda@4"];
+        var v5 = profiles["label-free-dda@5"];
+        Assert.That(v5.Databases.Values.Select(d => d.Proteome), Is.All.EndWith("_all_genecentric_2026_03_agingPTM-v3.xml"));
+        Assert.That((v5.Deposit.MaxFiles, v5.Deposit.MaxEstimatedMs2), Is.EqualTo((120, 3_000_000)));
+        Assert.That(v5 with { Version = 4, Description = v4a.Description, Databases = v4a.Databases, Deposit = v4a.Deposit,
+            Accepts = v4a.Accepts, Tasks = v4a.Tasks, GptmdExtraMods = v4a.GptmdExtraMods, Qc = v4a.Qc, SourceDir = v4a.SourceDir },
+            Is.EqualTo(v4a), "every other scalar setting equals /4's");
+        Assert.That((v5.Deposit with { MaxFiles = 60, MaxEstimatedMs2 = 1_500_000 }, v5.Qc with { Excludable = v4a.Qc.Excludable }), Is.EqualTo((v4a.Deposit, v4a.Qc)));
+        Assert.That(v5.Tasks, Is.EqualTo(v4a.Tasks));
+
+        // D28: @4 is @3 on MetaMorpheus 1.1.12 with an SDRF design, the search's own SDRF and the agingPTM-v2 databases;
+        // D35: and MetaMorpheus's NoUPS contaminant panel as it is, in place of /3's panel minus aging's D54 list.
+        var v3x = profiles["label-free-dda@3"];
+        var v4 = profiles["label-free-dda@4"];
+        Assert.That((v4.MetaMorpheus, v4.Design, v4.WriteSdrf, v4.Chemistry), Is.EqualTo(("1.1.12", "sdrf", true, "deposit")));
+        Assert.That(v4.Databases.Values.Select(d => d.Proteome), Is.All.EndWith("_agingPTM-v2.xml"));
+        Assert.That((v4.ContaminantFile, v4.ContaminantExclude), Is.EqualTo(("MetaMorpheusContaminants_NoUPS.xml", (string?)null)));
+        Assert.That(v4 with { Version = 3, MetaMorpheus = "1.1.11", Design = "none", WriteSdrf = false, TimeoutHours = v3x.TimeoutHours,
+            ContaminantPanel = v3x.ContaminantPanel, ContaminantExclude = v3x.ContaminantExclude, ContaminantFile = v3x.ContaminantFile,
+            Description = v3x.Description, Databases = v3x.Databases, Accepts = v3x.Accepts, Tasks = v3x.Tasks,
+            GptmdExtraMods = v3x.GptmdExtraMods, Deposit = v3x.Deposit, Qc = v3x.Qc, SourceDir = v3x.SourceDir },
+            Is.EqualTo(v3x), "every other scalar setting equals /3's");
+        Assert.That((v4.Deposit, v4.Qc with { Excludable = v3x.Qc.Excludable }, v4.Tasks), Is.EqualTo((v3x.Deposit, v3x.Qc, v3x.Tasks)));
 
         // G19: @3 is @1 with the deposit's own chemistry, and nothing else; @1 keeps MetaMorpheus's defaults.
         var v1 = profiles["label-free-dda@1"];
@@ -60,7 +108,7 @@ public class ConfigTests
     private static bool SameSearch(Profile a, Profile b) =>
         a.MetaMorpheus == b.MetaMorpheus && a.Tasks.SequenceEqual(b.Tasks) && a.GptmdExtraMods.SequenceEqual(b.GptmdExtraMods)
         && a.SpectralLibrary == b.SpectralLibrary && a.TimeoutHours == b.TimeoutHours && a.ContaminantPanel == b.ContaminantPanel
-        && a.ContaminantExclude == b.ContaminantExclude && a.QuantMethod == b.QuantMethod && a.MatchBetweenRuns == b.MatchBetweenRuns
+        && a.ContaminantExclude == b.ContaminantExclude && a.ContaminantFile == b.ContaminantFile && a.QuantMethod == b.QuantMethod && a.MatchBetweenRuns == b.MatchBetweenRuns
         && a.Deposit == b.Deposit && a.Qc.Ms2Analyzer == b.Qc.Ms2Analyzer && a.Qc.MinMs2 == b.Qc.MinMs2
         && a.Qc.MinFractionOrbitrapHcd == b.Qc.MinFractionOrbitrapHcd && a.Qc.Excludable.SequenceEqual(b.Qc.Excludable)
         && a.Qc.MaxExcludedFraction == b.Qc.MaxExcludedFraction && a.Accepts.Modes.SequenceEqual(b.Accepts.Modes)

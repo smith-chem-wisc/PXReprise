@@ -143,6 +143,19 @@ public class QcPayloadTests
         });
     }
 
+    /// <summary>qc PXR-C1 (qctemplates 0.2.0, qc D12): a file left out of the search is listed and marked excluded.</summary>
+    [Test]
+    public void AFileLeftOutOfTheSearchIsMarkedExcluded()
+    {
+        var (search, qc) = MiniRun(spectralCounts: true);
+        File.WriteAllText(Path.Combine(qc, "qc_report.json"),
+            "{\"a.raw\": {\"run_minutes\": 100.0}, \"b.raw\": {\"run_minutes\": 90.0}, \"blank.raw\": {\"run_minutes\": 90.0, \"pass\": false}}");
+        var r = QcPayloadBuilder.Build(search, qc, "PXD000001", "x", "1.1.11", QcBins.Vendored(), excludedFiles: new[] { "blank.raw" });
+        var files = r.Payload["files"]!.AsArray().ToDictionary(f => f!["file"]!.GetValue<string>(), f => f!.AsObject());
+        Assert.That(files["blank"]["excluded"]!.GetValue<bool>(), Is.True);
+        Assert.That(files["a"].ContainsKey("excluded"), Is.False, "a searched file is never marked, even with zero results (qc D6)");
+    }
+
     /// <summary>No SpectralCount_ columns: the _msms variant is not measurable, so it is OMITTED (not 0) and the notes say so.</summary>
     [Test]
     public void PgMissingFracIsOmittedWhenNotMeasurable()

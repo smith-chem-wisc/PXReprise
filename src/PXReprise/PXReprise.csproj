@@ -8,13 +8,13 @@
     <Nullable>enable</Nullable>
     <AssemblyName>pxreprise</AssemblyName>
     <RootNamespace>PXReprise</RootNamespace>
-    <Version>0.3.11</Version>
+    <Version>0.4.6</Version>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- One release ahead of MetaMorpheus 1.1.11 (1.0.592), by choice: MetaMorpheus runs as its own process, so the two
-         never share one. Return to MetaMorpheus's pin when it next releases (DESIGN.md section 4, decision D3). -->
-    <PackageReference Include="mzLib" Version="1.0.593" />
+    <!-- MetaMorpheus 1.1.12's own pin (2026-10-07, PXReprise D28): the engine and the search read with one mzLib again.
+         MetaMorpheus still runs as its own process, so a later difference would be safe, never shared in one process. -->
+    <PackageReference Include="mzLib" Version="1.0.594" />
     <PackageReference Include="Tomlyn" Version="2.10.1" />
   </ItemGroup>
 

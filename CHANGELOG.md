@@ -7,6 +7,269 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.6 (2026-10-11)
+
+**Upgrading from 0.3.11, the last public release.** 0.4.0 to 0.4.5 were not released on their own; this release carries
+all of them, and their sections below say what each added. Taken together:
+- **MetaMorpheus 1.1.12** (mzLib 1.0.594) for `label-free-dda@4`, `@5`, `@6` and both `label-free-dda-lowres` profiles;
+  1.1.11 stays for `@1` to `@3`. In the machine file:
+  - add `"1.1.12" = "<path to 1.1.12's CMD.exe>"` under `[metamorpheus]`;
+  - before the first ingest of a 1.1.12 search, give `metamorpheus_settings_root` a `1.1.12` folder (a copy of the
+    install), or datarepo resolves no modification;
+  - keep `fetch_stall_minutes` at 5 or more (0.4.0).
+- **Machine file, optional keys:** `search_slots` and `catch_up_every` (0.4.1); `aspera_ascp` and `aspera_key`, together
+  (0.4.4). Recommended: datarepo 1.3.2 (below).
+- **Databases:** `@5`, `@6` and the `lowres` profiles name UniProt's canonical proteomes with the ageing project's sites
+  (`*_all_genecentric_2026_03_agingPTM-v3.xml`) under `database_dir` (0.4.2).
+- **Safe mid-batch?** No: stop the batch, let it drain, update, then start it again.
+
+**From 0.4.5:** no MetaMorpheus change (1.1.12). **Machine file:** nothing required. Recommended: point `datarepo` at
+datarepo 1.3.2, whose catalog build no longer crashes while something reads the catalog; no re-ingest, and the aging
+box moves to it with this release. **Safe mid-batch?** No: stop the batch, let it drain, update, then start it again.
+**New profiles:** `label-free-dda@6` and `label-free-dda-lowres@2`. Nothing changes for a question until it names them;
+profiles already named keep searching exactly as before.
+
+- **Profile `label-free-dda-lowres@2`: MS2 fragmented by HCD and read in the ion trap is searched** (a Fusion, Lumos or
+  Eclipse "HCD-IT" method; PXD057407).
+  - `@1` refuses such a file as "not a fragmentation MetaMorpheus can be told per file". `@2` searches it as HCD at the
+    profile's low-resolution product tolerance (±0.5 Da), written into the file's own settings, as `@1` does for ion-trap
+    CID.
+  - A file that mixes ion-trap and Orbitrap MS2, or ion-trap CID and ion-trap HCD, is still refused: a file gets one
+    fragmentation.
+  - The new profile key behind it is `engine.ion_trap_hcd`, which needs `fragmentation = "per_file"`.
+- **Profile `label-free-dda@6`: a thiol reagent with no UniMod entry can be searched with a modification the profile
+  ships.** The first is NBF-Cl (4-chloro-7-nitrobenzofurazan; PXD058611).
+  - **Before:** such a deposit waited as `waiting_unknown_alkylant`. Under `@6` it is searched with "NBF on C"
+    (C6HN3O3, +163.00179 Da) as a VARIABLE modification and no fixed cysteine modification.
+  - **Why variable:** a probe search found NBF on 76-86% of the identified cysteines, and the rest unmodified
+    (`results/nbf-probe_2026-10-11`).
+  - **Two new profile keys:**
+    - `engine.custom_modifications` names a MetaMorpheus modification file shipped under `profiles/lists/`, here
+      `PXReprise_custom_modifications_v1.txt`. It is read at load with mzLib's own reader, so a malformed entry stops
+      the profile from loading.
+    - `[thiol_reagents]` maps a reagent the chemistry reads to one of that file's modifications on C.
+  - **Before a search or probe search that uses one, PXReprise copies the file into the MetaMorpheus settings folder
+    the run reads** (`metamorpheus_settings_root`, `Mods`).
+    - When that folder does not exist yet, MetaMorpheus is asked to create it first (`-g --mmsettings`). It is never
+      created by hand.
+    - A different file already there under the same name is refused, never replaced: a changed list ships under a new
+      name.
+  - **Everything else in `@6` is `@5`:** the same databases, tasks and settings. A deposit that names no such reagent is
+    searched exactly as under `@5`.
+  - **In provenance,** a custom modification has `"unimod": null` and its MetaMorpheus id (`PXReprise\tNBF on C`), and
+    the installed file is recorded as an input.
+- **Every ingest's and publish's whole output is kept.** It goes to `<state dir>/outputs/<accession>_<step>_<time>.log`.
+  `batch.log` and `state.json` keep the 1,200-character tail, as before, plus the file's path (`ingest_log`,
+  `publish_log`). The tail alone lost a .NET exception's type and message twice (PXR-R14).
+- **A search whose label-free quantification MetaMorpheus skipped is still never delivered.** MetaMorpheus 1.1.12 can
+  drop quantification with only a warning: in Calibrate, GPTMD, Search, when a file fails calibration and its name is
+  inside another file's (A1 and A10; QuantProject 049, fix MetaMorpheus #2784, not merged).
+  - PXReprise already fails such a search: its "Skipping quantification" warning, or a missing
+    `AllQuantifiedPeptides.tsv`, makes the search unsuccessful (D48). A test now pins this exact case.
+  - None of the 117 searches on the aging box was affected (checked 2026-10-11).
+- **datarepo 1.3.2's exit code 70** (an unexpected error) is handled like any failed ingest: not delivered, ingested
+  again at the next start. Its last-line message is now kept in full (G38).
+- **Docs:** the profile table in Concepts lists every shipped profile (it stopped at `@3`), with the note that all but
+  `@2` need the ageing project's databases. It also says which profiles take an experimental design, and how a profile
+  models a thiol reagent.
+- **Checked live before release (2026-10-11),** through the engine's own search code on scratch folders:
+  - `@6` on PXD058611 run 199: the settings folder was seeded and the file installed; NBF variable in all three tasks;
+    no "Unrecognized mod"; 12,989 target PSMs at 1%; NBF on 86% of cysteine PSMs.
+  - `lowres@2` on PXD052631's `..._SL_F8_...raw` (389 MB, every MS2 ion-trap HCD): QC decided "HCD, low resolution"; the
+    file's own settings were HCD at ±0.5 Da; no warnings; 1,431 target PSMs at 1% of 16,051 MS2. Matched fragment errors
+    reached 0.499 Da (median 0.07), so the low-resolution tolerance was in force. (PXD057407's 4 GB files never arrived
+    whole from EBI that day: 6 of 6 copies carried its error text.)
+
+## 0.4.5 (not released on its own; in 0.4.6)
+
+**Updating:** no MetaMorpheus change, no machine-file change. **Safe mid-batch?** No: stop the batch, let it drain,
+update, then start it again.
+
+- **Deposits searched under `label-free-dda-lowres@1` now ingest.** That profile runs MetaMorpheus's Search task alone,
+  so its results are in `Task1SearchTask`. The manifest entry always named `Task3SearchTask`, so `datarepo ingest`
+  refused every deposit searched under it (PXD059520, 2026-10-08). The entry now names the folder from the Search
+  task's place in the profile's task list. Three-task profiles still give `Task3SearchTask`.
+  - **An entry written before 0.4.5 is not rewritten:** the batch never edits an existing entry. Change its
+    `search_results` to `04_search/mm/Task1SearchTask` by hand. The next start re-ingests it with no new search.
+
+## 0.4.4 (not released on its own; in 0.4.6)
+
+**Updating:** no MetaMorpheus change. **Machine file:** two optional keys, `aspera_ascp` and `aspera_key`, go together.
+- `aspera_ascp`: the path of IBM Aspera's `ascp.exe`, version 4.4.4 or newer. IBM Aspera for Desktop installs one at
+  `C:\Program Files\IBM Aspera\transferd\bin\ascp.exe`; Aspera Connect's 4.4.3 is too old.
+- `aspera_key`: EBI's public key, published in EMBL-EBI KB0011565.
+
+With neither, nothing changes. **Not for mid-batch.**
+
+- **Raw files arrive over IBM Aspera first, HTTPS after.**
+  - **Speed:** EBI serves PRIDE over Aspera at about five times the HTTPS rate measured on the aging box (4 sessions
+    about 10 MB/s, HTTPS about 2 MB/s).
+  - **Retries:** a file gets 3 Aspera attempts. Each is a fresh download into a private folder, never resumed, because a
+    resume gave corrupted files. Sessions start 10 seconds apart. After 3 failures, HTTPS takes over.
+  - **Checks:** every file is checked as in 0.4.3, whichever way it came.
+- **PRIDE's MD5 is used where it has no SHA-1.** Newer deposits leave the file list's SHA-1 empty; their MD5s come from
+  PRIDE's `files/checksum/{accession}`. A file is checked against whichever PRIDE gives, and always for EBI's error text.
+
+## 0.4.3 (not released on its own; in 0.4.6)
+
+**Updating:** no MetaMorpheus change, no machine-file change. **Safe mid-batch?** No: stop the batch, let it drain,
+update, then start it again.
+
+- **Every downloaded raw file is checked against PRIDE before it is searched.** On 2026-10-08, EBI's storage wrote its own
+  error response (`<Error><Code>ConnectionClosedException…`, about 200 bytes) into the data of files it served, over HTTPS
+  and over Aspera alike, and each file kept exactly PRIDE's size. 8 of about 25 PXD012307 transfers carried it. One of
+  them was a file the batch had already fetched and would have searched.
+  - The fetch now hashes each file (SHA-1) against PRIDE's own checksum, read from PRIDE's v3 file list, and scans it
+    for that error text.
+  - A file that fails is deleted and fetched again, as a dropped transfer is. Files already on disk from an earlier
+    fetch are checked the same way.
+  - The check also runs where PRIDE gives no checksum; the error text alone condemns a file then.
+- **Deposits searched before 0.4.3 were checked by size only.** Their raw files were deleted after searching, so they
+  cannot be checked now. The catch-up re-searches (D39) fetch them again, with this check.
+
+## 0.4.2 (not released on its own; in 0.4.6)
+
+**Updating:** no MetaMorpheus change (1.1.12). **Machine file:** nothing required. The aging box turns on
+`catch_up_every = 4` (D39). **Databases:** profile `label-free-dda@5` names three new files under `database_dir`:
+`UP000005640_all_genecentric_2026_03_agingPTM-v3.xml`, `UP000000589_...` and `UP000002494_...`. They are built by
+`tools/ptm-db/BuildPtmDb.cs` from UniProt's canonical proteomes (see `data/ptm-db/agingPTM-v3/`).
+
+**Not for mid-batch:** stop the batch, let it drain, update, then start it again.
+
+- **A new profile, `label-free-dda@5`:** `@4` on UniProt's **canonical** reference proteomes (D38). That is one protein
+  per gene, Swiss-Prot plus TrEMBL for genes Swiss-Prot lacks: human 20,652, mouse 21,860, rat 21,471 entries, against
+  20,416, 17,277 and 8,228 reviewed. agingPTM-v3 carries v2's sites. The deposit caps rise to 120 raw files and 3,000,000
+  estimated MS2 (were 60 and 1,500,000), because MetaMorpheus 1.1.12 and two search slots search much faster.
+- **A new profile for MS2 read in the ion trap, `label-free-dda-lowres@1`.** It runs the Search task only: no
+  calibration until low-res calibration is merged in MetaMorpheus, and no GPTMD (the user). It searches against the same
+  canonical agingPTM-v3 XML, with fragmentation written per file (ion-trap CID as LowCID, product tolerance
+  ±0.5000 Absolute), and keeps no spectral library. The screen never routes a deposit to it. A probe whose files fail
+  only `low_res_ms2` under the question's earlier profile is re-checked under it, when the question names it. 34 aging
+  deposits were skipped as `low_res_ms2` before this profile existed.
+- **`BuildPtmDb.cs` reads either UniProt namespace.** It used to read only `http://uniprot.org/uniprot`, which UniProt's
+  REST files use; UniProt's FTP files declare `https://` and were read as empty. It now refuses to write a database
+  that matches fewer than half of the sites, instead of writing it with zero sites.
+
+## 0.4.1 (superseded by 0.4.2 before it ran; in 0.4.6)
+
+**Updating:** no MetaMorpheus change (1.1.12 as in 0.4.0). **Machine file:** two optional keys, both off by default:
+- `search_slots` (default 1): how many searches run at once;
+- `catch_up_every` (default 0 = off): every Nth search started is a re-search of a deposit searched under a profile
+  the question no longer names (D39).
+
+**Not for mid-batch:** stop the batch, let it drain, update, then start it again.
+
+- **Searches run side by side** (`search_slots = 2` on the aging box; the user: "start a second search immediately
+  following any complete download"). A deposit starts searching as soon as it is downloaded and a slot is free, and the
+  next one is screened and fetched meanwhile. One slot keeps the old rhythm.
+  - **Another species goes first:** while a search runs, the next deposit is the first queued one of another species,
+    if any. Two searches of one species cannot both extend its spectral library: the second to finish is refused
+    registration (no spectrum is lost; that run's library stays in its folder) and the search itself still succeeds.
+  - **Shared steps stay one at a time:** delivery (manifest, ingest, publish) and spectral-library registration.
+- **Catch-up re-searches** (D39, off until the canonical-proteome profile): every Nth start re-searches an old deposit.
+  The earlier search is moved aside as `batch research` does. Order by gain: rat first, then deposits the question has
+  a curated design for, then the oldest, preferring a species no running search has.
+- **Every database GPTMD wrote is recorded** with its sha256 (G33). Before, only the first one found was recorded,
+  which was the contaminant file, never the proteome the final search loaded.
+
+## 0.4.0 (not released on its own; in 0.4.6)
+
+**Updating:** **MetaMorpheus 1.1.12** (mzLib 1.0.594) for the new profile `label-free-dda@4`; 1.1.11 stays for the
+older profiles. **Machine file changes:**
+- add `"1.1.12" = "<path to 1.1.12's CMD.exe>"` under `[metamorpheus]`;
+- before the first ingest of a 1.1.12 search, `metamorpheus_settings_root` must hold a `1.1.12` folder (a copy of the
+  install), or datarepo resolves no modification and says so only in its findings;
+- keep `fetch_stall_minutes` at 5 or more (below).
+
+**Not for mid-batch:** stop the batch, let it drain, update, then start it again. Results already searched keep the
+version that made them.
+
+- **A new profile, `label-free-dda@4`:** `@3` (each deposit's own chemistry) on MetaMorpheus 1.1.12, with three more
+  changes:
+  - **an experimental design from SDRF** (`[quant] design = "sdrf"`). The question's curated SDRF comes first, then the
+    deposit's own, through mzLib's `SdrfLabelFreeDesign`. With neither, PXReprise writes its own default SDRF
+    (`pxreprise_sdrf/<PXD>.pxreprise_default.sdrf.tsv`: one condition, `all`, and each file its own biological
+    replicate) and builds the design from that, so no search runs without one. MetaMorpheus quantifies with MBR from the
+    design. A fractionated deposit needs a curated SDRF: under the default, each fraction counts as a sample;
+  - **the search writes its own SDRF**, `experiment.sdrf.tsv`, stamped with the deposit's ProteomeXchange accession
+    (`[engine] write_sdrf = true`; MetaMorpheus #2816, #2870);
+  - **new PTM-annotated databases**, `*_agingPTM-v2.xml`;
+  - **Run-level QC and contamination read protein-group columns through the design.** With a design, FlashLFQ names
+    protein-group columns by sample (`aged_1`), not by file. Each label is now mapped to its one file through the
+    search's `ExperimentalDesign.tsv`. A sample spanning several files (fractions, re-injections) gets no run-level value,
+    and the payload's notes say so. Before this, the 1.1.12 trial reported `pg_missing_frac_msms = 1` for every run and
+    lost `contaminant_intensity_frac`.
+  - **Fragmentation per file, from the MS2 headers (new profile option, unused by any shipped profile):** with
+    `[engine] fragmentation = "per_file"`:
+    - QC decides each file's `DissociationType` from its own scans: HCD, CID, ETD or EThcD; LowCID for CID read in an
+      ion trap; Autodetect only for a high-resolution mix of supported types;
+    - QC fails an unsupported or mixed-analyzer file (`unsupported_fragmentation`);
+    - the search writes the type into the file's `<raw>.toml`, beside its protease.
+  - **A probe search before the full download (new profile option, unused by any shipped profile):** with
+    `[engine] probe_search = true`:
+    - the probe files are searched briefly against every species database the profile has, with variable phospho and
+      GG;
+    - each run's species, cysteine-peptide share and phospho/GG shares are measured and kept in the experiment record;
+    - a run of another species parks `waiting_species`; a run mixing species parks `waiting_mixed_species`; a deposit
+      expected to be carbamidomethylated but with almost no cysteine peptides parks `waiting_alkylation_check`. Each
+      park is announced;
+    - a measured enrichment is recorded beside the screen's call.
+  - **Every deposit gets an experiment record, and every park that needs a person is announced.**
+    - At the probe stage each deposit gets `01_experiment/experiment.json` and `experiment_notes.md`: every fact with
+      its source and evidence, guesses marked, each probe run's measured fragmentation and reporter ions.
+    - A park that needs a person's decision is listed once in the run root's `decisions_needed.tsv`, with the
+      evidence and the choices: an unknown protease, modification or alkylant; several proteases; mixed labelling;
+      too many files for a whole search; unsupported fragmentation.
+  - **An unmodelled thiol reagent parks the deposit.** NBF-Cl named in a protocol, with no modelled alkylant beside it,
+    now waits as `waiting_unknown_alkylant` instead of being searched as carbamidomethyl.
+  - **MetaMorpheus's contaminant panel without the UPS spike-in standard**, used as it is
+    (`MetaMorpheusContaminants_NoUPS.xml`, 216 entries; MetaMorpheus #2858). It ships under `profiles/lists/` because
+    the MetaMorpheus 1.1.12 install does not have it yet. All 48 UPS proteins are out, including the 7 human ones
+    (albumin, transferrins, lactalbumin, lysozyme, haemoglobins) that the older `contaminant_panel_exclude_v1.tsv`
+    kept. In mouse and rat searches, fewer native proteins are therefore labelled contaminant. A profile now names a
+    shipped panel with `[contaminants] file = "..."`, or MetaMorpheus's own with `panel = "..."`.
+
+  Known result changes from 1.1.11 to 1.1.12, so do not pool or diff across the boundary:
+  - protein N-terminal occupancy now counts Met-removed forms (mzLib #1337);
+  - PEP is trained iteratively (MetaMorpheus #2844);
+  - four modifications gain Unimod accessions;
+  - PEP is faster (#2841).
+- **PTM databases are rebuilt for every new pipeline build** (`tools/ptm-db/BuildPtmDb.cs`):
+  - from a copy of the live catalog, never the file a publish may be writing;
+  - **a site is never added from a deposit that enriches that PTM**, whether the enrichment is declared or measured
+    (any run with at least 5% phospho or 2% GG among its 1% target PSMs);
+  - the builder now reads the catalog with DuckDB 1.5.5, the version dataRepo writes with.
+- **Per-deposit exceptions, as question data** (`[exceptions.PXD…]`):
+  - a deposit can have its own `max_files`, `max_file_mb`, `max_est_ms2` and `defer_if_median_file_mb`;
+  - it can choose its own runs with `include_files` / `exclude_files` (case-insensitive regular expressions on raw file
+    names);
+  - a reason is required;
+  - a deposit deferred earlier gets one more look when an exception is added;
+  - every use is logged, kept in fetch provenance (`subset_by_question`) and noted in the manifest
+    (`question_exception`).
+- **A search fails when MetaMorpheus ignores its design.** MetaMorpheus can drop an invalid design after one warning
+  and quantify without it. The protein table must now carry one sample column per design sample.
+- **New flags:**
+  - `cysteine_poor`: under 5% of 1% target peptides contain cysteine (whole proteomes run 12-26%), which usually means
+    the lab used an alkylant the search did not. Written to the manifest for non-enriched deposits only;
+  - `output_sdrf_failed`: MetaMorpheus's SDRF writer crashed; the results stand.
+- **Chemistry:**
+  - NEM named as the only alkylant, even in a lysis buffer, is searched as variable NEM on C;
+  - MMTS blocking is read as Methylthio;
+  - two resolutions of one UNIMOD id must agree on mass, or the deposit waits (`waiting_unknown_modification`).
+- **Fetch (mzLib 1.0.594: retry and resume inside PRIDE's client):**
+  - an empty FTP listing, which mzLib now throws, is retried as before;
+  - SDRF downloads are retried and size-checked like raw files;
+  - an SDRF present only in PRIDE's FTP tree is flagged `sdrf_ftp_only`;
+  - provenance says why `pride_checksum` is empty (PRIDE's REST list never fills it).
+- **Census:** a `factor value[biological replicate]` column is no longer read as an experimental factor.
+- **Manifest:**
+  - `no_design_file` and `no_output_sdrf` now come from what the search did;
+  - a re-search keeps every key it does not write (an owner's `excluded_runs`, `restrictions`, ...).
+- **QC payload:** a file left out of the search is listed with `"excluded": true` (qctemplates 0.2.0).
+- **`pxreprise batch research <question.toml> <PXD> --reason "..." [--profile key@n]`** searches a finished deposit again under another
+  profile. The earlier output is moved aside, and the manifest entry is replaced once, keeping what its owner wrote.
+
 ## 0.3.11 (2026-10-05)
 
 **Updating:** MetaMorpheus unchanged (1.1.11). Machine file unchanged. Safe mid-batch: stop the batch, update, run it

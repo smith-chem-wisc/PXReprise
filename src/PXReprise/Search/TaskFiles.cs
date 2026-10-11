@@ -24,7 +24,9 @@ public sealed record TaskSettings(
     string? PrecursorMassTolerance = null,
     string? Protease = null,                              // G19: the deposit's protease, as mzLib's ProteaseDictionary spells it
     IReadOnlyList<string>? FixedCysMods = null,           // G19: "Type\tIdWithMotif" (a real TAB); null keeps the default
-    IReadOnlyList<string>? VariableCysMods = null);       //   Carbamidomethyl on C and U; empty lists mean no cysteine mod
+    IReadOnlyList<string>? VariableCysMods = null,        //   Carbamidomethyl on C and U; empty lists mean no cysteine mod
+    bool WriteSdrf = false,                               // MetaMorpheus 1.1.12+: experiment.sdrf.tsv beside the results
+    string? ProteomeXchangeAccession = null);             //   stamped into it; only with WriteSdrf
 
 public static class TaskFiles
 {
@@ -85,6 +87,10 @@ public static class TaskFiles
                 text = Replace(text, @"^UpdateSpectralLibrary = \w+$", $"UpdateSpectralLibrary = {Bool(mode == "update")}",
                     "UpdateSpectralLibrary", exactlyOne: true);
             }
+            if (s.WriteSdrf)
+                text = WriteSdrfLines(text, s.ProteomeXchangeAccession);
+            else if (s.ProteomeXchangeAccession is not null)
+                throw new SearchSetupException("a ProteomeXchange accession is stamped only into a written SDRF (WriteSdrf)");
         }
 
         // G19 (D23, D24, D27): the deposit's protease and cysteine chemistry, in EVERY task. Mods are per task in
@@ -186,7 +192,52 @@ public static class TaskFiles
         return text[..m.Groups[1].Index] + list + text[(m.Groups[1].Index + m.Groups[1].Length)..];
     }
 
+    private static readonly Regex PxAccession = new(@"^R?PXD\d{6,}$", RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// <c>WriteSdrf = true</c> (MetaMorpheus #2816), and the deposit's accession (#2870). <c>CMD -g</c> of 1.1.12 writes
+    /// <c>WriteSdrf</c> but not <c>ProteomeXchangeAccession</c>, so the accession is inserted on the next line, inside the
+    /// same [SearchParameters] table; an accession line already there is replaced.
+    /// </summary>
+    private static string WriteSdrfLines(string text, string? accession)
+    {
+        text = Replace(text, @"^WriteSdrf = \w+$", "WriteSdrf = true", "WriteSdrf", exactlyOne: true);
+        if (accession is null) return text;
+        if (!PxAccession.IsMatch(accession)) throw new SearchSetupException($"'{accession}' is not a ProteomeXchange accession (PXD followed by digits)");
+        string line = $"ProteomeXchangeAccession = \"{accession}\"";
+        return Regex.IsMatch(text, "^ProteomeXchangeAccession = .*$", RegexOptions.Multiline)
+            ? Replace(text, "^ProteomeXchangeAccession = .*$", line, "ProteomeXchangeAccession", exactlyOne: true)
+            : Regex.Replace(text, @"^WriteSdrf = true$", "WriteSdrf = true\n" + line, RegexOptions.Multiline);
+    }
+
     private static string Bool(bool b) => b ? "true" : "false";
+
+    /// <summary>
+    /// Sets one existing <c>key = value</c> line of a task file (<paramref name="tomlValue"/> as it is written, quotes
+    /// included for strings). The key must exist exactly once: a missing key means the pinned MetaMorpheus lacks it.
+    /// </summary>
+    public static string Set(string text, string key, string tomlValue)
+    {
+        bool crlf = text.Contains("\r\n");
+        string lf = crlf ? text.Replace("\r\n", "\n") : text;
+        lf = Replace(lf, $"^{Regex.Escape(key)} = .*$", $"{key} = {tomlValue}", key, exactlyOne: true);
+        return crlf ? lf.Replace("\n", "\r\n") : lf;
+    }
+
+    /// <summary>Adds variable modifications (<c>"Category\tName"</c>), each checked against the pinned MetaMorpheus's list.</summary>
+    public static string AddVariableMods(string text, IReadOnlyList<string> mods, IReadOnlySet<(string Category, string Name)> knownMods)
+    {
+        foreach (string mod in mods)
+        {
+            var parts = mod.Split('\t');
+            if (parts.Length != 2 || !knownMods.Contains((parts[0], parts[1])))
+                throw new SearchSetupException($"the pinned MetaMorpheus has no modification '{mod.Replace("\t", " / ")}'");
+        }
+        bool crlf = text.Contains("\r\n");
+        string lf = crlf ? text.Replace("\r\n", "\n") : text;
+        lf = EditModList(lf, "ListOfModsVariable", remove: _ => false, add: mods);
+        return crlf ? lf.Replace("\n", "\r\n") : lf;
+    }
 
     private static string Replace(string text, string pattern, string replacement, string setting, bool exactlyOne)
     {

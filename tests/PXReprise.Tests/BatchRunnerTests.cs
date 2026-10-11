@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using PXReprise.Batch;
 using PXReprise.Config;
+using PXReprise.Discovery;
 using PXReprise.Fetch;
 using UsefulProteomicsDatabases;
 
@@ -10,6 +11,10 @@ public class BatchRunnerTests
 {
     private static readonly IReadOnlyDictionary<string, Profile> Profiles = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
     private static QcGates Gates => Profiles["label-free-dda@1"].Qc;
+
+    /// <summary>No PRIDE SHA-1s in offline tests (the error-text scan still runs).</summary>
+    private static Task<IReadOnlyDictionary<string, string>> NoSha1(string acc, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyDictionary<string, string>>(new Dictionary<string, string>());
 
     private static JsonObject Report(params (string File, bool Pass, string[] Reasons)[] files)
     {
@@ -40,7 +45,7 @@ public class BatchRunnerTests
             $"work_root = '{dir}'\nmin_free_gb = 0\n{extraMachine}[metamorpheus]\n\"1.1.11\" = 'C:/nowhere/CMD.exe'\n"));
         var search = new FakeSearch();
         var files = new FakeFiles();
-        return (new BatchRunner(question, Profiles, machine, files, search, "2026-09-28"), search, files, dir);
+        return (new BatchRunner(question, Profiles, machine, files, search, "2026-09-28") { Sha1Source = NoSha1 }, search, files, dir);
     }
 
     [Test]
@@ -72,6 +77,52 @@ public class BatchRunnerTests
         Assert.That(await runner.ProbeAsync(new QueueEntry("PXD000204", "t", "human"), CancellationToken.None), Is.Null);
         Assert.That(runner.Settled("PXD000204"), Is.EqualTo("deferred_large_files"));
         Assert.That(files.Downloads, Is.Zero);
+    }
+
+    // D28 (the user's D-2; aging 044): a question releases a deferred deposit by exception, with its own caps or its own
+    // choice of runs. The deposit gets ONE more look; if it still does not fit, it settles again instead of looping.
+    [Test]
+    public async Task AQuestionExceptionReleasesADeferredDepositOnce()
+    {
+        var (runner, search, files, dir) = Runner();
+        search.Results["PXD000203"] = new() { TestSupport.Record("PXD000203", "Type 2 diabetes muscle") };
+        files.Listing = Enumerable.Range(0, 61).Select(i => new PrideArchiveFile { FileName = i < 40 ? $"hippo{i}.raw" : $"cortex{i}.raw", FileSizeBytes = 500_000_000 }).ToList();
+        Assert.That(await runner.ProbeAsync(new QueueEntry("PXD000203", "t", "human"), CancellationToken.None), Is.Null);
+        Assert.That(runner.Settled("PXD000203"), Is.EqualTo("deferred_needs_design_selection"));
+
+        // The same state, read by a question that now names an exception.
+        string q = TestSupport.MinimalQuestion + "\n[batch]\nrun_root = \"runs\"\nstate_dir = \"state\"\nqueue = \"queue.json\"\n"
+            + "[exceptions.PXD000203]\nreason = \"the hippocampus runs only\"\ninclude_files = \"^hippo\"\n";
+        var withEx = new BatchRunner(QuestionLoader.Load(TestSupport.WriteFile(dir, "question.toml", q)), Profiles,
+            Machine.Load(Path.Combine(dir, "machine.toml")), files, search, "2026-09-28");
+        Assert.That(withEx.Settled("PXD000203"), Is.Empty, "an exception added after the deferral earns one more look");
+        Assert.That(await withEx.ProbeAsync(new QueueEntry("PXD000203", "t", "human"), CancellationToken.None), Is.Null);
+        var e = withEx.State()["datasets"]!["PXD000203"]!;
+        Assert.That(e["exception"]!.GetValue<string>(), Does.Contain("include_files /^hippo/").And.Contain("the hippocampus runs only"));
+        Assert.That(e["status"]!.GetValue<string>(), Is.Not.EqualTo("deferred_needs_design_selection"), "40 runs fit the 60-file cap: " + e.ToJsonString());
+        Assert.That(files.Downloads, Is.GreaterThan(0), "the probe went ahead: " + e.ToJsonString());
+
+        string q2 = TestSupport.MinimalQuestion + "\n[batch]\nrun_root = \"runs\"\nstate_dir = \"state\"\nqueue = \"queue.json\"\n"
+            + "[exceptions.PXD000204]\nreason = \"still too many\"\nmax_files = 5\n";
+        var tight = new BatchRunner(QuestionLoader.Load(TestSupport.WriteFile(dir, "question2.toml", q2)), Profiles,
+            Machine.Load(Path.Combine(dir, "machine.toml")), files, search, "2026-09-28");
+        search.Results["PXD000204"] = new() { TestSupport.Record("PXD000204", "Type 2 diabetes liver") };
+        files.Listing = Enumerable.Range(0, 10).Select(i => new PrideArchiveFile { FileName = $"g{i}.raw", FileSizeBytes = 500_000_000 }).ToList();
+        Assert.That(await tight.ProbeAsync(new QueueEntry("PXD000204", "t", "human"), CancellationToken.None), Is.Null);
+        Assert.That(tight.Settled("PXD000204"), Is.EqualTo("deferred_needs_design_selection"), "settled again under the exception, no loop");
+    }
+
+    [Test]
+    public void AnExceptionMustNameItsReasonAndChangeSomething()
+    {
+        string dir = TestSupport.TempDir();
+        Assert.Throws<ConfigException>(() => QuestionLoader.Load(TestSupport.WriteFile(dir, "a.toml", TestSupport.MinimalQuestion + "\n[exceptions.PXD000203]\nmax_files = 90\n")));
+        Assert.Throws<ConfigException>(() => QuestionLoader.Load(TestSupport.WriteFile(dir, "b.toml", TestSupport.MinimalQuestion + "\n[exceptions.PXD000203]\nreason = \"x\"\n")));
+        Assert.Throws<ConfigException>(() => QuestionLoader.Load(TestSupport.WriteFile(dir, "c.toml", TestSupport.MinimalQuestion + "\n[exceptions.PXD000203]\nreason = \"x\"\nexclude_files = \"(\"\n")));
+        var q = QuestionLoader.Load(TestSupport.WriteFile(dir, "d.toml", TestSupport.MinimalQuestion + "\n[exceptions.PXD000203]\nreason = \"x\"\nexclude_files = \"atg5ko\"\nmax_est_ms2 = 0\n"));
+        var ex = q.ExceptionFor("PXD000203")!;
+        Assert.That((ex.Keeps("P25_vesicle_1.raw"), ex.Keeps("ATG5KO_1.raw")), Is.EqualTo((true, false)), "case-insensitive");
+        Assert.That(ex.Apply(Profiles["label-free-dda@4"].Deposit).MaxEstimatedMs2, Is.Zero);
     }
 
     // PXR-A9: PXD012985 was PXD011740 deposited again, and was fetched and searched in full before anyone saw it.
@@ -122,7 +173,7 @@ public class BatchRunnerTests
         Assert.That(runner.Settled("PXD000222"), Is.Not.EqualTo("excluded_duplicate"), "fetched but neither searched nor in flight: not evidence");
 
         runner.Record("PXD000222", ("status", "probing"));
-        runner.Searching = "PXD000221";
+        runner.SearchStarted("PXD000221");
         Assert.That(await runner.ProbeAsync(new QueueEntry("PXD000222", "t", "human"), CancellationToken.None), Is.Null);
         Assert.That(runner.Settled("PXD000222"), Is.EqualTo("excluded_duplicate"));
         Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain("are in PXD000221, being searched now"));
@@ -175,6 +226,103 @@ public class BatchRunnerTests
 
     // G19 (D22-D27): under a profile that reads each deposit's chemistry, the probe reads it before any download, records
     // it, and holds back a deposit it cannot search as read.
+    // The user, 2026-10-07: "start a second search immediately following any complete download", "just try to alternate
+    // species" (two searches of one species cannot both extend its spectral library).
+    [Test]
+    public async Task WithTwoSlotsADownloadedDepositStartsAtOnceAndAnotherSpeciesGoesFirst()
+    {
+        var (runner, _, _, _) = Runner(extraMachine: "search_slots = 2\n");
+        var started = new List<string>();
+        int running = 0, most = 0;
+        runner.PrepareForTest = (e, ct) => { runner.Record(e.Accession, ("status", "fetched")); return Task.FromResult<Profile?>(Profiles["label-free-dda@1"]); };
+        runner.SearchForTest = async (e, p, ct) =>
+        {
+            lock (started) { started.Add(e.Accession); most = Math.Max(most, ++running); }
+            await Task.Delay(300, ct);
+            lock (started) running--;
+        };
+        var queue = new[]
+        {
+            new QueueEntry("PXD000901", "a", "mouse"), new QueueEntry("PXD000902", "b", "mouse"),
+            new QueueEntry("PXD000903", "c", "human"), new QueueEntry("PXD000904", "d", "mouse"),
+        };
+
+        await runner.RunAsync(queue, CancellationToken.None);
+
+        Assert.That(most, Is.EqualTo(2), "two searches ran at once");
+        Assert.That(started, Is.EqualTo(new[] { "PXD000901", "PXD000903", "PXD000902", "PXD000904" }),
+            "the human deposit jumps the second mouse one while a mouse search runs; then queue order");
+        Assert.That(runner.Searching, Is.Empty);
+    }
+
+    [Test]
+    public async Task WithOneSlotSearchesRunOneAtATimeInQueueOrder()
+    {
+        var (runner, _, _, _) = Runner();
+        var started = new List<string>();
+        int running = 0, most = 0;
+        runner.PrepareForTest = (e, ct) => { runner.Record(e.Accession, ("status", "fetched")); return Task.FromResult<Profile?>(Profiles["label-free-dda@1"]); };
+        runner.SearchForTest = async (e, p, ct) =>
+        {
+            lock (started) { started.Add(e.Accession); most = Math.Max(most, ++running); }
+            await Task.Delay(50, ct);
+            lock (started) running--;
+        };
+        await runner.RunAsync(new[] { new QueueEntry("PXD000911", "a", "mouse"), new QueueEntry("PXD000912", "b", "human") }, CancellationToken.None);
+        Assert.That(most, Is.EqualTo(1));
+        Assert.That(started, Is.EqualTo(new[] { "PXD000911", "PXD000912" }));
+    }
+
+    // D39: catch-up re-searches by gain (rat, then a curated design, then oldest), another species first.
+    [Test]
+    public void CatchUpPicksRatFirstAndPrefersASpeciesNotRunning()
+    {
+        var (runner, _, _, dir) = Runner();
+        foreach (var (acc, org, when) in new[] { ("PXD000921", "mouse", "1"), ("PXD000922", "rat", "3"), ("PXD000923", "human", "2"), ("PXD000924", "mouse", "0") })
+        {
+            runner.Record(acc, ("status", "searched"), ("profile", "label-free-dda@0"), ("organism", org), ("title", acc));
+            Directory.CreateDirectory(Path.Combine(dir, "runs", acc, "04_search")); TestSupport.WriteFile(Path.Combine(dir, "runs", acc, "04_search"), "provenance.json", "{}");
+        }
+        // Searched under a profile the question still names: never due.
+        runner.Record("PXD000925", ("status", "searched"), ("profile", "label-free-dda@1"), ("organism", "rat"));
+        Directory.CreateDirectory(Path.Combine(dir, "runs", "PXD000925", "04_search")); TestSupport.WriteFile(Path.Combine(dir, "runs", "PXD000925", "04_search"), "provenance.json", "{}");
+        var none = new HashSet<string>();
+
+        Assert.That(runner.CatchUpCandidate(Array.Empty<QueueEntry>(), none, new HashSet<string>())!.Accession, Is.EqualTo("PXD000922"), "rat first");
+        Assert.That(runner.CatchUpCandidate(Array.Empty<QueueEntry>(), none, new HashSet<string> { "rat" })!.Accession, Is.Not.EqualTo("PXD000922"),
+            "a rat search is running: another species first");
+        Assert.That(runner.CatchUpCandidate(Array.Empty<QueueEntry>(), new HashSet<string> { "PXD000922", "PXD000921", "PXD000923", "PXD000924" }, new HashSet<string>()),
+            Is.Null, "nothing left once the old ones are taken");
+    }
+
+    // Ion-trap MS2 (low_res_ms2) is searched under a low-res profile when the question names one, never anything else.
+    [Test]
+    public void OnlyALowResFailureIsRoutedToTheLowResProfile()
+    {
+        var gates = Profiles["label-free-dda@5"].Qc;
+        Assert.That(BatchRunner.OnlyLowRes(Report(("a.raw", false, new[] { "low_res_ms2" }), ("b.raw", false, new[] { "low_res_ms2" })), gates), Is.True);
+        Assert.That(BatchRunner.OnlyLowRes(Report(("a.raw", false, new[] { "low_res_ms2" }), ("b.raw", false, new[] { "too_few_ms2" })), gates), Is.True,
+            "one blank run is excludable, as anywhere else");
+        Assert.That(BatchRunner.OnlyLowRes(Report(("a.raw", false, new[] { "low_res_ms2", "unreadable" })), gates), Is.False);
+        Assert.That(BatchRunner.OnlyLowRes(Report(("a.raw", false, new[] { "too_few_ms2" })), gates), Is.False, "no low_res_ms2 at all");
+
+        var lowres = Profiles["label-free-dda-lowres@1"];
+        Assert.That((lowres.Qc.MinFractionOrbitrapHcd, lowres.Fragmentation, lowres.SpectralLibrary, string.Join(",", lowres.Tasks)),
+            Is.EqualTo((0.0, "per_file", false, "Search")), "no Orbitrap gate, per-file LowCID, no library, Search only (the user)");
+    }
+
+    [Test]
+    public void SearchSlotsAndCatchUpAreReadFromTheMachineAndChecked()
+    {
+        var (_, _, _, dir) = Runner();
+        var m = Machine.Load(TestSupport.WriteFile(dir, "m2.toml", $"work_root = '{dir}'\nsearch_slots = 2\ncatch_up_every = 4\n[metamorpheus]\n\"1.1.11\" = 'x'\n"));
+        Assert.That((m.SearchSlots, m.CatchUpEvery), Is.EqualTo((2, 4)));
+        var d = Machine.Load(TestSupport.WriteFile(dir, "m3.toml", $"work_root = '{dir}'\n[metamorpheus]\n\"1.1.11\" = 'x'\n"));
+        Assert.That((d.SearchSlots, d.CatchUpEvery), Is.EqualTo((1, 0)), "one slot, no catch-up unless asked");
+        Assert.That(() => Machine.Load(TestSupport.WriteFile(dir, "m4.toml", $"work_root = '{dir}'\ncatch_up_every = 1\n[metamorpheus]\n\"1.1.11\" = 'x'\n")),
+            Throws.InstanceOf<ConfigException>(), "every search a re-search would never search anything new");
+    }
+
     private static (BatchRunner Runner, FakeSearch Search, FakeFiles Files, string Dir) DepositChemistryRunner()
     {
         string dir = TestSupport.TempDir();
@@ -185,7 +333,7 @@ public class BatchRunnerTests
             $"work_root = '{dir}'\nmin_free_gb = 0\n[metamorpheus]\n\"1.1.11\" = 'C:/nowhere/CMD.exe'\n"));
         var search = new FakeSearch();
         var files = new FakeFiles { Listing = Enumerable.Range(1, 6).Select(i => new PrideArchiveFile { FileName = $"run{i}.raw", FileSizeBytes = 500_000_000 }).ToList() };
-        return (new BatchRunner(question, Profiles, machine, files, search, "2026-10-05"), search, files, dir);
+        return (new BatchRunner(question, Profiles, machine, files, search, "2026-10-05") { Sha1Source = NoSha1 }, search, files, dir);
     }
 
     [Test]
@@ -225,6 +373,18 @@ public class BatchRunnerTests
         Assert.That(runner.Settled("PXD000403"), Is.EqualTo("waiting_multi_protease"));
         Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain("PXD000403 SCREENED OUT (waiting_multi_protease)"));
         Assert.That(files.Downloads, Is.EqualTo(before), "nothing was downloaded for the two held back: the chemistry is read first");
+
+        // D34: the park that needs a person is ANNOUNCED; the one that waits on a capability (a TMT profile) is not. Both
+        // still get their experiment record and notes (D30, D32).
+        var decisions = File.ReadAllLines(Path.Combine(dir, "runs", DecisionsNeeded.FileName));
+        Assert.That(decisions.Skip(1).Select(l => (l.Split('\t')[1], l.Split('\t')[2])), Is.EqualTo(new[] { ("PXD000403", "waiting_multi_protease") }));
+        Assert.That(File.ReadAllText(Path.Combine(dir, "runs", "PXD000403", ExperimentRecord.Folder, ExperimentRecord.NotesFile)),
+            Does.Contain("## A person must decide").And.Contain("| protease | multiple (GUESS) | protocol_text |"));
+        var tmt = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "runs", "PXD000402", ExperimentRecord.Folder, ExperimentRecord.JsonFile)))!;
+        Assert.That((tmt["outcome"]!.GetValue<string>(), tmt["decision_needed"]), Is.EqualTo(("waiting_tmt_labelling", (JsonNode?)null)));
+        Assert.That(tmt["facts"]!["label"]!["source"]!.GetValue<string>(), Is.EqualTo(ChemistrySource.PrideQuant));
+        await runner.ProbeAsync(new QueueEntry("PXD000403", "t", "human"), CancellationToken.None);
+        Assert.That(File.ReadAllLines(Path.Combine(dir, "runs", DecisionsNeeded.FileName)), Has.Length.EqualTo(2), "announced once, not once per pass");
     }
 
     // G18: a reboot mid-search left the deposit at "searching" with a half-written 04_search/mm, which MetaMorpheus refuses
@@ -370,6 +530,23 @@ public class BatchRunnerTests
         Assert.That(text, Does.Contain("flags: [no_design_file, no_output_sdrf, enriched, qc_excluded_files]").And.Contain("iso.xml"));
     }
 
+    // G34: PXD059520 was searched under the Search-only ion-trap profile, whose results are in Task1SearchTask; the entry
+    // named Task3SearchTask and datarepo refused it. The folder follows the Search task's place in the profile's task list.
+    [TestCase("label-free-dda@5", "Task3SearchTask")]
+    [TestCase("label-free-dda-lowres@1", "Task1SearchTask")]
+    [TestCase("tmt-dda@1", "Task3SearchTask")]
+    public void TheManifestEntryNamesTheFolderTheProfilesSearchTaskWrites(string profile, string folder)
+    {
+        string dir = TestSupport.TempDir(), run = Path.Combine(dir, "runs", "PXD059520");
+        Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
+        Directory.CreateDirectory(Path.Combine(run, "04_search"));
+        File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(("a.raw", true, Array.Empty<string>())).ToJsonString());
+        File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), """{"tools":{"MetaMorpheus":{"release":"1.1.12"}}}""");
+        string manifest = TestSupport.WriteFile(dir, "manifest.yaml", "manifest_version: 1\ndatasets:\n");
+        ManifestEntry.Append(manifest, new QueueEntry("PXD059520", "Retina", "rat"), Profiles[profile], run, null, dir);
+        Assert.That(File.ReadAllText(manifest), Does.Contain($"    search_results: 04_search/mm/{folder}\n"));
+    }
+
     [Test]
     public void ANewQuestionGetsAManifestWhoseRunsAreRelativeToItsOwnWorkRoot()
     {
@@ -403,6 +580,34 @@ public class BatchRunnerTests
             Path.Combine("C:", "q", "work", "manifest.yaml"), "D:/tools/datarepo/datarepo.exe");
         Assert.That(argv, Is.EqualTo(new[] { "D:/tools/datarepo/datarepo.exe", "publish", Path.Combine("C:", "q", "work", "manifest.yaml"),
             "--site", Path.GetFullPath(Path.Combine("C:", "q", "work")).Replace('\\', '/') + "/site" }));
+    }
+
+    [Test]
+    public void APublishsWholeOutputIsKeptUncut()
+    {
+        // G38 (PXR-R14): batch.log keeps 1,200 characters, which lost a .NET exception's type and message twice.
+        string dir = Path.Combine(TestSupport.TempDir(), "outputs");
+        string head = "Unhandled exception. System.UnauthorizedAccessException: Access to the path is denied.";
+        string stderr = head + "\n" + string.Concat(Enumerable.Repeat("   at DataRepo.Catalog.Build() in Catalog.cs:line 1343\n", 200));
+        string path = BatchRunner.KeepOutput(dir, "PXD008344", "publish", new[] { "powershell", "-File", "C:/a b/publish.ps1" }, -532462766,
+            "building the catalog", stderr, new DateTime(2026, 10, 11, 9, 45, 13, DateTimeKind.Utc));
+
+        Assert.That(path, Is.EqualTo(Path.Combine(dir, "PXD008344_publish_20261011T094513Z.log")));
+        string text = File.ReadAllText(path);
+        Assert.That(text, Does.Contain(head), "the exception's first line survives");
+        Assert.That(text, Does.Contain(stderr), "nothing is cut");
+        Assert.That(text, Does.Contain("exit code -532462766"));
+        Assert.That(text, Does.Contain("\"C:/a b/publish.ps1\""), "an argument with a space is quoted");
+        Assert.That(text.IndexOf("## stdout", StringComparison.Ordinal), Is.LessThan(text.IndexOf("## stderr", StringComparison.Ordinal)));
+    }
+
+    [Test]
+    public void AnOutputThatCannotBeKeptIsReportedNotThrown()
+    {
+        // A file where the folder should be: the step succeeded, so keeping its output must not fail the delivery.
+        string blocker = TestSupport.WriteFile(TestSupport.TempDir(), "outputs", "not a folder");
+        string result = BatchRunner.KeepOutput(blocker, "PXD000001", "ingest", new[] { "datarepo" }, 0, "", "", DateTime.UtcNow);
+        Assert.That(result, Does.StartWith("(not kept: "));
     }
 
     [Test]
@@ -494,6 +699,88 @@ public class BatchRunnerTests
         Directory.CreateDirectory(Path.Combine(runs, "PXD000209", "04_search"));
         File.WriteAllText(Path.Combine(runs, "PXD000209", "04_search", "provenance.json"), "{}");
         Assert.That(() => BatchRunner.Requeue(state, runs, "PXD000209", "x"), Throws.TypeOf<PXReprise.Cli.UsageException>().With.Message.Contains("finished search"));
+    }
+
+    [Test]
+    public void BatchResearchMovesTheSearchedDepositAsideAndRequeuesIt()   // PXR-A29: the NEM deposits under label-free-dda@3
+    {
+        var (runner, _, _, dir) = Runner();
+        string state = Path.Combine(dir, "state"), runs = Path.Combine(dir, "runs"), run = Path.Combine(runs, "PXD001054");
+        Assert.That(() => BatchRunner.Research(state, runs, "PXD001054", "x", null, null),
+            Throws.TypeOf<PXReprise.Cli.UsageException>().With.Message.Contains("batch retry"), "nothing searched yet");
+        Directory.CreateDirectory(Path.Combine(run, "04_search"));
+        File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), """{"success":true}""");
+        runner.Record("PXD001054", ("status", "searched"), ("profile", "label-free-dda@1"), ("title", "Redox"), ("organism", "mouse"),
+            ("bundle_id", "abc"), ("ingest_rc", 0));
+        string manifest = TestSupport.WriteFile(dir, "manifest.yaml", "datasets:\n\n  - accession: PXD001054\n    status: exclude\n");
+        Assert.That(() => BatchRunner.Research(state, runs, "PXD001054", "x", null, manifest),
+            Throws.TypeOf<PXReprise.Cli.UsageException>().With.Message.Contains("'exclude'"));
+        Assert.Throws<PXReprise.Cli.UsageException>(() => BatchRunner.Research(state, runs, "PXD001054", " ", null, null), "a reason is required");
+
+        File.WriteAllText(manifest, "datasets:\n\n  - accession: PXD001054\n    status: include\n");
+        BatchRunner.Research(state, runs, "PXD001054", "NEM capping, aging PXR-A29", "label-free-dda@3", manifest);
+        Assert.That(Directory.Exists(run), Is.False);
+        Assert.That(Directory.GetDirectories(runs, "PXD001054.superseded-*").Single(), Does.Exist);
+        var e = runner.State()["datasets"]!["PXD001054"]!;
+        Assert.That(e["status"]!.GetValue<string>(), Is.EqualTo("requeued_user"));
+        Assert.That(runner.Settled("PXD001054"), Is.Empty);
+        Assert.That((e["research_profile"]!.GetValue<string>(), e["organism"]!.GetValue<string>()), Is.EqualTo(("label-free-dda@3", "mouse")));
+        Assert.That(e["ingest_rc"], Is.Null, "the new search is delivered afresh");
+        var h = e["researched"]![0]!;
+        Assert.That((h["previous_profile"]!.GetValue<string>(), h["previous_bundle_id"]!.GetValue<string>(), h["previous_entry"]!["status"]!.GetValue<string>()),
+            Is.EqualTo(("label-free-dda@1", "abc", "searched")));
+        Assert.That(File.ReadAllText(Path.Combine(state, "batch.log")), Does.Contain("PXD001054 RE-SEARCH requested by").And.Contain("profile label-free-dda@3"));
+    }
+
+    [Test]
+    public void AReSearchReplacesItsManifestEntryOnceAndKeepsWhatTheOwnerWrote()
+    {
+        string dir = TestSupport.TempDir(), run = Path.Combine(dir, "runs", "PXD001054");
+        Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
+        Directory.CreateDirectory(Path.Combine(run, "04_search"));
+        File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(("a.raw", true, Array.Empty<string>())).ToJsonString());
+        File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), """{"tools":{"MetaMorpheus":{"release":"1.1.11"}}}""");
+        string manifest = TestSupport.WriteFile(dir, "manifest.yaml",
+            "datasets:\n\n  - accession: PXD001054\n    status: include\n    flags: [no_design_file, no_output_sdrf, hand_flag]\n    notes: >\n      Searched under @1.\n      Cys peptides missing; re-search planned.\n\n  - accession: PXD018999\n    status: include\n    notes: kept\n");
+        var state = new JsonObject
+        {
+            ["researched"] = new JsonArray(new JsonObject { ["utc"] = "2026-10-05T22:00:00+00:00", ["reason"] = "NEM", ["previous_profile"] = "label-free-dda@1", ["moved_to"] = "PXD001054.superseded-x" }),
+        };
+        var e = new QueueEntry("PXD001054", "Redox", "mouse");
+        ManifestEntry.Append(manifest, e, Profiles["label-free-dda@3"], run, state, dir);
+        ManifestEntry.Append(manifest, e, Profiles["label-free-dda@3"], run, state, dir);
+        string text = File.ReadAllText(manifest);
+        Assert.That(text.Split("accession: PXD001054").Length - 1, Is.EqualTo(1));
+        Assert.That(text, Does.Contain("accession: PXD018999\n    status: include\n    notes: kept"), "the other entries are untouched");
+        Assert.That(text, Does.Contain("RE-SEARCHED 2026-10-05T22:00:00+00:00 (was label-free-dda@1").And.Contain("under profile label-free-dda@3")
+            .And.Contain("BEFORE THE RE-SEARCH this entry said: \"Searched under @1. Cys peptides missing; re-search planned.\"")
+            .And.Contain("hand_flag"));
+        Assert.That(text.Split("BEFORE THE RE-SEARCH").Length - 1, Is.EqualTo(1), "replaced once, never nested");
+    }
+
+    // aging 042 (PXR-A36): keys the batch does not write are the owner's, and survive a re-search verbatim. The two
+    // search-decided flags come from the new search's provenance (D28: @4 has a design and writes its own SDRF).
+    [Test]
+    public void AReSearchKeepsKeysItDoesNotOwnAndTakesTheDesignFlagsFromTheNewSearch()
+    {
+        string dir = TestSupport.TempDir(), run = Path.Combine(dir, "runs", "PXD012753");
+        Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
+        Directory.CreateDirectory(Path.Combine(run, "04_search"));
+        File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(("a.raw", true, Array.Empty<string>())).ToJsonString());
+        File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), """{"tools":{"MetaMorpheus":{"release":"1.1.12"}},"flags":["low_core_use: 3 avg cores"]}""");
+        string manifest = TestSupport.WriteFile(dir, "manifest.yaml",
+            "datasets:\n\n  - accession: PXD012753\n    status: include\n    flags: [no_design_file, no_output_sdrf]\n"
+            + "    excluded_runs:\n      20170317_VM_17: \"242 PSMs (aging S72, D68)\"\n      20170317_VM_18: \"326 PSMs\"\n"
+            + "    restrictions: {protein_statistics: \"few PSMs\"}\n    notes: >\n      Searched under @1.\n");
+        var state = new JsonObject
+        {
+            ["researched"] = new JsonArray(new JsonObject { ["utc"] = "2026-10-08T00:00:00+00:00", ["reason"] = "1.1.12", ["previous_profile"] = "label-free-dda@1", ["moved_to"] = "x" }),
+        };
+        ManifestEntry.Append(manifest, new QueueEntry("PXD012753", "Muscle", "mouse"), Profiles["label-free-dda@4"], run, state, dir);
+        string text = File.ReadAllText(manifest);
+        Assert.That(text, Does.Contain("    excluded_runs:\n      20170317_VM_17: \"242 PSMs (aging S72, D68)\"\n      20170317_VM_18: \"326 PSMs\"\n"));
+        Assert.That(text, Does.Contain("    restrictions: {protein_statistics: \"few PSMs\"}\n"));
+        Assert.That(text, Does.Contain("    flags: []").And.Contain("metamorpheus: \"1.1.12\""));
     }
 
     private sealed class FakeFiles : IPrideFiles

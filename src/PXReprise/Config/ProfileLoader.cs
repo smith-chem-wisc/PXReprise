@@ -42,6 +42,52 @@ public static class ProfileLoader
         string chemistry = eng.OptionalString("chemistry") ?? "fixed";
         if (!Profile.Chemistries.Contains(chemistry))
             throw new ConfigException(file, $"engine.chemistry must be one of {string.Join(", ", Profile.Chemistries)}, not '{chemistry}'");
+        // MetaMorpheus 1.1.12+ (#2816, #2870; sdrf PXR-E1/E2): each search writes experiment.sdrf.tsv, stamped with the
+        // deposit's accession. A key the pinned MetaMorpheus lacks fails the task-file edit, never silently.
+        bool writeSdrf = eng.OptionalBool("write_sdrf") ?? false;
+        // D32 (G24): "fixed" keeps the task's DissociationType for every file; "per_file" writes each file's type, read from
+        // its MS2 headers at QC, into its <raw>.toml, with low_res_product_tolerance for CID read in an ion trap (LowCID).
+        string fragmentation = eng.OptionalString("fragmentation") ?? "fixed";
+        if (!Profile.Fragmentations.Contains(fragmentation))
+            throw new ConfigException(file, $"engine.fragmentation must be one of {string.Join(", ", Profile.Fragmentations)}, not '{fragmentation}'");
+        string lowResTolerance = eng.OptionalString("low_res_product_tolerance") ?? Profile.DefaultLowResProductTolerance;
+        if (!System.Text.RegularExpressions.Regex.IsMatch(lowResTolerance, @"^±\d+\.\d{4} (PPM|Absolute)$"))
+            throw new ConfigException(file, $"engine.low_res_product_tolerance must be written as MetaMorpheus writes one, e.g. \"±0.5000 Absolute\", not '{lowResTolerance}'");
+        // PXR-A68 (aging 072): HCD read in an ion trap (a Fusion/Lumos/Eclipse "HCD-IT" method) is searched as HCD with
+        // low_res_product_tolerance. Off unless a profile turns it on, so an existing profile version never changes.
+        bool ionTrapHcd = eng.OptionalBool("ion_trap_hcd") ?? false;
+        if (ionTrapHcd && fragmentation != "per_file")
+            throw new ConfigException(file, "engine.ion_trap_hcd needs fragmentation = \"per_file\": it is decided per file from the MS2 headers");
+        // G40: modifications no UniMod entry describes (NBF, aging 072 PXR-A69), in a MetaMorpheus modification file shipped
+        // under lists/, read here with mzLib's own reader (the one MetaMorpheus uses), so a malformed entry fails at load.
+        string? customMods = eng.OptionalString("custom_modifications");
+        var customIds = customMods is null ? null : CustomModificationIds(file, customMods);
+        IReadOnlyDictionary<string, string>? thiolReagents = null;
+        if (root.OptionalTable("thiol_reagents") is { } tr)
+        {
+            if (chemistry != "deposit")
+                throw new ConfigException(file, "[thiol_reagents] needs engine.chemistry = \"deposit\": a reagent is read from each deposit");
+            if (customIds is null)
+                throw new ConfigException(file, "[thiol_reagents] names modifications from engine.custom_modifications, which is not set");
+            var map = new SortedDictionary<string, string>(StringComparer.Ordinal);
+            foreach (string reagent in tr.Keys)
+            {
+                if (!Discovery.ChemistryDetector.UnmodelledThiolReagentNames.Contains(reagent))
+                    throw new ConfigException(file, $"[thiol_reagents] '{reagent}' is not a reagent the chemistry reads (one of {string.Join(", ", Discovery.ChemistryDetector.UnmodelledThiolReagentNames)})");
+                string modId = tr.RequiredString(reagent);
+                if (!customIds.Contains(modId))
+                    throw new ConfigException(file, $"[thiol_reagents] '{reagent}' names '{modId.Replace("\t", " / ")}', which {customMods} does not define");
+                if (!modId.EndsWith(" on C", StringComparison.Ordinal))
+                    throw new ConfigException(file, $"[thiol_reagents] '{reagent}' must name a modification on C, not '{modId.Replace("\t", " / ")}'");
+                map[reagent] = modId;
+            }
+            thiolReagents = map;
+        }
+        // D32/D34/D35 slice 3: a short search of the probe files against every species database, measuring species,
+        // cysteine share and phospho/GG before the full download. Off unless a profile turns it on.
+        bool probeSearch = eng.OptionalBool("probe_search") ?? false;
+        double probeMinutes = eng.OptionalNumber("probe_search_minutes") ?? 60;
+        if (probeMinutes <= 0) throw new ConfigException(file, "engine.probe_search_minutes must be positive");
         eng.RefuseUnknownKeys();
 
         var dbs = new SortedDictionary<string, OrganismDatabase>(StringComparer.Ordinal);
@@ -63,8 +109,17 @@ public static class ProfileLoader
         }
 
         var con = root.RequiredTable("contaminants");
-        string panel = con.RequiredString("panel");
+        // "panel": a file in the pinned MetaMorpheus's Contaminants folder. "file": a panel shipped with the profiles under
+        // lists/ (D35: MetaMorpheus's NoUPS panel, released after the pin). Exactly one; "exclude" reduces a "panel" only.
+        string? panel = con.OptionalString("panel");
+        string? shipped = con.OptionalString("file");
         string? exclude = con.OptionalString("exclude");
+        if ((panel is null) == (shipped is null))
+            throw new ConfigException(file, "[contaminants] needs exactly one of panel (a MetaMorpheus file) or file (shipped under lists/)");
+        if (shipped is not null && exclude is not null)
+            throw new ConfigException(file, "[contaminants] exclude reduces a MetaMorpheus panel; a shipped file is used as it is");
+        if (shipped is not null && !shipped.Contains("Contaminants", StringComparison.Ordinal))
+            throw new ConfigException(file, $"[contaminants] file '{shipped}' must keep \"Contaminants\" in its name: MetaMorpheus marks a database as contaminant by its name");
         con.RefuseUnknownKeys();
 
         var quant = root.RequiredTable("quant");
@@ -96,8 +151,28 @@ public static class ProfileLoader
         qc.RefuseUnknownKeys();
 
         root.RefuseUnknownKeys();
-        return new Profile(id, version, status, description, accepts, mm, tasks, extraMods, library, timeout, dbs, panel, exclude,
-            method, mbr, deposit, gates, Path.GetDirectoryName(Path.GetFullPath(file))!, design, chemistry);
+        return new Profile(id, version, status, description, accepts, mm, tasks, extraMods, library, timeout, dbs,
+            panel ?? Path.GetFileName(shipped!), exclude,
+            method, mbr, deposit, gates, Path.GetDirectoryName(Path.GetFullPath(file))!, design, chemistry, writeSdrf, shipped, fragmentation, lowResTolerance, probeSearch, probeMinutes, ionTrapHcd,
+            customMods, thiolReagents);
+    }
+
+    /// <summary>
+    /// G40: every <c>Type\tIdWithMotif</c> a shipped modification file defines, read by mzLib's ModificationLoader, the
+    /// reader MetaMorpheus applies to its Mods folder. A file it reads with a warning, or no modification at all, is refused:
+    /// MetaMorpheus would drop that entry and the search would run without it.
+    /// </summary>
+    private static HashSet<string> CustomModificationIds(string file, string name)
+    {
+        if (name != Path.GetFileName(name) || !name.EndsWith(".txt", StringComparison.Ordinal))
+            throw new ConfigException(file, $"engine.custom_modifications must be a .txt file name under lists/, not '{name}'");
+        string path = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(file))!, "lists", name);
+        if (!File.Exists(path)) throw new ConfigException(file, $"engine.custom_modifications: {path} does not exist");
+        var mods = Omics.Modifications.IO.ModificationLoader.ReadModsFromFile(path, out var warnings).ToList();
+        if (warnings.Count > 0)
+            throw new ConfigException(file, $"{name}: mzLib reads it with warnings: {string.Join("; ", warnings.Select(w => w.Item2))}");
+        if (mods.Count == 0) throw new ConfigException(file, $"{name} defines no modification");
+        return mods.Select(m => $"{m.ModificationType}\t{m.IdWithMotif}").ToHashSet(StringComparer.Ordinal);
     }
 
     /// <summary>Every <c>*.toml</c> in a directory, keyed by <c>id@version</c>; a duplicate key is refused.</summary>

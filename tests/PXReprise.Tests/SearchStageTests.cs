@@ -114,6 +114,12 @@ public class SearchStageTests
             // P04264 is in both the panel and the proteome: the shared list the upper bound uses.
             Assert.That((int)p1["contamination"]!["shared_accessions_n"]!, Is.EqualTo(1));
             Assert.That(p1["gptmd_extra_mods"]!.AsArray(), Has.Count.EqualTo(1));
+            // G33: every database GPTMD wrote is an output with its sha256, the proteome the search loaded included,
+            // not just the first file found (that was the contaminants).
+            var gptmdOutputs = p1["outputs"]!.AsArray().Where(o => o!["path"]!.GetValue<string>().EndsWith("GPTMD.xml", StringComparison.Ordinal)).ToList();
+            Assert.That(gptmdOutputs.Select(o => Path.GetFileName(o!["path"]!.GetValue<string>())),
+                Is.EquivalentTo(new[] { "db-GPTMD.xml", "MetaMorpheusContaminantsGPTMD.xml" }));
+            Assert.That(gptmdOutputs.All(o => o!["sha256"]!.GetValue<string>().Length == 64));
         });
         string search = File.ReadAllText(Path.Combine(rig.Root, "run", "04_search_2", "tasks", "3_SearchTask.toml"));
         Assert.That(search, Does.Contain("UpdateSpectralLibrary = true\r\n").And.Contain("WriteSpectralLibrary = false\r\n")
@@ -211,6 +217,72 @@ public class SearchStageTests
             Assert.That(o.Flags, Has.Some.StartsWith("quantification_skipped"));
         }
         finally { Environment.SetEnvironmentVariable("FAKE_MM_SKIP_QUANT", null); }
+    }
+
+    // QuantProject 049 (PXR-T8): MetaMorpheus 1.1.12 (fix #2784, unmerged) drops label-free quantification in
+    // Calibrate -> GPTMD -> Search when a file fails calibration and its name is inside another file's (A1 and A10). Its
+    // only sign is this warning; AllQuantifiedProteinGroups.tsv is still written. A search that logs it is never delivered.
+    [Test]
+    public async Task TheCalibrationNameCollisionThatSkipsQuantificationFailsTheSearch()
+    {
+        var rig = Setup(library: false);
+        TestSupport.WriteFile(rig.Spectra, "ExperimentalDesign.tsv", "FileName\tCondition\tBiorep\tFraction\tTechrep\n");
+        Environment.SetEnvironmentVariable("FAKE_MM_WARN",
+            "Error reading experimental design file: Experimental design file did not contain the file(s): 20160312_02_A1-calib.mzML. Skipping quantification");
+        try
+        {
+            var o = await SearchStage.RunAsync(Req(rig, "04_search"), CancellationToken.None);
+            Assert.That(o.Success, Is.False);
+            Assert.That(o.Flags, Has.Some.StartsWith("quantification_skipped"));
+            Assert.That(JsonNode.Parse(File.ReadAllText(o.ProvenanceFile))!["notes"]!.AsArray().Select(n => n!.GetValue<string>()),
+                Has.Some.Contains("FAILED (D48)").And.Some.Contains("A1-calib.mzML"));
+        }
+        finally { Environment.SetEnvironmentVariable("FAKE_MM_WARN", null); }
+    }
+
+    // QuantProject U15: MetaMorpheus can drop an invalid design after one Warn and quantify design-less, with no marker.
+    [Test]
+    public async Task ADesignQuantificationSilentlyIgnoredFailsTheSearch()
+    {
+        var rig = Setup(library: false);
+        var names = Directory.GetFiles(rig.Spectra, "*.raw").Select(Path.GetFileNameWithoutExtension).Order(StringComparer.Ordinal).ToList();
+        TestSupport.WriteFile(rig.Spectra, "ExperimentalDesign.tsv", "FileName\tCondition\tBiorep\tFraction\tTechrep\n"
+            + string.Concat(names.Select((n, i) => $"{n}\t{(i % 2 == 0 ? "young" : "old")}\t{i / 2 + 1}\t1\t1\n")));
+        var used = await SearchStage.RunAsync(Req(rig, "04_search_used"), CancellationToken.None);
+        Assert.That(used.Success, Is.True, "a design the search used passes");
+
+        Environment.SetEnvironmentVariable("FAKE_MM_IGNORE_DESIGN", "1");
+        try
+        {
+            var o = await SearchStage.RunAsync(Req(rig, "04_search_ignored"), CancellationToken.None);
+            Assert.That(o.Success, Is.False);
+            string prov = File.ReadAllText(Path.Combine(rig.Root, "run", "04_search_ignored", "provenance.json"));
+            Assert.That(prov, Does.Contain("QuantProject U15"));
+        }
+        finally { Environment.SetEnvironmentVariable("FAKE_MM_IGNORE_DESIGN", null); }
+    }
+
+    // aging 043 (PXR-A37): the Jarome NEM deposits ran 0.2-3.2% Cys; whole proteomes 12-26%.
+    [Test]
+    public void CysteineShareCountsTargetPeptidesAtOnePercent()
+    {
+        string dir = TestSupport.TempDir();
+        string f = TestSupport.WriteFile(dir, "AllPeptides.psmtsv", "Base Sequence\tQValue\tDecoy/Contaminant/Target\n"
+            + "PEPCK\t0.001\tT\nPEPTIDEK\t0.001\tT\nPEPTIDER\t0.001\tT\nAAAAK\t0.001\tT\nCCCK\t0.001\tD\nCCCR\t0.5\tT\nCCK\t0.001\tC\n");
+        Assert.That(SearchStage.CysteineShare(f), Is.EqualTo(0.25), "1 of 4 target peptides at 1%; decoys, contaminants and q > 1% left out");
+        Assert.That(SearchStage.CysteineShare(TestSupport.WriteFile(dir, "old.psmtsv", "QValue\n0.001\n")), Is.Null, "not measurable is null, not 0");
+    }
+
+    [Test]
+    public void QuantMissesDesignCountsSamplesNotFiles()
+    {
+        string dir = TestSupport.TempDir();
+        string design = TestSupport.WriteFile(dir, "ExperimentalDesign.tsv", "FileName\tCondition\tBiorep\tFraction\tTechrep\n"
+            + "a1\tyoung\t1\t1\t1\na2\tyoung\t1\t2\t1\nb1\told\t1\t1\t1\nb2\told\t2\t1\t1\n");
+        string ok = TestSupport.WriteFile(dir, "ok.tsv", "Protein Accession\tIntensity_young_1\tIntensity_old_1\tIntensity_old_2\n");
+        string perFile = TestSupport.WriteFile(dir, "files.tsv", "Protein Accession\tIntensity_a1\tIntensity_a2\tIntensity_b1\tIntensity_b2\n");
+        Assert.That(SearchStage.QuantMissesDesign(design, ok), Is.Null, "two fractions of one sample are one column");
+        Assert.That(SearchStage.QuantMissesDesign(design, perFile), Does.Contain("4 Intensity_ columns for 3 design samples"));
     }
 
     // 2026-09-29: PXD069093 sat in MetaMorpheus's PEP step for hours on a busy box, silent but using ~49 cores, and a

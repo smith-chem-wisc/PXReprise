@@ -42,6 +42,9 @@ public static class SpectraQc
     /// <summary>The spectra carry isobaric reporter ions, under a profile that does not take isobaric labels (G4).</summary>
     public const string IsobaricLabelled = "isobaric_reporters";
 
+    /// <summary>D32: the file's MS2 fragmentation cannot be told to MetaMorpheus per file (see <see cref="Fragmentation"/>).</summary>
+    public const string UnsupportedFragmentation = "unsupported_fragmentation";
+
     public static QcFileResult Check(string path, QcGates gates, bool refuseIsobaric = false)
     {
         List<MsDataScan> scans;

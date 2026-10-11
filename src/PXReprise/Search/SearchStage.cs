@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using PXReprise.Cli;
 using PXReprise.Config;
 using PXReprise.Provenance;
+using PXReprise.Qc;
 
 namespace PXReprise.Search;
 
@@ -34,6 +35,45 @@ public sealed record SearchOutcome(bool Success, int ExitCode, bool TimedOut, in
 public static class SearchStage
 {
     public const string SkipQuantSuffix = ". Skipping quantification";
+
+    /// <summary>The cysteine-containing share of 1% target peptides below which a search is flagged cysteine_poor.</summary>
+    public const double CysteinePoorBelow = 0.05;
+
+    /// <summary>
+    /// The share of target peptides at q &lt;= 0.01 in <c>AllPeptides.psmtsv</c> whose base sequence holds a C, or null
+    /// when the table lacks the columns or has no such peptide.
+    /// </summary>
+    public static double? CysteineShare(string allPeptides)
+    {
+        var header = Tsv.Header(allPeptides);
+        if (!new[] { "QValue", "Decoy/Contaminant/Target", "Base Sequence" }.All(header.Contains)) return null;
+        int n = 0, c = 0;
+        foreach (var row in Tsv.Read(allPeptides))
+        {
+            if (row["Decoy/Contaminant/Target"] != "T" || !(Tsv.Number(row["QValue"]) <= 0.01)) continue;
+            n++;
+            if (row["Base Sequence"].Contains('C')) c++;
+        }
+        return n == 0 ? null : SearchMetrics.PyRound((double)c / n, 4);
+    }
+
+    /// <summary>
+    /// Null when the protein-group table was quantified with the design: one <c>Intensity_</c> sample column per
+    /// distinct (condition, biorep) of <c>ExperimentalDesign.tsv</c>, each condition named in at least one. Design-less,
+    /// MetaMorpheus writes one column per FILE instead. Otherwise the reason.
+    /// </summary>
+    public static string? QuantMissesDesign(string designFile, string proteinGroupsFile)
+    {
+        var rows = Tsv.Read(designFile).Select(d => (Condition: d.GetValueOrDefault("Condition", ""), Biorep: d.GetValueOrDefault("Biorep", ""))).ToList();
+        int samples = rows.Distinct().Count();
+        var columns = Tsv.Header(proteinGroupsFile).Where(c => c.StartsWith("Intensity_", StringComparison.Ordinal)).ToList();
+        var unnamed = rows.Select(x => x.Condition).Distinct(StringComparer.Ordinal)
+            .Where(c => !columns.Any(col => col.StartsWith($"Intensity_{c}_", StringComparison.Ordinal))).ToList();
+        if (columns.Count != samples || unnamed.Count > 0)
+            return $"{columns.Count} Intensity_ columns for {samples} design samples"
+                   + (unnamed.Count > 0 ? $"; condition(s) with no column: {string.Join(", ", unnamed)}" : "");
+        return null;
+    }
     private const double FlagMinIdRate = 0.15, FlagMaxContaminantIntensityShare = 0.05;
 
     public static async Task<SearchOutcome> RunAsync(SearchRequest r, CancellationToken ct)
@@ -65,7 +105,7 @@ public static class SearchStage
         var failed = files.Where(f => qc[Path.GetFileName(f)]?["pass"]?.GetValue<bool>() != true).Select(Path.GetFileName).ToList();
         if (failed.Count > 0) throw new SearchSetupException($"QC failed or is missing for {string.Join(", ", failed)}");
         // MetaMorpheus reads ExperimentalDesign.tsv from beside the first spectra file; written here, before any task runs.
-        var design = p.Design == "sdrf" ? DesignStage.Prepare(r.SpectraDir, files, r.CuratedDesign, r.DesignConditionColumns) : null;
+        var design = p.Design == "sdrf" ? DesignStage.Prepare(r.SpectraDir, files, r.CuratedDesign, r.DesignConditionColumns, r.Organism, r.Accession) : null;
 
         // The effective parameters, in the aging pipeline's shape, so provenance's params_file is a real file.
         var runner = new MetaMorpheusRunner(m.CmdFor(p.MetaMorpheus), m.Dotnet, m.DotnetRoot);
@@ -148,13 +188,18 @@ public static class SearchStage
         var settings = new TaskSettings(m.MaxThreads, p.MatchBetweenRuns, p.GptmdExtraMods, SpectralLibraryMode: lib?.Mode,
             Protease: chem is { ProteasePerFile: null } ? chem.Protease.Value : null,
             FixedCysMods: chem?.CysMods.Where(c => c.Fixed).Select(c => c.MetaMorpheusId!).ToList(),
-            VariableCysMods: chem?.CysMods.Where(c => !c.Fixed).Select(c => c.MetaMorpheusId!).ToList());
+            VariableCysMods: chem?.CysMods.Where(c => !c.Fixed).Select(c => c.MetaMorpheusId!).ToList(),
+            WriteSdrf: p.WriteSdrf, ProteomeXchangeAccession: p.WriteSdrf ? r.Accession : null);
         if (chem is not null)
         {
             prov.Set("chemistry", Chemistry(chem));
             if (chem.AnyGuessed) prov.Note("chemistry includes a guess read from protocol text (D22); see chemistry.*.source");
-            WritePerFileProteases(files, chem.ProteasePerFile, prov);
         }
+        var fragmentation = FragmentationFromQc(qc, files, p);
+        if (fragmentation is not null)
+            prov.Set("fragmentation", new JsonObject(fragmentation.Select(kv => KeyValuePair.Create(kv.Key, (JsonNode?)new JsonObject
+                { ["dissociation_type"] = kv.Value.DissociationType, ["low_res"] = kv.Value.LowRes, ["evidence"] = kv.Value.Evidence }))));
+        WritePerFileSettings(files, chem?.ProteasePerFile, fragmentation, p.LowResProductTolerance, prov);
         var tomls = new List<string>();
         foreach (var (task, i) in p.Tasks.Select((t, i) => (Enum.Parse<TaskKind>(t), i + 1)))
         {
@@ -170,20 +215,21 @@ public static class SearchStage
         if (p.GptmdExtraMods.Count > 0) prov.Set("gptmd_extra_mods", new JsonArray(p.GptmdExtraMods.Select(x => (JsonNode?)x).ToArray()));
 
         // 2. one invocation for the whole chain
-        string shippedPanel = Path.Combine(Path.GetDirectoryName(cmd)!, "Contaminants", p.ContaminantPanel);
-        if (!File.Exists(shippedPanel)) throw new UsageException($"contaminant database missing at {shippedPanel}");
-        // The panel as searched: the shipped one, or its content-addressed reduced copy (aging D54). The file name must
-        // keep "Contaminants": MetaMorpheus marks a -d database as contaminant by its name.
-        var (contaminants, panelRecord) = ContaminantPanel.Resolve(shippedPanel,
-            p.ContaminantExclude is null ? null : p.ListPath(p.ContaminantExclude), Path.Combine(m.DatabaseDir, "contaminants"));
+        var (contaminants, panelRecord) = Contaminants(p, m);
         if (panelRecord is not null)
         {
             prov.Set("contaminant_panel", panelRecord);
             prov.Note($"contaminant panel reduced by {panelRecord["excluded"]!.AsArray().Count} entries ({Path.GetFileName(p.ContaminantExclude)}, D54)");
         }
+        else if (p.ContaminantFile is not null)
+        {
+            prov.Set("contaminant_panel", ContaminantPanel.ShippedRecord(contaminants));
+            prov.Note($"contaminant panel {Path.GetFileName(contaminants)}, shipped with the profile and used as it is (D35)");
+        }
         // Never pre-create the settings dir: MetaMorpheus seeds it only when it does not exist (an empty one crashes it).
         string settingsDir = Path.Combine(m.MetaMorpheusSettingsRoot, release);
         Directory.CreateDirectory(m.MetaMorpheusSettingsRoot);
+        InstallCustomModifications(p, chem, settingsDir, runner, prov);
         var dbs = new List<string> { proteome, contaminants };
         dbs.AddRange(extras);   // after the proteome and the contaminants: the first -d stays "the search database"
         prov.Set("extra_databases", new JsonArray(extras.Select(x => (JsonNode?)x).ToArray()));
@@ -247,11 +293,21 @@ public static class SearchStage
                 ok = false;
                 prov.Note($"FAILED (G19/D27): MetaMorpheus logged \"{silent}\", so the search did not use the chemistry it was given: {log.Split('\n').First(l => l.Contains(silent, StringComparison.Ordinal)).Trim()}");
             }
+        // QuantProject U15: an ExperimentalDesign.tsv that fails MetaMorpheus's validation costs one Warn, and the search
+        // quantifies design-less with no marker. The table must carry one sample column per design sample.
+        string designFile = Path.Combine(r.SpectraDir, "ExperimentalDesign.tsv");
+        if (ok && hasDesign && key["AllQuantifiedProteinGroups.tsv"] is { } pgFile && QuantMissesDesign(designFile, pgFile) is { } why)
+        {
+            ok = false;
+            prov.Note($"FAILED (QuantProject U15): the run carries ExperimentalDesign.tsv but quantification did not use it: {why}");
+        }
         prov.Set("success", (JsonNode)ok);
         if (run.ExitCode == 0 && key["AllQuantifiedProteinGroups.tsv"] is null)
             prov.Note("exit 0 but no AllQuantifiedProteinGroups.tsv: FlashLFQ failed silently (pyMM 003 Q4)");
         foreach (string? v in key.Values) if (v is not null) prov.Output(v);
-        foreach (string gptmd in Directory.Exists(mm) ? Directory.EnumerateFiles(mm, "*GPTMD.xml", SearchOption.AllDirectories).Take(1) : Enumerable.Empty<string>())
+        // Every database GPTMD wrote, each with its sha256 (G33): the search task loads these, not the inputs. Taking only
+        // the first one found recorded the contaminant file and never the proteome the search actually used.
+        foreach (string gptmd in Directory.Exists(mm) ? Directory.EnumerateFiles(mm, "*GPTMD.xml", SearchOption.AllDirectories).Order(StringComparer.Ordinal) : Enumerable.Empty<string>())
             prov.Output(gptmd);
         prov.Output(Path.Combine(outDir, "metamorpheus.log"));
         if (File.Exists(Path.Combine(mm, "allResults.txt"))) prov.Output(Path.Combine(mm, "allResults.txt"));
@@ -332,8 +388,27 @@ public static class SearchStage
         }
         if (!hasDesign)
             flags.Add("no_design_file: FlashLFQ treated each file as its own biorep under one blank condition; no normalization; not usable for condition comparisons (owner: QuantProject projection)");
+        // MetaMorpheus #2816: a failed SDRF write never fails the search; it leaves SdrfWriter_crash.txt (sdrf PXR-E1).
+        string? sdrfCrash = Directory.Exists(mm) ? Directory.EnumerateFiles(mm, "SdrfWriter_crash.txt", SearchOption.AllDirectories).FirstOrDefault() : null;
+        if (sdrfCrash is not null)
+        {
+            flags.Add($"output_sdrf_failed: MetaMorpheus could not write the search's SDRF; the results stand ({Path.GetRelativePath(outDir, sdrfCrash)})");
+            prov.Output(sdrfCrash);
+        }
         if (!Directory.Exists(mm) || !Directory.EnumerateFiles(mm, "*.sdrf.tsv", SearchOption.AllDirectories).Any())
-            flags.Add("no_output_sdrf: no reanalysis SDRF written (WriteSdrf is MetaMorpheus #2816, unreleased)");
+            flags.Add(p.WriteSdrf ? "no_output_sdrf: the profile asked for the search's SDRF and none was written"
+                                  : "no_output_sdrf: no reanalysis SDRF written (the profile does not set write_sdrf)");
+        else
+            foreach (string sdrf in Directory.EnumerateFiles(mm, "*.sdrf.tsv", SearchOption.AllDirectories)) prov.Output(sdrf);
+        // aging 043 (PXR-A37): a whole proteome runs 12-26% cysteine-containing target peptides at 1%; every chemistry
+        // mismatch found so far (NEM, MMTS searched as carbamidomethyl) sat below 5%. A measurement and a flag, never a gate:
+        // an enrichment is cysteine-poor by design, so the manifest keeps the flag only for non-enriched deposits.
+        if (key["AllPeptides.psmtsv"] is { } peptides && CysteineShare(peptides) is double cys)
+        {
+            prov.Set("cysteine_peptide_share", (JsonNode)cys);
+            if (cys < CysteinePoorBelow)
+                flags.Add($"cysteine_poor: {Pct(cys)} of 1% target peptides contain C (whole proteomes: 12-26%); check the alkylant (aging PXR-A37)");
+        }
         if (p.MatchBetweenRuns && files.Count < 2)
             prov.Note("MatchBetweenRuns is on but only one spectra file was searched: MBR has nothing to transfer.");
 
@@ -373,26 +448,87 @@ public static class SearchStage
     internal const string PerFileTomlMarker = "# written by PXReprise for a per-file protease (G19); MetaMorpheus file-specific parameters";
 
     /// <summary>
-    /// G19/D27: one <c>&lt;raw&gt;.toml</c> beside each raw file with its own protease (MetaMorpheus's file-specific
-    /// parameters; calibration carries it into X-calib.toml). Our stale tomls are removed; a toml we did not write is refused.
+    /// One <c>&lt;raw&gt;.toml</c> beside each raw file with the settings that file needs alone (MetaMorpheus's
+    /// file-specific parameters; calibration carries them into X-calib.toml): its protease (G19/D27) and its
+    /// fragmentation from its MS2 headers (D32, G24), with <paramref name="lowResProductTolerance"/> for MS2 read in an ion
+    /// trap (LowCID, and HCD under <c>ion_trap_hcd</c>). Only keys
+    /// MetaMorpheus's FileSpecificParameters accepts are written; one unknown key would make it drop the whole file.
+    /// Our stale tomls are removed; a toml we did not write is refused.
     /// </summary>
-    internal static void WritePerFileProteases(IEnumerable<string> rawFiles, IReadOnlyDictionary<string, string>? perFile, AgingProvenance prov)
+    internal static void WritePerFileSettings(IEnumerable<string> rawFiles, IReadOnlyDictionary<string, string>? proteasePerFile,
+        IReadOnlyDictionary<string, FragmentationCall>? fragmentationPerFile, string lowResProductTolerance, AgingProvenance prov)
     {
         foreach (string raw in rawFiles)
         {
+            string name = Path.GetFileName(raw);
             string toml = Path.Combine(Path.GetDirectoryName(raw)!, Path.GetFileNameWithoutExtension(raw) + ".toml");
             bool ours = File.Exists(toml) && File.ReadLines(toml).FirstOrDefault() == PerFileTomlMarker;
             if (File.Exists(toml) && !ours)
-                throw new SearchSetupException($"{toml} exists and was not written by PXReprise: MetaMorpheus would apply it to {Path.GetFileName(raw)}");
-            if (perFile?.TryGetValue(Path.GetFileName(raw), out string? protease) == true)
+                throw new SearchSetupException($"{toml} exists and was not written by PXReprise: MetaMorpheus would apply it to {name}");
+            var lines = new List<string>();
+            if (proteasePerFile?.TryGetValue(name, out string? protease) == true) lines.Add($"DigestionAgent = \"{protease}\"");
+            if (fragmentationPerFile?.TryGetValue(name, out var call) == true)
             {
-                File.WriteAllText(toml, $"{PerFileTomlMarker}\nDigestionAgent = \"{protease}\"\n");
+                if (call.DissociationType is null)
+                    throw new SearchSetupException($"{name}: its fragmentation cannot be searched per file ({call.Unsupported}); QC should have failed it");
+                lines.Add($"DissociationType = \"{call.DissociationType}\"");
+                if (call.LowRes) lines.Add($"ProductMassTolerance = \"{lowResProductTolerance}\"");
+            }
+            if (lines.Count > 0)
+            {
+                File.WriteAllText(toml, PerFileTomlMarker + "\n" + string.Join("\n", lines) + "\n");
                 prov.Input(toml);
             }
             else if (ours) File.Delete(toml);
         }
-        if (perFile is not null)
-            prov.Note($"per-file proteases (MetaMorpheus file-specific parameters): {string.Join("; ", perFile.GroupBy(kv => kv.Value).Select(g => $"{g.Key} x{g.Count()}"))}");
+        if (proteasePerFile is not null)
+            prov.Note($"per-file proteases (MetaMorpheus file-specific parameters): {string.Join("; ", proteasePerFile.GroupBy(kv => kv.Value).Select(g => $"{g.Key} x{g.Count()}"))}");
+        if (fragmentationPerFile is not null)
+            prov.Note($"per-file fragmentation from the MS2 headers (D32): {string.Join("; ", fragmentationPerFile.GroupBy(kv => kv.Value.LowRes ? $"{kv.Value.DissociationType} at {lowResProductTolerance}" : kv.Value.DissociationType).Select(g => $"{g.Key} x{g.Count()}"))}");
+    }
+
+    /// <summary>
+    /// The contaminant database a search uses: the profile's shipped panel (D35), or MetaMorpheus's own, reduced by an
+    /// exclusion list when the profile names one (aging D54). The file name keeps "Contaminants": MetaMorpheus marks a
+    /// -d database as contaminant by its name. Shared by the search and the probe search, so both use the same panel.
+    /// </summary>
+    internal static (string Path, JsonObject? Record) Contaminants(Profile p, Machine m)
+    {
+        string shippedPanel = p.ContaminantFile is { } own
+            ? p.ListPath(own)
+            : Path.Combine(Path.GetDirectoryName(m.CmdFor(p.MetaMorpheus))!, "Contaminants", p.ContaminantPanel);
+        if (!File.Exists(shippedPanel)) throw new UsageException($"contaminant database missing at {shippedPanel}");
+        return ContaminantPanel.Resolve(shippedPanel,
+            p.ContaminantExclude is null ? null : p.ListPath(p.ContaminantExclude), Path.Combine(m.DatabaseDir, "contaminants"));
+    }
+
+    /// <summary>
+    /// G40: when the deposit's chemistry uses a modification from the profile's own file, installs that file into the
+    /// MetaMorpheus settings folder the run reads, and records it as an input. Shared by the search and the probe search.
+    /// </summary>
+    internal static void InstallCustomModifications(Profile p, Discovery.DepositChemistry? chem, string settingsDir,
+        MetaMorpheusRunner runner, AgingProvenance? prov)
+    {
+        var needed = chem?.CysMods.Where(c => c.CustomId is not null).Select(c => c.CustomId!).Distinct().ToList();
+        if (needed is not { Count: > 0 }) return;
+        string installed = CustomModificationFile.Install(p, settingsDir, needed, () => runner.SeedSettings(settingsDir));
+        prov?.Input(installed);
+        prov?.Note($"custom modification(s) {string.Join(", ", needed.Select(i => i.Replace('\t', ' ')))} from the profile's {p.CustomModifications}, installed into MetaMorpheus's settings folder (G40)");
+    }
+
+    /// <summary>D32: each searched file's fragmentation as QC decided it; null unless the profile writes it per file.</summary>
+    internal static IReadOnlyDictionary<string, FragmentationCall>? FragmentationFromQc(JsonObject qc, IEnumerable<string> files, Profile p)
+    {
+        if (p.Fragmentation != "per_file") return null;
+        var o = new Dictionary<string, FragmentationCall>(StringComparer.Ordinal);
+        foreach (string f in files.Select(Path.GetFileName)!)
+        {
+            if (qc[f!]?["fragmentation"] is not JsonObject fr)
+                throw new SearchSetupException($"{f}: the profile writes fragmentation per file, but QC recorded none for it: run `pxreprise qc` again");
+            o[f!] = new FragmentationCall(fr["dissociation_type"]?.GetValue<string>(), fr["low_res"]?.GetValue<bool>() ?? false,
+                fr["unsupported"]?.GetValue<string>(), fr["evidence"]?.GetValue<string>() ?? "");
+        }
+        return o;
     }
 
     /// <summary>The chemistry record in a search's provenance: each fact with its source and evidence.</summary>
@@ -405,7 +541,7 @@ public static class SearchStage
             ["protease_per_file"] = c.ProteasePerFile is null ? null : new JsonObject(c.ProteasePerFile.Select(kv => KeyValuePair.Create(kv.Key, (JsonNode?)kv.Value))),
             ["alkylation"] = Fact(c.Alkylation),
             ["cysteine_mods"] = new JsonArray(c.CysMods.Select(m => (JsonNode?)new JsonObject
-                { ["name"] = m.Name, ["unimod"] = m.Unimod, ["fixed"] = m.Fixed, ["metamorpheus"] = m.MetaMorpheusId }).ToArray()),
+                { ["name"] = m.Name, ["unimod"] = m.CustomId is null ? m.Unimod : null, ["fixed"] = m.Fixed, ["metamorpheus"] = m.MetaMorpheusId }).ToArray()),
             ["label"] = Fact(c.Label),
             ["guessed"] = c.AnyGuessed,
         };
