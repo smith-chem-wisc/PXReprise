@@ -1044,26 +1044,63 @@ public sealed class BatchRunner
         if (_ingestJson)
         {
             // datarepo 1.0+: one JSON envelope on stdout, the human report on stderr (dataRepo 010/014, our 011).
-            var (exit, stdout, stderr) = await RunProcessFullAsync(new[] { _m.DataRepo, "ingest", manifest, e.Accession, "--json" }, TimeSpan.FromHours(3), ct).ConfigureAwait(false);
+            var argv = new[] { _m.DataRepo, "ingest", manifest, e.Accession, "--json" };
+            var (exit, stdout, stderr) = await RunProcessFullAsync(argv, TimeSpan.FromHours(3), ct).ConfigureAwait(false);
+            string full = KeepOutput(OutputDir, e.Accession, "ingest", argv, exit, stdout, stderr, DateTime.UtcNow);
             var o = IngestEnvelope.Read(stdout, e.Accession, exit);
             rc = o.Rc;
             string report = Tail(stderr);
             Log($"{e.Accession} INGEST rc={rc} status={o.Status ?? "?"}{(o.BundleId is null ? "" : $" bundle={o.BundleId}")}{(o.Mismatches is > 0 ? $" mismatches={o.Mismatches}" : "")}"
-                + (o.Reasons.Count > 0 ? $" reasons: {string.Join(" | ", o.Reasons)}" : "") + $"\n{report}");
+                + (o.Reasons.Count > 0 ? $" reasons: {string.Join(" | ", o.Reasons)}" : "") + $" (full output {full})\n{report}");
             Record(e.Accession, ("ingest_rc", rc), ("ingest_exit_code", exit), ("ingest_status", o.Status), ("bundle_id", o.BundleId),
-                ("ingest_reasons", new JsonArray(o.Reasons.Select(r => (JsonNode?)r).ToArray())), ("ingest_out", report));
+                ("ingest_reasons", new JsonArray(o.Reasons.Select(r => (JsonNode?)r).ToArray())), ("ingest_out", report), ("ingest_log", full));
         }
         else
         {
-            (rc, string tail) = await RunProcessAsync(new[] { _m.DataRepo, "ingest", manifest, e.Accession }, TimeSpan.FromHours(3), ct).ConfigureAwait(false);
-            Log($"{e.Accession} INGEST rc={rc}\n{tail}");
-            Record(e.Accession, ("ingest_rc", rc), ("ingest_out", tail));
+            var argv = new[] { _m.DataRepo, "ingest", manifest, e.Accession };
+            var (exit, stdout, stderr) = await RunProcessFullAsync(argv, TimeSpan.FromHours(3), ct).ConfigureAwait(false);
+            string full = KeepOutput(OutputDir, e.Accession, "ingest", argv, exit, stdout, stderr, DateTime.UtcNow);
+            rc = exit;
+            string tail = Tail((stdout + stderr).Trim());
+            Log($"{e.Accession} INGEST rc={rc} (full output {full})\n{tail}");
+            Record(e.Accession, ("ingest_rc", rc), ("ingest_out", tail), ("ingest_log", full));
         }
         if (rc != 0 || _q.Publish.Command.Count == 0) return;
         // A failed publish is logged, never fatal: the bundle exists, and a stale site is a warning, not a reason to stop.
-        var (prc, ptail) = await RunProcessAsync(PublishArgv(_q.Publish.Command, manifest, _m.DataRepo), TimeSpan.FromHours(1), ct).ConfigureAwait(false);
-        Log($"{e.Accession} PUBLISH rc={prc}\n{ptail}");
-        Record(e.Accession, ("publish_rc", prc), ("publish_out", ptail));
+        // G38 (promised to dataRepo, our 032): the whole output goes to a file; batch.log and state keep only the tail.
+        var pargv = PublishArgv(_q.Publish.Command, manifest, _m.DataRepo);
+        var (prc, pout, perr) = await RunProcessFullAsync(pargv, TimeSpan.FromHours(1), ct).ConfigureAwait(false);
+        string pfull = KeepOutput(OutputDir, e.Accession, "publish", pargv, prc, pout, perr, DateTime.UtcNow);
+        string ptail = Tail((pout + perr).Trim());
+        Log($"{e.Accession} PUBLISH rc={prc} (full output {pfull})\n{ptail}");
+        Record(e.Accession, ("publish_rc", prc), ("publish_out", ptail), ("publish_log", pfull));
+    }
+
+    /// <summary>Where each ingest's and publish's whole output is kept (G38).</summary>
+    private string OutputDir => Path.Combine(_stateDir, "outputs");
+
+    /// <summary>
+    /// G38: writes a step's whole stdout and stderr, never cut, to <c>&lt;dir&gt;/&lt;accession&gt;_&lt;step&gt;_&lt;utc&gt;.log</c>
+    /// and returns the path. batch.log and state.json keep only the tail, which loses a .NET exception's type and message
+    /// (PXR-R14). A file that cannot be written is reported in the returned text, never thrown: the step itself succeeded.
+    /// </summary>
+    internal static string KeepOutput(string dir, string accession, string step, IReadOnlyList<string> argv, int rc,
+        string stdout, string stderr, DateTime utc)
+    {
+        string path = Path.Combine(dir, $"{accession}_{step}_{utc:yyyyMMdd'T'HHmmss'Z'}.log");
+        try
+        {
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(path,
+                $"# {step} of {accession}, finished {utc:yyyy-MM-dd'T'HH:mm:ss'Z'}, exit code {rc}\n" +
+                $"# command: {string.Join(" ", argv.Select(a => a.Contains(' ') ? $"\"{a}\"" : a))}\n" +
+                $"## stdout\n{stdout}\n## stderr\n{stderr}\n");
+            return path;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return $"(not kept: {ex.Message})";
+        }
     }
 
     /// <summary>
@@ -1073,12 +1110,6 @@ public sealed class BatchRunner
     internal static List<string> PublishArgv(IReadOnlyList<string> command, string manifest, string datarepo) =>
         command.Select(c => c.Replace("{manifest_dir}", Path.GetDirectoryName(Path.GetFullPath(manifest))!.Replace('\\', '/'))
                              .Replace("{manifest}", manifest).Replace("{datarepo}", datarepo)).ToList();
-
-    private static async Task<(int Rc, string Tail)> RunProcessAsync(IReadOnlyList<string> argv, TimeSpan timeout, CancellationToken ct)
-    {
-        var (rc, stdout, stderr) = await RunProcessFullAsync(argv, timeout, ct).ConfigureAwait(false);
-        return (rc, Tail((stdout + stderr).Trim()));
-    }
 
     private static string Tail(string s) => (s = s.Trim()).Length > 1200 ? s[^1200..] : s;
 

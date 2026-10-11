@@ -583,6 +583,34 @@ public class BatchRunnerTests
     }
 
     [Test]
+    public void APublishsWholeOutputIsKeptUncut()
+    {
+        // G38 (PXR-R14): batch.log keeps 1,200 characters, which lost a .NET exception's type and message twice.
+        string dir = Path.Combine(TestSupport.TempDir(), "outputs");
+        string head = "Unhandled exception. System.UnauthorizedAccessException: Access to the path is denied.";
+        string stderr = head + "\n" + string.Concat(Enumerable.Repeat("   at DataRepo.Catalog.Build() in Catalog.cs:line 1343\n", 200));
+        string path = BatchRunner.KeepOutput(dir, "PXD008344", "publish", new[] { "powershell", "-File", "C:/a b/publish.ps1" }, -532462766,
+            "building the catalog", stderr, new DateTime(2026, 10, 11, 9, 45, 13, DateTimeKind.Utc));
+
+        Assert.That(path, Is.EqualTo(Path.Combine(dir, "PXD008344_publish_20261011T094513Z.log")));
+        string text = File.ReadAllText(path);
+        Assert.That(text, Does.Contain(head), "the exception's first line survives");
+        Assert.That(text, Does.Contain(stderr), "nothing is cut");
+        Assert.That(text, Does.Contain("exit code -532462766"));
+        Assert.That(text, Does.Contain("\"C:/a b/publish.ps1\""), "an argument with a space is quoted");
+        Assert.That(text.IndexOf("## stdout", StringComparison.Ordinal), Is.LessThan(text.IndexOf("## stderr", StringComparison.Ordinal)));
+    }
+
+    [Test]
+    public void AnOutputThatCannotBeKeptIsReportedNotThrown()
+    {
+        // A file where the folder should be: the step succeeded, so keeping its output must not fail the delivery.
+        string blocker = TestSupport.WriteFile(TestSupport.TempDir(), "outputs", "not a folder");
+        string result = BatchRunner.KeepOutput(blocker, "PXD000001", "ingest", new[] { "datarepo" }, 0, "", "", DateTime.UtcNow);
+        Assert.That(result, Does.StartWith("(not kept: "));
+    }
+
+    [Test]
     public void AFailedIngestIsNotDeliveredSoTheNextStartRetriesIt()
     {
         const string manifest = "manifest_version: 1\ndatasets:\n\n  - accession: PXD075372\n    status: include\n";
