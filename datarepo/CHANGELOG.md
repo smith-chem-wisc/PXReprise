@@ -4,7 +4,12 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
-## [Unreleased]
+## [1.3.2] - 2026-10-11
+
+**On Windows, `build` replaces a catalog that something is reading** (aging DATAREPO-78, PXReprise PXR-R14). Only
+`build` changes. The ingest path stays `cs-1.1.0` and the schema 0.0.15, so **no re-ingest**: 1.3.2 writes every
+bundle 1.3.1 writes, under the same id. The catalog format stays 10. A catalog id hashes the program's version, so a
+rebuild on 1.3.2 gets a new id from the same bundles.
 
 ### Fixed
 - **On Windows, a reader of the catalog no longer breaks `datarepo build`** (aging DATAREPO-78, PXReprise PXR-R14).
