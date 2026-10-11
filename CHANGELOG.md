@@ -61,7 +61,10 @@ profiles already named keep searching exactly as before.
 - **Checked live before release (2026-10-11),** through the engine's own search code on scratch folders:
   - `@6` on PXD058611 run 199: the settings folder was seeded and the file installed; NBF variable in all three tasks;
     no "Unrecognized mod"; 12,989 target PSMs at 1%; NBF on 86% of cysteine PSMs.
-  - `lowres@2` on a PXD057407 file: PENDING (the first copy came from EBI corrupted and is being fetched again).
+  - `lowres@2` on PXD052631's `..._SL_F8_...raw` (389 MB, every MS2 ion-trap HCD): QC decided "HCD, low resolution"; the
+    file's own settings were HCD at ±0.5 Da; no warnings; 1,431 target PSMs at 1% of 16,051 MS2. Matched fragment errors
+    reached 0.499 Da (median 0.07), so the low-resolution tolerance was in force. (PXD057407's 4 GB files never arrived
+    whole from EBI that day: 6 of 6 copies carried its error text.)
 
 ## 0.4.5 (unreleased)
 
