@@ -7,6 +7,27 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.7 (2026-10-11)
+
+No MetaMorpheus change (1.1.12 and 1.1.11, as in 0.4.6). **Machine file:** nothing. **Safe mid-batch?** No: stop the
+batch, let it drain, update, then start it again. **Question file:** two optional `[publish]` keys, below; a question
+without them gets the new defaults.
+
+- **Publishing is scheduled, no longer run after each ingest.** A large catalog takes long to build: on 2026-10-11 the
+  ageing project's took about an hour, and the fixed 1-hour limit killed four publishes in a row, so nothing new was
+  served for six hours.
+  - The question's `[publish]` command now runs at most every `every_h` hours (default 6), only when something was
+    delivered since the last successful publish. The first one after a start runs at once, and a driver that runs out of
+    queue publishes what waits before it exits. `every_h = 0` restores a publish after each ingest.
+  - `timeout_h` (default 4) is how long a publish may run before it is killed; it was a fixed hour.
+  - One publish serves every deposit delivered since the last success. Each one's `publish_rc` is written when it is
+    served; after a failure they all wait for the next publish. state.json's new `publish` record keeps the last start,
+    end, exit code and log.
+  - A driver stopped by STOP lets a publish under way finish, starts no new one, and says how many deposits wait for the
+    next driver.
+- **A killed process keeps what it wrote.** A publish or ingest killed at its limit used to leave only "TIMEOUT after
+  N s"; its output up to the kill is now in its log (G38's file) too.
+
 ## 0.4.6 (2026-10-11)
 
 **Upgrading from 0.3.11, the last public release.** 0.4.0 to 0.4.5 were not released on their own; this release carries

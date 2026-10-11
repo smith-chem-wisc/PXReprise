@@ -601,6 +601,125 @@ public class BatchRunnerTests
         Assert.That(text.IndexOf("## stdout", StringComparison.Ordinal), Is.LessThan(text.IndexOf("## stderr", StringComparison.Ordinal)));
     }
 
+    // D41 rule 6 (PXR-A72, PXR-A75): on 2026-10-11 aging's catalog build passed the fixed 1-hour limit, and four publishes
+    // in a row were killed (rc 124), one per ingest. Publishing is now scheduled: at most every every_h, only when
+    // something was delivered since the last success, with the question's own limit.
+
+    /// <summary>
+    /// This OS's shell: <c>cmd /c</c> on Windows, <c>sh -c</c> elsewhere (public CI is Linux). Windows' cmd by full path:
+    /// the test folder holds tests/FakeMetaMorpheus built as CMD.exe, which a bare "cmd" starts instead.
+    /// </summary>
+    private static string[] Shell(string script) =>
+        OperatingSystem.IsWindows() ? new[] { Path.Combine(Environment.SystemDirectory, "cmd.exe"), "/c", script } : new[] { "sh", "-c", script };
+
+    private static string ShellToml(string script) => "[" + string.Join(", ", Shell(script).Select(a => $"'{a}'")) + "]";
+
+    private static (BatchRunner Runner, string Dir) Publisher(string script)
+    {
+        var (runner, _, _, dir) = Runner($"[publish]\nmanifest = \"manifest.yaml\"\ncommand = {ShellToml(script)}\nevery_h = 6\ntimeout_h = 1\n", "datarepo = 'x'\n");
+        return (runner, dir);
+    }
+
+    [Test]
+    public void APublishIsDueOnlyWhenSomethingWaitsAndTheIntervalHasPassed()
+    {
+        var now = new DateTime(2026, 10, 11, 22, 0, 0, DateTimeKind.Utc);
+        Assert.That(BatchRunner.PublishDue(now, null, 6, 0), Is.False, "nothing delivered: nothing to publish");
+        Assert.That(BatchRunner.PublishDue(now, null, 6, 1), Is.True, "never published: at once");
+        Assert.That(BatchRunner.PublishDue(now, now.AddHours(-5.9), 6, 3), Is.False);
+        Assert.That(BatchRunner.PublishDue(now, now.AddHours(-6), 6, 3), Is.True);
+        Assert.That(BatchRunner.PublishDue(now, now.AddMinutes(-1), 0, 1), Is.True, "every_h = 0: after each ingest, as before");
+    }
+
+    [Test]
+    public void ThePublishScheduleIsTheQuestionsAndDefaultsToSixHoursWithAFourHourLimit()
+    {
+        string dir = TestSupport.TempDir();
+        var q = QuestionLoader.Load(TestSupport.WriteFile(dir, "q1.toml", TestSupport.MinimalQuestion + "\n[publish]\ncommand = [\"x\"]\n"));
+        Assert.That((q.Publish!.EveryHours, q.Publish.TimeoutHours), Is.EqualTo((6.0, 4.0)));
+        q = QuestionLoader.Load(TestSupport.WriteFile(dir, "q2.toml", TestSupport.MinimalQuestion + "\n[publish]\ncommand = [\"x\"]\nevery_h = 0\ntimeout_h = 2.5\n"));
+        Assert.That((q.Publish!.EveryHours, q.Publish.TimeoutHours), Is.EqualTo((0.0, 2.5)));
+        Assert.That(() => QuestionLoader.Load(TestSupport.WriteFile(dir, "q3.toml", TestSupport.MinimalQuestion + "\n[publish]\nevery_h = -1\n")),
+            Throws.InstanceOf<ConfigException>().With.Message.Contains("every_h"));
+        Assert.That(() => QuestionLoader.Load(TestSupport.WriteFile(dir, "q4.toml", TestSupport.MinimalQuestion + "\n[publish]\ntimeout_h = 0\n")),
+            Throws.InstanceOf<ConfigException>().With.Message.Contains("timeout_h"));
+    }
+
+    [Test]
+    public async Task OneScheduledPublishServesEveryWaitingDepositThenWaitsItsTurn()
+    {
+        var (runner, _) = Publisher("exit 0");
+        runner.Record("PXD000001", ("ingest_rc", 0), ("publish_rc", 124));   // killed under the old 1-hour limit
+        runner.Record("PXD000002", ("ingest_rc", 0));                        // delivered, publish_rc cleared
+        runner.Record("PXD000003", ("ingest_rc", 1));                        // refused: not delivered
+        runner.Record("PXD000004", ("ingest_rc", 0), ("publish_rc", 0));     // already served
+        Assert.That(runner.AwaitingPublish(), Is.EqualTo(new[] { "PXD000001", "PXD000002" }));
+
+        Assert.That(await runner.PublishIfDueAsync(false, CancellationToken.None), Is.EqualTo(0));
+        Assert.That(runner.AwaitingPublish(), Is.Empty, "one publish serves everything ingested");
+        var st = runner.State();
+        Assert.That(st["datasets"]!["PXD000001"]!["publish_rc"]!.GetValue<int>(), Is.Zero);
+        Assert.That(st["datasets"]!["PXD000002"]!["published_utc"], Is.Not.Null);
+        Assert.That(st["publish"]!["last_served"]!.AsArray().Select(n => n!.GetValue<string>()), Is.EqualTo(new[] { "PXD000001", "PXD000002" }));
+        Assert.That(File.Exists(st["publish"]!["last_log"]!.GetValue<string>()), "G38: the whole output is kept");
+
+        runner.Record("PXD000005", ("ingest_rc", 0));
+        Assert.That(await runner.PublishIfDueAsync(false, CancellationToken.None), Is.Null, "the next one waits six hours from the last start");
+        Assert.That(runner.AwaitingPublish(), Is.EqualTo(new[] { "PXD000005" }));
+        Assert.That(await runner.PublishIfDueAsync(true, CancellationToken.None), Is.EqualTo(0), "at once, when the driver asks");
+        Assert.That(await runner.PublishIfDueAsync(true, CancellationToken.None), Is.Null, "nothing waits: nothing runs");
+    }
+
+    [Test]
+    public async Task AFailedPublishLeavesItsDepositsWaitingForTheNextOne()
+    {
+        var (runner, _) = Publisher("exit 3");
+        runner.Record("PXD000001", ("ingest_rc", 0));
+        Assert.That(await runner.PublishIfDueAsync(false, CancellationToken.None), Is.EqualTo(3));
+        Assert.That(runner.AwaitingPublish(), Is.EqualTo(new[] { "PXD000001" }));
+        var st = runner.State();
+        Assert.That(st["datasets"]!["PXD000001"]!["publish_rc"]!.GetValue<int>(), Is.EqualTo(3));
+        Assert.That(st["publish"]!["last_rc"]!.GetValue<int>(), Is.EqualTo(3));
+        Assert.That(st["publish"]!["last_failed"]!.AsArray().Count, Is.EqualTo(1));
+        Assert.That(await runner.PublishIfDueAsync(false, CancellationToken.None), Is.Null, "a failure also waits its turn: no build every minute");
+    }
+
+    [Test]
+    public async Task ADriverThatRanOutOfQueuePublishesWhatWaitsAndOneStoppedLeavesItToTheNext()
+    {
+        var (runner, dir) = Publisher("exit 0");
+        runner.Record("PXD000001", ("ingest_rc", 0));
+        string stateFile = Path.Combine(dir, "state", "state.json");
+        void LastPublishedAnHourAgo()
+        {
+            var st = JsonNode.Parse(File.ReadAllText(stateFile))!.AsObject();
+            st["publish"] = new JsonObject { ["last_started_utc"] = DateTime.UtcNow.AddHours(-1).ToString("o") };
+            File.WriteAllText(stateFile, st.ToJsonString());
+        }
+
+        LastPublishedAnHourAgo();
+        File.WriteAllText(Path.Combine(dir, "state", "STOP"), "hold");
+        await runner.RunAsync(Array.Empty<QueueEntry>(), CancellationToken.None);
+        Assert.That(runner.AwaitingPublish(), Is.EqualTo(new[] { "PXD000001" }), "STOP drains; it starts no build");
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain("not yet published (PXD000001): the next driver publishes them first"));
+
+        File.Delete(Path.Combine(dir, "state", "STOP"));
+        await runner.RunAsync(Array.Empty<QueueEntry>(), CancellationToken.None);
+        Assert.That(runner.AwaitingPublish(), Is.Empty, "the queue ran out: nothing competes for the disk, so it publishes now");
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain("queue done: publishing the 1 deposit(s) waiting now"));
+    }
+
+    [Test]
+    public async Task AKilledProcessKeepsWhatItWroteBeforeTheKill()
+    {
+        // 2026-10-11: four killed publishes left batch.log and state with "TIMEOUT after 3600 s" and nothing else.
+        string[] argv = Shell(OperatingSystem.IsWindows() ? "echo building the catalog& ping -n 30 127.0.0.1 >nul" : "echo building the catalog; sleep 30");
+        var (rc, stdout, stderr) = await BatchRunner.RunProcessFullAsync(argv, TimeSpan.FromSeconds(3), CancellationToken.None);
+        Assert.That(rc, Is.EqualTo(124));
+        Assert.That(stdout, Does.Contain("building the catalog"));
+        Assert.That(stderr, Does.EndWith("TIMEOUT after 3 s"));
+    }
+
     [Test]
     public void AnOutputThatCannotBeKeptIsReportedNotThrown()
     {

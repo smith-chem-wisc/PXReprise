@@ -80,6 +80,11 @@ public static class QuestionLoader
         string? studyLayer = pub?.OptionalString("study_layer");
         string? manifest = pub?.OptionalString("manifest");
         var command = pub?.StringList("command") ?? Array.Empty<string>();
+        // D41 rule 6 (PXR-A72, PXR-A75): one build per 6 hours at most, not one per ingest; a build of aging's catalog
+        // passed an hour on 2026-10-11, so the old fixed 1-hour limit killed every one.
+        double everyHours = pub?.OptionalNumber("every_h") ?? 6, publishTimeout = pub?.OptionalNumber("timeout_h") ?? 4;
+        if (everyHours < 0) throw new ConfigException(file, "publish.every_h must be 0 (after each ingest) or more");
+        if (publishTimeout <= 0) throw new ConfigException(file, "publish.timeout_h must be positive");
         pub?.RefuseUnknownKeys();
 
         BatchSettings? batch = null;
@@ -123,7 +128,7 @@ public static class QuestionLoader
         return new Question(name, description, file, profiles, keywords, organisms,
             new RelevanceRules(require, exclude, unless, decisions), overlays, requiredTraits, optionalTraits,
             traitsSource, holds, studyLayer, batch,
-            new PublishSettings(manifest is null ? null : Abs(dir, manifest), command), designs,
+            new PublishSettings(manifest is null ? null : Abs(dir, manifest), command, everyHours, publishTimeout), designs,
             new DiscoverLists(diseaseKeywords, watchKeywords), exceptions);
     }
 

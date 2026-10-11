@@ -99,10 +99,16 @@ public sealed class BatchRunner
             }
             foreach (var (k, v) in fields) e[k] = v?.DeepClone();
             e["updated_utc"] = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'+00:00'");
-            string tmp = StateFile + ".tmp";
-            File.WriteAllText(tmp, st.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = Envelope.Json.Encoder }));
-            File.Move(tmp, StateFile, overwrite: true);
+            Save(st);
         }
+    }
+
+    /// <summary>Writes state.json beside, then renames it over the old one. Call under <c>_gate</c>.</summary>
+    private void Save(JsonObject st)
+    {
+        string tmp = StateFile + ".tmp";
+        File.WriteAllText(tmp, st.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = Envelope.Json.Encoder }));
+        File.Move(tmp, StateFile, overwrite: true);
     }
 
     private JsonObject? Entry(string acc) => State()["datasets"]![acc] as JsonObject;
@@ -300,6 +306,9 @@ public sealed class BatchRunner
         Log($"  question {_q.SourceFile} ({_q.Name}); profiles {string.Join(", ", _q.Profiles)}");
         Log($"  manifest {_q.Publish?.Manifest ?? "(none)"}");
         Log($"  datarepo {_m.DataRepo ?? "(none)"}");
+        CancellationTokenSource? stopPublishing = null;
+        Task? publisher = null;
+        bool ranOut = false;
         try
         {
             if (_m.DataRepo is not null)
@@ -312,6 +321,13 @@ public sealed class BatchRunner
                 Log($"  datarepo version: {(version.Length > 0 ? version : $"unknown (rc {vrc})")}; ingest reads {(_ingestJson ? "the --json envelope" : "the exit code")}");
             }
             await ReconcileAsync(queue, ct).ConfigureAwait(false);
+            if (Publishes)
+            {
+                var pub = _q.Publish!;
+                Log($"  publish  at most every {pub.EveryHours:0.#} h, when something was delivered since the last success; limit {pub.TimeoutHours:0.#} h; {AwaitingPublish().Count} deposit(s) waiting, next {PublishWhen()}");
+                stopPublishing = new CancellationTokenSource();
+                publisher = Task.Run(() => PublishLoopAsync(stopPublishing.Token, ct), CancellationToken.None);
+            }
             // Pass 1 walks the queue; each later pass walks only the deposits PRIDE or UniProt failed to serve, after a
             // wait. The pass count bounds the loop: an outage longer than fetch_passes waits leaves them for the next run.
             var walk = queue;
@@ -319,11 +335,12 @@ public sealed class BatchRunner
             {
                 if (!await WalkAsync(walk, ct).ConfigureAwait(false)) return;
                 walk = queue.Where(e => Retriable(e.Accession)).ToList();
-                if (walk.Count == 0) { Log("queue exhausted"); return; }
+                if (walk.Count == 0) { Log("queue exhausted"); ranOut = true; return; }
                 string which = string.Join(", ", walk.Take(10).Select(e => e.Accession)) + (walk.Count > 10 ? ", ..." : "");
                 if (pass >= _m.FetchPasses)
                 {
                     Log($"queue exhausted; {walk.Count} deposit(s) still waiting on PRIDE after {pass} pass(es) ({which}): run the batch again later");
+                    ranOut = true;
                     return;
                 }
                 Log($"pass {pass} done; {walk.Count} deposit(s) failed on PRIDE or UniProt availability, or on a runtime change ({which}); pass {pass + 1} in {_m.PassWaitMinutes:0} min");
@@ -332,7 +349,34 @@ public sealed class BatchRunner
         }
         finally
         {
+            await EndPublishingAsync(stopPublishing, publisher, ranOut, ct).ConfigureAwait(false);
             try { File.Delete(PidFile); } catch (IOException) { }
+        }
+    }
+
+    /// <summary>
+    /// The driver's end: a publish under way finishes (STOP drains, it never kills a build). A driver that ran out of
+    /// queue publishes what still waits at once, since no search competes for the disk any more; one stopped by STOP or
+    /// the disk floor leaves it to the next driver, and says so.
+    /// </summary>
+    private async Task EndPublishingAsync(CancellationTokenSource? stop, Task? publisher, bool ranOut, CancellationToken ct)
+    {
+        if (publisher is null) return;
+        if (_publishRunning) Log("the publish under way finishes before the driver exits");
+        stop!.Cancel();
+        await publisher.ConfigureAwait(false);
+        stop.Dispose();
+        if (ct.IsCancellationRequested || AwaitingPublish() is not { Count: > 0 } waiting) return;
+        if (!ranOut)
+        {
+            Log($"{waiting.Count} deposit(s) delivered but not yet published ({Brief(waiting)}): the next driver publishes them first");
+            return;
+        }
+        Log($"queue done: publishing the {waiting.Count} deposit(s) waiting now, not at the schedule");
+        try { await PublishIfDueAsync(true, ct).ConfigureAwait(false); }
+        catch (Exception ex) when (ex is IOException or System.ComponentModel.Win32Exception or JsonException or InvalidOperationException or OperationCanceledException)
+        {
+            Log($"PUBLISH could not run: {ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -1066,14 +1110,127 @@ public sealed class BatchRunner
             Record(e.Accession, ("ingest_rc", rc), ("ingest_out", tail), ("ingest_log", full));
         }
         if (rc != 0 || _q.Publish.Command.Count == 0) return;
-        // A failed publish is logged, never fatal: the bundle exists, and a stale site is a warning, not a reason to stop.
-        // G38 (promised to dataRepo, our 032): the whole output goes to a file; batch.log and state keep only the tail.
-        var pargv = PublishArgv(_q.Publish.Command, manifest, _m.DataRepo);
-        var (prc, pout, perr) = await RunProcessFullAsync(pargv, TimeSpan.FromHours(1), ct).ConfigureAwait(false);
-        string pfull = KeepOutput(OutputDir, e.Accession, "publish", pargv, prc, pout, perr, DateTime.UtcNow);
-        string ptail = Tail((pout + perr).Trim());
-        Log($"{e.Accession} PUBLISH rc={prc} (full output {pfull})\n{ptail}");
-        Record(e.Accession, ("publish_rc", prc), ("publish_out", ptail), ("publish_log", pfull));
+        // D41 rule 6: publishing is scheduled (PublishLoopAsync), no longer run after each ingest. A new delivery waits for
+        // the next scheduled publish; an earlier publish result belongs to the bundle this ingest replaced.
+        Record(e.Accession, ("publish_rc", null), ("publish_out", null), ("publish_log", null));
+        Log($"{e.Accession} PUBLISH waits for the next scheduled publish ({PublishWhen()})");
+    }
+
+    // ------------------------------------------------------------------ publishing (D41 rule 6)
+
+    /// <summary>
+    /// The deposits delivered and not yet served: <c>ingest_rc</c> 0 and no successful publish since (<c>publish_rc</c>
+    /// missing or not 0). The question's publish command serves everything ingested, so one success serves them all.
+    /// </summary>
+    internal IReadOnlyList<string> AwaitingPublish() =>
+        State()["datasets"]!.AsObject()
+            .Where(kv => kv.Value is JsonObject o && o["ingest_rc"] is JsonValue i && i.TryGetValue<int>(out int irc) && irc == 0
+                         && !(o["publish_rc"] is JsonValue p && p.TryGetValue<int>(out int prc) && prc == 0))
+            .Select(kv => kv.Key).OrderBy(a => a, StringComparer.Ordinal).ToList();
+
+    /// <summary>When the last publish started (state.json <c>publish.last_started_utc</c>); null before the first.</summary>
+    internal DateTime? LastPublishStarted() =>
+        State()["publish"]?["last_started_utc"]?.GetValue<string>() is { } s
+        && DateTime.TryParse(s, null, System.Globalization.DateTimeStyles.RoundtripKind, out var t) ? t.ToUniversalTime() : null;
+
+    /// <summary>A publish is due when something waits and <paramref name="everyHours"/> have passed since the last one started.</summary>
+    internal static bool PublishDue(DateTime nowUtc, DateTime? lastStartedUtc, double everyHours, int waiting) =>
+        waiting > 0 && (lastStartedUtc is not { } last || nowUtc - last >= TimeSpan.FromHours(everyHours));
+
+    private string PublishWhen() =>
+        _q.Publish is not { } p ? "no publish command"
+        : LastPublishStarted() is { } last && DateTime.UtcNow - last < TimeSpan.FromHours(p.EveryHours)
+            ? $"not before {last + TimeSpan.FromHours(p.EveryHours):yyyy-MM-dd HH:mm} UTC, every {p.EveryHours:0.#} h"
+            : "within a minute";
+
+    private bool Publishes => _q.Publish is { Manifest: not null, Command.Count: > 0 } && _m.DataRepo is not null;
+
+    private volatile bool _publishRunning;
+
+    /// <summary>
+    /// Runs the question's publish command when it is due (or at once with <paramref name="now"/>, when something waits).
+    /// It holds the delivery lock, so no ingest writes the store under a build. A failed publish is logged, never fatal:
+    /// the bundles exist, and a stale site is a warning, not a reason to stop. The deposits it served are recorded only
+    /// when it succeeds; after a failure they wait for the next one. Returns the exit code, or null when nothing ran.
+    /// </summary>
+    internal async Task<int?> PublishIfDueAsync(bool now, CancellationToken ct)
+    {
+        if (!Publishes) return null;
+        var pub = _q.Publish!;
+        if (!now && !PublishDue(DateTime.UtcNow, LastPublishStarted(), pub.EveryHours, AwaitingPublish().Count)) return null;
+        await _delivering.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var waiting = AwaitingPublish();   // again, under the lock: an ingest may have finished meanwhile
+            if (waiting.Count == 0) return null;
+            _publishRunning = true;
+            DateTime started = DateTime.UtcNow;
+            RecordPublish(("last_started_utc", started.ToString("o")), ("waiting", Names(waiting)));
+            Log($"PUBLISH start: {waiting.Count} deposit(s) delivered since the last successful publish ({Brief(waiting)}); limit {pub.TimeoutHours:0.#} h, free {FreeGb():0} GB");
+            // G38 (promised to dataRepo, our 032): the whole output goes to a file; batch.log and state keep only the tail.
+            var argv = PublishArgv(pub.Command, pub.Manifest!, _m.DataRepo!);
+            var (rc, stdout, stderr) = await RunProcessFullAsync(argv, TimeSpan.FromHours(pub.TimeoutHours), ct).ConfigureAwait(false);
+            DateTime finished = DateTime.UtcNow;
+            string full = KeepOutput(OutputDir, _q.Name, "publish", argv, rc, stdout, stderr, finished);
+            string tail = Tail((stdout + stderr).Trim());
+            Log($"PUBLISH rc={rc} after {(finished - started).TotalMinutes:0} min{(rc == 0 ? $", served {waiting.Count}" : $"; {waiting.Count} still wait for the next one")} (full output {full})\n{tail}");
+            RecordPublish(("last_finished_utc", finished.ToString("o")), ("last_rc", rc), ("last_log", full), ("waiting", null),
+                rc == 0 ? ("last_served", Names(waiting)) : ("last_failed", Names(waiting)));
+            if (rc == 0) RecordAll(waiting, ("publish_rc", 0), ("publish_out", tail), ("publish_log", full), ("published_utc", finished.ToString("o")));
+            else RecordAll(waiting, ("publish_rc", rc), ("publish_out", tail), ("publish_log", full));
+            return rc;
+        }
+        finally { _publishRunning = false; _delivering.Release(); }
+
+        static JsonArray Names(IReadOnlyList<string> a) => new(a.Select(x => (JsonNode?)x).ToArray());
+    }
+
+    private static string Brief(IReadOnlyList<string> accs) => string.Join(", ", accs.Take(8)) + (accs.Count > 8 ? $", +{accs.Count - 8} more" : "");
+
+    /// <summary>Checks once a minute until <paramref name="stop"/>; a publish under way is never stopped by it (STOP drains).</summary>
+    private async Task PublishLoopAsync(CancellationToken stop, CancellationToken ct)
+    {
+        while (!stop.IsCancellationRequested && !ct.IsCancellationRequested)
+        {
+            try { await PublishIfDueAsync(false, ct).ConfigureAwait(false); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
+            catch (Exception ex) when (ex is IOException or System.ComponentModel.Win32Exception or JsonException or InvalidOperationException)
+            {
+                Log($"PUBLISH could not run: {ex.GetType().Name}: {ex.Message}");
+            }
+            try { await Task.Delay(TimeSpan.FromMinutes(1), stop).ConfigureAwait(false); }
+            catch (OperationCanceledException) { return; }
+        }
+    }
+
+    /// <summary>Writes fields of state.json's top-level <c>publish</c> record.</summary>
+    private void RecordPublish(params (string Key, JsonNode? Value)[] fields)
+    {
+        lock (_gate)
+        {
+            var st = State();
+            if (st["publish"] is not JsonObject p) st["publish"] = p = new JsonObject();
+            foreach (var (k, v) in fields) p[k] = v?.DeepClone();
+            Save(st);
+        }
+    }
+
+    /// <summary>The same fields on several deposits' entries, in one write.</summary>
+    private void RecordAll(IEnumerable<string> accs, params (string Key, JsonNode? Value)[] fields)
+    {
+        lock (_gate)
+        {
+            var st = State();
+            var ds = st["datasets"]!.AsObject();
+            string now = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'+00:00'");
+            foreach (string acc in accs)
+            {
+                if (ds[acc] is not JsonObject e) continue;
+                foreach (var (k, v) in fields) e[k] = v?.DeepClone();
+                e["updated_utc"] = now;
+            }
+            Save(st);
+        }
     }
 
     /// <summary>Where each ingest's and publish's whole output is kept (G38).</summary>
@@ -1113,8 +1270,11 @@ public sealed class BatchRunner
 
     private static string Tail(string s) => (s = s.Trim()).Length > 1200 ? s[^1200..] : s;
 
-    /// <summary>Exit code 124 with a TIMEOUT line on stderr when <paramref name="timeout"/> passes (the process tree is killed).</summary>
-    private static async Task<(int Rc, string Stdout, string Stderr)> RunProcessFullAsync(IReadOnlyList<string> argv, TimeSpan timeout, CancellationToken ct)
+    /// <summary>
+    /// Exit code 124 with a TIMEOUT line on stderr when <paramref name="timeout"/> passes (the process tree is killed).
+    /// What the process wrote before the kill is kept: on 2026-10-11 four killed publishes left nothing to read.
+    /// </summary>
+    internal static async Task<(int Rc, string Stdout, string Stderr)> RunProcessFullAsync(IReadOnlyList<string> argv, TimeSpan timeout, CancellationToken ct)
     {
         var psi = new ProcessStartInfo(argv[0]) { RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true, UseShellExecute = false, CreateNoWindow = true };
         foreach (string a in argv.Skip(1)) psi.ArgumentList.Add(a);
@@ -1128,7 +1288,10 @@ public sealed class BatchRunner
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             p.Kill(entireProcessTree: true);
-            return (124, "", $"TIMEOUT after {timeout.TotalSeconds:0} s");
+            async Task<string> Partial(Task<string> t) =>
+                await Task.WhenAny(t, Task.Delay(TimeSpan.FromSeconds(30))).ConfigureAwait(false) == t && t.IsCompletedSuccessfully ? t.Result : "";
+            string stdout = await Partial(outTask).ConfigureAwait(false), stderr = await Partial(errTask).ConfigureAwait(false);
+            return (124, stdout, (stderr.Length > 0 ? stderr.TrimEnd() + "\n" : "") + $"TIMEOUT after {timeout.TotalSeconds:0} s");
         }
         return (p.ExitCode, await outTask.ConfigureAwait(false), await errTask.ConfigureAwait(false));
     }
