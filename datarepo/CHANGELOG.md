@@ -4,6 +4,22 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [Unreleased]
+
+### Fixed
+- **On Windows, a reader of the catalog no longer breaks `datarepo build`** (aging DATAREPO-78, PXReprise PXR-R14).
+  On Windows a file that another process holds open cannot be replaced, though it can be deleted when the holder
+  allows that, as DuckDB does. Python 0.32.0 deleted the old catalog and then renamed the new one into place. The C#
+  port replaced it in one step, so any reader (a datarepo MCP server, an analysis script) made the build's last step
+  fail. The failure was an unhandled exception (exit 0xE0434352), and it left the finished catalog behind as a hidden
+  `.catalog.duckdb.<id>.building` file, about 30 GB on aging's instance. Now:
+  - when a reader blocks the replace, the old file is deleted under it and the new one moved into place. The reader
+    keeps answering from the catalog it opened, and the MCP server flags `catalog_file_changed`, as on Linux and macOS;
+  - a holder that refuses deletion too (antivirus, the indexer, a backup) gets retries with a growing wait, for up to
+    two minutes;
+  - if it still holds the file, the build refuses with exit 1 and a message naming the catalog. The previous catalog is
+    left in place and the new file is deleted.
+
 ## [1.3.1] - 2026-10-08
 
 **A search with an experimental design ingests again** (PXReprise PXR-R9). 1.3.0 refused every one, and since

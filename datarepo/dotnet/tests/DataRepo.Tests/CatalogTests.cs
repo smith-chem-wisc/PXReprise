@@ -345,6 +345,91 @@ public class CatalogTests
         }
     }
 
+    /// <summary>aging DATAREPO-78, PXReprise PXR-R14: a DuckDB reader of the catalog (an MCP server, a script) does not
+    /// stop a rebuild, and keeps answering from the catalog it opened. On Windows 1.3.0 crashed here and left the new
+    /// catalog behind (30 GB on aging's), because a file held open cannot be replaced there, only deleted.</summary>
+    [Test]
+    public void ARebuildReplacesTheCatalogUnderAReader()
+    {
+        var store = FixtureStore();
+        var output = Path.Combine(store, "catalog.duckdb");
+        try
+        {
+            BuildFixture(store, output);
+            using (var reader = CatalogBuilder.Open(output, readOnly: true))
+            {
+                var rebuilt = BuildFixture(store, output, overwrite: true);
+                Assert.That(rebuilt.Skipped, Is.False);
+                using var cmd = reader.CreateCommand();
+                cmd.CommandText = "SELECT count(*) FROM psms";
+                Assert.That(cmd.ExecuteScalar(), Is.EqualTo(60L), "the reader still answers from the catalog it opened");
+            }
+            Assert.That(Directory.EnumerateFiles(store, "*.building*"), Is.Empty, "no staging file is left behind");
+            Assert.That(CatalogBuilder.RunQuery(output, "SELECT count(*) FROM psms").Rows.Single()[0], Is.EqualTo(60L));
+        }
+        finally
+        {
+            Directory.Delete(store, recursive: true);
+        }
+    }
+
+    /// <summary>PXR-R14: a holder that refuses even deletion and never lets go gets a refusal, with the old catalog in
+    /// place and no staging file left.</summary>
+    [Test]
+    public void ABuildThatCannotReplaceTheCatalogRefusesAndLeavesNoStagingFile()
+    {
+        if (!OperatingSystem.IsWindows()) Assert.Ignore("only Windows refuses to replace a file another handle holds open");
+        var store = FixtureStore();
+        var output = Path.Combine(store, "catalog.duckdb");
+        var budget = CatalogBuilder.ReplaceBudget;
+        try
+        {
+            var first = BuildFixture(store, output);
+            CatalogBuilder.ReplaceBudget = TimeSpan.FromSeconds(1);
+            using (new FileStream(output, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                var e = Assert.Throws<CatalogException>(() => BuildFixture(store, output, overwrite: true));
+                Assert.That(e!.Message, Does.StartWith($"{Path.GetFullPath(output)} could not be replaced by the new catalog within 1 s: "));
+                Assert.That(e.Message, Does.EndWith("The new one was deleted; build again once nothing holds the catalog."));
+            }
+            Assert.That(Directory.EnumerateFiles(store, "*.building*"), Is.Empty, "no staging file is left behind");
+            Assert.That(CatalogBuilder.ReadCatalogId(output), Is.EqualTo(first.CatalogId));
+        }
+        finally
+        {
+            CatalogBuilder.ReplaceBudget = budget;
+            Directory.Delete(store, recursive: true);
+        }
+    }
+
+    /// <summary>PXR-R14: a holder that lets go (antivirus reading the new file) is waited for, not reported.</summary>
+    [Test]
+    public void TheReplaceWaitsForAHolderThatLetsGo()
+    {
+        if (!OperatingSystem.IsWindows()) Assert.Ignore("only Windows refuses to replace a file another handle holds open");
+        var dir = NewScratch("replace");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var source = Path.Combine(dir, "new");
+            var destination = Path.Combine(dir, "old");
+            File.WriteAllText(source, "new");
+            File.WriteAllText(destination, "old");
+            var held = new FileStream(destination, FileMode.Open, FileAccess.Read, FileShare.Read);
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            var release = Task.Delay(TimeSpan.FromSeconds(1)).ContinueWith(_ => held.Dispose());
+            CatalogBuilder.ReplaceFile(source, destination, TimeSpan.FromSeconds(30));
+            release.Wait();
+            Assert.That(clock.Elapsed, Is.GreaterThan(TimeSpan.FromMilliseconds(900)), "it was refused while the file was held");
+            Assert.That(File.ReadAllText(destination), Is.EqualTo("new"));
+            Assert.That(File.Exists(source), Is.False);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
     [Test]
     public void SelectionRefusesToGuess()
     {

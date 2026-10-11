@@ -1340,7 +1340,27 @@ public static class CatalogBuilder
             throw;
         }
 
-        File.Move(staging, full, overwrite: true);
+        try
+        {
+            ReplaceFile(staging, full, ReplaceBudget);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // PXR-R14: 1.3.0 let this escape unhandled and left the new catalog behind, 30 GB at a time.
+            if (!File.Exists(full))
+                throw new CatalogException(
+                    $"the new catalog could not be moved to {full} within {ReplaceBudget.TotalSeconds:0} s: {e.Message} "
+                    + $"The previous catalog had been deleted. The new one is complete: rename {staging} to {full}.");
+            var removed = TryDeleteDatabase(staging);
+            throw new CatalogException(
+                $"{full} could not be replaced by the new catalog within {ReplaceBudget.TotalSeconds:0} s: {e.Message} "
+                + "Another process holds it open and does not allow it to be deleted. A DuckDB reader (a datarepo MCP "
+                + "server, `datarepo site`, a script) allows that, so the holder is something else: antivirus, the indexer, "
+                + "a backup or a copy. The previous catalog is unchanged. "
+                + (removed
+                    ? "The new one was deleted; build again once nothing holds the catalog."
+                    : $"The new one could not be deleted either: delete {staging} once nothing holds it."));
+        }
         var counts = new Dictionary<string, long>(rowCounts, StringComparer.Ordinal);
         foreach (var (k, v) in studyCounts) if (v != 0) counts[k] = v;
         return new CatalogResult
@@ -2403,6 +2423,71 @@ public static class CatalogBuilder
     {
         File.Delete(path);
         File.Delete(path + ".wal");
+    }
+
+    /// <summary><see cref="DeleteDatabase"/>, reporting a file held open instead of throwing.</summary>
+    private static bool TryDeleteDatabase(string path)
+    {
+        try
+        {
+            DeleteDatabase(path);
+            return true;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>How long a build keeps trying to put the new catalog in place of the old one (PXR-R14). Settable for
+    /// tests only.</summary>
+    internal static TimeSpan ReplaceBudget { get; set; } = TimeSpan.FromMinutes(2);
+
+    /// <summary>Moves <paramref name="source"/> over <paramref name="destination"/>. When a reader holds the
+    /// destination, deletes it under the reader and moves again; when something refuses that too, retries with a
+    /// growing wait for up to <paramref name="budget"/>.</summary>
+    /// <remarks>
+    /// <para>On Windows a file another process holds open cannot be replaced, even when the holder allows deletion.
+    /// DuckDB allows deletion, so a reader of the old catalog (a datarepo MCP server, a script) blocks the replace
+    /// but not a delete. A reader then keeps the catalog it opened, as it does on Linux and macOS. That is Python
+    /// 0.32.0's order (unlink, then rename), which the C# port lost (aging DATAREPO-78, PXReprise PXR-R14).</para>
+    /// <para>A holder that refuses deletion, such as antivirus or the indexer reading the file just closed, usually
+    /// lets go within seconds, so it gets the retries.</para>
+    /// </remarks>
+    /// <exception cref="IOException">Still held when the budget ran out, or a missing <paramref name="source"/>.</exception>
+    /// <exception cref="UnauthorizedAccessException">Still held when the budget ran out.</exception>
+    internal static void ReplaceFile(string source, string destination, TimeSpan budget)
+    {
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var wait = TimeSpan.FromMilliseconds(250);
+        while (true)
+        {
+            try
+            {
+                File.Move(source, destination, overwrite: true);
+                return;
+            }
+            catch (Exception e) when ((e is IOException or UnauthorizedAccessException) && e is not FileNotFoundException)
+            {
+                if (File.Exists(destination) && TryDelete(destination)) continue;
+                if (clock.Elapsed + wait > budget) throw;
+                Thread.Sleep(wait);
+                wait = TimeSpan.FromTicks(Math.Min(wait.Ticks * 2, TimeSpan.FromSeconds(15).Ticks));
+            }
+        }
+    }
+
+    private static bool TryDelete(string path)
+    {
+        try
+        {
+            File.Delete(path);
+            return true;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     private static DuckDBCommand Command(DuckDBConnection con, string sql, object?[] args)
