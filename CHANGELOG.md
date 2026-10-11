@@ -7,9 +7,23 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
-## 0.4.6 (unreleased)
+## 0.4.6 (2026-10-11)
 
-**Updating:** no MetaMorpheus change (1.1.12). **Machine file:** nothing required. Recommended: point `datarepo` at
+**Upgrading from 0.3.11, the last public release.** 0.4.0 to 0.4.5 were not released on their own; this release carries
+all of them, and their sections below say what each added. Taken together:
+- **MetaMorpheus 1.1.12** (mzLib 1.0.594) for `label-free-dda@4`, `@5`, `@6` and both `label-free-dda-lowres` profiles;
+  1.1.11 stays for `@1` to `@3`. In the machine file:
+  - add `"1.1.12" = "<path to 1.1.12's CMD.exe>"` under `[metamorpheus]`;
+  - before the first ingest of a 1.1.12 search, give `metamorpheus_settings_root` a `1.1.12` folder (a copy of the
+    install), or datarepo resolves no modification;
+  - keep `fetch_stall_minutes` at 5 or more (0.4.0).
+- **Machine file, optional keys:** `search_slots` and `catch_up_every` (0.4.1); `aspera_ascp` and `aspera_key`, together
+  (0.4.4). Recommended: datarepo 1.3.2 (below).
+- **Databases:** `@5`, `@6` and the `lowres` profiles name UniProt's canonical proteomes with the ageing project's sites
+  (`*_all_genecentric_2026_03_agingPTM-v3.xml`) under `database_dir` (0.4.2).
+- **Safe mid-batch?** No: stop the batch, let it drain, update, then start it again.
+
+**From 0.4.5:** no MetaMorpheus change (1.1.12). **Machine file:** nothing required. Recommended: point `datarepo` at
 datarepo 1.3.2, whose catalog build no longer crashes while something reads the catalog; no re-ingest, and the aging
 box moves to it with this release. **Safe mid-batch?** No: stop the batch, let it drain, update, then start it again.
 **New profiles:** `label-free-dda@6` and `label-free-dda-lowres@2`. Nothing changes for a question until it names them;
@@ -66,7 +80,7 @@ profiles already named keep searching exactly as before.
     reached 0.499 Da (median 0.07), so the low-resolution tolerance was in force. (PXD057407's 4 GB files never arrived
     whole from EBI that day: 6 of 6 copies carried its error text.)
 
-## 0.4.5 (unreleased)
+## 0.4.5 (not released on its own; in 0.4.6)
 
 **Updating:** no MetaMorpheus change, no machine-file change. **Safe mid-batch?** No: stop the batch, let it drain,
 update, then start it again.
@@ -78,7 +92,7 @@ update, then start it again.
   - **An entry written before 0.4.5 is not rewritten:** the batch never edits an existing entry. Change its
     `search_results` to `04_search/mm/Task1SearchTask` by hand. The next start re-ingests it with no new search.
 
-## 0.4.4 (unreleased)
+## 0.4.4 (not released on its own; in 0.4.6)
 
 **Updating:** no MetaMorpheus change. **Machine file:** two optional keys, `aspera_ascp` and `aspera_key`, go together.
 - `aspera_ascp`: the path of IBM Aspera's `ascp.exe`, version 4.4.4 or newer. IBM Aspera for Desktop installs one at
@@ -96,7 +110,7 @@ With neither, nothing changes. **Not for mid-batch.**
 - **PRIDE's MD5 is used where it has no SHA-1.** Newer deposits leave the file list's SHA-1 empty; their MD5s come from
   PRIDE's `files/checksum/{accession}`. A file is checked against whichever PRIDE gives, and always for EBI's error text.
 
-## 0.4.3 (unreleased)
+## 0.4.3 (not released on its own; in 0.4.6)
 
 **Updating:** no MetaMorpheus change, no machine-file change. **Safe mid-batch?** No: stop the batch, let it drain,
 update, then start it again.
@@ -113,7 +127,7 @@ update, then start it again.
 - **Deposits searched before 0.4.3 were checked by size only.** Their raw files were deleted after searching, so they
   cannot be checked now. The catch-up re-searches (D39) fetch them again, with this check.
 
-## 0.4.2 (unreleased)
+## 0.4.2 (not released on its own; in 0.4.6)
 
 **Updating:** no MetaMorpheus change (1.1.12). **Machine file:** nothing required. The aging box turns on
 `catch_up_every = 4` (D39). **Databases:** profile `label-free-dda@5` names three new files under `database_dir`:
@@ -136,7 +150,7 @@ update, then start it again.
   REST files use; UniProt's FTP files declare `https://` and were read as empty. It now refuses to write a database
   that matches fewer than half of the sites, instead of writing it with zero sites.
 
-## 0.4.1 (unreleased, superseded by 0.4.2 before it ran)
+## 0.4.1 (superseded by 0.4.2 before it ran; in 0.4.6)
 
 **Updating:** no MetaMorpheus change (1.1.12 as in 0.4.0). **Machine file:** two optional keys, both off by default:
 - `search_slots` (default 1): how many searches run at once;
@@ -158,7 +172,7 @@ update, then start it again.
 - **Every database GPTMD wrote is recorded** with its sha256 (G33). Before, only the first one found was recorded,
   which was the contaminant file, never the proteome the final search loaded.
 
-## 0.4.0 (unreleased: waits on the MetaMorpheus 1.1.12 trial)
+## 0.4.0 (not released on its own; in 0.4.6)
 
 **Updating:** **MetaMorpheus 1.1.12** (mzLib 1.0.594) for the new profile `label-free-dda@4`; 1.1.11 stays for the
 older profiles. **Machine file changes:**
