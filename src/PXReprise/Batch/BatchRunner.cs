@@ -631,7 +631,7 @@ public sealed class BatchRunner
         if (profile.Chemistry == "deposit")
         {
             DepositChemistry chem;
-            try { chem = await ChemistryAsync(acc, all, listing.Select(f => f.FileName).ToList(), ct).ConfigureAwait(false); }
+            try { chem = await ChemistryAsync(acc, all, listing.Select(f => f.FileName).ToList(), profile, ct).ConfigureAwait(false); }
             catch (Exception ex) when (Envelope.IsUnavailable(ex) || FetchStage.IsTransient(ex)) { Log($"{acc} chemistry: PRIDE unavailable ({ex.Message}); retry next pass"); return null; }
             xr.Chemistry(chem);
             chemistry = chem;
@@ -887,7 +887,7 @@ public sealed class BatchRunner
             try
             {
                 var all = await _files.ListFilesAsync(acc, ct).ConfigureAwait(false);
-                chemistry = await ChemistryAsync(acc, all, all.Where(f => f.FileName.EndsWith(".raw", StringComparison.OrdinalIgnoreCase)).Select(f => f.FileName).ToList(), ct).ConfigureAwait(false);
+                chemistry = await ChemistryAsync(acc, all, all.Where(f => f.FileName.EndsWith(".raw", StringComparison.OrdinalIgnoreCase)).Select(f => f.FileName).ToList(), profile, ct).ConfigureAwait(false);
             }
             catch (Exception ex) when (Envelope.IsUnavailable(ex) || FetchStage.IsTransient(ex))
             {
@@ -1191,7 +1191,7 @@ public sealed class BatchRunner
     /// cached for the search, and read again if a restart lost the cache.
     /// </summary>
     private async Task<DepositChemistry> ChemistryAsync(string acc, IReadOnlyList<UsefulProteomicsDatabases.PrideArchiveFile> all,
-        IReadOnlyList<string> rawFiles, CancellationToken ct)
+        IReadOnlyList<string> rawFiles, Profile profile, CancellationToken ct)
     {
         string dir = Path.Combine(Run(acc), "01_chemistry");
         Directory.CreateDirectory(dir);
@@ -1206,7 +1206,8 @@ public sealed class BatchRunner
             deposited = new Readers.SdrfDocument(path);
         }
         if (_q.Designs?.For(acc) is { } c && File.Exists(c)) curated = new Readers.SdrfDocument(c);
-        var chem = ChemistryDetector.Detect(project, curated, deposited, rawFiles);
+        // G40: a profile that ships a modification for a thiol reagent (NBF-Cl) searches such a deposit instead of parking it.
+        var chem = ChemistryDetector.Detect(project, curated, deposited, rawFiles, profile.ThiolReagents);
         var json = Search.SearchStage.Chemistry(chem);
         json["sdrf_file"] = sdrf?.FileName;
         json["curated_sdrf"] = curated is not null;

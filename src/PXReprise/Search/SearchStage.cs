@@ -229,6 +229,7 @@ public static class SearchStage
         // Never pre-create the settings dir: MetaMorpheus seeds it only when it does not exist (an empty one crashes it).
         string settingsDir = Path.Combine(m.MetaMorpheusSettingsRoot, release);
         Directory.CreateDirectory(m.MetaMorpheusSettingsRoot);
+        InstallCustomModifications(p, chem, settingsDir, runner, prov);
         var dbs = new List<string> { proteome, contaminants };
         dbs.AddRange(extras);   // after the proteome and the contaminants: the first -d stays "the search database"
         prov.Set("extra_databases", new JsonArray(extras.Select(x => (JsonNode?)x).ToArray()));
@@ -501,6 +502,20 @@ public static class SearchStage
             p.ContaminantExclude is null ? null : p.ListPath(p.ContaminantExclude), Path.Combine(m.DatabaseDir, "contaminants"));
     }
 
+    /// <summary>
+    /// G40: when the deposit's chemistry uses a modification from the profile's own file, installs that file into the
+    /// MetaMorpheus settings folder the run reads, and records it as an input. Shared by the search and the probe search.
+    /// </summary>
+    internal static void InstallCustomModifications(Profile p, Discovery.DepositChemistry? chem, string settingsDir,
+        MetaMorpheusRunner runner, AgingProvenance? prov)
+    {
+        var needed = chem?.CysMods.Where(c => c.CustomId is not null).Select(c => c.CustomId!).Distinct().ToList();
+        if (needed is not { Count: > 0 }) return;
+        string installed = CustomModificationFile.Install(p, settingsDir, needed, () => runner.SeedSettings(settingsDir));
+        prov?.Input(installed);
+        prov?.Note($"custom modification(s) {string.Join(", ", needed.Select(i => i.Replace('\t', ' ')))} from the profile's {p.CustomModifications}, installed into MetaMorpheus's settings folder (G40)");
+    }
+
     /// <summary>D32: each searched file's fragmentation as QC decided it; null unless the profile writes it per file.</summary>
     internal static IReadOnlyDictionary<string, FragmentationCall>? FragmentationFromQc(JsonObject qc, IEnumerable<string> files, Profile p)
     {
@@ -526,7 +541,7 @@ public static class SearchStage
             ["protease_per_file"] = c.ProteasePerFile is null ? null : new JsonObject(c.ProteasePerFile.Select(kv => KeyValuePair.Create(kv.Key, (JsonNode?)kv.Value))),
             ["alkylation"] = Fact(c.Alkylation),
             ["cysteine_mods"] = new JsonArray(c.CysMods.Select(m => (JsonNode?)new JsonObject
-                { ["name"] = m.Name, ["unimod"] = m.Unimod, ["fixed"] = m.Fixed, ["metamorpheus"] = m.MetaMorpheusId }).ToArray()),
+                { ["name"] = m.Name, ["unimod"] = m.CustomId is null ? m.Unimod : null, ["fixed"] = m.Fixed, ["metamorpheus"] = m.MetaMorpheusId }).ToArray()),
             ["label"] = Fact(c.Label),
             ["guessed"] = c.AnyGuessed,
         };

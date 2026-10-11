@@ -11,7 +11,19 @@ public class ConfigTests
     {
         var profiles = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
         Assert.That(profiles.Keys, Is.EquivalentTo(new[] { "label-free-dda@1", "label-free-dda@2", "label-free-dda@3", "label-free-dda@4",
-            "label-free-dda@5", "label-free-dda-lowres@1", "label-free-dda-lowres@2", "tmt-dda@1" }));
+            "label-free-dda@5", "label-free-dda@6", "label-free-dda-lowres@1", "label-free-dda-lowres@2", "tmt-dda@1" }));
+
+        // G40: @6 is @5 plus a shipped modification file and NBF-Cl mapped to it; nothing else.
+        var v5b = profiles["label-free-dda@5"];
+        var v6 = profiles["label-free-dda@6"];
+        Assert.That((v5b.CustomModifications, v5b.ThiolReagents), Is.EqualTo(((string?)null, (IReadOnlyDictionary<string, string>?)null)));
+        Assert.That(v6 with { Version = 5, CustomModifications = null, ThiolReagents = null, Description = v5b.Description, Databases = v5b.Databases,
+            Accepts = v5b.Accepts, Tasks = v5b.Tasks, GptmdExtraMods = v5b.GptmdExtraMods, Deposit = v5b.Deposit, Qc = v5b.Qc },
+            Is.EqualTo(v5b), "every other scalar setting equals /5's");
+        Assert.That((v6.Tasks, v6.GptmdExtraMods, v6.Deposit, v6.Qc with { Excludable = v5b.Qc.Excludable }), Is.EqualTo((v5b.Tasks, v5b.GptmdExtraMods, v5b.Deposit, v5b.Qc)));
+        Assert.That(v6.Qc.Excludable, Is.EqualTo(v5b.Qc.Excludable));
+        Assert.That(v6.Databases.Select(kv => (kv.Key, kv.Value.Proteome)), Is.EquivalentTo(v5b.Databases.Select(kv => (kv.Key, kv.Value.Proteome))),
+            "no database change, so no D29 rebuild");
 
         // PXR-A68: lowres@2 is lowres@1 plus ion-trap HCD, and nothing else; @1 keeps refusing it.
         var low1 = profiles["label-free-dda-lowres@1"];

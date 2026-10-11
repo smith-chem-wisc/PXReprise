@@ -1,0 +1,12 @@
+PXReprise custom modifications, version 1
+################################## G40 (2026-10-11): modifications no UniMod entry describes, for a profile's [thiol_reagents].
+################################## PXReprise installs this file, under this name, into MetaMorpheus's settings Mods folder
+################################## before a search that uses one. Never edit it in place: a changed list ships as _v2.
+################################## NBF: NBF-Cl (4-chloro-7-nitrobenzofurazan) on a thiol, minus HCl; +163.00179 Da.
+################################## PXD058611 probe (results/nbf-probe_2026-10-11): on 76-86% of identified cysteines.
+ID   NBF
+TG   C
+PP   Anywhere.
+MT   PXReprise
+CF   C6 H1 N3 O3
+//

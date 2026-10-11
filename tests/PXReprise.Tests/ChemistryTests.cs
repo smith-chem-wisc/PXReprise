@@ -82,6 +82,26 @@ public class ChemistryTests
         Assert.That((both.Park, both.CysMods.Single().Name), Is.EqualTo(((string?)null, "Carbamidomethyl")), "a modelled alkylant named beside it wins");
     }
 
+    // G40 (aging 072 PXR-A69, our 074): a profile that ships a modification for the reagent searches it VARIABLE instead
+    // of parking (the PXD058611 probe: NBF on 76-86% of identified cysteines, 14-24% unmodified).
+    [TestCase("Free thiols were blocked with NBF-Cl before labelling with DCP-Bio1")]
+    [TestCase("lysed in buffer containing 4-chloro-7-nitrobenzofurazan")]
+    public void AThiolReagentTheProfileModelsIsSearchedVariable(string protocol)
+    {
+        var reagents = new Dictionary<string, string> { ["NBF-Cl"] = "PXReprise\tNBF on C" };
+        var c = ChemistryDetector.Detect(Project(protocol), null, null, Files, reagents);
+        Assert.That(c.Park, Is.Null);
+        Assert.That(c.Alkylation.Value, Is.EqualTo("NBF-Cl"), "the reagent's canonical name, however the protocol spells it");
+        Assert.That(c.CysMods, Is.EqualTo(new[] { new CysMod("NBF", "", false, "PXReprise\tNBF on C") }));
+        Assert.That(c.CysMods.Single().MetaMorpheusId, Is.EqualTo("PXReprise\tNBF on C"));
+        Assert.That(c.Alkylation.Evidence, Does.Contain("variable PXReprise NBF on C"));
+
+        var other = ChemistryDetector.Detect(Project(protocol), null, null, Files, new Dictionary<string, string>());
+        Assert.That(other.Park, Is.EqualTo("waiting_unknown_alkylant"), "a profile that models no reagent parks it, as before");
+        var named = ChemistryDetector.Detect(Project(protocol + "; peptides were alkylated with iodoacetamide"), null, null, Files, reagents);
+        Assert.That(named.CysMods.Single().Name, Is.EqualTo("Carbamidomethyl"), "a modelled alkylant named beside it still wins");
+    }
+
     [TestCase("alkylated with 55 mM iodoacetamide", "Carbamidomethyl", true)]
     [TestCase("alkylated with chloroacetamide (CAA)", "Carbamidomethyl", true)]
     [TestCase("cysteines were alkylated with acrylamide", "Propionamide", true)]

@@ -58,6 +58,31 @@ public static class ProfileLoader
         bool ionTrapHcd = eng.OptionalBool("ion_trap_hcd") ?? false;
         if (ionTrapHcd && fragmentation != "per_file")
             throw new ConfigException(file, "engine.ion_trap_hcd needs fragmentation = \"per_file\": it is decided per file from the MS2 headers");
+        // G40: modifications no UniMod entry describes (NBF, aging 072 PXR-A69), in a MetaMorpheus modification file shipped
+        // under lists/, read here with mzLib's own reader (the one MetaMorpheus uses), so a malformed entry fails at load.
+        string? customMods = eng.OptionalString("custom_modifications");
+        var customIds = customMods is null ? null : CustomModificationIds(file, customMods);
+        IReadOnlyDictionary<string, string>? thiolReagents = null;
+        if (root.OptionalTable("thiol_reagents") is { } tr)
+        {
+            if (chemistry != "deposit")
+                throw new ConfigException(file, "[thiol_reagents] needs engine.chemistry = \"deposit\": a reagent is read from each deposit");
+            if (customIds is null)
+                throw new ConfigException(file, "[thiol_reagents] names modifications from engine.custom_modifications, which is not set");
+            var map = new SortedDictionary<string, string>(StringComparer.Ordinal);
+            foreach (string reagent in tr.Keys)
+            {
+                if (!Discovery.ChemistryDetector.UnmodelledThiolReagentNames.Contains(reagent))
+                    throw new ConfigException(file, $"[thiol_reagents] '{reagent}' is not a reagent the chemistry reads (one of {string.Join(", ", Discovery.ChemistryDetector.UnmodelledThiolReagentNames)})");
+                string modId = tr.RequiredString(reagent);
+                if (!customIds.Contains(modId))
+                    throw new ConfigException(file, $"[thiol_reagents] '{reagent}' names '{modId.Replace("\t", " / ")}', which {customMods} does not define");
+                if (!modId.EndsWith(" on C", StringComparison.Ordinal))
+                    throw new ConfigException(file, $"[thiol_reagents] '{reagent}' must name a modification on C, not '{modId.Replace("\t", " / ")}'");
+                map[reagent] = modId;
+            }
+            thiolReagents = map;
+        }
         // D32/D34/D35 slice 3: a short search of the probe files against every species database, measuring species,
         // cysteine share and phospho/GG before the full download. Off unless a profile turns it on.
         bool probeSearch = eng.OptionalBool("probe_search") ?? false;
@@ -128,7 +153,26 @@ public static class ProfileLoader
         root.RefuseUnknownKeys();
         return new Profile(id, version, status, description, accepts, mm, tasks, extraMods, library, timeout, dbs,
             panel ?? Path.GetFileName(shipped!), exclude,
-            method, mbr, deposit, gates, Path.GetDirectoryName(Path.GetFullPath(file))!, design, chemistry, writeSdrf, shipped, fragmentation, lowResTolerance, probeSearch, probeMinutes, ionTrapHcd);
+            method, mbr, deposit, gates, Path.GetDirectoryName(Path.GetFullPath(file))!, design, chemistry, writeSdrf, shipped, fragmentation, lowResTolerance, probeSearch, probeMinutes, ionTrapHcd,
+            customMods, thiolReagents);
+    }
+
+    /// <summary>
+    /// G40: every <c>Type\tIdWithMotif</c> a shipped modification file defines, read by mzLib's ModificationLoader, the
+    /// reader MetaMorpheus applies to its Mods folder. A file it reads with a warning, or no modification at all, is refused:
+    /// MetaMorpheus would drop that entry and the search would run without it.
+    /// </summary>
+    private static HashSet<string> CustomModificationIds(string file, string name)
+    {
+        if (name != Path.GetFileName(name) || !name.EndsWith(".txt", StringComparison.Ordinal))
+            throw new ConfigException(file, $"engine.custom_modifications must be a .txt file name under lists/, not '{name}'");
+        string path = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(file))!, "lists", name);
+        if (!File.Exists(path)) throw new ConfigException(file, $"engine.custom_modifications: {path} does not exist");
+        var mods = Omics.Modifications.IO.ModificationLoader.ReadModsFromFile(path, out var warnings).ToList();
+        if (warnings.Count > 0)
+            throw new ConfigException(file, $"{name}: mzLib reads it with warnings: {string.Join("; ", warnings.Select(w => w.Item2))}");
+        if (mods.Count == 0) throw new ConfigException(file, $"{name} defines no modification");
+        return mods.Select(m => $"{m.ModificationType}\t{m.IdWithMotif}").ToHashSet(StringComparer.Ordinal);
     }
 
     /// <summary>Every <c>*.toml</c> in a directory, keyed by <c>id@version</c>; a duplicate key is refused.</summary>
