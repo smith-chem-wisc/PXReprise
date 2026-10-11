@@ -449,7 +449,8 @@ public static class SearchStage
     /// <summary>
     /// One <c>&lt;raw&gt;.toml</c> beside each raw file with the settings that file needs alone (MetaMorpheus's
     /// file-specific parameters; calibration carries them into X-calib.toml): its protease (G19/D27) and its
-    /// fragmentation from its MS2 headers (D32, G24), with <paramref name="lowResProductTolerance"/> for LowCID. Only keys
+    /// fragmentation from its MS2 headers (D32, G24), with <paramref name="lowResProductTolerance"/> for MS2 read in an ion
+    /// trap (LowCID, and HCD under <c>ion_trap_hcd</c>). Only keys
     /// MetaMorpheus's FileSpecificParameters accepts are written; one unknown key would make it drop the whole file.
     /// Our stale tomls are removed; a toml we did not write is refused.
     /// </summary>
@@ -482,7 +483,7 @@ public static class SearchStage
         if (proteasePerFile is not null)
             prov.Note($"per-file proteases (MetaMorpheus file-specific parameters): {string.Join("; ", proteasePerFile.GroupBy(kv => kv.Value).Select(g => $"{g.Key} x{g.Count()}"))}");
         if (fragmentationPerFile is not null)
-            prov.Note($"per-file fragmentation from the MS2 headers (D32): {string.Join("; ", fragmentationPerFile.GroupBy(kv => kv.Value.DissociationType).Select(g => $"{g.Key} x{g.Count()}"))}");
+            prov.Note($"per-file fragmentation from the MS2 headers (D32): {string.Join("; ", fragmentationPerFile.GroupBy(kv => kv.Value.LowRes ? $"{kv.Value.DissociationType} at {lowResProductTolerance}" : kv.Value.DissociationType).Select(g => $"{g.Key} x{g.Count()}"))}");
     }
 
     /// <summary>

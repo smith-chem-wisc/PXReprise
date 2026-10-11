@@ -53,6 +53,11 @@ public static class ProfileLoader
         string lowResTolerance = eng.OptionalString("low_res_product_tolerance") ?? Profile.DefaultLowResProductTolerance;
         if (!System.Text.RegularExpressions.Regex.IsMatch(lowResTolerance, @"^±\d+\.\d{4} (PPM|Absolute)$"))
             throw new ConfigException(file, $"engine.low_res_product_tolerance must be written as MetaMorpheus writes one, e.g. \"±0.5000 Absolute\", not '{lowResTolerance}'");
+        // PXR-A68 (aging 072): HCD read in an ion trap (a Fusion/Lumos/Eclipse "HCD-IT" method) is searched as HCD with
+        // low_res_product_tolerance. Off unless a profile turns it on, so an existing profile version never changes.
+        bool ionTrapHcd = eng.OptionalBool("ion_trap_hcd") ?? false;
+        if (ionTrapHcd && fragmentation != "per_file")
+            throw new ConfigException(file, "engine.ion_trap_hcd needs fragmentation = \"per_file\": it is decided per file from the MS2 headers");
         // D32/D34/D35 slice 3: a short search of the probe files against every species database, measuring species,
         // cysteine share and phospho/GG before the full download. Off unless a profile turns it on.
         bool probeSearch = eng.OptionalBool("probe_search") ?? false;
@@ -123,7 +128,7 @@ public static class ProfileLoader
         root.RefuseUnknownKeys();
         return new Profile(id, version, status, description, accepts, mm, tasks, extraMods, library, timeout, dbs,
             panel ?? Path.GetFileName(shipped!), exclude,
-            method, mbr, deposit, gates, Path.GetDirectoryName(Path.GetFullPath(file))!, design, chemistry, writeSdrf, shipped, fragmentation, lowResTolerance, probeSearch, probeMinutes);
+            method, mbr, deposit, gates, Path.GetDirectoryName(Path.GetFullPath(file))!, design, chemistry, writeSdrf, shipped, fragmentation, lowResTolerance, probeSearch, probeMinutes, ionTrapHcd);
     }
 
     /// <summary>Every <c>*.toml</c> in a directory, keyed by <c>id@version</c>; a duplicate key is refused.</summary>

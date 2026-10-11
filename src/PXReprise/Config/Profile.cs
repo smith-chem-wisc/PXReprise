@@ -84,7 +84,8 @@ public sealed record Profile(
     string Fragmentation = "fixed",   // D32: "per_file" writes each file's DissociationType from its MS2 headers
     string LowResProductTolerance = Profile.DefaultLowResProductTolerance,
     bool ProbeSearch = false,         // D32 slice 3: measure species, cysteine and phospho/GG on the probe files first
-    double ProbeSearchMinutes = 60)
+    double ProbeSearchMinutes = 60,
+    bool IonTrapHcd = false)          // PXR-A68: with per_file, HCD read in an ion trap is searched as HCD at the low-res tolerance
 {
     /// <summary>The values of <c>[engine] fragmentation</c>.</summary>
     public static readonly string[] Fragmentations = { "fixed", "per_file" };

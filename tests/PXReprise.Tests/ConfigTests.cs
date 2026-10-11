@@ -11,7 +11,17 @@ public class ConfigTests
     {
         var profiles = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
         Assert.That(profiles.Keys, Is.EquivalentTo(new[] { "label-free-dda@1", "label-free-dda@2", "label-free-dda@3", "label-free-dda@4",
-            "label-free-dda@5", "label-free-dda-lowres@1", "tmt-dda@1" }));
+            "label-free-dda@5", "label-free-dda-lowres@1", "label-free-dda-lowres@2", "tmt-dda@1" }));
+
+        // PXR-A68: lowres@2 is lowres@1 plus ion-trap HCD, and nothing else; @1 keeps refusing it.
+        var low1 = profiles["label-free-dda-lowres@1"];
+        var low2 = profiles["label-free-dda-lowres@2"];
+        Assert.That((low1.IonTrapHcd, low2.IonTrapHcd), Is.EqualTo((false, true)));
+        Assert.That(low2 with { Version = 1, IonTrapHcd = false, Description = low1.Description, Databases = low1.Databases,
+            Accepts = low1.Accepts, Tasks = low1.Tasks, GptmdExtraMods = low1.GptmdExtraMods, Deposit = low1.Deposit, Qc = low1.Qc },
+            Is.EqualTo(low1), "every other scalar setting equals lowres@1's");
+        Assert.That((low2.Tasks, low2.Deposit, low2.Qc with { Excludable = low1.Qc.Excludable }), Is.EqualTo((low1.Tasks, low1.Deposit, low1.Qc)));
+        Assert.That(low2.Databases.Select(kv => (kv.Key, kv.Value.Proteome)), Is.EquivalentTo(low1.Databases.Select(kv => (kv.Key, kv.Value.Proteome))));
 
         // D38: @5 is @4 on UniProt's canonical proteomes (agingPTM-v3), with the deposit caps raised (120 files, 3M MS2).
         var v4a = profiles["label-free-dda@4"];
