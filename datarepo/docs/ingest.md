@@ -61,7 +61,8 @@ datarepo inspect   /path/to/store/PXD036557/<bundle-id>       # what a bundle ho
 | `--json` | Print one JSON object on standard output, and the report on standard error, for a calling pipeline. Its fields are in [cli.md](cli.md#datarepo-ingest). |
 
 Exit codes: `0` success (including "already built, nothing to do"), `1` a refusal or a failure to act
-on, `2` bad usage. With `--json` the exit code is also in the object, as `exit_code`. Re-running an unchanged dataset is a no-op, so the pipeline can call it after
+on, `2` bad usage, `70` an unexpected error, which is a defect of ours (every command; the last line on standard
+error names it, and with `--json` it is a dataset `error` and exit `1`). With `--json` the exit code is also in the object, as `exit_code`. Re-running an unchanged dataset is a no-op, so the pipeline can call it after
 every stage.
 
 ## The manifest is the contract

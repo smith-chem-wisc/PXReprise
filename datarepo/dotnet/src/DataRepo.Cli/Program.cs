@@ -6,7 +6,8 @@ using DataRepo.Ingest;
 using DataRepo.Study;
 
 // The `datarepo` command line (C# port of cli.py, D41). Exit codes are meant for the pipeline that calls
-// it: 0 success, 1 a refusal or failure the operator must act on, 2 bad usage.
+// it: 0 success, 1 a refusal or failure the operator must act on, 2 bad usage, 70 an unexpected error (a defect in
+// datarepo; the last line on stderr names it).
 //
 //   datarepo doctor                              is this machine able to ingest?
 //   datarepo manifest <manifest.yaml>            what does the producing instance offer?
@@ -126,6 +127,14 @@ namespace DataRepo.Cli
             {
                 Console.Error.WriteLine($"{Prog}: {e.Message}");
                 return 1;
+            }
+            catch (Exception e)
+            {
+                // A defect of ours. The stack first and the message LAST: a log that keeps only the tail lost the
+                // message twice (aging DATAREPO-81 d, PXReprise PXR-R14).
+                Console.Error.WriteLine(e);
+                Console.Error.WriteLine($"{Prog} {command}: unexpected {e.GetType().FullName}: {e.Message.ReplaceLineEndings(" ")}");
+                return 70;
             }
         }
 

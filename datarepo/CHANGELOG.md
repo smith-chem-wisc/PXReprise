@@ -6,8 +6,8 @@ each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [1.3.2] - 2026-10-11
 
-**On Windows, `build` replaces a catalog that something is reading** (aging DATAREPO-78, PXReprise PXR-R14). Only
-`build` changes. The ingest path stays `cs-1.1.0` and the schema 0.0.15, so **no re-ingest**: 1.3.2 writes every
+**On Windows, `build` replaces a catalog that something is reading** (aging DATAREPO-78 and DATAREPO-81, PXReprise
+PXR-R14). Only `build` and the CLI's handling of unexpected errors change. The ingest path stays `cs-1.1.0` and the schema 0.0.15, so **no re-ingest**: 1.3.2 writes every
 bundle 1.3.1 writes, under the same id. The catalog format stays 10. A catalog id hashes the program's version, so a
 rebuild on 1.3.2 gets a new id from the same bundles.
 
@@ -20,10 +20,13 @@ rebuild on 1.3.2 gets a new id from the same bundles.
   `.catalog.duckdb.<id>.building` file, about 30 GB on aging's instance. Now:
   - when a reader blocks the replace, the old file is deleted under it and the new one moved into place. The reader
     keeps answering from the catalog it opened, and the MCP server flags `catalog_file_changed`, as on Linux and macOS;
-  - a holder that refuses deletion too (antivirus, the indexer, a backup) gets retries with a growing wait, for up to
-    two minutes;
-  - if it still holds the file, the build refuses with exit 1 and a message naming the catalog. The previous catalog is
-    left in place and the new file is deleted.
+  - a holder that refuses deletion too (antivirus, the indexer, a backup, a copy) gets retries with a growing wait, for
+    up to ten minutes;
+  - if it still holds the file, the build refuses with exit 1. The message names the catalog and the holding process
+    (from Windows' Restart Manager). The previous catalog is left in place and the new file is deleted.
+- **An unexpected error ends with its message on the last line** (aging DATAREPO-81 d). Any command that hits a
+  defect of ours now prints the stack, then one line naming the exception and its message, and exits 70. Before, the
+  .NET runtime printed the message first, and a log that kept only the tail lost it.
 
 ## [1.3.1] - 2026-10-08
 

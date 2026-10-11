@@ -390,6 +390,7 @@ public class CatalogTests
             {
                 var e = Assert.Throws<CatalogException>(() => BuildFixture(store, output, overwrite: true));
                 Assert.That(e!.Message, Does.StartWith($"{Path.GetFullPath(output)} could not be replaced by the new catalog within 1 s: "));
+                Assert.That(e.Message, Does.Contain($"(pid {Environment.ProcessId})"), "the holder, this test, is named");
                 Assert.That(e.Message, Does.EndWith("The new one was deleted; build again once nothing holds the catalog."));
             }
             Assert.That(Directory.EnumerateFiles(store, "*.building*"), Is.Empty, "no staging file is left behind");
@@ -399,6 +400,32 @@ public class CatalogTests
         {
             CatalogBuilder.ReplaceBudget = budget;
             Directory.Delete(store, recursive: true);
+        }
+    }
+
+    /// <summary>DATAREPO-81 b: Windows' Restart Manager names the process holding a file, and nobody for a free one.</summary>
+    [Test]
+    public void TheHolderOfAFileIsNamed()
+    {
+        if (!OperatingSystem.IsWindows()) Assert.Ignore("the Restart Manager is Windows'");
+        var dir = NewScratch("holders");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var held = Path.Combine(dir, "held");
+            var free = Path.Combine(dir, "free");
+            File.WriteAllText(held, "x");
+            File.WriteAllText(free, "x");
+            using (new FileStream(held, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                Assert.That(FileHolders.Of(held), Has.One.EndsWith($"(pid {Environment.ProcessId})"));
+                Assert.That(FileHolders.Of(free), Is.Empty);
+            }
+            Assert.That(FileHolders.Of(held), Is.Empty, "let go");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
         }
     }
 

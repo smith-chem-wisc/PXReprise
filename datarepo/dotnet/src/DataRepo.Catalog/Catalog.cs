@@ -1347,16 +1347,20 @@ public static class CatalogBuilder
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             // PXR-R14: 1.3.0 let this escape unhandled and left the new catalog behind, 30 GB at a time.
+            var holders = FileHolders.Of(full, staging);
+            var heldBy = holders.Count > 0
+                ? $"Held by {string.Join(", ", holders)}. "
+                : "Windows did not say which process holds it. ";
             if (!File.Exists(full))
                 throw new CatalogException(
                     $"the new catalog could not be moved to {full} within {ReplaceBudget.TotalSeconds:0} s: {e.Message} "
-                    + $"The previous catalog had been deleted. The new one is complete: rename {staging} to {full}.");
+                    + heldBy + $"The previous catalog had been deleted. The new one is complete: rename {staging} to {full}.");
             var removed = TryDeleteDatabase(staging);
             throw new CatalogException(
                 $"{full} could not be replaced by the new catalog within {ReplaceBudget.TotalSeconds:0} s: {e.Message} "
-                + "Another process holds it open and does not allow it to be deleted. A DuckDB reader (a datarepo MCP "
-                + "server, `datarepo site`, a script) allows that, so the holder is something else: antivirus, the indexer, "
-                + "a backup or a copy. The previous catalog is unchanged. "
+                + heldBy + "That process does not allow the catalog to be deleted, which a DuckDB reader (a datarepo MCP "
+                + "server, `datarepo site`, a script) does allow, so it is something else: antivirus, the indexer, a backup "
+                + "or a copy. The previous catalog is unchanged. "
                 + (removed
                     ? "The new one was deleted; build again once nothing holds the catalog."
                     : $"The new one could not be deleted either: delete {staging} once nothing holds it."));
@@ -2439,9 +2443,9 @@ public static class CatalogBuilder
         }
     }
 
-    /// <summary>How long a build keeps trying to put the new catalog in place of the old one (PXR-R14). Settable for
-    /// tests only.</summary>
-    internal static TimeSpan ReplaceBudget { get; set; } = TimeSpan.FromMinutes(2);
+    /// <summary>How long a build keeps trying to put the new catalog in place of the old one (PXR-R14). Ten minutes is
+    /// aging's figure (DATAREPO-81 a): cheap beside a 44-minute build lost. Settable for tests only.</summary>
+    internal static TimeSpan ReplaceBudget { get; set; } = TimeSpan.FromMinutes(10);
 
     /// <summary>Moves <paramref name="source"/> over <paramref name="destination"/>. When a reader holds the
     /// destination, deletes it under the reader and moves again; when something refuses that too, retries with a
@@ -2451,8 +2455,8 @@ public static class CatalogBuilder
     /// DuckDB allows deletion, so a reader of the old catalog (a datarepo MCP server, a script) blocks the replace
     /// but not a delete. A reader then keeps the catalog it opened, as it does on Linux and macOS. That is Python
     /// 0.32.0's order (unlink, then rename), which the C# port lost (aging DATAREPO-78, PXReprise PXR-R14).</para>
-    /// <para>A holder that refuses deletion, such as antivirus or the indexer reading the file just closed, usually
-    /// lets go within seconds, so it gets the retries.</para>
+    /// <para>A holder that refuses deletion, such as antivirus or the indexer reading the file just closed, or a copy
+    /// in progress, usually lets go within minutes, so it gets the retries.</para>
     /// </remarks>
     /// <exception cref="IOException">Still held when the budget ran out, or a missing <paramref name="source"/>.</exception>
     /// <exception cref="UnauthorizedAccessException">Still held when the budget ran out.</exception>
