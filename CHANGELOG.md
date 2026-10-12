@@ -7,6 +7,25 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.10 (2026-10-12)
+
+No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual (STOP, let it drain,
+start the new pin). The new drain applies from the first STOP the new version itself receives.
+
+- **STOP no longer stops the downloads.** A STOP lets the searches under way finish, as before, but the driver now goes
+  on downloading the next deposits in the queue meanwhile (screen, probe and whole fetch, as usual) and leaves them
+  `fetched`. The next driver checks those files against PRIDE's checksums instead of downloading them again, and
+  searches them first. When the last search ends, the download in flight is cut (the next driver takes that deposit up
+  again) and the driver exits, so a drain lasts no longer than before. Before, a pin swap left the downloads idle for
+  the whole drain: about 6 h on 2026-10-12.
+- **A deposit that finishes downloading after STOP is no longer searched by the stopping driver.** It is left `fetched`
+  for the next one. On 2026-10-12 a deposit finished downloading 85 minutes after STOP, and its 6 h search held the pin
+  swap until it ended.
+- **Correction to 0.4.9: the Globus host damages copies too.** In pride's later rounds it returned 2 damaged copies of
+  15, against 6 of 10 from `ftp.pride.ebi.ac.uk`. It stays the HTTPS host (damaged less often, and about twice as fast),
+  but it is not a fix: checking every file is the defence. Damage grew with how long a copy took (every copy slower than
+  about 0.2 MB/s was damaged), so on a slow line a lower `parallel_downloads` may help.
+
 ## 0.4.9 (2026-10-12)
 
 No MetaMorpheus change. **Machine file:** two optional keys, `aspera_attempts` and `pride_https` (below); without them

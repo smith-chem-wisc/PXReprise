@@ -110,7 +110,9 @@ pxreprise batch retry  question.toml PXD000000 --reason "why"
   Run it again at any time: deposits already settled are skipped, and it carries on where it stopped. Each downloaded
   file is logged as it finishes, and each retry with its error.
 - `status` counts the deposits by status (see [Reading the results](results.md)) and shows whether a batch is running.
-- `stop` asks a running batch to finish the deposit it is on, then exit.
+- `stop` asks a running batch to start no new search, finish the searches under way, then exit. Meanwhile it keeps
+  downloading the next deposits; the next `run` checks those files instead of downloading them again, and searches
+  them first. A download still under way when the last search ends is cut and taken up again by the next `run`.
 - `retry` puts one settled deposit (for example `fetch_failed`) back in the queue for the next `run`. The reason is
   required; it is kept in `state.json` with the old status, the time and the user, and logged. Refused while a batch is
   running and for a deposit whose search finished.
