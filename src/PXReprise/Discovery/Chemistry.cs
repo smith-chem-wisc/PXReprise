@@ -190,6 +190,10 @@ public static class ChemistryDetector
             new(@"\biodoacetic acid\b", Opt)),
         ("Pyridylethyl", "UNIMOD:31", new(@"pyridylethyl|UNIMOD:31\b", Opt), new(@"pyridylethyl", Opt),
             new(@"\b4-vinylpyridine\b|\bvinylpyridine\b", Opt)),
+        // aging 089 (PXR-A94, their S87): PXD057499 "alkylated with iodoethanol" (S-hydroxyethyl cysteine), searched with
+        // carbamidomethyl fixed, 0.5% cysteine peptides.
+        ("Ethanolyl", "UNIMOD:278", new(@"ethanolyl|UNIMOD:278\b", Opt), new(@"ethanolyl|hydroxyethyl", Opt),
+            new(@"\b(2-)?iodoethanol\b", Opt)),
     };
 
     /// <summary>

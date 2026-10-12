@@ -35,6 +35,7 @@ is a new version, so every result says exactly which method made it.
 | `label-free-dda@4` | available | `@3` on MetaMorpheus 1.1.12, with an experimental design (below), the ageing project's second database release, and MetaMorpheus's contaminant panel |
 | `label-free-dda@5` | available | `@4` on UniProt's canonical reference proteomes (one protein per gene) with the ageing project's sites added; larger deposits accepted (120 files, an estimated 3 million MS2 spectra) |
 | `label-free-dda@6` | available | `@5`, plus a thiol reagent with no UniMod entry searched with a modification the profile ships (below); the first is NBF-Cl |
+| `label-free-dda@7` | available | `@6`, plus a short probe search before the whole deposit is downloaded (below) |
 | `label-free-dda-lowres@1` | available | label-free DDA whose MS2 is read in the ion trap (CID): MetaMorpheus's Search task alone, each file's fragmentation written from its own scans, no spectral library. A deposit is sent here only when its probe files fail the Orbitrap check and nothing else |
 | `label-free-dda-lowres@2` | available | `lowres@1`, plus MS2 fragmented by HCD and read in the ion trap (a Fusion, Lumos or Eclipse "HCD-IT" method) |
 | `tmt-dda@1` | pending | TMT-labelled DDA. Not runnable yet: a question that lists it gets a count of the TMT deposits it would unlock |
@@ -65,6 +66,18 @@ which protease made the deposit's peptides, how its cysteines were alkylated, an
   not search on without them.
 
 The default, `chemistry = "fixed"`, searches every deposit with MetaMorpheus's defaults, as `@1` and `@2` do.
+
+**A probe search** (`[engine] probe_search = true`, `label-free-dda@7`). Before the whole deposit is downloaded, its
+probe files are searched briefly against every species database the profile has, with variable phospho and GG. Each
+run's species, share of cysteine-containing peptides, and phospho, GG and acetyl-K shares go into the deposit's
+experiment record. The spectra win over the text:
+- a run whose PSMs are mostly another species waits (`waiting_species`), and so does a run of mixed species
+  (`waiting_mixed_species`);
+- a whole proteome expected to be carbamidomethylated, whose runs show under 2% cysteine-containing peptides, waits
+  (`waiting_alkylation_check`): its cysteines were blocked some other way, or not at all;
+- an enrichment the text did not state is recorded beside the text's call, and flagged in the manifest.
+
+Each of these waits is listed for a person in `decisions_needed.tsv`. A deposit that passes is searched as under `@6`.
 
 A profile can also take an experimental design (`[quant] design = "sdrf"`, `label-free-dda@4` onward and both `lowres`
 profiles): before the search, PXReprise writes MetaMorpheus's `ExperimentalDesign.tsv` from the question's own SDRF for that deposit, or else

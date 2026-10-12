@@ -11,7 +11,20 @@ public class ConfigTests
     {
         var profiles = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
         Assert.That(profiles.Keys, Is.EquivalentTo(new[] { "label-free-dda@1", "label-free-dda@2", "label-free-dda@3", "label-free-dda@4",
-            "label-free-dda@5", "label-free-dda@6", "label-free-dda-lowres@1", "label-free-dda-lowres@2", "tmt-dda@1" }));
+            "label-free-dda@5", "label-free-dda@6", "label-free-dda@7", "label-free-dda-lowres@1", "label-free-dda-lowres@2", "tmt-dda@1" }));
+
+        // The user 2026-10-12 (aging 089 PXR-A94, ptmQtl 018 PXR-P17): @7 is @6 with the probe search on; nothing else.
+        var v6x = profiles["label-free-dda@6"];
+        var v7 = profiles["label-free-dda@7"];
+        Assert.That((v6x.ProbeSearch, v7.ProbeSearch), Is.EqualTo((false, true)));
+        Assert.That(v7 with { Version = 6, ProbeSearch = false, Description = v6x.Description, Databases = v6x.Databases, Accepts = v6x.Accepts,
+            Tasks = v6x.Tasks, GptmdExtraMods = v6x.GptmdExtraMods, Deposit = v6x.Deposit, Qc = v6x.Qc, ThiolReagents = v6x.ThiolReagents },
+            Is.EqualTo(v6x), "every other scalar setting equals /6's");
+        Assert.That((v7.Tasks, v7.GptmdExtraMods, v7.Deposit, v7.Qc with { Excludable = v6x.Qc.Excludable }), Is.EqualTo((v6x.Tasks, v6x.GptmdExtraMods, v6x.Deposit, v6x.Qc)));
+        Assert.That(v7.Qc.Excludable, Is.EqualTo(v6x.Qc.Excludable));
+        Assert.That(v7.ThiolReagents, Is.EquivalentTo(v6x.ThiolReagents!));
+        Assert.That(v7.Databases.Select(kv => (kv.Key, kv.Value.Proteome)), Is.EquivalentTo(v6x.Databases.Select(kv => (kv.Key, kv.Value.Proteome))),
+            "no database change, so no D29 rebuild");
 
         // G40: @6 is @5 plus a shipped modification file and NBF-Cl mapped to it; nothing else.
         var v5b = profiles["label-free-dda@5"];
