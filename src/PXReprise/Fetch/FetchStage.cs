@@ -58,7 +58,7 @@ public sealed record FetchRequest(string Accession, string OutDir, Pick Pick, in
     int ParallelDownloads, int MaxAttempts, TimeSpan Backoff, TimeSpan ListingBackoff, string WorkRoot,
     TimeSpan StallAfter = default, FileSelection? Select = null,
     [property: System.Text.Json.Serialization.JsonIgnore] Func<string, CancellationToken, Task<IReadOnlyDictionary<string, string>>>? Sha1Source = null,
-    AsperaClient? Aspera = null);
+    AsperaClient? Aspera = null, PrideHttps Https = PrideHttps.Globus);
 
 /// <summary>Which raw files of a deposit a question searches, and why (<c>[exceptions]</c>, PXReprise D28).</summary>
 public sealed record FileSelection([property: System.Text.Json.Serialization.JsonIgnore] Func<string, bool> Keeps, string Reason);
@@ -120,7 +120,8 @@ public static class FetchStage
         File.WriteAllText(paramsFile, JsonSerializer.Serialize(r, Envelope.Json));
         var prov = new AgingProvenance("fetch", r.WorkRoot, paramsFile,
             JsonSerializer.SerializeToNode(new { pick = Snake(r.Pick), max_files = r.MaxFiles, max_file_mb = r.MaxFileMb,
-                extension = r.Extension, parallel_downloads = r.ParallelDownloads, max_attempts = r.MaxAttempts })!, null);
+                extension = r.Extension, parallel_downloads = r.ParallelDownloads, max_attempts = r.MaxAttempts,
+                aspera_attempts = r.Aspera?.Attempts ?? 0, pride_https = r.Https.ToString().ToLowerInvariant() })!, null);
         prov.Set("accession", (JsonNode)r.Accession);
         string discover = Path.Combine(Path.GetDirectoryName(outDir)!, "..", "01_discover", "provenance.json");
         if (File.Exists(discover)) prov.Upstream(discover);
@@ -180,7 +181,7 @@ public static class FetchStage
                 try
                 {
                     results[i] = await DownloadWithRetry(pride, f, spectraDir, r.MaxAttempts, r.Backoff, ct, r.StallAfter, log,
-                        expectedChecksum: sha1.GetValueOrDefault(f.FileName), verify: true, aspera: r.Aspera).ConfigureAwait(false);
+                        expectedChecksum: sha1.GetValueOrDefault(f.FileName), verify: true, aspera: r.Aspera, https: r.Https).ConfigureAwait(false);
                     var (_, s, a) = results[i];
                     log?.Invoke($"{Interlocked.Increment(ref done)} of {chosen.Count} done: {f.FileName} {f.FileSizeBytes / 1e6:0} MB in {s:0} s"
                                 + (a > 1 ? $", attempt {a}" : ""));
@@ -262,15 +263,24 @@ public static class FetchStage
     /// One file, retried on transport failures. A file is complete only at PRIDE's listed size: mzLib's
     /// <c>overwrite: false</c> skips on existence alone, so a file cut short (a crash, a hand download) would otherwise
     /// be searched. Over 2,222 aging downloads PRIDE's size and the local size never differed.
+    /// <para>
+    /// Routes: Aspera first, for up to <c>aspera.Attempts</c> attempts at a file not yet on disk, so a broken Aspera setup
+    /// costs a few attempts, never the deposit. A DAMAGED Aspera copy sends the file's remaining attempts to HTTPS at
+    /// once (pride 014: Aspera damaged 24% of transfers 2026-10-08 to 10-12; the Globus host none of 15). HTTPS comes from
+    /// <paramref name="https"/>'s host; a Globus attempt that fails to deliver (not a damaged copy) is followed by one
+    /// from <c>ftp.pride.ebi.ac.uk</c>, then Globus again. Every transfer logs its route, size and time (pride PXR-G1).
+    /// </para>
     /// </summary>
     public static async Task<(string Path, double Seconds, int Attempts)> DownloadWithRetry(IPrideFiles pride, PrideArchiveFile f,
         string dir, int attempts, TimeSpan backoff, CancellationToken ct, TimeSpan stallAfter = default, Action<string>? log = null,
         TimeSpan? poll = null, TimeSpan? abandonGrace = null, string? expectedChecksum = null, bool verify = false,
-        AsperaClient? aspera = null)
+        AsperaClient? aspera = null, PrideHttps https = PrideHttps.Ftp,
+        Func<AsperaClient, PrideArchiveFile, string, CancellationToken, Task<string>>? asperaDownload = null)
     {
         var sw = Stopwatch.StartNew();
         Exception? last = null;
         string target = Path.Combine(dir, f.FileName);
+        bool asperaDamaged = false, skipGlobus = false;
         for (int a = 1; a <= attempts; a++)
         {
             if (f.FileSizeBytes > 0 && File.Exists(target) && new FileInfo(target).Length is long had && had != f.FileSizeBytes)
@@ -278,16 +288,22 @@ public static class FetchStage
                 log?.Invoke($"{f.FileName} on disk is {had:N0} bytes, PRIDE lists {f.FileSizeBytes:N0}: deleted, downloading again");
                 File.Delete(target);
             }
+            // A file already present is checked, not refetched.
+            bool onDisk = File.Exists(target);
+            bool overAspera = aspera is not null && a <= aspera.Attempts && !asperaDamaged && !onDisk && Aspera.Source(f) is not null;
+            var viaGlobus = !overAspera && https == PrideHttps.Globus && !skipGlobus ? PrideHosts.ViaGlobus(f) : null;
+            string route = overAspera ? "Aspera" : viaGlobus is not null ? "Globus HTTPS" : "ftp.pride HTTPS";
+            skipGlobus = false;
+            bool damaged = false;
+            var transfer = Stopwatch.StartNew();
             try
             {
-                // Aspera first, for the first aspera.Attempts attempts at a file not yet on disk; HTTPS after that, so a
-                // broken Aspera setup costs a few attempts, never the deposit. A file already present is checked, not refetched.
-                bool overAspera = aspera is not null && a <= aspera.Attempts && !File.Exists(target) && Aspera.Source(f) is not null;
                 string path = overAspera
-                    ? await Aspera.DownloadAsync(aspera!, f, dir, ct).ConfigureAwait(false)
-                    : await Watched(pride, f, dir, stallAfter, poll ?? TimeSpan.FromSeconds(15), abandonGrace ?? TimeSpan.FromSeconds(30), ct).ConfigureAwait(false);
-                if (overAspera) log?.Invoke($"{f.FileName} arrived over Aspera (attempt {a})");
+                    ? await (asperaDownload ?? Aspera.DownloadAsync)(aspera!, f, dir, ct).ConfigureAwait(false)
+                    : await Watched(pride, viaGlobus ?? f, dir, stallAfter, poll ?? TimeSpan.FromSeconds(15), abandonGrace ?? TimeSpan.FromSeconds(30), ct).ConfigureAwait(false);
                 long got = new FileInfo(path).Length;
+                if (!onDisk)
+                    log?.Invoke($"{f.FileName} arrived over {route} (attempt {a}): {got / 1048576.0:F0} MB in {transfer.Elapsed.TotalSeconds:F0} s");
                 if (f.FileSizeBytes > 0 && got != f.FileSizeBytes)
                 {
                     File.Delete(path);
@@ -297,6 +313,7 @@ public static class FetchStage
                 // A file already on disk from an earlier fetch is checked the same way.
                 if (verify && Integrity.Problem(path, expectedChecksum) is { } bad)
                 {
+                    damaged = true;
                     log?.Invoke($"{f.FileName} is not PRIDE's file ({bad}): deleted, downloading again");
                     File.Delete(path);
                     throw new HttpIOException(HttpRequestError.InvalidResponse, $"{f.FileName}: {bad}");
@@ -306,7 +323,10 @@ public static class FetchStage
             catch (Exception e) when (IsTransient(e))
             {
                 last = e;
-                log?.Invoke($"retry {f.FileName} attempt {a} of {attempts}: {Describe(e)}");
+                if (overAspera && damaged) asperaDamaged = true;
+                if (viaGlobus is not null && !damaged) skipGlobus = true;
+                log?.Invoke($"retry {f.FileName} attempt {a} of {attempts}: {Describe(e)}"
+                    + (overAspera && damaged && a < attempts ? $"; the next attempt goes over {(https == PrideHttps.Globus ? "Globus HTTPS" : "ftp.pride HTTPS")}" : ""));
                 if (a < attempts) await Task.Delay(backoff * a, ct).ConfigureAwait(false);
             }
         }

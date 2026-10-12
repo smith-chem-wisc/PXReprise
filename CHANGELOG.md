@@ -9,9 +9,24 @@ A new version of the engine never changes a finished result. Methods live in ver
 
 ## 0.4.9 (unreleased)
 
-No MetaMorpheus change. **Machine file:** nothing. **Safe mid-batch?** Yes: swap the pin as usual (STOP, let it drain,
-start the new pin). Deposits already delivered are not re-screened.
+No MetaMorpheus change. **Machine file:** two optional keys, `aspera_attempts` and `pride_https` (below); without them
+you get the new download routes. **Safe mid-batch?** Yes: swap the pin as usual (STOP, let it drain, start the new pin).
+Deposits already delivered are not re-screened.
 
+- **Raw files over HTTPS now come from EMBL-EBI's Globus host, and a damaged Aspera copy switches to it at once.**
+  EBI's helpdesk answered our report of damaged downloads with "try Globus". In a side-by-side trial on 2026-10-12, the
+  same five files came back damaged 2 of 5 times from `ftp.pride.ebi.ac.uk` and 0 of 5 from the Globus host (0 of 15
+  over all its runs), while Aspera had damaged 24% of transfers since 2026-10-08.
+  - HTTPS downloads use `https://g-a8b222.dd271.03c0.data.globus.org/pride/data/archive/...`, the same paths as PRIDE's
+    FTP site: anonymous, with no Globus software or login. mzLib needs no change.
+  - Aspera stays first (about twice as fast per file when clean), but the first damaged Aspera copy sends that file's
+    remaining attempts to HTTPS; before, three Aspera attempts came first whatever happened.
+  - A Globus attempt that fails to deliver is followed by one from `ftp.pride.ebi.ac.uk`, then Globus again.
+  - Every transfer is logged with its route, size and time (`... arrived over Globus HTTPS (attempt 2): 1315 MB in 840
+    s`), so the routes can be compared from batch.log.
+  - The Globus host cannot resume a dropped download; it restarts from byte 0. Every file is still checked.
+  - `aspera_attempts` (default 3) sets how many attempts go to Aspera; 0 sends every attempt to HTTPS. `pride_https`
+    is `"globus"` (default) or `"ftp"`, the old host.
 - **Acetyl-lysine and succinyl-lysine captures are recognised as enrichments.** Two deposits holding anti-acetyl-lysine
   captures beside their whole-proteome runs were stored as unenriched (PXD038328, PXD061654), because the screen had no
   acetyl or succinyl terms although dataRepo's vocabulary has both.

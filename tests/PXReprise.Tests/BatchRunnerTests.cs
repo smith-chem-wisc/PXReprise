@@ -374,6 +374,20 @@ public class BatchRunnerTests
             Throws.InstanceOf<ConfigException>(), "every search a re-search would never search anything new");
     }
 
+    // pride 014: HTTPS from the Globus host by default; Aspera's share of the attempts is the machine's to set (0 = HTTPS only).
+    [Test]
+    public void TheDownloadRoutesAreReadFromTheMachineAndChecked()
+    {
+        var (_, _, _, dir) = Runner();
+        string M(string keys) => TestSupport.WriteFile(dir, $"r{keys.GetHashCode():x}.toml", $"work_root = '{dir}'\n{keys}[metamorpheus]\n\"1.1.11\" = 'x'\n");
+        var d = Machine.Load(M(""));
+        Assert.That((d.AsperaAttempts, d.PrideHttps), Is.EqualTo((3, "globus")));
+        var m = Machine.Load(M("aspera_attempts = 0\npride_https = \"FTP\"\n"));
+        Assert.That((m.AsperaAttempts, m.PrideHttps), Is.EqualTo((0, "ftp")));
+        Assert.That(() => Machine.Load(M("pride_https = \"aspera\"\n")), Throws.InstanceOf<ConfigException>());
+        Assert.That(() => Machine.Load(M("aspera_attempts = -1\n")), Throws.InstanceOf<ConfigException>());
+    }
+
     private static (BatchRunner Runner, FakeSearch Search, FakeFiles Files, string Dir) DepositChemistryRunner()
     {
         string dir = TestSupport.TempDir();
