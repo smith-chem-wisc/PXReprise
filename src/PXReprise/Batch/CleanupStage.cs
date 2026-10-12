@@ -7,7 +7,9 @@ namespace PXReprise.Batch;
 
 /// <summary>
 /// Deletes the bulky, re-obtainable intermediates of ONE dataset run once its search has succeeded: the fetched .raw
-/// files, calibration mzMLs, and any .raw MetaMorpheus copied into a task folder. PRIDE is the source of truth and the
+/// files, any stale <c>.raw.partial</c> download beside them, the .raw files the fetch set aside as not in its selection
+/// (<see cref="BatchRunner.NotSelectedFolder"/>), calibration mzMLs, and any .raw MetaMorpheus copied into a task
+/// folder. PRIDE is the source of truth and the
 /// fetch provenance holds every file's SHA-256, so the exact inputs stay identifiable. Results, the GPTMD database, logs
 /// and provenance are kept. This is a destructive act, so its record is ALWAYS written, even when a delete fails.
 /// </summary>
@@ -27,7 +29,13 @@ public static class CleanupStage
 
         var targets = new SortedSet<string>(StringComparer.Ordinal);
         string spectra = Path.Combine(runDir, "02_fetch", "spectra"), mm = Path.Combine(runDir, "04_search", "mm");
-        if (Directory.Exists(spectra)) targets.UnionWith(Directory.EnumerateFiles(spectra, "*.raw"));
+        if (Directory.Exists(spectra))
+        {
+            targets.UnionWith(Directory.EnumerateFiles(spectra, "*.raw"));
+            targets.UnionWith(Directory.EnumerateFiles(spectra, "*.raw.partial*"));
+        }
+        string aside = Path.Combine(runDir, "02_fetch", BatchRunner.NotSelectedFolder);
+        if (Directory.Exists(aside)) targets.UnionWith(Directory.EnumerateFiles(aside));
         if (Directory.Exists(mm))
         {
             targets.UnionWith(Directory.EnumerateFiles(mm, "*-calib.mzML", SearchOption.AllDirectories));

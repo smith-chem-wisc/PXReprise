@@ -874,6 +874,35 @@ public sealed class BatchRunner
         catch (UnauthorizedAccessException ex) { Log($"{acc} experiment record not written: {ex.Message}"); }
     }
 
+    /// <summary>Where a whole-deposit fetch puts the raw files in <c>02_fetch/spectra</c> that its selection does not name.</summary>
+    internal const string NotSelectedFolder = "not_selected";
+
+    /// <summary>
+    /// Moves every .raw in <paramref name="spectraDir"/> that <paramref name="selected"/> does not name, with its
+    /// <c>.partial</c> files, into the sibling <see cref="NotSelectedFolder"/>, and returns the .raw names moved. QC and
+    /// the search read every .raw in the folder, so a file left by an earlier attempt under another selection would be
+    /// counted, checked and searched with this one (PXD057407, 2026-10-12: five phospho runs from the 10-08 attempt
+    /// beside the ten global runs of PXR-A68 gave "15 of 10" and fetch_failed). Cleanup deletes the folder's files.
+    /// </summary>
+    internal static IReadOnlyList<string> SetAsideUnselected(string spectraDir, IReadOnlyCollection<string> selected)
+    {
+        var moved = new List<string>();
+        if (!Directory.Exists(spectraDir)) return moved;
+        var keep = new HashSet<string>(selected, StringComparer.OrdinalIgnoreCase);
+        string aside = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(spectraDir))!, NotSelectedFolder);
+        foreach (string path in Directory.EnumerateFiles(spectraDir).OrderBy(p => p, StringComparer.Ordinal).ToList())
+        {
+            string name = Path.GetFileName(path);
+            string? rawName = name.EndsWith(".raw", StringComparison.OrdinalIgnoreCase) ? name
+                : name.IndexOf(".raw.partial", StringComparison.OrdinalIgnoreCase) is int i and >= 0 ? name[..(i + 4)] : null;
+            if (rawName is null || keep.Contains(rawName)) continue;
+            Directory.CreateDirectory(aside);
+            File.Move(path, Path.Combine(aside, name), overwrite: true);
+            if (rawName.Length == name.Length) moved.Add(name);
+        }
+        return moved;
+    }
+
     /// <summary>The whole deposit, or nothing: anything short of every listed file is a failure that says what it got (S43).</summary>
     private async Task<bool> FetchWholeAsync(QueueEntry e, Profile profile, CancellationToken ct)
     {
@@ -889,7 +918,15 @@ public sealed class BatchRunner
             return false;
         }
         int listed = manifest["rest_raw_count"]!.GetValue<int>();
-        int got = Directory.EnumerateFiles(Path.Combine(Run(acc), "02_fetch", "spectra"), "*.raw").Count();
+        string spectra = Path.Combine(Run(acc), "02_fetch", "spectra");
+        var selected = manifest["files"]?.AsArray().Select(f => f?["name"]?.GetValue<string>()).OfType<string>().ToList() ?? new List<string>();
+        if (selected.Count > 0 && SetAsideUnselected(spectra, selected) is { Count: > 0 } aside)
+        {
+            Log($"{acc} FETCH set aside {aside.Count} raw file(s) this selection does not name, left by an earlier attempt: "
+                + $"{string.Join(", ", aside)} -> 02_fetch/{NotSelectedFolder} (deleted at cleanup)");
+            Record(acc, ("set_aside", new JsonArray(aside.Select(n => (JsonNode?)n).ToArray())));
+        }
+        int got = Directory.EnumerateFiles(spectra, "*.raw").Count();
         Log($"{acc} FETCH raw_files={got} of {listed}");
         if (listed > 0 && got == listed) { Record(acc, ("status", "fetched"), ("n_raw", got), ("n_listed", listed)); return true; }
         Log($"{acc} FETCH INCOMPLETE: {got} of {listed} raw files -- not searched (whole deposits only)");

@@ -36,6 +36,57 @@ public class BatchRunnerTests
         Assert.That(BatchRunner.QcExclusion(Report(("a.raw", false, new[] { "low_res_ms2" }), ("b.raw", true, Array.Empty<string>())), Gates), Is.Null);
     }
 
+    // PXD057407, 2026-10-12: five phospho runs from the 10-08 attempt lay beside the ten global runs the question now
+    // selects (PXR-A68). The fetch counted "15 of 10" and failed; had the count passed, QC and the search would have taken
+    // all fifteen. A whole-deposit fetch now sets aside what its selection does not name.
+    [Test]
+    public void AWholeFetchSetsAsideRawFilesItsSelectionDoesNotName()
+    {
+        string run = TestSupport.TempDir(), spectra = Path.Combine(run, "02_fetch", "spectra");
+        Directory.CreateDirectory(spectra);
+        foreach (string f in new[] { "Global_1.raw", "Global_2.raw", "Global_2.raw.partial", "Phospho_1.raw", "Phospho_2.RAW",
+                                     "Phospho_2.RAW.partial", "Phospho_2.RAW.partial.validator", "Phospho_3.raw.partial", "notes.txt" })
+            File.WriteAllText(Path.Combine(spectra, f), f);
+
+        var moved = BatchRunner.SetAsideUnselected(spectra, new[] { "Global_1.raw", "Global_2.raw" });
+
+        string aside = Path.Combine(run, "02_fetch", BatchRunner.NotSelectedFolder);
+        Assert.Multiple(() =>
+        {
+            Assert.That(moved, Is.EqualTo(new[] { "Phospho_1.raw", "Phospho_2.RAW" }), "the .raw names moved, for the log");
+            Assert.That(Directory.EnumerateFiles(spectra).Select(Path.GetFileName).Order(StringComparer.Ordinal),
+                Is.EqualTo(new[] { "Global_1.raw", "Global_2.raw", "Global_2.raw.partial", "notes.txt" }),
+                "the selection stays, with its own partial; anything that is not a raw file is not ours to move");
+            Assert.That(Directory.EnumerateFiles(aside).Select(Path.GetFileName).Order(StringComparer.Ordinal),
+                Is.EqualTo(new[] { "Phospho_1.raw", "Phospho_2.RAW", "Phospho_2.RAW.partial", "Phospho_2.RAW.partial.validator", "Phospho_3.raw.partial" }));
+            Assert.That(BatchRunner.SetAsideUnselected(spectra, new[] { "Global_1.raw", "Global_2.raw" }), Is.Empty, "a second pass moves nothing");
+        });
+    }
+
+    [Test]
+    public void CleanupDeletesSetAsideFilesAndStalePartialsButKeepsResults()
+    {
+        string run = TestSupport.TempDir();
+        string spectra = Path.Combine(run, "02_fetch", "spectra"), aside = Path.Combine(run, "02_fetch", BatchRunner.NotSelectedFolder);
+        Directory.CreateDirectory(spectra);
+        Directory.CreateDirectory(aside);
+        Directory.CreateDirectory(Path.Combine(run, "04_search"));
+        File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), "{\"success\": true}");
+        File.WriteAllText(Path.Combine(run, "04_search", "results.txt"), "kept");
+        foreach (string f in new[] { "a.raw", "a.raw.partial", "a.raw.partial.validator" }) File.WriteAllText(Path.Combine(spectra, f), f);
+        foreach (string f in new[] { "p.raw", "p.raw.partial" }) File.WriteAllText(Path.Combine(aside, f), f);
+
+        var r = CleanupStage.Run(run, run);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(r["files"]!.GetValue<int>(), Is.EqualTo(5));
+            Assert.That(Directory.EnumerateFiles(spectra), Is.Empty);
+            Assert.That(Directory.EnumerateFiles(aside), Is.Empty);
+            Assert.That(File.Exists(Path.Combine(run, "04_search", "results.txt")), Is.True);
+        });
+    }
+
     private static (BatchRunner Runner, FakeSearch Search, FakeFiles Files, string Dir) Runner(string extraQuestion = "", string extraMachine = "")
     {
         string dir = TestSupport.TempDir();

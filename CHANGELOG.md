@@ -7,6 +7,25 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.8 (2026-10-12)
+
+No MetaMorpheus change. **Machine file:** nothing. **Safe mid-batch?** Yes: state.json, the manifest and the machine
+file need no change. Swap the pin as usual (STOP, let it drain, start the new pin). A deposit that stopped as
+`fetch_failed` on leftover files needs `batch retry` once.
+
+- **A file left out of the search no longer makes qc reject the QC report.** The payload marked such a file
+  `"excluded": true`; qc's schema wants the reason, a non-empty string (qc QC-Q20). Each excluded file now carries the
+  QC report's own reason (`"qc: too_few_ms2"`), or else the search's `excluded_files.reason`. PXD014274 (2026-10-12),
+  the first deposit with excluded files since the payload began marking them, was delivered with its QC report
+  rejected and unrendered; its data were unaffected.
+- **A deposit fetched again under a new file selection no longer fails on the files the old one left.** QC and the
+  search read every raw file in `02_fetch/spectra`. PXD057407 had five phospho runs from an earlier attempt beside the
+  ten global runs its question now selects, so the fetch counted "15 of 10" and stopped as `fetch_failed`; had the
+  count matched, the extra runs would have been searched too.
+  - A whole-deposit fetch now moves every raw file its selection does not name, with its `.partial` files, into
+    `02_fetch/not_selected/`, and says so in batch.log and state.json (`set_aside`).
+  - Cleanup deletes those files after the search, and now also any stale `.raw.partial` left beside the raw files.
+
 ## 0.4.7 (2026-10-11)
 
 No MetaMorpheus change (1.1.12 and 1.1.11, as in 0.4.6). **Machine file:** nothing. **Safe mid-batch?** No: stop the

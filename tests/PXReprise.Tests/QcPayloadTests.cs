@@ -143,17 +143,39 @@ public class QcPayloadTests
         });
     }
 
-    /// <summary>qc PXR-C1 (qctemplates 0.2.0, qc D12): a file left out of the search is listed and marked excluded.</summary>
+    /// <summary>
+    /// qc PXR-C1 (qctemplates 0.2.0, qc D12, QC-Q20): a file left out of the search is listed with `excluded` = why. qc's
+    /// schema takes a non-empty string; the `true` qc 001 asked for was rejected on PXD014274 (2026-10-12).
+    /// </summary>
     [Test]
-    public void AFileLeftOutOfTheSearchIsMarkedExcluded()
+    public void AFileLeftOutOfTheSearchIsMarkedExcludedWithItsReason()
     {
         var (search, qc) = MiniRun(spectralCounts: true);
         File.WriteAllText(Path.Combine(qc, "qc_report.json"),
-            "{\"a.raw\": {\"run_minutes\": 100.0}, \"b.raw\": {\"run_minutes\": 90.0}, \"blank.raw\": {\"run_minutes\": 90.0, \"pass\": false}}");
-        var r = QcPayloadBuilder.Build(search, qc, "PXD000001", "x", "1.1.11", QcBins.Vendored(), excludedFiles: new[] { "blank.raw" });
+            "{\"a.raw\": {\"run_minutes\": 100.0}, \"b.raw\": {\"run_minutes\": 90.0}, "
+            + "\"blank.raw\": {\"run_minutes\": 90.0, \"pass\": false, \"fail_reasons\": [\"too_few_ms2\"]}, \"c.raw\": {\"run_minutes\": 80.0, \"pass\": true}}");
+        var r = QcPayloadBuilder.Build(search, qc, "PXD000001", "x", "1.1.11", QcBins.Vendored(), excludedFiles: new[] { "blank.raw", "c.raw" },
+            excludedReason: "excluded from the search by --exclude");
         var files = r.Payload["files"]!.AsArray().ToDictionary(f => f!["file"]!.GetValue<string>(), f => f!.AsObject());
-        Assert.That(files["blank"]["excluded"]!.GetValue<bool>(), Is.True);
-        Assert.That(files["a"].ContainsKey("excluded"), Is.False, "a searched file is never marked, even with zero results (qc D6)");
+        Assert.Multiple(() =>
+        {
+            Assert.That(files["blank"]["excluded"]!.GetValue<string>(), Is.EqualTo("qc: too_few_ms2"), "the QC report's own reason");
+            Assert.That(files["c"]["excluded"]!.GetValue<string>(), Is.EqualTo("excluded from the search by --exclude"),
+                "no QC reason: the search's excluded_files.reason");
+            Assert.That(files["a"].ContainsKey("excluded"), Is.False, "a searched file is never marked, even with zero results (qc D6)");
+        });
+    }
+
+    /// <summary>An excluded file with no QC reason and no reason from the search still gets a non-empty string (qc's minLength 1).</summary>
+    [Test]
+    public void AnExcludedFileWithNoRecordedReasonStillGetsOne()
+    {
+        var (search, qc) = MiniRun(spectralCounts: true);
+        File.WriteAllText(Path.Combine(qc, "qc_report.json"),
+            "{\"a.raw\": {\"run_minutes\": 100.0}, \"b.raw\": {\"run_minutes\": 90.0}, \"c.raw\": {\"run_minutes\": 80.0}}");
+        var r = QcPayloadBuilder.Build(search, qc, "PXD000001", "x", "1.1.11", QcBins.Vendored(), excludedFiles: new[] { "c.raw" }, excludedReason: " ");
+        var c = r.Payload["files"]!.AsArray().Single(f => f!["file"]!.GetValue<string>() == "c")!;
+        Assert.That(c["excluded"]!.GetValue<string>(), Is.EqualTo("excluded from the search"));
     }
 
     /// <summary>No SpectralCount_ columns: the _msms variant is not measurable, so it is OMITTED (not 0) and the notes say so.</summary>
