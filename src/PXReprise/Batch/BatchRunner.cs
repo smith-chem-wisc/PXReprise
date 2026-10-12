@@ -389,16 +389,16 @@ public sealed class BatchRunner
         int slots = Math.Max(1, _m.SearchSlots);
         var running = new List<(Task Task, string Organism)>();
         var consumed = new HashSet<string>(StringComparer.Ordinal);
-        bool ranOut = false;
+        bool ranOut = false, stopped = false;
         try
         {
             while (!ct.IsCancellationRequested)
             {
-                if (File.Exists(StopFile)) { Log($"STOP file present: finishing ({running.Count} search(es) under way finish first)"); break; }
+                if (File.Exists(StopFile)) { stopped = true; break; }
                 if (FreeGb() < _m.MinFreeGb) { Log($"free space {FreeGb():0} GB below {_m.MinFreeGb:0} GB floor: stopping"); break; }
                 var busy = running.Select(r => r.Organism).ToHashSet(StringComparer.OrdinalIgnoreCase);
                 var ready = await NextReadyAsync(queue, consumed, busy, ct).ConfigureAwait(false);
-                if (ready is null) { ranOut = !ct.IsCancellationRequested && !File.Exists(StopFile); break; }
+                if (ready is null) { stopped = File.Exists(StopFile); ranOut = !ct.IsCancellationRequested && !stopped; break; }
                 while (running.Count >= slots)
                 {
                     var done = await Task.WhenAny(running.Select(r => r.Task)).ConfigureAwait(false);
@@ -406,8 +406,22 @@ public sealed class BatchRunner
                     await done.ConfigureAwait(false);   // a search that threw ends the driver, as it always did
                 }
                 var (e, profile) = ready.Value;
+                // v0.4.10: STOP written while this deposit downloaded or waited for a slot. It is left fetched for the next
+                // driver instead of starting one more search: PXD008934 (2026-10-12) finished downloading 85 min after STOP
+                // and its 6 h search held the pin swap until it ended.
+                if (File.Exists(StopFile))
+                {
+                    Log($"{e.Accession} fetched, but STOP is present: not searched by this driver; the next one searches it");
+                    stopped = true;
+                    break;
+                }
                 // Task.Run: the search begins with the full-file QC, which is synchronous and must not hold up the next fetch.
                 running.Add((Task.Run(() => SearchSlotAsync(e, profile, ct), CancellationToken.None), e.Organism));
+            }
+            if (stopped)
+            {
+                if (running.Count == 0) Log("STOP file present: finishing (no search under way)");
+                else await DownloadWhileDrainingAsync(queue, consumed, running, ct).ConfigureAwait(false);
             }
         }
         finally
@@ -499,20 +513,73 @@ public sealed class BatchRunner
             consumed.Add(e.Accession);
             if (catchUp is not null && !StartCatchUp(e)) continue;
             Record(e.Accession, ("status", "probing"), ("title", e.Title), ("organism", e.Organism));
-            Profile? profile;
-            if (PrepareForTest is { } prepare) profile = await prepare(e, ct).ConfigureAwait(false);
-            else
-            {
-                profile = await ProbeAsync(e, ct).ConfigureAwait(false);
-                if (profile is not null && !await FetchWholeAsync(e, profile, ct).ConfigureAwait(false)) profile = null;
-            }
-            if (profile is not null)
+            if (await PrepareAsync(e, ct).ConfigureAwait(false) is { } profile)
             {
                 _started++;
                 return (e, profile);
             }
         }
         return null;
+    }
+
+    /// <summary>The screen, the probe and the whole-deposit fetch: the profile to search with, or null when settled otherwise.</summary>
+    private async Task<Profile?> PrepareAsync(QueueEntry e, CancellationToken ct)
+    {
+        if (PrepareForTest is { } prepare) return await prepare(e, ct).ConfigureAwait(false);
+        var profile = await ProbeAsync(e, ct).ConfigureAwait(false);
+        return profile is not null && await FetchWholeAsync(e, profile, ct).ConfigureAwait(false) ? profile : null;
+    }
+
+    /// <summary>
+    /// STOP drains (v0.4.10; the user, 2026-10-12: "I don't know why we have to stop downloads"). No new search starts, but
+    /// downloading goes on while the searches under way finish: each next deposit is screened, probed and fetched whole as
+    /// usual and left <c>fetched</c>. The next driver checks those files against PRIDE's checksums instead of downloading
+    /// them again, and searches the deposits first, since they lead the queue. When the last search ends, the download in
+    /// flight is cut (its deposit stays unsettled, so the next driver takes it up) and the driver exits: the drain lasts no
+    /// longer than the searches it waits for.
+    /// </summary>
+    private async Task DownloadWhileDrainingAsync(IReadOnlyList<QueueEntry> queue, HashSet<string> consumed,
+        List<(Task Task, string Organism)> running, CancellationToken ct)
+    {
+        Log($"STOP file present: no new search; downloading ahead while the {running.Count} search(es) under way finish");
+        using var cut = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var searches = Task.WhenAll(running.Select(r => r.Task));
+        var ahead = Task.Run(() => DownloadAheadAsync(queue, consumed, cut.Token), CancellationToken.None);
+        await Task.WhenAny(searches, ahead).ConfigureAwait(false);
+        if (!ahead.IsCompleted) Log("the searches under way have finished: the download ahead is cut; the next driver goes on with it");
+        cut.Cancel();
+        var fetched = await ahead.ConfigureAwait(false);
+        Log(fetched.Count == 0 ? "downloaded ahead for the next driver: none"
+            : $"downloaded ahead for the next driver: {fetched.Count} deposit(s) ({string.Join(", ", fetched)})");
+    }
+
+    private async Task<List<string>> DownloadAheadAsync(IReadOnlyList<QueueEntry> queue, HashSet<string> consumed, CancellationToken cut)
+    {
+        var fetched = new List<string>();
+        var none = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            while (!cut.IsCancellationRequested)
+            {
+                if (FreeGb() < _m.MinFreeGb) { Log($"free space {FreeGb():0} GB below {_m.MinFreeGb:0} GB floor: no more downloading ahead"); break; }
+                // Queue order only: no catch-up re-search starts here (it moves a delivered search aside), and the species
+                // turn is the next driver's to take.
+                if (PickNext(queue, consumed, none) is not { } e) break;
+                consumed.Add(e.Accession);
+                Record(e.Accession, ("status", "probing"), ("title", e.Title), ("organism", e.Organism));
+                if (await PrepareAsync(e, cut).ConfigureAwait(false) is not null)
+                {
+                    fetched.Add(e.Accession);
+                    Log($"{e.Accession} downloaded ahead under STOP: left fetched; the next driver searches it");
+                }
+            }
+        }
+        catch (Exception) when (cut.IsCancellationRequested)
+        {
+            // The cut: the deposit in flight keeps its unsettled status (probing or fetching), and a .partial is deleted
+            // by the download itself; an Aspera transfer's ascp is killed with it (Aspera.DownloadAsync).
+        }
+        return fetched;
     }
 
     /// <summary>The first queued deposit not yet done, preferring one whose species no running search has.</summary>

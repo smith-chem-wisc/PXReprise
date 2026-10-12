@@ -324,6 +324,96 @@ public class BatchRunnerTests
         Assert.That(started, Is.EqualTo(new[] { "PXD000911", "PXD000912" }));
     }
 
+    // v0.4.10 (the user, 2026-10-12: "I don't know why we have to stop downloads"): STOP starts no search, but the
+    // downloads go on while the searches under way finish; the next driver searches what was fetched ahead.
+    // Two slots, so the first search is under way while the second deposit downloads; STOP is written during that download
+    // (as on 2026-10-12), which leaves it fetched and starts the drain.
+    [Test]
+    public async Task StopStartsNoSearchButDownloadsAheadWhileTheSearchUnderWayFinishes()
+    {
+        var (runner, _, _, dir) = Runner(extraMachine: "search_slots = 2\n");
+        var prepared = new List<string>();
+        var searched = new List<string>();
+        runner.PrepareForTest = (e, ct) =>
+        {
+            lock (prepared) prepared.Add(e.Accession);
+            if (e.Accession == "PXD000932") File.WriteAllText(Path.Combine(dir, "state", "STOP"), "hold for a pin swap");
+            runner.Record(e.Accession, ("status", "fetched"));
+            return Task.FromResult<Profile?>(Profiles["label-free-dda@1"]);
+        };
+        runner.SearchForTest = async (e, p, ct) =>
+        {
+            lock (searched) searched.Add(e.Accession);
+            for (int i = 0; i < 400 && prepared.Count < 4; i++) await Task.Delay(25, ct);
+        };
+        var queue = new[]
+        {
+            new QueueEntry("PXD000931", "a", "mouse"), new QueueEntry("PXD000932", "b", "human"),
+            new QueueEntry("PXD000933", "c", "rat"), new QueueEntry("PXD000934", "d", "mouse"),
+        };
+
+        await runner.RunAsync(queue, CancellationToken.None);
+
+        Assert.That(searched, Is.EqualTo(new[] { "PXD000931" }), "no search starts under STOP");
+        Assert.That(prepared, Is.EqualTo(new[] { "PXD000931", "PXD000932", "PXD000933", "PXD000934" }), "the next ones are downloaded meanwhile");
+        Assert.That(runner.State()["datasets"]!["PXD000934"]!["status"]!.GetValue<string>(), Is.EqualTo("fetched"));
+        Assert.That(runner.Settled("PXD000934"), Is.Empty, "the next driver takes it up");
+        string log = File.ReadAllText(Path.Combine(dir, "state", "batch.log"));
+        Assert.That(log, Does.Contain("PXD000932 fetched, but STOP is present: not searched by this driver"));
+        Assert.That(log, Does.Contain("downloaded ahead for the next driver: 2 deposit(s) (PXD000933, PXD000934)"));
+    }
+
+    [Test]
+    public async Task TheDownloadAheadIsCutWhenTheLastSearchEnds()
+    {
+        var (runner, _, _, dir) = Runner(extraMachine: "search_slots = 2\n");
+        var downloading = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        runner.PrepareForTest = async (e, ct) =>
+        {
+            if (e.Accession == "PXD000942") File.WriteAllText(Path.Combine(dir, "state", "STOP"), "hold");
+            if (e.Accession == "PXD000943")
+            {
+                downloading.TrySetResult();
+                await Task.Delay(Timeout.Infinite, ct);   // a long download, cut by the drain's end
+            }
+            runner.Record(e.Accession, ("status", "fetched"));
+            return Profiles["label-free-dda@1"];
+        };
+        runner.SearchForTest = async (e, p, ct) => await downloading.Task.WaitAsync(TimeSpan.FromSeconds(10), ct);
+        var queue = new[] { new QueueEntry("PXD000941", "a", "mouse"), new QueueEntry("PXD000942", "b", "human"), new QueueEntry("PXD000943", "c", "rat") };
+        var run = runner.RunAsync(queue, CancellationToken.None);
+
+        Assert.That(await Task.WhenAny(run, Task.Delay(TimeSpan.FromSeconds(20))), Is.SameAs(run), "the driver exits once the search ends");
+        await run;
+        Assert.That(runner.State()["datasets"]!["PXD000943"]!["status"]!.GetValue<string>(), Is.EqualTo("probing"));
+        Assert.That(runner.Settled("PXD000943"), Is.Empty, "a cut download is not a failure");
+        string log = File.ReadAllText(Path.Combine(dir, "state", "batch.log"));
+        Assert.That(log, Does.Contain("the download ahead is cut"));
+        Assert.That(log, Does.Contain("downloaded ahead for the next driver: none"));
+    }
+
+    // PXD008934 (2026-10-12) finished downloading 85 min after STOP, then searched for 6 h while the pin swap waited.
+    [Test]
+    public async Task ADepositFetchedAfterStopIsLeftForTheNextDriver()
+    {
+        var (runner, _, _, dir) = Runner();
+        var searched = new List<string>();
+        runner.PrepareForTest = (e, ct) =>
+        {
+            if (e.Accession == "PXD000952") File.WriteAllText(Path.Combine(dir, "state", "STOP"), "hold");
+            runner.Record(e.Accession, ("status", "fetched"));
+            return Task.FromResult<Profile?>(Profiles["label-free-dda@1"]);
+        };
+        runner.SearchForTest = async (e, p, ct) => { lock (searched) searched.Add(e.Accession); await Task.Delay(50, ct); };
+
+        await runner.RunAsync(new[] { new QueueEntry("PXD000951", "a", "mouse"), new QueueEntry("PXD000952", "b", "human") }, CancellationToken.None);
+
+        Assert.That(searched, Is.EqualTo(new[] { "PXD000951" }));
+        Assert.That(runner.State()["datasets"]!["PXD000952"]!["status"]!.GetValue<string>(), Is.EqualTo("fetched"));
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")),
+            Does.Contain("PXD000952 fetched, but STOP is present: not searched by this driver"));
+    }
+
     // D39: catch-up re-searches by gain (rat, then a curated design, then oldest), another species first.
     [Test]
     public void CatchUpPicksRatFirstAndPrefersASpeciesNotRunning()
