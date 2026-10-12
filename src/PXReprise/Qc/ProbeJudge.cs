@@ -19,7 +19,8 @@ public sealed record ProbeVerdict(IReadOnlyList<ProbeFinding> Parks, string? Mea
 /// <c>waiting_mixed_species</c> (D35; PXD044773's mouse runs searched as human, aging S83);</item>
 /// <item>enrichment: phospho at <see cref="EnrichedPhospho"/> or GG at <see cref="EnrichedGg"/> of a run's PSMs, the
 /// rule BuildPtmDb's --exclude-enriched applies (whole proteomes run 0.1-0.3% phospho; GG has a small baseline because a
-/// double carbamidomethyl on K has its mass);</item>
+/// double carbamidomethyl on K has its mass); acetyl-K at <see cref="EnrichedAcetylK"/> (PXR-A88, aging 082: whole
+/// proteomes 0.1-0.5% of 1% PSMs, the acetyl-lysine capture runs of PXD038328 and PXD061654 18-51%);</item>
 /// <item>alkylation: with carbamidomethyl expected, a non-enriched deposit whose runs show under
 /// <see cref="MinCysteineShare"/> cysteine-containing peptides parks <c>waiting_alkylation_check</c> (aging S82: alkylated
 /// lysates 11-28%, the four unexplained deposits 0.26-0.60%, enrichments 2-5%).</item>
@@ -31,6 +32,7 @@ public static class ProbeJudge
     public const double MixedBelow = 0.50;
     public const double EnrichedPhospho = 0.05;
     public const double EnrichedGg = 0.02;
+    public const double EnrichedAcetylK = 0.05;
     public const double MinCysteineShare = 0.02;
     public const int MinPeptidesForCysteine = 100;
 
@@ -77,13 +79,16 @@ public static class ProbeJudge
             parks.Add(new("waiting_mixed_species", $"the expected species holds under {MixedBelow:P0} of the species-specific PSMs in {string.Join("; ", mixed)}"));
 
         // Enrichment, measured.
-        var enriched = runs.Where(kv => kv.Value.PhosphoShare >= EnrichedPhospho || kv.Value.GgShare >= EnrichedGg).ToList();
+        var enriched = runs.Where(kv => kv.Value.PhosphoShare >= EnrichedPhospho || kv.Value.GgShare >= EnrichedGg
+                                        || kv.Value.AcetylKShare >= EnrichedAcetylK).ToList();
         string? measured = null;
         if (enriched.Count > 0)
         {
             bool phospho = enriched.Any(kv => kv.Value.PhosphoShare >= EnrichedPhospho), gg = enriched.Any(kv => kv.Value.GgShare >= EnrichedGg);
-            measured = string.Join("+", new[] { phospho ? "phospho" : null, gg ? "GG" : null }.Where(x => x is not null));
-            notes.Add($"measured enrichment ({measured}) in {string.Join("; ", enriched.Select(kv => $"{kv.Key} phospho {Pct(kv.Value.PhosphoShare)} GG {Pct(kv.Value.GgShare)}"))}");
+            bool acetyl = enriched.Any(kv => kv.Value.AcetylKShare >= EnrichedAcetylK);
+            measured = string.Join("+", new[] { phospho ? "phospho" : null, gg ? "GG" : null, acetyl ? "acetyl" : null }.Where(x => x is not null));
+            notes.Add($"measured enrichment ({measured}) in {enriched.Count} of {runs.Count} probe run(s): "
+                + string.Join("; ", enriched.Select(kv => $"{kv.Key} phospho {Pct(kv.Value.PhosphoShare)} GG {Pct(kv.Value.GgShare)} acetyl-K {Pct(kv.Value.AcetylKShare)}")));
         }
 
         // Alkylation, against the expectation.

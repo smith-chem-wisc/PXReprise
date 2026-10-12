@@ -84,6 +84,7 @@ public sealed class ExperimentRecord
                 ["cysteine_share"] = m.CysteineShare is { } c ? Math.Round(c, 4) : null,
                 ["phospho_share"] = m.PhosphoShare is { } p ? Math.Round(p, 4) : null,
                 ["gg_share"] = m.GgShare is { } g ? Math.Round(g, 4) : null,
+                ["acetyl_k_share"] = m.AcetylKShare is { } ak ? Math.Round(ak, 4) : null,
             };
         }
     }

@@ -9,7 +9,7 @@ namespace PXReprise.Search;
 /// <summary>
 /// A short MetaMorpheus search of a deposit's probe files, before the full download (D32/D34/D35; PLAN_search-settings.md
 /// slice 3). It searches EVERY species database the profile has, plus its contaminant panel, so an unlisted or wrong
-/// species shows, with variable phospho and GG, so an unstated enrichment shows, and with the deposit's chemistry, so a
+/// species shows, with variable phospho, GG and acetyl-K, so an unstated enrichment shows, and with the deposit's chemistry, so a
 /// cysteine chemistry the text did not state shows as missing cysteine peptides. Its only output is the measurements: it
 /// is never delivered.
 /// <para>
@@ -26,6 +26,8 @@ public static class ProbeSearch
     {
         "Common Biological\tPhosphorylation on S", "Common Biological\tPhosphorylation on T", "Common Biological\tPhosphorylation on Y",
         "Trypsin Digested\tGG (Ubiquitination Site) on K",
+        // PXR-A88 (aging 082): an acetyl-lysine capture whose text and file names say nothing (PXD061654) shows only here.
+        "Common Biological\tAcetylation on K",
     };
 
     /// <summary>The settings a probe search sets on the pinned MetaMorpheus's default Search task (key, TOML value).</summary>

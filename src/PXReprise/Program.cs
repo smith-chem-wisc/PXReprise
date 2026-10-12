@@ -196,7 +196,8 @@ public static class Program
                     int.Parse(args.Option("parallel") ?? "4"), int.Parse(args.Option("attempts") ?? "8"),
                     TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(60), machine.WorkRoot, TimeSpan.FromMinutes(machine.FetchStallMinutes),
                     Sha1Source: Fetch.Integrity.PrideChecksumsAsync,
-                    Aspera: machine.AsperaAscp is { } ascp ? new Fetch.AsperaClient(ascp, machine.AsperaKey!, StartGap: TimeSpan.FromSeconds(10)) : null);
+                    Aspera: machine.AsperaAscp is { } ascp ? new Fetch.AsperaClient(ascp, machine.AsperaKey!, machine.AsperaAttempts, StartGap: TimeSpan.FromSeconds(10)) : null,
+                    Https: Fetch.PrideHosts.Parse(machine.PrideHttps));
                 using var client = new PrideArchiveClient();
                 var manifest = await Fetch.FetchStage.RunAsync(request, new Fetch.PrideFiles(client), ct).ConfigureAwait(false);
                 return new { accession, files = manifest["files"]!.AsArray().Count, manifest = Path.GetFullPath(Path.Combine(request.OutDir, "fetch_manifest.json")) };

@@ -8,7 +8,9 @@ namespace PXReprise.Qc;
 /// One probe run's measured facts (D32, D34; PLAN_search-settings.md slice 3), over its 1% target non-contaminant PSMs
 /// (q-value &lt; 0.01, the D36 q tier: a probe search is too small for PEP). Species come from MetaMorpheus's
 /// <c>Organism Name</c>: a PSM whose candidate proteins all come from one organism counts for it; one shared between
-/// organisms counts as shared. Cysteine, phospho and GG are counted over PSMs with ONE candidate sequence only.
+/// organisms counts as shared. Cysteine, phospho, GG and acetyl-K are counted over PSMs with ONE candidate sequence only.
+/// Acetyl-K is MetaMorpheus's `Acetylation on K` or a UniProt `N6-acetyllysine` site from the database: counting only the
+/// first put PXD038328's capture runs at 10.8% instead of 27.9% (PXR-A88).
 /// </summary>
 public sealed record RunMeasures(
     int Psms,
@@ -18,11 +20,13 @@ public sealed record RunMeasures(
     int Peptides,
     int CysteinePeptides,
     int PhosphoPsms,
-    int GgPsms)
+    int GgPsms,
+    int AcetylKPsms = 0)
 {
     public double? CysteineShare => Peptides > 0 ? (double)CysteinePeptides / Peptides : null;
     public double? PhosphoShare => UnambiguousPsms > 0 ? (double)PhosphoPsms / UnambiguousPsms : null;
     public double? GgShare => UnambiguousPsms > 0 ? (double)GgPsms / UnambiguousPsms : null;
+    public double? AcetylKShare => UnambiguousPsms > 0 ? (double)AcetylKPsms / UnambiguousPsms : null;
     public int SpeciesSpecificPsms => SpeciesPsms.Values.Sum();
 }
 
@@ -57,7 +61,7 @@ public static class ProbeMeasures
         foreach (var run in psms.GroupBy(p => p.FileName))
         {
             var species = new Dictionary<string, int>(StringComparer.Ordinal);
-            int shared = 0, unambiguous = 0, phospho = 0, gg = 0;
+            int shared = 0, unambiguous = 0, phospho = 0, gg = 0, acetylK = 0;
             var peptides = new HashSet<string>(StringComparer.Ordinal);
             foreach (var p in run)
             {
@@ -70,9 +74,10 @@ public static class ProbeMeasures
                 var mods = p.FullSequence.ParseModifications().Values;
                 if (mods.Any(m => m.Contains("Phosphorylation on ", StringComparison.Ordinal))) phospho++;
                 if (mods.Any(m => m.Contains("GG (Ubiquitination Site) on K", StringComparison.Ordinal))) gg++;
+                if (mods.Any(m => m.Contains("Acetylation on K", StringComparison.Ordinal) || m.Contains("N6-acetyllysine", StringComparison.Ordinal))) acetylK++;
             }
             o[run.Key] = new RunMeasures(run.Count(), species, shared, unambiguous, peptides.Count,
-                peptides.Count(s => s.Contains('C')), phospho, gg);
+                peptides.Count(s => s.Contains('C')), phospho, gg, acetylK);
         }
         return o;
     }

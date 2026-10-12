@@ -31,7 +31,9 @@ public sealed record Machine(
     int SearchSlots = 1,
     int CatchUpEvery = 0,
     string? AsperaAscp = null,
-    string? AsperaKey = null)
+    string? AsperaKey = null,
+    int AsperaAttempts = 3,
+    string PrideHttps = "globus")
 {
     public static Machine Load(string file)
     {
@@ -81,7 +83,14 @@ public sealed record Machine(
         // IBM Aspera, tried before HTTPS for each raw file (2026-10-08): EBI requires ascp >= 4.4.4 with encryption on and
         // its public key (KB0011565). Both or neither; off when absent.
         string? ascp = root.OptionalString("aspera_ascp"), asperaKey = root.OptionalString("aspera_key");
+        // How many of a file's attempts go to Aspera before HTTPS; a damaged Aspera copy ends them early. 0 = HTTPS only.
+        int asperaAttempts = checked((int)(root.OptionalInteger("aspera_attempts") ?? 3));
+        // The HTTPS host for raw files (pride 014): "globus", EBI's Globus collection over plain HTTPS, which came back
+        // clean where ftp.pride.ebi.ac.uk did not; or "ftp", mzLib's own choice.
+        string prideHttps = (root.OptionalString("pride_https") ?? "globus").ToLowerInvariant();
         root.RefuseUnknownKeys();
+        if (asperaAttempts < 0) throw new ConfigException(file, "'aspera_attempts' must not be negative (0 sends every attempt to HTTPS)");
+        if (prideHttps is not ("globus" or "ftp")) throw new ConfigException(file, $"'pride_https' must be \"globus\" or \"ftp\", not \"{prideHttps}\"");
         if ((ascp is null) != (asperaKey is null)) throw new ConfigException(file, "'aspera_ascp' and 'aspera_key' go together");
         if (ascp is not null && !File.Exists(ascp)) throw new ConfigException(file, $"'aspera_ascp' = '{ascp}' does not exist");
         if (asperaKey is not null && !File.Exists(asperaKey)) throw new ConfigException(file, $"'aspera_key' = '{asperaKey}' does not exist");
@@ -95,7 +104,7 @@ public sealed record Machine(
         if (passWait < 0) throw new ConfigException(file, "'pass_wait_minutes' must not be negative");
         if (searchTimeout <= 0) throw new ConfigException(file, "'search_timeout_h' must be positive");
         if (stall < 0) throw new ConfigException(file, "'search_stall_minutes' must not be negative (0 turns the stall check off)");
-        return new Machine(file, workRoot, dbDir, mm, settings, threads, dotnet, licence, libraries, minFree, datarepo, attempts, parallel, qcPython, passes, passWait, searchTimeout, stall, dotnetRoot, fetchStall, slots, catchUp, ascp, asperaKey);
+        return new Machine(file, workRoot, dbDir, mm, settings, threads, dotnet, licence, libraries, minFree, datarepo, attempts, parallel, qcPython, passes, passWait, searchTimeout, stall, dotnetRoot, fetchStall, slots, catchUp, ascp, asperaKey, asperaAttempts, prideHttps);
     }
 
     public string CmdFor(string release) =>

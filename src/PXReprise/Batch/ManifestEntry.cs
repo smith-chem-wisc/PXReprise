@@ -103,6 +103,14 @@ public static class ManifestEntry
             notes.Add($"ENRICHED ({enrichment}): the deposit's own text says '...{ev}...'. Intensities describe the enriched material, not the whole proteome; never pool them with whole proteomes as abundance.");
             flags.Add("enriched");
         }
+        // PXR-A88 (aging 082): the probe search's measurement used to stop at state.json, so an enrichment the text did not
+        // state reached the store as a whole proteome. It is a prose flag and a note, like G16 below: which run is which is
+        // curation (`enrichment`, `run_enrichment`, `mixed_enrichment`), because three probe runs are not every run.
+        if (enrichment == "none" && state?["enrichment_measured"]?.GetValue<string>() is { Length: > 0 } measured)
+        {
+            notes.Add($"MEASURED ENRICHMENT ({measured}): the probe search found it in at least one probe run (01_experiment), but the text states none. Curate `enrichment` and, if only some runs are enriched, `run_enrichment` before pooling.");
+            flags.Add("possibly_mixed_enrichment");
+        }
         if (excluded.Count > 0)
         {
             notes.Add($"QC-EXCLUDED FILES: {string.Join(", ", excluded)} failed QC on {string.Join("/", profile.Qc.Excludable)} (a blank or failed injection) and were not searched; the deposit has {qc.Count} raw files.");
@@ -113,7 +121,7 @@ public static class ManifestEntry
         if (MixedSamples.Detect(qc.Select(kv => kv.Key)) is { } mixed)
         {
             notes.Add($"POSSIBLY MIXED SAMPLES: the raw file names hold {MixedSamples.Describe(mixed)}. If these are different enrichments, the dataset-level `enrichment` cannot say which run is which; curate `run_enrichment` and the `mixed_enrichment` flag before pooling.");
-            flags.Add("possibly_mixed_enrichment");
+            if (!flags.Contains("possibly_mixed_enrichment")) flags.Add("possibly_mixed_enrichment");
         }
         // G19: a deposit searched with its own chemistry says what was used and where each fact came from (D22). A fact read
         // from protocol text is a guess, flagged as one; the flag is prose (no ingest change).

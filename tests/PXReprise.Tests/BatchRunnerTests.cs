@@ -374,6 +374,20 @@ public class BatchRunnerTests
             Throws.InstanceOf<ConfigException>(), "every search a re-search would never search anything new");
     }
 
+    // pride 014: HTTPS from the Globus host by default; Aspera's share of the attempts is the machine's to set (0 = HTTPS only).
+    [Test]
+    public void TheDownloadRoutesAreReadFromTheMachineAndChecked()
+    {
+        var (_, _, _, dir) = Runner();
+        string M(string keys) => TestSupport.WriteFile(dir, $"r{keys.GetHashCode():x}.toml", $"work_root = '{dir}'\n{keys}[metamorpheus]\n\"1.1.11\" = 'x'\n");
+        var d = Machine.Load(M(""));
+        Assert.That((d.AsperaAttempts, d.PrideHttps), Is.EqualTo((3, "globus")));
+        var m = Machine.Load(M("aspera_attempts = 0\npride_https = \"FTP\"\n"));
+        Assert.That((m.AsperaAttempts, m.PrideHttps), Is.EqualTo((0, "ftp")));
+        Assert.That(() => Machine.Load(M("pride_https = \"aspera\"\n")), Throws.InstanceOf<ConfigException>());
+        Assert.That(() => Machine.Load(M("aspera_attempts = -1\n")), Throws.InstanceOf<ConfigException>());
+    }
+
     private static (BatchRunner Runner, FakeSearch Search, FakeFiles Files, string Dir) DepositChemistryRunner()
     {
         string dir = TestSupport.TempDir();
@@ -579,6 +593,28 @@ public class BatchRunnerTests
         Assert.That(text, Does.Contain("files: 2").And.Contain("organism: NCBITaxon:9606").And.Contain("run: runs/PXD000207")
             .And.Contain("title: \"A \\u0022quoted\\u0022 title\"").Or.Contain("title: \"A \\\"quoted\\\" title\""));
         Assert.That(text, Does.Contain("flags: [no_design_file, no_output_sdrf, enriched, qc_excluded_files]").And.Contain("iso.xml"));
+    }
+
+    // PXR-A88 (aging 082): a probe-measured enrichment the text did not state used to stop at state.json; the entry now
+    // says so and asks for curation, without declaring an enrichment itself.
+    [Test]
+    public void AMeasuredEnrichmentTheTextMissedIsNotedAndFlaggedForCuration()
+    {
+        string dir = TestSupport.TempDir(), run = Path.Combine(dir, "runs", "PXD061654");
+        Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
+        Directory.CreateDirectory(Path.Combine(run, "04_search"));
+        File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(("Seq70745_HFX.raw", true, Array.Empty<string>()), ("Seq70763_HFX.raw", true, Array.Empty<string>())).ToJsonString());
+        File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), """{"tools":{"MetaMorpheus":{"release":"1.1.12"}}}""");
+        string manifest = TestSupport.WriteFile(dir, "manifest.yaml", "manifest_version: 1\ndatasets:\n");
+        var state = new JsonObject { ["enrichment"] = "none", ["enrichment_measured"] = "acetyl" };
+        ManifestEntry.Append(manifest, new QueueEntry("PXD061654", "Acetylome", "mouse"), Profiles["label-free-dda@5"], run, state, dir);
+        string text = File.ReadAllText(manifest);
+        Assert.Multiple(() =>
+        {
+            Assert.That(text, Does.Contain("enrichment: [none]"), "a measurement on three probe runs declares nothing");
+            Assert.That(text, Does.Contain("possibly_mixed_enrichment").And.Contain("MEASURED ENRICHMENT (acetyl)"));
+            Assert.That(text, Does.Not.Match(@"[\[ ]mixed_enrichment[,\]]"), "mixed_enrichment changes the ingest: curation only");
+        });
     }
 
     // G34: PXD059520 was searched under the Search-only ion-trap profile, whose results are in Task1SearchTask; the entry

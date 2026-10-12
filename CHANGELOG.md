@@ -7,6 +7,40 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.9 (2026-10-12)
+
+No MetaMorpheus change. **Machine file:** two optional keys, `aspera_attempts` and `pride_https` (below); without them
+you get the new download routes. **Safe mid-batch?** Yes: swap the pin as usual (STOP, let it drain, start the new pin).
+Deposits already delivered are not re-screened.
+
+- **Raw files over HTTPS now come from EMBL-EBI's Globus host, and a damaged Aspera copy switches to it at once.**
+  EBI's helpdesk answered our report of damaged downloads with "try Globus". In a side-by-side trial on 2026-10-12, the
+  same five files came back damaged 2 of 5 times from `ftp.pride.ebi.ac.uk` and 0 of 5 from the Globus host (0 of 15
+  over all its runs), while Aspera had damaged 24% of transfers since 2026-10-08.
+  - HTTPS downloads use `https://g-a8b222.dd271.03c0.data.globus.org/pride/data/archive/...`, the same paths as PRIDE's
+    FTP site: anonymous, with no Globus software or login. mzLib needs no change.
+  - Aspera stays first (about twice as fast per file when clean), but the first damaged Aspera copy sends that file's
+    remaining attempts to HTTPS; before, three Aspera attempts came first whatever happened.
+  - A Globus attempt that fails to deliver is followed by one from `ftp.pride.ebi.ac.uk`, then Globus again.
+  - Every transfer is logged with its route, size and time (`... arrived over Globus HTTPS (attempt 2): 1315 MB in 840
+    s`), so the routes can be compared from batch.log.
+  - The Globus host cannot resume a dropped download; it restarts from byte 0. Every file is still checked.
+  - `aspera_attempts` (default 3) sets how many attempts go to Aspera; 0 sends every attempt to HTTPS. `pride_https`
+    is `"globus"` (default) or `"ftp"`, the old host.
+- **Acetyl-lysine and succinyl-lysine captures are recognised as enrichments.** Two deposits holding anti-acetyl-lysine
+  captures beside their whole-proteome runs were stored as unenriched (PXD038328, PXD061654), because the screen had no
+  acetyl or succinyl terms although dataRepo's vocabulary has both.
+  - **Text:** phrases that name the capture ("acetyl-lysine enrichment", "enriched for acetylated peptides",
+    "anti-acetyllysine", "acetylome") now give `acetyl`, and their succinyl forms `succinyl`. "Acetyl (Protein N-term)"
+    as a variable modification, or a GO enrichment of acetylated proteins, does not.
+  - **File names:** `acetylom(e)`, `succinylom(e)`, `phosphoproteom(e)` and `proteom` now count, so a deposit of
+    `_acetylom_` and `_proteom_` runs is flagged `possibly_mixed_enrichment`.
+  - **Probe search:** acetyl-K is a variable modification of the probe, counted as MetaMorpheus's `Acetylation on K` or
+    a UniProt `N6-acetyllysine` site. A probe run at 5% or more is a measured enrichment (whole proteomes run 0.1-0.5%,
+    these captures 18-51%).
+  - **Manifest:** a measured enrichment the text did not state used to stop at state.json. The entry now says so in a
+    note and flags `possibly_mixed_enrichment`, so the enrichment is curated before pooling.
+
 ## 0.4.8 (2026-10-12)
 
 No MetaMorpheus change. **Machine file:** nothing. **Safe mid-batch?** Yes: state.json, the manifest and the machine

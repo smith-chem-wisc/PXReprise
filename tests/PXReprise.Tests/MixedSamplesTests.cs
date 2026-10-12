@@ -19,6 +19,16 @@ public class MixedSamplesTests
     }
 
     [Test]
+    public void AcetylomeAndProteomeRunsAreFlagged()
+    {
+        // PXR-A88 (aging 082): PXD038328's names, which the 2026-10-04 word list did not know.
+        var names = Enumerable.Range(1, 20).Select(i => $"20221108_E1_LS{i:00}_Serena_acetylom_A{i:00}.raw")
+            .Concat(Enumerable.Range(1, 20).Select(i => $"20221109_E1_LC4_LS{i:00}__Serena_proteom_A{i:00}.raw"));
+        Assert.That(MixedSamples.Detect(names)!.Select(x => (x.Kind, x.Token, x.Files)),
+            Is.EqualTo(new[] { ("acetyl", "acetylom", 20), ("whole", "proteom", 20) }));
+    }
+
+    [Test]
     public void NamesThatSayNothingOrOneKindAreNotFlagged()
     {
         Assert.That(MixedSamples.Detect(new[] { "20210106_PHCOQEHF_PC793-OBrien_1_R1.raw", "20210106_PHCOQEHF_PC793-OBrien_2_R2.raw" }), Is.Null);

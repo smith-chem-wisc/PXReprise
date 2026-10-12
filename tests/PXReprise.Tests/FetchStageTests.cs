@@ -238,8 +238,12 @@ public class FetchStageTests
         public Task<List<PrideArchiveFile>> ListFilesAsync(string a, CancellationToken ct) => Task.FromResult(Files);
         public Task<List<string>> ListFtpNamesAsync(string a, CancellationToken ct) => Task.FromResult(Ftp);
 
+        /// <summary>The first location of each file asked for: which host the download was sent to.</summary>
+        public List<string?> Locations { get; } = new();
+
         public Task<string> DownloadAsync(PrideArchiveFile f, string dir, CancellationToken ct)
         {
+            lock (Locations) Locations.Add(f.PublicFileLocations?.FirstOrDefault()?.Value);
             if (Hard is not null) throw Hard;
             // The real shape of an EBI drop: HttpIOException (an IOException), not an HttpRequestException.
             if (Interlocked.Increment(ref _calls) <= FailuresBeforeSuccess)
@@ -271,7 +275,81 @@ public class FetchStageTests
         var lines = new List<string>();
         var (path, _, attempts) = await FetchStage.DownloadWithRetry(new FlakyPride(), F("a.raw", 100), dir, 3, TimeSpan.Zero, CancellationToken.None, log: lines.Add);
         Assert.That((new FileInfo(path).Length, attempts), Is.EqualTo((100L, 1)));
-        Assert.That(lines.Single(), Does.Contain("on disk is 40 bytes, PRIDE lists 100"));
+        Assert.That(lines[0], Does.Contain("on disk is 40 bytes, PRIDE lists 100"));
+        Assert.That(lines.Skip(1), Is.EqualTo(new[] { "a.raw arrived over ftp.pride HTTPS (attempt 1): 0 MB in 0 s" }));
+    }
+
+    // pride 014 (PXR-W4): on the same files in the same minutes, ftp.pride's HTTPS copies came back damaged 2 of 5 times
+    // and the Globus host's 0 of 5. The Globus route is the same file with the Globus URL as its only location.
+    private static PrideArchiveFile Located(string name, long size)
+    {
+        var f = F(name, size);
+        f.PublicFileLocations.Add(new CvParam { Accession = "PRIDE:0000469", Name = "FTP Protocol", Value = $"ftp://ftp.pride.ebi.ac.uk/pride/data/archive/2025/01/PXD058855/{name}" });
+        f.PublicFileLocations.Add(new CvParam { Accession = "PRIDE:0000468", Name = "Aspera Protocol", Value = $"prd_ascp@fasp.ebi.ac.uk:pride/data/archive/2025/01/PXD058855/{name}" });
+        return f;
+    }
+
+    private const string GlobusUrl = "https://g-a8b222.dd271.03c0.data.globus.org/pride/data/archive/2025/01/PXD058855/";
+
+    [Test]
+    public void TheGlobusRouteIsTheSamePathOnTheGlobusHost()
+    {
+        var g = PrideHosts.ViaGlobus(Located("K80_E1.raw", 100))!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(g.PublicFileLocations.Select(l => l.Value), Is.EqualTo(new[] { GlobusUrl + "K80_E1.raw" }));
+            Assert.That((g.FileName, g.FileSizeBytes), Is.EqualTo(("K80_E1.raw", 100L)));
+            Assert.That(PrideHosts.ViaGlobus(F("x.raw", 1)), Is.Null, "no FTP path to map: mzLib chooses");
+            Assert.That((PrideHosts.Parse(null), PrideHosts.Parse("FTP")), Is.EqualTo((PrideHttps.Globus, PrideHttps.Ftp)));
+            Assert.Throws<ArgumentException>(() => PrideHosts.Parse("aspera"));
+        });
+    }
+
+    [Test]
+    public async Task ADamagedAsperaCopySendsTheNextAttemptToGlobusAtOnce()
+    {
+        string dir = TestSupport.TempDir();
+        var lines = new List<string>();
+        var pride = new FlakyPride();
+        int asperaCalls = 0;
+        // EBI's error text written into an Aspera copy of the right size (2026-10-12: DDPC4E1_3 was damaged 3 times running).
+        Task<string> DamagedAspera(AsperaClient a, PrideArchiveFile f, string d, CancellationToken ct)
+        {
+            asperaCalls++;
+            var bytes = new byte[f.FileSizeBytes];
+            "<Error><Code>ConnectionClosedException"u8.CopyTo(bytes.AsSpan(1));
+            string p = Path.Combine(d, f.FileName);
+            File.WriteAllBytes(p, bytes);
+            return Task.FromResult(p);
+        }
+        var (path, _, attempts) = await FetchStage.DownloadWithRetry(pride, Located("DDPC4E1_3.raw", 100), dir, 8, TimeSpan.Zero, CancellationToken.None,
+            log: lines.Add, verify: true, aspera: new AsperaClient("ascp.exe", "key", Attempts: 3), https: PrideHttps.Globus, asperaDownload: DamagedAspera);
+        Assert.Multiple(() =>
+        {
+            Assert.That((asperaCalls, attempts), Is.EqualTo((1, 2)), "one damaged Aspera copy, not three");
+            Assert.That(pride.Locations, Is.EqualTo(new[] { GlobusUrl + "DDPC4E1_3.raw" }));
+            Assert.That(lines, Has.Some.StartsWith("DDPC4E1_3.raw arrived over Aspera (attempt 1)"));
+            Assert.That(lines, Has.Some.Contains("the next attempt goes over Globus HTTPS"));
+            Assert.That(lines, Has.Some.StartsWith("DDPC4E1_3.raw arrived over Globus HTTPS (attempt 2)"));
+            Assert.That(Integrity.Check(path).ErrorAt, Is.Null);
+        });
+    }
+
+    [Test]
+    public async Task AGlobusAttemptThatFailsToDeliverIsFollowedByOneFromFtpPride()
+    {
+        string dir = TestSupport.TempDir();
+        var lines = new List<string>();
+        var pride = new FlakyPride { FailuresBeforeSuccess = 1 };   // the Globus host drops the first download
+        var (_, _, attempts) = await FetchStage.DownloadWithRetry(pride, Located("a.raw", 100), dir, 8, TimeSpan.Zero, CancellationToken.None,
+            log: lines.Add, verify: true, https: PrideHttps.Globus);
+        Assert.That(attempts, Is.EqualTo(2));
+        Assert.That(pride.Locations, Is.EqualTo(new[] { GlobusUrl + "a.raw", "ftp://ftp.pride.ebi.ac.uk/pride/data/archive/2025/01/PXD058855/a.raw" }));
+        Assert.That(lines, Has.Some.StartsWith("a.raw arrived over ftp.pride HTTPS (attempt 2)"));
+
+        var ftpOnly = new FlakyPride();
+        await FetchStage.DownloadWithRetry(ftpOnly, Located("b.raw", 100), dir, 8, TimeSpan.Zero, CancellationToken.None, verify: true, https: PrideHttps.Ftp);
+        Assert.That(ftpOnly.Locations, Is.EqualTo(new[] { "ftp://ftp.pride.ebi.ac.uk/pride/data/archive/2025/01/PXD058855/b.raw" }), "pride_https = \"ftp\" never uses Globus");
     }
 
     [Test]
@@ -283,7 +361,9 @@ public class FetchStageTests
             FetchStage.DownloadWithRetry(new FlakyPride { Short = 1 }, F("a.raw", 100), dir, 2, TimeSpan.Zero, CancellationToken.None, log: lines.Add));
         Assert.That(FetchStage.IsTransient(e!), Is.True);
         Assert.That(File.Exists(Path.Combine(dir, "a.raw")), Is.False);
-        Assert.That(lines, Has.Count.EqualTo(2).And.All.Contains("HttpIOException: a.raw: received 99 bytes, PRIDE lists 100"));
+        Assert.That(lines.Where(l => l.StartsWith("retry ", StringComparison.Ordinal)),
+            Has.Exactly(2).Items.And.All.Contains("HttpIOException: a.raw: received 99 bytes, PRIDE lists 100"));
+        Assert.That(lines.Count(l => l.Contains(" arrived over ftp.pride HTTPS ")), Is.EqualTo(2), "each short copy is a transfer, logged as one");
     }
 
     [Test]
@@ -295,7 +375,7 @@ public class FetchStageTests
         var (path, _, attempts) = await FetchStage.DownloadWithRetry(pride, F("a.raw", 10), dir, 3, TimeSpan.Zero, CancellationToken.None,
             stallAfter: TimeSpan.FromMilliseconds(300), log: lines.Add, poll: TimeSpan.FromMilliseconds(50), abandonGrace: TimeSpan.FromMilliseconds(200));
         Assert.That((File.Exists(path), attempts), Is.EqualTo((true, 2)));
-        Assert.That(lines.Single(), Does.Contain("TimeoutException: a.raw: no data for"));
+        Assert.That(lines.Single(l => l.StartsWith("retry ", StringComparison.Ordinal)), Does.Contain("TimeoutException: a.raw: no data for"));
     }
 
     [Test]
