@@ -7,10 +7,11 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
-## 0.4.8 (unreleased)
+## 0.4.8 (2026-10-12)
 
-No MetaMorpheus change. **Machine file:** nothing. **Safe mid-batch?** Yes: it changes only the QC report (`05_qc`),
-which nothing ingests. Swap the pin as usual (STOP, let it drain, start the new pin).
+No MetaMorpheus change. **Machine file:** nothing. **Safe mid-batch?** Yes: state.json, the manifest and the machine
+file need no change. Swap the pin as usual (STOP, let it drain, start the new pin). A deposit that stopped as
+`fetch_failed` on leftover files needs `batch retry` once.
 
 - **A file left out of the search no longer makes qc reject the QC report.** The payload marked such a file
   `"excluded": true`; qc's schema wants the reason, a non-empty string (qc QC-Q20). Each excluded file now carries the
