@@ -7,7 +7,7 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
-## 0.4.9 (unreleased)
+## 0.4.9 (2026-10-12)
 
 No MetaMorpheus change. **Machine file:** two optional keys, `aspera_attempts` and `pride_https` (below); without them
 you get the new download routes. **Safe mid-batch?** Yes: swap the pin as usual (STOP, let it drain, start the new pin).
