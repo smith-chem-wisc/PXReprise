@@ -457,10 +457,13 @@ public static class QcPayloadBuilder
 
     /// <summary>
     /// Builds the payload for one dataset. <paramref name="searchDir"/> holds <c>mm/Task*SearchTask</c>;
-    /// <paramref name="qcDir"/> holds <c>qc_report.json</c> (its <c>run_minutes</c>).
+    /// <paramref name="qcDir"/> holds <c>qc_report.json</c> (its <c>run_minutes</c>, and the <c>fail_reasons</c> that say
+    /// why an excluded file was left out). <paramref name="excludedReason"/> is the search's <c>excluded_files.reason</c>,
+    /// used for an excluded file the QC report gives no reason for.
     /// </summary>
     public static QcPayloadResult Build(string searchDir, string qcDir, string accession, string runLabel,
-        string? metamorpheusVersion, QcBins bins, IEnumerable<string>? extraNotes = null, IEnumerable<string>? excludedFiles = null)
+        string? metamorpheusVersion, QcBins bins, IEnumerable<string>? extraNotes = null, IEnumerable<string>? excludedFiles = null,
+        string? excludedReason = null)
     {
         if (string.IsNullOrEmpty(accession)) throw new ArgumentException("an accession is required: an unnamed payload is useless once two datasets exist");
         string mm = Path.Combine(searchDir, "mm");
@@ -470,8 +473,13 @@ public static class QcPayloadBuilder
         if (!File.Exists(qcReport)) throw new InvalidDataException($"no QC report at {qcReport}: it carries run_minutes");
         var report = JsonNode.Parse(File.ReadAllText(qcReport, Encoding.UTF8))!.AsObject();
         var runMinutes = new Dictionary<string, double?>(StringComparer.Ordinal);
+        var failReasons = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var (k, v) in report)
+        {
             runMinutes[Stem(k)] = v?["run_minutes"] is JsonValue jv && jv.TryGetValue<double>(out double rm) ? rm : null;
+            if (v?["fail_reasons"] is JsonArray fr && fr.Select(x => x?.GetValue<string>()).OfType<string>().ToList() is { Count: > 0 } why)
+                failReasons[Stem(k)] = string.Join(", ", why);
+        }
 
         string results = Path.Combine(task, "results.txt");
         var counts = ParseResultsTxt(results);
@@ -503,9 +511,13 @@ public static class QcPayloadBuilder
                 m["pg_missing_frac_msms"] = SearchMetrics.PyRound((double)(qn - pg.Present.GetValueOrDefault(name)) / qn, 4);
             if (pg.ContaminantIntensity.TryGetValue(name, out double ci)) m["contaminant_intensity_frac"] = ci;
             var entry = new JsonObject { ["file"] = name, ["metrics"] = m, ["distributions"] = dists.GetValueOrDefault(name)?.DeepClone() ?? new JsonObject() };
-            // qc D12 (qctemplates 0.2.0, qc PXR-C1): a file left OUT of the search stays listed, marked excluded, so it
-            // trips no gate and counts toward no dataset number. A file searched with zero results is a real 0 (qc D6), never this.
-            if (excluded.Contains(name)) entry["excluded"] = true;
+            // qc D12 (qctemplates 0.2.0, qc PXR-C1, QC-Q20): a file left OUT of the search stays listed, with `excluded` set
+            // to WHY, so it trips no gate, counts toward no dataset number, and the report gives the reason. qc's schema takes
+            // a non-empty string; qc 001 said `true`, which the schema rejects (PXD014274, 2026-10-12). A file searched with
+            // zero results is a real 0 (qc D6), never this.
+            if (excluded.Contains(name))
+                entry["excluded"] = failReasons.TryGetValue(name, out string? why) ? $"qc: {why}"
+                    : string.IsNullOrWhiteSpace(excludedReason) ? "excluded from the search" : excludedReason;
             files.Add(entry);
         }
 

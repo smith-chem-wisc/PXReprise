@@ -7,6 +7,17 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.8 (unreleased)
+
+No MetaMorpheus change. **Machine file:** nothing. **Safe mid-batch?** Yes: it changes only the QC report (`05_qc`),
+which nothing ingests. Swap the pin as usual (STOP, let it drain, start the new pin).
+
+- **A file left out of the search no longer makes qc reject the QC report.** The payload marked such a file
+  `"excluded": true`; qc's schema wants the reason, a non-empty string (qc QC-Q20). Each excluded file now carries the
+  QC report's own reason (`"qc: too_few_ms2"`), or else the search's `excluded_files.reason`. PXD014274 (2026-10-12),
+  the first deposit with excluded files since the payload began marking them, was delivered with its QC report
+  rejected and unrendered; its data were unaffected.
+
 ## 0.4.7 (2026-10-11)
 
 No MetaMorpheus change (1.1.12 and 1.1.11, as in 0.4.6). **Machine file:** nothing. **Safe mid-batch?** No: stop the

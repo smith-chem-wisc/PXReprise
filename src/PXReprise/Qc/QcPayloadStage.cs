@@ -32,18 +32,21 @@ public static class QcPayloadStage
         string searchProv = Path.Combine(searchDir, "provenance.json");
         string? mmVersion = metamorpheusVersion;
         var excluded = new List<string>();
+        string? excludedReason = null;
         if (File.Exists(searchProv))
         {
             var sp = JsonNode.Parse(File.ReadAllText(searchProv, Encoding.UTF8));
             mmVersion ??= sp?["tools"]?["MetaMorpheus"]?["release"]?.GetValue<string>() ?? sp?["params"]?["metamorpheus_version"]?.GetValue<string>();
             excluded = sp?["excluded_files"]?["files"]?.AsArray().Select(x => x!.GetValue<string>()).ToList() ?? excluded;
+            excludedReason = sp?["excluded_files"]?["reason"]?.GetValue<string>();
         }
         var prov = new AgingProvenance(StageName, workRoot, paramsFile,
             new JsonObject { ["qc_python"] = qcPython, ["bin_edges_source"] = bins.Source }, runDate);
         prov.Upstream(searchProv);
 
         string runLabel = $"{runDate ?? ""}/{accession}".Trim('/');
-        var result = QcPayloadBuilder.Build(searchDir, qcDir, accession, runLabel, mmVersion, bins, excludedFiles: excluded);
+        var result = QcPayloadBuilder.Build(searchDir, qcDir, accession, runLabel, mmVersion, bins, excludedFiles: excluded,
+            excludedReason: excludedReason);
         string task = Directory.EnumerateDirectories(Path.Combine(searchDir, "mm"), "Task*SearchTask").OrderBy(x => x, StringComparer.Ordinal).Last();
         prov.Input(Path.Combine(qcDir, "qc_report.json"));
         prov.Input(Path.Combine(task, "results.txt"));
