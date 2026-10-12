@@ -107,8 +107,16 @@ public static class AcquisitionClassifier
         @"proximity[- ]labell?ing", "kinobead", @"phospho(peptide)?[- ]?enrich", @"\bTiO2\b", @"\bIMAC\b", "Fe-NTA", @"\bK-?GG\b",
         @"di-?gly(cine)? remnant", "ubiquitin remnant", @"glyco(peptide)?[- ]?enrich", "crosslinking mass spectrometry",
         "cross-linking mass spectrometry", @"\bXL-MS\b", @"\bDSSO\b", "interactome", "GFP-?trap", @"\bLyso-?IP\b",
-        "organelle (isolation|purification|enrichment)",
+        "organelle (isolation|purification|enrichment)", AcylEnrichment("acetyl"), AcylEnrichment("succinyl"),
     }), Opt);
+
+    // PXR-A88 (aging 082): PXD038328 ("acetyl-lysine enrichment") and PXD061654 ("enriched for acetylated peptides using a
+    // specific antibody"; keyword "Acetylome") were screened as whole proteomes: no acetyl term existed. Each phrase names
+    // an enrichment, so "Acetyl (Protein N-term)" as a variable modification and "enrichment of acetylated proteins" in a
+    // GO analysis do not match.
+    private static string AcylEnrichment(string acyl) =>
+        $@"{acyl}[- ]?lysine[- ](enrich|capture|immuno|antibod|affinity)|anti[- ]?{acyl}[- ]?lysine"
+        + $@"|enrich\w*\s+(of\s+|for\s+)?{acyl}(ated)?[- ]?(peptide|lysine)|\b{acyl}om(e|es|ic|ics)\b";
 
     // dataRepo's Enrichment vocabulary. ORDER MATTERS: the first kind whose pattern appears anywhere wins. PTM
     // enrichments come first; proximity labelling and chemical probes precede affinity purification because they ARE
@@ -117,6 +125,8 @@ public static class AcquisitionClassifier
     {
         ("phospho", new(@"phospho(peptide)?[- ]?enrich|\btio2\b|\bimac\b|fe-nta", Opt)),
         ("ubiquitin_GG", new(@"\bk-?gg\b|di-?gly(cine)? remnant|ubiquitin remnant", Opt)),
+        ("acetyl", new(AcylEnrichment("acetyl"), Opt)),
+        ("succinyl", new(AcylEnrichment("succinyl"), Opt)),
         ("glyco", new(@"glyco(peptide)?[- ]?enrich|lectin", Opt)),
         ("proximity_labelling", new(@"\bturboid\b|\bbioid\b|\bapex2\b|proximity[- ]labell?ing", Opt)),
         ("chemical_probe", new(@"kinobead|chemical probe|activity-based probe|\bdcp-?bio", Opt)),

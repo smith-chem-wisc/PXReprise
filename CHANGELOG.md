@@ -7,6 +7,25 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.9 (unreleased)
+
+No MetaMorpheus change. **Machine file:** nothing. **Safe mid-batch?** Yes: swap the pin as usual (STOP, let it drain,
+start the new pin). Deposits already delivered are not re-screened.
+
+- **Acetyl-lysine and succinyl-lysine captures are recognised as enrichments.** Two deposits holding anti-acetyl-lysine
+  captures beside their whole-proteome runs were stored as unenriched (PXD038328, PXD061654), because the screen had no
+  acetyl or succinyl terms although dataRepo's vocabulary has both.
+  - **Text:** phrases that name the capture ("acetyl-lysine enrichment", "enriched for acetylated peptides",
+    "anti-acetyllysine", "acetylome") now give `acetyl`, and their succinyl forms `succinyl`. "Acetyl (Protein N-term)"
+    as a variable modification, or a GO enrichment of acetylated proteins, does not.
+  - **File names:** `acetylom(e)`, `succinylom(e)`, `phosphoproteom(e)` and `proteom` now count, so a deposit of
+    `_acetylom_` and `_proteom_` runs is flagged `possibly_mixed_enrichment`.
+  - **Probe search:** acetyl-K is a variable modification of the probe, counted as MetaMorpheus's `Acetylation on K` or
+    a UniProt `N6-acetyllysine` site. A probe run at 5% or more is a measured enrichment (whole proteomes run 0.1-0.5%,
+    these captures 18-51%).
+  - **Manifest:** a measured enrichment the text did not state used to stop at state.json. The entry now says so in a
+    note and flags `possibly_mixed_enrichment`, so the enrichment is curated before pooling.
+
 ## 0.4.8 (2026-10-12)
 
 No MetaMorpheus change. **Machine file:** nothing. **Safe mid-batch?** Yes: state.json, the manifest and the machine

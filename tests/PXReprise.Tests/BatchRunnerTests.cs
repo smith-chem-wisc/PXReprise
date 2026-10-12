@@ -581,6 +581,28 @@ public class BatchRunnerTests
         Assert.That(text, Does.Contain("flags: [no_design_file, no_output_sdrf, enriched, qc_excluded_files]").And.Contain("iso.xml"));
     }
 
+    // PXR-A88 (aging 082): a probe-measured enrichment the text did not state used to stop at state.json; the entry now
+    // says so and asks for curation, without declaring an enrichment itself.
+    [Test]
+    public void AMeasuredEnrichmentTheTextMissedIsNotedAndFlaggedForCuration()
+    {
+        string dir = TestSupport.TempDir(), run = Path.Combine(dir, "runs", "PXD061654");
+        Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
+        Directory.CreateDirectory(Path.Combine(run, "04_search"));
+        File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(("Seq70745_HFX.raw", true, Array.Empty<string>()), ("Seq70763_HFX.raw", true, Array.Empty<string>())).ToJsonString());
+        File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), """{"tools":{"MetaMorpheus":{"release":"1.1.12"}}}""");
+        string manifest = TestSupport.WriteFile(dir, "manifest.yaml", "manifest_version: 1\ndatasets:\n");
+        var state = new JsonObject { ["enrichment"] = "none", ["enrichment_measured"] = "acetyl" };
+        ManifestEntry.Append(manifest, new QueueEntry("PXD061654", "Acetylome", "mouse"), Profiles["label-free-dda@5"], run, state, dir);
+        string text = File.ReadAllText(manifest);
+        Assert.Multiple(() =>
+        {
+            Assert.That(text, Does.Contain("enrichment: [none]"), "a measurement on three probe runs declares nothing");
+            Assert.That(text, Does.Contain("possibly_mixed_enrichment").And.Contain("MEASURED ENRICHMENT (acetyl)"));
+            Assert.That(text, Does.Not.Match(@"[\[ ]mixed_enrichment[,\]]"), "mixed_enrichment changes the ingest: curation only");
+        });
+    }
+
     // G34: PXD059520 was searched under the Search-only ion-trap profile, whose results are in Task1SearchTask; the entry
     // named Task3SearchTask and datarepo refused it. The folder follows the Search task's place in the profile's task list.
     [TestCase("label-free-dda@5", "Task3SearchTask")]

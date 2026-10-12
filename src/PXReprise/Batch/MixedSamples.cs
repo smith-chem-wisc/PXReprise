@@ -23,6 +23,9 @@ public static class MixedSamples
         ["ev"] = "vesicle", ["evs"] = "vesicle", ["exosome"] = "vesicle", ["exosomes"] = "vesicle",
         ["secretome"] = "secreted", ["conditioned"] = "secreted",
         ["phospho"] = "phospho", ["tio2"] = "phospho", ["imac"] = "phospho",
+        // PXR-A88 (aging 082): PXD038328's 20 `_acetylom_` and 20 `_proteom_` runs went unflagged.
+        ["proteom"] = "whole", ["phosphoproteome"] = "phospho", ["phosphoproteom"] = "phospho",
+        ["acetylome"] = "acetyl", ["acetylom"] = "acetyl", ["succinylome"] = "succinyl", ["succinylom"] = "succinyl",
     };
 
     /// <summary>The groups, largest first, when the names show two or more kinds of sample; otherwise null.</summary>

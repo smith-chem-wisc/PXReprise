@@ -120,6 +120,37 @@ public class ProbeSearchTests
         Assert.That(ProbeJudge.Judge(new Dictionary<string, RunMeasures> { ["a"] = Run(human: 900, cys: 10) }, "Homo sapiens", true, false).Parks, Is.Empty, "exactly 2% passes");
     }
 
+    // PXR-A88 (aging 082): PXD061654's acetyl-lysine captures say so in no file name, so only the probe can see them.
+    // Acetyl-K is MetaMorpheus's own modification or a UniProt site from the database; N-terminal acetylation is neither.
+    [Test]
+    public void AcetylKIsMeasuredUnderEitherNameAndAnAcetylCaptureIsAnEnrichment()
+    {
+        string path = Psms(new[]
+        {
+            Row("cap", "PEPKIDER", full: "PEPK[Common Biological:Acetylation on K]IDER"),
+            Row("cap", "PEPKIDEK", full: "PEPK[UniProt:N6-acetyllysine on K]IDEK"),
+            Row("cap", "PEPTIDEK"),
+            Row("cap", "PEPTIDER"),
+            Row("cap", "MPEPTIDEK", full: "[Common Biological:Acetylation on X]MPEPTIDEK"),
+        });
+        var m = ProbeMeasures.FromAllPsms(path)["cap"];
+        Assert.That((m.AcetylKPsms, m.UnambiguousPsms), Is.EqualTo((2, 5)));
+
+        var runs = new Dictionary<string, RunMeasures>
+        {
+            ["cap"] = Run(mouse: 900) with { AcetylKPsms = 140 },     // 28%, as PXD038328's capture runs
+            ["whole"] = Run(mouse: 900) with { AcetylKPsms = 2 },     // 0.4%, a whole proteome
+        };
+        var v = ProbeJudge.Judge(runs, "Mus musculus", true, false);
+        Assert.Multiple(() =>
+        {
+            Assert.That(v.MeasuredEnrichment, Is.EqualTo("acetyl"));
+            Assert.That(v.Notes.Single(n => n.StartsWith("measured", StringComparison.Ordinal)), Does.Contain("in 1 of 2 probe run(s)").And.Contain("acetyl-K 28.0 %"));
+            Assert.That(ProbeJudge.Judge(new Dictionary<string, RunMeasures> { ["whole"] = runs["whole"] }, "Mus musculus", true, false).MeasuredEnrichment,
+                Is.Null, "a whole proteome's acetyl-K is no enrichment");
+        });
+    }
+
     /// <summary>
     /// The G31 calibration (results/calibration_probe_2026-10-07, real probe searches of 14 deposits) replayed through the
     /// species rule: every single-species run passes, rat muscle included, and only PXD044773's two mouse runs (recorded
@@ -166,7 +197,7 @@ public class ProbeSearchTests
         var known = new HashSet<(string, string)>
         {
             ("Common Biological", "Phosphorylation on S"), ("Common Biological", "Phosphorylation on T"), ("Common Biological", "Phosphorylation on Y"),
-            ("Trypsin Digested", "GG (Ubiquitination Site) on K"), ("Common Variable", "Oxidation on M"),
+            ("Trypsin Digested", "GG (Ubiquitination Site) on K"), ("Common Biological", "Acetylation on K"), ("Common Variable", "Oxidation on M"),
             ("Common Fixed", "Carbamidomethyl on C"), ("Common Fixed", "Carbamidomethyl on U"),
         };
         var m = Config.Machine.Load(TestSupport.WriteFile(TestSupport.TempDir(), "m.toml",
@@ -176,7 +207,7 @@ public class ProbeSearchTests
         {
             foreach (var (key, value) in ProbeSearch.FastSettings) Assert.That(text, Does.Contain($"{key} = {value}"), key);
             Assert.That(text, Does.Contain("SearchType = \"Classic\"").And.Contain("MatchBetweenRuns = false").And.Contain("MaxThreadsToUsePerFile = 8"));
-            Assert.That(text, Does.Contain(@"Common Biological\tPhosphorylation on Y\t\tTrypsin Digested\tGG (Ubiquitination Site) on K"));
+            Assert.That(text, Does.Contain(@"Common Biological\tPhosphorylation on Y\t\tTrypsin Digested\tGG (Ubiquitination Site) on K\t\tCommon Biological\tAcetylation on K"));
             Assert.That(text, Does.Contain("MaxModsForPeptide = 2"), "MetaMorpheus's default: more mods per peptide explode the probe");
         });
         Assert.Throws<SearchSetupException>(() => ProbeSearch.TaskText(defaults, m, null, new HashSet<(string, string)>()),

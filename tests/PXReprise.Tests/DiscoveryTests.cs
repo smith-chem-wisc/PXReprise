@@ -184,6 +184,19 @@ public class DiscoveryTests
         Assert.That(AcquisitionClassifier.Classify(TestSupport.Record("PXD000018", "Whole proteome")).Enrichment, Is.EqualTo("none"));
     }
 
+    // PXR-A88 (aging 082): the two acetylomes screened as whole proteomes, in their own words, and acetyl phrases that
+    // name no enrichment.
+    [TestCase("MS sample preparation and acetyl-lysine enrichment", "", "acetyl")]
+    [TestCase("Lysates were digested and enriched for acetylated peptides using a specific antibody", "", "acetyl")]
+    [TestCase("", "The mammalian longevity associated acetylome", "acetyl")]
+    [TestCase("Peptides were captured with anti-acetyllysine antibody beads", "", "acetyl")]
+    [TestCase("Succinyl-lysine enrichment with PTMScan beads", "", "succinyl")]
+    [TestCase("Acetyl (Protein N-term) and oxidation (M) were set as variable modifications", "", "none")]
+    [TestCase("GO enrichment of acetylated proteins was tested", "", "none")]
+    public void AcylLysineCapturesAreScreenedAsEnrichments(string protocol, string description, string expected) =>
+        Assert.That(AcquisitionClassifier.Classify(TestSupport.Record("PXD000019", "Liver", description, protocol: protocol)).Enrichment,
+            Is.EqualTo(expected));
+
     [Test]
     public void MsFilesAreCountedByType()
     {
