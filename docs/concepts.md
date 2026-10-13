@@ -68,7 +68,8 @@ which protease made the deposit's peptides, how its cysteines were alkylated, an
 The default, `chemistry = "fixed"`, searches every deposit with MetaMorpheus's defaults, as `@1` and `@2` do.
 
 **A probe search** (`[engine] probe_search = true`, `label-free-dda@7`). Before the whole deposit is downloaded, its
-probe files are searched briefly against every species database the profile has, with variable phospho and GG. Each
+probe files (three, even when the whole deposit is already on disk) are searched briefly against every species
+database the profile has, with variable phospho and GG. Each
 run's species, share of cysteine-containing peptides, and phospho, GG and acetyl-K shares go into the deposit's
 experiment record. The spectra win over the text:
 - a run whose PSMs are mostly another species waits (`waiting_species`), and so does a run of mixed species

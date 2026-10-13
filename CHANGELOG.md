@@ -7,6 +7,21 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.12 (2026-10-13)
+
+No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual (STOP, let it drain,
+start the new pin). A deposit whose probe search timed out under 0.4.11 is taken up again by the new driver by itself.
+
+- **The probe reads its own files only.** The probe's QC and its search (`label-free-dda@7`) took every raw file in the
+  deposit's download folder, which holds only the probe files, except when 0.4.10 had downloaded the whole deposit
+  ahead under STOP. Then the probe checked and searched the whole deposit and hit its 60-minute limit. That happened
+  to the first such deposit, 20 files and about 1.2 million MS2. They now read the three files the probe chose, and
+  the log says how many more are on disk.
+- **A deposit already downloaded is searched first,** as 0.4.10 said it would be. The driver took the queue in order,
+  so after a pin swap it downloaded the next deposit (about 2 hours for 57 files of 2.2 GB) while three downloaded
+  deposits waited and both search slots stood idle. A deposit whose selected files are all on disk now goes ahead of
+  the queue order, another species before one already searching.
+
 ## 0.4.11 (2026-10-12)
 
 No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual (STOP, let it drain,

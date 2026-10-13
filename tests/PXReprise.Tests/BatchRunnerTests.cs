@@ -414,6 +414,58 @@ public class BatchRunnerTests
             Does.Contain("PXD000952 fetched, but STOP is present: not searched by this driver"));
     }
 
+    // v0.4.12: after the v0.4.11 swap (2026-10-13) three deposits downloaded ahead under STOP sat while the driver fetched
+    // PXD009212 for about 2 h. A deposit with every selected file on disk goes first, another species before its own.
+    [Test]
+    public async Task ADepositAlreadyDownloadedIsSearchedBeforeTheQueueOrder()
+    {
+        var (runner, _, _, dir) = Runner();
+        void OnDisk(string acc, int listed, int present, string status)
+        {
+            runner.Record(acc, ("status", status), ("n_listed", listed));
+            string spectra = Path.Combine(dir, "runs", acc, "02_fetch", "spectra");
+            Directory.CreateDirectory(spectra);
+            for (int i = 1; i <= present; i++) File.WriteAllText(Path.Combine(spectra, $"r{i}.raw"), "x");
+        }
+        OnDisk("PXD000972", 2, 2, "fetched");                // downloaded ahead under STOP
+        OnDisk("PXD000973", 3, 3, "probe_search_failed");    // PXD026335's case: whole on disk, its probe timed out
+        OnDisk("PXD000974", 4, 2, "probing");                // part-fetched (PXD022196's case): queue order
+        var searched = new List<string>();
+        runner.PrepareForTest = (e, ct) => { runner.Record(e.Accession, ("status", "fetched")); return Task.FromResult<Profile?>(Profiles["label-free-dda@1"]); };
+        runner.SearchForTest = async (e, p, ct) => { lock (searched) searched.Add(e.Accession); await Task.Delay(20, ct); };
+
+        await runner.RunAsync(new[]
+        {
+            new QueueEntry("PXD000971", "a", "mouse"), new QueueEntry("PXD000972", "b", "mouse"),
+            new QueueEntry("PXD000973", "c", "human"), new QueueEntry("PXD000974", "d", "rat"),
+        }, CancellationToken.None);
+
+        Assert.That(searched, Is.EqualTo(new[] { "PXD000972", "PXD000973", "PXD000971", "PXD000974" }));
+    }
+
+    // v0.4.12: PXD026335 (2026-10-13) had all 20 files on disk when v0.4.11 probed it, and the probe QC'd and searched them
+    // all until its 60-minute limit. The probe reads the files its own fetch chose, whatever else is in the folder.
+    [Test]
+    public async Task TheProbeReadsItsOwnFilesWhenTheWholeDepositIsOnDisk()
+    {
+        var (runner, search, files, dir) = Runner();
+        string acc = "PXD000981";
+        search.Results[acc] = new() { TestSupport.Record(acc, "Type 2 diabetes muscle", "digested with trypsin", instruments: new[] { "Q Exactive HF" }, files: new[] { "run1.raw" }) };
+        search.Projects[acc] = new PrideProject { Accession = acc, Title = "Type 2 diabetes muscle", SampleProcessingProtocol = "digested with trypsin" };
+        files.Listing = Enumerable.Range(1, 6).Select(i => new PrideArchiveFile { FileName = $"run{i}.raw", FileSizeBytes = 64 }).ToList();
+        string spectra = Path.Combine(dir, "runs", acc, "02_fetch", "spectra");
+        Directory.CreateDirectory(spectra);
+        foreach (var f in files.Listing) File.WriteAllText(Path.Combine(spectra, f.FileName), new string('x', 64));
+
+        await runner.ProbeAsync(new QueueEntry(acc, "t", "human"), CancellationToken.None);
+
+        Assert.That(files.Downloads, Is.Zero, "every file was on disk");
+        var probeQc = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "runs", acc, "02b_qc_probe", "qc_report.json")))!.AsObject();
+        Assert.That(probeQc.Count, Is.EqualTo(3), "the probe's three files, not the six on disk");
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain($"{acc} PROBE reads its 3 probe files only; 6 raw files are on disk"));
+        Assert.That(BatchRunner.ProbeSpectra(spectra, probeQc).Select(Path.GetFileName), Is.EqualTo(probeQc.Select(kv => kv.Key).Order(StringComparer.Ordinal)));
+    }
+
     // D39: catch-up re-searches by gain (rat, then a curated design, then oldest), another species first.
     [Test]
     public void CatchUpPicksRatFirstAndPrefersASpeciesNotRunning()
@@ -1086,6 +1138,12 @@ public class BatchRunnerTests
         public int Downloads;
         public Task<List<PrideArchiveFile>> ListFilesAsync(string a, CancellationToken ct) => Task.FromResult(Listing);
         public Task<List<string>> ListFtpNamesAsync(string a, CancellationToken ct) => Task.FromResult(Listing.Select(f => f.FileName).ToList());
-        public Task<string> DownloadAsync(PrideArchiveFile f, string dir, CancellationToken ct) { Interlocked.Increment(ref Downloads); throw Failure(); }
+        public Task<string> DownloadAsync(PrideArchiveFile f, string dir, CancellationToken ct)
+        {
+            // As the PRIDE client does: a file already present is returned, not fetched again.
+            if (File.Exists(Path.Combine(dir, f.FileName))) return Task.FromResult(Path.Combine(dir, f.FileName));
+            Interlocked.Increment(ref Downloads);
+            throw Failure();
+        }
     }
 }

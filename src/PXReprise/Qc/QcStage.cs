@@ -7,13 +7,17 @@ using PXReprise.Provenance;
 namespace PXReprise.Qc;
 
 /// <summary>
-/// The QC stage for one dataset: every .raw under the spectra directory, one verdict each, written as
-/// <c>qc_report.json</c> in the aging pipeline's shape (keyed by file name) with an <c>aging-provenance/3</c> record.
+/// The QC stage for one dataset: every .raw under the spectra directory (or only the files <c>only</c> names), one verdict
+/// each, written as <c>qc_report.json</c> in the aging pipeline's shape (keyed by file name) with an
+/// <c>aging-provenance/3</c> record.
 /// </summary>
 public static class QcStage
 {
+    /// <param name="only">File names to check, the rest of the directory ignored: the probe's own files (v0.4.12). A
+    /// deposit downloaded ahead under STOP has every file on disk, and PXD026335's probe (2026-10-13) checked and
+    /// searched all 20 of them until its 60-minute limit.</param>
     public static (JsonObject Report, bool AllPass) Run(string spectraDir, string outDir, Profile profile, Machine machine,
-        string paramsFile, string? runDate)
+        string paramsFile, string? runDate, IReadOnlySet<string>? only = null)
     {
         Directory.CreateDirectory(outDir);
         var section = JsonSerializer.SerializeToNode(new Dictionary<string, object>
@@ -28,7 +32,8 @@ public static class QcStage
         // A profile that does not take isobaric labels refuses files whose spectra carry reporter ions (G4).
         bool refuseIsobaric = profile.Accepts.Labellings.Count > 0 && !profile.Accepts.Labellings.Contains(Discovery.Labelling.Isobaric);
         var report = new JsonObject();
-        foreach (string f in Directory.EnumerateFiles(spectraDir, "*.raw").OrderBy(f => Path.GetFileName(f), StringComparer.Ordinal))
+        foreach (string f in Directory.EnumerateFiles(spectraDir, "*.raw").Where(f => only is null || only.Contains(Path.GetFileName(f)))
+                     .OrderBy(f => Path.GetFileName(f), StringComparer.Ordinal))
         {
             prov.Command(new[] { "mzLib.MsDataFileReader.GetDataFile", Path.GetFileName(f), "LoadAllStaticData" });
             var r = SpectraQc.Check(f, profile.Qc, refuseIsobaric);
@@ -80,7 +85,8 @@ public static class QcStage
                 prov.Note($"{Path.GetFileName(f)}: unreadable; recorded as a failure and skipped");
             else prov.Input(f);
         }
-        if (report.Count == 0) throw new UsageException($"no .raw files in {spectraDir}");
+        if (report.Count == 0)
+            throw new UsageException(only is null ? $"no .raw files in {spectraDir}" : $"none of {string.Join(", ", only)} in {spectraDir}");
         if (report.Any(kv => kv.Value?["start_time"] is not null))
             prov.Note("start_time is the reader's value, unconverted: mzLib ThermoRawFileReader, from the .raw file header "
                       + "(FileHeader.CreationDate), which is the instrument's local clock with no time zone. Never compare it across deposits as UTC.");
