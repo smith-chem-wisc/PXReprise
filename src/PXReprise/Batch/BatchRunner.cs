@@ -585,6 +585,7 @@ public sealed class BatchRunner
     /// <summary>The first queued deposit not yet done, preferring one whose species no running search has.</summary>
     private QueueEntry? PickNext(IReadOnlyList<QueueEntry> queue, HashSet<string> consumed, IReadOnlySet<string> busy)
     {
+        if (DownloadedFirst(queue, consumed, busy) is { } ready) return ready;
         QueueEntry? first = null;
         foreach (var x in queue)
         {
@@ -592,6 +593,28 @@ public sealed class BatchRunner
             if (File.Exists(Path.Combine(Run(x.Accession), "04_search", "provenance.json"))) { consumed.Add(x.Accession); continue; }
             string settled = Settled(x.Accession);
             if (settled.Length > 0) { Log($"{x.Accession} skipped: {settled} on a previous pass"); consumed.Add(x.Accession); continue; }
+            if (!busy.Contains(x.Organism)) return x;
+            first ??= x;
+        }
+        return first;
+    }
+
+    /// <summary>
+    /// v0.4.12: a deposit whose selected raw files are all on disk goes ahead of the queue order (another species first, as
+    /// in <see cref="PickNext"/>). After the v0.4.11 swap (2026-10-13), PXD015239, PXD026335 and PXD015727 sat downloaded
+    /// while the driver fetched PXD009212 (57 x 2.2 GB, about 2 h) with both search slots idle. Null when there is none.
+    /// </summary>
+    internal QueueEntry? DownloadedFirst(IReadOnlyList<QueueEntry> queue, ISet<string> consumed, IReadOnlySet<string> busy)
+    {
+        var ds = State()["datasets"]!.AsObject();
+        QueueEntry? first = null;
+        foreach (var x in queue)
+        {
+            if (consumed.Contains(x.Accession) || ds[x.Accession]?["n_listed"] is not JsonValue nv || !nv.TryGetValue<int>(out int listed) || listed <= 0)
+                continue;
+            string spectra = Path.Combine(Run(x.Accession), "02_fetch", "spectra");
+            if (!Directory.Exists(spectra) || Directory.EnumerateFiles(spectra, "*.raw").Count() < listed) continue;
+            if (File.Exists(Path.Combine(Run(x.Accession), "04_search", "provenance.json")) || Settled(x.Accession).Length > 0) continue;
             if (!busy.Contains(x.Organism)) return x;
             first ??= x;
         }
@@ -794,9 +817,11 @@ public sealed class BatchRunner
         }
 
         string d = Run(acc);
+        IReadOnlySet<string> probeFiles;
         try
         {
-            await FetchStage.RunAsync(FetchRequestFor(acc, Pick.ProbeSpread, dep), _files, ct, m => Log($"{acc} PROBE fetch {m}")).ConfigureAwait(false);
+            var fetched = await FetchStage.RunAsync(FetchRequestFor(acc, Pick.ProbeSpread, dep), _files, ct, m => Log($"{acc} PROBE fetch {m}")).ConfigureAwait(false);
+            probeFiles = ProbeFileNames(fetched);
         }
         // Not the caller's cancellation: an HttpClient timeout is a TaskCanceledException too, and it is unavailability.
         catch (Exception ex) when (!ct.IsCancellationRequested)
@@ -804,7 +829,12 @@ public sealed class BatchRunner
             RecordFetchFailure(acc, probe: true, ex);
             return null;
         }
-        var (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate);
+        // v0.4.12: the probe's QC and search read its own files only. A deposit downloaded ahead under STOP (v0.4.10) has
+        // every file on disk: PXD026335's probe search (2026-10-13) took all 20 and hit its 60-minute limit.
+        int onDisk = Directory.EnumerateFiles(Path.Combine(d, "02_fetch", "spectra"), "*.raw").Count();
+        if (onDisk > probeFiles.Count)
+            Log($"{acc} PROBE reads its {probeFiles.Count} probe files only; {onDisk} raw files are on disk (downloaded ahead)");
+        var (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles);
         xr.Probe(report);
         if (RoutedByReporters(acc, report, "PROBE"))
         {
@@ -822,7 +852,7 @@ public sealed class BatchRunner
             Log($"{acc} PROBE qc: MS2 not read in the Orbitrap (low_res_ms2); routing to {low.Key}");
             profile = low;
             Record(acc, ("profile", profile.Key), ("routed_low_res", true));
-            (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate);
+            (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles);
             xr.Probe(report);
             excl = QcExclusion(report, profile.Qc);
             ok = allPass || excl is { Count: > 0 };
@@ -874,6 +904,15 @@ public sealed class BatchRunner
             .FirstOrDefault(p => p is { Status: ProfileStatus.Available, Fragmentation: "per_file" } && p.Qc.MinFractionOrbitrapHcd == 0
                                  && p.Accepts.Refusal(acq) is null);
 
+    /// <summary>The raw file names a probe fetch chose (its <c>fetch_manifest.json</c> <c>files</c>).</summary>
+    internal static IReadOnlySet<string> ProbeFileNames(JsonObject fetchManifest) =>
+        fetchManifest["files"]!.AsArray().Select(f => f!["name"]!.GetValue<string>()).ToHashSet(StringComparer.Ordinal);
+
+    /// <summary>The probe search's spectra: the files its QC report checked, never every raw file in the folder (v0.4.12).</summary>
+    internal static List<string> ProbeSpectra(string spectraDir, JsonObject probeQc) =>
+        Directory.EnumerateFiles(spectraDir, "*.raw").Where(f => probeQc.ContainsKey(Path.GetFileName(f)))
+            .OrderBy(f => Path.GetFileName(f), StringComparer.Ordinal).ToList();
+
     /// <summary>The probe search, for tests: (profile, machine, spectra, chemistry, fragmentation, outDir) -> AllPSMs.psmtsv.</summary>
     internal Func<Profile, Machine, IReadOnlyList<string>, DepositChemistry?, IReadOnlyDictionary<string, Qc.FragmentationCall>?, string, CancellationToken, Task<string>>
         ProbeSearchRunner { get; init; } = Search.ProbeSearch.RunAsync;
@@ -887,8 +926,7 @@ public sealed class BatchRunner
         JsonObject probeQc, ExperimentRecord xr, CancellationToken ct)
     {
         string acc = e.Accession, d = Run(acc);
-        var spectra = Directory.EnumerateFiles(Path.Combine(d, "02_fetch", "spectra"), "*.raw")
-            .OrderBy(f => Path.GetFileName(f), StringComparer.Ordinal).ToList();
+        var spectra = ProbeSpectra(Path.Combine(d, "02_fetch", "spectra"), probeQc);
         IReadOnlyDictionary<string, Qc.RunMeasures> runs;
         try
         {
