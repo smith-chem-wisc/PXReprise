@@ -7,6 +7,18 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.13 (2026-10-13)
+
+No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual (STOP, let it drain,
+start the new pin). A deposit that 0.4.12 parked `waiting_species` stays parked until someone runs `batch retry` on it.
+
+- **Contaminants no longer decide a run's species.** The probe search counts each run's PSMs specific to one species. A
+  protein that is both in the contaminant panel and in a species database, such as a human skin keratin, is kept as that
+  species' protein. So keratins from handling counted as human. In gel bands of a mouse deposit with little protein,
+  they outnumbered the mouse PSMs, and the deposit waited as another species. A PSM matching any panel protein now
+  counts for no species. The experiment record gives each run's count of them (`contaminant_panel_psms`). On that
+  deposit's own probe search, every run is mouse once they are left out.
+
 ## 0.4.12 (2026-10-13)
 
 No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual (STOP, let it drain,
