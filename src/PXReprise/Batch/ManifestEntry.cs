@@ -95,7 +95,11 @@ public static class ManifestEntry
         if (enrichment == "none" && searchFlags.FirstOrDefault(f => f.StartsWith("cysteine_poor:", StringComparison.Ordinal)) is { } cysPoor)
         {
             flags.Add("cysteine_poor");
-            notes.Add($"CYSTEINE-POOR: {cysPoor["cysteine_poor: ".Length..]}.");
+            // aging 098 (PXR-A99): with no alkylation, only free cysteines are found and disulfide-bonded ones stay invisible,
+            // so a low share is what the chemistry predicts, not a missed alkylant.
+            bool unalkylated = state?["chemistry"]?["alkylation"]?["value"]?.GetValue<string>() == "none";
+            notes.Add($"CYSTEINE-POOR: {cysPoor["cysteine_poor: ".Length..]}."
+                + (unalkylated ? $" Expected here: the cysteines were not alkylated (alkylation none, {state!["chemistry"]!["alkylation"]!["source"]}), so only free cysteines are identified and disulfide-bonded ones are not." : ""));
         }
         if (enrichment != "none")
         {

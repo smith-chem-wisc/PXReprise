@@ -16,6 +16,8 @@ public static class ChemistrySource
     public const string PrideQuant = "pride_quantification";
     public const string ProtocolText = "protocol_text";
     public const string Default = "default";
+    /// <summary>The question's <c>[exceptions]</c> for the deposit (v0.4.15: <c>alkylation = "none"</c>); it outranks every other source.</summary>
+    public const string QuestionException = "question_exception";
 }
 
 /// <summary>One fact (a protease, an alkylation, a label), where it came from, and the words it was read from.</summary>
@@ -49,6 +51,17 @@ public sealed record DepositChemistry(
     string? Park)
 {
     public bool AnyGuessed => Protease.Guessed || Alkylation.Guessed || Label.Guessed;
+
+    /// <summary>
+    /// The question says the cysteines were never alkylated (v0.4.15, PXR-A99): no cysteine modification, whatever was
+    /// read. A wait on an unmodelled thiol reagent goes with it; any other wait (a protease, a label) stays.
+    /// </summary>
+    public DepositChemistry Unalkylated(string evidence) => this with
+    {
+        Alkylation = new("none", ChemistrySource.QuestionException, evidence),
+        CysMods = Array.Empty<CysMod>(),
+        Park = Park == "waiting_unknown_alkylant" ? null : Park,
+    };
 }
 
 /// <summary>

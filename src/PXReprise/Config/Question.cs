@@ -76,6 +76,9 @@ public sealed record DesignSettings(string Dir, IReadOnlyList<string> ConditionC
 /// value for any of the profile's <c>[deposit]</c> caps, and which of its raw files to search. Data, never code; every use
 /// is recorded in provenance and the manifest note. <see cref="IncludeFiles"/> / <see cref="ExcludeFiles"/> are
 /// case-insensitive regexes on raw file names: choosing runs is a design decision (S43), so it is the question's to state.
+/// <see cref="Alkylation"/> (v0.4.15, PXR-A99): <c>"none"</c> states that the deposit's cysteines were never alkylated, so
+/// it is searched with no cysteine modification, whatever its text or PRIDE's list says (PXD015239: no reduction or
+/// alkylation step, 0.2-0.4% cysteine peptides). It is the only value: another alkylant is named in a curated SDRF.
 /// </summary>
 public sealed record DepositException(
     string Accession,
@@ -85,8 +88,11 @@ public sealed record DepositException(
     int? MaxFiles = null,
     int? MaxFileMb = null,
     long? MaxEstimatedMs2 = null,
-    int? DeferIfMedianFileMb = null)
+    int? DeferIfMedianFileMb = null,
+    string? Alkylation = null)
 {
+    public const string NoAlkylation = "none";
+
     public bool SelectsFiles => IncludeFiles is not null || ExcludeFiles is not null;
 
     public bool Keeps(string fileName) =>
@@ -111,6 +117,7 @@ public sealed record DepositException(
         if (MaxFileMb is { } mm) parts.Add($"max_file_mb {mm}");
         if (MaxEstimatedMs2 is { } me) parts.Add($"max_est_ms2 {me}");
         if (DeferIfMedianFileMb is { } dm) parts.Add($"defer_if_median_file_mb {dm}");
+        if (Alkylation is { } alk) parts.Add($"alkylation {alk}");
         return $"{string.Join(", ", parts)} ({Reason})";
     }
 }

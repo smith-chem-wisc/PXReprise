@@ -7,6 +7,24 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.15 (2026-10-13)
+
+No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual. A question that
+uses the new `alkylation` key cannot be read by an older version: add it just before the swap. A deposit parked
+`waiting_species` or `waiting_alkylation_check` stays parked until someone runs `batch retry` on it.
+
+- **A probe run's species is judged only from 500 species-specific PSMs (was 50).** In a gel band with little protein,
+  human skin proteins from handling that the contaminant panel lacks can outnumber the sample's own: one mouse band
+  had 55 human PSMs, mostly epidermal proteins, against 49 mouse, and parked its deposit while the other probe runs
+  had thousands of mouse PSMs. A weaker run is now noted in the experiment record and not judged. Every run of the
+  probe's calibration set has at least 983, so its calls are unchanged, the deposit whose runs really were another
+  species included.
+- **A question can state that a deposit's cysteines were never alkylated.** `alkylation = "none"` in the deposit's
+  `[exceptions]` block searches it with no cysteine modification, whatever its text or PRIDE's list says. It is the
+  only value the key takes; another alkylant is named in a curated SDRF. The chemistry record gives the source as
+  `question_exception`, and when such a search is flagged `cysteine_poor`, the manifest note says the low share is
+  expected: only free cysteines can be identified.
+
 ## 0.4.14 (2026-10-13)
 
 No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual. A deposit already

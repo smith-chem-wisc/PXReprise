@@ -176,6 +176,29 @@ public class BatchRunnerTests
         Assert.That(ex.Apply(Profiles["label-free-dda@4"].Deposit).MaxEstimatedMs2, Is.Zero);
     }
 
+    // v0.4.15 (PXR-A99, aging 098): PXD015239's protocol has no reduction or alkylation step.
+    [Test]
+    public void AnAlkylationExceptionSaysNoneAndNothingElse()
+    {
+        string dir = TestSupport.TempDir();
+        var q = QuestionLoader.Load(TestSupport.WriteFile(dir, "a.toml", TestSupport.MinimalQuestion
+            + "\n[exceptions.PXD015239]\nreason = \"no reduction or alkylation step (PXR-A99)\"\nalkylation = \"none\"\n"));
+        var ex = q.ExceptionFor("PXD015239")!;
+        Assert.That((ex.Alkylation, ex.SelectsFiles, ex.Describe()),
+            Is.EqualTo(("none", false, "alkylation none (no reduction or alkylation step (PXR-A99))")));
+        var bad = Assert.Throws<ConfigException>(() => QuestionLoader.Load(TestSupport.WriteFile(dir, "b.toml", TestSupport.MinimalQuestion
+            + "\n[exceptions.PXD015239]\nreason = \"x\"\nalkylation = \"iodoacetamide\"\n")));
+        Assert.That(bad!.Message, Does.Contain("curated SDRF"));
+
+        // It outranks what was read: PRIDE's carbamidomethyl, and a wait on an unmodelled thiol reagent; a protease wait stays.
+        var read = new DepositChemistry(new("trypsin", ChemistrySource.Default), null, new("Carbamidomethyl", ChemistrySource.PridePtm),
+            new[] { new CysMod("Carbamidomethyl", "UNIMOD:4", true) }, new("label_free", ChemistrySource.Default), "waiting_unknown_alkylant");
+        var none = read.Unalkylated(ex.Reason);
+        Assert.That((none.Alkylation.Value, none.Alkylation.Source, none.CysMods.Count, none.Park, none.AnyGuessed),
+            Is.EqualTo(("none", ChemistrySource.QuestionException, 0, (string?)null, false)));
+        Assert.That((read with { Park = "waiting_multi_protease" }).Unalkylated("x").Park, Is.EqualTo("waiting_multi_protease"));
+    }
+
     // PXR-A9: PXD012985 was PXD011740 deposited again, and was fetched and searched in full before anyone saw it.
     [Test]
     public async Task ADepositWhoseRawFilesAreAlreadySearchedIsRefusedBeforeAnyDownload()
@@ -1129,6 +1152,29 @@ public class BatchRunnerTests
         Assert.That(text, Does.Contain("    excluded_runs:\n      20170317_VM_17: \"242 PSMs (aging S72, D68)\"\n      20170317_VM_18: \"326 PSMs\"\n"));
         Assert.That(text, Does.Contain("    restrictions: {protein_statistics: \"few PSMs\"}\n"));
         Assert.That(text, Does.Contain("    flags: []").And.Contain("metamorpheus: \"1.1.12\""));
+    }
+
+    // aging 098 (PXR-A99): with no alkylation, a low cysteine share is expected, and the note says so.
+    [Test]
+    public void ACysteinePoorDepositWithNoAlkylationIsNotedAsExpected()
+    {
+        string dir = TestSupport.TempDir(), run = Path.Combine(dir, "runs", "PXD015239");
+        Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
+        Directory.CreateDirectory(Path.Combine(run, "04_search"));
+        File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(("a.raw", true, Array.Empty<string>())).ToJsonString());
+        File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"),
+            """{"tools":{"MetaMorpheus":{"release":"1.1.12"}},"flags":["cysteine_poor: 0.30% of 1% target peptides contain C (whole proteomes: 12-26%); check the alkylant (aging PXR-A37)"]}""");
+        string manifest = TestSupport.WriteFile(dir, "manifest.yaml", "datasets:\n");
+        var chem = Search.SearchStage.Chemistry(new DepositChemistry(new("trypsin", ChemistrySource.ProtocolText), null,
+            new("none", ChemistrySource.QuestionException, "no reduction or alkylation step"), Array.Empty<CysMod>(), new("label_free", ChemistrySource.Default), null));
+        var state = new JsonObject { ["exception"] = "alkylation none (no reduction or alkylation step)", ["chemistry"] = chem };
+        ManifestEntry.Append(manifest, new QueueEntry("PXD015239", "Brain", "human"), Profiles["label-free-dda@7"], run, state, dir);
+        string text = File.ReadAllText(manifest);
+        Assert.That(text, Does.Contain("QUESTION EXCEPTION: alkylation none (no reduction or alkylation step).")
+            .And.Contain("CYSTEINE-POOR: 0.30% of 1% target peptides contain C")
+            .And.Contain("Expected here: the cysteines were not alkylated (alkylation none, question_exception)")
+            .And.Contain("cysteine unmodified (question_exception)"));
+        Assert.That(text, Does.Contain("cysteine_poor").And.Contain("question_exception"));
     }
 
     private sealed class FakeFiles : IPrideFiles

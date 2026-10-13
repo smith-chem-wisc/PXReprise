@@ -95,8 +95,9 @@ public class ProbeSearchTests
 
     /// <summary>
     /// PXD022196 (mouse gel bands) parked <c>waiting_species</c> on 2026-10-13: its low-yield bands carried more human
-    /// keratin PSMs than mouse ones (WT_band_08: human 504, mouse 76). With the panel left out, every run is mouse. Reads
-    /// the batch's own probe output where it exists (a retry rewrites it with the three probe runs, WT_band_08 among them).
+    /// keratin PSMs than mouse ones (WT_band_08: human 504, mouse 76). v0.4.13 left the panel out; on the three-file probe
+    /// a retry runs (17:56 UTC), WT_band_08 was still 55 human (skin proteins the panel lacks) vs 49 mouse, so v0.4.15 judges
+    /// a run only from 500 species-specific PSMs. Reads the batch's own probe output where it exists (a retry rewrites it).
     /// </summary>
     [Test]
     public void PXD022196sGelBandsAreMouseOnceThePanelIsLeftOut()
@@ -112,7 +113,29 @@ public class ProbeSearchTests
             Assert.That(before.Parks.Select(p => p.Park), Does.Contain("waiting_species"), "the park reproduces without the panel");
             Assert.That(after.Parks, Is.Empty, string.Join("; ", after.Parks.Select(p => p.Evidence)));
             Assert.That(runs.Values.All(r => r.PanelPsms > 0), "every band carries panel PSMs");
+            Assert.That(runs.Values.Count(r => r.SpeciesSpecificPsms >= ProbeJudge.MinSpeciesPsms), Is.GreaterThan(0), "at least one band is judged, as mouse");
         });
+    }
+
+    // v0.4.15: PXD022196's three-file probe (17:56 UTC), panel left out. A weak band is noted, not judged; the strong ones are.
+    [Test]
+    public void AWeakRunTippedBySkinProteinsIsNotedNotJudged()
+    {
+        var runs = new Dictionary<string, RunMeasures>
+        {
+            ["5-K0_band_01"] = Run(mouse: 3823, human: 70),
+            ["WT_band_06"] = Run(mouse: 1178, human: 38),
+            ["WT_band_08"] = Run(mouse: 49, human: 55),
+        };
+        var v = ProbeJudge.Judge(runs, "Mus musculus", true, false);
+        Assert.Multiple(() =>
+        {
+            Assert.That(v.Parks, Is.Empty, string.Join("; ", v.Parks.Select(p => p.Evidence)));
+            Assert.That(v.Notes, Does.Contain("WT_band_08: species not judged (104 species-specific PSMs < 500)"));
+        });
+        // A strong run of another species still parks, however strong the others are (PXD044773's mouse runs: ~11,000-17,000).
+        runs["WT_band_08"] = Run(mouse: 49, human: 900);
+        Assert.That(ProbeJudge.Judge(runs, "Mus musculus", true, false).Parks.Select(p => p.Park), Is.EqualTo(new[] { "waiting_species" }));
     }
 
     [Test]
@@ -147,7 +170,7 @@ public class ProbeSearchTests
         Assert.That(ProbeJudge.Judge(ratMuscle, "Rattus norvegicus", true, false).Parks, Is.Empty);
         Assert.That(ProbeJudge.Judge(new Dictionary<string, RunMeasures> { ["a"] = Run(human: 500, mouse: 400) }, "Homo sapiens", true, false).Parks, Is.Empty);
         var few = ProbeJudge.Judge(new Dictionary<string, RunMeasures> { ["a"] = Run(mouse: 30, shared: 40) }, "Homo sapiens", true, false);
-        Assert.That((few.Parks.Count, few.Notes.Single(n => n.Contains("not judged"))), Is.EqualTo((0, "a: species not judged (30 species-specific PSMs < 50)")));
+        Assert.That((few.Parks.Count, few.Notes.Single(n => n.Contains("not judged"))), Is.EqualTo((0, "a: species not judged (30 species-specific PSMs < 500)")));
     }
 
     // v0.4.14: PXD000046 (dimethyl-labelled, read as label-free) had 0 PSMs in all three probe runs and passed on no evidence.
