@@ -56,11 +56,17 @@ public static class DuplicateScreen
         catch (System.Text.Json.JsonException) { return null; }   // an older layout: not evidence either way
     }
 
-    public static Verdict Check(string accession, IReadOnlyCollection<(string Name, long Bytes)> raws, IEnumerable<Searched> index)
+    /// <param name="excludedCopies">
+    /// Deposits already excluded as copies of <paramref name="accession"/> (the question's manifest). They hold its raw
+    /// files because they ARE it deposited again, so they are no original for it (v0.4.16, PXD011740 and PXD012985).
+    /// </param>
+    public static Verdict Check(string accession, IReadOnlyCollection<(string Name, long Bytes)> raws, IEnumerable<Searched> index,
+        IReadOnlySet<string>? excludedCopies = null)
     {
         if (raws.Count == 0) return new(null, Array.Empty<(string, int)>());
         var partial = new List<(string, int)>();
-        foreach (var s in index.Where(s => s.Accession != accession).OrderBy(s => s.Accession, StringComparer.Ordinal))
+        foreach (var s in index.Where(s => s.Accession != accession && excludedCopies?.Contains(s.Accession) != true)
+                     .OrderBy(s => s.Accession, StringComparer.Ordinal))
         {
             int shared = raws.Count(s.Raws.Contains);
             if (shared == raws.Count) return new(s.Accession, partial);

@@ -122,6 +122,18 @@ public class ChemistryTests
     public void ADimethylLabelIsReadInTheDepositsWords(string text, string label) =>
         Assert.That(ChemistryDetector.Detect(Project(text), null, null, Files).Label.Value, Is.EqualTo(label));
 
+    // v0.4.16: PXD000572 states its dimethyl label only in PRIDE's identified PTMs (its protocols are "Not available");
+    // a plain "dimethylated residue" is the natural PTM and no label.
+    [TestCase(new[] { "monohydroxylated residue", "dimethylated residue", "iodoacetamide derivatized residue", "4x(2)H labeled dimethylated residue" }, "dimethyl")]
+    [TestCase(new[] { "dimethylated residue", "iodoacetamide derivatized residue" }, "label_free")]
+    public void AnIsotopeLabelledDimethylAmongPridesPtmsIsALabel(string[] ptms, string label)
+    {
+        var c = ChemistryDetector.Detect(Project("Not available", ptms), null, null, Files);
+        Assert.That(c.Label.Value, Is.EqualTo(label));
+        if (label == "dimethyl")
+            Assert.That((c.Label.Source, c.Label.Evidence), Is.EqualTo((ChemistrySource.PridePtm, "4x(2)H labeled dimethylated residue")));
+    }
+
     [Test]
     public void APolyacrylamideGelIsNotAnAlkylantAndNoAlkylationMeansNoCysMod()
     {

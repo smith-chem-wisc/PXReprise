@@ -205,6 +205,26 @@ public static class ManifestEntry
         return (start, next.Success ? m.Index + m.Length + next.Index : text.Length);
     }
 
+    /// <summary>
+    /// The deposits the manifest excludes as copies of <paramref name="acc"/>: <c>status: exclude</c> with a <c>reason</c>
+    /// that opens <c>duplicate_of: &lt;acc&gt;</c>, the form of aging's exclusion of PXD012985 (PXR-A8). Such a copy is not
+    /// an original that <paramref name="acc"/> duplicates. v0.4.16: PXD011740's re-search (PXR-A103) was refused as a
+    /// duplicate of PXD012985, its own excluded copy, searched in September before the duplicate screen existed.
+    /// </summary>
+    internal static IReadOnlySet<string> ExcludedCopiesOf(string text, string acc)
+    {
+        var copies = new HashSet<string>(StringComparer.Ordinal);
+        foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(text, @"(?m)^[ \t]*- accession: (\S+?)\r?$"))
+        {
+            var (start, end) = Block(text, m.Groups[1].Value);
+            string block = text[start..end];
+            if (System.Text.RegularExpressions.Regex.IsMatch(block, @"(?m)^[ \t]+status: exclude\r?$")
+                && System.Text.RegularExpressions.Regex.IsMatch(block, $@"(?m)^[ \t]+reason:[ \t]*([>|]-?)?[ \t]*(\r?\n[ \t]+)?duplicate_of: {System.Text.RegularExpressions.Regex.Escape(acc)}\b"))
+                copies.Add(m.Groups[1].Value);
+        }
+        return copies;
+    }
+
     /// <summary>The keys this writer produces; any other key of an entry belongs to its owner (aging's `excluded_runs`,
     /// `run_enrichment`, `restrictions`, ...) and survives a re-search verbatim.</summary>
     private static readonly HashSet<string> Owned = new(StringComparer.Ordinal)

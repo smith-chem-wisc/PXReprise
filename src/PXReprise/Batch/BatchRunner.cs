@@ -783,8 +783,11 @@ public sealed class BatchRunner
         // The same raw files already searched under another accession: refused before any download (PXR-A9).
         // The deposit being searched counts too: it is fetched in full, and the next one is screened alongside it (PXR-A21).
         var searching = Searching;
+        var copies = _q.Publish?.Manifest is { } mfp && File.Exists(mfp) ? ManifestEntry.ExcludedCopiesOf(File.ReadAllText(mfp), acc) : null;
+        foreach (string copy in copies ?? new HashSet<string>())
+            Log($"{acc} duplicate screen: {copy} is excluded in the manifest as this deposit's copy, so it is not compared");
         var dup = DuplicateScreen.Check(acc, listing.Select(f => (f.FileName, f.FileSizeBytes)).ToList(),
-            DuplicateScreen.Index(DuplicateRoots(), searching.Count == 0 ? null : searching.Select(Run).ToArray()));
+            DuplicateScreen.Index(DuplicateRoots(), searching.Count == 0 ? null : searching.Select(Run).ToArray()), copies);
         string When(string other) => searching.Contains(other) ? "being searched now" : "already searched";
         if (dup.DuplicateOf is { } original)
         {
