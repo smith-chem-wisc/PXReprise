@@ -31,6 +31,10 @@ public class DiscoveryTests
     [TestCase("data-independent acquisition", null, "dia")]
     [TestCase("", "timsTOF Pro 2", "timstof")]
     [TestCase("SILAC labelled cells", null, "metabolic_labelling")]
+    // v0.4.14: PXD000046's own words, searched label-free under "dimethyl label" alone.
+    [TestCase("Three time points of control and KO tissue was labeled using dimethyl isotope labeling.", null, "metabolic_labelling")]
+    [TestCase("peptides were dimethyl-labelled on column", null, "metabolic_labelling")]
+    [TestCase("by stable isotope dimethyl labeling", null, "metabolic_labelling")]
     [TestCase("TMT 11-plex with a SILAC spike-in", null, "mixed_labelling: needs a hand decision")]
     // Aging 017 (PXR-A11): the two deposits the screen let through, in their own PRIDE words.
     [TestCase("Quantitative cross-linking mass spectrometry and proteomics together with a transgenic mouse", null, "crosslinking")]

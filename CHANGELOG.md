@@ -7,6 +7,19 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.14 (2026-10-13)
+
+No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual. A deposit already
+searched is not looked at again, except by a catch-up re-search (D39), which screens it anew.
+
+- **Dimethyl labelling is recognised in more of its wordings.** The screen matched only "dimethyl label", and the
+  chemistry reader two wordings more. A deposit saying "labeled using dimethyl isotope labeling" passed as label-free,
+  and its probe found no peptides at all, since every peptide carries the label. "Dimethyl isotope", "dimethylation"
+  and "isotope dimethyl" wordings now count, and such a deposit waits on a labelling capability, as SILAC does.
+- **A probe search that identifies nothing parks the deposit.** Before, a probe run with no PSMs was not judged, and
+  the deposit went on to its whole download and search on no evidence. Now, when no probe run reaches 50 PSMs at 1% FDR,
+  the deposit waits (`waiting_no_identifications`), and the decision is listed in `decisions_needed.tsv`.
+
 ## 0.4.13 (2026-10-13)
 
 No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual (STOP, let it drain,

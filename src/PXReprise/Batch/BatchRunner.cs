@@ -948,10 +948,11 @@ public sealed class BatchRunner
         }
         xr.ProbeSearch(runs);
         bool expectCarbamidomethyl = chemistry is null || chemistry.CysMods.Any(c => c.Name == "Carbamidomethyl" && c.Fixed);
-        var verdict = Qc.ProbeJudge.Judge(runs, Qc.ProbeJudge.SpeciesName(e.Organism), expectCarbamidomethyl, acq.Enrichment != "none");
+        var verdict = Qc.ProbeJudge.Judge(runs, Qc.ProbeJudge.SpeciesName(e.Organism), expectCarbamidomethyl, acq.Enrichment != "none",
+            spectra.Select(s => Path.GetFileNameWithoutExtension(s)).ToList());
         foreach (string note in verdict.Notes) Log($"{acc} PROBE SEARCH: {note}");
-        Log($"{acc} PROBE SEARCH " + string.Join("; ", runs.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv =>
-            $"{kv.Key}: psms={kv.Value.Psms} species={string.Join("/", kv.Value.SpeciesPsms.OrderByDescending(s => s.Value).Select(s => $"{s.Key}:{s.Value}"))} panel={kv.Value.PanelPsms} cys={kv.Value.CysteineShare:P1}")));
+        Log($"{acc} PROBE SEARCH " + (runs.Count == 0 ? $"no PSM at 1% FDR in any of its {spectra.Count} run(s)" : string.Join("; ", runs.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv =>
+            $"{kv.Key}: psms={kv.Value.Psms} species={string.Join("/", kv.Value.SpeciesPsms.OrderByDescending(s => s.Value).Select(s => $"{s.Key}:{s.Value}"))} panel={kv.Value.PanelPsms} cys={kv.Value.CysteineShare:P1}"))));
         if (verdict.MeasuredEnrichment is { } measured)
         {
             // D34: measured beside the screen's call, never overwriting it here; the record says both.

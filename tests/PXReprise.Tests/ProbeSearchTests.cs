@@ -146,8 +146,28 @@ public class ProbeSearchTests
             { SpeciesPsms = new Dictionary<string, int> { ["Rattus norvegicus"] = 2743, ["Mus musculus"] = 1176, ["Homo sapiens"] = 478 } } };
         Assert.That(ProbeJudge.Judge(ratMuscle, "Rattus norvegicus", true, false).Parks, Is.Empty);
         Assert.That(ProbeJudge.Judge(new Dictionary<string, RunMeasures> { ["a"] = Run(human: 500, mouse: 400) }, "Homo sapiens", true, false).Parks, Is.Empty);
-        var few = ProbeJudge.Judge(new Dictionary<string, RunMeasures> { ["a"] = Run(mouse: 30) }, "Homo sapiens", true, false);
+        var few = ProbeJudge.Judge(new Dictionary<string, RunMeasures> { ["a"] = Run(mouse: 30, shared: 40) }, "Homo sapiens", true, false);
         Assert.That((few.Parks.Count, few.Notes.Single(n => n.Contains("not judged"))), Is.EqualTo((0, "a: species not judged (30 species-specific PSMs < 50)")));
+    }
+
+    // v0.4.14: PXD000046 (dimethyl-labelled, read as label-free) had 0 PSMs in all three probe runs and passed on no evidence.
+    [Test]
+    public void AProbeThatIdentifiesNothingParksInsteadOfPassing()
+    {
+        string path = Psms(Array.Empty<Dictionary<string, string>>());
+        var none = ProbeMeasures.FromAllPsms(path);
+        var v = ProbeJudge.Judge(none, "Mus musculus", true, false, new[] { "f10", "f9_2", "fr10" });
+        Assert.Multiple(() =>
+        {
+            Assert.That(none, Is.Empty);
+            Assert.That(v.Parks.Select(p => p.Park), Is.EqualTo(new[] { "waiting_no_identifications" }));
+            Assert.That(v.Parks[0].Evidence, Is.EqualTo("no probe run reaches 50 PSMs at 1% FDR: f10 0; f9_2 0; fr10 0"));
+        });
+        var thin = new Dictionary<string, RunMeasures> { ["a"] = Run(mouse: 30, shared: 19), ["b"] = Run(mouse: 2) };
+        Assert.That(ProbeJudge.Judge(thin, "Mus musculus", true, false).Parks.Select(p => p.Park), Is.EqualTo(new[] { "waiting_no_identifications" }));
+        // One run with enough is enough: a deposit's weakest bands are judged beside its others (PXD022196).
+        var oneBand = new Dictionary<string, RunMeasures> { ["a"] = Run(mouse: 30, shared: 20), ["b"] = Run(mouse: 2) };
+        Assert.That(ProbeJudge.Judge(oneBand, "Mus musculus", true, false).Parks, Is.Empty);
     }
 
     [Test]
@@ -263,7 +283,7 @@ public class ProbeSearchTests
     [Test]
     public void TheNewParksAreAnnouncedAndOnlyLabelFreeDda7TurnsTheProbeOn()
     {
-        foreach (string park in new[] { "waiting_species", "waiting_mixed_species", "waiting_alkylation_check" })
+        foreach (string park in new[] { "waiting_species", "waiting_mixed_species", "waiting_alkylation_check", "waiting_no_identifications" })
             Assert.That(DecisionsNeeded.For(park), Is.Not.Null, park);
         // The user, 2026-10-12: "Yes to the preliminary search". Profiles already used keep it off (a profile never changes).
         Assert.That(Config.ProfileLoader.LoadDirectory(TestSupport.ProfilesDir).Where(kv => kv.Value.ProbeSearch).Select(kv => kv.Key),
