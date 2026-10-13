@@ -58,7 +58,7 @@ public static class AcquisitionClassifier
 
     private static readonly Regex Metabolic = new(string.Join("|", new[]
     {
-        "SILAC", "dimethyl label", @"heavy[- ]?(labell?ed )?water", @"\bD2O\b", "deuterium", "deuterated water", @"\b15N\b",
+        "SILAC", ChemistryDetector.DimethylLabel, @"heavy[- ]?(labell?ed )?water", @"\bD2O\b", "deuterium", "deuterated water", @"\b15N\b",
         @"pulsed?[- ]?SILAC", @"metabolic(ally)? label", @"\b13C6\b", "heavy (lysine|arginine)",
     }), Opt);
 

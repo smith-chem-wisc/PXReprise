@@ -24,10 +24,15 @@ public sealed record ProbeVerdict(IReadOnlyList<ProbeFinding> Parks, string? Mea
 /// <item>alkylation: with carbamidomethyl expected, a non-enriched deposit whose runs show under
 /// <see cref="MinCysteineShare"/> cysteine-containing peptides parks <c>waiting_alkylation_check</c> (aging S82: alkylated
 /// lysates 11-28%, the four unexplained deposits 0.26-0.60%, enrichments 2-5%).</item>
+/// <item>identifications (v0.4.14): when no probe run reaches <see cref="MinIdentifiedPsms"/> PSMs, the search as set up
+/// finds nothing to judge, and the deposit parks <c>waiting_no_identifications</c> instead of passing on no evidence.
+/// PXD000046 (2026-10-13), dimethyl-labelled but read as label-free, had 0 PSMs in all three probe runs of ~23,000 MS2
+/// each. The weakest probe run before it had 224 (PXD009212's 27M_ratHP3_6), and one run at 50 or more is enough.</item>
 /// </list>
 /// </summary>
 public static class ProbeJudge
 {
+    public const int MinIdentifiedPsms = 50;
     public const int MinSpeciesPsms = 50;
     public const double MixedBelow = 0.50;
     public const double EnrichedPhospho = 0.05;
@@ -45,12 +50,21 @@ public static class ProbeJudge
         _ => null,
     };
 
+    /// <param name="probeRuns">The runs the probe searched; a run with no PSM at all is absent from <paramref name="runs"/>.</param>
     public static ProbeVerdict Judge(IReadOnlyDictionary<string, RunMeasures> runs, string? expectedSpecies,
-        bool expectCarbamidomethyl, bool screenedEnriched)
+        bool expectCarbamidomethyl, bool screenedEnriched, IReadOnlyCollection<string>? probeRuns = null)
     {
         var parks = new List<ProbeFinding>();
         var notes = new List<string>();
         static string Pct(double? x) => x is { } v ? v.ToString("P1", CultureInfo.InvariantCulture) : "n/a";
+
+        // Identifications: nothing else can be judged without them.
+        if (runs.Values.All(m => m.Psms < MinIdentifiedPsms))
+        {
+            var all = (probeRuns ?? runs.Keys).Union(runs.Keys, StringComparer.Ordinal).OrderBy(r => r, StringComparer.Ordinal).ToList();
+            parks.Add(new("waiting_no_identifications",
+                $"no probe run reaches {MinIdentifiedPsms} PSMs at 1% FDR: {(all.Count == 0 ? "no run" : string.Join("; ", all.Select(r => $"{r} {runs.GetValueOrDefault(r)?.Psms ?? 0}")))}"));
+        }
 
         // Species, per run.
         var wrong = new List<string>();

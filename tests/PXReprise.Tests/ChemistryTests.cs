@@ -113,6 +113,15 @@ public class ChemistryTests
         Assert.That((c.CysMods.Single().Name, c.CysMods.Single().Fixed, c.Alkylation.Guessed), Is.EqualTo((mod, isFixed, true)));
     }
 
+    // v0.4.14: PXD000046 says "labeled using dimethyl isotope labeling"; DiLeu's "N,N-dimethyl leucine" is its own label.
+    [TestCase("Three time points of control and KO tissue was labeled using dimethyl isotope labeling.", "dimethyl")]
+    [TestCase("reductive dimethylation of peptides", "dimethyl")]
+    [TestCase("dimethylation labeling with formaldehyde and cyanoborohydride", "dimethyl")]
+    [TestCase("labelled with N,N-dimethyl leucine (DiLeu) tags", "dileu")]
+    [TestCase("dimethyl sulfoxide was added to the buffer before labelling", "label_free")]
+    public void ADimethylLabelIsReadInTheDepositsWords(string text, string label) =>
+        Assert.That(ChemistryDetector.Detect(Project(text), null, null, Files).Label.Value, Is.EqualTo(label));
+
     [Test]
     public void APolyacrylamideGelIsNotAnAlkylantAndNoAlkylationMeansNoCysMod()
     {

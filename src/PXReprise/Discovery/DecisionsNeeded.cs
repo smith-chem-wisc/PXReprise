@@ -36,6 +36,8 @@ public static class DecisionsNeeded
             "say what the sample is in a curated SDRF (mixed samples wait for sdrf's plan, sdrf 008); or exclude the deposit"),
         ["waiting_alkylation_check"] = new("Carbamidomethyl was expected, but the probe runs have almost no cysteine peptides: the cysteines were blocked some other way, or not at all.",
             "name the reagent in a curated SDRF; search with no fixed cysteine modification; or exclude the deposit"),
+        ["waiting_no_identifications"] = new("The probe search identified (almost) nothing: the peptides are not what the search looks for (a label, chemistry, species or acquisition the text does not state).",
+            "say what the deposit is (a curated SDRF naming its label or chemistry, or a profile that takes it); or exclude the deposit"),
         ["unsupported_fragmentation"] = new("Some files' MS2 fragmentation cannot be searched per file (an unsupported type, no header, or ion-trap and Orbitrap MS2 mixed).",
             "exclude those files ([exceptions]); or exclude the deposit until a profile supports them"),
     };

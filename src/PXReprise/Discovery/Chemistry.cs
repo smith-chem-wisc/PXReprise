@@ -239,13 +239,19 @@ public static class ChemistryDetector
         ("tmt", new(@"\bTMT|tandem mass tag", Opt)),
         ("itraq", new(@"\biTRAQ", Opt)),
         ("silac", new(@"\bSILAC\b|\b13C6\b|heavy (lysine|arginine)|\bLys8\b|\bArg10\b", Opt)),
-        ("dimethyl", new(@"dimethyl label|reductive dimethyl|stable isotope dimethyl", Opt)),
+        // v0.4.14: PXD000046 says "labeled using dimethyl isotope labeling"; "dimethyl label" alone let it through as label-free.
+        ("dimethyl", new(DimethylLabel, Opt)),
         ("o18", new(@"\b(16O/)?18O\b|\bO-?18\b|oxygen-18|H2 ?18O", Opt)),
         ("dileu", new(@"\bi?DiLeu\b|N,N-dimethyl(ated)? leucine", Opt)),
         ("heavy_water", new(@"heavy[- ]?(labell?ed )?water|\bD2O\b|deuterated water", Opt)),
         ("15n", new(@"\b15N\b", Opt)),
     };
     private static readonly Regex LabelFreeWords = new(@"label[- ]?free", Opt);
+
+    /// <summary>Dimethyl labelling in a deposit's words, shared with the screen: "dimethyl label(l)ed", "dimethyl isotope
+    /// labeling", "dimethylation labeling", "reductive dimethylation", "stable isotope dimethyl". Never DiLeu's "N,N-dimethyl
+    /// leucine", which has no "label" right after it.</summary>
+    internal const string DimethylLabel = @"\bdimethyl(ation)?[- ]((stable[- ])?isotop(e|es|ic)[- ])?label|reductive dimethyl|isotope dimethyl";
 
     private static string? LabelIn(string text, out string? evidence)
     {
