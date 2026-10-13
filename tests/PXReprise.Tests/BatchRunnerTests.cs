@@ -229,6 +229,28 @@ public class BatchRunnerTests
         Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain("PXD000213 shares 1 of 2 raw files (name and size) with PXD000211"));
     }
 
+    // v0.4.16: PXD011740's re-search (PXR-A103) was refused as a duplicate of PXD012985, which the manifest already excludes
+    // as PXD011740's own copy (PXR-A8). The copy holds the original's files because it IS the original deposited again.
+    [Test]
+    public void ACopyTheManifestExcludesIsNoOriginalForTheDepositItCopies()
+    {
+        const string manifest = "deposits:\r\n"
+            + "  - accession: PXD012985\r\n    status: exclude\r\n    reason: >\r\n      duplicate_of: PXD011740. EXCLUDED 2026-10-02 (aging 015/017, PXR-A8)\r\n"
+            + "    title: \"Translational regulation\"\r\n"
+            + "  - accession: PXD011740\n    status: include\n    title: \"Translational regulation\"\n"
+            + "  - accession: PXD000572\n    status: exclude\n    reason: >\n      dimethyl-labelled, searched label-free\n";
+        Assert.That(ManifestEntry.ExcludedCopiesOf(manifest, "PXD011740"), Is.EquivalentTo(new[] { "PXD012985" }));
+        Assert.That(ManifestEntry.ExcludedCopiesOf(manifest, "PXD012985"), Is.Empty, "the original is no copy of its copy");
+        Assert.That(ManifestEntry.ExcludedCopiesOf(manifest.Replace("status: exclude\r\n    reason", "status: include\r\n    reason"), "PXD011740"), Is.Empty);
+
+        var raws = new[] { ("sample1.raw", 772102128L), ("sample1sec.raw", 783929316L) };
+        var index = new[] { new DuplicateScreen.Searched("PXD012985", raws.ToHashSet()) };
+        Assert.That(DuplicateScreen.Check("PXD011740", raws, index).DuplicateOf, Is.EqualTo("PXD012985"), "before v0.4.16");
+        Assert.That(DuplicateScreen.Check("PXD011740", raws, index, ManifestEntry.ExcludedCopiesOf(manifest, "PXD011740")).DuplicateOf, Is.Null);
+        Assert.That(DuplicateScreen.Check("PXD099999", raws, index, ManifestEntry.ExcludedCopiesOf(manifest, "PXD099999")).DuplicateOf,
+            Is.EqualTo("PXD012985"), "a third deposit with the same files is still a duplicate");
+    }
+
     // PXR-A21: PXD042302 (PXD042301 deposited again) was screened 7 s after PXD042301's search started, with no search
     // provenance yet, and was fetched and searched in full.
     [Test]

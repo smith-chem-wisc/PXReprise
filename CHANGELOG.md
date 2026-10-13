@@ -7,6 +7,22 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.16 (2026-10-13)
+
+No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual. A deposit settled
+`excluded_duplicate` stays settled until someone runs `batch retry` on it. A deposit already searched as label-free is
+not screened again; hold it back by hand if its label is found later.
+
+- **A dimethyl label stated only in PRIDE's list of identified modifications is read.** A deposit whose description
+  names no label and whose protocols are "Not available" listed "4x(2)H labeled dimethylated residue" among its
+  modifications. It was searched as label-free and identified 0.2% of its spectra. Its profile ran no probe search
+  that could have caught it. An isotope-labelled dimethyl in that list is now a label, and the deposit waits on a
+  labelling capability. A plain "dimethylated residue" is the natural modification and is not a label.
+- **A copy the question's manifest excludes is no longer an original for the deposit it copies.** One deposit had been
+  searched, then deposited again under a second accession, and the copy was searched too before the duplicate screen
+  existed. The manifest excludes the copy (`status: exclude`, `reason: duplicate_of: <original>`). A later re-search of
+  the original was refused as a duplicate of its own copy. The screen now leaves out such copies and logs that it did.
+
 ## 0.4.15 (2026-10-13)
 
 No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual. A question that

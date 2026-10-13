@@ -266,6 +266,12 @@ public static class ChemistryDetector
     /// leucine", which has no "label" right after it.</summary>
     internal const string DimethylLabel = @"\bdimethyl(ation)?[- ]((stable[- ])?isotop(e|es|ic)[- ])?label|reductive dimethyl|isotope dimethyl";
 
+    /// <summary>An isotope-labelled dimethyl in PRIDE's identified PTMs, as PSI-MOD names it ("4x(2)H labeled dimethylated
+    /// residue"). v0.4.16: PXD000572 says it nowhere else (its description names no label, its protocols are "Not
+    /// available"), and was searched label-free: 0.2% of its spectra identified. A plain "dimethylated residue" is the
+    /// natural PTM (dimethyl-arginine, -lysine) and is no label.</summary>
+    private static readonly Regex LabelledDimethylPtm = new(@"labell?ed dimethylated", Opt);
+
     private static string? LabelIn(string text, out string? evidence)
     {
         foreach (var (name, pattern) in Labels)
@@ -428,12 +434,15 @@ public static class ChemistryDetector
             alkylation = alkylation with { Value = alkylation.Value + " + NEM:2H(5)", Evidence = $"{alkylation.Evidence} | heavy partner from the protocol: {Snip(text, heavy)}" };
         }
 
-        // Label: an SDRF's comment[label], else PRIDE's quantification methods, else the text, else label-free.
+        // Label: an SDRF's comment[label], else PRIDE's quantification methods, else an isotope-labelled dimethyl among
+        // PRIDE's identified PTMs, else the text, else label-free.
         ChemistryFact label;
         var quant = project?.QuantificationMethods.Select(q => q.Name).Where(n => !string.IsNullOrWhiteSpace(n)).ToList() ?? new List<string>();
         string? quantLabel = quant.Select(q => LabelIn(q, out _)).FirstOrDefault(l => l is not null);
+        var dimethylPtms = pridePtms.Where(p => LabelledDimethylPtm.IsMatch(p)).ToList();
         if (sdrfs.FirstOrDefault(s => s.Read.Label is not null) is { Read.Label: { } sl } sdrfLabel) label = new(sl, sdrfLabel.Source);
         else if (quantLabel is not null) label = new(quantLabel, ChemistrySource.PrideQuant, string.Join("; ", quant));
+        else if (dimethylPtms.Count > 0) label = new("dimethyl", ChemistrySource.PridePtm, string.Join("; ", dimethylPtms));
         else if (LabelIn(text, out string? ev) is { } tl) label = new(tl, ChemistrySource.ProtocolText, ev);
         else label = new("label_free", ChemistrySource.Default);
 
