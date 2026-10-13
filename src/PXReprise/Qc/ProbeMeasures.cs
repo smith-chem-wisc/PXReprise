@@ -11,6 +11,10 @@ namespace PXReprise.Qc;
 /// organisms counts as shared. Cysteine, phospho, GG and acetyl-K are counted over PSMs with ONE candidate sequence only.
 /// Acetyl-K is MetaMorpheus's `Acetylation on K` or a UniProt `N6-acetyllysine` site from the database: counting only the
 /// first put PXD038328's capture runs at 10.8% instead of 27.9% (PXR-A88).
+/// A PSM with a candidate protein from the contaminant panel counts for no species (<see cref="PanelPsms"/>, v0.4.13):
+/// MetaMorpheus keeps a panel entry whose accession a species database also holds as that species' target (human
+/// keratins: P13645 is KRT10 in both), so skin keratins from handling counted as human and parked PXD022196's mouse gel
+/// bands, where they outnumbered mouse.
 /// </summary>
 public sealed record RunMeasures(
     int Psms,
@@ -21,7 +25,8 @@ public sealed record RunMeasures(
     int CysteinePeptides,
     int PhosphoPsms,
     int GgPsms,
-    int AcetylKPsms = 0)
+    int AcetylKPsms = 0,
+    int PanelPsms = 0)
 {
     public double? CysteineShare => Peptides > 0 ? (double)CysteinePeptides / Peptides : null;
     public double? PhosphoShare => UnambiguousPsms > 0 ? (double)PhosphoPsms / UnambiguousPsms : null;
@@ -41,7 +46,8 @@ public static class ProbeMeasures
     public static readonly string[] RequiredColumns =
         { "File Name", "Base Sequence", "Full Sequence", "QValue", "Decoy/Contaminant/Target", "Organism Name" };
 
-    public static IReadOnlyDictionary<string, RunMeasures> FromAllPsms(string allPsms)
+    /// <param name="panelAccessions">The contaminant panel's accessions; a PSM naming any of them counts for no species.</param>
+    public static IReadOnlyDictionary<string, RunMeasures> FromAllPsms(string allPsms, IReadOnlySet<string>? panelAccessions = null)
     {
         string header = File.ReadLines(allPsms).FirstOrDefault() ?? throw new InvalidDataException($"{allPsms} is empty");
         var columns = header.Split('\t');
@@ -61,12 +67,13 @@ public static class ProbeMeasures
         foreach (var run in psms.GroupBy(p => p.FileName))
         {
             var species = new Dictionary<string, int>(StringComparer.Ordinal);
-            int shared = 0, unambiguous = 0, phospho = 0, gg = 0, acetylK = 0;
+            int shared = 0, unambiguous = 0, phospho = 0, gg = 0, acetylK = 0, panel = 0;
             var peptides = new HashSet<string>(StringComparer.Ordinal);
             foreach (var p in run)
             {
                 var organisms = p.ProteinGroupInfos.Select(i => i.organism.Trim()).Where(n => n.Length > 0).Distinct(StringComparer.Ordinal).ToList();
-                if (organisms.Count == 1) species[organisms[0]] = species.GetValueOrDefault(organisms[0]) + 1;
+                if (panelAccessions is not null && p.ProteinGroupInfos.Any(i => panelAccessions.Contains(i.proteinAccessions.Trim()))) panel++;
+                else if (organisms.Count == 1) species[organisms[0]] = species.GetValueOrDefault(organisms[0]) + 1;
                 else if (organisms.Count > 1) shared++;
                 if (p.FullSequence.Contains('|') || p.BaseSequence.Contains('|')) continue;
                 unambiguous++;
@@ -77,7 +84,7 @@ public static class ProbeMeasures
                 if (mods.Any(m => m.Contains("Acetylation on K", StringComparison.Ordinal) || m.Contains("N6-acetyllysine", StringComparison.Ordinal))) acetylK++;
             }
             o[run.Key] = new RunMeasures(run.Count(), species, shared, unambiguous, peptides.Count,
-                peptides.Count(s => s.Contains('C')), phospho, gg, acetylK);
+                peptides.Count(s => s.Contains('C')), phospho, gg, acetylK, panel);
         }
         return o;
     }

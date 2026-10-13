@@ -80,6 +80,7 @@ public sealed class ExperimentRecord
                 ["psms_1pct"] = m.Psms,
                 ["species_psms"] = new JsonObject(m.SpeciesPsms.Select(kv => KeyValuePair.Create(kv.Key, (JsonNode?)kv.Value))),
                 ["shared_species_psms"] = m.SharedSpeciesPsms,
+                ["contaminant_panel_psms"] = m.PanelPsms,
                 ["peptides"] = m.Peptides,
                 ["cysteine_share"] = m.CysteineShare is { } c ? Math.Round(c, 4) : null,
                 ["phospho_share"] = m.PhosphoShare is { } p ? Math.Round(p, 4) : null,

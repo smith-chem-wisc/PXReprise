@@ -913,6 +913,11 @@ public sealed class BatchRunner
         Directory.EnumerateFiles(spectraDir, "*.raw").Where(f => probeQc.ContainsKey(Path.GetFileName(f)))
             .OrderBy(f => Path.GetFileName(f), StringComparer.Ordinal).ToList();
 
+    /// <summary>The probe's contaminant panel accessions (the panel the probe search used), for tests: (profile, machine) -> accessions.
+    /// Their PSMs count for no species (v0.4.13).</summary>
+    internal Func<Profile, Machine, IReadOnlySet<string>> ProbePanelAccessions { get; init; } =
+        (p, m) => Search.SearchMetrics.PrimaryAccessions(Search.SearchStage.Contaminants(p, m).Path);
+
     /// <summary>The probe search, for tests: (profile, machine, spectra, chemistry, fragmentation, outDir) -> AllPSMs.psmtsv.</summary>
     internal Func<Profile, Machine, IReadOnlyList<string>, DepositChemistry?, IReadOnlyDictionary<string, Qc.FragmentationCall>?, string, CancellationToken, Task<string>>
         ProbeSearchRunner { get; init; } = Search.ProbeSearch.RunAsync;
@@ -932,7 +937,7 @@ public sealed class BatchRunner
         {
             var fragmentation = Search.SearchStage.FragmentationFromQc(probeQc, spectra, profile);
             string psms = await ProbeSearchRunner(profile, _m, spectra, chemistry, fragmentation, Path.Combine(d, "02c_probe_search"), ct).ConfigureAwait(false);
-            runs = Qc.ProbeMeasures.FromAllPsms(psms);
+            runs = Qc.ProbeMeasures.FromAllPsms(psms, ProbePanelAccessions(profile, _m));
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
@@ -946,7 +951,7 @@ public sealed class BatchRunner
         var verdict = Qc.ProbeJudge.Judge(runs, Qc.ProbeJudge.SpeciesName(e.Organism), expectCarbamidomethyl, acq.Enrichment != "none");
         foreach (string note in verdict.Notes) Log($"{acc} PROBE SEARCH: {note}");
         Log($"{acc} PROBE SEARCH " + string.Join("; ", runs.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv =>
-            $"{kv.Key}: psms={kv.Value.Psms} species={string.Join("/", kv.Value.SpeciesPsms.OrderByDescending(s => s.Value).Select(s => $"{s.Key}:{s.Value}"))} cys={kv.Value.CysteineShare:P1}")));
+            $"{kv.Key}: psms={kv.Value.Psms} species={string.Join("/", kv.Value.SpeciesPsms.OrderByDescending(s => s.Value).Select(s => $"{s.Key}:{s.Value}"))} panel={kv.Value.PanelPsms} cys={kv.Value.CysteineShare:P1}")));
         if (verdict.MeasuredEnrichment is { } measured)
         {
             // D34: measured beside the screen's call, never overwriting it here; the record says both.

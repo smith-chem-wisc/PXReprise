@@ -69,6 +69,52 @@ public class ProbeSearchTests
         });
     }
 
+    // v0.4.13: MetaMorpheus keeps a panel entry whose accession a species database also holds as that species' target, so a
+    // human keratin from handling (P13645, KRT10) is a human target PSM. Any candidate from the panel takes the PSM out of
+    // the species tally; the other measures still count it.
+    [Test]
+    public void AContaminantPanelProteinCountsForNoSpecies()
+    {
+        string path = Psms(new[]
+        {
+            Row("a", "MOUSEK"),
+            Row("a", "SQYEQLAEQNRK", organism: "Homo sapiens", accession: "P13645"),
+            Row("a", "SHAREDKRTK", organism: "Homo sapiens|Mus musculus", accession: "P35527|Q6IFZ6"),
+            Row("a", "HUMANK", organism: "Homo sapiens", accession: "P2"),
+        });
+        var panel = new HashSet<string>(StringComparer.Ordinal) { "P13645", "P35527" };
+        var m = ProbeMeasures.FromAllPsms(path, panel)["a"];
+        var without = ProbeMeasures.FromAllPsms(path)["a"];
+        Assert.Multiple(() =>
+        {
+            Assert.That(m.SpeciesPsms, Is.EquivalentTo(new Dictionary<string, int> { ["Mus musculus"] = 1, ["Homo sapiens"] = 1 }));
+            Assert.That((m.SharedSpeciesPsms, m.PanelPsms, m.Psms, m.UnambiguousPsms), Is.EqualTo((0, 2, 4, 4)));
+            Assert.That((without.SpeciesPsms["Homo sapiens"], without.SharedSpeciesPsms, without.PanelPsms), Is.EqualTo((2, 1, 0)));
+        });
+    }
+
+    /// <summary>
+    /// PXD022196 (mouse gel bands) parked <c>waiting_species</c> on 2026-10-13: its low-yield bands carried more human
+    /// keratin PSMs than mouse ones (WT_band_08: human 504, mouse 76). With the panel left out, every run is mouse. Reads
+    /// the batch's own probe output where it exists (a retry rewrites it with the three probe runs, WT_band_08 among them).
+    /// </summary>
+    [Test]
+    public void PXD022196sGelBandsAreMouseOnceThePanelIsLeftOut()
+    {
+        const string psms = @"F:\aging_data\run_2026-09-21\PXD022196\02c_probe_search\mm\Task1SearchTask\AllPSMs.psmtsv";
+        if (!File.Exists(psms)) Assert.Ignore($"{psms} is not on this computer");
+        var panel = SearchMetrics.PrimaryAccessions(Path.Combine(TestSupport.ProfilesDir, "lists", "MetaMorpheusContaminants_NoUPS.xml"));
+        var before = ProbeJudge.Judge(ProbeMeasures.FromAllPsms(psms), "Mus musculus", true, false);
+        var runs = ProbeMeasures.FromAllPsms(psms, panel);
+        var after = ProbeJudge.Judge(runs, "Mus musculus", true, false);
+        Assert.Multiple(() =>
+        {
+            Assert.That(before.Parks.Select(p => p.Park), Does.Contain("waiting_species"), "the park reproduces without the panel");
+            Assert.That(after.Parks, Is.Empty, string.Join("; ", after.Parks.Select(p => p.Evidence)));
+            Assert.That(runs.Values.All(r => r.PanelPsms > 0), "every band carries panel PSMs");
+        });
+    }
+
     [Test]
     public void AMissingColumnIsFatalNotAnEmptyResult()
     {
