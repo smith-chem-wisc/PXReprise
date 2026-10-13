@@ -215,10 +215,12 @@ public class ProbeSearchTests
     }
 
     [Test]
-    public void TheNewParksAreAnnouncedAndNoShippedProfileTurnsTheProbeOn()
+    public void TheNewParksAreAnnouncedAndOnlyLabelFreeDda7TurnsTheProbeOn()
     {
         foreach (string park in new[] { "waiting_species", "waiting_mixed_species", "waiting_alkylation_check" })
             Assert.That(DecisionsNeeded.For(park), Is.Not.Null, park);
-        Assert.That(Config.ProfileLoader.LoadDirectory(TestSupport.ProfilesDir).Values.Select(p => p.ProbeSearch), Has.All.False);
+        // The user, 2026-10-12: "Yes to the preliminary search". Profiles already used keep it off (a profile never changes).
+        Assert.That(Config.ProfileLoader.LoadDirectory(TestSupport.ProfilesDir).Where(kv => kv.Value.ProbeSearch).Select(kv => kv.Key),
+            Is.EqualTo(new[] { "label-free-dda@7" }));
     }
 }

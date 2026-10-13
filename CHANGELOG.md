@@ -7,6 +7,25 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.11 (2026-10-12)
+
+No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual (STOP, let it drain,
+start the new pin). To use the probe search, the question names `label-free-dda@7` in place of `@6`; deposits already
+searched keep the profile that searched them.
+
+- **New profile `label-free-dda@7`: `@6` with the probe search on.** The probe search was built in 0.4.0 but no
+  shipped profile turned it on, so no deposit was ever checked by it. Before the whole deposit is downloaded, its probe
+  files are now searched briefly (3-19 minutes each in our trial) against every species database the profile has.
+  A run of another species, a run of mixed species, and a whole proteome expected to be carbamidomethylated with under
+  2% cysteine-containing peptides each wait for a person (`waiting_species`, `waiting_mixed_species`,
+  `waiting_alkylation_check`) instead of being searched. A measured enrichment the text did not state is recorded and
+  flagged. Two deposits searched under `@6` had 0.5% and 1.2% cysteine peptides (alkylated lysates run 11-28%); their
+  manifest entries carry the after-search `cysteine_poor` flag, but nothing stopped them.
+- **Iodoethanol is a known alkylant.** A deposit whose protocol, SDRF or PRIDE record names iodoethanol (S-hydroxyethyl
+  cysteine, UniMod 278 `Ethanolyl`) is searched with it in place of carbamidomethyl. This applies under every profile
+  that reads each deposit's chemistry (`@3` onward), from this version on. One deposit searched with
+  carbamidomethyl had 0.5% cysteine peptides for this reason.
+
 ## 0.4.10 (2026-10-12)
 
 No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual (STOP, let it drain,

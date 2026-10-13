@@ -106,6 +106,7 @@ public class ChemistryTests
     [TestCase("alkylated with chloroacetamide (CAA)", "Carbamidomethyl", true)]
     [TestCase("cysteines were alkylated with acrylamide", "Propionamide", true)]
     [TestCase("blocked with MMTS", "Methylthio", true)]
+    [TestCase("reduced with DTT and alkylated with iodoethanol in 8 M urea", "Ethanolyl", true)]   // PXD057499 (aging 089)
     public void AStatedAlkylantIsReadFromTheProtocol(string protocol, string mod, bool isFixed)
     {
         var c = ChemistryDetector.Detect(Project(protocol), null, null, Files);
@@ -161,6 +162,7 @@ public class ChemistryTests
     [TestCase("UNIMOD:776", "Unimod\tNEM:2H(5) on C")]
     [TestCase("UNIMOD:39", "Unimod\tMethylthio on C")]
     [TestCase("Unimod:24", "Less Common\tPropionamidation on C")]   // mzLib's own entry; MetaMorpheus 1.1.11's Mods.txt has it too
+    [TestCase("UNIMOD:278", "Unimod\tEthanolyl on C")]   // iodoethanol (aging 089)
     [TestCase("4", "Common Fixed\tCarbamidomethyl on C")]
     public void CysteineModsResolveToMetaMorpheusStringsThroughMzLib(string unimod, string expected) =>
         Assert.That(ChemistryDetector.MetaMorpheusModId(unimod, 'C'), Is.EqualTo(expected));
