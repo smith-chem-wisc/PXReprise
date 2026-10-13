@@ -12,8 +12,8 @@ A new version of the engine never changes a finished result. Methods live in ver
 No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual. A deposit already
 searched is not looked at again, except by a catch-up re-search (D39), which screens it anew.
 
-- **Dimethyl labelling is recognised in more of its wordings.** The screen and the chemistry reader matched "dimethyl
-  label" and "reductive dimethyl" only. A deposit saying "labeled using dimethyl isotope labeling" passed as label-free,
+- **Dimethyl labelling is recognised in more of its wordings.** The screen matched only "dimethyl label", and the
+  chemistry reader two wordings more. A deposit saying "labeled using dimethyl isotope labeling" passed as label-free,
   and its probe found no peptides at all, since every peptide carries the label. "Dimethyl isotope", "dimethylation"
   and "isotope dimethyl" wordings now count, and such a deposit waits on a labelling capability, as SILAC does.
 - **A probe search that identifies nothing parks the deposit.** Before, a probe run with no PSMs was not judged, and
