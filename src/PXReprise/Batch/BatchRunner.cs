@@ -1519,6 +1519,8 @@ public sealed class BatchRunner
         if (_q.Designs?.For(acc) is { } c && File.Exists(c)) curated = new Readers.SdrfDocument(c);
         // G40: a profile that ships a modification for a thiol reagent (NBF-Cl) searches such a deposit instead of parking it.
         var chem = ChemistryDetector.Detect(project, curated, deposited, rawFiles, profile.ThiolReagents);
+        // v0.4.15 (PXR-A99): the question states the cysteines were never alkylated; it outranks every source read above.
+        if (_q.ExceptionFor(acc) is { Alkylation: DepositException.NoAlkylation } ex) chem = chem.Unalkylated(ex.Reason);
         var json = Search.SearchStage.Chemistry(chem);
         json["sdrf_file"] = sdrf?.FileName;
         json["curated_sdrf"] = curated is not null;

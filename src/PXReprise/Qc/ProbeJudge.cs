@@ -14,7 +14,10 @@ public sealed record ProbeVerdict(IReadOnlyList<ProbeFinding> Parks, string? Mea
 /// <list type="bullet">
 /// <item>species (the user, 2026-10-07, from the G31 calibration: pure rat runs are only 62-88% rat because reviewed rat is
 /// thin, so a share threshold mistakes a thin database for a second species): once a run has at least
-/// <see cref="MinSpeciesPsms"/> species-specific PSMs, ANOTHER species with more of them than the expected one parks
+/// <see cref="MinSpeciesPsms"/> species-specific PSMs (500 since v0.4.15, the user's choice; was 50: PXD022196's weak gel
+/// band WT_band_08 had 55 human PSMs of skin proteins the panel lacks, KPRP, DSP, DSC1, DSG1, S100A8, against 49 mouse,
+/// while its other probe runs were 3,823 and 1,178 mouse; every calibration run has at least 983, so its calls stand,
+/// PXD044773's included), ANOTHER species with more of them than the expected one parks
 /// <c>waiting_species</c>, and the expected species under <see cref="MixedBelow"/> of them parks
 /// <c>waiting_mixed_species</c> (D35; PXD044773's mouse runs searched as human, aging S83);</item>
 /// <item>enrichment: phospho at <see cref="EnrichedPhospho"/> or GG at <see cref="EnrichedGg"/> of a run's PSMs, the
@@ -33,7 +36,7 @@ public sealed record ProbeVerdict(IReadOnlyList<ProbeFinding> Parks, string? Mea
 public static class ProbeJudge
 {
     public const int MinIdentifiedPsms = 50;
-    public const int MinSpeciesPsms = 50;
+    public const int MinSpeciesPsms = 500;
     public const double MixedBelow = 0.50;
     public const double EnrichedPhospho = 0.05;
     public const double EnrichedGg = 0.02;

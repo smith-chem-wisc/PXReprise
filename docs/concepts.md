@@ -76,7 +76,8 @@ experiment record. The spectra win over the text:
   the search looks for, such as a label the text did not make clear;
 - a run whose PSMs are mostly another species waits (`waiting_species`), and so does a run of mixed species
   (`waiting_mixed_species`). A PSM of a contaminant-panel protein, such as a human skin keratin from handling, counts
-  for no species;
+  for no species. A run is judged only when it has at least 500 PSMs specific to one species: in a run with little
+  protein, skin proteins from handling can outnumber the sample's own;
 - a whole proteome expected to be carbamidomethylated, whose runs show under 2% cysteine-containing peptides, waits
   (`waiting_alkylation_check`): its cysteines were blocked some other way, or not at all;
 - an enrichment the text did not state is recorded beside the text's call, and flagged in the manifest.

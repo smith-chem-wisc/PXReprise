@@ -114,11 +114,15 @@ public static class QuestionLoader
                     ? TryRegex(s) ?? throw new ConfigException(file, $"exceptions.{acc}.{key} is not a valid regular expression: '{s}'")
                     : null;
                 int? Int(string key) => t.OptionalInteger(key) is { } v ? checked((int)v) : null;
+                string? alkylation = t.OptionalString("alkylation");
+                if (alkylation is not null && alkylation != DepositException.NoAlkylation)
+                    throw new ConfigException(file, $"exceptions.{acc}.alkylation can only be \"{DepositException.NoAlkylation}\" (got '{alkylation}'): name another alkylant in a curated SDRF");
                 var e = new DepositException(acc, t.RequiredString("reason"), Rx("include_files"), Rx("exclude_files"),
-                    Int("max_files"), Int("max_file_mb"), t.OptionalInteger("max_est_ms2"), Int("defer_if_median_file_mb"));
+                    Int("max_files"), Int("max_file_mb"), t.OptionalInteger("max_est_ms2"), Int("defer_if_median_file_mb"), alkylation);
                 t.RefuseUnknownKeys();
-                if (!e.SelectsFiles && e.MaxFiles is null && e.MaxFileMb is null && e.MaxEstimatedMs2 is null && e.DeferIfMedianFileMb is null)
-                    throw new ConfigException(file, $"exceptions.{acc} changes nothing: give a cap or include_files / exclude_files");
+                if (!e.SelectsFiles && e.MaxFiles is null && e.MaxFileMb is null && e.MaxEstimatedMs2 is null && e.DeferIfMedianFileMb is null
+                    && e.Alkylation is null)
+                    throw new ConfigException(file, $"exceptions.{acc} changes nothing: give a cap, include_files / exclude_files, or alkylation");
                 exceptions[acc] = e;
             }
             ex.RefuseUnknownKeys();
