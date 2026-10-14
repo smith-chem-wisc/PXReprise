@@ -36,7 +36,7 @@ public sealed class ExperimentRecord
         Fact("acquisition", a.Mode.ToString(), source, a.Evidence);
         Fact("labelling", a.Labelling.ToString(), source, a.Evidence);
         Fact("instrument", a.Instrument.ToString(), "pride_record_instruments");
-        Fact("enrichment", a.Enrichment, source, a.Enrichment == "none" ? null : a.Evidence);
+        Fact("enrichment", a.Enrichment, source, a.EnrichmentEvidence);
         if (a.Crosslinked) Fact("crosslinked", "yes", source, a.Evidence);
         if (a.NonspecificCleavage) Fact("nonspecific_cleavage", "yes", source, a.Evidence);
         if (a.TopDown) Fact("top_down", "yes", source, a.Evidence);

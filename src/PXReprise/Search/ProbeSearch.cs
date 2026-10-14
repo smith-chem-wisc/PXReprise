@@ -60,6 +60,7 @@ public static class ProbeSearch
         IReadOnlyDictionary<string, FragmentationCall>? fragmentation, string outDir, CancellationToken ct)
     {
         outDir = Path.GetFullPath(outDir);
+        ClearDesign(spectra);
         if (Directory.Exists(Path.Combine(outDir, "mm"))) Directory.Delete(Path.Combine(outDir, "mm"), recursive: true);
         string tasksDir = Path.Combine(outDir, "tasks");
         Directory.CreateDirectory(tasksDir);
@@ -97,4 +98,14 @@ public static class ProbeSearch
             throw new InvalidOperationException($"the probe search did not finish (exit {run.ExitCode}{(run.TimedOut ? ", timed out" : "")}); see {Path.Combine(outDir, "metamorpheus.log")}");
         return psms;
     }
+
+    /// <summary>
+    /// The probe quantifies nothing and brings no design, but MetaMorpheus reads any design beside the first spectra file
+    /// all the same. The deposit's full search leaves its own there (written for every file), and a later probe of three
+    /// of them fails on it: a re-probe after an interrupted search, a retry or a re-search (v0.4.17, PXD044227). The full
+    /// search writes its design again before it runs.
+    /// </summary>
+    /// <returns>True when a stale design was removed.</returns>
+    internal static bool ClearDesign(IReadOnlyList<string> spectra) =>
+        spectra.Count > 0 && DesignStage.RemoveStale(Path.GetDirectoryName(Path.GetFullPath(spectra[0]))!);
 }

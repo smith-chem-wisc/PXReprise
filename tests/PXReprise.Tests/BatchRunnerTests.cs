@@ -675,6 +675,41 @@ public class BatchRunnerTests
         Assert.That(runner.State()["datasets"]!["PXD000220"]!["status"]!.GetValue<string>(), Is.EqualTo("probing"));
     }
 
+    // v0.4.17 (PXD044227, 2026-10-14): a reboot cut off the full search of 61 files. Its 04_search was moved aside, but the
+    // ExperimentalDesign.tsv it wrote beside the spectra stayed, and the re-probe of three files read it: MetaMorpheus
+    // stopped with `Condition "all" biorep 2 is missing!` (exit 5) and the deposit settled probe_search_failed.
+    [Test]
+    public void AnInterruptedSearchsDesignGoesAsideWithItsOutputAndTheReprobeRunsWithoutOne()
+    {
+        var (runner, _, _, dir) = Runner();
+        var e = new QueueEntry("PXD044227", "t", "mouse");
+        string run = Path.Combine(dir, "runs", "PXD044227"), spectra = Path.Combine(run, "02_fetch", "spectra");
+        Directory.CreateDirectory(Path.Combine(run, "04_search", "mm"));
+        Directory.CreateDirectory(spectra);
+        var raws = Enumerable.Range(1, 61).Select(i => Path.Combine(spectra, $"run_{i:00}.raw")).ToList();
+        foreach (string r in raws) File.WriteAllText(r, "");
+        string design = Path.Combine(spectra, Search.DesignStage.FileName);
+        File.WriteAllLines(design, new[] { "FileName\tCondition\tBiorep\tFraction\tTechrep" }
+            .Concat(raws.Select((r, i) => $"{Path.GetFileNameWithoutExtension(r)}\tall\t{i + 1}\t1\t1")));
+        runner.Record("PXD044227", ("status", "searching"));
+
+        runner.RecoverInterruptedSearches(new[] { e });
+
+        Assert.That(File.Exists(design), Is.False, "nothing the cut-off search wrote is left beside the spectra");
+        string aside = Directory.GetDirectories(run, "04_search.interrupted-*").Single();
+        string kept = Path.Combine(aside, BatchRunner.InterruptedSpectraFolder, Search.DesignStage.FileName);
+        Assert.That(File.ReadAllLines(kept), Has.Length.EqualTo(62), "kept with the output it belongs to");
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")),
+            Does.Contain($"its {Search.DesignStage.FileName} moved to {Path.GetFileName(aside)}/{BatchRunner.InterruptedSpectraFolder}"));
+
+        // A design left by any other route (a finished search, then a retry or re-search) is cleared by the probe itself.
+        File.WriteAllText(design, File.ReadAllText(kept));
+        var probe = raws.Where((_, i) => i is 0 or 30 or 60).ToList();
+        Assert.That(Search.ProbeSearch.ClearDesign(probe), Is.True);
+        Assert.That(File.Exists(design), Is.False);
+        Assert.That(Search.ProbeSearch.ClearDesign(probe), Is.False, "nothing to clear the second time");
+    }
+
     // G18: after a reboot, driver.pid's number may belong to another program; the start time in driver.last.json tells.
     [Test]
     public void APidReusedAfterARebootIsNotTakenForTheDriver()
@@ -780,6 +815,28 @@ public class BatchRunnerTests
         Assert.That(text, Does.Contain("files: 2").And.Contain("organism: NCBITaxon:9606").And.Contain("run: runs/PXD000207")
             .And.Contain("title: \"A \\u0022quoted\\u0022 title\"").Or.Contain("title: \"A \\\"quoted\\\" title\""));
         Assert.That(text, Does.Contain("flags: [no_design_file, no_output_sdrf, enriched, qc_excluded_files]").And.Contain("iso.xml"));
+    }
+
+    // v0.4.17: the ENRICHED note quoted screen_evidence, the acquisition call's words, which are empty for nearly every
+    // enriched deposit ("the deposit's own text says '......'"). It quotes the enrichment's own words now.
+    [Test]
+    public void TheEnrichedNoteQuotesTheEnrichmentsOwnWords()
+    {
+        string Note(JsonObject state)
+        {
+            string dir = TestSupport.TempDir(), run = Path.Combine(dir, "runs", "PXD038718");
+            Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
+            Directory.CreateDirectory(Path.Combine(run, "04_search"));
+            File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(("a.raw", true, Array.Empty<string>())).ToJsonString());
+            File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), """{"tools":{"MetaMorpheus":{"release":"1.1.12"}}}""");
+            string manifest = TestSupport.WriteFile(dir, "manifest.yaml", "manifest_version: 1\ndatasets:\n");
+            ManifestEntry.Append(manifest, new QueueEntry("PXD038718", "NPAS4:NuA4", "mouse"), Profiles["label-free-dda@5"], run, state, dir);
+            return File.ReadAllLines(manifest).Single(l => l.Contains("ENRICHED ("));
+        }
+        Assert.That(Note(new JsonObject { ["enrichment"] = "immunoprecipitation", ["enrichment_evidence"] = "IP'd with anti-FLAG M2 resin", ["screen_evidence"] = null }),
+            Does.Contain("the deposit's own text says '...IP'd with anti-FLAG M2 resin...'"));
+        Assert.That(Note(new JsonObject { ["enrichment"] = "immunoprecipitation", ["screen_evidence"] = null }),
+            Does.Contain("the deposit's own text names an enrichment.").And.Not.Contain("'......'"), "a state from before 0.4.17");
     }
 
     // PXR-A88 (aging 082): a probe-measured enrichment the text did not state used to stop at state.json; the entry now

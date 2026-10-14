@@ -17,6 +17,31 @@ public static class DesignStage
 {
     public const string FileName = "ExperimentalDesign.tsv";
 
+    /// <summary>MetaMorpheus's TMT design file, read from the same place as <see cref="FileName"/>. PXReprise writes none.</summary>
+    public const string TmtFileName = "TmtDesign.txt";
+
+    /// <summary>
+    /// v0.4.17: removes an <see cref="FileName"/> left beside the spectra, before the probe search (which brings no design)
+    /// and before <see cref="Prepare"/> writes one. A profile without a design still runs with one put there by hand, as
+    /// before (D48, QuantProject U15 check it was used). MetaMorpheus 1.1.12's CMD reads a design beside the first spectra
+    /// file on every run, quantifying or not, and stops with exit 5 when it does not fit the files given: on 2026-10-14 an
+    /// interrupted full search's 61-file design failed PXD044227's 3-file re-probe (<c>Condition "all" biorep 2 is
+    /// missing!</c>). A <see cref="TmtFileName"/> is refused, never removed: PXReprise writes none, so one there was put by
+    /// hand, and MetaMorpheus would read it.
+    /// </summary>
+    /// <returns>True when a stale design was removed.</returns>
+    /// <exception cref="SearchSetupException">A TMT design beside the spectra.</exception>
+    public static bool RemoveStale(string spectraDir)
+    {
+        string tmt = Path.Combine(spectraDir, TmtFileName);
+        if (File.Exists(tmt))
+            throw new SearchSetupException($"{tmt} exists and was not written by PXReprise: MetaMorpheus would read it as this search's design");
+        string target = Path.Combine(spectraDir, FileName);
+        if (!File.Exists(target)) return false;
+        File.Delete(target);
+        return true;
+    }
+
     /// <summary>
     /// Writes the design, or removes any stale one, and returns its provenance record (<c>written</c> says which).
     /// </summary>
@@ -30,7 +55,7 @@ public static class DesignStage
         IReadOnlyList<string>? conditionColumns, string? organism = null, string? accession = null)
     {
         string target = Path.Combine(spectraDir, FileName);
-        File.Delete(target);   // never one left by an earlier attempt or by hand
+        RemoveStale(spectraDir);   // never one left by an earlier attempt or by hand
         if (curated is not null && File.Exists(curated))
         {
             var d = Read(curated, searchedFiles, conditionColumns, out string? error);

@@ -201,6 +201,34 @@ public class DiscoveryTests
         Assert.That(AcquisitionClassifier.Classify(TestSupport.Record("PXD000019", "Liver", description, protocol: protocol)).Enrichment,
             Is.EqualTo(expected));
 
+    // v0.4.17 (aging 108, PXR-A107): PXD038718, a FLAG/HA immunoprecipitation, was screened glyco: "lectin" inside
+    // "collecting", and glyco comes before immunoprecipitation. Lectin now counts only as a word.
+    [TestCase("Nuclear extracts were immunoprecipitated with anti-FLAG M2 resin; immunoprecipitation using HA was performed by collecting the FLAG peptide eluate", "immunoprecipitation")]
+    [TestCase("immunoprecipitation of the complex, selecting bands and reflecting the input", "immunoprecipitation")]
+    [TestCase("Glycopeptides were captured by lectin affinity enrichment", "glyco")]
+    [TestCase("N-glycoproteins were enriched by affinity capture with lectins (ConA, WGA)", "glyco")]
+    public void LectinCountsOnlyAsAWord(string protocol, string expected)
+    {
+        var a = AcquisitionClassifier.Classify(TestSupport.Record("PXD000020", "Brain", protocol: protocol));
+        Assert.That(a.Enrichment, Is.EqualTo(expected));
+        Assert.That(a.EnrichmentEvidence, Does.Contain(expected == "glyco" ? "lectin" : "immunoprecipitat"));
+    }
+
+    // v0.4.17: an enrichment's log line and manifest note quoted the acquisition call's evidence, which is empty for nearly
+    // every enriched deposit ("searching and annotating: ......"). The enrichment now carries its own words.
+    [Test]
+    public void AnEnrichmentQuotesTheWordsThatMadeIt()
+    {
+        var ip = AcquisitionClassifier.Classify(TestSupport.Record("PXD000021", "Npas4 interactors", protocol: "Proteins were immunoprecipitated with anti-FLAG M2 resin"));
+        Assert.That((ip.Enrichment, ip.Evidence), Is.EqualTo(("immunoprecipitation", (string?)null)), "the acquisition evidence is unchanged: nothing to say");
+        Assert.That(ip.EnrichmentEvidence, Does.Contain("immunoprecipitated with anti-FLAG"));
+        // Enriched, but no kind names it: "other", quoting the words that said enriched.
+        var other = AcquisitionClassifier.Classify(TestSupport.Record("PXD000022", "Mitochondria", protocol: "followed by organelle isolation on a density gradient"));
+        Assert.That(other.Enrichment, Is.EqualTo("other"));
+        Assert.That(other.EnrichmentEvidence, Does.Contain("organelle isolation"));
+        Assert.That(AcquisitionClassifier.Classify(TestSupport.Record("PXD000023", "Whole proteome")).EnrichmentEvidence, Is.Null);
+    }
+
     [Test]
     public void MsFilesAreCountedByType()
     {
