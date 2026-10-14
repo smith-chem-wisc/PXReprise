@@ -693,8 +693,8 @@ public sealed class BatchRunner
         if (acq.Enrichment != "none")
         {
             // Searched, and ANNOTATED: an enrichment is not a whole proteome, and its intensities must never be pooled as one.
-            Log($"{acc} screened as enriched ({acq.Enrichment}); searching and annotating: ...{acq.Evidence}...");
-            Record(acc, ("enrichment", acq.Enrichment), ("screen_evidence", acq.Evidence));
+            Log($"{acc} screened as enriched ({acq.Enrichment}); searching and annotating: ...{acq.EnrichmentEvidence}...");
+            Record(acc, ("enrichment", acq.Enrichment), ("enrichment_evidence", acq.EnrichmentEvidence), ("screen_evidence", acq.Evidence));
         }
         if (route.Kind != RouteKind.Search)
         {
@@ -1560,14 +1560,29 @@ public sealed class BatchRunner
                 continue;
             }
             string aside = Aside(d);
-            if (Directory.Exists(d)) Directory.Move(d, aside);
-            Log($"{acc} SEARCH INTERRUPTED: {why}. " + (Directory.Exists(aside) ? $"Output moved to {Path.GetFileName(aside)}; " : "")
+            bool moved = Directory.Exists(d);
+            if (moved) Directory.Move(d, aside);
+            // v0.4.17 (PXD044227): the design the cut-off search wrote beside the spectra goes with its output. Left there,
+            // the re-probe of three files read the whole deposit's design and MetaMorpheus refused it.
+            string design = Path.Combine(Run(acc), "02_fetch", "spectra", Search.DesignStage.FileName);
+            bool designMoved = File.Exists(design);
+            if (designMoved)
+            {
+                string into = Path.Combine(aside, InterruptedSpectraFolder);
+                Directory.CreateDirectory(into);
+                File.Move(design, Path.Combine(into, Search.DesignStage.FileName));
+            }
+            Log($"{acc} SEARCH INTERRUPTED: {why}. " + (moved ? $"Output moved to {Path.GetFileName(aside)}; " : "")
+                + (designMoved ? $"its {Search.DesignStage.FileName} moved to {Path.GetFileName(aside)}/{InterruptedSpectraFolder}; " : "")
                 + $"searched again on this run ({n} of {MaxDriverInterruptions}).");
             Record(acc, ("status", "search_interrupted"), ("driver_interruptions", n), ("detail", why));
         }
     }
 
     private const int MaxDriverInterruptions = 3;
+
+    /// <summary>The folder, inside an interrupted search's set-aside output, that takes what it left beside the spectra.</summary>
+    internal const string InterruptedSpectraFolder = "from_02_fetch_spectra";
 
     /// <summary><c>04_search.interrupted-&lt;utc&gt;</c>, made unique: two interruptions can fall in one second.</summary>
     private static string Aside(string d)

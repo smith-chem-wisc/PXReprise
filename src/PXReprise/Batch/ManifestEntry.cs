@@ -103,8 +103,11 @@ public static class ManifestEntry
         }
         if (enrichment != "none")
         {
-            string ev = (state?["screen_evidence"]?.GetValue<string>() ?? "").Replace('"', '\'');
-            notes.Add($"ENRICHED ({enrichment}): the deposit's own text says '...{ev}...'. Intensities describe the enriched material, not the whole proteome; never pool them with whole proteomes as abundance.");
+            // v0.4.17: the enrichment's own words (enrichment_evidence); screen_evidence is the acquisition call's, which a
+            // state written before 0.4.17 holds instead, usually empty.
+            string ev = (state?["enrichment_evidence"]?.GetValue<string>() ?? state?["screen_evidence"]?.GetValue<string>() ?? "").Replace('"', '\'');
+            string says = ev.Length > 0 ? $"the deposit's own text says '...{ev}...'" : "the deposit's own text names an enrichment";
+            notes.Add($"ENRICHED ({enrichment}): {says}. Intensities describe the enriched material, not the whole proteome; never pool them with whole proteomes as abundance.");
             flags.Add("enriched");
         }
         // PXR-A88 (aging 082): the probe search's measurement used to stop at state.json, so an enrichment the text did not

@@ -7,6 +7,28 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.17 (2026-10-14)
+
+No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual. A deposit already
+delivered keeps the enrichment it was screened with; correct one in the manifest by hand. A deposit parked
+`probe_search_failed` by a leftover design is taken up again by the next driver on its own.
+
+- **A probe search no longer reads a design left beside the spectra.** Every full search writes
+  `ExperimentalDesign.tsv` beside the spectra, naming all of its files, and MetaMorpheus reads a design there on every
+  run, whether it quantifies or not. When a reboot cut off a 61-file search, the deposit's re-probe of 3 files read that
+  design and MetaMorpheus stopped (`Condition "all" biorep 2 is missing!`). A retry or re-search of a searched deposit
+  could meet the same leftover. The probe now removes a leftover design before it runs; the full search writes its own afresh,
+  as before. An interrupted search's design is moved aside with its output. A `TmtDesign.txt` there stops the probe or
+  a search with a design: PXReprise writes none, so one was put there by hand.
+- **"Lectin" inside another word no longer makes a deposit glyco-enriched.** A FLAG/HA immunoprecipitation was screened
+  as glyco because its protocol said "collecting the FLAG peptide eluate", and glyco is checked before
+  immunoprecipitation. "Selecting" and "reflecting" did the same. Lectin now counts only as a word ("lectin affinity
+  enrichment", "lectins").
+- **An enriched deposit's log line and manifest note quote the words that made it enriched.** They quoted the text
+  behind the acquisition and labelling calls instead, which is empty for nearly every enriched deposit, so the note read
+  "the deposit's own text says '......'". The screen now keeps the enrichment's own words (`enrichment_evidence` in the
+  batch state, and the `enrichment` fact of the experiment record).
+
 ## 0.4.16 (2026-10-13)
 
 No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual. A deposit settled

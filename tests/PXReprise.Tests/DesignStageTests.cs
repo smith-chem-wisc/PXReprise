@@ -56,6 +56,22 @@ public class DesignStageTests
         Assert.That(File.Exists(Path.Combine(spectra, DesignStage.FileName)), Is.False, "a stale design is never left behind");
     }
 
+    // v0.4.17: MetaMorpheus reads a design beside the first spectra file on every run. Ours is removed before a search that
+    // brings none; a TMT design, which PXReprise never writes, was put there by hand and stops the search instead.
+    [Test]
+    public void AStaleDesignIsRemovedAndAHandPlacedTmtDesignRefused()
+    {
+        var (spectra, _, files) = Run();
+        Assert.That(DesignStage.RemoveStale(spectra), Is.False);
+        File.WriteAllText(Path.Combine(spectra, DesignStage.FileName), "stale");
+        Assert.That(DesignStage.RemoveStale(spectra), Is.True);
+        Assert.That(File.Exists(Path.Combine(spectra, DesignStage.FileName)), Is.False);
+        File.WriteAllText(Path.Combine(spectra, DesignStage.TmtFileName), "by hand");
+        Assert.That(Assert.Throws<SearchSetupException>(() => DesignStage.RemoveStale(spectra))!.Message, Does.Contain(DesignStage.TmtFileName));
+        Assert.Throws<SearchSetupException>(() => DesignStage.Prepare(spectra, files, null, null, "mouse", "PXD000001"));
+        Assert.That(File.Exists(Path.Combine(spectra, DesignStage.TmtFileName)), Is.True, "never removed");
+    }
+
     [Test]
     public void ADepositSdrfIsUsedWhenValidAndEveryRefusalIsRecorded()
     {

@@ -24,6 +24,9 @@ public enum InstrumentClass { OrbitrapHcdOnly, OrbitrapHybrid, Astral, Timstof, 
 /// <see cref="NonspecificCleavage"/>: the peptides were not made by a protease the profiles search with: MHC/HLA
 /// immunopeptidomes and endogenous peptidomes (PXD034059 and PXD058775: about 0.0015 identification rate under a tryptic
 /// search, aging 030).
+/// <see cref="Evidence"/>: the text behind the acquisition, labelling, crosslinking, nonspecific-cleavage or top-down call.
+/// <see cref="EnrichmentEvidence"/>: the text behind <see cref="Enrichment"/> (v0.4.17; null when it is "none"). Before, an
+/// enrichment had no evidence of its own, and its log line and manifest note quoted <see cref="Evidence"/>, usually empty.
 /// </summary>
 public sealed record Acquisition(
     AcquisitionMode Mode,
@@ -34,7 +37,8 @@ public sealed record Acquisition(
     string? Evidence,
     bool Crosslinked = false,
     bool NonspecificCleavage = false,
-    bool TopDown = false)
+    bool TopDown = false,
+    string? EnrichmentEvidence = null)
 {
     public int MsFileCount => MsFiles.Values.Sum();
 }
@@ -127,7 +131,8 @@ public static class AcquisitionClassifier
         ("ubiquitin_GG", new(@"\bk-?gg\b|di-?gly(cine)? remnant|ubiquitin remnant", Opt)),
         ("acetyl", new(AcylEnrichment("acetyl"), Opt)),
         ("succinyl", new(AcylEnrichment("succinyl"), Opt)),
-        ("glyco", new(@"glyco(peptide)?[- ]?enrich|lectin", Opt)),
+        // v0.4.17 (aging 108, PXR-A107): "lectin" as a word. Inside "collecting" it made a FLAG/HA immunoprecipitation glyco.
+        ("glyco", new(@"glyco(peptide)?[- ]?enrich|\blectins?\b", Opt)),
         ("proximity_labelling", new(@"\bturboid\b|\bbioid\b|\bapex2\b|proximity[- ]labell?ing", Opt)),
         ("chemical_probe", new(@"kinobead|chemical probe|activity-based probe|\bdcp-?bio", Opt)),
         ("immunoprecipitation", new(@"immunoprecipitat|\bco-?ip\b|\bip-ms\b|\blyso-?ip\b", Opt)),
@@ -161,9 +166,15 @@ public static class AcquisitionClassifier
         string prose = string.Join(" ", r.Title, r.ProjectDescription, r.SampleProcessingProtocol, r.DataProcessingProtocol);
         var topDown = TopDownText.Match(prose);
         string? tag = r.ProjectTags.FirstOrDefault(t => NonspecificCleavageTag.IsMatch(t));
-        string enrichment = Enriched.IsMatch(text)
-            ? EnrichmentKinds.FirstOrDefault(k => k.Pattern.IsMatch(text)).Kind ?? "other"
-            : "none";
+        string enrichment = "none";
+        string? enrichmentEvidence = null;
+        if (Enriched.Match(text) is { Success: true } enriched)
+        {
+            // The kind's own words are its evidence; "other" has only the words that said "enriched".
+            var (kind, match) = EnrichmentKinds.Select(k => (k.Kind, Match: k.Pattern.Match(text))).FirstOrDefault(k => k.Match.Success);
+            enrichment = kind ?? "other";
+            enrichmentEvidence = Snippet(text, match ?? enriched);
+        }
         var evidence = new[] { nonspecific, dia, xl ?? Match.Empty }.Concat(labels.Select(l => l.Item1)).FirstOrDefault(m => m.Success);
         return new Acquisition(
             dia.Success ? AcquisitionMode.Dia : AcquisitionMode.Dda,
@@ -174,7 +185,8 @@ public static class AcquisitionClassifier
             evidence is not null ? Snippet(text, evidence) : topDown.Success ? Snippet(prose, topDown) : tag is not null ? $"project tag: {tag}" : null,
             xl is not null,
             nonspecific.Success || tag is not null,
-            topDown.Success);
+            topDown.Success,
+            enrichmentEvidence);
     }
 
     /// <summary>The text that says the deposit is crosslinking MS, or null.</summary>
