@@ -7,6 +7,32 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.19 (2026-10-15)
+
+No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual. No profile version
+changes and nothing is searched again. Add a `species` exception to a question only once its batch runs 0.4.19: 0.4.18
+refuses the key, and a batch that cannot read its question does not start.
+
+- **A deposit digested with pepsin or proteinase K waits instead of being searched for nothing.** The chemistry reader
+  maps both to MetaMorpheus's `non-specific` protease. A Classic search with that protease makes no peptide as long as
+  the profile's minimum, so the probe search of a pepsin deposit found nothing in 25 seconds, and the deposit was
+  parked `waiting_no_identifications`, as if a person had to work out what it was. It now waits
+  `waiting_nonspecific_cleavage` before any download, as an immunopeptidome does, until a profile searches
+  non-specific cleavage. A deposit parked the old way is moved by `batch retry`.
+- **A deposit whose PRIDE record names an organism outside the question waits for a person.** A record named mouse
+  and the killifish *Nothobranchius furzeri*; the queue took mouse, and 34 killifish runs were searched as mouse beside
+  20 mouse runs. Before any download, the record's organisms are now compared with the question's `organisms`. One
+  outside the list parks the deposit `waiting_other_organism`, listed in `decisions_needed.tsv`. An `[exceptions]`
+  entry that selects the runs (`include_files` / `exclude_files`) or names the `species` is the answer, and the deposit
+  then gets one more look by itself. A question with no `organisms` list is not checked. Deposits already searched are
+  checked when they are searched again.
+- **`[exceptions] species`: the organism a deposit is searched as.** A deposit filed under the wrong organism in PRIDE
+  (rat filed as mouse) is searched as the organism the question names: a database key of its profiles, such as
+  `"rat"`. The database, the species the probe expects, the spectral library and the delivered taxon all follow it,
+  and the experiment record says where it came from. `validate` and `batch run` refuse a key that no profile of the
+  question has a database for.
+- **The question file's `[exceptions]` table is now documented** (Questions page).
+
 ## 0.4.18 (2026-10-15)
 
 No MetaMorpheus change. **Machine file:** no change; `min_free_gb` now also governs every download. **Safe mid-batch?**

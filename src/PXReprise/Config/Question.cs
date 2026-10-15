@@ -79,6 +79,8 @@ public sealed record DesignSettings(string Dir, IReadOnlyList<string> ConditionC
 /// <see cref="Alkylation"/> (v0.4.15, PXR-A99): <c>"none"</c> states that the deposit's cysteines were never alkylated, so
 /// it is searched with no cysteine modification, whatever its text or PRIDE's list says (PXD015239: no reduction or
 /// alkylation step, 0.2-0.4% cysteine peptides). It is the only value: another alkylant is named in a curated SDRF.
+/// <see cref="Species"/> (v0.4.19, aging PXR-A109): the organism the deposit is searched as, a key of the profiles'
+/// <c>[databases]</c> (<c>"rat"</c>), over the one the queue read from PRIDE's record (PXD068498: rat, filed as mouse).
 /// </summary>
 public sealed record DepositException(
     string Accession,
@@ -89,7 +91,8 @@ public sealed record DepositException(
     int? MaxFileMb = null,
     long? MaxEstimatedMs2 = null,
     int? DeferIfMedianFileMb = null,
-    string? Alkylation = null)
+    string? Alkylation = null,
+    string? Species = null)
 {
     public const string NoAlkylation = "none";
 
@@ -118,6 +121,7 @@ public sealed record DepositException(
         if (MaxEstimatedMs2 is { } me) parts.Add($"max_est_ms2 {me}");
         if (DeferIfMedianFileMb is { } dm) parts.Add($"defer_if_median_file_mb {dm}");
         if (Alkylation is { } alk) parts.Add($"alkylation {alk}");
+        if (Species is { } sp) parts.Add($"species {sp}");
         return $"{string.Join(", ", parts)} ({Reason})";
     }
 }

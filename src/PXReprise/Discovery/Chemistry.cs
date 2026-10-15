@@ -91,6 +91,10 @@ public static class ChemistryDetector
     };
     private const string Trypsin = "trypsin";
     private const string LysC = "Lys-C|P";
+    private const string NonSpecific = "non-specific";
+
+    /// <summary>The wait of a deposit whose protease cuts almost anywhere (v0.4.19); the screen gives the same status to an immunopeptidome.</summary>
+    public const string NonspecificCleavagePark = "waiting_nonspecific_cleavage";
 
     /// <summary>
     /// The spellings each protease may have in the pinned mzLib, preferred first. mzLib #1186 (open) renames the |P
@@ -457,6 +461,10 @@ public static class ChemistryDetector
         }
         else if (ResolveProtease(protease.Value) is { } name) protease = protease with { Value = name };
         else park ??= "waiting_unknown_protease";
+        // v0.4.19 (PXD036532, pepsin): MetaMorpheus's non-specific protease in a Classic search makes no peptide of the
+        // profile's minimum length, so the probe found 0 PSMs in 25 s. Such a deposit waits, as an immunopeptidome does,
+        // for a profile that searches non-specific cleavage (a capability, not a person's decision).
+        if (protease.Value == NonSpecific || perFile?.Values.Contains(NonSpecific) == true) park ??= NonspecificCleavagePark;
         if (mods.Any(m => m.MetaMorpheusId is null)) park ??= "waiting_unknown_modification";
 
         return new DepositChemistry(protease, perFile, alkylation, mods, label, park);

@@ -64,6 +64,7 @@ public static class Program
                 var missing = q.Profiles.Where(p => !profiles.ContainsKey(p)).ToList();
                 if (missing.Count > 0)
                     throw new ConfigException(file, $"profile(s) not defined: {string.Join(", ", missing)}");
+                QuestionLoader.CheckAgainstProfiles(q, profiles);
                 // [designs]: the folder must exist, and the deposits it holds a design for are listed (aging 030 asked
                 // whether validate reads it). Each design is checked against the deposit's files when it is searched.
                 if (q.Designs is { } dg && !Directory.Exists(dg.Dir))

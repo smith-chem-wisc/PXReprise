@@ -117,12 +117,17 @@ public static class QuestionLoader
                 string? alkylation = t.OptionalString("alkylation");
                 if (alkylation is not null && alkylation != DepositException.NoAlkylation)
                     throw new ConfigException(file, $"exceptions.{acc}.alkylation can only be \"{DepositException.NoAlkylation}\" (got '{alkylation}'): name another alkylant in a curated SDRF");
+                // A profile database key ("rat"), as the queue names organisms; whether a profile has it is checked
+                // against the profiles (CheckAgainstProfiles), which this file does not load.
+                string? species = t.OptionalString("species");
+                if (species is not null && !Regex.IsMatch(species, "^[a-z]+(_[a-z]+)*$"))
+                    throw new ConfigException(file, $"exceptions.{acc}.species must be a profile database key such as \"rat\" (got '{species}')");
                 var e = new DepositException(acc, t.RequiredString("reason"), Rx("include_files"), Rx("exclude_files"),
-                    Int("max_files"), Int("max_file_mb"), t.OptionalInteger("max_est_ms2"), Int("defer_if_median_file_mb"), alkylation);
+                    Int("max_files"), Int("max_file_mb"), t.OptionalInteger("max_est_ms2"), Int("defer_if_median_file_mb"), alkylation, species);
                 t.RefuseUnknownKeys();
                 if (!e.SelectsFiles && e.MaxFiles is null && e.MaxFileMb is null && e.MaxEstimatedMs2 is null && e.DeferIfMedianFileMb is null
-                    && e.Alkylation is null)
-                    throw new ConfigException(file, $"exceptions.{acc} changes nothing: give a cap, include_files / exclude_files, or alkylation");
+                    && e.Alkylation is null && e.Species is null)
+                    throw new ConfigException(file, $"exceptions.{acc} changes nothing: give a cap, include_files / exclude_files, alkylation or species");
                 exceptions[acc] = e;
             }
             ex.RefuseUnknownKeys();
@@ -134,6 +139,18 @@ public static class QuestionLoader
             traitsSource, holds, studyLayer, batch,
             new PublishSettings(manifest is null ? null : Abs(dir, manifest), command, everyHours, publishTimeout), designs,
             new DiscoverLists(diseaseKeywords, watchKeywords), exceptions);
+    }
+
+    /// <summary>
+    /// What the question file alone cannot check: each <c>[exceptions]</c> <c>species</c> is a database key of at least
+    /// one of the question's profiles (v0.4.19). Run by <c>validate</c> and before a batch starts.
+    /// </summary>
+    public static void CheckAgainstProfiles(Question q, IReadOnlyDictionary<string, Profile> profiles)
+    {
+        var keys = q.Profiles.Where(profiles.ContainsKey).SelectMany(p => profiles[p].Databases.Keys).ToHashSet(StringComparer.Ordinal);
+        foreach (var e in q.Exceptions?.Values ?? Enumerable.Empty<DepositException>())
+            if (e.Species is { } sp && !keys.Contains(sp))
+                throw new ConfigException(q.SourceFile, $"exceptions.{e.Accession}.species '{sp}' is not a database of the question's profiles ({string.Join(", ", keys.Order(StringComparer.Ordinal))})");
     }
 
     /// <summary>A path in a question file is relative to the file, so a project folder can move.</summary>

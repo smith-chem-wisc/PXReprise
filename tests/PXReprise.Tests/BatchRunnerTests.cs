@@ -176,6 +176,78 @@ public class BatchRunnerTests
         Assert.That(ex.Apply(Profiles["label-free-dda@4"].Deposit).MaxEstimatedMs2, Is.Zero);
     }
 
+    // v0.4.19 (aging PXR-A109): PXD068498 is rat, filed as mouse in PRIDE. The exception names a profile database key, and
+    // the deposit is searched (database, probe judge, library, manifest taxon) as that organism.
+    [Test]
+    public void ASpeciesExceptionReplacesTheQueuesOrganism()
+    {
+        var (runner, _, _, dir) = Runner("[exceptions.PXD068498]\nreason = \"rat, not mouse (PXR-A109)\"\nspecies = \"rat\"\n");
+        var e = runner.WithQuestionSpecies(new QueueEntry("PXD068498", "t", "mouse"));
+        Assert.That((e.Organism, e.QueuedOrganism), Is.EqualTo(("rat", "mouse")));
+        Assert.That(runner.WithQuestionSpecies(new QueueEntry("PXD000203", "t", "human")), Is.EqualTo(new QueueEntry("PXD000203", "t", "human")));
+        Assert.That(QuestionLoader.Load(Path.Combine(dir, "question.toml")).ExceptionFor("PXD068498")!.Describe(),
+            Is.EqualTo("species rat (rat, not mouse (PXR-A109))"));
+
+        // PRIDE's spelling is not a database key: refused when the question is read. A key no profile of the question has
+        // is refused before a batch starts (and by validate).
+        string Q(string species) => TestSupport.MinimalQuestion + "\n[batch]\nrun_root = \"runs\"\nstate_dir = \"state\"\nqueue = \"queue.json\"\n"
+            + $"[exceptions.PXD068498]\nreason = \"x\"\nspecies = \"{species}\"\n";
+        var spelled = Assert.Throws<ConfigException>(() => QuestionLoader.Load(TestSupport.WriteFile(dir, "b.toml", Q("Rattus norvegicus"))));
+        Assert.That(spelled!.Message, Does.Contain("database key"));
+        var fish = QuestionLoader.Load(TestSupport.WriteFile(dir, "c.toml", Q("killifish")));
+        var none = Assert.Throws<ConfigException>(() => QuestionLoader.CheckAgainstProfiles(fish, Profiles));
+        Assert.That(none!.Message, Does.Contain("'killifish' is not a database of the question's profiles (human, mouse, rat)"));
+        Assert.Throws<ConfigException>(() => new BatchRunner(fish, Profiles, Machine.Load(Path.Combine(dir, "machine.toml")), new FakeFiles(), new FakeSearch(), "2026-10-15"));
+    }
+
+    // v0.4.19 (PXD018399, aging 112): its record names mouse and Nothobranchius furzeri, and the 34 killifish runs were
+    // searched as mouse beside the 20 mouse runs. A record that names an organism outside the question waits for a
+    // person, before any download; an exception that selects the runs (or names the species) is the answer.
+    [Test]
+    public async Task ARecordNamingAnOrganismOutsideTheQuestionWaitsForAPerson()
+    {
+        var (runner, search, files, dir) = Runner();
+        files.Listing = new() { new PrideArchiveFile { FileName = "human_1.raw", FileSizeBytes = 500_000_000 } };
+        foreach (string acc in new[] { "PXD018399", "PXD000502", "PXD000503" })
+        {
+            search.Results[acc] = new() { TestSupport.Record(acc, "Type 2 diabetes aggregates") };
+            search.Projects[acc] = FakeSearch.Project(acc, "Homo sapiens (human)", "Nothobranchius furzeri");
+        }
+        Assert.That(await runner.ProbeAsync(new QueueEntry("PXD018399", "t", "human"), CancellationToken.None), Is.Null);
+        Assert.That(runner.Settled("PXD018399"), Is.EqualTo("waiting_other_organism"));
+        Assert.That(files.Downloads, Is.Zero, "parked before any download");
+        var row = File.ReadAllLines(Path.Combine(dir, "runs", DecisionsNeeded.FileName)).Skip(1).Single().Split('\t');
+        Assert.That((row[1], row[2], row[4]), Is.EqualTo(("PXD018399", "waiting_other_organism",
+            "the PRIDE project record names Homo sapiens (human); Nothobranchius furzeri; outside the question: Nothobranchius furzeri")));
+        Assert.That(row[5], Does.Contain("[exceptions] species"));
+
+        // The question's answer gives it one more look, and it goes ahead: runs selected, or the species named.
+        string Q(string body) => TestSupport.MinimalQuestion + "\n[batch]\nrun_root = \"runs\"\nstate_dir = \"state\"\nqueue = \"queue.json\"\n" + body;
+        var answered = new BatchRunner(QuestionLoader.Load(TestSupport.WriteFile(dir, "q2.toml", Q(
+                "[exceptions.PXD018399]\nreason = \"the human runs only\"\nexclude_files = \"^fish_\"\n"
+                + "[exceptions.PXD000502]\nreason = \"all human\"\nspecies = \"human\"\n"
+                + "[exceptions.PXD000503]\nreason = \"a cap answers nothing\"\nmax_files = 5\n"))),
+            Profiles, Machine.Load(Path.Combine(dir, "machine.toml")), files, search, "2026-09-28") { Sha1Source = NoSha1 };
+        Assert.That(answered.Settled("PXD018399"), Is.Empty, "an exception added after the park earns one more look");
+        await answered.ProbeAsync(new QueueEntry("PXD018399", "t", "human"), CancellationToken.None);
+        Assert.That(answered.Settled("PXD018399"), Is.Not.EqualTo("waiting_other_organism"));
+        int afterSelection = files.Downloads;
+        Assert.That(afterSelection, Is.GreaterThan(0), "the probe went ahead");
+        await answered.ProbeAsync(new QueueEntry("PXD000502", "t", "human"), CancellationToken.None);
+        Assert.That(files.Downloads, Is.GreaterThan(afterSelection), "a named species is an answer too");
+
+        // An exception that does not say which runs or what they are parks it again, once, and records itself: no loop.
+        await answered.ProbeAsync(new QueueEntry("PXD000503", "t", "human"), CancellationToken.None);
+        Assert.That(answered.Settled("PXD000503"), Is.EqualTo("waiting_other_organism"));
+
+        // A record whose organisms are all the question's is not held.
+        search.Results["PXD000504"] = new() { TestSupport.Record("PXD000504", "Type 2 diabetes muscle") };
+        search.Projects["PXD000504"] = FakeSearch.Project("PXD000504", "Homo sapiens (human)");
+        int before = files.Downloads;
+        await runner.ProbeAsync(new QueueEntry("PXD000504", "t", "human"), CancellationToken.None);
+        Assert.That(files.Downloads, Is.GreaterThan(before));
+    }
+
     // v0.4.15 (PXR-A99, aging 098): PXD015239's protocol has no reduction or alkylation step.
     [Test]
     public void AnAlkylationExceptionSaysNoneAndNothingElse()
