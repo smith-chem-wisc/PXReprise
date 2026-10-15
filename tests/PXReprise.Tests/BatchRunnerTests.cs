@@ -666,13 +666,23 @@ public class BatchRunnerTests
         var done = new QueueEntry("PXD000219", "t", "human");
         string doneSearch = Path.Combine(dir, "runs", "PXD000219", "04_search");
         Directory.CreateDirectory(doneSearch);
-        File.WriteAllText(Path.Combine(doneSearch, "provenance.json"), "{}");
+        File.WriteAllText(Path.Combine(doneSearch, "provenance.json"), "{\"success\": true}");
         runner.Record("PXD000219", ("status", "searching"));
         runner.Record("PXD000220", ("status", "probing"));
         runner.RecoverInterruptedSearches(new[] { done, new QueueEntry("PXD000220", "t", "human") });
         Assert.That(File.Exists(Path.Combine(doneSearch, "provenance.json")), Is.True);
         Assert.That(runner.State()["datasets"]!["PXD000219"]!["status"]!.GetValue<string>(), Is.EqualTo("searching"));
         Assert.That(runner.State()["datasets"]!["PXD000220"]!["status"]!.GetValue<string>(), Is.EqualTo("probing"));
+
+        // v0.4.18 (PXD008990, 2026-10-15): a search that failed when the full disk also refused its record is settled now.
+        var lost = new QueueEntry("PXD000221", "t", "human");
+        string lostSearch = Path.Combine(dir, "runs", "PXD000221", "04_search");
+        Directory.CreateDirectory(lostSearch);
+        File.WriteAllText(Path.Combine(lostSearch, "provenance.json"), "{\"success\": false, \"exit_code\": 4}");
+        runner.Record("PXD000221", ("status", "searching"));
+        runner.RecoverInterruptedSearches(new[] { lost });
+        Assert.That(runner.Settled("PXD000221"), Is.EqualTo("search_failed"));
+        Assert.That(File.Exists(Path.Combine(lostSearch, "provenance.json")), Is.True, "the failed output stays for batch retry to move aside");
     }
 
     // v0.4.17 (PXD044227, 2026-10-14): a reboot cut off the full search of 61 files. Its 04_search was moved aside, but the
@@ -1127,6 +1137,27 @@ public class BatchRunnerTests
         Assert.That(runner.State()["datasets"]!["PXD000209"]!["detail"]!.GetValue<string>(), Does.StartWith("HttpRequestException: h0.raw"));
     }
 
+    // v0.4.18: a fetch that would cross the disk floor pauses the deposit (unsettled) and stops the driver taking new ones.
+    [Test]
+    public async Task AFetchAtTheDiskFloorPausesTheDepositAndStopsTheWalk()
+    {
+        var (runner, search, files, dir) = Runner(extraMachine: "fetch_attempts = 1\npass_wait_minutes = 0\n");
+        search.Results["PXD000208"] = new() { TestSupport.Record("PXD000208", "Type 2 diabetes muscle") };
+        search.Results["PXD000210"] = new() { TestSupport.Record("PXD000210", "Type 2 diabetes liver") };
+        files.Listing = Enumerable.Range(0, 5).Select(i => new PrideArchiveFile { FileName = $"h{i}.raw", FileSizeBytes = 500_000_000 }).ToList();
+        runner.FloorForTest = new Fetch.DiskFloor(() => 10, 9);
+        await runner.RunAsync(new[] { new QueueEntry("PXD000208", "t", "human"), new QueueEntry("PXD000210", "t", "human") }, CancellationToken.None);
+
+        var ds = runner.State()["datasets"]!;
+        Assert.That(ds["PXD000208"]!["status"]!.GetValue<string>(), Is.EqualTo("fetch_paused_disk"));
+        Assert.That(runner.Settled("PXD000208"), Is.Empty, "the next driver takes it up");
+        Assert.That(ds["PXD000210"], Is.Null, "no further deposit was started");
+        Assert.That(files.Downloads, Is.Zero);
+        string log = File.ReadAllText(Path.Combine(dir, "state", "batch.log"));
+        Assert.That(log, Does.Contain("PXD000208 PROBE fetch paused at the disk floor").And.Contain("a fetch reached the disk floor"));
+        Assert.That(log, Does.Not.Contain("pass 1 done").And.Not.Contain("queue done"));
+    }
+
     [Test]
     public void BatchRetryRequeuesASettledDepositAndRecordsWhy()   // first-run 2026-10-03: un-settling meant editing state.json
     {
@@ -1147,8 +1178,18 @@ public class BatchRunnerTests
         Assert.Throws<PXReprise.Cli.UsageException>(() => BatchRunner.Requeue(state, runs, "PXD999999", "x"), "not in the state");
         Assert.Throws<PXReprise.Cli.UsageException>(() => BatchRunner.Requeue(state, runs, "PXD000209", " "), "a reason is required");
         Directory.CreateDirectory(Path.Combine(runs, "PXD000209", "04_search"));
-        File.WriteAllText(Path.Combine(runs, "PXD000209", "04_search", "provenance.json"), "{}");
+        File.WriteAllText(Path.Combine(runs, "PXD000209", "04_search", "provenance.json"), "{\"success\": true}");
         Assert.That(() => BatchRunner.Requeue(state, runs, "PXD000209", "x"), Throws.TypeOf<PXReprise.Cli.UsageException>().With.Message.Contains("finished search"));
+
+        // v0.4.18: a failed search is retried: its output is moved aside (never deleted) and the raw files stay.
+        File.WriteAllText(Path.Combine(runs, "PXD000209", "04_search", "provenance.json"), "{\"success\": false}");
+        Directory.CreateDirectory(Path.Combine(runs, "PXD000209", "02_fetch", "spectra"));
+        File.WriteAllText(Path.Combine(runs, "PXD000209", "02_fetch", "spectra", "a.raw"), "raw");
+        BatchRunner.Requeue(state, runs, "PXD000209", "search failed on a full disk");
+        Assert.That(Directory.Exists(Path.Combine(runs, "PXD000209", "04_search")), Is.False);
+        Assert.That(Directory.GetDirectories(Path.Combine(runs, "PXD000209"), "04_search.failed-*"), Has.Length.EqualTo(1));
+        Assert.That(File.Exists(Path.Combine(runs, "PXD000209", "02_fetch", "spectra", "a.raw")), Is.True);
+        Assert.That(runner.State()["datasets"]!["PXD000209"]!["requeued"]!.AsArray()[^1]!["failed_search_moved_to"]!.GetValue<string>(), Does.StartWith("04_search.failed-"));
     }
 
     [Test]

@@ -58,10 +58,30 @@ public sealed record FetchRequest(string Accession, string OutDir, Pick Pick, in
     int ParallelDownloads, int MaxAttempts, TimeSpan Backoff, TimeSpan ListingBackoff, string WorkRoot,
     TimeSpan StallAfter = default, FileSelection? Select = null,
     [property: System.Text.Json.Serialization.JsonIgnore] Func<string, CancellationToken, Task<IReadOnlyDictionary<string, string>>>? Sha1Source = null,
-    AsperaClient? Aspera = null, PrideHttps Https = PrideHttps.Globus);
+    AsperaClient? Aspera = null, PrideHttps Https = PrideHttps.Globus,
+    [property: System.Text.Json.Serialization.JsonIgnore] DiskFloor? Floor = null);
 
 /// <summary>Which raw files of a deposit a question searches, and why (<c>[exceptions]</c>, PXReprise D28).</summary>
 public sealed record FileSelection([property: System.Text.Json.Serialization.JsonIgnore] Func<string, bool> Keeps, string Reason);
+
+/// <summary>A fetch would take the disk below the machine's floor (<c>min_free_gb</c>). Nothing is wrong with the deposit.</summary>
+public sealed class DiskFloorException(string message) : Exception(message);
+
+/// <summary>
+/// v0.4.18: the machine's free-space floor, checked by the fetch itself. Before v0.4.18 the batch checked it only before
+/// a deposit started: on 2026-10-15 PXD039172's 98 files (95 GB) began downloading with 125 GB free while PXD008990's
+/// search and aging's publish were writing, and F: reached 0 bytes (the search and the publish both failed on it).
+/// </summary>
+public sealed record DiskFloor(Func<double> FreeGb, double MinFreeGb)
+{
+    /// <summary>Throws <see cref="DiskFloorException"/> when writing <paramref name="bytes"/> more would leave less than the floor.</summary>
+    public void Check(long bytes, string what)
+    {
+        double free = FreeGb(), after = free - bytes / 1e9;
+        if (after < MinFreeGb)
+            throw new DiskFloorException($"{what} need {bytes / 1e9:0.0} GB more; {free:0} GB free would leave {after:0} GB, below the {MinFreeGb:0} GB floor");
+    }
+}
 
 /// <summary>
 /// One accession's raw files (and SDRF, if deposited), with the engine's retry policy. mzLib's client never retries
@@ -109,6 +129,13 @@ public static class FetchStage
             case Pick.ProbeSpread when bySize.Count > 0: return ProbeSpread(bySize);
             default: return bySize.Take(maxFiles).ToList();
         }
+    }
+
+    /// <summary>What a file still adds to the disk: all of it, less a copy already there (that one is checked, not fetched again).</summary>
+    internal static long StillToFetch(PrideArchiveFile f, string spectraDir)
+    {
+        string p = Path.Combine(spectraDir, f.FileName);
+        return Math.Max(0, f.FileSizeBytes - (File.Exists(p) ? new FileInfo(p).Length : 0));
     }
 
     /// <param name="log">Progress lines (each file done, each retry with its exception type); null for none.</param>
@@ -166,6 +193,9 @@ public static class FetchStage
 
         string spectraDir = Path.Combine(outDir, "spectra"), metaDir = Path.Combine(outDir, "metadata");
         Directory.CreateDirectory(spectraDir);
+        // The whole selection must fit above the floor before anything is downloaded; each file is checked again as it
+        // starts, since searches and a publish write to the same disk meanwhile (v0.4.18).
+        r.Floor?.Check(chosen.Sum(f => StillToFetch(f, spectraDir)), $"{r.Accession}'s {chosen.Count} raw file(s)");
         prov.Command(new[] { "mzLib.PrideArchiveClient.DownloadFileAsync" }.Concat(chosen.Concat(sdrfs).Select(f => f.FileName)).Append("overwrite=False"));
         var results = new (string Path, double Seconds, int Attempts)[chosen.Count];
         int done = 0;
@@ -180,6 +210,7 @@ public static class FetchStage
                 await gate.WaitAsync(ct).ConfigureAwait(false);
                 try
                 {
+                    r.Floor?.Check(StillToFetch(f, spectraDir), f.FileName);
                     results[i] = await DownloadWithRetry(pride, f, spectraDir, r.MaxAttempts, r.Backoff, ct, r.StallAfter, log,
                         expectedChecksum: sha1.GetValueOrDefault(f.FileName), verify: true, aspera: r.Aspera, https: r.Https).ConfigureAwait(false);
                     var (_, s, a) = results[i];

@@ -189,19 +189,31 @@ public sealed class BatchRunner
         string pidFile = Path.Combine(stateDir, "driver.pid"), stateFile = Path.Combine(stateDir, "state.json");
         if (string.IsNullOrWhiteSpace(reason)) throw new UsageException("--reason must say why the deposit is retried");
         if (LiveDriver(pidFile) is int pid) throw new UsageException($"a batch driver is running as pid {pid}; stop it (batch stop) and let it exit first");
-        if (File.Exists(Path.Combine(runRoot, acc, "04_search", "provenance.json")))
-            throw new UsageException($"{acc} has a finished search; there is nothing to retry");
+        string search = Path.Combine(runRoot, acc, "04_search"), searchProv = Path.Combine(search, "provenance.json");
+        bool failedSearch = File.Exists(searchProv) && JsonNode.Parse(File.ReadAllText(searchProv))?["success"]?.GetValue<bool>() != true;
+        if (File.Exists(searchProv) && !failedSearch)
+            throw new UsageException($"{acc} has a finished search; there is nothing to retry (batch research searches it again)");
         if (!File.Exists(stateFile)) throw new UsageException($"no {stateFile}: the batch has not run");
         var st = JsonNode.Parse(File.ReadAllText(stateFile))!.AsObject();
         if (st["datasets"]?[acc] is not JsonObject e) throw new UsageException($"{acc} is not in {stateFile}");
         string now = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'+00:00'");
         string previous = e["status"]?.GetValue<string>() ?? "?";
+        // v0.4.18: a failed search's output is moved aside, never deleted; the raw files stay and are checked, not fetched again.
+        string? movedTo = null;
+        if (failedSearch)
+        {
+            string stamp = search + $".failed-{DateTime.UtcNow:yyyyMMdd'T'HHmmss'Z'}";
+            movedTo = stamp;
+            for (int k = 2; Directory.Exists(movedTo) || File.Exists(movedTo); k++) movedTo = $"{stamp}-{k}";
+            Directory.Move(search, movedTo);
+        }
         if (e["requeued"] is not JsonArray history) e["requeued"] = history = new JsonArray();
         history.Add(new JsonObject
         {
             ["utc"] = now, ["previous_status"] = previous, ["previous_detail"] = e["detail"]?.DeepClone(),
             ["by"] = Environment.UserName, ["reason"] = reason,
         });
+        if (movedTo is not null) ((JsonObject)history[^1]!)["failed_search_moved_to"] = Path.GetFileName(movedTo);
         e["status"] = "requeued_user";
         e.Remove("detail");
         e.Remove("unavailable_passes");
@@ -209,8 +221,9 @@ public sealed class BatchRunner
         string tmp = stateFile + ".tmp";
         File.WriteAllText(tmp, st.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = Envelope.Json.Encoder }));
         File.Move(tmp, stateFile, overwrite: true);
-        File.AppendAllText(Path.Combine(stateDir, "batch.log"), $"{now}  {acc} REQUEUED by {Environment.UserName} (was {previous}): {reason}\n");
-        return new { accession = acc, previous_status = previous, status = "requeued_user" };
+        File.AppendAllText(Path.Combine(stateDir, "batch.log"), $"{now}  {acc} REQUEUED by {Environment.UserName} (was {previous})"
+            + (movedTo is null ? "" : $"; its failed search moved to {Path.GetFileName(movedTo)}") + $": {reason}\n");
+        return new { accession = acc, previous_status = previous, status = "requeued_user", failed_search_moved_to = movedTo };
     }
 
     /// <summary>
@@ -275,6 +288,9 @@ public sealed class BatchRunner
     }
 
     private double FreeGb() => new DriveInfo(Path.GetPathRoot(Path.GetFullPath(_runRoot))!).AvailableFreeSpace / 1e9;
+
+    /// <summary>A fetch stopped at the disk floor (v0.4.18): no new deposit starts; the searches under way finish.</summary>
+    private volatile bool _diskShort;
 
     /// <summary>A status the runner does not spend time on again. Clear the state entry to retry.</summary>
     public string Settled(string acc)
@@ -398,6 +414,11 @@ public sealed class BatchRunner
                 if (FreeGb() < _m.MinFreeGb) { Log($"free space {FreeGb():0} GB below {_m.MinFreeGb:0} GB floor: stopping"); break; }
                 var busy = running.Select(r => r.Organism).ToHashSet(StringComparer.OrdinalIgnoreCase);
                 var ready = await NextReadyAsync(queue, consumed, busy, ct).ConfigureAwait(false);
+                if (ready is null && _diskShort)
+                {
+                    Log($"a fetch reached the disk floor (free {FreeGb():0} GB): stopping once the {running.Count} search(es) under way finish");
+                    break;
+                }
                 if (ready is null) { stopped = File.Exists(StopFile); ranOut = !ct.IsCancellationRequested && !stopped; break; }
                 while (running.Count >= slots)
                 {
@@ -476,6 +497,15 @@ public sealed class BatchRunner
     internal void RecordFetchFailure(string acc, bool probe, Exception ex)
     {
         string what = probe ? "PROBE fetch" : "FETCH";
+        if (ex is DiskFloorException)
+        {
+            // v0.4.18: the deposit is not at fault. It is left unsettled with the files it has, which the next driver checks
+            // against PRIDE's checksums instead of downloading again, and this driver stops as it does at the floor.
+            _diskShort = true;
+            Log($"{acc} {what} paused at the disk floor: {ex.Message}. Left for the next driver; no new deposit starts");
+            Record(acc, ("status", "fetch_paused_disk"), ("detail", ex.Message));
+            return;
+        }
         string settled = probe ? "probe_fetch_failed" : "fetch_failed";
         string why = FetchStage.Describe(ex);
         if (!FetchStage.IsTransient(ex))
@@ -504,7 +534,7 @@ public sealed class BatchRunner
     private async Task<(QueueEntry, Profile)?> NextReadyAsync(IReadOnlyList<QueueEntry> queue, HashSet<string> consumed,
         IReadOnlySet<string> busy, CancellationToken ct)
     {
-        while (!ct.IsCancellationRequested && !File.Exists(StopFile))
+        while (!ct.IsCancellationRequested && !File.Exists(StopFile) && !_diskShort)
         {
             bool catchUpTurn = _m.CatchUpEvery > 0 && (_started + 1) % _m.CatchUpEvery == 0;
             var catchUp = catchUpTurn ? CatchUpCandidate(queue, consumed, busy) : null;
@@ -561,7 +591,7 @@ public sealed class BatchRunner
         {
             while (!cut.IsCancellationRequested)
             {
-                if (FreeGb() < _m.MinFreeGb) { Log($"free space {FreeGb():0} GB below {_m.MinFreeGb:0} GB floor: no more downloading ahead"); break; }
+                if (FreeGb() < _m.MinFreeGb || _diskShort) { Log($"free space {FreeGb():0} GB at the {_m.MinFreeGb:0} GB floor: no more downloading ahead"); break; }
                 // Queue order only: no catch-up re-search starts here (it moves a delivered search aside), and the species
                 // turn is the next driver's to take.
                 if (PickNext(queue, consumed, none) is not { } e) break;
@@ -1170,6 +1200,23 @@ public sealed class BatchRunner
         }
     }
 
+    /// <summary>v0.4.18: once the deposit is ingested, the search outputs nothing reads (<see cref="PruneStage"/>). Never fatal.</summary>
+    private void Prune(string acc)
+    {
+        try
+        {
+            var r = PruneStage.Run(Run(acc), _m.WorkRoot, _m.SpectralLibraryRoot);
+            if ((int)r["files"]! == 0 && (int)r["not_deleted"]! == 0) return;
+            Log($"{acc} PRUNE files={r["files"]} freed_gb={r["gb"]}" + ((int)r["not_deleted"]! > 0 ? $" not_deleted={r["not_deleted"]}" : ""));
+            Record(acc, ("pruned_files", r["files"]!.DeepClone()), ("pruned_gb", r["gb"]!.DeepClone()));
+        }
+        catch (Exception ex) when (ex is UsageException or IOException or UnauthorizedAccessException)
+        {
+            Log($"{acc} PRUNE failed: {ex.Message}");
+            Record(acc, ("prune_error", ex.Message));
+        }
+    }
+
     /// <summary>Finish anything a previous driver searched but never cleaned up or delivered. A skip that looks like success must not strand a dataset.</summary>
     private async Task ReconcileAsync(IReadOnlyList<QueueEntry> queue, CancellationToken ct)
     {
@@ -1260,6 +1307,7 @@ public sealed class BatchRunner
             Log($"{e.Accession} INGEST rc={rc} (full output {full})\n{tail}");
             Record(e.Accession, ("ingest_rc", rc), ("ingest_out", tail), ("ingest_log", full));
         }
+        if (rc == 0) Prune(e.Accession);
         if (rc != 0 || _q.Publish.Command.Count == 0) return;
         // D41 rule 6: publishing is scheduled (PublishLoopAsync), no longer run after each ingest. A new delivery waits for
         // the next scheduled publish; an earlier publish result belongs to the bundle this ingest replaced.
@@ -1550,7 +1598,18 @@ public sealed class BatchRunner
             string acc = e.Accession;
             if (Entry(acc)?["status"]?.GetValue<string>() != "searching") continue;
             string d = Path.Combine(Run(acc), "04_search");
-            if (File.Exists(Path.Combine(d, "provenance.json"))) continue;   // the search finished; ReconcileAsync delivers it
+            if (File.Exists(Path.Combine(d, "provenance.json")))
+            {
+                // v0.4.18: the search ended but its result never reached state.json. PXD008990 (2026-10-15) failed on a full
+                // disk, and the same full disk refused the record, so it read "searching" with a failed search on disk,
+                // which no later pass takes up. A successful one is delivered by ReconcileAsync.
+                if (!SearchedOk(acc))
+                {
+                    Log($"{acc} SEARCH FAILED (recorded now: the previous driver could not write it to state.json); `batch retry` moves the output aside and searches it again");
+                    Record(acc, ("status", "search_failed"), ("detail", "MetaMorpheus failed, and the driver could not record it (see 04_search/metamorpheus.log)"));
+                }
+                continue;
+            }
             int n = (Entry(acc)?["driver_interruptions"]?.GetValue<int>() ?? 0) + 1;
             const string why = "the previous driver stopped during the search (a reboot, a crash or a kill)";
             if (n > MaxDriverInterruptions)
@@ -1629,7 +1688,10 @@ public sealed class BatchRunner
             _q.ExceptionFor(acc) is { SelectsFiles: true } ex ? new FileSelection(ex.Keeps, ex.Describe()) : null,
             Sha1Source ?? Integrity.PrideChecksumsAsync,
             _m.AsperaAscp is { } ascp ? new AsperaClient(ascp, _m.AsperaKey!, _m.AsperaAttempts, StartGap: TimeSpan.FromSeconds(10)) : null,
-            PrideHosts.Parse(_m.PrideHttps));
+            PrideHosts.Parse(_m.PrideHttps), FloorForTest ?? new DiskFloor(FreeGb, _m.MinFreeGb));
+
+    /// <summary>Tests only: the disk floor a fetch checks (null in production means the run root's drive and <c>min_free_gb</c>).</summary>
+    internal DiskFloor? FloorForTest { get; set; }
 
     /// <summary>Where a fetch gets PRIDE's SHA-1s; tests replace it (null in production means PRIDE's v3 file list).</summary>
     internal Func<string, CancellationToken, Task<IReadOnlyDictionary<string, string>>>? Sha1Source { get; set; }

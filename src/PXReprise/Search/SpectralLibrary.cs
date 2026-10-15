@@ -107,7 +107,8 @@ public static class SpectralLibrary
         string rel = $"{plan.Organism}/{plan.Organism}.v{version:000}.msp";
         string dest = Path.Combine(plan.Root, rel);
         Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
-        // COPY, not move: the run folder stays a faithful record of what MetaMorpheus wrote.
+        // COPY, not move: a search that is not delivered keeps what MetaMorpheus wrote. After delivery the run folder's copy
+        // is deleted when its bytes still match this version's sha256 (PruneStage, v0.4.18).
         File.Copy(src, dest, overwrite: false);
         var rec = new JsonObject
         {
