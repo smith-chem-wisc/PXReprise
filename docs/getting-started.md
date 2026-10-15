@@ -170,7 +170,7 @@ Every command prints one JSON object. `"ok": false` comes with an error `type` a
 | `"type": "ServiceUnavailable"` | PRIDE or UniProt is down or slow. Try again later; a running batch retries by itself. |
 | `names no MetaMorpheus 1.1.11` | Your machine file's `[metamorpheus]` entry is missing or misspelled. |
 | `contaminant database missing` | The `[metamorpheus]` path is not inside the unzipped release folder. |
-| `batch.log` says `free space ... below ... floor: stopping` | Free up disk, or lower `min_free_gb` in your machine file. |
+| `batch.log` says `free space ... below ... floor: stopping` or `paused at the disk floor` | Free up disk, or lower `min_free_gb` in your machine file, then run the batch again. |
 | a deposit you expected was not searched | Find it in the census's `census.tsv`: the `route` and `route_reason` columns say why. |
 
 To report a problem, open an issue at <https://github.com/smith-chem-wisc/PXReprise/issues> with the command, its JSON

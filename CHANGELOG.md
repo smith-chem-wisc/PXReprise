@@ -7,6 +7,34 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.18 (2026-10-15)
+
+No MetaMorpheus change. **Machine file:** no change; `min_free_gb` now also governs every download. **Safe mid-batch?**
+Yes: swap the pin as usual. No profile version changes and nothing is searched again. Searches delivered before 0.4.18
+keep their per-file outputs; delete those by hand if you need the space.
+
+- **Downloads stop at the disk floor.** The floor (`min_free_gb`) was checked only before a deposit started. A 98-file
+  deposit (95 GB) began downloading with 125 GB free while another deposit's search and a publish were writing to the
+  same disk, and the disk filled: the search failed while writing its results and the publish failed while building the
+  catalog. A fetch now checks first that all its files fit above the floor, and checks again as each file starts. A
+  deposit that does not fit is left `fetch_paused_disk` with the files it already has. The driver starts no further
+  deposit and stops once the searches under way finish. The next driver checks the files already on disk against
+  PRIDE's checksums, so they are not downloaded again.
+- **After delivery, search outputs that nothing reads are deleted.** MetaMorpheus writes every result table a second
+  time per raw file ("Individual File Results": PSMs, peptides, protein groups, quantified peaks, mzIdentML), about 7 GB
+  per deposit. The engine also kept the Percolator input table and its own copy of the spectral library it had just
+  registered. Once a deposit's ingest succeeds, these are deleted and each path is recorded in `09b_prune`. The library
+  copy is deleted only when its bytes match the version in the library registry. The combined tables, `results.txt`,
+  the protein groups, logs and provenance are kept: they are what ingest, the QC payload and store corrections read.
+  MetaMorpheus still writes the per-file outputs during the search: `results.txt` has its per-file counts only when it
+  does, and the QC payload reads them.
+- **A failed search that never reached `state.json` is recorded, and `batch retry` takes a failed search.** When the
+  disk filled, a search failed and the same full disk refused the driver's record of it. The deposit read `searching`
+  next to a failed search on disk, and no later pass would take it up. A new driver now records such a deposit as
+  `search_failed`. `batch retry` on a deposit whose search failed moves `04_search` aside (`04_search.failed-<time>`, never
+  deleted) and requeues it. Its raw files stay, and they are checked rather than downloaded again. A successful search is
+  still refused: use `batch research` for that.
+
 ## 0.4.17 (2026-10-14)
 
 No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual. A deposit already

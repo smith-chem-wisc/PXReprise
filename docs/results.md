@@ -23,6 +23,7 @@ Inside a deposit's folder:
 | `04_search/mm/Task3SearchTask/` | **The results.** `AllPSMs.psmtsv` (every peptide-spectrum match), `AllPeptides.psmtsv`, `AllQuantifiedProteinGroups.tsv` and `AllQuantifiedPeptides.tsv` (label-free intensities per file), `results.txt` (the summary). |
 | `05_qc/` | `report.html`, a quality report to open in a browser, and its data (`qc_payload.json`, `tables/`, `figures/`). |
 | `09_cleanup/` | What was deleted, and how much space it freed. |
+| `09b_prune/` | Since 0.4.18, after the deposit is delivered: the search outputs nothing reads that were deleted. These are MetaMorpheus's per-file copies (`Individual File Results`), the Percolator input and the run's copy of the spectral library. Each deleted file is listed with its size. |
 
 Every folder has a `provenance.json`: the exact inputs with checksums, the commands, the tool versions, and notes on
 anything unusual.
@@ -50,6 +51,7 @@ spend time on them again.
 | `excluded_duplicate` | Every raw file (name and size) is in a deposit already searched, or in the one being searched at that moment; the state entry's `duplicate_of` names it. Decided from PRIDE's file list, before any download. A deposit the question's manifest excludes as this one's copy (`reason: duplicate_of: <this deposit>`) does not count. | yes |
 | `waiting_*` | The deposit needs a capability no available profile has, named after the underscore: `waiting_dia`, `waiting_tmt_dda_1`, `waiting_crosslinking`, `waiting_o18_labelling`, `waiting_nonspecific_cleavage` (immunopeptidomes and peptidomes, whose peptides no protease made), `waiting_top_down` (intact proteins), `waiting_dileu_labelling`, and so on. Under a profile that reads each deposit's chemistry: `waiting_multi_protease` (several proteases, and the files cannot be told apart), `waiting_unknown_protease`, `waiting_unknown_modification`, `waiting_<label>_labelling` (e.g. `waiting_tmt_labelling`, when PRIDE or the SDRF says the deposit is labelled). | until that profile exists |
 | `fetch_unavailable`, `probe_fetch_unavailable` | PRIDE kept dropping the downloads through every retry. Tried again on a later pass, `fetch_passes` times in all (default 3). | no |
+| `fetch_paused_disk` | Downloading the deposit would have taken the disk below `min_free_gb`. The driver stopped taking new deposits. The next `batch run` checks the files already on disk and downloads the rest. | no |
 | `fetch_failed`, `probe_fetch_failed` | The downloads failed on every pass, or failed in a way a retry cannot fix (for example a checksum mismatch). | yes |
 | `search_failed` | MetaMorpheus failed; see `04_search/metamorpheus.log`. | yes |
 | `on_hold_user` | Held by the question's `[holds]`. | until removed |

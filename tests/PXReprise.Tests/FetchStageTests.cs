@@ -227,6 +227,32 @@ public class FetchStageTests
             "no Aspera staging folder is left behind");
     }
 
+    // v0.4.18: 2026-10-15, PXD039172's 95 GB began downloading with 125 GB free, and F: reached 0 bytes.
+    [Test]
+    public void TheDiskFloorCountsWhatAFetchStillAdds()
+    {
+        var floor = new DiskFloor(() => 110, 100);
+        floor.Check(9_000_000_000, "x");
+        var ex = Assert.Throws<DiskFloorException>(() => floor.Check(11_000_000_000, "PXD039172's 98 raw file(s)"))!;
+        Assert.That(ex.Message, Is.EqualTo("PXD039172's 98 raw file(s) need 11.0 GB more; 110 GB free would leave 99 GB, below the 100 GB floor"));
+
+        string dir = TestSupport.TempDir();
+        File.WriteAllBytes(Path.Combine(dir, "half.raw"), new byte[60]);
+        Assert.That(FetchStage.StillToFetch(F("half.raw", 100), dir), Is.EqualTo(40), "a copy on disk is checked, not fetched again");
+        Assert.That(FetchStage.StillToFetch(F("new.raw", 100), dir), Is.EqualTo(100));
+    }
+
+    [Test]
+    public void AFetchThatWouldCrossTheFloorDownloadsNothing()
+    {
+        string dir = TestSupport.TempDir();
+        var pride = new FlakyPride { Files = { F("a.raw", 1_000_000_000), F("b.raw", 1_000_000_000), F("c.raw", 1_000_000_000) }, Ftp = { "a.raw", "b.raw", "c.raw" } };
+        var r = new FetchRequest("PXD039172", Path.Combine(dir, "02_fetch"), Pick.All, 60, 5000, ".raw", 2, 3, TimeSpan.Zero, TimeSpan.Zero, dir,
+            Floor: new DiskFloor(() => 102, 100));
+        Assert.ThrowsAsync<DiskFloorException>(() => FetchStage.RunAsync(r, pride, CancellationToken.None));
+        Assert.That(pride.Locations, Is.Empty);
+    }
+
     private sealed class FlakyPride : IPrideFiles
     {
         public int FailuresBeforeSuccess;
