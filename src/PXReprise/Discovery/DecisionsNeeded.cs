@@ -32,6 +32,8 @@ public static class DecisionsNeeded
             "select files by name ([exceptions] include/exclude) or lift the cap for it ([exceptions]); or exclude the deposit"),
         ["waiting_species"] = new("The probe runs' own spectra say another species than the deposit's record (D35).",
             "record each run's species in a curated SDRF; approve and search that species; or exclude the deposit"),
+        ["waiting_other_organism"] = new("The deposit's PRIDE record names an organism outside the question beside the one it is queued as: runs of another species, a host and its pathogen, or a mislabel.",
+            "say which runs to search ([exceptions] include_files / exclude_files) or what all its runs are ([exceptions] species); or exclude the deposit"),
         ["waiting_mixed_species"] = new("A probe run holds several species and none dominates: a mixed sample (xenograft, infection, spike-in) or a mislabel.",
             "say what the sample is in a curated SDRF (mixed samples wait for sdrf's plan, sdrf 008); or exclude the deposit"),
         ["waiting_alkylation_check"] = new("Carbamidomethyl was expected, but the probe runs have almost no cysteine peptides: the cysteines were blocked some other way, or not at all.",

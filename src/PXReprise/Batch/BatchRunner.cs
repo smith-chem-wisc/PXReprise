@@ -12,7 +12,11 @@ using PXReprise.Search;
 
 namespace PXReprise.Batch;
 
-public sealed record QueueEntry(string Accession, string Title, string Organism);
+/// <summary>
+/// A deposit to process. <see cref="QueuedOrganism"/> is the queue's organism when the question's <c>species</c> exception
+/// replaced it (v0.4.19), else null.
+/// </summary>
+public sealed record QueueEntry(string Accession, string Title, string Organism, string? QueuedOrganism = null);
 
 /// <summary>
 /// The unattended batch for one question: every queued deposit screened, probed, fetched whole, quality-checked,
@@ -45,6 +49,7 @@ public sealed class BatchRunner
 
     public BatchRunner(Question q, IReadOnlyDictionary<string, Profile> profiles, Machine m, IPrideFiles files, IProjectSearch search, string runDate)
     {
+        QuestionLoader.CheckAgainstProfiles(q, profiles);
         _q = q;
         _profiles = profiles;
         _m = m;
@@ -297,9 +302,10 @@ public sealed class BatchRunner
     {
         if (_q.Holds.ContainsKey(acc)) return "on_hold_user";
         string? s = Entry(acc)?["status"]?.GetValue<string>();
-        // A deposit deferred by a cap, or settled by size, gets ONE more look when the question adds an exception for it:
-        // the exception is recorded on that look, so a deposit that still does not fit settles again (D28).
-        if (s is not null && (s.StartsWith("deferred_", StringComparison.Ordinal) || s == "skipped_selection_empty")
+        // A deposit deferred by a cap, settled by size, or parked on a second organism (v0.4.19) gets ONE more look when the
+        // question adds or changes an exception for it: the exception is recorded on that look, so a deposit that still does
+        // not fit settles again (D28).
+        if (s is not null && (s.StartsWith("deferred_", StringComparison.Ordinal) || s is "skipped_selection_empty" or "waiting_other_organism")
             && _q.ExceptionFor(acc) is { } ex && Entry(acc)?["exception"]?.GetValue<string>() != ex.Describe())
             return "";
         return s is not null && (s is "fetch_failed" or "probe_fetch_failed" or "search_failed"
@@ -307,6 +313,13 @@ public sealed class BatchRunner
                                  || s.StartsWith("excluded_", StringComparison.Ordinal) || s.StartsWith("waiting_", StringComparison.Ordinal))
             ? s : "";
     }
+
+    /// <summary>
+    /// The question's <c>species</c> exception over the queue's organism (v0.4.19, aging PXR-A109: PXD068498 is rat, filed
+    /// as mouse in PRIDE). Everything downstream (database, probe judge, library, manifest taxon) follows the result.
+    /// </summary>
+    internal QueueEntry WithQuestionSpecies(QueueEntry e) =>
+        _q.ExceptionFor(e.Accession)?.Species is { } sp && sp != e.Organism ? e with { Organism = sp, QueuedOrganism = e.Organism } : e;
 
     private bool SearchedOk(string acc) =>
         File.Exists(Path.Combine(Run(acc), "04_search", "provenance.json"))
@@ -316,6 +329,7 @@ public sealed class BatchRunner
 
     public async Task RunAsync(IReadOnlyList<QueueEntry> queue, CancellationToken ct)
     {
+        queue = queue.Select(WithQuestionSpecies).ToList();
         ClaimOrDie();
         Log($"batch start: pid {Environment.ProcessId}, {queue.Count} queued, free {FreeGb():0} GB");
         Log($"  engine   pxreprise {Provenance.RunRecord.Versions()["pxreprise"]}");
@@ -666,7 +680,7 @@ public sealed class BatchRunner
             if (had is not null && _q.Profiles.Contains(had)) continue;
             if (!File.Exists(Path.Combine(Run(acc), "04_search", "provenance.json"))) continue;
             var qe = queue.FirstOrDefault(x => x.Accession == acc)
-                     ?? (o["organism"]?.GetValue<string>() is { } org ? new QueueEntry(acc, o["title"]?.GetValue<string>() ?? "", org) : null);
+                     ?? (o["organism"]?.GetValue<string>() is { } org ? WithQuestionSpecies(new QueueEntry(acc, o["title"]?.GetValue<string>() ?? "", org)) : null);
             if (qe is null) continue;
             int rank = qe.Organism.Equals("rat", StringComparison.OrdinalIgnoreCase) ? 0
                 : _q.Designs?.For(acc) is { } design && File.Exists(design) ? 1 : 2;
@@ -718,7 +732,9 @@ public sealed class BatchRunner
         var route = Router.Assign(acc, acq, new RelevanceResult(RelevanceVerdict.DecidedInclude, "queued"), _q, _profiles);
         // D30/D32: what experiment this is, fact by fact with sources, written at every exit of this stage.
         var xr = new ExperimentRecord(acc);
-        xr.Species(e.Organism, "queue (the census reads it from the PRIDE project record)");
+        xr.Species(e.Organism, e.QueuedOrganism is { } queued
+            ? $"question exception (the queue, from the PRIDE project record, says {queued})"
+            : "queue (the census reads it from the PRIDE project record)");
         xr.Screen(acq);
         if (acq.Enrichment != "none")
         {
@@ -753,6 +769,30 @@ public sealed class BatchRunner
             Record(acc, ("status", "skipped_organism"));
             Experiment(acc, xr, "skipped_organism", $"{profile.Key} has no database for '{e.Organism}'");
             return null;
+        }
+        // v0.4.19 (PXD018399, aging 112): a project record that names an organism outside the question beside the one
+        // queued holds runs of another species (34 killifish runs beside 20 mouse were searched as mouse), or a host and
+        // its pathogen. A person says which runs to search or what they all are; an exception that selects files or
+        // names the species is that answer.
+        if (_q.Organisms.Count > 0 && _q.ExceptionFor(acc) is not ({ SelectsFiles: true } or { Species: not null }))
+        {
+            List<string> named;
+            try
+            {
+                named = (await _search.TryGetProjectAsync(acc, ct).ConfigureAwait(false))?.Organisms
+                    .Select(o => o.Name).Where(n => !string.IsNullOrWhiteSpace(n)).ToList() ?? new List<string>();
+            }
+            catch (Exception ex) when (Envelope.IsUnavailable(ex) || FetchStage.IsTransient(ex)) { Log($"{acc} organisms: PRIDE unavailable ({ex.Message}); retry next pass"); return null; }
+            var outside = named.Where(n => !_q.Organisms.Contains(n)).ToList();
+            if (outside.Count > 0)
+            {
+                string why = $"the PRIDE project record names {string.Join("; ", named)}; outside the question: {string.Join("; ", outside)}";
+                Log($"{acc} SCREENED OUT (waiting_other_organism): {why}");
+                // The exception as it stands (caps only, or none) is recorded, so a new one gives the deposit one more look (Settled).
+                Record(acc, ("status", "waiting_other_organism"), ("detail", why), ("exception", _q.ExceptionFor(acc)?.Describe()));
+                Experiment(acc, xr, "waiting_other_organism", why);
+                return null;
+            }
         }
         // A UniProt database is downloaded (once) before any PRIDE download, so an outage costs nothing and is retried.
         if (profile.Databases[e.Organism].UniProt is { } up)

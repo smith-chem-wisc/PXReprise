@@ -17,6 +17,17 @@ public class ChemistryTests
 
     private static readonly string[] Files = { "a.raw", "b.raw" };
 
+    // v0.4.19 (PXD036532, pepsin): MetaMorpheus's non-specific protease in a Classic search has no peptide of 7 or more
+    // residues, so its probe found 0 PSMs and parked as if the deposit were a puzzle for a person. It is a capability wait.
+    [TestCase("The remaining pellet was digested with 100 µg/ml pepsin (Sigma) in 0.5M acetic acid with gentle agitation")]
+    [TestCase("Proteins were digested with proteinase K for 1 h")]
+    public void ANonSpecificProteaseWaitsForAProfileThatSearchesIt(string protocol)
+    {
+        var c = ChemistryDetector.Detect(Project(protocol), null, null, Files);
+        Assert.That((c.Protease.Value, c.Park), Is.EqualTo(("non-specific", ChemistryDetector.NonspecificCleavagePark)));
+        Assert.That(DecisionsNeeded.For(c.Park!), Is.Null, "a capability wait, not a person's decision");
+    }
+
     [Test]
     public void NothingStatedIsTrypsinCarbamidomethylLabelFree()
     {
