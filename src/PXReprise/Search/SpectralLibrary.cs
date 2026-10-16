@@ -1,7 +1,10 @@
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Omics.SpectrumMatch;
 using PXReprise.Cli;
+using PXReprise.Provenance;
 
 namespace PXReprise.Search;
 
@@ -102,28 +105,135 @@ public static class SpectralLibrary
                 throw new SearchSetupException($"spectral_library: {plan.Organism}'s current library moved from version {plan.ParentVersion} to {live} while this search was running. This run's library is at {src} and has NOT been registered, so nothing was lost; merge it deliberately.");
         }
 
-        var versions = entry["versions"]!.AsArray();
-        int version = versions.Select(v => v!["version"]!.GetValue<int>()).DefaultIfEmpty(0).Max() + 1;
-        string rel = $"{plan.Organism}/{plan.Organism}.v{version:000}.msp";
-        string dest = Path.Combine(plan.Root, rel);
-        Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+        var (version, rel, dest) = NextVersion(plan.Root, plan.Organism, entry);
         // COPY, not move: a search that is not delivered keeps what MetaMorpheus wrote. After delivery the run folder's copy
-        // is deleted when its bytes still match this version's sha256 (PruneStage, v0.4.18).
-        File.Copy(src, dest, overwrite: false);
-        var rec = new JsonObject
+        // is deleted when its bytes still match this version's sha256 (PruneStage, v0.4.18); a copy that lost unreadable
+        // entries never matches, so MetaMorpheus's whole file stays in the run folder.
+        int dropped = CopyReadable(src, dest);
+        var rec = VersionRecord(version, rel, plan.Mode, plan.ParentVersion, dest, dropped, new JsonObject
         {
-            ["version"] = version, ["path"] = rel, ["mode"] = plan.Mode, ["parent_version"] = plan.ParentVersion,
-            ["sha256"] = Sha(dest), ["n_spectra"] = CountSpectra(dest), ["bytes"] = new FileInfo(dest).Length,
-            ["written_utc"] = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'+00:00'"),
-            ["produced_by"] = new JsonObject
-            {
-                ["run"] = runLabel, ["accession"] = accession, ["metamorpheus"] = metamorpheus,
-                ["metamorpheus_path"] = src, ["metamorpheus_filename"] = Path.GetFileName(src),
-            },
-        };
-        versions.Add(rec);
+            ["run"] = runLabel, ["accession"] = accession, ["metamorpheus"] = metamorpheus,
+            ["metamorpheus_path"] = src, ["metamorpheus_filename"] = Path.GetFileName(src),
+        });
+        entry["versions"]!.AsArray().Add(rec);
         entry["current"] = rel;
         WriteRegistry(plan.Root, reg);
+        return rec;
+    }
+
+    /// <summary>
+    /// A new version of <paramref name="organism"/>'s current library without its unreadable entries (mode
+    /// <c>repair</c>), made current. Nothing is written when there are none. For libraries registered before v0.4.20
+    /// dropped them: mouse v065 (PXD010091) and human v057 (PXD011740) hold Unimod <c>NEM:2H(5)</c>. Run it with no
+    /// driver running: a search that planned on the old current would then be refused at registration (nothing lost).
+    /// </summary>
+    public static JsonObject Repair(string root, string organism, string reason)
+    {
+        lock (RegistryGate)
+        {
+            var reg = ReadRegistry(root);
+            var entry = reg["organisms"]![organism]?.AsObject() ?? throw new UsageException($"no libraries registered for '{organism}'");
+            string current = entry["current"]?.GetValue<string>() ?? throw new UsageException($"{organism} has no current library");
+            int parent = VersionOf(entry, current) ?? throw new SearchSetupException($"{organism}'s current library {current} is not a registered version");
+            string src = Path.Combine(root, current);
+            int unreadable = File.ReadLines(src).Count(UnreadableName);
+            if (unreadable == 0)
+                return new JsonObject { ["organism"] = organism, ["repaired"] = false, ["current"] = current, ["version"] = parent };
+            var (version, rel, dest) = NextVersion(root, organism, entry);
+            int dropped = CopyReadable(src, dest);
+            var rec = VersionRecord(version, rel, "repair", parent, dest, dropped, new JsonObject
+            {
+                ["repair_of"] = current, ["reason"] = reason, ["pxreprise"] = RunRecord.Versions()["pxreprise"],
+            });
+            entry["versions"]!.AsArray().Add(rec);
+            entry["current"] = rel;
+            WriteRegistry(root, reg);
+            var result = (JsonObject)rec.DeepClone();
+            result["organism"] = organism;
+            result["repaired"] = true;
+            return result;
+        }
+    }
+
+    /// <summary>Each organism's current library: its version, spectra and how many versions the chain holds.</summary>
+    public static JsonObject List(string root)
+    {
+        var o = new JsonObject();
+        foreach (var (organism, node) in ReadRegistry(root)["organisms"]!.AsObject())
+        {
+            string? current = node!["current"]?.GetValue<string>();
+            var versions = node["versions"]!.AsArray();
+            var rec = versions.FirstOrDefault(v => v!["path"]!.GetValue<string>() == current);
+            o[organism] = new JsonObject
+            {
+                ["current"] = current, ["version"] = rec?["version"]?.DeepClone(), ["mode"] = rec?["mode"]?.DeepClone(),
+                ["n_spectra"] = rec?["n_spectra"]?.DeepClone(), ["versions"] = versions.Count,
+            };
+        }
+        return o;
+    }
+
+    /// <summary>
+    /// A "Name:" line mzLib cannot read back. Its reader takes any name matching
+    /// <see cref="CrosslinkLibrarySpectrum.CrosslinkRegex"/> (<c>\(\d+\)</c>) for a crosslink, so a Unimod name holding a
+    /// count, such as <c>NEM:2H(5)</c> or <c>Label:13C(6)</c>, is misread, and lookups of other spectra then land on the
+    /// wrong entry: "Bad spectral library formatting or indexing" ended PXD039172's search on 2026-10-16. The batch runs
+    /// no crosslink search, so every such name is one of these.
+    /// </summary>
+    public static bool UnreadableName(string line) =>
+        line.StartsWith("Name:", StringComparison.Ordinal) && CrosslinkLibrarySpectrum.CrosslinkRegex.IsMatch(line);
+
+    /// <summary>
+    /// Copies <paramref name="src"/> to <paramref name="dest"/> without its unreadable entries (each from its "Name:" line
+    /// to the next), keeping the file's line ending; a byte-for-byte copy when it has none. Returns the entries dropped.
+    /// </summary>
+    public static int CopyReadable(string src, string dest)
+    {
+        if (!File.ReadLines(src).Any(UnreadableName))
+        {
+            File.Copy(src, dest, overwrite: false);
+            return 0;
+        }
+        int dropped = 0;
+        bool skipping = false;
+        using var w = new StreamWriter(new FileStream(dest, FileMode.CreateNew), new UTF8Encoding(false)) { NewLine = NewLineOf(src) };
+        foreach (string line in File.ReadLines(src))
+        {
+            if (line.StartsWith("Name:", StringComparison.Ordinal) && (skipping = UnreadableName(line))) dropped++;
+            if (!skipping) w.WriteLine(line);
+        }
+        return dropped;
+    }
+
+    private static string NewLineOf(string path)
+    {
+        using var s = File.OpenRead(path);
+        var buf = new byte[64 * 1024];
+        int n = s.Read(buf, 0, buf.Length);
+        int i = Array.IndexOf(buf, (byte)'\n', 0, n);
+        return i > 0 && buf[i - 1] == (byte)'\r' ? "\r\n" : "\n";
+    }
+
+    private static (int Version, string Rel, string Dest) NextVersion(string root, string organism, JsonObject entry)
+    {
+        int version = entry["versions"]!.AsArray().Select(v => v!["version"]!.GetValue<int>()).DefaultIfEmpty(0).Max() + 1;
+        string rel = $"{organism}/{organism}.v{version:000}.msp";
+        string dest = Path.Combine(root, rel);
+        Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+        return (version, rel, dest);
+    }
+
+    private static JsonObject VersionRecord(int version, string rel, string mode, int? parent, string dest, int dropped, JsonObject producedBy)
+    {
+        var rec = new JsonObject
+        {
+            ["version"] = version, ["path"] = rel, ["mode"] = mode, ["parent_version"] = parent,
+            ["sha256"] = Sha(dest), ["n_spectra"] = CountSpectra(dest), ["bytes"] = new FileInfo(dest).Length,
+            ["written_utc"] = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'+00:00'"),
+        };
+        // Only when something was dropped: every earlier version's record keeps its shape.
+        if (dropped > 0) rec["dropped_unreadable"] = dropped;
+        rec["produced_by"] = producedBy;
         return rec;
     }
 

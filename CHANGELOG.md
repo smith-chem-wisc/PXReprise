@@ -7,6 +7,23 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.20 (2026-10-16)
+
+No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual. No profile version
+changes and nothing is searched again. If a search under 0.4.19 or earlier added a spectrum like the ones below to a
+spectral library, run `pxreprise library repair <organism>` with no batch running before the next batch starts.
+
+- **A spectral library no longer takes in spectra that mzLib cannot read back.** mzLib's library reader takes any
+  spectrum whose name holds a count in parentheses for a crosslink. Unimod names an isotope label that way:
+  `NEM:2H(5)`, `Label:13C(6)`, `Dimethyl:2H(4)`. MetaMorpheus wrote such spectra into the libraries it updated, but
+  reading that library back then fails. The next search that used the mouse library failed after almost 2 hours with
+  "Bad spectral library formatting or indexing", and the batch switched the library off for the rest of its run.
+  Those spectra are now left out of the version the batch registers, and the registry records how many
+  (`dropped_unreadable`). MetaMorpheus's own file stays whole in the search's folder.
+- **`pxreprise library list` and `pxreprise library repair <organism>`.** `repair` writes a new current version
+  without such spectra (mode `repair`), keeps every earlier version, and changes nothing when there are none. `list`
+  shows each organism's current version. See the Commands page.
+
 ## 0.4.19 (2026-10-15)
 
 No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual. No profile version

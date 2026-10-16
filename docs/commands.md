@@ -119,6 +119,21 @@ pxreprise batch retry  question.toml PXD000000 --reason "why"
 
 Only one batch runs per question at a time; a second `run` is refused while the first is alive.
 
+### `library`
+
+```
+pxreprise library list   --machine my-machine.toml
+pxreprise library repair mouse --machine my-machine.toml --reason "why"
+```
+
+- `list` shows each organism's current spectral library: its version, how many spectra it holds, and how many versions
+  its chain has.
+- `repair` writes a new current version without the spectra mzLib cannot read back, and changes nothing when there
+  are none. Those are spectra whose modification name holds a count in parentheses, such as Unimod's `NEM:2H(5)`:
+  mzLib's reader takes them for crosslinks, and a search using that library then fails. Since 0.4.20 they are left
+  out whenever a search adds to a library, so only a library from an earlier version can need this. Run it while no
+  batch is running.
+
 ## Single steps
 
 For testing a stage by hand. The batch runs all of these for you.
