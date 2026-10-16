@@ -13,7 +13,7 @@ namespace PXReprise;
 public static class Program
 {
     /// <summary>The verbs, listed by the <c>version</c> verb. Keep in step with <see cref="Dispatch"/>.</summary>
-    public static readonly string[] Verbs = { "version", "profiles", "validate", "census", "rank", "chemistry", "fetch", "qc", "search", "qc-payload", "batch" };
+    public static readonly string[] Verbs = { "version", "profiles", "validate", "census", "rank", "chemistry", "fetch", "qc", "search", "qc-payload", "batch", "library" };
 
     /// <summary>Where profiles are read from when --profiles is not given: beside the executable.</summary>
     public static string DefaultProfilesDir => Path.Combine(AppContext.BaseDirectory, "profiles");
@@ -318,6 +318,19 @@ public static class Program
                         return new { finished = true };
                     }
                 }
+            }
+
+            case "library":
+            {
+                // pxreprise library list --machine m.toml
+                // pxreprise library repair <organism> --machine m.toml --reason "...": a new current version without the
+                // spectra mzLib cannot read back (v0.4.20). Run it with no driver running.
+                var rest = args.Words.Skip(1).ToList();
+                if (!(rest is ["list"] || rest is ["repair", _]))
+                    throw new UsageException("usage: pxreprise library list --machine m.toml, or library repair <organism> --machine m.toml --reason \"...\"");
+                args.AllowOnly("machine", "reason");
+                string root = Machine.Load(args.Required("machine")).SpectralLibraryRoot;
+                return rest[0] == "list" ? Search.SpectralLibrary.List(root) : Search.SpectralLibrary.Repair(root, rest[1], args.Required("reason"));
             }
 
             default:

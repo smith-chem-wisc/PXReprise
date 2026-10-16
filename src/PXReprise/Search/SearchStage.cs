@@ -329,6 +329,8 @@ public static class SearchStage
                     libRec["written"] = written.DeepClone();
                     prov.Output(Path.Combine(lib.Root, written["path"]!.GetValue<string>()));
                     prov.Note($"spectral library {lib.Organism} v{(int)written["version"]!:000}: {(int)written["n_spectra"]!:N0} spectra, {written["path"]}");
+                    if (written["dropped_unreadable"] is { } dropped)
+                        prov.Note($"spectral library: {(int)dropped:N0} spectra left out of v{(int)written["version"]!:000}: their modification names hold a count in parentheses, such as NEM:2H(5), which mzLib's reader takes for a crosslink; MetaMorpheus's whole file stays in this run's folder");
                 }
                 catch (SearchSetupException e)
                 {
