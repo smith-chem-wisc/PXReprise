@@ -17,8 +17,8 @@ No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: sw
     window and FlashLFQ's 5 ppm. Both assume calibrated masses.
   - **What it cost:** on a deposit whose precursors were 8.7 ppm off, `lowres@2` identified 0.37% of the spectra. In one
     of its runs it found 292 PSMs at 1% FDR; within ±14 ppm the same run gives 19,120 PSMs, 10,212 peptides and 2,312
-    protein groups, and FlashLFQ quantifies 10,935 peptides instead of 123. At least six more of the 24 `lowres@2`
-    deposits in the aging batch lost some identifications the same way.
+    protein groups, and FlashLFQ quantifies 10,935 peptides instead of 123. Seven more of the 23 `lowres@2` deposits
+    in the aging batch lost identifications the same way, four of them many.
   - **Why not one wide window:** a fixed ±20 ppm costs a deposit with no offset. One run with a 0.0 ppm offset lost 21%
     of its PSMs and 17% of its peptides.
   - **What `lowres@3` does instead:** it runs the probe search, which takes precursors within ±20 ppm and measures
