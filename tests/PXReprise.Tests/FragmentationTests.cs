@@ -172,10 +172,61 @@ public class FragmentationTests
         Assert.That(Assert.Throws<Config.ConfigException>(() => Config.ProfileLoader.Load(TestSupport.WriteFile(dir, "e.toml",
             src.Replace("[engine]", "[engine]\nion_trap_hcd = true"))))!.Message, Does.Contain("per_file"));
         var shipped = Config.ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
-        string[] ionTrap = { "label-free-dda-lowres@1", "label-free-dda-lowres@2" };
+        string[] ionTrap = { "label-free-dda-lowres@1", "label-free-dda-lowres@2", "label-free-dda-lowres@3" };
         Assert.That(shipped.Where(kv => !ionTrap.Contains(kv.Key)).Select(kv => kv.Value.Fragmentation), Has.All.EqualTo("fixed"),
             "no shipped profile changes behaviour (D26): per_file arrives with a new profile");
         Assert.That(ionTrap.Select(k => shipped[k].Fragmentation), Has.All.EqualTo("per_file"), "the ion-trap profiles are the ones that write it");
-        Assert.That(shipped.Where(kv => kv.Value.IonTrapHcd).Select(kv => kv.Key), Is.EqualTo(new[] { "label-free-dda-lowres@2" }));
+        Assert.That(shipped.Where(kv => kv.Value.IonTrapHcd).Select(kv => kv.Key), Is.EquivalentTo(new[] { "label-free-dda-lowres@2", "label-free-dda-lowres@3" }));
+    }
+
+    [Test]
+    public void AProfileWithoutCalibrationSearchesWithinTheProbesMeasuredOffset()
+    {
+        // PXD045821 (2026-10-17): lowres@2 runs no Calibration task, so MetaMorpheus's ±5 ppm precursor window and FlashLFQ's
+        // 5 ppm met precursors +8.7 ppm off, and 0.37% of its spectra were identified.
+        string dir = TestSupport.TempDir();
+        string src = File.ReadAllText(Path.Combine(TestSupport.ProfilesDir, "label-free-dda-lowres-2.toml")).Replace("version = 2", "version = 99");
+        var p = Config.ProfileLoader.Load(TestSupport.WriteFile(dir, "p.toml",
+            src.Replace("[engine]", "[engine]\nprobe_search = true\nprecursor_window = \"probe\"")));
+        Assert.That(p.PrecursorWindow, Is.EqualTo("probe"));
+        Assert.That(Config.ProfileLoader.Load(TestSupport.WriteFile(dir, "q.toml", src)).PrecursorWindow, Is.EqualTo("default"));
+        Assert.That(Assert.Throws<Config.ConfigException>(() => Config.ProfileLoader.Load(TestSupport.WriteFile(dir, "b.toml",
+            src.Replace("[engine]", "[engine]\nprecursor_window = \"probe\""))))!.Message, Does.Contain("probe_search"), "the probe measures the offset");
+        Assert.Throws<Config.ConfigException>(() => Config.ProfileLoader.Load(TestSupport.WriteFile(dir, "c.toml",
+            src.Replace("[engine]", "[engine]\nprobe_search = true\nprecursor_window = \"20 ppm\""))));
+        string calibrated = File.ReadAllText(Path.Combine(TestSupport.ProfilesDir, "label-free-dda-5.toml")).Replace("version = 5", "version = 99");
+        Assert.That(Assert.Throws<Config.ConfigException>(() => Config.ProfileLoader.Load(TestSupport.WriteFile(dir, "d.toml",
+            calibrated.Replace("[engine]", "[engine]\nprobe_search = true\nprecursor_window = \"probe\""))))!.Message, Does.Contain("Calibration"),
+            "a calibrated search has calibration's windows");
+
+        // The window goes into the Search task as MetaMorpheus writes it, and FlashLFQ's with it.
+        string defaults = File.ReadAllText(Path.Combine(TestContext.CurrentContext.TestDirectory, "Fixtures", "mm-1.1.12", "SearchTask.toml"));
+        var none = new HashSet<(string, string)>();
+        var (wide, _) = TaskFiles.Edit(defaults, TaskKind.Search,
+            new TaskSettings(8, true, Array.Empty<string>(), PrecursorMassTolerance: "±14.0000 PPM", QuantifyPpmTol: 14), none);
+        var (plain, _) = TaskFiles.Edit(defaults, TaskKind.Search, new TaskSettings(8, true, Array.Empty<string>()), none);
+        Assert.Multiple(() =>
+        {
+            Assert.That(wide, Does.Contain("PrecursorMassTolerance = \"±14.0000 PPM\"\r\n").And.Contain("QuantifyPpmTol = 14.0\r\n"));
+            Assert.That(plain, Does.Contain("PrecursorMassTolerance = \"±5.0000 PPM\"\r\n").And.Contain("QuantifyPpmTol = 5.0\r\n"),
+                "unset, both keep the pinned MetaMorpheus's defaults");
+        });
+
+        // The search's window, and what provenance says about it.
+        var prov = new AgingProvenance("search_metamorpheus", dir, TestSupport.WriteFile(dir, "p.json", "{}"), new JsonObject(), null);
+        var offsets = new Dictionary<string, double> { ["a"] = 8.7, ["b"] = 8.1, ["c"] = 9.0 };
+        Assert.Multiple(() =>
+        {
+            Assert.That(SearchStage.PrecursorWindow(p, offsets, prov), Is.EqualTo(14));
+            Assert.That(prov.Record["precursor_window"]!["window_ppm"]!.GetValue<int>(), Is.EqualTo(14));
+            Assert.That(prov.Record["precursor_window"]!["probe_offsets_ppm"]!["c"]!.GetValue<double>(), Is.EqualTo(9.0));
+            Assert.That(SearchStage.PrecursorWindow(p, new Dictionary<string, double> { ["a"] = 0.4 }, null), Is.Null, "no offset: MetaMorpheus's windows");
+            Assert.That(SearchStage.PrecursorWindow(p, null, null), Is.Null, "nothing measured: MetaMorpheus's windows");
+            Assert.That(SearchStage.PrecursorWindow(p with { PrecursorWindow = "default" }, offsets, null), Is.Null, "the default never widens");
+        });
+
+        var shipped = Config.ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
+        Assert.That(shipped.Where(kv => kv.Value.PrecursorWindow != "default").Select(kv => kv.Key),
+            Is.EqualTo(new[] { "label-free-dda-lowres@3" }), "no shipped profile changes behaviour (D26): the window arrives with a new profile");
     }
 }

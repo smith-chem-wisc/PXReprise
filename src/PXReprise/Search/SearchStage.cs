@@ -23,7 +23,8 @@ public sealed record SearchRequest(
     bool UseLibrary = true,
     string? CuratedDesign = null,
     IReadOnlyList<string>? DesignConditionColumns = null,
-    Discovery.DepositChemistry? Chemistry = null);   // G19: required by a profile with [engine] chemistry = "deposit"
+    Discovery.DepositChemistry? Chemistry = null,   // G19: required by a profile with [engine] chemistry = "deposit"
+    IReadOnlyDictionary<string, double>? ProbePrecursorOffsets = null);   // [engine] precursor_window = "probe": each probe run's offset, ppm
 
 public sealed record SearchOutcome(bool Success, int ExitCode, bool TimedOut, int? Psms1Pct, IReadOnlyList<string> Flags, string ProvenanceFile);
 
@@ -38,6 +39,26 @@ public static class SearchStage
 
     /// <summary>The cysteine-containing share of 1% target peptides below which a search is flagged cysteine_poor.</summary>
     public const double CysteinePoorBelow = 0.05;
+
+    /// <summary>
+    /// The precursor and FlashLFQ window, in ppm, under <c>[engine] precursor_window = "probe"</c>: wide enough for the
+    /// largest offset the probe search measured (<see cref="ProbeMeasures.WindowPpm"/>), recorded in provenance. Null keeps
+    /// MetaMorpheus's windows: under the default, when the offsets are small, or when none was measured.
+    /// </summary>
+    internal static int? PrecursorWindow(Profile p, IReadOnlyDictionary<string, double>? offsets, AgingProvenance? prov)
+    {
+        if (p.PrecursorWindow != "probe") return null;
+        int? window = ProbeMeasures.WindowPpm(offsets?.Values);
+        prov?.Set("precursor_window", new JsonObject
+        {
+            ["rule"] = $"5 ppm beyond the largest probe run offset, rounded up, at most {ProbeMeasures.MaxWindowPpm}; MetaMorpheus's windows when none exceeds {ProbeMeasures.OffsetWithinDefault} ppm",
+            ["probe_offsets_ppm"] = offsets is null ? null : new JsonObject(offsets.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => KeyValuePair.Create(kv.Key, (JsonNode?)kv.Value))),
+            ["window_ppm"] = window,
+        });
+        if (offsets is null or { Count: 0 }) prov?.Note("precursor window: the probe measured no precursor offset, so MetaMorpheus's windows are kept");
+        else if (window is { } w) prov?.Note($"precursor window: ±{w} ppm for precursors and FlashLFQ, for a probe offset up to {offsets.Values.Max(Math.Abs):0.0} ppm (no calibration in {p.Key})");
+        return window;
+    }
 
     /// <summary>
     /// The share of target peptides at q &lt;= 0.01 in <c>AllPeptides.psmtsv</c> whose base sequence holds a C, or null
@@ -187,11 +208,13 @@ public static class SearchStage
             ? r.Chemistry ?? throw new UsageException($"{p.Key} reads each deposit's chemistry (G19), and none was given for this search")
             : null;
         if (chem?.Park is { } park) throw new SearchSetupException($"the deposit's chemistry cannot be searched as read ({park})");
+        int? window = PrecursorWindow(p, r.ProbePrecursorOffsets, prov);
         var settings = new TaskSettings(m.MaxThreads, p.MatchBetweenRuns, p.GptmdExtraMods, SpectralLibraryMode: lib?.Mode,
             Protease: chem is { ProteasePerFile: null } ? chem.Protease.Value : null,
             FixedCysMods: chem?.CysMods.Where(c => c.Fixed).Select(c => c.MetaMorpheusId!).ToList(),
             VariableCysMods: chem?.CysMods.Where(c => !c.Fixed).Select(c => c.MetaMorpheusId!).ToList(),
-            WriteSdrf: p.WriteSdrf, ProteomeXchangeAccession: p.WriteSdrf ? r.Accession : null);
+            WriteSdrf: p.WriteSdrf, ProteomeXchangeAccession: p.WriteSdrf ? r.Accession : null,
+            PrecursorMassTolerance: window is { } w ? $"±{w}.0000 PPM" : null, QuantifyPpmTol: window);
         if (chem is not null)
         {
             prov.Set("chemistry", Chemistry(chem));

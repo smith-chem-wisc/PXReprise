@@ -87,8 +87,13 @@ public sealed record Profile(
     double ProbeSearchMinutes = 60,
     bool IonTrapHcd = false,          // PXR-A68: with per_file, HCD read in an ion trap is searched as HCD at the low-res tolerance
     string? CustomModifications = null,   // G40: a MetaMorpheus modification file shipped under lists/, installed before a search that uses it
-    IReadOnlyDictionary<string, string>? ThiolReagents = null)   // G40: an unmodelled thiol reagent -> "Type\tIdWithMotif" in that file
+    IReadOnlyDictionary<string, string>? ThiolReagents = null,   // G40: an unmodelled thiol reagent -> "Type\tIdWithMotif" in that file
+    string PrecursorWindow = "default")   // "probe": the precursor and FlashLFQ windows from the probe's measured offset
 {
+    /// <summary>The values of <c>[engine] precursor_window</c>: MetaMorpheus's own windows, or windows wide enough for the
+    /// precursor offset the probe search measured (a profile without calibration; PXD045821, 2026-10-17).</summary>
+    public static readonly string[] PrecursorWindows = { "default", "probe" };
+
     /// <summary>The values of <c>[engine] fragmentation</c>.</summary>
     public static readonly string[] Fragmentations = { "fixed", "per_file" };
 

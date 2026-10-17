@@ -7,6 +7,33 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.22 (2026-10-17)
+
+No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual. One new profile,
+`label-free-dda-lowres@3`; nothing changes for a question until it names it.
+
+- **New profile `label-free-dda-lowres@3`: an ion-trap search's mass windows now fit the instrument's offset.**
+  - **The problem:** the `lowres` profiles run no calibration, yet `lowres@2` kept MetaMorpheus's ±5 ppm precursor
+    window and FlashLFQ's 5 ppm. Both assume calibrated masses.
+  - **What it cost:** on a deposit whose precursors were 8.7 ppm off, `lowres@2` identified 0.37% of the spectra. In one
+    of its runs it found 292 PSMs at 1% FDR; within ±14 ppm the same run gives 19,120 PSMs, 10,212 peptides and 2,312
+    protein groups, and FlashLFQ quantifies 10,935 peptides instead of 123. Seven more of the 23 `lowres@2` deposits
+    in the aging batch lost identifications the same way, four of them many.
+  - **Why not one wide window:** a fixed ±20 ppm costs a deposit with no offset. One run with a 0.0 ppm offset lost 21%
+    of its PSMs and 17% of its peptides.
+  - **What `lowres@3` does instead:** it runs the probe search, which takes precursors within ±20 ppm and measures
+    each probe run's median offset. The search then sets the precursor window and FlashLFQ's to 5 ppm beyond the
+    largest offset, rounded up, at most ±20 ppm. When no offset exceeds 2 ppm, MetaMorpheus's own windows are kept.
+  - **What else changes:** the probe search's checks now apply to ion-trap deposits too: species, alkylation, no
+    identifications, an unstated enrichment.
+  - **What is recorded:** each search's `provenance.json` (`precursor_window`) records the offsets and the window,
+    and `batch.log` names them after the probe.
+- **A profile can set this with `[engine] precursor_window = "probe"`.** It needs `probe_search = true`, and a profile
+  with a Calibration task cannot set it, because calibration sets its own windows.
+- **To re-search a deposit already searched under `lowres@2`:** name `lowres@3` in the question ahead of `lowres@2`
+  (a deposit goes to the first ion-trap profile in the question's order), then `batch research` it. If you remove
+  `lowres@2` from the question instead, the catch-up re-searches all of them.
+
 ## 0.4.21 (2026-10-17)
 
 No MetaMorpheus change. **Machine file:** no change needed; two optional settings are new. **Safe mid-batch?** Yes:

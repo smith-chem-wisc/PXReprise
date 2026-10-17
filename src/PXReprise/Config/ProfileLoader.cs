@@ -88,6 +88,16 @@ public static class ProfileLoader
         bool probeSearch = eng.OptionalBool("probe_search") ?? false;
         double probeMinutes = eng.OptionalNumber("probe_search_minutes") ?? 60;
         if (probeMinutes <= 0) throw new ConfigException(file, "engine.probe_search_minutes must be positive");
+        // A search without a Calibration task keeps MetaMorpheus's ±5 ppm precursor window and FlashLFQ's 5 ppm, which assume
+        // calibrated masses: PXD045821's precursors were +8.7 ppm off, and 0.37% of its spectra were identified (2026-10-17).
+        // "probe" widens both by the offset the probe search measured; a calibrated search has calibration's windows.
+        string precursorWindow = eng.OptionalString("precursor_window") ?? "default";
+        if (!Profile.PrecursorWindows.Contains(precursorWindow))
+            throw new ConfigException(file, $"engine.precursor_window must be one of {string.Join(", ", Profile.PrecursorWindows)}, not '{precursorWindow}'");
+        if (precursorWindow == "probe" && !probeSearch)
+            throw new ConfigException(file, "engine.precursor_window = \"probe\" needs probe_search = true: the offset is measured by the probe search");
+        if (precursorWindow == "probe" && tasks.Contains("Calibration"))
+            throw new ConfigException(file, "engine.precursor_window = \"probe\" is for a search without calibration; a Calibration task sets its own windows");
         eng.RefuseUnknownKeys();
 
         var dbs = new SortedDictionary<string, OrganismDatabase>(StringComparer.Ordinal);
@@ -154,7 +164,7 @@ public static class ProfileLoader
         return new Profile(id, version, status, description, accepts, mm, tasks, extraMods, library, timeout, dbs,
             panel ?? Path.GetFileName(shipped!), exclude,
             method, mbr, deposit, gates, Path.GetDirectoryName(Path.GetFullPath(file))!, design, chemistry, writeSdrf, shipped, fragmentation, lowResTolerance, probeSearch, probeMinutes, ionTrapHcd,
-            customMods, thiolReagents);
+            customMods, thiolReagents, precursorWindow);
     }
 
     /// <summary>

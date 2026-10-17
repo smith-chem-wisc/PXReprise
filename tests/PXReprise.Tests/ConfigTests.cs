@@ -11,7 +11,20 @@ public class ConfigTests
     {
         var profiles = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
         Assert.That(profiles.Keys, Is.EquivalentTo(new[] { "label-free-dda@1", "label-free-dda@2", "label-free-dda@3", "label-free-dda@4",
-            "label-free-dda@5", "label-free-dda@6", "label-free-dda@7", "label-free-dda-lowres@1", "label-free-dda-lowres@2", "tmt-dda@1" }));
+            "label-free-dda@5", "label-free-dda@6", "label-free-dda@7", "label-free-dda-lowres@1", "label-free-dda-lowres@2", "label-free-dda-lowres@3",
+            "tmt-dda@1" }));
+
+        // PXD045821 (2026-10-17): lowres@3 is lowres@2 plus the probe search and the windows it measures; nothing else.
+        var low2x = profiles["label-free-dda-lowres@2"];
+        var low3 = profiles["label-free-dda-lowres@3"];
+        Assert.That((low3.ProbeSearch, low3.PrecursorWindow, low2x.ProbeSearch, low2x.PrecursorWindow), Is.EqualTo((true, "probe", false, "default")));
+        Assert.That(low3 with { Version = 2, ProbeSearch = false, PrecursorWindow = "default", Description = low2x.Description, Databases = low2x.Databases,
+            Accepts = low2x.Accepts, Tasks = low2x.Tasks, GptmdExtraMods = low2x.GptmdExtraMods, Deposit = low2x.Deposit, Qc = low2x.Qc },
+            Is.EqualTo(low2x), "every other scalar setting equals lowres@2's");
+        Assert.That((low3.Tasks, low3.Deposit, low3.Qc with { Excludable = low2x.Qc.Excludable }), Is.EqualTo((low2x.Tasks, low2x.Deposit, low2x.Qc)));
+        Assert.That(low3.Qc.Excludable, Is.EqualTo(low2x.Qc.Excludable));
+        Assert.That(low3.Databases.Select(kv => (kv.Key, kv.Value.Proteome)), Is.EquivalentTo(low2x.Databases.Select(kv => (kv.Key, kv.Value.Proteome))),
+            "no database change, so no D29 rebuild");
 
         // The user 2026-10-12 (aging 089 PXR-A94, ptmQtl 018 PXR-P17): @7 is @6 with the probe search on; nothing else.
         var v6x = profiles["label-free-dda@6"];
