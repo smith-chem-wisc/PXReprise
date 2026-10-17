@@ -33,7 +33,9 @@ public sealed record Machine(
     string? AsperaAscp = null,
     string? AsperaKey = null,
     int AsperaAttempts = 3,
-    string PrideHttps = "globus")
+    string PrideHttps = "globus",
+    DepositLimits? DepositLimits = null,
+    double? ProbeSearchMinutes = null)
 {
     public static Machine Load(string file)
     {
@@ -88,7 +90,14 @@ public sealed record Machine(
         // The HTTPS host for raw files (pride 014): "globus", EBI's Globus collection over plain HTTPS, which came back
         // clean where ftp.pride.ebi.ac.uk did not; or "ftp", mzLib's own choice.
         string prideHttps = (root.OptionalString("pride_https") ?? "globus").ToLowerInvariant();
+        // v0.4.21 (the user, 2026-10-17: "incrementally increase the limits"): how big a deposit this box downloads and
+        // searches whole is the box's, like search_timeout_h, not the method's. Each key here replaces the profiles' own
+        // [deposit] value; a question's [exceptions] still wins for its deposit.
+        var limits = DepositLimits.Load(root.OptionalTable("deposit_limits"));
+        // The probe search's wall clock (the profile's probe_search_minutes otherwise): larger files take longer.
+        double? probeMinutes = root.OptionalNumber("probe_search_minutes");
         root.RefuseUnknownKeys();
+        if (probeMinutes is <= 0) throw new ConfigException(file, "'probe_search_minutes' must be positive");
         if (asperaAttempts < 0) throw new ConfigException(file, "'aspera_attempts' must not be negative (0 sends every attempt to HTTPS)");
         if (prideHttps is not ("globus" or "ftp")) throw new ConfigException(file, $"'pride_https' must be \"globus\" or \"ftp\", not \"{prideHttps}\"");
         if ((ascp is null) != (asperaKey is null)) throw new ConfigException(file, "'aspera_ascp' and 'aspera_key' go together");
@@ -104,11 +113,75 @@ public sealed record Machine(
         if (passWait < 0) throw new ConfigException(file, "'pass_wait_minutes' must not be negative");
         if (searchTimeout <= 0) throw new ConfigException(file, "'search_timeout_h' must be positive");
         if (stall < 0) throw new ConfigException(file, "'search_stall_minutes' must not be negative (0 turns the stall check off)");
-        return new Machine(file, workRoot, dbDir, mm, settings, threads, dotnet, licence, libraries, minFree, datarepo, attempts, parallel, qcPython, passes, passWait, searchTimeout, stall, dotnetRoot, fetchStall, slots, catchUp, ascp, asperaKey, asperaAttempts, prideHttps);
+        return new Machine(file, workRoot, dbDir, mm, settings, threads, dotnet, licence, libraries, minFree, datarepo, attempts, parallel, qcPython, passes, passWait, searchTimeout, stall, dotnetRoot, fetchStall, slots, catchUp, ascp, asperaKey, asperaAttempts, prideHttps, limits, probeMinutes);
     }
 
     public string CmdFor(string release) =>
         MetaMorpheus.TryGetValue(release, out string? cmd)
             ? cmd
             : throw new UsageException($"{Path.GetFileName(SourceFile)} names no MetaMorpheus {release} (has: {string.Join(", ", MetaMorpheus.Keys)})");
+}
+
+/// <summary>
+/// The machine's <c>[deposit_limits]</c> (v0.4.21): the profiles' deposit gates as this box sets them. Each key left out
+/// keeps the profile's value. A gate changes which deposits are searched, never how, so a profile keeps its version.
+/// </summary>
+public sealed record DepositLimits(int? MaxFiles = null, int? MaxFileMb = null, long? MaxEstimatedMs2 = null, int? DeferIfMedianFileMb = null)
+{
+    public static DepositLimits? Load(TomlSection? t)
+    {
+        if (t is null) return null;
+        int? Int(string key) => t.OptionalInteger(key) is { } v ? checked((int)v) : null;
+        var l = new DepositLimits(Int("max_files"), Int("max_file_mb"), t.OptionalInteger("max_est_ms2"), Int("defer_if_median_file_mb"));
+        t.RefuseUnknownKeys();
+        if (l.MaxFiles is < 1) throw new ConfigException(t.File, "'deposit_limits.max_files' must be 1 or more");
+        if (l.MaxFileMb is < 1) throw new ConfigException(t.File, "'deposit_limits.max_file_mb' must be 1 or more");
+        if (l.MaxEstimatedMs2 is < 0) throw new ConfigException(t.File, "'deposit_limits.max_est_ms2' must not be negative (0 turns the gate off)");
+        if (l.DeferIfMedianFileMb is < 0) throw new ConfigException(t.File, "'deposit_limits.defer_if_median_file_mb' must not be negative (0 turns the gate off)");
+        return l.Describe().Length == 0 ? null : l;
+    }
+
+    public DepositPolicy Apply(DepositPolicy p) => p with
+    {
+        MaxFiles = MaxFiles ?? p.MaxFiles,
+        MaxFileMb = MaxFileMb ?? p.MaxFileMb,
+        MaxEstimatedMs2 = MaxEstimatedMs2 ?? p.MaxEstimatedMs2,
+        DeferIfMedianFileMb = DeferIfMedianFileMb ?? p.DeferIfMedianFileMb,
+    };
+
+    /// <summary>One line for the log and for the state entry of a deposit these limits deferred.</summary>
+    public string Describe()
+    {
+        var parts = new List<string>();
+        if (MaxFiles is { } mf) parts.Add($"max_files {mf}");
+        if (MaxFileMb is { } mm) parts.Add($"max_file_mb {mm}");
+        if (MaxEstimatedMs2 is { } me) parts.Add($"max_est_ms2 {me}");
+        if (DeferIfMedianFileMb is { } dm) parts.Add($"defer_if_median_file_mb {dm}");
+        return string.Join(", ", parts);
+    }
+
+    /// <summary>
+    /// Whether a deposit deferred by a size gate now fits these limits, read from what its deferral measured
+    /// (<c>median_file_mb</c>, <c>est_ms2</c>, <c>n_files</c>, the detail's MB cap). A gate these limits leave to the
+    /// profile admits nothing: the profile has not changed.
+    /// </summary>
+    public bool Admits(string status, System.Text.Json.Nodes.JsonObject entry)
+    {
+        double? Num(string key) => entry[key] is System.Text.Json.Nodes.JsonValue v && v.TryGetValue(out double d) ? d : null;
+        switch (status)
+        {
+            case "deferred_large_files":
+                return DeferIfMedianFileMb is { } gate && Num("median_file_mb") is { } med && (gate == 0 || med <= gate);
+            case "deferred_search_too_large":
+                return MaxEstimatedMs2 is { } cap && Num("est_ms2") is { } est && (cap == 0 || est <= cap);
+            case "deferred_needs_design_selection":
+                string detail = entry["detail"]?.GetValue<string>() ?? "";
+                if (detail.Contains("raw files >", StringComparison.Ordinal))
+                    return MaxFiles is { } mf && Num("n_files") is { } n && n <= mf;
+                var above = System.Text.RegularExpressions.Regex.Match(detail, @"above (\d+) MB");
+                return above.Success && MaxFileMb is { } mb && mb > int.Parse(above.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+            default:
+                return false;
+        }
+    }
 }
