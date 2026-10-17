@@ -29,8 +29,8 @@ No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: sw
     - an ion-trap run lost 4% of its PSMs to the larger search space, so the ion-trap profile stays on agingPTM-v3.
 - **A site is never counted from a deposit that enriches its modification**, as before. The list of such deposits is
   now built from the batch's own record: the manifest's enrichment, the probe's measured enrichment, and a
-  polyubiquitin capture named in the deposit's text. A new script, `tools/ptm-db/EnrichedExclusions.cs`, builds it.
-  The builder adds the deposits whose runs measure phospho or GG enriched. 41 exclusions were used.
+  polyubiquitin capture named in the deposit's text. The database build adds the deposits whose runs measure phospho
+  or GG enriched. 41 exclusions were used.
 - Each search's `provenance.json` names its databases and their sha256, as before.
 
 ## 0.4.22 (2026-10-17)
