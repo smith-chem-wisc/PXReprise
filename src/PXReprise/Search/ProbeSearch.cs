@@ -39,13 +39,21 @@ public static class ProbeSearch
         ("WriteContaminants", "true"), ("IterativePepTraining", "false"), ("RTPredictorName", "\"SSRCalc\""),
     };
 
+    /// <summary>
+    /// The probe's precursor window. The probe runs no calibration, and MetaMorpheus's default ±5 ppm missed nearly every
+    /// match on an instrument off by +7.6 ppm (PXD051644, 2026-10-17: 12-31 PSMs a run, parked waiting_no_identifications;
+    /// its calibrated search found 24,449). ±20 ppm takes such an offset; the probe only counts, it delivers nothing.
+    /// </summary>
+    public const string PrecursorTolerance = "±20.0000 PPM";
+
     /// <summary>The probe's Search task text, from the pinned MetaMorpheus's default (pure; tested without MetaMorpheus).</summary>
     public static string TaskText(string defaultSearchToml, Machine m, DepositChemistry? chem, IReadOnlySet<(string, string)> known)
     {
         var settings = new TaskSettings(m.MaxThreads, MatchBetweenRuns: false, GptmdExtraMods: Array.Empty<string>(), SearchType: "Classic",
             Protease: chem is { ProteasePerFile: null } ? chem.Protease.Value : null,
             FixedCysMods: chem?.CysMods.Where(c => c.Fixed).Select(c => c.MetaMorpheusId!).ToList(),
-            VariableCysMods: chem?.CysMods.Where(c => !c.Fixed).Select(c => c.MetaMorpheusId!).ToList());
+            VariableCysMods: chem?.CysMods.Where(c => !c.Fixed).Select(c => c.MetaMorpheusId!).ToList(),
+            PrecursorMassTolerance: PrecursorTolerance);
         var (text, _) = TaskFiles.Edit(defaultSearchToml, TaskKind.Search, settings, known);
         foreach (var (key, value) in FastSettings) text = TaskFiles.Set(text, key, value);
         return TaskFiles.AddVariableMods(text, EnrichmentMods, known);

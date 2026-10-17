@@ -33,6 +33,11 @@ machine file already turns on or off with `catch_up_every`.
   exited with re-searches still due: 91 of them on 2026-10-17. Now every start is a catch-up re-search until none is due.
 - Each search's `provenance.json` records the machine's `deposit_limits` when it sets any, and `batch.log` names them
   at start.
+- **The probe search takes precursors within ±20 ppm, not MetaMorpheus's default ±5 ppm.** The probe runs no
+  calibration. On an instrument whose precursor masses were off by +7.6 ppm, it found 12 to 31 PSMs a run and parked the
+  deposit as `waiting_no_identifications`, while the calibrated search of the same files had found 24,449. The probe only
+  decides whether and how a deposit is searched; the search itself is unchanged. A deposit the probe parked that way can be
+  taken up again with `batch retry`.
 
 ## 0.4.20 (2026-10-16)
 
