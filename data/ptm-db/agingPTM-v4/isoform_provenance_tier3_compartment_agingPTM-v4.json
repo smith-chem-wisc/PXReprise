@@ -1,0 +1,93 @@
+{
+  "built_utc": "2026-10-17T12:03:52\u002B00:00",
+  "script": "PXReprise tools/ptm-db/BuildPtmDb.cs --mode isoforms (C# port of aging results/ptm_db_2026-09-27/isoform_sites.py)",
+  "tag": "agingPTM-v4",
+  "catalog": {
+    "id": "763737672ff569ca",
+    "datarepo": "1.3.2",
+    "built_utc": "2026-10-17T11:23:45\u002B00:00",
+    "path": "F:/pxreprise_ptmdb_v4/catalog_copy.duckdb"
+  },
+  "from_sites": null,
+  "enriched_for_excluded": {
+    "rule": "a site of a PTM class is not counted from a deposit that enriches that class (user, 2026-10-07)",
+    "declared_file": "F:/pxreprise_ptmdb_v4/enriched_ptm_exclusions_2026-10-17.tsv",
+    "declared_sha256": "f644484a293c56d437468a88086822f52ae6dfd9c3017b7ff135982dd445a678",
+    "measured": {
+      "phospho_pct_min": 5,
+      "gg_pct_min": 2,
+      "over": "1% target PSMs per run (psms_1pct)"
+    },
+    "used_file": "F:/pxreprise_ptmdb_v4/sites_iso_tier3_compartment\\enriched_exclusions_used.tsv",
+    "used_sha256": "53c3b26096c078ec150c71eb688411ad9f50f3d462240d8c7231d303d1fd78bc",
+    "rows": 41
+  },
+  "rule": "site on an isoform accession, reported in a 1%-FDR target protein group that lists the isoform and not its canonical (MetaMorpheus parsimony); \u003E= 5 PSMs summed over those datasets",
+  "dotnet": "10.0.10",
+  "organisms": {
+    "human": {
+      "source_xml": "F:/aging_data/db/aging_isoforms_tier3_compartment_human.xml",
+      "source_sha256": "4d3d1c9bba003d0fb75ba722188f4bcda2908eb7088fe62e2cde91d5f82931a3",
+      "output_xml": "F:/pxreprise_ptmdb_v4/out_iso_tier3_compartment\\aging_isoforms_tier3_compartment_human_agingPTM-v4.xml",
+      "output_sha256": "30b8d7ca54dfdf763499f0cbf8e4d83a8fda3f0c992e24bbe6d6816d2bfcc8f5",
+      "sites_written": 17,
+      "sites_by_accession": {
+        "P00387-2": 6,
+        "P06396-2": 8,
+        "P07711-3": 2,
+        "P33316-2": 1
+      },
+      "selected_accessions_not_in_this_xml": [
+        "O00499-6",
+        "O00499-7",
+        "O00499-9",
+        "P02545-2",
+        "P02545-6",
+        "P02751-1",
+        "P02751-13",
+        "P02751-8",
+        "P04637-4",
+        "P10636-2",
+        "P10636-7",
+        "P10636-8",
+        "P29590-5",
+        "Q01082-2",
+        "Q8IXJ6-5"
+      ]
+    },
+    "mouse": {
+      "source_xml": "F:/aging_data/db/aging_isoforms_tier3_compartment_mouse.xml",
+      "source_sha256": "be08bf25b790420dc1976b77fc29bb13e70e554b1c049330978c3caaf388d084",
+      "output_xml": "F:/pxreprise_ptmdb_v4/out_iso_tier3_compartment\\aging_isoforms_tier3_compartment_mouse_agingPTM-v4.xml",
+      "output_sha256": "013802ee85a6dde64ed91c416d113757d1be64a29179c0197caca7fd0f467908",
+      "sites_written": 21,
+      "sites_by_accession": {
+        "P13020-2": 13,
+        "P97807-2": 3,
+        "P99029-2": 3,
+        "Q922S4-2": 1,
+        "Q9DCN2-2": 1
+      },
+      "selected_accessions_not_in_this_xml": [
+        "P10637-2",
+        "P10637-4",
+        "P10637-5",
+        "P48678-2",
+        "Q62261-2"
+      ]
+    },
+    "rat": {
+      "source_xml": "F:/aging_data/db/aging_isoforms_tier3_compartment_rat.xml",
+      "source_sha256": "bce8d883fb6f886d0e6e72173047766cb93bb460c84da9696d1245a9dd3c1986",
+      "output_xml": "F:/pxreprise_ptmdb_v4/out_iso_tier3_compartment\\aging_isoforms_tier3_compartment_rat_agingPTM-v4.xml",
+      "output_sha256": "887ba31e786ea8fc155e6b36398ec4af38284c8eaa29dfef41dca547f1ae8463",
+      "sites_written": 0,
+      "sites_by_accession": {},
+      "selected_accessions_not_in_this_xml": [
+        "P19332-5",
+        "P19332-7"
+      ]
+    }
+  },
+  "wall_s": 4.3
+}

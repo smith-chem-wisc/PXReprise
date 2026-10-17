@@ -11,8 +11,25 @@ public class ConfigTests
     {
         var profiles = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
         Assert.That(profiles.Keys, Is.EquivalentTo(new[] { "label-free-dda@1", "label-free-dda@2", "label-free-dda@3", "label-free-dda@4",
-            "label-free-dda@5", "label-free-dda@6", "label-free-dda@7", "label-free-dda-lowres@1", "label-free-dda-lowres@2", "label-free-dda-lowres@3",
-            "tmt-dda@1" }));
+            "label-free-dda@5", "label-free-dda@6", "label-free-dda@7", "label-free-dda@8", "label-free-dda-lowres@1", "label-free-dda-lowres@2",
+            "label-free-dda-lowres@3", "tmt-dda@1" }));
+
+        // D44 (2026-10-17): @8 is @7 on agingPTM-v4; nothing else. No lowres version on v4: it cost an ion-trap run 4% of its PSMs.
+        foreach (var (newer, older) in new[] { ("label-free-dda@8", "label-free-dda@7") })
+        {
+            var n = profiles[newer];
+            var o = profiles[older];
+            Assert.That(n.Databases.Values.Select(d => d.Proteome), Is.All.EndWith("_all_genecentric_2026_03_agingPTM-v4.xml"), newer);
+            Assert.That(n.Databases.Select(kv => (kv.Key, kv.Value.Proteome!.Replace("agingPTM-v4", "agingPTM-v3"), kv.Value.Taxon, kv.Value.UniProt, string.Join(";", kv.Value.Extra))),
+                Is.EquivalentTo(o.Databases.Select(kv => (kv.Key, kv.Value.Proteome!, kv.Value.Taxon, kv.Value.UniProt, string.Join(";", kv.Value.Extra)))),
+                $"{newer}: the same proteomes, one tag on");
+            Assert.That(n with { Version = o.Version, Description = o.Description, Databases = o.Databases, Accepts = o.Accepts, Tasks = o.Tasks,
+                GptmdExtraMods = o.GptmdExtraMods, Deposit = o.Deposit, Qc = o.Qc, ThiolReagents = o.ThiolReagents },
+                Is.EqualTo(o), $"every other scalar setting of {newer} equals {older}'s");
+            Assert.That((n.Tasks, n.GptmdExtraMods, n.Deposit, n.Qc with { Excludable = o.Qc.Excludable }), Is.EqualTo((o.Tasks, o.GptmdExtraMods, o.Deposit, o.Qc)), newer);
+            Assert.That(n.Qc.Excludable, Is.EqualTo(o.Qc.Excludable), newer);
+            Assert.That(n.ThiolReagents ?? new Dictionary<string, string>(), Is.EquivalentTo(o.ThiolReagents ?? new Dictionary<string, string>()), newer);
+        }
 
         // PXD045821 (2026-10-17): lowres@3 is lowres@2 plus the probe search and the windows it measures; nothing else.
         var low2x = profiles["label-free-dda-lowres@2"];
