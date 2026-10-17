@@ -999,6 +999,13 @@ public sealed class BatchRunner
             .FirstOrDefault(p => p is { Status: ProfileStatus.Available, Fragmentation: "per_file" } && p.Qc.MinFractionOrbitrapHcd == 0
                                  && p.Accepts.Refusal(acq) is null);
 
+    /// <summary>The probe runs' precursor offsets the state recorded for <paramref name="acc"/> (ppm), or null when its probe
+    /// measured none: read from state, so a restart between the probe and the search keeps them.</summary>
+    private IReadOnlyDictionary<string, double>? ProbeOffsets(string acc) =>
+        Entry(acc)?["probe_precursor_offsets_ppm"] is JsonObject o
+            ? o.Where(kv => kv.Value is JsonValue).ToDictionary(kv => kv.Key, kv => kv.Value!.GetValue<double>(), StringComparer.Ordinal)
+            : null;
+
     /// <summary>The raw file names a probe fetch chose (its <c>fetch_manifest.json</c> <c>files</c>).</summary>
     internal static IReadOnlySet<string> ProbeFileNames(JsonObject fetchManifest) =>
         fetchManifest["files"]!.AsArray().Select(f => f!["name"]!.GetValue<string>()).ToHashSet(StringComparer.Ordinal);
@@ -1028,6 +1035,7 @@ public sealed class BatchRunner
         string acc = e.Accession, d = Run(acc);
         var spectra = ProbeSpectra(Path.Combine(d, "02_fetch", "spectra"), probeQc);
         IReadOnlyDictionary<string, Qc.RunMeasures> runs;
+        IReadOnlyDictionary<string, double>? offsets = null;
         try
         {
             var fragmentation = Search.SearchStage.FragmentationFromQc(probeQc, spectra, profile);
@@ -1035,6 +1043,7 @@ public sealed class BatchRunner
             var probeProfile = ProbeMinutes is { } pm ? profile with { ProbeSearchMinutes = pm } : profile;
             string psms = await ProbeSearchRunner(probeProfile, _m, spectra, chemistry, fragmentation, Path.Combine(d, "02c_probe_search"), ct).ConfigureAwait(false);
             runs = Qc.ProbeMeasures.FromAllPsms(psms, ProbePanelAccessions(profile, _m));
+            if (profile.PrecursorWindow == "probe") offsets = Qc.ProbeMeasures.PrecursorOffsets(psms);
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
@@ -1044,6 +1053,16 @@ public sealed class BatchRunner
             return false;
         }
         xr.ProbeSearch(runs);
+        if (offsets is not null)
+        {
+            // Written on every probe under such a profile, an empty one too, so a re-probe never leaves an earlier offset.
+            int? window = Qc.ProbeMeasures.WindowPpm(offsets.Values);
+            Log($"{acc} PROBE SEARCH precursor offset: " + (offsets.Count == 0 ? $"not measured (no run has {Qc.ProbeMeasures.MinOffsetPsms} PSMs at 1%)"
+                : string.Join("; ", offsets.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => $"{kv.Key} {kv.Value:+0.00;-0.00} ppm")))
+                + (window is { } w ? $"; the search takes precursors within ±{w} ppm" : "; the search keeps MetaMorpheus's windows"));
+            Record(acc, ("probe_precursor_offsets_ppm", new JsonObject(offsets.OrderBy(kv => kv.Key, StringComparer.Ordinal)
+                .Select(kv => KeyValuePair.Create(kv.Key, (JsonNode?)kv.Value)))));
+        }
         bool expectCarbamidomethyl = chemistry is null || chemistry.CysMods.Any(c => c.Name == "Carbamidomethyl" && c.Fixed);
         var verdict = Qc.ProbeJudge.Judge(runs, Qc.ProbeJudge.SpeciesName(e.Organism), expectCarbamidomethyl, acq.Enrichment != "none",
             spectra.Select(s => Path.GetFileNameWithoutExtension(s)).ToList());
@@ -1189,7 +1208,8 @@ public sealed class BatchRunner
         var req = new SearchRequest(profile, e.Organism, _m with { DepositLimits = Limits, ProbeSearchMinutes = ProbeMinutes },
             Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "04_search"),
             Path.Combine(d, "02b_qc"), overlays, excl, _runDate, acc, UseLibrary: library,
-            CuratedDesign: curated, DesignConditionColumns: _q.Designs is { ConditionColumns.Count: > 0 } ds ? ds.ConditionColumns : null, Chemistry: chemistry);
+            CuratedDesign: curated, DesignConditionColumns: _q.Designs is { ConditionColumns.Count: > 0 } ds ? ds.ConditionColumns : null, Chemistry: chemistry,
+            ProbePrecursorOffsets: profile.PrecursorWindow == "probe" ? ProbeOffsets(acc) : null);
         string runtimeRoot = Search.DotnetRuntimes.Root(_m.DotnetRoot);
         var runtimesBefore = Search.DotnetRuntimes.Snapshot(runtimeRoot);
         SearchOutcome outcome;

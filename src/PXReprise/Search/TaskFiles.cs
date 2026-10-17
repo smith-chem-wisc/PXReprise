@@ -26,7 +26,8 @@ public sealed record TaskSettings(
     IReadOnlyList<string>? FixedCysMods = null,           // G19: "Type\tIdWithMotif" (a real TAB); null keeps the default
     IReadOnlyList<string>? VariableCysMods = null,        //   Carbamidomethyl on C and U; empty lists mean no cysteine mod
     bool WriteSdrf = false,                               // MetaMorpheus 1.1.12+: experiment.sdrf.tsv beside the results
-    string? ProteomeXchangeAccession = null);             //   stamped into it; only with WriteSdrf
+    string? ProteomeXchangeAccession = null,              //   stamped into it; only with WriteSdrf
+    double? QuantifyPpmTol = null);                       // the Search task's FlashLFQ tolerance; null keeps the default
 
 public static class TaskFiles
 {
@@ -91,6 +92,9 @@ public static class TaskFiles
                 text = WriteSdrfLines(text, s.ProteomeXchangeAccession);
             else if (s.ProteomeXchangeAccession is not null)
                 throw new SearchSetupException("a ProteomeXchange accession is stamped only into a written SDRF (WriteSdrf)");
+            if (s.QuantifyPpmTol is { } qt)
+                text = Replace(text, @"^QuantifyPpmTol = [\d.]+$", $"QuantifyPpmTol = {qt.ToString("0.0###", System.Globalization.CultureInfo.InvariantCulture)}",
+                    "QuantifyPpmTol", exactlyOne: true);
         }
 
         // G19 (D23, D24, D27): the deposit's protease and cysteine chemistry, in EVERY task. Mods are per task in

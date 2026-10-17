@@ -306,12 +306,49 @@ public class ProbeSearchTests
     }
 
     [Test]
-    public void TheNewParksAreAnnouncedAndOnlyLabelFreeDda7TurnsTheProbeOn()
+    public void TheNewParksAreAnnouncedAndOnlyLabelFreeDda7AndLowres3TurnTheProbeOn()
     {
         foreach (string park in new[] { "waiting_species", "waiting_mixed_species", "waiting_alkylation_check", "waiting_no_identifications" })
             Assert.That(DecisionsNeeded.For(park), Is.Not.Null, park);
         // The user, 2026-10-12: "Yes to the preliminary search". Profiles already used keep it off (a profile never changes).
+        // lowres@3 (2026-10-17) runs it to measure the precursor offset its uncalibrated search must hold.
         Assert.That(Config.ProfileLoader.LoadDirectory(TestSupport.ProfilesDir).Where(kv => kv.Value.ProbeSearch).Select(kv => kv.Key),
-            Is.EqualTo(new[] { "label-free-dda@7" }));
+            Is.EquivalentTo(new[] { "label-free-dda@7", "label-free-dda-lowres@3" }));
+    }
+
+    [Test]
+    public void TheProbeMeasuresEachRunsPrecursorOffsetAndTheWindowHoldsTheLargest()
+    {
+        // PXD045821 (2026-10-17): +8.7 ppm in every run. Notch 0 and notch +1 PSMs measure the same offset; decoys, PSMs
+        // above 1% and runs with fewer than 20 PSMs measure none.
+        string dir = TestSupport.TempDir();
+        var sb = new System.Text.StringBuilder("File Name\tQValue\tDecoy/Contaminant/Target\tMass Diff (Da)\tMonoisotopic Mass\n");
+        string Da(double ppm, double mass, int notch) => (notch * Chemistry.Constants.C13MinusC12 + ppm * mass / 1e6).ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+        for (int i = 0; i < 30; i++)
+        {
+            double ppm = 8.7 + (i % 5 - 2) * 0.5;   // 7.7 .. 9.7, median 8.7
+            sb.Append($"offset\t0.001\tT\t{Da(ppm, 1500 + i, i % 3 == 0 ? 1 : 0)}|0.5\t{1500 + i}|1600\n");
+            sb.Append($"centred\t0.002\tT\t{Da((i % 5 - 2) * 0.4, 2000 + i, 0)}\t{2000 + i}\n");
+        }
+        for (int i = 0; i < 40; i++) sb.Append($"centred\t0.002\tD\t{Da(-15, 1800, 0)}\t1800\n");    // decoys say nothing
+        for (int i = 0; i < 40; i++) sb.Append($"centred\t0.05\tT\t{Da(-15, 1800, 0)}\t1800\n");     // nor PSMs above 1%
+        for (int i = 0; i < 19; i++) sb.Append($"thin\t0.001\tT\t{Da(12, 1800, 0)}\t1800\n");          // 19 < 20
+        string psms = TestSupport.WriteFile(dir, "AllPSMs.psmtsv", sb.ToString());
+
+        var offsets = Qc.ProbeMeasures.PrecursorOffsets(psms);
+        Assert.That(offsets.Keys, Is.EquivalentTo(new[] { "offset", "centred" }));
+        Assert.That(offsets["offset"], Is.EqualTo(8.7).Within(0.01));
+        Assert.That(offsets["centred"], Is.EqualTo(0).Within(0.01));
+        Assert.Multiple(() =>
+        {
+            Assert.That(Qc.ProbeMeasures.WindowPpm(offsets.Values), Is.EqualTo(14), "5 ppm beyond +8.7, rounded up");
+            Assert.That(Qc.ProbeMeasures.WindowPpm(new[] { 0.0, -1.9, 2.0 }), Is.Null, "within 2 ppm: MetaMorpheus's ±5 holds them");
+            Assert.That(Qc.ProbeMeasures.WindowPpm(new[] { 0.3, -6.2 }), Is.EqualTo(12), "the largest offset either way");
+            Assert.That(Qc.ProbeMeasures.WindowPpm(new[] { 19.0 }), Is.EqualTo(20), "never wider than the probe saw");
+            Assert.That(Qc.ProbeMeasures.WindowPpm(Array.Empty<double>()), Is.Null);
+            Assert.That(Qc.ProbeMeasures.WindowPpm(null), Is.Null);
+        });
+        Assert.Throws<InvalidDataException>(() => Qc.ProbeMeasures.PrecursorOffsets(TestSupport.WriteFile(dir, "b.psmtsv", "File Name\tQValue\tDecoy/Contaminant/Target\n")),
+            "a probe output without the mass columns is an error, never an offset of 0");
     }
 }

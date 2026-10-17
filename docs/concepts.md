@@ -38,6 +38,7 @@ is a new version, so every result says exactly which method made it.
 | `label-free-dda@7` | available | `@6`, plus a short probe search before the whole deposit is downloaded (below) |
 | `label-free-dda-lowres@1` | available | label-free DDA whose MS2 is read in the ion trap (CID): MetaMorpheus's Search task alone, each file's fragmentation written from its own scans, no spectral library. A deposit is sent here only when its probe files fail the Orbitrap check and nothing else |
 | `label-free-dda-lowres@2` | available | `lowres@1`, plus MS2 fragmented by HCD and read in the ion trap (a Fusion, Lumos or Eclipse "HCD-IT" method) |
+| `label-free-dda-lowres@3` | available | `lowres@2`, plus the probe search, which measures each deposit's precursor mass offset. The search then accepts and quantifies precursors within a window wide enough for that offset (below). These profiles run no calibration, and an instrument whose masses are a few ppm off loses most of its identifications at MetaMorpheus's 5 ppm |
 | `tmt-dda@1` | pending | TMT-labelled DDA. Not runnable yet: a question that lists it gets a count of the TMT deposits it would unlock |
 
 Every profile but `@2` needs the ageing project's own databases in the machine's `database_dir`, and runs only where they
@@ -84,8 +85,18 @@ experiment record. The spectra win over the text:
 
 Each of these waits is listed for a person in `decisions_needed.tsv`. A deposit that passes is searched as under `@6`.
 
-A profile can also take an experimental design (`[quant] design = "sdrf"`, `label-free-dda@4` onward and both `lowres`
-profiles): before the search, PXReprise writes MetaMorpheus's `ExperimentalDesign.tsv` from the question's own SDRF for that deposit, or else
+**Mass windows without calibration** (`[engine] precursor_window = "probe"`, `label-free-dda-lowres@3`).
+- **Why:** the `label-free-dda` profiles calibrate each file before they search it, so MetaMorpheus's 5 ppm windows suit
+  them. The `lowres` profiles do not calibrate. On a deposit whose precursor masses were 8.7 ppm off, `lowres@2`
+  identified 0.37% of the spectra. FlashLFQ does not correct an offset either: it looks for a peptide's MS1 peaks within
+  its window of the theoretical mass.
+- **How:** the probe search takes precursors within ±20 ppm and measures each probe run's median offset. The search
+  then sets both windows to 5 ppm beyond the largest offset, rounded up, at most ±20 ppm. When no offset exceeds 2 ppm,
+  MetaMorpheus's own windows are kept, because a wider window costs identifications on a deposit with no offset.
+- **Where it is recorded:** each search's `provenance.json` (`precursor_window`) records the offsets and the window.
+
+A profile can also take an experimental design (`[quant] design = "sdrf"`, `label-free-dda@4` onward and every `lowres`
+profile): before the search, PXReprise writes MetaMorpheus's `ExperimentalDesign.tsv` from the question's own SDRF for that deposit, or else
 from the deposit's, so quantification knows the conditions and replicates. Without one, every file is quantified as its
 own sample.
 
