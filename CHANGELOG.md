@@ -7,6 +7,32 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.23 (2026-10-17)
+
+No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual. One new profile,
+`label-free-dda@8`; nothing changes for a question until it names it. Its databases must be in your `database_dir`.
+
+- **New profile `label-free-dda@8`: `@7` on the ageing project's fourth database release, agingPTM-v4.**
+  - **What it is:** the same UniProt 2026_03 canonical proteomes as before, with the biological PTM sites rebuilt
+    from the ageing catalog of 2026-10-17 (163 datasets). agingPTM-v3 carried the sites of the catalog of 2026-10-06
+    (97 datasets).
+  - **The rule is unchanged:**
+    - each site is a target, at q <= 0.01 and ambiguity level 1, with at least 5 PSMs summed over the organism's
+      datasets;
+    - only the 21 biological modifications are taken, never deamidation or citrullination;
+    - a site UniProt already annotates with the same chemistry is not added.
+  - **Sites:** human 10,492 (was 6,602), mouse 15,868 (was 6,309), rat 2,667 (was 1,442).
+  - **The isoform files are rebuilt with them.** The compartment isoforms now carry sites too.
+  - **Measured on one run each (MetaMorpheus 1.1.12's Search task):**
+    - a high-resolution mouse run found 31,536 PSMs (31,459 before), and 901 carried a biological modification
+      (785 before);
+    - an ion-trap run lost 4% of its PSMs to the larger search space, so the ion-trap profile stays on agingPTM-v3.
+- **A site is never counted from a deposit that enriches its modification**, as before. The list of such deposits is
+  now built from the batch's own record: the manifest's enrichment, the probe's measured enrichment, and a
+  polyubiquitin capture named in the deposit's text. The database build adds the deposits whose runs measure phospho
+  or GG enriched. 41 exclusions were used.
+- Each search's `provenance.json` names its databases and their sha256, as before.
+
 ## 0.4.22 (2026-10-17)
 
 No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual. One new profile,

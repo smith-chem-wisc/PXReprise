@@ -176,7 +176,8 @@ public class FragmentationTests
         Assert.That(shipped.Where(kv => !ionTrap.Contains(kv.Key)).Select(kv => kv.Value.Fragmentation), Has.All.EqualTo("fixed"),
             "no shipped profile changes behaviour (D26): per_file arrives with a new profile");
         Assert.That(ionTrap.Select(k => shipped[k].Fragmentation), Has.All.EqualTo("per_file"), "the ion-trap profiles are the ones that write it");
-        Assert.That(shipped.Where(kv => kv.Value.IonTrapHcd).Select(kv => kv.Key), Is.EquivalentTo(new[] { "label-free-dda-lowres@2", "label-free-dda-lowres@3" }));
+        Assert.That(shipped.Where(kv => kv.Value.IonTrapHcd).Select(kv => kv.Key),
+            Is.EquivalentTo(new[] { "label-free-dda-lowres@2", "label-free-dda-lowres@3" }));
     }
 
     [Test]
@@ -207,8 +208,9 @@ public class FragmentationTests
         var (plain, _) = TaskFiles.Edit(defaults, TaskKind.Search, new TaskSettings(8, true, Array.Empty<string>()), none);
         Assert.Multiple(() =>
         {
-            Assert.That(wide, Does.Contain("PrecursorMassTolerance = \"±14.0000 PPM\"\r\n").And.Contain("QuantifyPpmTol = 14.0\r\n"));
-            Assert.That(plain, Does.Contain("PrecursorMassTolerance = \"±5.0000 PPM\"\r\n").And.Contain("QuantifyPpmTol = 5.0\r\n"),
+            // No line ending in the strings: the fixture is CRLF on a Windows checkout and LF on public CI's Linux one.
+            Assert.That(wide, Does.Match(@"(?m)^PrecursorMassTolerance = ""±14\.0000 PPM""\r?$").And.Match(@"(?m)^QuantifyPpmTol = 14\.0\r?$"));
+            Assert.That(plain, Does.Match(@"(?m)^PrecursorMassTolerance = ""±5\.0000 PPM""\r?$").And.Match(@"(?m)^QuantifyPpmTol = 5\.0\r?$"),
                 "unset, both keep the pinned MetaMorpheus's defaults");
         });
 
@@ -227,6 +229,6 @@ public class FragmentationTests
 
         var shipped = Config.ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
         Assert.That(shipped.Where(kv => kv.Value.PrecursorWindow != "default").Select(kv => kv.Key),
-            Is.EqualTo(new[] { "label-free-dda-lowres@3" }), "no shipped profile changes behaviour (D26): the window arrives with a new profile");
+            Is.EquivalentTo(new[] { "label-free-dda-lowres@3" }), "no shipped profile changes behaviour (D26): the window arrives with a new profile");
     }
 }
