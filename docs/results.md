@@ -41,9 +41,9 @@ spend time on them again.
 | `searched` | Done. Results are in the deposit's folder. | yes |
 | `probing`, `fetched`, `searching` | In progress. | no |
 | `requeued_transient_fetch` | Put back in the queue after a download problem. | no |
-| `deferred_needs_design_selection` | More raw files than the profile allows (60). Not subsampled automatically: choosing which runs to keep is a scientific decision. | yes |
-| `deferred_large_files` | Files so large that PRIDE downloads tend to fail midway. | yes |
-| `deferred_search_too_large` | Too many spectra for one search under this profile. | yes |
+| `deferred_needs_design_selection` | More raw files than the profile allows (120 for `label-free-dda@7`), or one file above its size cap. Not subsampled automatically: choosing which runs to keep is a scientific decision. Since 0.4.21 the machine file's `[deposit_limits]` can raise the caps. | yes |
+| `deferred_large_files` | Files so large that PRIDE downloads tend to fail midway (median file above the gate). Since 0.4.21 the machine file's `[deposit_limits]` can raise the gate. | yes |
+| `deferred_search_too_large` | Too many spectra for one search under this profile. Since 0.4.21 the machine file's `[deposit_limits]` can raise the cap. | yes |
 | `skipped_acquisition`, `skipped_acquisition_full` | The files failed the quality gates (for example, MS2 read in the ion trap), in the probe or the full check. | yes |
 | `skipped_organism` | The profile has no database for this organism. | yes |
 | `waiting_other_organism` | PRIDE's project record names an organism outside the question's `organisms` beside the one the deposit is queued as: runs of another species, a host and its pathogen, or a mislabel. Decided before any download, and listed in `decisions_needed.tsv`. The question's answer is an `[exceptions]` entry that selects the runs to search or names the `species`; the deposit then gets one more look by itself. | until the question answers |

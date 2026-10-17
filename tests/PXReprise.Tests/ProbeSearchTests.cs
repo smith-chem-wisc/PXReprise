@@ -298,6 +298,8 @@ public class ProbeSearchTests
             Assert.That(text, Does.Contain("SearchType = \"Classic\"").And.Contain("MatchBetweenRuns = false").And.Contain("MaxThreadsToUsePerFile = 8"));
             Assert.That(text, Does.Contain(@"Common Biological\tPhosphorylation on Y\t\tTrypsin Digested\tGG (Ubiquitination Site) on K\t\tCommon Biological\tAcetylation on K"));
             Assert.That(text, Does.Contain("MaxModsForPeptide = 2"), "MetaMorpheus's default: more mods per peptide explode the probe");
+            Assert.That(text, Does.Contain("PrecursorMassTolerance = \"±20.0000 PPM\"").And.Not.Contain("PrecursorMassTolerance = \"±5.0000 PPM\""),
+                "no calibration in the probe: PXD051644's instrument was off by +7.6 ppm");
         });
         Assert.Throws<SearchSetupException>(() => ProbeSearch.TaskText(defaults, m, null, new HashSet<(string, string)>()),
             "a modification the pinned MetaMorpheus lacks is refused, never silently skipped");

@@ -41,6 +41,14 @@ public sealed class BatchRunner
     private readonly HashSet<string> _searching = new(StringComparer.Ordinal);
     private int _started;
 
+    // v0.4.21: the machine file's [deposit_limits] and probe_search_minutes are read again while the driver runs, so a gate
+    // can be raised a step at a time without a drain (the user, 2026-10-17: "incrementally increase the limits"). The
+    // rest of the machine file is read once, at start.
+    private readonly object _limitsGate = new();
+    private DepositLimits? _limits;
+    private double? _probeMinutes;
+    private DateTime _limitsStamp, _limitsChecked;
+
     /// <summary>The deposits being searched (up to search_slots) while the next one is screened and fetched.</summary>
     internal IReadOnlyList<string> Searching { get { lock (_searching) return _searching.ToList(); } }
 
@@ -53,6 +61,9 @@ public sealed class BatchRunner
         _q = q;
         _profiles = profiles;
         _m = m;
+        _limits = m.DepositLimits;
+        _probeMinutes = m.ProbeSearchMinutes;
+        _limitsStamp = File.Exists(m.SourceFile) ? File.GetLastWriteTimeUtc(m.SourceFile) : default;
         _files = files;
         _search = search;
         _runDate = runDate;
@@ -308,6 +319,11 @@ public sealed class BatchRunner
         if (s is not null && (s.StartsWith("deferred_", StringComparison.Ordinal) || s is "skipped_selection_empty" or "waiting_other_organism")
             && _q.ExceptionFor(acc) is { } ex && Entry(acc)?["exception"]?.GetValue<string>() != ex.Describe())
             return "";
+        // v0.4.21: a deposit a size gate deferred gets ONE more look when the machine's [deposit_limits] change and now fit
+        // what its deferral measured; the look records the limits, so a deposit that still does not fit settles again.
+        if (s is not null && Limits is { } lim && Entry(acc) is { } entry
+            && entry["machine_limits"]?.GetValue<string>() != lim.Describe() && lim.Admits(s, entry))
+            return "";
         return s is not null && (s is "fetch_failed" or "probe_fetch_failed" or "search_failed"
                                  || s.StartsWith("deferred_", StringComparison.Ordinal) || s.StartsWith("skipped_", StringComparison.Ordinal)
                                  || s.StartsWith("excluded_", StringComparison.Ordinal) || s.StartsWith("waiting_", StringComparison.Ordinal))
@@ -336,6 +352,9 @@ public sealed class BatchRunner
         Log($"  question {_q.SourceFile} ({_q.Name}); profiles {string.Join(", ", _q.Profiles)}");
         Log($"  manifest {_q.Publish?.Manifest ?? "(none)"}");
         Log($"  datarepo {_m.DataRepo ?? "(none)"}");
+        if (_m.DepositLimits is not null || _m.ProbeSearchMinutes is not null)
+            Log($"  limits   machine [deposit_limits] {(_m.DepositLimits?.Describe() is { Length: > 0 } dl ? dl : "(none)")}"
+                + (_m.ProbeSearchMinutes is { } pm ? $"; probe_search_minutes {pm:0.#}" : "") + "; the profiles' own values otherwise");
         CancellationTokenSource? stopPublishing = null;
         Task? publisher = null;
         bool ranOut = false;
@@ -553,6 +572,9 @@ public sealed class BatchRunner
             bool catchUpTurn = _m.CatchUpEvery > 0 && (_started + 1) % _m.CatchUpEvery == 0;
             var catchUp = catchUpTurn ? CatchUpCandidate(queue, consumed, busy) : null;
             var e = catchUp ?? PickNext(queue, consumed, busy);
+            // v0.4.21: with no new deposit left, every start is a catch-up re-search while one is due. The queue ran out on
+            // 2026-10-17 with 91 deposits still searched under profiles the question no longer names.
+            if (e is null && _m.CatchUpEvery > 0 && !catchUpTurn) e = catchUp = CatchUpCandidate(queue, consumed, busy);
             if (e is null) return null;
             consumed.Add(e.Accession);
             if (catchUp is not null && !StartCatchUp(e)) continue;
@@ -876,7 +898,7 @@ public sealed class BatchRunner
         {
             string why = sizes.Count > dep.MaxFiles ? $"{sizes.Count} raw files > {dep.MaxFiles}" : $"{oversize.Count} file(s) above {dep.MaxFileMb} MB";
             Log($"{acc} DEFERRED: {why}. A subset would be a design decision made by file size (S43); it waits for SDRF -> experimental-design selection.");
-            Record(acc, ("status", "deferred_needs_design_selection"), ("n_files", sizes.Count), ("total_gb", Math.Round(sizes.Sum() / 1000, 1)), ("detail", why));
+            Record(acc, ("status", "deferred_needs_design_selection"), ("n_files", sizes.Count), ("total_gb", Math.Round(sizes.Sum() / 1000, 1)), ("detail", why), LimitsField());
             Experiment(acc, xr, "deferred_needs_design_selection", why);
             return null;
         }
@@ -884,7 +906,7 @@ public sealed class BatchRunner
         {
             double med = sizes[sizes.Count / 2];
             Log($"{acc} DEFERRED: median file {med:0} MB > {dep.DeferIfMedianFileMb} MB ({sizes.Count} files, {sizes.Sum() / 1000:0.0} GB). EBI drops these mid-transfer and a retry re-pays from zero (S40).");
-            Record(acc, ("status", "deferred_large_files"), ("median_file_mb", Math.Round(med)), ("n_files", sizes.Count));
+            Record(acc, ("status", "deferred_large_files"), ("median_file_mb", Math.Round(med)), ("n_files", sizes.Count), LimitsField());
             Experiment(acc, xr, "deferred_large_files", $"median file {med:0} MB");
             return null;
         }
@@ -947,7 +969,7 @@ public sealed class BatchRunner
             if (est > dep.MaxEstimatedMs2)
             {
                 Log($"{acc} DEFERRED: estimated {est / 1e6:0.00}M MS2 ({sizes.Count} files x {ms2.Average():N0}) > {dep.MaxEstimatedMs2 / 1e6:0.0}M.");
-                Record(acc, ("status", "deferred_search_too_large"), ("est_ms2", Math.Round(est)), ("n_files", sizes.Count));
+                Record(acc, ("status", "deferred_search_too_large"), ("est_ms2", Math.Round(est)), ("n_files", sizes.Count), LimitsField());
                 Experiment(acc, xr, "deferred_search_too_large", $"estimated {est / 1e6:0.00}M MS2");
                 return null;
             }
@@ -1009,7 +1031,9 @@ public sealed class BatchRunner
         try
         {
             var fragmentation = Search.SearchStage.FragmentationFromQc(probeQc, spectra, profile);
-            string psms = await ProbeSearchRunner(profile, _m, spectra, chemistry, fragmentation, Path.Combine(d, "02c_probe_search"), ct).ConfigureAwait(false);
+            // v0.4.21: the machine's probe_search_minutes over the profile's (larger files take longer).
+            var probeProfile = ProbeMinutes is { } pm ? profile with { ProbeSearchMinutes = pm } : profile;
+            string psms = await ProbeSearchRunner(probeProfile, _m, spectra, chemistry, fragmentation, Path.Combine(d, "02c_probe_search"), ct).ConfigureAwait(false);
             runs = Qc.ProbeMeasures.FromAllPsms(psms, ProbePanelAccessions(profile, _m));
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
@@ -1161,7 +1185,9 @@ public sealed class BatchRunner
                 return;
             }
         }
-        var req = new SearchRequest(profile, e.Organism, _m, Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "04_search"),
+        // The limits as the machine file says now (v0.4.21), so provenance records the ones this deposit was admitted under.
+        var req = new SearchRequest(profile, e.Organism, _m with { DepositLimits = Limits, ProbeSearchMinutes = ProbeMinutes },
+            Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "04_search"),
             Path.Combine(d, "02b_qc"), overlays, excl, _runDate, acc, UseLibrary: library,
             CuratedDesign: curated, DesignConditionColumns: _q.Designs is { ConditionColumns.Count: > 0 } ds ? ds.ConditionColumns : null, Chemistry: chemistry);
         string runtimeRoot = Search.DotnetRuntimes.Root(_m.DotnetRoot);
@@ -1736,8 +1762,57 @@ public sealed class BatchRunner
     /// <summary>Where a fetch gets PRIDE's SHA-1s; tests replace it (null in production means PRIDE's v3 file list).</summary>
     internal Func<string, CancellationToken, Task<IReadOnlyDictionary<string, string>>>? Sha1Source { get; set; }
 
-    /// <summary>The profile's deposit caps, with the question's exception for this deposit applied (D28).</summary>
-    private DepositPolicy DepositFor(string acc, Profile profile) => _q.ExceptionFor(acc)?.Apply(profile.Deposit) ?? profile.Deposit;
+    /// <summary>
+    /// The profile's deposit caps, with the machine's <c>[deposit_limits]</c> over them (v0.4.21), then the question's
+    /// exception for this deposit (D28).
+    /// </summary>
+    private DepositPolicy DepositFor(string acc, Profile profile)
+    {
+        var dep = Limits?.Apply(profile.Deposit) ?? profile.Deposit;
+        return _q.ExceptionFor(acc)?.Apply(dep) ?? dep;
+    }
+
+    /// <summary>The machine limits a size deferral was decided under, so a change gives the deposit one more look (Settled).</summary>
+    private (string, JsonNode?) LimitsField() => ("machine_limits", Limits?.Describe());
+
+    /// <summary>The machine's <c>[deposit_limits]</c> as its file says now (read again at most every 30 s).</summary>
+    internal DepositLimits? Limits { get { RefreshLimits(); lock (_limitsGate) return _limits; } }
+
+    private double? ProbeMinutes { get { RefreshLimits(); lock (_limitsGate) return _probeMinutes; } }
+
+    private static string LimitsText(DepositLimits? l, double? probe) =>
+        (l?.Describe() is { Length: > 0 } d ? d : "(none)") + (probe is { } p ? $"; probe_search_minutes {p:0.#}" : "");
+
+    /// <summary>
+    /// Takes up a changed <c>[deposit_limits]</c> or <c>probe_search_minutes</c> from the machine file. A file that no longer
+    /// loads leaves the limits as they were, and says so.
+    /// </summary>
+    internal void RefreshLimits(bool now = false)
+    {
+        string? said = null;
+        lock (_limitsGate)
+        {
+            var t = DateTime.UtcNow;
+            if ((!now && t - _limitsChecked < TimeSpan.FromSeconds(30)) || !File.Exists(_m.SourceFile)) return;
+            _limitsChecked = t;
+            var stamp = File.GetLastWriteTimeUtc(_m.SourceFile);
+            if (stamp == _limitsStamp) return;
+            _limitsStamp = stamp;
+            string before = LimitsText(_limits, _probeMinutes);
+            try
+            {
+                var fresh = Machine.Load(_m.SourceFile);
+                (_limits, _probeMinutes) = (fresh.DepositLimits, fresh.ProbeSearchMinutes);
+                string after = LimitsText(_limits, _probeMinutes);
+                if (after != before) said = $"limits changed in {Path.GetFileName(_m.SourceFile)}: {before} -> {after} (the rest of the machine file is read at start only)";
+            }
+            catch (Exception ex) when (ex is UsageException or IOException)
+            {
+                said = $"{Path.GetFileName(_m.SourceFile)} changed but does not load ({ex.Message}); the limits stay {before}";
+            }
+        }
+        if (said is not null) Log(said);
+    }
 
     private string ParamsFile(string acc, Profile profile)
     {

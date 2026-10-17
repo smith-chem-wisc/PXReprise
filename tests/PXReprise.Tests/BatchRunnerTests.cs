@@ -163,6 +163,99 @@ public class BatchRunnerTests
         Assert.That(tight.Settled("PXD000204"), Is.EqualTo("deferred_needs_design_selection"), "settled again under the exception, no loop");
     }
 
+    // v0.4.21 (the user, 2026-10-17: "incrementally increase the limits"): the machine's [deposit_limits] replace the
+    // profiles' gates. A deferred deposit gets ONE more look when the limits change AND fit what its deferral measured; a
+    // look that still defers records the limits, so it settles again instead of looping.
+    [Test]
+    public async Task MachineLimitsReleaseADeferredDepositOnceWhenTheyFitWhatWasMeasured()
+    {
+        var (runner, search, files, dir) = Runner();
+        search.Results["PXD000204"] = new() { TestSupport.Record("PXD000204", "Type 2 diabetes liver") };
+        files.Listing = Enumerable.Range(0, 10).Select(i => new PrideArchiveFile { FileName = $"g{i}.raw", FileSizeBytes = 3_000_000_000 }).ToList();
+        Assert.That(await runner.ProbeAsync(new QueueEntry("PXD000204", "t", "human"), CancellationToken.None), Is.Null);
+        Assert.That(runner.Settled("PXD000204"), Is.EqualTo("deferred_large_files"));
+        search.Results["PXD000203"] = new() { TestSupport.Record("PXD000203", "Type 2 diabetes muscle") };
+        files.Listing = Enumerable.Range(0, 61).Select(i => new PrideArchiveFile { FileName = $"f{i}.raw", FileSizeBytes = 500_000_000 }).ToList();
+        Assert.That(await runner.ProbeAsync(new QueueEntry("PXD000203", "t", "human"), CancellationToken.None), Is.Null);
+        Assert.That(runner.Settled("PXD000203"), Is.EqualTo("deferred_needs_design_selection"));
+
+        BatchRunner With(string limits, string exceptions = "")
+        {
+            string q = TestSupport.MinimalQuestion + "\n[batch]\nrun_root = \"runs\"\nstate_dir = \"state\"\nqueue = \"queue.json\"\n" + exceptions;
+            var m = Machine.Load(TestSupport.WriteFile(dir, "machine2.toml",
+                $"work_root = '{dir}'\nmin_free_gb = 0\n[deposit_limits]\n{limits}[metamorpheus]\n\"1.1.11\" = 'C:/nowhere/CMD.exe'\n"));
+            return new BatchRunner(QuestionLoader.Load(TestSupport.WriteFile(dir, "question2.toml", q)), Profiles, m, files, search, "2026-09-28") { Sha1Source = NoSha1 };
+        }
+
+        var small = With("defer_if_median_file_mb = 2500\n");
+        Assert.That(small.Settled("PXD000204"), Is.EqualTo("deferred_large_files"), "3000 MB files still above the raised gate: no look");
+        Assert.That(small.Settled("PXD000203"), Is.EqualTo("deferred_needs_design_selection"), "the file-count cap is still the profile's");
+
+        // A deposit's own exception still wins: released by the machine, deferred again by its exception, then settled.
+        var tight = With("defer_if_median_file_mb = 3500\n", "[exceptions.PXD000204]\nreason = \"keep it small\"\ndefer_if_median_file_mb = 2000\n");
+        Assert.That(tight.Settled("PXD000204"), Is.Empty, "the machine's new gate fits its 3000 MB median: one more look");
+        files.Listing = Enumerable.Range(0, 10).Select(i => new PrideArchiveFile { FileName = $"g{i}.raw", FileSizeBytes = 3_000_000_000 }).ToList();
+        Assert.That(await tight.ProbeAsync(new QueueEntry("PXD000204", "t", "human"), CancellationToken.None), Is.Null);
+        Assert.That(tight.State()["datasets"]!["PXD000204"]!["machine_limits"]!.GetValue<string>(), Is.EqualTo("defer_if_median_file_mb 3500"));
+        Assert.That(tight.Settled("PXD000204"), Is.EqualTo("deferred_large_files"), "deferred again under the same limits: settled, no loop");
+
+        var wide = With("max_files = 70\n");
+        Assert.That(wide.Settled("PXD000203"), Is.Empty, "61 files fit 70: one more look");
+        int before = files.Downloads;
+        files.Listing = Enumerable.Range(0, 61).Select(i => new PrideArchiveFile { FileName = $"f{i}.raw", FileSizeBytes = 500_000_000 }).ToList();
+        Assert.That(await wide.ProbeAsync(new QueueEntry("PXD000203", "t", "human"), CancellationToken.None), Is.Null);
+        Assert.That(files.Downloads, Is.GreaterThan(before), "the probe went ahead under the machine's cap");
+    }
+
+    // A gate is raised a step at a time while the driver runs: the limits are read again from the machine file, and a
+    // file that no longer loads leaves them as they were.
+    [Test]
+    public void TheDriverTakesUpChangedLimitsFromItsMachineFile()
+    {
+        var (_, _, _, dir) = Runner();
+        string q = TestSupport.MinimalQuestion + "\n[batch]\nrun_root = \"runs\"\nstate_dir = \"state\"\nqueue = \"queue.json\"\n";
+        string file = Path.Combine(dir, "live.toml");
+        void Write(string limits)
+        {
+            File.WriteAllText(file, $"work_root = '{dir}'\nmin_free_gb = 0\n{limits}[metamorpheus]\n\"1.1.11\" = 'C:/nowhere/CMD.exe'\n");
+            File.SetLastWriteTimeUtc(file, DateTime.UtcNow.AddSeconds(Random.Shared.Next(1, 1000)));
+        }
+        Write("[deposit_limits]\ndefer_if_median_file_mb = 2600\n");
+        var runner = new BatchRunner(QuestionLoader.Load(TestSupport.WriteFile(dir, "q.toml", q)), Profiles, Machine.Load(file), new FakeFiles(), new FakeSearch(), "2026-09-28");
+        Assert.That(runner.Limits!.DeferIfMedianFileMb, Is.EqualTo(2600));
+
+        Write("probe_search_minutes = 90\n[deposit_limits]\ndefer_if_median_file_mb = 3000\nmax_est_ms2 = 3_500_000\n");
+        runner.RefreshLimits(now: true);
+        Assert.That(runner.Limits, Is.EqualTo(new DepositLimits(null, null, 3_500_000, 3000)));
+        string log = File.ReadAllText(Path.Combine(dir, "state", "batch.log"));
+        Assert.That(log, Does.Contain("limits changed in live.toml: defer_if_median_file_mb 2600 -> max_est_ms2 3500000, defer_if_median_file_mb 3000; probe_search_minutes 90"));
+
+        Write("[deposit_limits]\nmax_files = 0\n");
+        runner.RefreshLimits(now: true);
+        Assert.That(runner.Limits!.DeferIfMedianFileMb, Is.EqualTo(3000), "a file that does not load changes nothing");
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain("live.toml changed but does not load"));
+    }
+
+    [Test]
+    public void DepositLimitsAndTheProbeMinutesAreReadFromTheMachineAndChecked()
+    {
+        var (_, _, _, dir) = Runner();
+        string M(string body) => TestSupport.WriteFile(dir, "lim.toml", $"work_root = '{dir}'\n{body}[metamorpheus]\n\"1.1.11\" = 'x'\n");
+        var m = Machine.Load(M("probe_search_minutes = 120\n[deposit_limits]\nmax_files = 150\nmax_file_mb = 8000\nmax_est_ms2 = 4_000_000\ndefer_if_median_file_mb = 3000\n"));
+        Assert.That(m.DepositLimits, Is.EqualTo(new DepositLimits(150, 8000, 4_000_000, 3000)));
+        Assert.That(m.ProbeSearchMinutes, Is.EqualTo(120));
+        var p = m.DepositLimits!.Apply(new DepositPolicy(true, 120, "probe_spread", 3_000_000, 5000, 2200));
+        Assert.That((p.MaxFiles, p.MaxFileMb, p.MaxEstimatedMs2, p.DeferIfMedianFileMb, p.WholeDeposit), Is.EqualTo((150, 8000, 4_000_000L, 3000, true)));
+        var one = Machine.Load(M("[deposit_limits]\ndefer_if_median_file_mb = 2600\n"));
+        Assert.That(one.DepositLimits!.Apply(new DepositPolicy(true, 120, "probe_spread", 3_000_000, 5000, 2200)).MaxEstimatedMs2, Is.EqualTo(3_000_000),
+            "a key left out keeps the profile's value");
+        Assert.That(Machine.Load(M("")).DepositLimits, Is.Null);
+        Assert.That(Machine.Load(M("[deposit_limits]\n")).DepositLimits, Is.Null, "an empty table changes nothing");
+        Assert.That(() => Machine.Load(M("[deposit_limits]\nmax_raws = 3\n")), Throws.InstanceOf<ConfigException>(), "unknown key");
+        Assert.That(() => Machine.Load(M("[deposit_limits]\nmax_files = 0\n")), Throws.InstanceOf<ConfigException>());
+        Assert.That(() => Machine.Load(M("probe_search_minutes = 0\n")), Throws.InstanceOf<ConfigException>());
+    }
+
     [Test]
     public void AnExceptionMustNameItsReasonAndChangeSomething()
     {
@@ -603,6 +696,33 @@ public class BatchRunnerTests
             "a rat search is running: another species first");
         Assert.That(runner.CatchUpCandidate(Array.Empty<QueueEntry>(), new HashSet<string> { "PXD000922", "PXD000921", "PXD000923", "PXD000924" }, new HashSet<string>()),
             Is.Null, "nothing left once the old ones are taken");
+    }
+
+    // v0.4.21: the queue ran out on 2026-10-17 with 91 catch-ups still due, and the driver exited. Now, with no new
+    // deposit left, every start is a catch-up re-search until none is due.
+    [Test]
+    public async Task WhenTheQueueRunsOutTheCatchUpReSearchesGoOn()
+    {
+        var (runner, _, _, dir) = Runner(extraMachine: "catch_up_every = 4\n");
+        foreach (var (acc, org) in new[] { ("PXD000932", "rat"), ("PXD000933", "mouse") })
+        {
+            runner.Record(acc, ("status", "searched"), ("profile", "label-free-dda@0"), ("organism", org), ("title", acc));
+            Directory.CreateDirectory(Path.Combine(dir, "runs", acc, "04_search")); TestSupport.WriteFile(Path.Combine(dir, "runs", acc, "04_search"), "provenance.json", "{}");
+        }
+        var started = new List<string>();
+        runner.PrepareForTest = (e, ct) => { runner.Record(e.Accession, ("status", "fetched")); return Task.FromResult<Profile?>(Profiles["label-free-dda@1"]); };
+        runner.SearchForTest = (e, p, ct) =>
+        {
+            lock (started) started.Add(e.Accession);
+            runner.Record(e.Accession, ("status", "searched"), ("profile", p.Key));
+            return Task.CompletedTask;
+        };
+
+        await runner.RunAsync(new[] { new QueueEntry("PXD000931", "new", "mouse") }, CancellationToken.None);
+
+        Assert.That(started, Is.EqualTo(new[] { "PXD000931", "PXD000932", "PXD000933" }), "the new deposit, then every catch-up, rat first");
+        string log = File.ReadAllText(Path.Combine(dir, "state", "batch.log"));
+        Assert.That(log, Does.Contain("PXD000932 RE-SEARCH (catch-up").And.Contain("PXD000933 RE-SEARCH (catch-up"));
     }
 
     // Ion-trap MS2 (low_res_ms2) is searched under a low-res profile when the question names one, never anything else.

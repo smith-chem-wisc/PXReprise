@@ -39,6 +39,21 @@ min_free_gb = 50
 # search_timeout_h = 48
 # search_stall_minutes = 90
 
+# OPTIONAL (0.4.21). How long the short probe search before the whole download may run, over the profile's own value
+# (60 for label-free-dda@7). Larger files take longer.
+# probe_search_minutes = 90
+
+# OPTIONAL (0.4.21). How big a deposit this machine downloads and searches whole. Each key replaces the profile's own
+# [deposit] value; a key left out keeps it, and a question's [exceptions] still wins for its deposit. A deferred deposit
+# gets one more look when these change and fit what its deferral measured. They choose which deposits are searched,
+# never how, so no profile changes version. A running batch reads this table and probe_search_minutes again (at most every
+# 30 s), so you can raise a gate without stopping it. Put this table after every plain key, beside [metamorpheus].
+# [deposit_limits]
+# max_files = 120                 # more raw files than this: deferred_needs_design_selection
+# max_file_mb = 5000              # any one file above this: deferred_needs_design_selection
+# max_est_ms2 = 3_000_000         # estimated MS2 scans for the whole deposit (0 = no cap): deferred_search_too_large
+# defer_if_median_file_mb = 2200  # median raw file above this: deferred_large_files (0 = no gate)
+
 # OPTIONAL. A private copy of .NET for MetaMorpheus. An automatic .NET update can remove the runtime under a search that
 # is running, and the search then fails hours in. A copy that no updater manages prevents that. To make one, copy from
 # your .NET install: dotnet.exe, host/fxr/<version>, and shared/Microsoft.NETCore.App/<version> (about 80 MB).

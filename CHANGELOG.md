@@ -7,6 +7,38 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.21 (2026-10-17)
+
+No MetaMorpheus change. **Machine file:** no change needed; two optional settings are new. **Safe mid-batch?** Yes:
+swap the pin as usual. No profile version changes. A deposit is searched again only by the catch-up below, which your
+machine file already turns on or off with `catch_up_every`.
+
+- **Your machine file can set how big a deposit is searched whole.** A new `[deposit_limits]` table takes the
+  profiles' four size gates: `max_files`, `max_file_mb`, `max_est_ms2` and `defer_if_median_file_mb`. Each key you set
+  replaces the profile's value, and a question's `[exceptions]` still wins for its own deposit. These gates choose
+  which deposits are searched, never how, so changing one needs no new profile version. Like `search_timeout_h`, they
+  describe what the machine and its network can take. See `machines/example.toml`.
+- **A running batch takes up changed limits without stopping.** The driver reads `[deposit_limits]` and
+  `probe_search_minutes` from its machine file again, at most every 30 seconds, and `batch.log` says `limits changed`.
+  A file that no longer loads leaves the limits as they were, and the log says that too. Every other setting is still
+  read once, at start.
+- **A deferred deposit gets one more look when the limits change.** A deposit deferred by a size gate is looked at
+  again, once, when the machine's limits change and now fit what its deferral measured: the median file, the estimated
+  MS2 scans or the file count. If it still does not fit, it settles again. A raised gate takes up exactly the deposits
+  it now covers, with no `batch retry`.
+- **`probe_search_minutes` in the machine file** replaces the profile's limit for the short probe search, which takes
+  longer on larger files.
+- **The catch-up re-searches go on when the queue runs out.** Before, a deposit searched under a profile the question
+  no longer names was re-searched only at every `catch_up_every`-th start. When no new deposit was left, the driver
+  exited with re-searches still due: 91 of them on 2026-10-17. Now every start is a catch-up re-search until none is due.
+- Each search's `provenance.json` records the machine's `deposit_limits` when it sets any, and `batch.log` names them
+  at start.
+- **The probe search takes precursors within ±20 ppm, not MetaMorpheus's default ±5 ppm.** The probe runs no
+  calibration. On an instrument whose precursor masses were off by +7.6 ppm, it found 12 to 31 PSMs a run and parked the
+  deposit as `waiting_no_identifications`, while the calibrated search of the same files had found 24,449. The probe only
+  decides whether and how a deposit is searched; the search itself is unchanged. A deposit the probe parked that way can be
+  taken up again with `batch retry`.
+
 ## 0.4.20 (2026-10-16)
 
 No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual. No profile version

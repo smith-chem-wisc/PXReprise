@@ -123,6 +123,8 @@ public static class SearchStage
             ["timeout_s"] = (int)(m.SearchTimeoutHours * 3600),
             ["stall_s"] = (int)(m.SearchStallMinutes * 60),
         };
+        // v0.4.21: the machine's deposit gates, when it sets any (which deposits are searched, never how).
+        if (m.DepositLimits?.Describe() is { Length: > 0 } limits) search["deposit_limits"] = limits;
         if (p.GptmdExtraMods.Count > 0) search["gptmd_extra_mods"] = new JsonArray(p.GptmdExtraMods.Select(x => (JsonNode?)x).ToArray());
         if (r.ExcludeFiles.Count > 0) search["exclude_files"] = new JsonArray(r.ExcludeFiles.Select(x => (JsonNode?)x).ToArray());
         string paramsFile = Path.Combine(outDir, "params.json");
