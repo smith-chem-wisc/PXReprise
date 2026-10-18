@@ -1441,6 +1441,61 @@ public class BatchRunnerTests
         Assert.That(text.Split("BEFORE THE RE-SEARCH").Length - 1, Is.EqualTo(1), "replaced once, never nested");
     }
 
+    // v0.4.24 (2026-10-18): aging's manifest is CRLF. v0.4.23 read no status, flags or enrichment from a CRLF entry, so
+    // PXD021762's catch-up re-search wrote enrichment [none] and flags [] over the owner's [other] and [enriched].
+    [Test]
+    public void ACrlfManifestReSearchKeepsTheOwnersFlagsEnrichmentAndLineEnds()
+    {
+        string dir = TestSupport.TempDir(), run = Path.Combine(dir, "runs", "PXD021762");
+        Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
+        Directory.CreateDirectory(Path.Combine(run, "04_search"));
+        File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(("a.raw", true, Array.Empty<string>())).ToJsonString());
+        File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), """{"tools":{"MetaMorpheus":{"release":"1.1.12"}}}""");
+        string manifest = TestSupport.WriteFile(dir, "manifest.yaml",
+            "datasets:\r\n\r\n  - accession: PXD021762\r\n    status: include\r\n    enrichment: [other]\r\n    flags: [no_design_file, no_output_sdrf, enriched, hand_flag]\r\n    notes: >\r\n      ISOLATED MITOCHONDRIA, NOT TISSUE.\r\n\r\n  - accession: PXD018999\r\n    status: include\r\n    notes: kept\r\n");
+        var state = new JsonObject
+        {
+            ["enrichment"] = "none",
+            ["researched"] = new JsonArray(new JsonObject { ["utc"] = "2026-10-18T12:28:21+00:00", ["reason"] = "D39 catch-up", ["previous_profile"] = "label-free-dda@1", ["moved_to"] = "PXD021762.superseded-x" }),
+        };
+        ManifestEntry.Append(manifest, new QueueEntry("PXD021762", "Mitochondrial mistranslation", "mouse"), Profiles["label-free-dda@3"], run, state, dir);
+        string text = File.ReadAllText(manifest);
+        Assert.That(text.Replace("\r\n", ""), Does.Not.Contain("\n"), "the file keeps its CRLF line ends");
+        Assert.That(text.Split("accession: PXD021762").Length - 1, Is.EqualTo(1));
+        Assert.That(text, Does.Contain("accession: PXD018999\r\n    status: include\r\n    notes: kept"), "the other entries are untouched");
+        Assert.That(text, Does.Contain("    enrichment: [other]\r\n"), "the owner's enrichment, not the screen's none");
+        Assert.That(System.Text.RegularExpressions.Regex.Match(text, @"(?m)^    flags: \[(.*)\]\r$").Groups[1].Value.Split(", "),
+            Does.Contain("enriched").And.Contain("hand_flag"));
+        Assert.That(text, Does.Contain("ENRICHED (other): this entry said so before the re-search")
+            .And.Contain("ENRICHMENT KEPT: this entry said [other] before the re-search and keeps it; the screen of the deposit's text reads [none].")
+            .And.Contain("BEFORE THE RE-SEARCH this entry said: \"ISOLATED MITOCHONDRIA, NOT TISSUE.\""));
+    }
+
+    // PXD057407 (aging PXR-A97): the global arm of a phospho deposit is curated 'none'; its re-search screen still reads
+    // 'phospho' from the text, and must not write it back.
+    [Test]
+    public void AReSearchKeepsACuratedNoneOverTheScreensEnrichment()
+    {
+        string dir = TestSupport.TempDir(), run = Path.Combine(dir, "runs", "PXD057407");
+        Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
+        Directory.CreateDirectory(Path.Combine(run, "04_search"));
+        File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(("a.raw", true, Array.Empty<string>())).ToJsonString());
+        File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), """{"tools":{"MetaMorpheus":{"release":"1.1.12"}}}""");
+        string manifest = TestSupport.WriteFile(dir, "manifest.yaml",
+            "datasets:\n\n  - accession: PXD057407\n    status: include\n    enrichment: [none]\n    flags: [no_design_file]\n    notes: global arm only (PXR-A97)\n");
+        var state = new JsonObject
+        {
+            ["enrichment"] = "phospho", ["enrichment_evidence"] = "used for phospho enrichment",
+            ["researched"] = new JsonArray(new JsonObject { ["utc"] = "2026-10-17T14:21:32+00:00", ["reason"] = "D43", ["previous_profile"] = "label-free-dda-lowres@2", ["moved_to"] = "PXD057407.superseded-x" }),
+        };
+        ManifestEntry.Append(manifest, new QueueEntry("PXD057407", "Liver", "mouse"), Profiles["label-free-dda@3"], run, state, dir);
+        string text = File.ReadAllText(manifest);
+        Assert.That(text, Does.Contain("    enrichment: [none]\n"));
+        Assert.That(System.Text.RegularExpressions.Regex.Match(text, @"(?m)^    flags: \[(.*)\]$").Groups[1].Value, Does.Not.Contain("enriched"));
+        Assert.That(text, Does.Not.Contain("ENRICHED (phospho)"));
+        Assert.That(text, Does.Contain("ENRICHMENT KEPT: this entry said [none] before the re-search and keeps it; the screen of the deposit's text reads [phospho]."));
+    }
+
     // aging 042 (PXR-A36): keys the batch does not write are the owner's, and survive a re-search verbatim. The two
     // search-decided flags come from the new search's provenance (D28: @4 has a design and writes its own SDRF).
     [Test]
