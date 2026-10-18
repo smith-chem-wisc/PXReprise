@@ -262,7 +262,7 @@ public static class FetchStage
         File.WriteAllText(manifestFile, manifest.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
         if (!files.Any(f => f!["pride_checksum"] is not null))
             prov.Note("pride_checksum is null because PRIDE's REST file list leaves it empty (pride 007, PXR-S6), not because PRIDE "
-                      + "has none: its MD5s are served only by /files/checksum (mzLib #1427, unreleased). Integrity rests on the "
+                      + "has none: its MD5s are served only by /files/checksum (mzLib #1427, released in 1.0.595, not yet used here). Integrity rests on the "
                       + "local SHA-256 and PRIDE's listed size.");
         foreach (var (p, _, _) in results) prov.Output(p);
         foreach (string s in gotSdrf) prov.Output(s);
