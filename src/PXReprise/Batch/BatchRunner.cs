@@ -262,8 +262,8 @@ public sealed class BatchRunner
             throw new UsageException($"{acc} has no finished search; use batch retry for a deposit that never searched");
         if (manifest is not null && File.Exists(manifest))
         {
-            string text = File.ReadAllText(manifest);
-            if (text.Contains($"accession: {acc}\n") || text.Contains($"accession: {acc}\r"))
+            string text = ManifestEntry.ReadLf(manifest);
+            if (text.Contains($"accession: {acc}\n"))
             {
                 var (s, end) = ManifestEntry.Block(text, acc);
                 if (System.Text.RegularExpressions.Regex.Match(text[s..end], @"(?m)^[ \t]+status:[ \t]*(\S+)") is { Success: true } m && m.Groups[1].Value != "include")
@@ -875,7 +875,7 @@ public sealed class BatchRunner
         // The same raw files already searched under another accession: refused before any download (PXR-A9).
         // The deposit being searched counts too: it is fetched in full, and the next one is screened alongside it (PXR-A21).
         var searching = Searching;
-        var copies = _q.Publish?.Manifest is { } mfp && File.Exists(mfp) ? ManifestEntry.ExcludedCopiesOf(File.ReadAllText(mfp), acc) : null;
+        var copies = _q.Publish?.Manifest is { } mfp && File.Exists(mfp) ? ManifestEntry.ExcludedCopiesOf(ManifestEntry.ReadLf(mfp), acc) : null;
         foreach (string copy in copies ?? new HashSet<string>())
             Log($"{acc} duplicate screen: {copy} is excluded in the manifest as this deposit's copy, so it is not compared");
         var dup = DuplicateScreen.Check(acc, listing.Select(f => (f.FileName, f.FileSizeBytes)).ToList(),
@@ -1307,7 +1307,7 @@ public sealed class BatchRunner
     private async Task ReconcileAsync(IReadOnlyList<QueueEntry> queue, CancellationToken ct)
     {
         RecoverInterruptedSearches(queue);
-        string manifest = _q.Publish?.Manifest is { } mf && File.Exists(mf) ? File.ReadAllText(mf) : "";
+        string manifest = _q.Publish?.Manifest is { } mf && File.Exists(mf) ? ManifestEntry.ReadLf(mf) : "";
         foreach (var e in queue)
         {
             if (!SearchedOk(e.Accession)) continue;

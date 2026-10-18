@@ -35,10 +35,18 @@ public static class ManifestEntry
             """);
     }
 
+    /// <summary>
+    /// The manifest's text with LF line ends, whatever the file holds. EVERY reader of a manifest parses this, never
+    /// <c>File.ReadAllText</c>: aging's manifest is CRLF (2026-10-18: all 3,534 lines), and .NET's multiline <c>$</c> never
+    /// matches before <c>\r</c>. v0.4.23 and earlier read no <c>status</c>, <c>flags</c> or <c>enrichment</c> from a CRLF
+    /// entry, so a re-search dropped the owner's flags (PXD021762's <c>enriched</c>). Writers keep the file's own line ends.
+    /// </summary>
+    public static string ReadLf(string manifestPath) => File.ReadAllText(manifestPath).ReplaceLineEndings("\n");
+
     /// <summary>The manifest's own <c>work_root</c>, resolved as dataRepo resolves it (relative to the manifest), or null.</summary>
     public static string? WorkRootOf(string manifestPath)
     {
-        var m = System.Text.RegularExpressions.Regex.Match(File.ReadAllText(manifestPath), @"(?m)^work_root:\s*([^#\r\n]+)");
+        var m = System.Text.RegularExpressions.Regex.Match(ReadLf(manifestPath), @"(?m)^work_root:\s*([^#\n]+)");
         if (!m.Success) return null;
         string v = m.Groups[1].Value.Trim().Trim('"', '\'');
         return Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(manifestPath))!, v));
@@ -51,13 +59,16 @@ public static class ManifestEntry
     public static void Append(string manifestPath, QueueEntry e, Profile profile, string runDir, JsonObject? state, string workRoot)
     {
         workRoot = WorkRootOf(manifestPath) ?? workRoot;
-        string text = File.ReadAllText(manifestPath);
+        // Parsed as LF, written back in the file's own line ends (aging's is CRLF).
+        bool crlf = File.ReadAllText(manifestPath).Contains("\r\n");
+        string text = ReadLf(manifestPath);
         // A re-search (batch research) replaces the deposit's entry once, keeping what its owner wrote in it: the old
-        // status, any flags, and the old notes, quoted as what the entry said before (aging curates notes by hand).
+        // status, any flags, its enrichment (v0.4.24), and the old notes, quoted as what the entry said before (aging
+        // curates notes by hand).
         var research = state?["researched"] is JsonArray rs && rs.Count > 0 ? rs[^1] as JsonObject : null;
         string marker = research is null ? "" : $"RE-SEARCHED {research["utc"]}";
-        (string Status, List<string> Flags, string Notes, string Kept)? earlier = null;
-        if (text.Contains($"accession: {e.Accession}\n") || text.Contains($"accession: {e.Accession}\r"))
+        (string Status, List<string> Flags, string Enrichment, string Notes, string Kept)? earlier = null;
+        if (text.Contains($"accession: {e.Accession}\n"))
         {
             if (research is null) return;
             var (start, end) = Block(text, e.Accession);
@@ -65,8 +76,9 @@ public static class ManifestEntry
             if (old.Contains(marker, StringComparison.Ordinal)) return;
             earlier = (Field(old, "status") ?? "include",
                        (Field(old, "flags") ?? "").Trim('[', ']').Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).ToList(),
+                       (Field(old, "enrichment") ?? "").Trim('[', ']').Trim(),
                        Notes(old), Unowned(old));
-            text = text[..start].TrimEnd('\n', '\r') + (end < text.Length ? "\n\n" : "\n") + text[end..];
+            text = text[..start].TrimEnd('\n') + (end < text.Length ? "\n\n" : "\n") + text[end..];
         }
         // Count from qc_report.json, never from the raw files: cleanup has already deleted them (dataRepo hashes `files`
         // into the bundle id and reconciles it against the runs, and caught `files: 0` on the very first dataset).
@@ -75,7 +87,11 @@ public static class ManifestEntry
         int nfiles = qc.Count - excluded.Count;
         int taxon = profile.Databases[e.Organism].Taxon
                     ?? throw new InvalidOperationException($"{profile.Key} gives no taxon for '{e.Organism}'");
-        string enrichment = state?["enrichment"]?.GetValue<string>() ?? "none";
+        // v0.4.24: a re-search keeps the entry's enrichment. The screen reads only the deposit's text, which has not changed,
+        // and the owner curates the value: PXD021762's isolated mitochondria are 'other' (aging PXR-A45), PXD057407's
+        // global arm 'none' (PXR-A97), and v0.4.23's re-search wrote back the screen's 'none' and 'phospho'.
+        string screened = state?["enrichment"]?.GetValue<string>() ?? "none";
+        string enrichment = earlier?.Enrichment is { Length: > 0 } curated ? curated : screened;
         var search = JsonNode.Parse(File.ReadAllText(Path.Combine(runDir, "04_search", "provenance.json")))!;
         string mm = search["tools"]?["MetaMorpheus"]?["release"]?.GetValue<string>() ?? profile.MetaMorpheus;
         var extras = search["extra_databases"]?.AsArray().Select(x => Path.GetFileName(x!.GetValue<string>())).ToList() ?? new List<string>();
@@ -106,7 +122,8 @@ public static class ManifestEntry
             // v0.4.17: the enrichment's own words (enrichment_evidence); screen_evidence is the acquisition call's, which a
             // state written before 0.4.17 holds instead, usually empty.
             string ev = (state?["enrichment_evidence"]?.GetValue<string>() ?? state?["screen_evidence"]?.GetValue<string>() ?? "").Replace('"', '\'');
-            string says = ev.Length > 0 ? $"the deposit's own text says '...{ev}...'" : "the deposit's own text names an enrichment";
+            string says = enrichment != screened ? "this entry said so before the re-search (ENRICHMENT KEPT below)"
+                : ev.Length > 0 ? $"the deposit's own text says '...{ev}...'" : "the deposit's own text names an enrichment";
             notes.Add($"ENRICHED ({enrichment}): {says}. Intensities describe the enriched material, not the whole proteome; never pool them with whole proteomes as abundance.");
             flags.Add("enriched");
         }
@@ -152,6 +169,8 @@ public static class ManifestEntry
             {
                 // The two the search decides are the NEW search's, never carried over.
                 foreach (string f in was.Flags) if (!flags.Contains(f) && f is not ("no_design_file" or "no_output_sdrf")) flags.Add(f);
+                if (enrichment != screened)
+                    notes.Add($"ENRICHMENT KEPT: this entry said [{enrichment}] before the re-search and keeps it; the screen of the deposit's text reads [{screened}]. Change `enrichment` here if the screen is right.");
                 if (was.Notes.Length > 0) notes.Add($"BEFORE THE RE-SEARCH this entry said: \"{was.Notes.Replace('"', '\'')}\"");
             }
         }
@@ -181,8 +200,10 @@ public static class ManifestEntry
 """;
         // Write beside it and rename over it: a reader (dataRepo, aging's publish) must never see a half-written manifest
         // (dataRepo 010 caught one). On one volume the rename is atomic.
+        // The raw string above carries the line ends of the checkout it was compiled from, so it is normalised too.
         string tmp = manifestPath + ".pxreprise-tmp";
-        File.WriteAllText(tmp, text.TrimEnd('\n', '\r') + "\n" + entry.TrimEnd('\n') + "\n");
+        string written = text.TrimEnd('\n') + "\n" + entry.ReplaceLineEndings("\n").TrimEnd('\n') + "\n";
+        File.WriteAllText(tmp, crlf ? written.ReplaceLineEndings("\r\n") : written);
         File.Move(tmp, manifestPath, overwrite: true);
     }
 
@@ -256,7 +277,7 @@ public static class ManifestEntry
     }
 
     private static string? Field(string block, string key) =>
-        System.Text.RegularExpressions.Regex.Match(block, $@"(?m)^[ \t]+{key}:[ \t]*([^\r\n]*)$") is { Success: true } m ? m.Groups[1].Value.Trim() : null;
+        System.Text.RegularExpressions.Regex.Match(block.ReplaceLineEndings("\n"), $@"(?m)^[ \t]+{key}:[ \t]*([^\n]*)$") is { Success: true } m ? m.Groups[1].Value.Trim() : null;
 
     /// <summary>A folded <c>notes: &gt;</c> block (or a one-line <c>notes:</c>) as one line of text.</summary>
     private static string Notes(string block)

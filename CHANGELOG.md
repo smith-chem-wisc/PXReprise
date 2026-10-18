@@ -7,6 +7,21 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.24 (2026-10-18)
+
+No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual. No profile change.
+
+- **A re-search now keeps what the manifest entry's owner wrote, whatever the manifest's line ends.**
+  - **The bug:** with a manifest saved with Windows line ends (CRLF), 0.4.23 and earlier read no `status`, `flags`
+    or `enrichment` from the old entry. A re-search then dropped the owner's flags. The ageing project's manifest is
+    CRLF, and one re-search lost its `enriched` flag. The notes and the owner's own keys were kept, as before.
+  - **The fix:** every reader of a manifest now parses it with LF line ends, and a write keeps the file's own line
+    ends.
+- **A re-search keeps the entry's `enrichment`.** It used to take the screen's reading of the deposit's text, which a
+  re-search does not change, over a value the owner had curated: isolated mitochondria (`other`) became `none`. When
+  the two differ, the entry keeps its value and its notes say what the screen reads (`ENRICHMENT KEPT`), so the owner
+  can change it.
+
 ## 0.4.23 (2026-10-17)
 
 No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual. One new profile,
