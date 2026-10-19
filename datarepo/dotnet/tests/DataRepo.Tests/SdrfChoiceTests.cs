@@ -237,6 +237,30 @@ public class SdrfChoiceTests
         });
     }
 
+    /// <summary>A catalog over a pooled bundle holds the pooled assay and its files, and counts its values.</summary>
+    [Test]
+    public void ACatalogCountsAndHoldsAPooledSample()
+    {
+        Design("B_one_sample_two_fractions");
+        NameOperatorSdrf(WriteSdrf("x.sdrf.tsv", ("donor", "24M", RunA), ("donor", "24M", RunB)));
+        Ingest();
+        var manifest = DataRepo.Ingest.Manifest.Load(Manifest);
+        var bundles = DataRepo.Catalog.CatalogBuilder.SelectBundles(manifest, [Accession], Store);
+        var (artefacts, checks) = DataRepo.Catalog.CatalogBuilder.SelectArtefacts(Store, bundles);
+        var built = DataRepo.Catalog.CatalogBuilder.BuildCatalog(bundles, Path.Combine(_root, "catalog.duckdb"),
+            instance: manifest.Instance, artefacts: artefacts, engineChecks: checks, manifest: manifest);
+        object? One(string sql) => DataRepo.Catalog.CatalogBuilder.RunQuery(built.Path, sql).Rows.Single()[0];
+        Assert.Multiple(() =>
+        {
+            Assert.That(built.FailedChecks, Is.Empty);
+            Assert.That(One("SELECT n_quant_values FROM dataset_overview"), Is.EqualTo(One("SELECT count(*) FROM quant_values")),
+                "pooled values are counted");
+            Assert.That(One($"SELECT count(*) FROM quant_values WHERE assay_id = '{Pooled}'"), Is.GreaterThan(0L));
+            Assert.That(One($"SELECT count(*) FROM assay_runs WHERE assay_id = '{Pooled}'"), Is.EqualTo(2L));
+            Assert.That(One("SELECT count(*) FROM assays WHERE assay_kind = 'run'"), Is.EqualTo(2L), "two runs, counted as runs");
+        });
+    }
+
     /// <summary>The same sample whose files are two SDRF samples' has no sample to belong to, and stays left out.</summary>
     [Test]
     public void ASampleOfSeveralFilesOverTwoSdrfSamplesIsLeftOut()

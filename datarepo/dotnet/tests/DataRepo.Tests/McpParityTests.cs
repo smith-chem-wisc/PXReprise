@@ -272,6 +272,10 @@ public class McpParityTests
             ("fraction_source", "Where the SDRF's fraction came from"),
             // These texts hold escaped quotes (`\"label_free\"`), so the mask runs to the string's real end.
         }.Select(d => (new Regex(Regex.Escape(d.Item2) + @"(?:[^""\\]|\\.)*", RegexOptions.CultureInvariant), $"<{d.Item1}: rewritten in schema 0.0.16>")),
+        // 1.4.0 gives dataset_overview.n_quant_values a description it never had (pooled values count too), so the
+        // Python answer has nothing to mask it to: it is removed, from the column line and from the detailed answer.
+        (new Regex(@" -- Rows in `quant_values` for this dataset: (?:(?! \[\d)[^""\\]|\\.)*", RegexOptions.CultureInvariant), ""),
+        (new Regex(@",\s*""means"": ""Rows in `quant_values` for this dataset: (?:[^""\\]|\\.)*""", RegexOptions.CultureInvariant), ""),
     ];
 
     public static string Normalise(string text, string catalogPath)

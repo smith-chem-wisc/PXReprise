@@ -462,6 +462,9 @@ public static partial class CatalogBuilder
                     + "(`bundle.json`'s `psms` count).",
                 ["n_protein_groups_1pct"] = "Protein groups at 1% group-level FDR, contaminants included.",
                 ["n_ptm_sites"] = "Rows in `ptm_sites`, at any ambiguity level, contaminants included.",
+                ["n_quant_values"] = "Rows in `quant_values` for this dataset: per-run values and, from 1.4.0, design "
+                    + "samples' pooled values (`assays.assay_kind`), every definition together. A size, not a measure: "
+                    + "never compare it across definitions.",
                 ["n_open_findings"] = "Findings at severity warning or error. Read them before quoting "
                     + "any number from this row.",
                 ["restrictions"] = "The uses the producer says this whole dataset is UNFIT for, e.g. "
@@ -622,7 +625,9 @@ public static partial class CatalogBuilder
             + "and the `_1pct` views included; nothing here filters them. So ANY analysis across runs or samples "
             + "(abundance, age effects, per-run statistics) must leave these runs out itself, with an anti-join: "
             + "`... WHERE run_id NOT IN (SELECT run_id FROM run_exclusions)` on `runs`, or through "
-            + "`assays.run_id` for quantities. Identification counts the producer reports are of the whole search "
+            + "`assays.run_id` for quantities. A design sample's pooled value (`assays.assay_kind = 'design_sample'`) "
+            + "has no run_id; it includes every file `assay_runs` lists, so if any of them is excluded, leave the "
+            + "pooled value out too: it cannot be taken apart. Identification counts the producer reports are of the whole search "
             + "and include them. Taken from the manifest `datarepo build` was given, not from the bundle, so a "
             + "changed exclusion reaches the catalog at the next build without a re-ingest, and moves the "
             + "catalog id. No row for a dataset means its manifest entry excludes no run (or the dataset has no "
@@ -2203,10 +2208,7 @@ public static partial class CatalogBuilder
                 ? "(SELECT count(*) FROM psms p WHERE p.dataset_id = d.dataset_id)"
                 : $"(SELECT c.n_psms_all FROM {psmCounts} c WHERE c.dataset_id = d.dataset_id)")} AS n_psms_all,
             (SELECT count(*) FROM ptm_sites ps WHERE ps.dataset_id = d.dataset_id) AS n_ptm_sites,
-            (SELECT count(*) FROM quant_values q
-               JOIN assays a ON a.assay_id = q.assay_id
-               JOIN runs r ON r.run_id = a.run_id
-              WHERE r.dataset_id = d.dataset_id) AS n_quant_values,
+            (SELECT count(*) FROM quant_values q WHERE q.dataset_id = d.dataset_id) AS n_quant_values,
             (SELECT count(*) FROM findings f
               WHERE f.dataset_id = d.dataset_id AND f.severity IN ('warning', 'error')) AS n_open_findings
         FROM datasets d
