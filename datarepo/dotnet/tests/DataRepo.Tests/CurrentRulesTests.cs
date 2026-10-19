@@ -466,6 +466,55 @@ public class CurrentRulesTests
         });
     }
 
+    // ---------------------------------------------------------------- PXR-R21: a parsed name holding ':'
+
+    /// <summary>The <c>ptm_sites</c> rows of one target PSM on P12345, whose peptide <c>AEGSDCIMLK</c> starts at
+    /// residue 5, so the peptide's C6 is the protein's C10.</summary>
+    private static List<DataRepo.Bundle.Row> Sites(string fullSequence, IngestRules rules)
+    {
+        var columns = new Dictionary<string, List<object?>>
+        {
+            ["full_sequence"] = [fullSequence],
+            ["accession"] = ["P12345"],
+            ["q_value"] = [0.001],
+            ["decoy_contam_target"] = ["T"],
+        };
+        var sequences = new ProteinSequences();
+        sequences.Add("P12345", "MKLAAEGSDCIMLK");
+        return Identifications.PtmSiteRows(columns, "PXD000001", new ProformaCache(new ModRegistry(), rules), sequences);
+    }
+
+    /// <summary>Unimod names every isotope label with a <c>:</c> (<c>NEM:2H(5)</c>, <c>Label:13C(6)</c>,
+    /// <c>Dimethyl:2H(4)</c>). A token that parsed keys its site, and the key splits back into its name.</summary>
+    [TestCase("NEM:2H(5)")]
+    [TestCase("Label:13C(6)15N(2)")]
+    [TestCase("Dimethyl:2H(4)")]
+    public void AParsedNameHoldingAColonKeysItsSite(string unimodName)
+    {
+        var name = $"{unimodName} on C";
+        var full = $"AEGSDC[Unimod:{name}]IMLK";
+        var site = Sites(full, IngestRules.Current).Single();
+        var key = (string)site["ptm_site_id"]!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(key, Is.EqualTo($"PXD000001:P12345:C10:{name}"));
+            Assert.That(key.Split(':', 4)[3], Is.EqualTo(name), "the name is the key's last part, whole");
+            Assert.That(site["modification_name"], Is.EqualTo(name));
+            Assert.That(site["position"], Is.EqualTo(10L));
+            Assert.That(() => Sites(full, IngestRules.Python0320),
+                Throws.TypeOf<DataRepo.Bundle.IngestException>().With.Message.Contains("ptm_site_id separator"), "0.32.0 refused it");
+        });
+    }
+
+    /// <summary>The guard's purpose survives: a token that is not <c>Category:Name on X</c> keeps its whole text,
+    /// category included, and that is not a name to key a site on.</summary>
+    [Test]
+    public void AnUnparsedTokenHoldingAColonIsStillRefused()
+    {
+        Assert.That(() => Sites("AEGSDC[Common Fixed:Carbamidomethyl]IMLK", IngestRules.Current),
+            Throws.TypeOf<DataRepo.Bundle.IngestException>().With.Message.Contains("is not `Category:Name on X`"));
+    }
+
     [Test]
     public void AnEntrysOwnLinesAreStillRead()
     {

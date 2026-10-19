@@ -231,6 +231,11 @@ public class McpParityTests
             ("propagated", "go's `propagated`: the term was reached by ancestor propagation"),
             ("propagated", "True when THIS accession is not in go's `accession_direct`"),
         }.Select(d => (new Regex(Regex.Escape(d.Item2) + "[^\"]*", RegexOptions.CultureInvariant), $"<{d.Item1}: rewritten for GO-D7>")),
+        // PXR-R21 (1.3.3): a modification name can hold ':'. Description only, no column changed.
+        .. new[]
+        {
+            ("ptm_site_id", "<dataset_id>:<accession>:<residue><position>:<modification_name>, with '@<site_type>' appended ONLY"),
+        }.Select(d => (new Regex(Regex.Escape(d.Item2) + "[^\"]*", RegexOptions.CultureInvariant), $"<{d.Item1}: rewritten for PXR-R21>")),
     ];
 
     public static string Normalise(string text, string catalogPath)

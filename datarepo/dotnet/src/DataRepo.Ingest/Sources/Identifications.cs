@@ -452,7 +452,7 @@ public static class Identifications
             var placements = Placements(parsed.BaseSequence, Accessions(accession[i]), ranges[i], prevResidues[i], sequences, unplaced);
             foreach (var mod in parsed.Mods)
             {
-                var name = SiteKeyName(mod.Name, PyStr(full[i]));
+                var name = SiteKeyName(mod, PyStr(full[i]), proforma.Rules);
                 var nTerminal = mod.Position == Proforma.NTerminus;
                 var cTerminal = mod.Position == Proforma.CTerminus;
                 // A terminus is a POSITION; the thing modified there is still a residue, so a terminal mod is keyed
@@ -591,16 +591,30 @@ public static class Identifications
         return "peptide_n_term";
     }
 
-    /// <summary>The modification name, refused if it holds the one character that would corrupt a site key.</summary>
-    /// <exception cref="IngestException">The name contains <c>:</c>, the <c>ptm_site_id</c> separator: the mod token did
-    /// not parse, so what we hold is not a modification name at all.</exception>
-    private static string SiteKeyName(string name, string fullSequence)
+    /// <summary>The modification name, refused when its token did not parse.</summary>
+    /// <remarks>MetaMorpheus writes <c>[Category:Name on X]</c>. A token that does not match keeps its whole text as
+    /// the name, category included, so it is not a modification name and cannot key a site. Python 0.32.0 took any
+    /// <c>:</c> as that sign, but Unimod's names for isotope labels hold one (<c>NEM:2H(5)</c>, <c>Label:13C(6)</c>),
+    /// so 1.3.2 refused PXD011740 and PXD010091 over a token that had parsed (PXReprise PXR-R21). The name is the key's
+    /// last part, so a <c>:</c> in it is still unambiguous to a reader that splits at most three times. Only inputs
+    /// 1.3.2 refused change, so no bundle id moves (D47). <see cref="IngestRules.Python0320"/> keeps the old rule.</remarks>
+    /// <exception cref="IngestException">The token did not parse and the name holds <c>:</c>, or the name holds
+    /// <c>:</c> under <see cref="IngestRules.Python0320"/>.</exception>
+    private static string SiteKeyName(ModPlacement mod, string fullSequence, IngestRules rules)
     {
-        if (name.Contains(':'))
+        var name = mod.Name;
+        if (!name.Contains(':')) return name;
+        if (rules == IngestRules.Python0320)
             throw new IngestException(
                 $"modification name {PyRepr(name)} (from full sequence {PyRepr(fullSequence)}) contains ':', "
                 + "which is the ptm_site_id separator. The mod token did not parse, so the name is not "
                 + "trustworthy as a site key; fix the token's parsing rather than storing this row.");
+        // A matched token always has a category (`[^:]+`), so an empty one means the token did not parse.
+        if (mod.Category.Length == 0)
+            throw new IngestException(
+                $"modification token {PyRepr(name)} (from full sequence {PyRepr(fullSequence)}) is not "
+                + "`Category:Name on X`, so it is not a modification name and cannot key a site; fix the token's "
+                + "parsing rather than storing this row.");
         return name;
     }
 
