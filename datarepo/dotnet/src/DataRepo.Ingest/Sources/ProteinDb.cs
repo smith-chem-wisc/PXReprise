@@ -99,14 +99,20 @@ public static class ProteinDb
     /// <remarks>The first <c>&lt;accession&gt;</c> is the one mzLib's loader keys a protein on. Only the entry's
     /// direct <c>&lt;sequence&gt;</c> child is read; isoform sequences named inside comments are not entries.
     /// Text is an element's leading text only, as lxml's <c>.text</c>: it stops at the first child element,
-    /// comment or processing instruction.</remarks>
+    /// comment or processing instruction.
+    /// <para>Under <see cref="IngestRules.Current"/> an element is matched on its local name in any namespace, as
+    /// mzLib's loader matches it (<c>xml.Name == "entry"</c>), so the search read it. UniProt's own files declare
+    /// <c>https://uniprot.org/uniprot</c> and mzLib's <c>ProteinDbWriter</c> can write <c>undefined</c>. Python
+    /// 0.32.0 read only <c>http://uniprot.org/uniprot</c>, and anything else read as an empty database
+    /// (PXR-R12).</para></remarks>
     internal static IEnumerable<(string Accession, string Sequence)> IterUniprotXml(string path, IngestRules rules = IngestRules.Current)
     {
         var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Ignore, IgnoreWhitespace = false };
         using var reader = XmlReader.Create(path, settings);
+        bool Uniprot() => rules == IngestRules.Current || reader.NamespaceURI == UniprotNs;
         while (reader.Read())
         {
-            if (reader.NodeType != XmlNodeType.Element || reader.LocalName != "entry" || reader.NamespaceURI != UniprotNs)
+            if (reader.NodeType != XmlNodeType.Element || reader.LocalName != "entry" || !Uniprot())
                 continue;
             if (reader.IsEmptyElement) continue;
             var depth = reader.Depth;
@@ -114,7 +120,7 @@ public static class ProteinDb
             bool sawAccession = false, sawSequence = false;
             while (reader.Read() && !(reader.NodeType == XmlNodeType.EndElement && reader.Depth == depth))
             {
-                if (reader.NodeType != XmlNodeType.Element || reader.Depth != depth + 1 || reader.NamespaceURI != UniprotNs)
+                if (reader.NodeType != XmlNodeType.Element || reader.Depth != depth + 1 || !Uniprot())
                     continue;
                 if (reader.LocalName == "accession" && !sawAccession)
                 {
@@ -219,7 +225,10 @@ public static class ProteinDb
 
     /// <summary>Add every entry of one UniProt XML or FASTA file.</summary>
     /// <returns>How many entries were read.</returns>
-    /// <exception cref="IngestException">Neither <c>.xml</c> nor <c>.fasta</c>/<c>.fa</c>.</exception>
+    /// <exception cref="IngestException">Neither <c>.xml</c> nor <c>.fasta</c>/<c>.fa</c>; or, under
+    /// <see cref="IngestRules.Current"/>, a file with no entries. The search found proteins in it, so an empty read is
+    /// this reader failing, and it would place no site with no word said (PXR-R12). Python 0.32.0 read it as
+    /// empty.</exception>
     public static int ReadDatabase(string path, ProteinSequences into, IngestRules rules = IngestRules.Current)
     {
         var name = PathName(path).ToLowerInvariant();
@@ -241,6 +250,11 @@ public static class ProteinDb
             kinds.Add(contaminant);
             count++;
         }
+        if (count == 0 && rules == IngestRules.Current)
+            throw new IngestException(
+                $"protein database {PathStr(path)} read as having no entries, though the search used it. A UniProt XML "
+                + "needs <entry> elements holding an <accession> and a <sequence>, and a FASTA needs '>' headers with "
+                + "sequence lines. Sites cannot be placed against an empty read, so the ingest stops here.");
         return count;
     }
 

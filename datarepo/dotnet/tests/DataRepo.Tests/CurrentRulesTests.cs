@@ -417,6 +417,43 @@ public class CurrentRulesTests
         });
     }
 
+    // ---------------------------------------------------------------- PXR-R12: UniProt namespaces, empty reads
+
+    /// <summary>Every namespace a UniProt XML the search read can carry: UniProt's http and https, the
+    /// <c>undefined</c> mzLib's writer can emit, none, and a prefixed form.</summary>
+    [TestCase("<uniprot xmlns=\"http://uniprot.org/uniprot\"><entry><accession>P1</accession><sequence>MKA</sequence></entry></uniprot>", true)]
+    [TestCase("<uniprot xmlns=\"https://uniprot.org/uniprot\"><entry><accession>P1</accession><sequence>MKA</sequence></entry></uniprot>", false)]
+    [TestCase("<uniprot xmlns=\"undefined\"><entry><accession>P1</accession><sequence>MKA</sequence></entry></uniprot>", false)]
+    [TestCase("<uniprot><entry><accession>P1</accession><sequence>MKA</sequence></entry></uniprot>", false)]
+    [TestCase("<u:uniprot xmlns:u=\"https://uniprot.org/uniprot\"><u:entry><u:accession>P1</u:accession><u:sequence>MKA</u:sequence></u:entry></u:uniprot>", false)]
+    public void AUniprotXmlIsReadInAnyNamespace(string body, bool pythonRead)
+    {
+        var path = TempFile("db.xml", "<?xml version=\"1.0\"?>" + body);
+        var current = ProteinDb.IterUniprotXml(path, IngestRules.Current).ToList();
+        var python = ProteinDb.IterUniprotXml(path, IngestRules.Python0320).ToList();
+        Assert.Multiple(() =>
+        {
+            Assert.That(current, Is.EqualTo(new[] { ("P1", "MKA") }));
+            Assert.That(python.Count, Is.EqualTo(pythonRead ? 1 : 0), "0.32.0 read http:// only");
+        });
+    }
+
+    /// <summary>A database the search used that reads as empty is refused, whatever made it empty.</summary>
+    [TestCase("db.xml", "<?xml version=\"1.0\"?><uniprot xmlns=\"http://uniprot.org/uniprot\"></uniprot>")]
+    [TestCase("db.xml", "<?xml version=\"1.0\"?><uniprot xmlns=\"http://uniprot.org/uniprot\"><entry><accession>P1</accession></entry></uniprot>")]
+    [TestCase("db.fasta", "")]
+    [TestCase("db.fasta", "MKA\n")]  // sequence with no header
+    public void ADatabaseThatReadsEmptyIsRefused(string name, string text)
+    {
+        var path = TempFile(name, text);
+        Assert.Multiple(() =>
+        {
+            Assert.That(() => ProteinDb.ReadDatabase(path, new ProteinSequences(), IngestRules.Current),
+                Throws.TypeOf<DataRepo.Bundle.IngestException>().With.Message.Contains("no entries"));
+            Assert.That(ProteinDb.ReadDatabase(path, new ProteinSequences(), IngestRules.Python0320), Is.Zero, "0.32.0 read it as empty");
+        });
+    }
+
     // ---------------------------------------------------------------- items 11 and 12: one run per run id
 
     private static Dictionary<string, object?> Fetch(params string[] names) => new()

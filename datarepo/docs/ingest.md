@@ -457,7 +457,9 @@ result is not the same bundle:
 - the missing database is absent from `sources`, so **the bundle id differs** -- which is
   correct, because the rows do.
 
-A database that is present but **differs** from the searched one (wrong sha256) stops the ingest.
+A database that is present but **differs** from the searched one (wrong sha256) stops the ingest, and so does one
+that reads as having **no entries**. A UniProt XML is read in any namespace (UniProt's `http://` or `https://`, or
+none), matched on element names as mzLib's loader matches them.
 
 **Verifying positions.** Every ingest checks each site's residue against its sequence and records
 the result in `bundle.json` under `protein_databases.site_residue_check`; any wrong residue or

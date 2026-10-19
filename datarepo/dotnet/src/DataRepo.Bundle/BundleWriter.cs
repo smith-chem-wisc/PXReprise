@@ -29,7 +29,8 @@ public sealed class BundleWriter(string store, string datasetId, string? ingestP
     /// first released C# ingest path: G76 (D40), G81, D37 and covered_zero, on schema 0.0.14. cs-1.1.0: G83's
     /// fixes to the behaviours 0.32.0 had, and G87's run start time and instrument, on schema 0.0.15. cs-1.2.0
     /// (1.4.0, one re-ingest): G106, a source name whose SDRF rows disagree on a sample-level cell gets no value there
-    /// and an <c>sdrf_conflicting_rows</c> finding.
+    /// and an <c>sdrf_conflicting_rows</c> finding; PXR-R12, a UniProt XML in any namespace, and an empty database
+    /// refused.
     /// </remarks>
     public const string IngesterVersion = "cs-1.2.0";
 
