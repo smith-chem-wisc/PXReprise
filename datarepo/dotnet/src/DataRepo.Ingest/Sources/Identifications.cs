@@ -551,7 +551,8 @@ public static class Identifications
             var candidates = sequences.Get(acc);
             if (candidates.Count == 0)
             {
-                missed[acc] = "no_sequence";
+                // Several sequences, and which one the search held is not known (G101): no site, counted apart.
+                missed[acc] = sequences.Ambiguous.Contains(acc) ? "ambiguous_sequence" : "no_sequence";
                 continue;
             }
             var found = false;

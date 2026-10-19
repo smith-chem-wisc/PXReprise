@@ -433,6 +433,10 @@ public static class Ingester
             var dbPath = PyFormat.Str(db["path"]!);
             writer.AddHashedSource(dbPath, $"protein_database:{Path.GetFileName(dbPath)}", PyFormat.Str(db["sha256"]!));
         }
+        // How the search resolved an accession in both a target and a contaminant database: it decides that protein's
+        // contaminant label below and, under Current, which of its sequences sites and occupancy are placed against.
+        var tc = SearchParams.TcAmbiguity(TaskFiles(manifest.WorkRoot, searchProvenance), rules);
+        if (rules == IngestRules.Current) sequences.KeepSearched(tc);
         var unplaced = new OrderedDictionary<string, long>(StringComparer.Ordinal);
         var ptmSites = Identifications.PtmSiteRows(psmColumns, datasetId, proforma, sequences, unplaced);
         var siteCheck = Identifications.VerifySiteResidues(ptmSites, sequences);
@@ -462,7 +466,6 @@ public static class Ingester
         }
         // A protein's contaminant label comes from the database it was read from, not from the PSM row it shares
         // with a contaminant (G66). An accession in BOTH is whatever the search's TCAmbiguity made it.
-        var tc = SearchParams.TcAmbiguity(TaskFiles(manifest.WorkRoot, searchProvenance), rules);
         bool? ContaminantOf(string accession)
         {
             var status = sequences.DatabaseStatus(accession);
@@ -704,13 +707,22 @@ public static class Ingester
             ["files"] = registry.Sources,
             ["unresolved"] = proforma.Unresolved,
         };
-        writer.Notes["protein_databases"] = new OrderedDictionary<string, object?>
+        var databasesNote = new OrderedDictionary<string, object?>
         {
             ["read"] = sequences.Files,
             ["missing"] = sequences.Missing,
             ["unplaced_site_pairs"] = unplaced,
             ["site_residue_check"] = siteCheck,
         };
+        if (rules == IngestRules.Current)
+            // G101: which accessions carried several sequences, and which one sites and occupancy were placed against.
+            databasesNote["searched_sequence"] = new OrderedDictionary<string, object?>
+            {
+                ["tc_ambiguity"] = tc,
+                ["resolved"] = sequences.Resolved,
+                ["ambiguous"] = sequences.Ambiguous.ToList(),
+            };
+        writer.Notes["protein_databases"] = databasesNote;
         writer.Notes["occupancy"] = occupancyNote;
         if (sampleColumns is { BySample: true })
             writer.Notes["protein_group_columns"] = new OrderedDictionary<string, object?>
@@ -854,6 +866,11 @@ public static class Ingester
                 + "stored peptide -- typically a PSM ambiguous between peptide sequences (level 4 or 5), "
                 + "where this protein carries a different candidate than the first, which is the one "
                 + "stored");
+        if (unplaced.GetValueOrDefault("ambiguous_sequence") > 0)
+            parts.Add(
+                $"{unplaced["ambiguous_sequence"]} named a protein the searched databases carry with different "
+                + "sequences, where the search's TCAmbiguity does not say which one it searched ("
+                + string.Join(", ", sequences.Ambiguous) + ")");
         if (unplaced.GetValueOrDefault("c_term_no_sequence") > 0)
             parts.Add(
                 $"{unplaced["c_term_no_sequence"]} carried a C-terminal modification on a protein with "

@@ -23,10 +23,59 @@ public sealed class ProteinSequences
     /// target only, {true, false} both (human keratins, albumin). See <see cref="DatabaseStatus"/>.</summary>
     public Dictionary<string, HashSet<bool>> ContaminantFrom { get; } = new(StringComparer.Ordinal);
 
-    public void Add(string accession, string sequence)
+    /// <summary>Accession -> sequence -> which kinds of database carried that sequence (true: a contaminant panel).</summary>
+    private readonly Dictionary<string, Dictionary<string, HashSet<bool>>> _kindsOfSequence = new(StringComparer.Ordinal);
+
+    /// <summary>Accessions with several sequences, of which the search held one this reader cannot name (G101).</summary>
+    /// <remarks>They have no sequence after <see cref="KeepSearched"/>, so no site is placed against either.</remarks>
+    public SortedSet<string> Ambiguous { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>Accessions with several sequences that <see cref="KeepSearched"/> narrowed to the one the search held,
+    /// and the kind of database it came from (<c>target</c> or <c>contaminant</c>).</summary>
+    public SortedDictionary<string, string> Resolved { get; } = new(StringComparer.Ordinal);
+
+    public void Add(string accession, string sequence, bool? contaminant = null)
     {
         if (!ByAccession.TryGetValue(accession, out var known)) ByAccession[accession] = known = [];
         if (!known.Contains(sequence)) known.Add(sequence);
+        if (contaminant is not bool kind) return;
+        if (!_kindsOfSequence.TryGetValue(accession, out var bySequence)) _kindsOfSequence[accession] = bySequence = new(StringComparer.Ordinal);
+        if (!bySequence.TryGetValue(sequence, out var kinds)) bySequence[sequence] = kinds = [];
+        kinds.Add(kind);
+    }
+
+    /// <summary>Narrows each accession with several sequences to the one the search held (G101).</summary>
+    /// <remarks>
+    /// MetaMorpheus keeps ONE protein per accession (<c>MetaMorpheusTask.SanitizeBioPolymerDatabase</c>):
+    /// <c>RemoveContaminant</c> drops the contaminant panel's copy, <c>RemoveTarget</c> the target's, and
+    /// <c>RenameProtein</c> keeps both under new accessions (<c>_D1</c>, <c>_D2</c>), which the results then name. Its
+    /// contaminant panel carries older versions of two human keratins (O76011 at 436 residues against the proteome's
+    /// 394, P19013 at 534 against 520), and placing a site against both wrote every modification on them twice, 42 or
+    /// 14 residues apart. Where the setting names the copy, only its sequence is kept. Otherwise (no setting read,
+    /// <c>RenameProtein</c>, or two sequences from databases of one kind, where MetaMorpheus keeps the copy with the
+    /// most annotated modifications) the accession gets no sequence and is listed in <see cref="Ambiguous"/>.
+    /// </remarks>
+    /// <param name="tcAmbiguity">The search's <c>TCAmbiguity</c> (<see cref="SearchParams.TcAmbiguity"/>), or null.</param>
+    public void KeepSearched(string? tcAmbiguity)
+    {
+        bool? keepContaminant = tcAmbiguity switch { "RemoveContaminant" => false, "RemoveTarget" => true, _ => null };
+        foreach (var (accession, known) in ByAccession)
+        {
+            if (known.Count < 2) continue;
+            var kept = known;
+            if (keepContaminant is bool kind && DatabaseStatus(accession) == "both" && _kindsOfSequence.TryGetValue(accession, out var bySequence))
+                kept = known.Where(s => bySequence.TryGetValue(s, out var kinds) && kinds.Contains(kind)).ToList();
+            if (kept.Count == 1)
+            {
+                Resolved[accession] = keepContaminant == true ? "contaminant" : "target";
+                known.RemoveAll(s => s != kept[0]);
+            }
+            else
+            {
+                Ambiguous.Add(accession);
+                known.Clear();
+            }
+        }
     }
 
     private static readonly IReadOnlyList<string> None = [];
@@ -245,7 +294,7 @@ public static class ProteinDb
         var count = 0;
         foreach (var (accession, sequence) in entries)
         {
-            into.Add(accession, sequence);
+            into.Add(accession, sequence, contaminant);
             if (!into.ContaminantFrom.TryGetValue(accession, out var kinds)) into.ContaminantFrom[accession] = kinds = [];
             kinds.Add(contaminant);
             count++;

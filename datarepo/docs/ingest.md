@@ -461,6 +461,15 @@ A database that is present but **differs** from the searched one (wrong sha256) 
 that reads as having **no entries**. A UniProt XML is read in any namespace (UniProt's `http://` or `https://`, or
 none), matched on element names as mzLib's loader matches them.
 
+**One accession, several sequences.** MetaMorpheus searches one protein per accession. When an accession is in a
+target database and the contaminant panel, the search's `TCAmbiguity` decides which copy it kept: `RemoveContaminant`
+(the default) keeps the target's, `RemoveTarget` the panel's. Sites and occupancy are placed against that copy only.
+The panel carries older versions of two human keratins (O76011, P19013), whose sites were otherwise written twice at
+different positions. Where nothing says which copy was searched (no setting read, `RenameProtein`, or two copies from
+databases of one kind), no site is placed against either. Those (PSM, protein) pairs are counted as
+`ambiguous_sequence` in `unplaced_ptm_sites`. `bundle.json` lists both cases under
+`protein_databases.searched_sequence`.
+
 **Verifying positions.** Every ingest checks each site's residue against its sequence and records
 the result in `bundle.json` under `protein_databases.site_residue_check`; any wrong residue or
 out-of-range position raises `ptm_site_residue_mismatch`. To check a bundle you did not build,

@@ -674,4 +674,101 @@ public class CurrentRulesTests
             });
         }
     }
+
+    // ---------------------------------------------------------------- G101: one accession, two sequences
+
+    // The proteome's keratin and the contaminant panel's older version of it, as O76011 and P19013 are: PEPCIDEK at 5
+    // in the first (its C is residue 8) and at 9 in the second (residue 12).
+    private const string KeratinTarget = "MAAAPEPCIDEKGGG";
+    private const string KeratinPanel = "MAAAQQQQPEPCIDEKGGG";
+
+    /// <summary>K1 from a proteome and from a second database (by default the contaminant panel), and P2, which
+    /// carries the same peptide at 2 (its C is residue 5), from the proteome only.</summary>
+    private static ProteinSequences Keratin(string panel = KeratinPanel, string panelFile = "contaminants.fasta")
+    {
+        var sequences = new ProteinSequences();
+        ProteinDb.ReadDatabase(TempFile("proteome.fasta", ">sp|K1|K1_HUMAN one\n" + KeratinTarget + "\n>sp|P2|P2_HUMAN two\nMPEPCIDEKW\n"), sequences);
+        ProteinDb.ReadDatabase(TempFile(panelFile, ">sp|K1|K1_HUMAN one\n" + panel + "\n"), sequences);
+        return sequences;
+    }
+
+    private static List<DataRepo.Bundle.Row> KeratinSites(ProteinSequences sequences, string accession, string range, OrderedDictionary<string, long>? unplaced = null)
+    {
+        var columns = new Dictionary<string, List<object?>>
+        {
+            ["full_sequence"] = ["PEPC[Common Fixed:Carbamidomethyl on C]IDEK"],
+            ["accession"] = [accession],
+            ["start_and_end_residues_in_parent_sequence"] = [range],
+            ["q_value"] = [0.001],
+            ["decoy_contam_target"] = ["T"],
+        };
+        return Identifications.PtmSiteRows(columns, "PXD1", new ProformaCache(new ModRegistry(), IngestRules.Current), sequences, unplaced);
+    }
+
+    private static IEnumerable<string> Positions(List<DataRepo.Bundle.Row> sites) =>
+        sites.Select(s => $"{s["protein_accession"]}:{s["position"]}");
+
+    [TestCase("RemoveContaminant", KeratinTarget, "target")]
+    [TestCase("RemoveTarget", KeratinPanel, "contaminant")]
+    public void TheCopyTheSearchKeptIsTheOneSitesArePlacedOn(string tc, string kept, string kind)
+    {
+        var sequences = Keratin();
+        Assert.That(Positions(KeratinSites(sequences, "K1", "[5 to 12]")), Is.EquivalentTo(new[] { "K1:8", "K1:12" }),
+            "before the choice, one PSM gave two sites 4 residues apart: the defect");
+        sequences.KeepSearched(tc);
+        Assert.Multiple(() =>
+        {
+            Assert.That(sequences.Get("K1"), Is.EqualTo(new[] { kept }));
+            Assert.That(sequences.Resolved["K1"], Is.EqualTo(kind));
+            Assert.That(sequences.Ambiguous, Is.Empty);
+            Assert.That(Positions(KeratinSites(sequences, "K1", "[5 to 12]")), Is.EqualTo(new[] { kind == "target" ? "K1:8" : "K1:12" }));
+            Assert.That(sequences.DatabaseStatus("K1"), Is.EqualTo("both"), "the contaminant label is still the setting's to decide");
+        });
+    }
+
+    /// <summary>Where the search held one copy and nothing says which, no site is placed against either.</summary>
+    [TestCase(null)]
+    [TestCase("RenameProtein")]
+    public void AnUnnamedCopyPlacesNoSite(string? tc)
+    {
+        var sequences = Keratin();
+        sequences.KeepSearched(tc);
+        var unplaced = new OrderedDictionary<string, long>(StringComparer.Ordinal);
+        Assert.Multiple(() =>
+        {
+            Assert.That(sequences.Get("K1"), Is.Empty);
+            Assert.That(sequences.Ambiguous, Is.EqualTo(new[] { "K1" }));
+            Assert.That(Positions(KeratinSites(sequences, "K1|P2", "[5 to 12]|[2 to 9]", unplaced)), Is.EqualTo(new[] { "P2:5" }),
+                "the other protein of the PSM keeps its site");
+            Assert.That(unplaced["ambiguous_sequence"], Is.EqualTo(1));
+            Assert.That(Positions(KeratinSites(sequences, "K1", "[5 to 12]")), Is.EqualTo(new[] { "K1:8" }),
+                "a PSM on K1 alone falls back to the producer's own span, which is the copy it matched");
+        });
+    }
+
+    [Test]
+    public void TwoCopiesFromDatabasesOfOneKindAreAmbiguous()
+    {
+        // MetaMorpheus keeps the copy with the most annotated modifications, which a sequence read cannot see.
+        var sequences = Keratin(panelFile: "isoforms.fasta");
+        sequences.KeepSearched("RemoveContaminant");
+        Assert.Multiple(() =>
+        {
+            Assert.That(sequences.Ambiguous, Is.EqualTo(new[] { "K1" }));
+            Assert.That(sequences.Resolved, Is.Empty);
+        });
+    }
+
+    [Test]
+    public void AnIdenticalCopyIsNoChoice()
+    {
+        var sequences = Keratin(panel: KeratinTarget);
+        sequences.KeepSearched(null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(sequences.Get("K1"), Is.EqualTo(new[] { KeratinTarget }));
+            Assert.That(sequences.Resolved, Is.Empty);
+            Assert.That(sequences.Ambiguous, Is.Empty);
+        });
+    }
 }
