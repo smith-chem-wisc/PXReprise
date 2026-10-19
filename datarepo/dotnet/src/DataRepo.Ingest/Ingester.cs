@@ -270,7 +270,9 @@ public static class Ingester
         var settings = mmSettings;
         if (settings is null && entry.Metamorpheus is not null && S(entry.Metamorpheus).Length > 0)
             settings = Join(Join(manifest.WorkRoot, "mm_settings"), S(entry.Metamorpheus));
-        var registry = settings is not null ? ModRegistry.FromMetaMorpheus(settings, rules) : new ModRegistry();
+        // Current: mzLib's loaders over the install, as MetaMorpheus loads them (G26); Python0320: 0.32.0's file reader.
+        var registry = settings is null ? new ModRegistry()
+            : rules == IngestRules.Current ? ModRegistry.FromMzLib(settings) : ModRegistry.FromMetaMorpheus(settings, rules);
         var proforma = new ProformaCache(registry, rules);
 
         // --- samples and runs -----------------------------------------------------------------------------
@@ -500,7 +502,8 @@ public static class Ingester
         var taskFiles = TaskFiles(manifest.WorkRoot, searchProvenance);
         foreach (var path in taskFiles)
             writer.AddSource(path, $"task:{Path.GetFileNameWithoutExtension(path)}", Path.GetFileName(path));
-        var searchModifications = SearchParams.ModificationRows(taskFiles, datasetId, name => registry.Lookup(name, rules: rules)?.UnimodCurie, rules);
+        var searchModifications = SearchParams.ModificationRows(taskFiles, datasetId,
+            (category, name) => registry.Lookup(name, rules: rules, category: category)?.UnimodCurie, rules);
 
         var resultsPath = Join(resultsDir, "results.txt");
         var results = new Dictionary<string, Dictionary<string, long>>(StringComparer.Ordinal);
@@ -700,13 +703,19 @@ public static class Ingester
         writer.Notes["licence"] = manifest.Licence;
         writer.Notes["credit"] = manifest.Credit;
         writer.Notes["readers"] = log.Entries;
-        writer.Notes["modification_registry"] = new OrderedDictionary<string, object?>
+        var registryNote = new OrderedDictionary<string, object?>
         {
             ["source"] = settings is null ? null : BundleWriter.PathText(settings),
             ["entries"] = (long)registry.Count,
             ["files"] = registry.Sources,
             ["unresolved"] = proforma.Unresolved,
         };
+        if (rules == IngestRules.Current)
+        {
+            registryNote["loader"] = registry.Loader;  // G26: which mzLib read the install
+            registryNote["masses_withheld"] = registry.MassesWithheld;
+        }
+        writer.Notes["modification_registry"] = registryNote;
         var databasesNote = new OrderedDictionary<string, object?>
         {
             ["read"] = sequences.Files,

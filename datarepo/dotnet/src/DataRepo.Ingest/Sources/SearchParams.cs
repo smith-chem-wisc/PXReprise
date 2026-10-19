@@ -85,15 +85,15 @@ public static class SearchParams
     /// <summary>Every modification the search could have assigned, with its UNIMOD accession where known.</summary>
     /// <param name="taskFiles">The task <c>.toml</c> files the run used.</param>
     /// <param name="datasetId">ProteomeXchange accession.</param>
-    /// <param name="unimodCurie">The UNIMOD CURIE of a modification name in the registry of the MetaMorpheus
-    /// install that did the search (<c>registry.Lookup(name)?.UnimodCurie</c>), or null.</param>
+    /// <param name="unimodCurie">The UNIMOD CURIE of a modification, given its category and name as the task lists
+    /// them, in the registry of the MetaMorpheus install that did the search
+    /// (<c>registry.Lookup(name, category: category)?.UnimodCurie</c>), or null.</param>
     /// <returns>One row per (modification, usage), deduplicated and sorted.</returns>
-    /// <remarks>Takes the lookup as a function so this module compiles before <c>ModRegistry</c> is ported;
-    /// <c>ModificationRows(taskFiles, datasetId, registry)</c> is the one-line overload to add beside it.</remarks>
+    /// <remarks>Takes the lookup as a function so this module does not depend on <c>ModRegistry</c>.</remarks>
     /// <param name="rules">Under <see cref="IngestRules.Current"/> a name with no <c> on </c> part has
     /// <c>residues</c> <c>unspecified</c>; Python 0.32.0's <c>rpartition</c> returned the whole name when the
     /// separator was absent, so the column held the modification's name (G83 item 14).</param>
-    public static List<Row> ModificationRows(IEnumerable<string> taskFiles, string datasetId, Func<string, string?> unimodCurie,
+    public static List<Row> ModificationRows(IEnumerable<string> taskFiles, string datasetId, Func<string, string, string?> unimodCurie,
         IngestRules rules = IngestRules.Current)
     {
         var seen = new Dictionary<(string Name, string Usage), Row>();
@@ -105,10 +105,10 @@ public static class SearchParams
             {
                 var packed = Get(Section(doc, section), key);
                 if (!Truthy(packed)) continue;
-                foreach (var (_, name) in Pairs(packed))
+                foreach (var (category, name) in Pairs(packed))
                 {
                     if (name.Length == 0) continue;
-                    var curie = unimodCurie(name);
+                    var curie = unimodCurie(category, name);
                     var (_, separator, residues) = RPartition(name, " on ");
                     if (separator.Length == 0 && rules == IngestRules.Current) residues = "";
                     if (seen.ContainsKey((name, usage))) continue;

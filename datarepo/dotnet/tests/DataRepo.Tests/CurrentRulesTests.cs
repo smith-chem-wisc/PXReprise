@@ -547,8 +547,8 @@ public class CurrentRulesTests
     {
         var path = Task("Task1SearchTask.toml",
             "TaskType = \"Search\"\n[CommonParameters]\nListOfModsVariable = \"Common Variable\tOxidation on M\t\tCommon Biological\tHydroxylation\t\tX\tA on B on C\"\n");
-        var current = SearchParams.ModificationRows([path], "PXD1", _ => null, IngestRules.Current).ToDictionary(r => (string)r["name"]!, r => r["residues"]);
-        var python = SearchParams.ModificationRows([path], "PXD1", _ => null, IngestRules.Python0320).ToDictionary(r => (string)r["name"]!, r => r["residues"]);
+        var current = SearchParams.ModificationRows([path], "PXD1", (_, _) => null, IngestRules.Current).ToDictionary(r => (string)r["name"]!, r => r["residues"]);
+        var python = SearchParams.ModificationRows([path], "PXD1", (_, _) => null, IngestRules.Python0320).ToDictionary(r => (string)r["name"]!, r => r["residues"]);
         Assert.Multiple(() =>
         {
             Assert.That(current["Hydroxylation"], Is.EqualTo("unspecified"));
@@ -756,6 +756,138 @@ public class CurrentRulesTests
         {
             Assert.That(sequences.Ambiguous, Is.EqualTo(new[] { "K1" }));
             Assert.That(sequences.Resolved, Is.Empty);
+        });
+    }
+
+    // ---------------------------------------------------------------- G26: modifications from mzLib's own loaders
+
+    /// <summary>A MetaMorpheus install holding only <c>Mods/</c> files, written in MetaMorpheus's own format.</summary>
+    private static string ModsInstall(params (string File, string Text)[] files)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "datarepo-g26-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(dir, "Mods"));
+        foreach (var (file, text) in files)
+            File.WriteAllText(Path.Combine(dir, "Mods", file), text, new System.Text.UTF8Encoding(false));
+        return dir;
+    }
+
+    private static string ModBlock(string id, string target, string type, string formula, int? unimod) =>
+        $"ID   {id}\nTG   {target}\nPP   Anywhere.\nMT   {type}\nCF   {formula}\n" + (unimod is null ? "" : $"DR   Unimod; {unimod}.\n") + "//\n";
+
+    [Test]
+    public void AModificationResolvesByItsExactToken()
+    {
+        var install = ModsInstall(("Mods.txt", ModBlock("Carbamidomethyl", "C", "Common Fixed", "C2H3N1O1", 4)
+            + ModBlock("Hydroxybutyrylation", "K", "Common Biological", "C4H6O2", null)));
+        var registry = ModRegistry.FromMzLib(install);
+        var fixedC = registry.Lookup("Carbamidomethyl on C", "C", IngestRules.Current, "Common Fixed");
+        var noAccession = registry.Lookup("Hydroxybutyrylation on K", "K", IngestRules.Current, "Common Biological");
+        Assert.Multiple(() =>
+        {
+            Assert.That(fixedC?.UnimodCurie, Is.EqualTo("UNIMOD:4"));
+            Assert.That(fixedC!.MonoisotopicMass, Is.EqualTo(57.021464).Within(1e-6), "the mass mzLib computes from the formula");
+            Assert.That(noAccession?.UnimodCurie, Is.Null);
+            Assert.That(noAccession!.MonoisotopicMass, Is.EqualTo(86.036779).Within(1e-6), "the file reader had no mass for it");
+            Assert.That(registry.Lookup("Carbamidomethyl on C", "C", IngestRules.Current, "Common Variable"), Is.Null, "another category is another token");
+            Assert.That(registry.Lookup("Carbamidomethyl on C", "C", IngestRules.Current), Is.Null, "no category, no token");
+            Assert.That(registry.Lookup("Carbamidomethyl", "C", IngestRules.Current, "Common Fixed"), Is.Null, "nothing is guessed from a stem");
+            Assert.That(registry.Loader, Does.StartWith("mzLib "));
+        });
+    }
+
+    /// <summary>MetaMorpheus keeps the first modification loaded under an <c>IdWithMotif</c>, whatever its category.</summary>
+    [Test]
+    public void TheFirstFileToLoadAnIdWins()
+    {
+        var install = ModsInstall(
+            ("b.txt", ModBlock("Thing", "K", "Second", "C2H2O1", 2)),
+            ("a.txt", ModBlock("Thing", "K", "First", "C2H2O1", 1)));
+        var registry = ModRegistry.FromMzLib(install);
+        Assert.Multiple(() =>
+        {
+            Assert.That(registry.Lookup("Thing on K", "K", IngestRules.Current, "First")?.UnimodCurie, Is.EqualTo("UNIMOD:1"));
+            Assert.That(registry.Lookup("Thing on K", "K", IngestRules.Current, "Second"), Is.Null, "MetaMorpheus skipped it, so no search wrote it");
+            Assert.That(registry.Count, Is.EqualTo(1));
+        });
+    }
+
+    /// <summary>An install with a <c>ptmlist.txt</c> of two charged UniProt entries and the PSI-MOD terms naming their
+    /// charges, in the real files' grammar; optionally its own mzLib assembly.</summary>
+    private static string ChargedInstall(bool withOwnMzLib)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "datarepo-g26c-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(dir, "Data"));
+        string Term(string id, string charge) =>
+            $"<term><id>{id}</id><name>{id}</name><xref_analog><acc></acc><dbname>FormalCharge</dbname><name>{charge}</name></xref_analog></term>";
+        File.WriteAllText(Path.Combine(dir, "Data", "PSI-MOD.obo.xml"),
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?><obo>" + Term("MOD:90001", "1-") + Term("MOD:90002", "1+") + "</obo>");
+        string Entry(string id, string formula, string mass, string psimod, string extra = "") =>
+            $"ID   {id}\nAC   PTM-9{psimod[^1]}\nFT   MOD_RES\nTG   Lysine.\nPA   Amino acid side chain.\nPP   Anywhere.\n"
+            + $"CF   {formula}\nMM   {mass}\nDR   PSI-MOD; {psimod}.\n{extra}//\n";
+        File.WriteAllText(Path.Combine(dir, "Data", "ptmlist.txt"),
+            Entry("Minus thing", "C2 H1 O2", "57.000000", "MOD:90001")
+            + Entry("Plus thing", "C3 H7", "43.054227", "MOD:90002", "DR   Unimod; 37.\n"));
+        if (withOwnMzLib)
+            File.Copy(typeof(UsefulProteomicsDatabases.Loaders).Assembly.Location, Path.Combine(dir, "UsefulProteomicsDatabases.dll"));
+        return dir;
+    }
+
+    /// <summary>A charge mzLib's sign fix (#1299) did not change is applied as the search applied it; a negative one
+    /// is applied only for an install whose own mzLib read its sign, and otherwise the mass is withheld.</summary>
+    [TestCase(true)]
+    [TestCase(false)]
+    public void AChargedMassIsTheOneTheSearchUsed(bool withOwnMzLib)
+    {
+        const double proton = 1.007276466812;
+        var registry = ModRegistry.FromMzLib(ChargedInstall(withOwnMzLib));
+        var plus = registry.Lookup("Plus thing on K", "K", IngestRules.Current, "UniProt");
+        var minus = registry.Lookup("Minus thing on K", "K", IngestRules.Current, "UniProt");
+        Assert.Multiple(() =>
+        {
+            Assert.That(plus!.MonoisotopicMass, Is.EqualTo(43.054227 - proton).Within(1e-6), "+1: one proton off UniProt's cation mass");
+            Assert.That(plus.UnimodCurie, Is.EqualTo("UNIMOD:37"));
+            Assert.That(minus, Is.Not.Null, "the token still resolves");
+            if (withOwnMzLib)
+            {
+                Assert.That(minus!.MonoisotopicMass, Is.EqualTo(57.000000 + proton).Within(1e-6), "-1, read with its sign");
+                Assert.That(registry.MassesWithheld, Is.Empty);
+            }
+            else
+            {
+                Assert.That(minus!.MonoisotopicMass, Is.Null, "an install whose mzLib may have read -1 as +1 searched another mass");
+                Assert.That(registry.MassesWithheld.Keys, Is.EqualTo(new[] { "UniProt:Minus thing on K" }));
+                Assert.That(registry.MassesWithheld.Values.Single(), Does.Contain("MOD:90001").And.Contain("#1299"));
+            }
+        });
+    }
+
+    [Test]
+    public void AMissingInstallGivesAnEmptyRegistry() =>
+        Assert.That(ModRegistry.FromMzLib(Path.Combine(Path.GetTempPath(), "no-such-install-" + Guid.NewGuid().ToString("N"))).Count, Is.Zero);
+
+    /// <summary>What G26 changes on aging's real install, measured over every token in its store (2026-10-19).</summary>
+    [Test, Category("RealData")]
+    public void TheRealInstallResolvesWhatTheFileReaderCouldNot()
+    {
+        const string install = @"F:\aging_data\mm_settings\1.1.12";
+        if (!Directory.Exists(install)) Assert.Ignore($"{install} is not on this machine");
+        var mzlib = ModRegistry.FromMzLib(install);
+        var files = ModRegistry.FromMetaMorpheus(install);
+        ModEntry? Mz(string category, string name) => mzlib.Lookup(name, null, IngestRules.Current, category);
+        Assert.Multiple(() =>
+        {
+            Assert.That(Mz("Unimod", "Nethylmaleimide on C")?.UnimodCurie, Is.EqualTo("UNIMOD:108"), "unimod.xml, which the file reader never read");
+            Assert.That(files.Lookup("Nethylmaleimide on C", "C", IngestRules.Current), Is.Null);
+            Assert.That(Mz("UniProt", "N6,N6,N6-trimethyllysine on K")!.MonoisotopicMass, Is.EqualTo(42.046951).Within(1e-6), "formal charge removed");
+            Assert.That(files.Lookup("N6,N6,N6-trimethyllysine on K", "K", IngestRules.Current)!.MonoisotopicMass, Is.EqualTo(43.054227).Within(1e-6), "UniProt's MM, a proton heavier");
+            Assert.That(Mz("Common Biological", "Hydroxybutyrylation on K")!.MonoisotopicMass, Is.EqualTo(86.036779).Within(1e-6));
+            Assert.That(Mz("Common Fixed", "Carbamidomethyl on C")?.UnimodCurie, Is.EqualTo("UNIMOD:4"));
+            Assert.That(Mz("Trypsin Digested", "GG (Ubiquitination Site) on K")?.UnimodCurie, Is.EqualTo("UNIMOD:121"));
+            Assert.That(mzlib.MassesWithheld, Is.Empty, "1.1.12 ships mzLib 1.0.594, which reads a charge's sign");
+            const string older = @"F:\aging_data\mm_settings\1.1.11";
+            if (Directory.Exists(older))
+                Assert.That(ModRegistry.FromMzLib(older).MassesWithheld, Is.Empty,
+                    "1.1.11 ships mzLib 1.0.591, from before #1299, and none of its charged entries is negative");
         });
     }
 

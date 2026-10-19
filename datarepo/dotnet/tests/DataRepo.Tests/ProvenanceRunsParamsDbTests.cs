@@ -169,7 +169,7 @@ public class ProvenanceRunsParamsDbTests
             var name = (string)c["name"]!;
             var files = L(c["files"]).Select(f => RepoPath((string)f!)).ToList();
             var unimod = D(c["unimod"]);
-            var rows = SearchParams.ModificationRows(files, "PXD000001", n => unimod.TryGetValue(n, out var u) ? (string?)u : null, IngestRules.Python0320);
+            var rows = SearchParams.ModificationRows(files, "PXD000001", (_, n) => unimod.TryGetValue(n, out var u) ? (string?)u : null, IngestRules.Python0320);
             Assert.That(Py(rows), Is.EqualTo(Py(c["modification_rows"])), $"{name}: modification_rows");
             Assert.That(SearchParams.PepRegime(files), Is.EqualTo(c["pep_regime"]), $"{name}: pep_regime");
             Assert.That(SearchParams.TcAmbiguity(files, IngestRules.Python0320), Is.EqualTo(c["tc_ambiguity"]), $"{name}: tc_ambiguity");
@@ -342,7 +342,7 @@ public class ProvenanceRunsParamsDbTests
             var sp = D(c["search_params"]);
             var taskFiles = L(sp["task_files"]).Select(t => Real((string)t!)).ToList();
             var unimod = D(sp["unimod"]);
-            Assert.That(Py(SearchParams.ModificationRows(taskFiles, datasetId, n => unimod.TryGetValue(n, out var u) ? (string?)u : null, IngestRules.Python0320)), Is.EqualTo(Py(sp["modification_rows"])), $"{dir}: modification_rows");
+            Assert.That(Py(SearchParams.ModificationRows(taskFiles, datasetId, (_, n) => unimod.TryGetValue(n, out var u) ? (string?)u : null, IngestRules.Python0320)), Is.EqualTo(Py(sp["modification_rows"])), $"{dir}: modification_rows");
             Assert.That(SearchParams.PepRegime(taskFiles), Is.EqualTo(sp["pep_regime"]), $"{dir}: pep_regime");
             Assert.That(SearchParams.PepIterative(taskFiles, sp["release"] as string), Is.EqualTo(sp["pep_iterative"]), $"{dir}: pep_iterative");
             Assert.That(SearchParams.TcAmbiguity(taskFiles, IngestRules.Python0320), Is.EqualTo(sp["tc_ambiguity"]), $"{dir}: tc_ambiguity");

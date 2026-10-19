@@ -30,7 +30,8 @@ public sealed class BundleWriter(string store, string datasetId, string? ingestP
     /// fixes to the behaviours 0.32.0 had, and G87's run start time and instrument, on schema 0.0.15. cs-1.2.0
     /// (1.4.0, one re-ingest): G106, a source name whose SDRF rows disagree on a sample-level cell gets no value there
     /// and an <c>sdrf_conflicting_rows</c> finding; PXR-R12, a UniProt XML in any namespace, and an empty database
-    /// refused; G101, sites and occupancy placed only against the copy of an accession the search's TCAmbiguity kept.
+    /// refused; G101, sites and occupancy placed only against the copy of an accession the search's TCAmbiguity kept;
+    /// G26, modification accessions and masses from mzLib's own loaders, by the exact token.
     /// </remarks>
     public const string IngesterVersion = "cs-1.2.0";
 

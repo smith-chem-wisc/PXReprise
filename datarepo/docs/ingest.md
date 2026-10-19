@@ -167,7 +167,7 @@ are part of the bundle id, so renaming the schema gives a new bundle id and noth
 | `ExperimentalDesign.tsv` beside the protein-group table, only when that table is labelled by sample | dataRepo | which run each protein-group `QuantValue` and `PtmStoichiometry` row belongs to |
 | the executed task `.toml` files | dataRepo | `SearchModification` |
 | `results.txt` | dataRepo | `Metric`, and the numbers the ingest reconciles against |
-| the searching MetaMorpheus install's `Mods/`, `Data/ptmlist.txt` | dataRepo | UNIMOD accessions for ProForma |
+| the searching MetaMorpheus install's `Mods/`, `Data/ptmlist.txt`, `Data/PSI-MOD.obo.xml`, `Data/unimod.xml` | **mzLib**'s loaders, in MetaMorpheus's order (G26) | UNIMOD accessions and masses for ProForma |
 | every protein database in the search provenance's `inputs` (UniProt `.xml`, `.fasta`) | dataRepo; **mzLib**'s loader for specificity | `PtmSite.position` and `site_type`; `Peptidoform.is_unique` and `is_isoform_specific` |
 
 **PTM site positions come from the searched sequences, not from the psmtsv's spans** (0.15.0,
@@ -343,8 +343,23 @@ that fails to resolve, and the dataset gets an `unmatched_runs` finding.
 
 The schema stores peptidoforms as ProForma 2 with UNIMOD accessions. MetaMorpheus writes its own
 notation (`C[Common Fixed:Carbamidomethyl on C]`), so the ingester translates. The accession mapping
-is **not invented**: it is read from the modification files shipped with the MetaMorpheus build that
-did the search (`Mods/*.txt`, `Data/ptmlist.txt`), which pins it to the version in the manifest.
+is **not invented**: it comes from the modification files shipped with the MetaMorpheus build that
+did the search, which pins it to the version in the manifest. From ingest path `cs-1.2.0` (G26) they
+are loaded by **mzLib's own loaders, as MetaMorpheus loads them**: every `Mods/*.txt` but
+`glyco.txt` and the RNA files, then `Data/ptmlist.txt` with the formal charges of
+`Data/PSI-MOD.obo.xml`, then `Data/unimod.xml`, keeping the first modification loaded under each
+name. A token resolves only to the entry with exactly its category and name
+(`Common Fixed:Carbamidomethyl on C`). Nothing is matched by stem or by residue.
+
+**Masses.** A mass is mzLib's: an `MM` line, else the mass of the `CF` formula. For a `ptmlist.txt`
+entry with an `MM` line, mzLib also subtracts one proton per unit of its PSI-MOD formal charge.
+UniProt writes a fixed-charge group as the cation (N6,N6,N6-trimethyllysine `MM 43.054227`, `C3 H7`),
+and the search used the neutral 42.046951 (C3H6, as Unimod:37). mzLib read a negative formal charge as
+positive until 1.0.592 (#1299). So for an install whose own mzLib is older (MetaMorpheus 1.1.11
+ships 1.0.591), a negatively charged modification's mass is withheld rather than written as a mass
+that install never searched. Such a modification keeps any accession, and `bundle.json` lists it
+under `modification_registry.masses_withheld`. None occurs in aging's installs. `bundle.json` also
+records the loading mzLib (`modification_registry.loader`).
 
 | Registry says | ProForma |
 |---|---|
@@ -356,17 +371,18 @@ This translation is a stop-gap. pyMzLib's `psmtsv` records have a `pro_forma` fi
 for MetaMorpheus files in 0.1.x (DATAREPO-12) and is filled from 0.4.0. Reading it from mzLib
 directly is the step that lets this code go.
 
-**The registry reads mzLib's resource files, and mzLib's own loader is the authority over them.**
-Reading `Mods/*.txt` and `Data/ptmlist.txt` is not the same as asking the loader: the loader also
-carries `Data/unimod.xml`, and it resolves a name by `Unimod` first, then `UniProt`, then
-MetaMorpheus's own list. Ours does not read `unimod.xml` at all. Measured against mzLib 1.0.591's
-loader output (`QuantProject/design/reference/IdWithMotif-to-Unimod.1.0.591.tsv`, 3,139 names): the
-two agree on every one of the 100 names that has actually reached `ptm_sites` in the three ingested
-datasets, and on 635 names overall; 57 more the loader resolves and this registry returns null for;
-2,445 it has no entry for at all. Two names resolve to a **different** accession -- `Decarboxylation
-on D` and `on E`, where `Mods.txt` cross-references `UNIMOD:914` (methylmalonylation on serine) and
-the loader gives `1915` -- and neither has fired in any dataset. Replacing this registry with the
-loader's own table is gap G26.
+**What moving to the loaders changed (G26).** Ingest paths before `cs-1.2.0` read `Mods/*.txt` and
+`Data/ptmlist.txt` with an in-house parser. It never read `unimod.xml`, took no mass from a formula, and
+took UniProt's `MM` without the charge correction. Over every modification token in aging's store
+(420 tokens across MetaMorpheus 1.1.11 and 1.1.12, 2026-10-19), no accession is lost and ten tokens
+change their ProForma:
+- `Unimod:Nethylmaleimide on C` gains `UNIMOD:108`; on later searches `NEM:2H(5)` and
+  `Nethylmaleimide+water` gain `UNIMOD:776` and `UNIMOD:320`;
+- Hydroxybutyrylation on K, GG on K under 1.1.11's install, S-(2,3-dicarboxypropyl)cysteine and
+  PXReprise's NBF go from `[Info:...]` to the formula's mass;
+- O-(2-cholinephosphoryl)serine and N,N,N-trimethylserine, which have no accession, lose UniProt's extra
+  proton (166.062756 to 165.055480, 43.054227 to 42.046951).
+The rest differ only in a mass where an accession is already written, and no row carries that mass.
 
 ## Sites, and why the key is not the accession
 

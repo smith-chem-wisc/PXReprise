@@ -15,8 +15,10 @@ namespace DataRepo.Ingest;
 /// <c>DR   Unimod; &lt;n&gt;.</c> lines of <c>Mods/*.txt</c> and <c>Data/ptmlist.txt</c>.
 /// <para>So the registry is <i>read from the search's own MetaMorpheus install</i>, which pins it to the version
 /// recorded in the manifest. A modification that no file resolves is reported, never guessed.</para>
-/// <para>Reading these files here rather than asking mzLib's loader is known debt (G26): this reader never
-/// reads <c>Data/unimod.xml</c> and prefers <c>Mods.txt</c> where the loader prefers Unimod. Ported as it is.</para>
+/// <para>This file reader is <see cref="IngestRules.Python0320"/>'s. Under <see cref="IngestRules.Current"/> the
+/// registry comes from mzLib's own loaders over the same install, as MetaMorpheus builds it
+/// (<see cref="ModRegistry.FromMzLib"/>, G26), because this reader never reads <c>Data/unimod.xml</c>, reads no
+/// mass from a chemical formula, and takes UniProt's <c>MM</c> line without mzLib's formal-charge correction.</para>
 /// Ported from <c>modlist.py</c>.
 /// </remarks>
 public static class ModList
@@ -385,6 +387,10 @@ public static class ModList
 /// <remarks>Equality is by value, the target set compared as a set, as Python's frozen dataclass compares.</remarks>
 public sealed record ModEntry(string Name, IReadOnlySet<string> Targets, long? Unimod, double? MonoisotopicMass, string Source)
 {
+    /// <summary>mzLib's <c>ModificationType</c> (MetaMorpheus's category, e.g. <c>Common Fixed</c>), for an entry
+    /// <see cref="ModRegistry.FromMzLib"/> made; null for one read from a file by this module.</summary>
+    public string? Category { get; init; }
+
     /// <summary><c>UNIMOD:&lt;n&gt;</c>, or null when no file gave an accession.</summary>
     public string? UnimodCurie => Unimod is null ? null : "UNIMOD:" + Unimod.Value.ToString(CultureInfo.InvariantCulture);
 
@@ -406,6 +412,19 @@ public sealed class ModRegistry
     private readonly Dictionary<string, List<ModEntry>> _byName = new(StringComparer.Ordinal);
     private readonly List<string> _keyOrder = [];
     private readonly List<string> _sources = [];
+
+    /// <summary><c>Category:IdWithMotif</c> -> entry, for a registry <see cref="FromMzLib"/> built.</summary>
+    private readonly Dictionary<string, ModEntry> _byToken = new(StringComparer.Ordinal);
+
+    /// <summary>True when the registry came from mzLib's loaders, and so answers by the exact token (G26).</summary>
+    public bool ByToken { get; private set; }
+
+    /// <summary>What built the registry, for <c>bundle.json</c>: the mzLib that loaded it, or null for the file reader.</summary>
+    public string? Loader { get; private set; }
+
+    /// <summary>Tokens whose mass <see cref="FromMzLib"/> left out, each with why: this build's mzLib would give a mass
+    /// the search did not use.</summary>
+    public SortedDictionary<string, string> MassesWithheld { get; } = new(StringComparer.Ordinal);
 
     public ModRegistry(IEnumerable<ModEntry>? entries = null)
     {
@@ -445,21 +464,7 @@ public sealed class ModRegistry
     public static ModRegistry FromMetaMorpheus(string installDir, IngestRules rules = IngestRules.Current)
     {
         var registry = new ModRegistry();
-        const bool windows = true;
-        var comparison = StringComparison.OrdinalIgnoreCase;
-        var paths = new List<string>();
-        var mods = Path.Combine(installDir, "Mods");
-        if (Directory.Exists(mods))
-        {
-            var names = Directory.EnumerateFiles(mods)
-                .Where(p => Path.GetFileName(p).EndsWith(".txt", comparison))
-                .ToList();
-            // pathlib orders Windows paths by their lower-cased text, POSIX paths by their text.
-            names.Sort((a, b) => windows
-                ? string.CompareOrdinal(ModList.PyLower(Path.GetFileName(a)), ModList.PyLower(Path.GetFileName(b)))
-                : string.CompareOrdinal(Path.GetFileName(a), Path.GetFileName(b)));
-            paths.AddRange(names);
-        }
+        var paths = ModFiles(installDir);
         paths.Add(Path.Combine(installDir, "Data", "ptmlist.txt"));
         var utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: false);
         foreach (var path in paths)
@@ -474,6 +479,120 @@ public sealed class ModRegistry
         return registry;
     }
 
+    /// <summary>An install's <c>Mods/*.txt</c>, in the order every stored bundle read them (see
+    /// <see cref="FromMetaMorpheus"/>).</summary>
+    private static List<string> ModFiles(string installDir)
+    {
+        var mods = Path.Combine(installDir, "Mods");
+        if (!Directory.Exists(mods)) return [];
+        var names = Directory.EnumerateFiles(mods)
+            .Where(p => Path.GetFileName(p).EndsWith(".txt", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        // pathlib orders Windows paths by their lower-cased text, and every stored bundle was written on Windows.
+        names.Sort((a, b) => string.CompareOrdinal(ModList.PyLower(Path.GetFileName(a)), ModList.PyLower(Path.GetFileName(b))));
+        return names;
+    }
+
+    /// <summary>The modifications an install's MetaMorpheus knew, loaded by mzLib as MetaMorpheus loads them (G26).</summary>
+    /// <remarks>
+    /// <para>MetaMorpheus <c>GlobalVariables.LoadModifications</c> (at <c>6e152da70</c>), with this build's mzLib:
+    /// every <c>Mods/*.txt</c> but <c>glyco.txt</c> and the RNA files (<c>ModificationLoader.ReadModsFromFile</c>), then
+    /// <c>Data/ptmlist.txt</c> (<c>Loaders.LoadUniprot</c>, with the formal charges of <c>Data/PSI-MOD.obo.xml</c>),
+    /// then <c>Data/unimod.xml</c> (<c>Loaders.LoadUnimod</c>). As <c>AddMods</c> keeps it, one modification per
+    /// <c>IdWithMotif</c>: the first loaded. MetaMorpheus writes a modification into a full sequence as
+    /// <c>[ModificationType:IdWithMotif]</c> of the one it kept, so <see cref="Lookup"/> answers that exact token and
+    /// nothing else.</para>
+    /// <para>The accession is the entry's <c>Unimod</c> database reference (a <c>DR   Unimod;</c> line, or the Unimod
+    /// record itself), and the mass is mzLib's (<c>ModificationLoader.ReadMod</c>): an <c>MM</c> line if there is one,
+    /// else the <c>CF</c> formula's mass, and for a <c>ptmlist.txt</c> entry with an <c>MM</c> line, less one proton per
+    /// unit of its PSI-MOD formal charge. The file reader took UniProt's <c>MM</c> as written, so a fixed charge counted
+    /// one proton (N6,N6,N6-trimethyllysine 43.0542 against the 42.0470 searched, which is Unimod:37's C3H6). The
+    /// <c>Mods</c> files are read with no charges, as MetaMorpheus reads them.</para>
+    /// <para><b>A mass the search did not use is withheld.</b> mzLib read a NEGATIVE PSI-MOD formal charge as positive
+    /// until 1.0.592 (#1299, 2026-09-17), so an install whose own mzLib is older (MetaMorpheus 1.1.11 ships 1.0.591)
+    /// searched such a modification two protons per charge away from the mass this build computes. Its entry keeps any
+    /// accession and has no mass, so a token without an accession stays an <c>[Info:...]</c> tag rather than a mass
+    /// tag that would describe some other search (<see cref="MassesWithheld"/>). An install whose mzLib version cannot
+    /// be read is treated as older. Measured 2026-10-19: no entry of aging's 1.1.11 or 1.1.12 installs carries a
+    /// negative charge, and every charged one that reaches the store is +1, so no stored token is affected.</para>
+    /// <para>Two differences from MetaMorpheus, both deliberate: the <c>Mods</c> files are read in the order every
+    /// stored bundle used (<see cref="ModFiles"/>), not the file system's; and <c>glyco.txt</c> and the RNA files are
+    /// recognised by file name, where MetaMorpheus tests the whole path. A file the install lacks is skipped, so a
+    /// missing install gives an empty registry, as <see cref="FromMetaMorpheus"/> does.</para>
+    /// </remarks>
+    public static ModRegistry FromMzLib(string installDir)
+    {
+        var registry = new ModRegistry { ByToken = true, Loader = $"mzLib {MzLibVersion}" };
+        var kept = new HashSet<string>(StringComparer.Ordinal);
+        void AddAll(IEnumerable<Omics.Modifications.Modification> mods, string source, Func<Omics.Modifications.Modification, string?>? withhold = null)
+        {
+            foreach (var mod in mods)
+            {
+                if (string.IsNullOrEmpty(mod.ModificationType) || string.IsNullOrEmpty(mod.IdWithMotif)) continue;
+                if (!kept.Add(mod.IdWithMotif)) continue;  // every duplicate branch of MetaMorpheus's AddMods skips it
+                long? unimod = mod.DatabaseReference is not null && mod.DatabaseReference.TryGetValue("Unimod", out var ids)
+                    && ids.Count > 0 && long.TryParse(ids[0], NumberStyles.None, CultureInfo.InvariantCulture, out var id) ? id : null;
+                var token = $"{mod.ModificationType}:{mod.IdWithMotif}";
+                var why = withhold?.Invoke(mod);
+                if (why is not null) registry.MassesWithheld[token] = why;
+                var entry = new ModEntry(mod.IdWithMotif, ModList.Targets(mod.Target?.ToString() ?? ""), unimod,
+                    why is null ? mod.MonoisotopicMass : null, source)
+                {
+                    Category = mod.ModificationType,
+                };
+                registry.Add(entry);
+                registry._byToken[token] = entry;
+            }
+        }
+        foreach (var path in ModFiles(installDir))
+        {
+            var name = Path.GetFileName(path);
+            if (name.Contains("glyco.txt", StringComparison.Ordinal) || name.Contains("Rna", StringComparison.Ordinal)) continue;
+            AddAll(Omics.Modifications.IO.ModificationLoader.ReadModsFromFile(path, out _), name);
+        }
+        var data = Path.Combine(installDir, "Data");
+        var ptmlist = Path.Combine(data, "ptmlist.txt");
+        var psimod = Path.Combine(data, "PSI-MOD.obo.xml");
+        if (File.Exists(ptmlist) && File.Exists(psimod))
+        {
+            var charges = UsefulProteomicsDatabases.Loaders.GetFormalChargesDictionary(UsefulProteomicsDatabases.Loaders.LoadPsiMod(psimod));
+            var installMzLib = InstallMzLib(installDir);
+            var signRead = installMzLib is not null && installMzLib >= FormalChargeSignFixed;
+            string? Withhold(Omics.Modifications.Modification mod)
+            {
+                if (signRead || mod.DatabaseReference is null) return null;
+                var negative = mod.DatabaseReference.SelectMany(b => b.Value.Select(c => b.Key + "; " + c))
+                    .FirstOrDefault(key => charges.TryGetValue(key, out var charge) && charge < 0);
+                return negative is null ? null
+                    : $"{negative} has formal charge {charges[negative]}, which the install's mzLib "
+                      + $"{installMzLib?.ToString() ?? "(version unreadable)"} read as positive (mzLib #1299, fixed in {FormalChargeSignFixed})";
+            }
+            AddAll(UsefulProteomicsDatabases.Loaders.LoadUniprot(ptmlist, charges).ToList(), "ptmlist.txt", Withhold);
+        }
+        var unimodXml = Path.Combine(data, "unimod.xml");
+        if (File.Exists(unimodXml))
+            AddAll(UsefulProteomicsDatabases.Loaders.LoadUnimod(unimodXml).ToList(), "unimod.xml");
+        return registry;
+    }
+
+    /// <summary>The first mzLib that keeps the sign of a PSI-MOD formal charge (#1299).</summary>
+    private static readonly Version FormalChargeSignFixed = new(1, 0, 592);
+
+    /// <summary>The mzLib an install's MetaMorpheus was built with, from its own <c>UsefulProteomicsDatabases.dll</c>,
+    /// or null when that cannot be read.</summary>
+    private static Version? InstallMzLib(string installDir)
+    {
+        var dll = Path.Combine(installDir, "UsefulProteomicsDatabases.dll");
+        if (!File.Exists(dll)) return null;
+        var text = System.Diagnostics.FileVersionInfo.GetVersionInfo(dll).ProductVersion?.Split('+')[0];
+        return Version.TryParse(text, out var version) ? version : null;
+    }
+
+    /// <summary>The mzLib this build loads modifications with.</summary>
+    private static string MzLibVersion =>
+        (System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(
+            typeof(UsefulProteomicsDatabases.Loaders).Assembly)?.InformationalVersion ?? "unknown").Split('+')[0];
+
     /// <summary>Find the entry for a MetaMorpheus modification name.</summary>
     /// <remarks><paramref name="name"/> is the part inside the bracket after the category, e.g.
     /// <c>Hydroxylation on K</c> or <c>N6-acetyllysine on K</c>. Some files spell the target into the ID and some
@@ -485,8 +604,12 @@ public sealed class ModRegistry
     /// mzLib motif reads it). With no residue at all, the candidates must agree on accession and mass. Anything
     /// else is null, so the caller reports the name unresolved. Python 0.32.0 fell back to the first candidate
     /// carrying a UNIMOD accession, so <c>N6-acetyllysine on S</c> resolved to <c>UNIMOD:1</c>.</para></remarks>
-    public ModEntry? Lookup(string name, string? residue = null, IngestRules rules = IngestRules.Current)
+    /// <param name="category">The token's category (<c>Common Fixed</c>). A registry <see cref="FromMzLib"/> built answers
+    /// <c>category:name</c> exactly, and nothing without a category; a file-read one ignores it.</param>
+    public ModEntry? Lookup(string name, string? residue = null, IngestRules rules = IngestRules.Current, string? category = null)
     {
+        if (ByToken && rules == IngestRules.Current)
+            return string.IsNullOrEmpty(category) ? null : _byToken.GetValueOrDefault($"{category}:{name}");
         if (rules == IngestRules.Current) return StrictLookup(name, residue);
         _byName.TryGetValue(ModList.PyCaseFold(name), out var candidates);
         if (candidates is null && name.Contains(" on ", StringComparison.Ordinal))

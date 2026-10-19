@@ -148,7 +148,7 @@ public static class Proforma
                 };
                 var entry = rules == IngestRules.Current && target is not null && !ResidueAgrees(target, position, placedOn)
                     ? null
-                    : registry.Lookup(name, target, rules);
+                    : registry.Lookup(name, target, rules, category);
                 var unimod = entry?.UnimodCurie;
                 var mass = entry?.MonoisotopicMass;
                 if (unimod is null && mass is null) unresolved.Add(token);
