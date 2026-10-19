@@ -181,16 +181,20 @@ public static class SearchStage
         });
 
         // 1. the pinned engine's defaults, then only the profile's settings changed
-        var (release, genCmd) = runner.GenerateDefaults(tasksDir);
+        var (banner, genCmd) = runner.GenerateDefaults(tasksDir);
         prov.Command(genCmd);
         string cmd = m.CmdFor(p.MetaMorpheus);
         string dll = Path.ChangeExtension(cmd, ".dll");
+        // v0.4.26: a commit-pinned build is no release, so it records none; readers fall back to the pin's name.
+        var pin = MetaMorpheusPin.Parse(p.MetaMorpheus);
+        string commit = runner.Commit();
         prov.Tool("MetaMorpheus", new JsonObject
         {
-            ["release"] = release, ["commit"] = runner.Commit(), ["expected_release"] = p.MetaMorpheus,
+            ["release"] = pin.IsRelease ? banner : null, ["commit"] = commit, ["expected_release"] = p.MetaMorpheus,
             ["cmd"] = string.Join(" ", runner.Launch), ["cmd_dll_sha256"] = File.Exists(dll) ? Sha(dll) : null,
         });
-        if (release != p.MetaMorpheus) throw new SearchSetupException($"MetaMorpheus is {release}, {p.Key} expects {p.MetaMorpheus}");
+        pin.Check(banner, commit, p.Key);
+        string release = pin.Name;
 
         // The organism's spectral library, resolved before the task files because it decides two of their values.
         LibraryPlan? lib = p.SpectralLibrary && r.UseLibrary ? SpectralLibrary.Plan(m.SpectralLibraryRoot, r.Organism) : null;
