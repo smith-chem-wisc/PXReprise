@@ -113,29 +113,7 @@ public sealed class SampleColumns
     private static Dictionary<string, Sample> ReadDesign(
         string path, string datasetId, RunNameMap runNames, ReaderLog? log, IngestRules rules)
     {
-        var (_, rows) = Readers.ReadTsv(path, log, DesignNote, rules);
-        var files = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-        var order = new List<string>();
-        for (int i = 0; i < rows.Count; i++)
-        {
-            var row = rows[i];
-            // MetaMorpheus refuses the same rows (EngineLayer.ExperimentalDesign.ReadExperimentalDesign), so a search
-            // that ran on this design cannot have written either.
-            if (row.Count < 5)
-                throw new IngestException(
-                    $"{datasetId}: {DesignFileName} row {i + 2} has {row.Count} cell(s); MetaMorpheus's design has five "
-                    + "(FileName, Condition, Biorep, Fraction, Techrep).");
-            if (!int.TryParse(row[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out var biorep))
-                throw new IngestException($"{datasetId}: {DesignFileName} row {i + 2} has Biorep '{row[2]}', not an integer.");
-            // SampleGroupLabels.ForSample: $"{Condition}_{BiologicalReplicate + 1}", where MetaMorpheus read Biorep - 1.
-            var label = $"{row[1]}_{biorep.ToString(CultureInfo.InvariantCulture)}";
-            if (!files.TryGetValue(label, out var list))
-            {
-                files[label] = list = [];
-                order.Add(label);
-            }
-            list.Add(row[0]);
-        }
+        var (files, order) = DesignFiles(path, datasetId, log, rules);
 
         // A private map, so a design file that is not a run is not reported as an unmatched USI run name.
         var probe = new RunNameMap(runNames.Deposited);
@@ -162,5 +140,37 @@ public sealed class SampleColumns
             samples[label] = new Sample(label, held, run, why);
         }
         return samples;
+    }
+
+    /// <summary>A design's samples: label -> the <c>FileName</c> cells it holds, in file order, and the labels in
+    /// first-seen order. Read as MetaMorpheus reads it (see <see cref="ReadDesign"/>).</summary>
+    /// <exception cref="IngestException">A row MetaMorpheus would have refused.</exception>
+    public static (Dictionary<string, List<string>> Files, List<string> Order) DesignFiles(
+        string path, string datasetId, ReaderLog? log = null, IngestRules rules = IngestRules.Current)
+    {
+        var (_, rows) = Readers.ReadTsv(path, log, DesignNote, rules);
+        var files = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        var order = new List<string>();
+        for (int i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            // MetaMorpheus refuses the same rows (EngineLayer.ExperimentalDesign.ReadExperimentalDesign), so a search
+            // that ran on this design cannot have written either.
+            if (row.Count < 5)
+                throw new IngestException(
+                    $"{datasetId}: {DesignFileName} row {i + 2} has {row.Count} cell(s); MetaMorpheus's design has five "
+                    + "(FileName, Condition, Biorep, Fraction, Techrep).");
+            if (!int.TryParse(row[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out var biorep))
+                throw new IngestException($"{datasetId}: {DesignFileName} row {i + 2} has Biorep '{row[2]}', not an integer.");
+            // SampleGroupLabels.ForSample: $"{Condition}_{BiologicalReplicate + 1}", where MetaMorpheus read Biorep - 1.
+            var label = $"{row[1]}_{biorep.ToString(CultureInfo.InvariantCulture)}";
+            if (!files.TryGetValue(label, out var list))
+            {
+                files[label] = list = [];
+                order.Add(label);
+            }
+            list.Add(row[0]);
+        }
+        return (files, order);
     }
 }

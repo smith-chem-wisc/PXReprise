@@ -143,7 +143,7 @@ public class FolderCatalogTests
 
         using var con = CatalogBuilder.Open(folder.Path, readOnly: true);
         var meta = Rows(con, "SELECT catalog_version, release_id, layout, data_root FROM catalog_meta").Single();
-        Assert.That(meta, Is.EqualTo(new object?[] { "13", folder.ReleaseId, "views", CatalogBuilder.AsPosix(Path.GetFullPath(Store)) + "/" }));
+        Assert.That(meta, Is.EqualTo(new object?[] { "14", folder.ReleaseId, "views", CatalogBuilder.AsPosix(Path.GetFullPath(Store)) + "/" }));
         Assert.That(Rows(con, "SELECT ok FROM catalog_checks WHERE kind = 'integrity'").Single()[0], Is.EqualTo(true),
             "the per-bundle integrity checks are not re-run, and the catalog says so");
     }

@@ -161,7 +161,7 @@ are part of the bundle id, so renaming the schema gives a new bundle id and noth
 | `provenance.json` (search + its declared upstream stages) | dataRepo | `ProvenanceRecord`, `Metric`, `Finding` |
 | `fetch_manifest.json` | dataRepo | `Run` (file names, SHA-256, archive checksum) |
 | `qc_report.json` | dataRepo | `Run` (MS2 count, length, dissociation, QC verdict), `Metric` |
-| `*.sdrf.tsv` | **mzLib** (`SdrfDocument`) | `Sample`, `SampleCharacteristic`, `Assay` |
+| one `*.sdrf.tsv`, chosen as below | **mzLib** (`SdrfDocument`) | `Sample`, `SampleCharacteristic`, `Assay` |
 | `AllPSMs.psmtsv`, `AllPeptides.psmtsv` | **mzLib** | `Psm`, `Peptidoform`, `Protein`, `PtmSite` |
 | `AllQuantifiedPeptides.tsv`, `AllQuantifiedProteinGroups.tsv`, `AllQuantifiedPeaks.tsv` | dataRepo | `QuantValue`, `ProteinGroup` |
 | `ExperimentalDesign.tsv` beside the protein-group table, only when that table is labelled by sample | dataRepo | which run each protein-group `QuantValue` and `PtmStoichiometry` row belongs to |
@@ -180,7 +180,28 @@ mismatch stops the ingest. The databases are hashed into the bundle id but never
 A single-accession PSM whose protein cannot be found still uses its own spans, since no pairing is
 involved. Anything else that cannot be placed is counted in the `unplaced_ptm_sites` finding.
 
-mzLib owns producer file formats. The program calls mzLib's own readers in-process (mzLib 1.0.593),
+**Which SDRF describes the samples** (from ingest path `cs-1.2.0`; G107, PXR-R22). The first of these
+that applies:
+
+1. **The manifest entry's `operator_sdrf`**: the instance owner's curation, for any search. Its
+   characteristics are read and its factor values left out. Every searched file must have exactly one
+   row, and its source names must group the searched files exactly as the search's
+   `ExperimentalDesign.tsv` does (one source name per design sample, and the reverse). Otherwise the
+   ingest is refused, naming the files and samples, because the stored protein values belong to the
+   search's samples. The path is not part of the bundle id, but the file's bytes are.
+2. **The SDRF the search's design came from**, when its provenance's `experimental_design.source` is
+   `question` or `deposit`. It is read only if its sha256 is the recorded `sdrf_sha256`. A file edited
+   after the search is not that search's record, so the ingest is refused by name; restore the recorded
+   version, or name the corrected file as `operator_sdrf`. A question's SDRF gives its characteristics
+   only. Its factor values are that question's grouping, which reaches the catalog through the study
+   layer. A deposit's SDRF gives everything.
+3. **Otherwise the first `*/metadata/*.sdrf.tsv` under the run folder**, as before. That is the
+   deposit's own SDRF, for a search whose design was `pxreprise_default` or that recorded none.
+
+`bundle.json` says which was read under `sdrf` (`read`, `chosen_by`, `factor_values`, and the
+provenance's `sdrf_origin`, recorded but never read).
+
+mzLib owns producer file formats. The program calls mzLib's own readers in-process (mzLib 1.0.595),
 the same types the Python release reached through pyMzLib's bridge, and reproduces that bridge's
 projection, so the rows are the same. Where dataRepo reads a file itself it is because mzLib has no
 reader for it, and `bundle.json`'s `readers` block records which backend read every file, so the

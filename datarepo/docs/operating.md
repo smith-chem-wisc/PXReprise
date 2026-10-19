@@ -185,6 +185,20 @@ table. The next `build` writes the restrictions to `dataset_restrictions` and on
 `dataset_overview.restrictions`, and moves the catalog id, with no re-ingest. `datarepo manifest` lists
 them as `restricted <use>: <reason>`.
 
+An SDRF you **curated** for a search goes in the dataset's `operator_sdrf`, absolute or relative to the
+manifest's folder (G107):
+
+```yaml
+    operator_sdrf: ../designs/PXD012307.operator.sdrf.tsv
+```
+
+It is read in place of any other SDRF, for its characteristics only: its factor values are left out.
+Write one row per searched file, and give the files the source names that group them exactly as the
+search's `ExperimentalDesign.tsv` does. `ingest` refuses any other grouping by name. The file's bytes
+are in the bundle id and its path is not, so editing the file needs a re-ingest and moving it does not.
+Use it when the search's own design SDRF was edited after the search: `ingest` refuses that one (its
+sha256 is not the one the search recorded).
+
 The **discovery census** (every accession you screened, with its verdict) goes in a tab-separated file
 that the manifest names at the top level, relative to the manifest's folder or absolute:
 

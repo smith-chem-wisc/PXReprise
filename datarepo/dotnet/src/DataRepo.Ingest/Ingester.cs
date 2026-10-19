@@ -288,14 +288,23 @@ public static class Ingester
         // The QC numbers are the QC stage's, so they cite the namespace its own record declares (D37).
         var qcNamespace = qcDir is not null && namespaceByStageDir.TryGetValue(Path.GetFullPath(qcDir), out var qns) ? qns : searchNamespace;
 
-        var sdrfPath = Directory.GetDirectories(runDir)
-            .SelectMany(d => Directory.Exists(Path.Combine(d, "metadata")) ? Directory.GetFiles(Path.Combine(d, "metadata"), "*.sdrf.tsv") : [])
-            .Order(StringComparer.Ordinal).FirstOrDefault();
+        var sdrfChoice = ChooseSdrf(manifest, entry, runDir, searchProvenance, datasetId, rules);
+        var sdrfPath = sdrfChoice.Path;
         SdrfTable sdrf;
         if (sdrfPath is not null)
         {
             writer.AddSource(BundleWriter.PathText(sdrfPath), "sdrf", Path.GetFileName(sdrfPath));
             sdrf = Sdrf.Parse(sdrfPath, datasetId, DatasetEntry.Text(entry.Organism), log, rules);
+            // A curated SDRF's factor values are its question's grouping, which reaches the catalog through the study
+            // layer; the bundle every question shares keeps only the facts of the samples (G102, G107).
+            if (sdrfChoice.CharacteristicsOnly)
+                sdrf = new SdrfTable
+                {
+                    Samples = sdrf.Samples, Assays = sdrf.Assays, RunFacts = sdrf.RunFacts, SampleOfRun = sdrf.SampleOfRun,
+                    Columns = sdrf.Columns, Conflicts = sdrf.Conflicts.Where(c => !IsFactorValue(c.Column)).ToList(),
+                    Characteristics = sdrf.Characteristics.Where(c => !IsFactorValue((string)c["name"]!)).ToList(),
+                };
+            if (rules == IngestRules.Current) writer.Notes["sdrf"] = sdrfChoice.Note();
         }
         else sdrf = new SdrfTable { Samples = [], Characteristics = [], Assays = [], RunFacts = [], SampleOfRun = [], Columns = [] };
 
@@ -311,6 +320,8 @@ public static class Ingester
         // A file the search left out is not a run, so a run map or SDRF assay naming it is dropped with it rather
         // than refused: both were written about the deposit, before the search chose.
         var excludedStems = excluded.Select(Path.GetFileNameWithoutExtension).ToHashSet(StringComparer.Ordinal);
+        if (sdrfChoice.ChosenBy == "operator_sdrf")
+            CheckOperatorSdrf(sdrf, sdrfPath!, runRows, resultsDir, datasetId, log, rules);
         var enrichmentMixed = Runs.AssignEnrichment(
             runRows, datasetId, entry.Enrichment, entry.MixedEnrichment,
             entry.RunEnrichment.Where(p => !excludedStems.Contains(p.Run)).ToList(), rules);
@@ -973,6 +984,140 @@ public static class Ingester
             : "The SDRF was used only for the runs it names that were searched";
         var status = code.StartsWith("sdrf_", StringComparison.Ordinal) ? code["sdrf_".Length..] : code;
         return Finding(datasetId, code, "warning", $"{what}: {string.Join("; ", parts)}. sdrf_status is `{status}`.");
+    }
+
+    /// <summary>Which SDRF describes a dataset's samples, and why (G107, PXR-R22).</summary>
+    /// <param name="Path">The file read, or null when there is none.</param>
+    /// <param name="ChosenBy"><c>operator_sdrf</c>, <c>experimental_design (question)</c>, <c>experimental_design
+    /// (deposit)</c> or <c>metadata</c>.</param>
+    /// <param name="CharacteristicsOnly">True when its factor values are left out.</param>
+    /// <param name="Origin">The search provenance's <c>sdrf_origin</c>, the file its copy was made from; recorded,
+    /// never read and never hashed (PXR-R28).</param>
+    private sealed record SdrfChoice(string? Path, string ChosenBy, bool CharacteristicsOnly, string? Origin = null)
+    {
+        public OrderedDictionary<string, object?> Note() => new()
+        {
+            ["read"] = Path is null ? null : BundleWriter.PathText(Path),
+            ["chosen_by"] = ChosenBy,
+            ["factor_values"] = CharacteristicsOnly ? "left out" : "kept",
+            ["sdrf_origin"] = Origin,
+        };
+    }
+
+    private static bool IsFactorValue(string column) =>
+        PyText.Strip(column).StartsWith("factor value[", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The SDRF to read, under <see cref="IngestRules.Current"/>, in this order:</summary>
+    /// <remarks>
+    /// <list type="number">
+    /// <item>the entry's <c>operator_sdrf</c>, when it names one (G107): the instance owner's curation, which wins for any
+    /// design source; characteristics only, and checked against the search's design by <see cref="CheckOperatorSdrf"/>;</item>
+    /// <item>the SDRF the search's design came from, when its provenance says <c>question</c> or <c>deposit</c>
+    /// (PXR-R22), and only when its bytes are the ones the search recorded. A file edited after the search is not that
+    /// search's record, so a mismatch refuses the ingest by name rather than reading what the search never saw. A
+    /// question's SDRF gives characteristics only; its factor values are that question's grouping, and they reach the
+    /// catalog through the study layer. A deposit's gives everything, as a deposited SDRF always has;</item>
+    /// <item>otherwise the first <c>*/metadata/*.sdrf.tsv</c> under the run folder, as before (and always under
+    /// <see cref="IngestRules.Python0320"/>).</item>
+    /// </list>
+    /// </remarks>
+    /// <exception cref="IngestException">The named SDRF is missing, or a design SDRF does not have its recorded sha256.</exception>
+    private static SdrfChoice ChooseSdrf(Manifest manifest, DatasetEntry entry, string runDir,
+        IReadOnlyDictionary<string, object?> provenance, string datasetId, IngestRules rules)
+    {
+        string? FromMetadata() => Directory.GetDirectories(runDir)
+            .SelectMany(d => Directory.Exists(Path.Combine(d, "metadata")) ? Directory.GetFiles(Path.Combine(d, "metadata"), "*.sdrf.tsv") : [])
+            .Order(StringComparer.Ordinal).FirstOrDefault();
+        if (rules != IngestRules.Current) return new SdrfChoice(FromMetadata(), "metadata", false);
+
+        if (entry.OperatorSdrf is { } own)
+        {
+            if (!File.Exists(own))
+                throw new IngestException($"{datasetId}: the manifest names operator_sdrf {own}, and there is no file there.");
+            return new SdrfChoice(own, "operator_sdrf", true);
+        }
+
+        var design = Map(Get(provenance, "experimental_design"));
+        var source = design?.GetValueOrDefault("source") as string;
+        if (design is not null && source is "question" or "deposit")
+        {
+            var raw = design.GetValueOrDefault("sdrf") as string ?? "";
+            if (raw.Length == 0)
+                throw new IngestException($"{datasetId}: the search provenance says its design came from a {source} SDRF and names no file.");
+            var path = Path.IsPathRooted(raw) ? raw : Path.Combine(manifest.WorkRoot, raw);
+            const string remedy = "Restore the version the search recorded, or name the SDRF to read as the entry's operator_sdrf (G107).";
+            if (!File.Exists(path))
+                throw new IngestException($"{datasetId}: the search's design came from the {source} SDRF {path}, which is not there. {remedy}");
+            var recorded = design.GetValueOrDefault("sdrf_sha256") as string;
+            var actual = BundleWriter.Sha256File(path);
+            if (recorded != actual)
+                throw new IngestException(
+                    $"{datasetId}: the search's design came from the {source} SDRF {path}, recorded with sha256 {recorded ?? "(none)"}, "
+                    + $"and the file there has {actual}. It is not the file the search read, so it is not this search's record. {remedy}");
+            return new SdrfChoice(path, $"experimental_design ({source})", source == "question", design.GetValueOrDefault("sdrf_origin") as string);
+        }
+        return new SdrfChoice(FromMetadata(), "metadata", false);
+    }
+
+    /// <summary>G107: an operator's SDRF must describe the search's own samples, because the stored protein values
+    /// belong to them.</summary>
+    /// <remarks>Every searched file has exactly one row, and the SDRF's source names group the searched files exactly
+    /// as the search's <c>ExperimentalDesign.tsv</c> does (by condition and biological replicate): one source name per
+    /// design sample, and one design sample per source name. Anything else is refused, naming the files and samples.
+    /// Rows for files the search did not use are not checked; the data-file gate drops them.</remarks>
+    /// <exception cref="IngestException">The search has no design, or the SDRF groups its files otherwise.</exception>
+    private static void CheckOperatorSdrf(SdrfTable sdrf, string sdrfPath, List<Row> runRows, string resultsDir, string datasetId,
+        ReaderLog log, IngestRules rules)
+    {
+        static string Names(IEnumerable<string> names)
+        {
+            var list = names.ToList();
+            return string.Join(", ", list.Take(10).Select(n => $"'{n}'")) + (list.Count > 10 ? $" and {list.Count - 10} more" : "");
+        }
+        var file = Path.GetFileName(sdrfPath);
+        var designPath = Path.Combine(resultsDir, SampleColumns.DesignFileName);
+        if (!File.Exists(designPath))
+            throw new IngestException(
+                $"{datasetId}: operator_sdrf {file} must group the searched files as the search's design does, and there is no "
+                + $"{SampleColumns.DesignFileName} in {resultsDir} to check it against.");
+        var stems = runRows.Select(r => Path.GetFileNameWithoutExtension((string)r["file_name"]!)).ToList();
+        var runNames = new RunNameMap(stems);
+        var (files, order) = SampleColumns.DesignFiles(designPath, datasetId, log, rules);
+        var designOf = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var label in order)
+            foreach (var designFile in files[label])
+                if (runNames.Resolve(Path.GetFileNameWithoutExtension(designFile)) is { } run)
+                    designOf[run] = label;
+        var rowsOf = sdrf.Assays.GroupBy(a => ((string)a["run_id"]!).Split(':', 2)[1], StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Select(a => (string)a["sample_id"]!).ToList(), StringComparer.Ordinal);
+
+        var problems = new List<string>();
+        var missing = stems.Where(s => !rowsOf.ContainsKey(s)).ToList();
+        var several = stems.Where(s => rowsOf.TryGetValue(s, out var r) && r.Count > 1).ToList();
+        var undesigned = stems.Where(s => !designOf.ContainsKey(s)).ToList();
+        if (missing.Count > 0) problems.Add($"it has no row for searched file(s) {Names(missing)}");
+        if (several.Count > 0) problems.Add($"it has several rows for {Names(several)}");
+        if (undesigned.Count > 0) problems.Add($"the search's design does not list {Names(undesigned)}");
+        if (problems.Count == 0)
+        {
+            string Source(string run) => rowsOf[run][0].Split(':', 2)[1];
+            foreach (var g in stems.GroupBy(Source, StringComparer.Ordinal))
+            {
+                var labels = g.Select(s => designOf[s]).Distinct(StringComparer.Ordinal).ToList();
+                if (labels.Count > 1) problems.Add($"source name '{g.Key}' holds files of design samples {Names(labels)}");
+            }
+            foreach (var g in stems.GroupBy(s => designOf[s], StringComparer.Ordinal))
+            {
+                var sources = g.Select(Source).Distinct(StringComparer.Ordinal).ToList();
+                if (sources.Count > 1) problems.Add($"design sample '{g.Key}' is split over source names {Names(sources)}");
+            }
+        }
+        if (problems.Count > 0)
+            throw new IngestException(
+                $"{datasetId}: operator_sdrf {file} does not describe the search's samples: {string.Join("; ", problems.Take(10))}"
+                + (problems.Count > 10 ? $"; and {problems.Count - 10} more" : "") + ". Its source names must group the searched "
+                + $"files exactly as the search's {SampleColumns.DesignFileName} does, one row per file, because the stored "
+                + "protein values belong to the search's samples.");
     }
 
     /// <summary>The sample-level SDRF cells whose rows disagree within one source name, and so got no value (G106).</summary>

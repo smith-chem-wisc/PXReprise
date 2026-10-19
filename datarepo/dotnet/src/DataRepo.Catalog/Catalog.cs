@@ -104,7 +104,8 @@ public sealed record DatasetAnnotation(
     string? Notes,
     IReadOnlyList<string>? Flags,
     string? ProvenanceSchema,
-    string? Sdrf)
+    string? Sdrf,
+    string? OperatorSdrf)
 {
     /// <summary>The fields as one line of JSON, keys sorted: what the catalog id hashes. Not the manifest's path,
     /// which moves when the file does while the content stays.</summary>
@@ -117,6 +118,7 @@ public sealed record DatasetAnnotation(
         ["flags"] = Flags?.Cast<object?>().ToList(),
         ["provenance_schema"] = ProvenanceSchema,
         ["sdrf"] = Sdrf,
+        ["operator_sdrf"] = OperatorSdrf,
     }, sortKeys: true, ensureAscii: true);
 }
 
@@ -243,7 +245,7 @@ public static partial class CatalogBuilder
     /// out, so a parity build is still what Python 0.32.0 built. Same principle as
     /// <c>manifest.CONTENT_FIELDS</c> one level down -- an id moves when its own content moves, and not
     /// otherwise.</remarks>
-    public static string CatalogVersion => SchemaContract.IsPython0320 ? "8" : "13";
+    public static string CatalogVersion => SchemaContract.IsPython0320 ? "8" : "14";
 
     /// <summary>Bundle tables a catalog does not hold. PSMs are archived per deposit, never in a catalog (PXReprise's
     /// public-data contract, rule 3; D48 step 2): they are 82% of a store's bytes, and nothing served from a catalog
@@ -268,7 +270,7 @@ public static partial class CatalogBuilder
     /// <summary>The <see cref="DatasetEntry.NonContentFields"/> that <c>dataset_annotations</c> carries, in column
     /// order. Every non-content field but <c>raw</c> (the source row, the container of these) is here, and a test
     /// fails on one that is in neither, so adding a manifest field means deciding whether a reader sees it.</summary>
-    public static readonly IReadOnlyList<string> AnnotationFields = ["status", "reason", "notes", "flags", "provenance_schema", "sdrf"];
+    public static readonly IReadOnlyList<string> AnnotationFields = ["status", "reason", "notes", "flags", "provenance_schema", "sdrf", "operator_sdrf"];
 
     /// <summary>The derived table of runs the build's manifest excludes from analysis (G85).</summary>
     public const string RunExclusionsTable = "run_exclusions";
@@ -591,6 +593,11 @@ public static partial class CatalogBuilder
                     + "schema from provenance.json itself; this is the declaration.",
                 ["sdrf"] = "The SDRF the producer declared. The ingest finds and hashes the SDRF under the "
                     + "run folder; this is the declaration.",
+                ["operator_sdrf"] = "The SDRF the instance owner curated for this search (G107), as the path the build's "
+                    + "manifest names. When named, the ingest read it in place of any other SDRF: its characteristics, never "
+                    + "its factor values. Its bytes are a source of the bundle and in the bundle id; this path is not. NULL "
+                    + "when the entry names none; the search's own recorded SDRF was then read (sha256-checked) or, for "
+                    + "pxreprise_default, the deposit's metadata/ SDRF.",
             }),
         [RestrictionsTable] = new(
             "One row per (dataset, use) the producer says the WHOLE dataset is unfit for (the manifest's "
@@ -959,9 +966,10 @@ public static partial class CatalogBuilder
         bundles.OrderBy(r => r.DatasetId, SourcesPy.CodePointOrder).Select(r =>
         {
             if (manifest is null || !manifest.Datasets.TryGetValue(r.DatasetId, out var e))
-                return new DatasetAnnotation(r.DatasetId, r.BundleId, false, null, null, null, null, null, null);
+                return new DatasetAnnotation(r.DatasetId, r.BundleId, false, null, null, null, null, null, null, null);
             return new DatasetAnnotation(r.DatasetId, r.BundleId, true, e.Status, DatasetEntry.Text(e.Reason),
-                DatasetEntry.Text(e.Notes), e.Flags.ToList(), DatasetEntry.Text(e.ProvenanceSchema), DatasetEntry.Text(e.Sdrf));
+                DatasetEntry.Text(e.Notes), e.Flags.ToList(), DatasetEntry.Text(e.ProvenanceSchema), DatasetEntry.Text(e.Sdrf),
+                e.OperatorSdrf);
         }).ToList();
 
     private static string CatalogIdOf(
@@ -1712,12 +1720,13 @@ public static partial class CatalogBuilder
         Exec(con, $@"
         CREATE TABLE ""{AnnotationsTable}"" (
             dataset_id VARCHAR, bundle_id VARCHAR, in_manifest BOOLEAN, status VARCHAR, reason VARCHAR,
-            notes VARCHAR, flags VARCHAR[], provenance_schema VARCHAR, sdrf VARCHAR
+            notes VARCHAR, flags VARCHAR[], provenance_schema VARCHAR, sdrf VARCHAR, operator_sdrf VARCHAR
         )
         ");
         foreach (var a in annotations)
-            Exec(con, $"INSERT INTO \"{AnnotationsTable}\" VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                a.DatasetId, a.BundleId, a.InManifest, a.Status, a.Reason, a.Notes, a.Flags?.ToList(), a.ProvenanceSchema, a.Sdrf);
+            Exec(con, $"INSERT INTO \"{AnnotationsTable}\" VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                a.DatasetId, a.BundleId, a.InManifest, a.Status, a.Reason, a.Notes, a.Flags?.ToList(), a.ProvenanceSchema, a.Sdrf,
+                a.OperatorSdrf);
     }
 
     /// <summary><c>run_exclusions</c>: one row per run the build's manifest excludes from analysis (G85). Written

@@ -28,6 +28,12 @@ public sealed record DatasetEntry
     public object? ProvenanceSchema { get; init; }
     public IReadOnlyList<string> Flags { get; init; } = [];
     public object? Sdrf { get; init; }
+    /// <summary>The SDRF the instance owner curated for this search (<c>operator_sdrf: &lt;path&gt;</c>, G107), absolute; a
+    /// relative path is taken against the manifest's folder. Null when the entry names none.</summary>
+    /// <remarks>When named, it describes the samples in place of any other SDRF. Its characteristics are read and its
+    /// factor values left out, and its source names must group the searched files exactly as the search's design does
+    /// (<c>Ingester</c>). The FILE is a source of the bundle and hashed by its bytes; this path is not.</remarks>
+    public string? OperatorSdrf { get; init; }
     public object? Reason { get; init; }
     public object? Notes { get; init; }
     /// <summary><c>(run base name, reason)</c> pairs, sorted by run, from <c>excluded_runs: {run: reason}</c> (G85):
@@ -71,6 +77,7 @@ public sealed record DatasetEntry
         ["flags"] = "shown by `datarepo manifest`; the ingest reads none of them except `mixed_enrichment`, which is lifted into its own content field so the rest stay prose",
         ["provenance_schema"] = "the producer's declared expectation; the ingest reads the schema from provenance.json itself and refuses a version it cannot map",
         ["sdrf"] = "declared but not read -- the SDRF is found under the run folder and hashed as a file",
+        ["operator_sdrf"] = "a path, which is site-specific; the file it names is read in place of any other SDRF and is a source of the bundle, hashed by its bytes (G107)",
         ["excluded_runs"] = "the producer's judgement of which runs an ANALYSIS should leave out (G85); every run is still searched, ingested and counted the same, so no row changes, and the catalog takes the field at build (run_exclusions)",
         ["restrictions"] = "the producer's judgement of which USES the whole dataset is unfit for (DATAREPO-74); no row changes, and the catalog takes the field at build (dataset_restrictions, dataset_overview.restrictions)",
         ["raw"] = "the source row itself, which is the container for every field above",
@@ -230,6 +237,7 @@ public sealed record Manifest(
                 ProvenanceSchema = row.GetValueOrDefault("provenance_schema"),
                 Flags = flags,
                 Sdrf = row.GetValueOrDefault("sdrf"),
+                OperatorSdrf = OperatorSdrfPath(row.GetValueOrDefault("operator_sdrf"), path, accession),
                 Reason = row.GetValueOrDefault("reason"),
                 Notes = row.GetValueOrDefault("notes"),
                 ExcludedRuns = ExcludedRunPairs(DatasetNode(root, i, "excluded_runs"), $"{path}: {accession}"),
@@ -260,6 +268,17 @@ public sealed record Manifest(
             throw new ManifestException(
                 $"{path}: candidates must be the path of the discovery census TSV, found {(value is string ? "an empty str" : PyTypeName(value))}");
         return Resolve(text, path);
+    }
+
+    /// <summary>An entry's <c>operator_sdrf</c> as an absolute path, or null when it names none.</summary>
+    /// <exception cref="ManifestException">The value is not a non-empty path.</exception>
+    private static string? OperatorSdrfPath(object? value, string path, string accession)
+    {
+        if (value is null) return null;
+        if (value is not string text || text.Trim().Length == 0)
+            throw new ManifestException(
+                $"{path}: {accession}'s operator_sdrf must be the path of an SDRF, found {(value is string ? "an empty str" : PyTypeName(value))}");
+        return Resolve(text.Trim(), path);
     }
 
     private static IReadOnlyList<string> AsTuple(object? value, IReadOnlyList<string> fallback) => value switch
