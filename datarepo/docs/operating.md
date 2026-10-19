@@ -43,10 +43,10 @@ installed, and no .NET or Python is needed.
 | macOS, Intel | `datarepo-<version>-osx-x64.tar.gz` |
 
 ```bash
-mkdir -p /opt/datarepo-1.3.5 && cd /opt/datarepo-1.3.5
-curl -LO https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.3.5/datarepo-1.3.5-linux-x64.tar.gz
-tar -xzf datarepo-1.3.5-linux-x64.tar.gz          # tar keeps the executable bit; a zip would lose it
-/opt/datarepo-1.3.5/datarepo/datarepo doctor
+mkdir -p /opt/datarepo-1.3.6 && cd /opt/datarepo-1.3.6
+curl -LO https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.3.6/datarepo-1.3.6-linux-x64.tar.gz
+tar -xzf datarepo-1.3.6-linux-x64.tar.gz          # tar keeps the executable bit; a zip would lose it
+/opt/datarepo-1.3.6/datarepo/datarepo doctor
 ```
 
 Call the program by its path, put its folder on `PATH`, or point a tool at it (PXReprise's machine
@@ -56,7 +56,7 @@ unpacked folder. The commands, arguments and outputs are the ones in [cli.md](cl
 
 Three things depend on running a release:
 
-- **A bundle id hashes the ingest path's version** (`cs-1.1.0` in 1.1.0 to 1.3.5). A bundle written by code
+- **A bundle id hashes the ingest path's version** (`cs-1.1.0` in 1.1.0 to 1.3.6). A bundle written by code
   nobody released cannot be reproduced by anyone, so its id means nothing.
 - **`datarepo run` refuses a development build.** It records the exact build behind every engine
   output: the version and the commit the release was built from. A build that reports `0.0.0-dev`,
@@ -73,7 +73,7 @@ part of the catalog id, and the site's footer names it.
 the changes its [changelog](../CHANGELOG.md) lists (among them, `peptidoforms.is_unique` now means
 one gene in the searched sequences: see [limitations.md](limitations.md#6--unique-means-one-gene-in-the-searched-sequences)).
 Its first ingest path (`cs-1.0.0`) and schema 0.0.14 give every dataset a new bundle id, so
-re-ingest each dataset once with 1.0.0. 1.1.0 moves the schema to 0.0.15 (each run's start time and instrument), so a store written by 1.0.0 is re-ingested once more; an instance still on the Python package should go straight to 1.3.5. 1.2.0, 1.3.0, 1.3.1, 1.3.2, 1.3.3, 1.3.4 and 1.3.5 keep the ingest path `cs-1.1.0` and schema 0.0.15, so a store written by 1.1.0 needs no re-ingest: install 1.3.5, run the go engine (1.2.0) and register the orthology snapshot (1.3.0), and rebuild. 1.3.1 ingests the searches with an experimental design that 1.3.0 refused. 1.3.2 lets a reader of the catalog (an MCP server, a script) stay open while `build` replaces it on Windows. 1.3.3 ingests the searches 1.3.2 refused over a modification name holding `:` (Unimod's isotope labels, such as `NEM:2H(5)`), and a build removes the staged catalogs that killed builds left beside the output. 1.3.4 serves a dataset's `restrictions` from the manifest and moves the aging study layer to 0.6.0 (its design tables), so an aging study bundle written before 1.3.4 is refused by the build until `datarepo study` writes it again. 1.3.5 builds a catalog folder (`--out <folder>`: views over the store, versioned files, a `latest.json` pointer) in minutes where the one-file catalog took hours; `--out <name>.duckdb` still builds the one file. `build` refuses a bundle written against schema 0.0.13 and
+re-ingest each dataset once with 1.0.0. 1.1.0 moves the schema to 0.0.15 (each run's start time and instrument), so a store written by 1.0.0 is re-ingested once more; an instance still on the Python package should go straight to 1.3.6. 1.2.0, 1.3.0, 1.3.1, 1.3.2, 1.3.3, 1.3.4, 1.3.5 and 1.3.6 keep the ingest path `cs-1.1.0` and schema 0.0.15, so a store written by 1.1.0 needs no re-ingest: install 1.3.6, run the go engine (1.2.0) and register the orthology snapshot (1.3.0), and rebuild. 1.3.1 ingests the searches with an experimental design that 1.3.0 refused. 1.3.2 lets a reader of the catalog (an MCP server, a script) stay open while `build` replaces it on Windows. 1.3.3 ingests the searches 1.3.2 refused over a modification name holding `:` (Unimod's isotope labels, such as `NEM:2H(5)`), and a build removes the staged catalogs that killed builds left beside the output. 1.3.4 serves a dataset's `restrictions` from the manifest and moves the aging study layer to 0.6.0 (its design tables), so an aging study bundle written before 1.3.4 is refused by the build until `datarepo study` writes it again. 1.3.5 builds a catalog folder (`--out <folder>`: views over the store, versioned files, a `latest.json` pointer) in minutes where the one-file catalog took hours; `--out <name>.duckdb` still builds the one file. 1.3.6 leaves PSMs in the bundles (no `psms` in a catalog; each dataset's PSM counts stay in `dataset_overview`) and has a folder compute each deposit's derived rows once, so a rebuild of aging's 170 deposits takes about a minute. `build` refuses a bundle written against schema 0.0.13 and
 names it. A Python install is no longer needed for anything.
 
 ### Building from source

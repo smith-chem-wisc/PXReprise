@@ -4,11 +4,12 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
-## [Unreleased]
+## [1.3.6] - 2026-10-19
 
 **PSMs stay in the bundles, and a catalog folder computes each deposit's derived rows once** (D48 step 2, PXReprise's
 public-data contract rules 3 and 5). The ingest path stays `cs-1.1.0` and the schema 0.0.15, so **no re-ingest**. The
-catalog format moves to 13. On aging's store a folder publish takes 61 s, against 573 s with 1.3.5.
+catalog format moves to 13. On aging's store a folder publish takes 61 s, against 573 s with 1.3.5. A patch number, as
+for 1.3.4 and 1.3.5: 1.4.0 names the coming re-ingest release.
 
 ### Changed
 - **No `psms` table or `psms_1pct` view in a catalog**, in either layout. PSMs are 82% of a store's bytes and nothing a
