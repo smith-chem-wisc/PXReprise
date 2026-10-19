@@ -89,6 +89,12 @@ internal static class CatalogCommands
         var result = CatalogBuilder.BuildCatalog(bundles, output, overwrite, manifest.Instance, notes, studyBundles, artefacts, engineChecks, manifest);
         Console.WriteLine($"catalog  {result.Path}");
         Console.WriteLine($"  id       {result.CatalogId}");
+        foreach (var s in result.StagedRemoved)
+            Console.WriteLine($"  removed  {s.Path} ({N(s.Bytes)} bytes), staged by a build that is no longer running");
+        foreach (var s in result.StagedKept)
+            Console.WriteLine(
+                $"  note     {s.Path} ({N(s.Bytes)} bytes) is a staged catalog with no record of its build (datarepo 1.3.2 or "
+                + "earlier); delete it once no build is running");
         if (result.Skipped)
         {
             Console.WriteLine("  unchanged: these bundles are already the catalog's contents; --overwrite to rebuild");

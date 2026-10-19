@@ -232,6 +232,18 @@ The catalog is content-addressed on the bundle ids, the schema version and the b
 a bundle is on its inputs. Building again from the same bundles prints `unchanged` and does nothing;
 `--overwrite` forces it. Changing any bundle, the schema or the builder gives a new catalog id.
 
+A build writes the new catalog beside the output as `.<name>.<catalog id>.building` and moves it into
+place only at the end, after checking that the file is as long as DuckDB's own header says. Beside the
+staged file it records which process is building it (`.building.owner`). A killed build cannot clean up
+after itself, so every build first removes the staged files whose builder is no longer running, and
+prints `removed` for each (DATAREPO-83). A staged file from 1.3.2 or earlier has no such record. On
+Windows it is removed when nothing holds it open. Elsewhere it is left alone and named in a `note`. A
+second build of the same catalog while one is running is refused.
+
+A catalog that has lost its tail since it was built still opens and answers until a query reaches the
+missing part. The MCP server checks the file's length when it opens a catalog, and refuses a short one
+by name.
+
 ## Querying it
 
 ```bash

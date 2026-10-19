@@ -403,6 +403,161 @@ public class CatalogTests
         }
     }
 
+    /// <summary>DATAREPO-83 a: a killed build leaves its staged catalog, and the next build removes it, because its
+    /// owner record names a process that is no longer running. A pid now running another program counts as gone.</summary>
+    [Test]
+    public void ABuildRemovesWhatAKilledBuildStaged()
+    {
+        var store = FixtureStore();
+        var output = Path.GetFullPath(Path.Combine(store, "catalog.duckdb"));
+        try
+        {
+            BuildFixture(store, output);
+            // No process has this id: Windows' ids are multiples of 4, and it is far above Linux's pid_max.
+            const int exited = int.MaxValue - 2;
+            var dead = StagedCatalogs.PathFor(output, "0000000000000001");
+            var reused = StagedCatalogs.PathFor(output, "0000000000000002");
+            File.WriteAllText(dead, "staged");
+            File.WriteAllText(dead + ".wal", "wal");
+            File.WriteAllText(dead + StagedCatalogs.OwnerSuffix, $"{exited} 638000000000000000\n");
+            File.WriteAllText(reused, "staged");
+            File.WriteAllText(reused + StagedCatalogs.OwnerSuffix, $"{Environment.ProcessId} 1\n");
+
+            var rebuilt = BuildFixture(store, output, overwrite: true);
+            Assert.Multiple(() =>
+            {
+                Assert.That(rebuilt.StagedRemoved, Is.EqualTo(new[] { new StagedCatalog(dead, 9), new StagedCatalog(reused, 6) }));
+                Assert.That(rebuilt.StagedKept, Is.Empty);
+                Assert.That(Directory.EnumerateFiles(store, "*.building*"), Is.Empty, "staged files, WALs and owner records");
+            });
+        }
+        finally
+        {
+            Directory.Delete(store, recursive: true);
+        }
+    }
+
+    /// <summary>DATAREPO-83 a: a running build's staged file is left alone and not reported, and a second build of the same
+    /// catalog refuses instead of deleting the first one's file under it.</summary>
+    [Test]
+    public void ARunningBuildsStagedCatalogIsLeftAlone()
+    {
+        var store = FixtureStore();
+        var output = Path.GetFullPath(Path.Combine(store, "catalog.duckdb"));
+        try
+        {
+            var first = BuildFixture(store, output);
+            var other = StagedCatalogs.PathFor(output, "0000000000000003");
+            File.WriteAllText(other, "staged");
+            StagedCatalogs.Claim(other);
+            var rebuilt = BuildFixture(store, output, overwrite: true);
+            Assert.That(rebuilt.StagedRemoved, Is.Empty);
+            Assert.That(rebuilt.StagedKept, Is.Empty);
+            Assert.That(File.Exists(other), "another catalog's build is running");
+
+            var same = StagedCatalogs.PathFor(output, first.CatalogId);
+            File.WriteAllText(same, "staged");
+            StagedCatalogs.Claim(same);
+            var e = Assert.Throws<CatalogException>(() => BuildFixture(store, output, overwrite: true));
+            Assert.That(e!.Message, Does.StartWith($"another build of this catalog is running (pid {Environment.ProcessId}) and writing {same}."));
+            Assert.That(File.ReadAllText(same), Is.EqualTo("staged"), "not deleted under the running build");
+            Assert.That(CatalogBuilder.ReadCatalogId(output), Is.EqualTo(first.CatalogId));
+        }
+        finally
+        {
+            Directory.Delete(store, recursive: true);
+        }
+    }
+
+    /// <summary>DATAREPO-83 a: a file staged by 1.3.2 or earlier has no owner record. On Windows it is removed when nothing
+    /// holds it open and left alone while something does; elsewhere it is left in place and named.</summary>
+    [Test]
+    public void AStagedCatalogWithNoOwnerRecord()
+    {
+        var store = FixtureStore();
+        var output = Path.GetFullPath(Path.Combine(store, "catalog.duckdb"));
+        try
+        {
+            BuildFixture(store, output);
+            var free = StagedCatalogs.PathFor(output, "0000000000000004");
+            var held = StagedCatalogs.PathFor(output, "0000000000000005");
+            File.WriteAllText(free, "staged");
+            File.WriteAllText(held, "staged");
+            using (new FileStream(held, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete))
+            {
+                var rebuilt = BuildFixture(store, output, overwrite: true);
+                if (OperatingSystem.IsWindows())
+                {
+                    Assert.That(rebuilt.StagedRemoved, Is.EqualTo(new[] { new StagedCatalog(free, 6) }));
+                    Assert.That(rebuilt.StagedKept, Is.Empty, "the held one is a running build's");
+                    Assert.That(File.Exists(held));
+                }
+                else
+                {
+                    Assert.That(rebuilt.StagedRemoved, Is.Empty);
+                    Assert.That(rebuilt.StagedKept, Is.EqualTo(new[] { new StagedCatalog(free, 6), new StagedCatalog(held, 6) }));
+                }
+            }
+        }
+        finally
+        {
+            Directory.Delete(store, recursive: true);
+        }
+    }
+
+    /// <summary>aging 107: a DuckDB file that lost its tail. Its metadata sits in freed low blocks, as in a large build,
+    /// so DuckDB opens it and answers until a query reaches the missing block, which is aging's symptom exactly.</summary>
+    private static string CutShort(string dir, long cut)
+    {
+        var path = Path.Combine(dir, $"cut{cut}.duckdb");
+        using (var con = CatalogBuilder.Open(path, readOnly: false))
+            foreach (var sql in new[]
+            {
+                "CREATE TABLE early AS SELECT range AS i, md5(range::VARCHAR) AS s FROM range(1000000)", "CHECKPOINT",
+                "CREATE TABLE late AS SELECT range AS i, md5(range::VARCHAR) AS s FROM range(1000000)", "CHECKPOINT",
+                "DROP TABLE early", "CREATE TABLE small AS SELECT 1 AS i", "CHECKPOINT",
+            })
+                CatalogBuilder.Exec(con, sql);
+        if (cut > 0)
+            using (var f = new FileStream(path, FileMode.Open, FileAccess.ReadWrite))
+                f.SetLength(f.Length - cut);
+        return path;
+    }
+
+    /// <summary>aging 107: a whole file is exactly as long as its header says (the canary for DuckDB's layout), and one
+    /// cut short is named before any query reaches the missing part, and refused by the MCP server.</summary>
+    [Test]
+    public void AFileShorterThanItsHeaderSaysIsNamed()
+    {
+        var dir = NewScratch("short");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var whole = CutShort(dir, 0);
+            using (var con = CatalogBuilder.Open(whole, readOnly: true))
+            {
+                var (expected, actual) = CatalogFile.Lengths(con, whole);
+                Assert.That(actual, Is.EqualTo(expected), "DuckDB 1.5's layout: 12288 + total_blocks * block_size");
+                Assert.That(CatalogFile.Shortfall(con, whole), Is.Null);
+            }
+
+            var cut = CutShort(dir, 3 * 262144);
+            using (var con = CatalogBuilder.Open(cut, readOnly: true))
+            {
+                Assert.That(CatalogBuilder.Query(con, "SELECT count(*) FROM small").Single()[0], Is.EqualTo(1L), "it opens and answers");
+                // Windows words it "Reached the end of the file", aging's message; Linux and macOS word it otherwise.
+                Assert.Throws<DuckDBException>(() => CatalogBuilder.Query(con, "SELECT max(s) FROM late"), "until a query reaches the tail");
+                Assert.That(CatalogFile.Shortfall(con, cut), Does.Contain("786,432 short of the"));
+            }
+            var refused = Assert.Throws<CatalogException>(() => new DataRepo.Mcp.Sandbox(cut).Dispose());
+            Assert.That(refused!.Message, Does.StartWith("refusing to serve a damaged catalog: "));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
     /// <summary>DATAREPO-81 b: Windows' Restart Manager names the process holding a file, and nobody for a free one.</summary>
     [Test]
     public void TheHolderOfAFileIsNamed()

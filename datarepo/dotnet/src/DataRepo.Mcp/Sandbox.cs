@@ -120,6 +120,12 @@ public sealed class Sandbox : IDisposable
             _con.Dispose();
             throw new CatalogException($"{Path} could not be opened read-only: {exc.Message}");
         }
+        // aging 107: a catalog that lost its tail answers until a query reaches the missing part, so it is refused whole.
+        if (DataRepo.Catalog.CatalogFile.Shortfall(_con, path) is { } shortBy)
+        {
+            _con.Dispose();
+            throw new CatalogException($"refusing to serve a damaged catalog: {shortBy}. Rebuild it, or restore it from a copy.");
+        }
         // Order matters and is not optional: this cannot be set at connect time, and once set it cannot be unset.
         // Do it before any caller-supplied SQL reaches the connection.
         using var cmd = _con.CreateCommand();

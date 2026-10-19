@@ -128,6 +128,12 @@ public sealed record CatalogResult
     public int Indexes { get; init; }
     public bool Skipped { get; init; }
 
+    /// <summary>Catalogs staged beside the output by builds no longer running, removed by this one (DATAREPO-83 a).</summary>
+    public IReadOnlyList<StagedCatalog> StagedRemoved { get; init; } = [];
+
+    /// <summary>Staged catalogs left in place because nothing says whether their build is still running.</summary>
+    public IReadOnlyList<StagedCatalog> StagedKept { get; init; } = [];
+
     public IReadOnlyList<CatalogCheck> FailedChecks => Checks.Where(c => !c.Ok).ToList();
 }
 
@@ -1276,17 +1282,21 @@ public static class CatalogBuilder
             };
             notes = withCensus;
         }
+        var full = System.IO.Path.GetFullPath(@out);
+        var staging = StagedCatalogs.PathFor(full, cid);
+        // DATAREPO-83 a: a killed build cannot remove what it staged, so every build removes what dead builds left.
+        var (stagedRemoved, stagedKept) = StagedCatalogs.Sweep(full, staging);
         if (!overwrite && ReadCatalogId(@out) == cid)
             return new CatalogResult
             {
                 Path = @out, CatalogId = cid, Datasets = datasets, Bundles = bundles,
                 StudyBundles = study, Artefacts = engines, Skipped = true,
+                StagedRemoved = stagedRemoved, StagedKept = stagedKept,
             };
 
-        var full = System.IO.Path.GetFullPath(@out);
         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(full)!);
-        var staging = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(full)!, $".{System.IO.Path.GetFileName(full)}.{cid}.building");
         DeleteDatabase(staging);
+        StagedCatalogs.Claim(staging);
 
         Dictionary<string, long> rowCounts;
         Dictionary<string, long> studyCounts;
@@ -1333,19 +1343,26 @@ public static class CatalogBuilder
                 indexes = BuildIndexes(con);
                 WriteCatalogTables(con, bundles, rowCounts, checks, cid, instance, notes, study, studyCounts, engines, census is not null);
             }
+            // aging 107: a file shorter than its own header says is never moved into place.
+            using (var written = Open(staging, readOnly: true))
+                if (CatalogFile.Shortfall(written, staging) is { } shortBy)
+                    throw new CatalogException($"the new catalog was not written whole, so it was not moved into place: {shortBy}");
         }
         catch
         {
             DeleteDatabase(staging);
+            StagedCatalogs.Release(staging);
             throw;
         }
 
         try
         {
             ReplaceFile(staging, full, ReplaceBudget);
+            StagedCatalogs.Release(staging);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
+            StagedCatalogs.Release(staging);
             // PXR-R14: 1.3.0 let this escape unhandled and left the new catalog behind, 30 GB at a time.
             var holders = FileHolders.Of(full, staging);
             var heldBy = holders.Count > 0
@@ -1371,6 +1388,7 @@ public static class CatalogBuilder
         {
             Path = @out, CatalogId = cid, Datasets = datasets, Bundles = bundles, StudyBundles = study,
             Artefacts = engines, RowCounts = counts, Checks = checks, Indexes = indexes,
+            StagedRemoved = stagedRemoved, StagedKept = stagedKept,
         };
     }
 
