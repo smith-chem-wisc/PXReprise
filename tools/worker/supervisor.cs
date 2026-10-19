@@ -98,7 +98,9 @@ try
         {
             var now = Current();
             record["generation"] = now["generation"];
-            record["build"] = record["checked"] = now["software"];
+            // One node per key: a JsonNode has one parent, so `a = b = value` fails ("The node already has a parent").
+            record["build"] = now["software"];
+            record["checked"] = now["software"];
             foreach (string key in new[] { "metamorpheus", "dotnet", "database_set" }) record[key] = now.GetValueOrDefault(key);
             Save();
             Say($"supervisor installed beside the running batch (release generation {now["generation"]}, {now["software"]})");
