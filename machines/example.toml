@@ -67,6 +67,25 @@ min_free_gb = 50
 # OPTIONAL. A Python with qc's qctemplates, to validate and render QC reports. The pipeline runs without it.
 # qc_python = "C:/path/to/python.exe"
 
+# OPTIONAL (0.4.26). Two machines on one batch: one runs every probe, the other every full search and delivery. They
+# share one folder. On the machine that delivers, [workers] names it. It assigns its next `window` fresh deposits to the
+# prober. It probes for itself when the prober's heartbeat is older than `quiet_hours`, or when one deposit has waited
+# `assignment_hours` for its probe. See docs/commands.md, `worker`.
+# [workers]
+# share = "D:/pxreprise-share"
+# window = 6
+# quiet_hours = 2
+# assignment_hours = 24
+#
+# On the machine that probes, [worker] names the same folder, seen from there, and that machine's own run root and
+# state directory. It runs the delivering machine's copy of the question, which that machine's batch publishes at each
+# start: `pxreprise batch run <share>/control/question/question.toml --machine <this file>`. It never ingests, so leave
+# out `datarepo`. Its `database_dir` holds a copy of the release's database set, which it checks before it starts.
+# [worker]
+# share = '\\delivering-machine\pxreprise-share'
+# run_root = "E:/pxreprise/runs"
+# state_dir = "E:/pxreprise/state"
+
 # REQUIRED. MetaMorpheus, by release. Download MetaMorpheus_CommandLine.zip for the release a profile names
 # (1.1.11 for label-free-dda@2) from https://github.com/smith-chem-wisc/MetaMorpheus/releases/tag/1.1.11, unzip it
 # anywhere, and point at CMD.dll (run as `dotnet CMD.dll`, any OS) or, on Windows, CMD.exe.

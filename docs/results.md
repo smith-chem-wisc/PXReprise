@@ -40,6 +40,10 @@ spend time on them again.
 |---|---|---|
 | `searched` | Done. Results are in the deposit's folder. | yes |
 | `probing`, `fetched`, `searching` | In progress. | no |
+| `assigned_to_worker` | Since 0.4.26, with a probing machine (`[workers]`): waiting for that machine's probe. | no |
+| `probed_by_worker` | The probing machine passed it. It is fetched whole and searched here, after this machine's own duplicate screen. | no |
+| `worker_fallback` | Taken back from the probing machine: it went quiet, its package was refused, or it came from another version. Probed here. | no |
+| `handed_off` | On the probing machine (`[worker]`): its package is on the share for the delivering machine. | yes |
 | `requeued_transient_fetch` | Put back in the queue after a download problem. | no |
 | `deferred_needs_design_selection` | More raw files than the profile allows (120 for `label-free-dda@7`), or one file above its size cap. Not subsampled automatically: choosing which runs to keep is a scientific decision. Since 0.4.21 the machine file's `[deposit_limits]` can raise the caps. | yes |
 | `deferred_large_files` | Files so large that PRIDE downloads tend to fail midway (median file above the gate). Since 0.4.21 the machine file's `[deposit_limits]` can raise the gate. | yes |

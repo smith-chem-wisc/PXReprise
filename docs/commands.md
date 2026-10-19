@@ -134,6 +134,54 @@ pxreprise library repair mouse --machine my-machine.toml --reason "why"
   out whenever a search adds to a library, so only a library from an earlier version can need this. Run it while no
   batch is running.
 
+### `worker`
+
+Since 0.4.26, a second machine can run the probes for the batch, while this one runs every full search and delivery.
+The two share one folder. The machine that delivers names it in its machine file's `[workers]` table, the probing
+machine in its `[worker]` table (see `machines/example.toml`).
+
+```
+pxreprise worker sums    <folder>
+pxreprise worker check   <folder> [--sums SHA256SUMS]
+pxreprise worker release <share> --reason "why" [--metamorpheus NAME] [--dotnet NAME] [--database-set NAME]
+```
+
+- `sums` writes `SHA256SUMS` for every file in a folder: a database set under the share's `db\`, or a software folder.
+- `check` checks a folder's files against a `SHA256SUMS`, and fails (exit 1) on any file that is missing or differs.
+  Files the list does not name are allowed.
+- `release` publishes the build that runs it to the probing machine. It copies itself into the share's `software\`,
+  writes `control\current.toml` with the next generation, and adds a line to `control\releases.tsv`. A value you leave
+  out keeps the current release's. Run it with the new build each time the delivering machine changes version.
+
+**How the two machines work together:**
+
+- The delivering machine assigns its next fresh deposits to the prober (`accessions\assigned.tsv`) and starts no probe
+  of its own while the prober is alive.
+- The prober probes each assigned deposit, then hands back a package in `deposits\<accession>\`, with `READY.json`
+  written last. A deposit that passes carries its probe files; a park carries its reason and its
+  `decisions_needed.tsv` rows.
+- The delivering machine checks every file of a package against `READY.json` before it takes the package. It also
+  checks that the probe ran on its own PXReprise version and on the release's database set. It then runs its own
+  duplicate screen, fetches the rest of the deposit, and searches it.
+- **A package that fails its check** is set aside without its raw files, and the deposit is assigned again (three
+  attempts).
+- **A package from another version** is not used: that deposit is probed on the delivering machine.
+- **When the prober goes quiet,** the delivering machine probes for itself. Quiet means no heartbeat
+  (`status\status.json`) for `quiet_hours`, a heartbeat that says it stopped, or a deposit assigned for longer than
+  `assignment_hours` with no package. The prober speeds the batch up; it never stops it.
+- **The prober runs only the release `control\current.toml` names.**
+  - It checks its databases against the release's set before it probes anything.
+  - It stops between deposits as soon as the generation changes, and its status says why.
+- **It runs the delivering machine's question.** At each start the delivering machine's batch publishes the question
+  it loaded, with its decisions file and designs folder, to `control\question\`. The prober runs that copy
+  (`batch run <share>\control\question\question.toml`). It stops between deposits when the copy changes, so a new
+  exception or hold reaches its probes at its next start. Every package names the copy it was probed under, and the
+  delivering machine assigns a package probed under another copy again.
+- **The prober keeps no probe files.** It deletes them once it has handed them off. It deletes a deposit's whole folder
+  once the delivering machine has taken the package, or has taken the deposit back.
+- `control\STOP` stops the prober the way `batch stop` stops a batch: it finishes the probe under way and starts no
+  new one.
+
 ## Single steps
 
 For testing a stage by hand. The batch runs all of these for you.

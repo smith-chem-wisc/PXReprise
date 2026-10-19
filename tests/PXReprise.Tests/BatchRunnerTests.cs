@@ -1019,6 +1019,25 @@ public class BatchRunnerTests
         Assert.That(text, Does.Contain("flags: [no_design_file, no_output_sdrf, enriched, qc_excluded_files]").And.Contain("iso.xml"));
     }
 
+    // v0.4.26 (aging 137, PXR-A124): aging's isoform overlay keeps one name per organism while its content changes, so the
+    // note names each extra database with the sha256 prefix the search's own inputs recorded.
+    [Test]
+    public void TheManifestNoteGivesEachExtraDatabasesShaPrefix()
+    {
+        string dir = TestSupport.TempDir(), run = Path.Combine(dir, "runs", "PXD000208");
+        Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
+        Directory.CreateDirectory(Path.Combine(run, "04_search"));
+        File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(("a.raw", true, Array.Empty<string>())).ToJsonString());
+        File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), """
+            {"tools":{"MetaMorpheus":{"release":"1.1.12"}},
+             "extra_databases":["F:\\aging_data\\db\\aging_isoforms_mouse.xml", "F:\\aging_data\\db\\unhashed.xml"],
+             "inputs":[{"path":"db/aging_isoforms_mouse.xml","root":"work_root","sha256":"01e972ef51ed310e41276b71024c6a5ea633548652e22e7d9052572dbb9ad6dc"}]}
+            """);
+        string manifest = TestSupport.WriteFile(dir, "manifest.yaml", "manifest_version: 1\ndatasets:\n");
+        ManifestEntry.Append(manifest, new QueueEntry("PXD000208", "t", "mouse"), Profiles["label-free-dda@1"], run, new JsonObject(), dir);
+        Assert.That(File.ReadAllText(manifest), Does.Contain("with extra databases aging_isoforms_mouse.xml (sha 01e972ef51ed), unhashed.xml."));
+    }
+
     // v0.4.17: the ENRICHED note quoted screen_evidence, the acquisition call's words, which are empty for nearly every
     // enriched deposit ("the deposit's own text says '......'"). It quotes the enrichment's own words now.
     [Test]
