@@ -99,8 +99,21 @@ public static class StudyWriter
             ["aging"] = new Dictionary<string, IReadOnlyDictionary<string, string>>(StringComparer.Ordinal)
             {
                 ["curated_sample_characteristics"] = new Dictionary<string, string>(StringComparer.Ordinal) { ["value_reserved"] = "value" },
+                ["curated_run_design"] = new Dictionary<string, string>(StringComparer.Ordinal) { ["individual_reserved"] = "individual" },
             },
         };
+
+    /// <summary>A number column of <c>curated_run_design</c> and the companion that holds a curator's reserved word
+    /// for it (ptmQtl A4, our aging 106): the number is empty and the word is in the companion, never both.</summary>
+    private static readonly (string Number, string Word)[] ReservedCompanions =
+    [
+        ("injection", "injection_reserved"),
+        ("fraction", "fraction_reserved"),
+        ("pool_size", "pool_size_reserved"),
+    ];
+
+    /// <summary>The values of <c>curated_design_factors.role</c> (the schema's <c>DesignFactorRole</c>).</summary>
+    private static readonly IReadOnlySet<string> DesignRoles = new HashSet<string>(StringComparer.Ordinal) { "condition", "stratum" };
 
     /// <summary>The version of the STUDY INGEST PATH, and the only version in a study bundle's content hash.</summary>
     /// <remarks>Same rule as the ingester's version and for the same reason: a study bundle id has to mean
@@ -150,7 +163,7 @@ public static class StudyWriter
 
     /// <summary>A study layer's table spec by name.</summary>
     public static IReadOnlyDictionary<string, TableSpec> LayerTables(string layer) =>
-        Bundle.Tables.Study[layer].ToDictionary(t => t.Name, StringComparer.Ordinal);
+        Bundle.SchemaContract.StudyTables(layer).ToDictionary(t => t.Name, StringComparer.Ordinal);
 
     /// <summary>Read and check a study delivery manifest.</summary>
     /// <exception cref="ManifestException">The file is missing or malformed, declares an unknown
@@ -194,7 +207,7 @@ public static class StudyWriter
         }
 
         var declared = doc.GetValueOrDefault("layer_version");
-        var layerVersion = Bundle.Tables.StudyVersions[layer];
+        var layerVersion = Bundle.SchemaContract.StudyVersion(layer);
         if (declared is not null && PyFormat.StrAny(declared) != layerVersion)
             throw new ManifestException(
                 $"{shown} declares layer_version {PyFormat.Repr(declared)} for '{layer}', and this build carries "
@@ -447,7 +460,7 @@ public static class StudyWriter
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         hash.AppendData(Encoding.UTF8.GetBytes(
             $"datarepo-study/{StudyIngesterVersion}\nschema/{Bundle.SchemaContract.Version}\n"
-            + $"study/{manifest.Layer}/{Bundle.Tables.StudyVersions[manifest.Layer]}\n"));
+            + $"study/{manifest.Layer}/{Bundle.SchemaContract.StudyVersion(manifest.Layer)}\n"));
         var ordered = sources
             .Select(e => (Role: (string)e["role"]!, Path: (string)e["path"]!, Sha: (string)e["sha256"]!))
             .OrderBy(e => e.Role, StringComparer.Ordinal).ThenBy(e => e.Path, StringComparer.Ordinal);
@@ -549,6 +562,7 @@ public static class StudyWriter
             }
             prepared.Add((name, ToBatch(label, spec, rows)));
         }
+        CheckDesign(layer, prepared.ToDictionary(p => p.Name, p => RowsOf(p.Batch), StringComparer.Ordinal));
 
         Directory.CreateDirectory(output);
         var rowCounts = new OrderedDictionary<string, long>(StringComparer.Ordinal);
@@ -563,7 +577,7 @@ public static class StudyWriter
             ["bundle_id"] = bundleId,
             ["kind"] = "study",
             ["layer"] = layer,
-            ["layer_version"] = Bundle.Tables.StudyVersions[layer],
+            ["layer_version"] = Bundle.SchemaContract.StudyVersion(layer),
             ["schema_version"] = Bundle.SchemaContract.Version,
             ["instance"] = manifest.Instance,
             ["delivery"] = manifest.Delivery,
@@ -585,6 +599,89 @@ public static class StudyWriter
         var text = (PyFormat.JsonIndented(doc) + "\n").Replace("\n", Environment.NewLine);
         File.WriteAllText(manifestPath, text, new UTF8Encoding(false));
         return new StudyResult(output, bundleId, layer, rowCounts.ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal));
+    }
+
+    /// <summary>A built batch's rows, typed as the bundle will hold them, whatever format the delivery came in.</summary>
+    private static List<Row> RowsOf(RecordBatch batch)
+    {
+        var rows = new List<Row>(batch.Length);
+        for (var i = 0; i < batch.Length; i++)
+        {
+            var row = new Row();
+            for (var c = 0; c < batch.Schema.FieldsList.Count; c++)
+                row[batch.Schema.FieldsList[c].Name] = ArrowTables.ValueAt(batch.Column(c), i);
+            rows.Add(row);
+        }
+        return rows;
+    }
+
+    /// <summary>The rules of a curated design that no column type can say (aging DATAREPO-79, amended by
+    /// DATAREPO-82 in aging 108). Each one refuses the whole delivery.</summary>
+    /// <remarks>What needs the catalog is checked at <c>build</c>: a run the catalog does not hold, and two runs of
+    /// one sample with different factor rows. A dataset is a run id's first part.</remarks>
+    /// <exception cref="IngestException">A rule is broken. The message names it, with up to three examples.</exception>
+    private static void CheckDesign(string layer, IReadOnlyDictionary<string, List<Row>> tables)
+    {
+        static string? Text(Row row, string column) =>
+            row.GetValueOrDefault(column) is string s && s.Trim().Length > 0 ? s.Trim() : null;
+        static bool Reserved(string value) => Sdrf.NotAvailable.Contains(value.Trim().ToLowerInvariant());
+        static string Dataset(string runId) => runId.Split(':', 2)[0];
+        void Refuse(string table, string rule, IEnumerable<string> examples)
+        {
+            var found = examples.Distinct(StringComparer.Ordinal).ToList();
+            if (found.Count == 0) return;
+            throw new IngestException(
+                $"table {layer}.{table}: {found.Count} row(s) break the rule that {rule}, e.g. {string.Join("; ", found.Take(3))}");
+        }
+
+        var design = tables.GetValueOrDefault("curated_run_design");
+        if (design is not null)
+            foreach (var (number, word) in ReservedCompanions)
+            {
+                Refuse("curated_run_design", $"`{word}` holds only an SDRF reserved word",
+                    design.Where(r => Text(r, word) is { } w && !Reserved(w)).Select(r => $"{r["run_id"]} {word}={PyFormat.Repr(Text(r, word))}"));
+                Refuse("curated_run_design", $"a run has `{number}` or `{word}`, never both",
+                    design.Where(r => r.GetValueOrDefault(number) is not null && Text(r, word) is not null).Select(r => $"{r["run_id"]}"));
+                Refuse("curated_run_design", $"`{number}` is at least 1",
+                    design.Where(r => r.GetValueOrDefault(number) is long n && n < 1).Select(r => $"{r["run_id"]} {number}={r[number]}"));
+            }
+
+        var factors = tables.GetValueOrDefault("curated_design_factors");
+        if (factors is null) return;
+        var runs = (design ?? []).Select(r => (string)r["run_id"]!).ToHashSet(StringComparer.Ordinal);
+        Refuse("curated_design_factors", "every run is in `curated_run_design`, delivered with it",
+            factors.Select(r => (string)r["run_id"]!).Where(id => !runs.Contains(id)));
+        Refuse("curated_design_factors", "`role` is `condition` or `stratum`",
+            factors.Where(r => !DesignRoles.Contains((string)r["role"]!)).Select(r => $"{r["run_id"]} {r["factor"]} role={PyFormat.Repr(r["role"])}"));
+        Refuse("curated_design_factors", "`level` is never an SDRF reserved word (a run the factor does not concern has no row)",
+            factors.Where(r => Reserved((string)r["level"]!)).Select(r => $"{r["run_id"]} {r["factor"]}={PyFormat.Repr(r["level"])}"));
+        Refuse("curated_design_factors", "`level_unit` is set exactly when `level_value` is",
+            factors.Where(r => (r.GetValueOrDefault("level_value") is null) != (Text(r, "level_unit") is null)).Select(r => $"{r["run_id"]} {r["factor"]}"));
+
+        foreach (var group in factors.GroupBy(r => (Dataset((string)r["run_id"]!), Factor: (string)r["factor"]!)).OrderBy(g => g.Key))
+        {
+            var where = $"{group.Key.Item1} {group.Key.Factor}";
+            var roles = group.Select(r => (string)r["role"]!).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
+            Refuse("curated_design_factors", "every row of one factor in one dataset has the same role",
+                roles.Count > 1 ? [$"{where}: {string.Join(" and ", roles)}"] : []);
+            var flags = group.Select(r => r.GetValueOrDefault("is_reference") as bool?).ToList();
+            if (roles[0] == "condition")
+            {
+                Refuse("curated_design_factors", "a condition has a reference level (`is_reference` true) and another level (false)",
+                    flags.Contains(true) && flags.Contains(false) ? [] : [where]);
+                Refuse("curated_design_factors", "no level of a condition is both reference and not",
+                    group.GroupBy(r => (string)r["level"]!)
+                        .Where(l => l.Any(r => r.GetValueOrDefault("is_reference") is true) && l.Any(r => r.GetValueOrDefault("is_reference") is false))
+                        .Select(l => $"{where}={PyFormat.Repr(l.Key)}"));
+            }
+            else
+            {
+                Refuse("curated_design_factors", "a stratum has at least two levels",
+                    group.Select(r => (string)r["level"]!).Distinct(StringComparer.Ordinal).Count() >= 2 ? [] : [where]);
+                Refuse("curated_design_factors", "a stratum has no reference level (`is_reference` empty on every row)",
+                    flags.Any(f => f is not null) ? [where] : []);
+            }
+        }
     }
 
     /// <summary><c>bundle.rows_to_table</c>, with Python's handling of a text row longer than its header.</summary>

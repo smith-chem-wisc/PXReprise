@@ -75,9 +75,10 @@ public class CatalogAnnotationTests
     public void EveryNonContentFieldIsAnAnnotationOrARunExclusionExceptTheRawRow()
     {
         var expected = DatasetEntry.NonContentFields.Keys.Where(k => k != "raw").Order(StringComparer.Ordinal);
-        Assert.That(CatalogBuilder.AnnotationFields.Concat(CatalogBuilder.RunExclusionFields).Order(StringComparer.Ordinal), Is.EqualTo(expected),
-            "a non-content manifest field must be decided: carried in dataset_annotations, in run_exclusions, or not and why");
-        Assert.That(CatalogBuilder.AnnotationFields.Intersect(CatalogBuilder.RunExclusionFields), Is.Empty, "each field is served once");
+        var served = CatalogBuilder.AnnotationFields.Concat(CatalogBuilder.RunExclusionFields).Concat(CatalogBuilder.RestrictionFields).ToList();
+        Assert.That(served.Order(StringComparer.Ordinal), Is.EqualTo(expected),
+            "a non-content manifest field must be decided: carried in dataset_annotations, run_exclusions or dataset_restrictions, or not and why");
+        Assert.That(served.Distinct(StringComparer.Ordinal).Count(), Is.EqualTo(served.Count), "each field is served once");
         Assert.That(CatalogBuilder.AnnotationFields.Concat(CatalogBuilder.RunExclusionFields).Intersect(DatasetEntry.ContentFields), Is.Empty);
         var columns = CatalogBuilder.DerivedDocs[CatalogBuilder.AnnotationsTable].Columns.Keys;
         Assert.That(CatalogBuilder.AnnotationFields, Is.SubsetOf(columns), "every annotation column is described");
@@ -96,7 +97,7 @@ public class CatalogAnnotationTests
         Assert.That(row[2], Is.Null, "the fixture entry has no notes");
         Assert.That(row[3], Is.EqualTo(new List<string> { "low_id_rate", "no_design_file" }));
         Assert.That(row[4], Is.EqualTo("aging-provenance/2"));
-        Assert.That(CatalogBuilder.RunQuery(before.Path, "SELECT catalog_version FROM catalog_meta").Rows.Single()[0], Is.EqualTo("10"));
+        Assert.That(CatalogBuilder.RunQuery(before.Path, "SELECT catalog_version FROM catalog_meta").Rows.Single()[0], Is.EqualTo("11"));
         var check = before.Checks.Single(c => c.Kind == "manifest");
         Assert.That((check.Ok, check.Observed, check.Expected, check.Detail), Is.EqualTo((true, (long?)1, (long?)1, (string?)null)));
 
@@ -120,6 +121,57 @@ public class CatalogAnnotationTests
         var manifest = Manifest.Load(ManifestPath);
         var (artefacts, _) = CatalogBuilder.SelectArtefacts(Store, reworded.Bundles);
         Assert.That(CatalogBuilder.CatalogId(reworded.Bundles, [], artefacts, manifest: manifest), Is.EqualTo(reworded.CatalogId));
+    }
+
+    /// <summary>DATAREPO-74: a dataset's restrictions reach <c>dataset_restrictions</c> and its <c>dataset_overview</c>
+    /// row at the next build, move the catalog id and not the bundle's, and an empty entry is told from a missing one.</summary>
+    [Test]
+    public void ARestrictionReachesTheTableAndTheOverviewRow()
+    {
+        var (bundle, _) = Ingest();
+        static object? Overview(CatalogResult built) =>
+            CatalogBuilder.RunQuery(built.Path, "SELECT restrictions FROM dataset_overview").Rows.Single()[0];
+
+        var plain = Build("plain.duckdb");
+        Assert.That(Overview(plain), Is.EqualTo(new List<string>()), "an entry with no restrictions restricts nothing");
+        Assert.That(CatalogBuilder.RunQuery(plain.Path, $"SELECT count(*) FROM {CatalogBuilder.RestrictionsTable}").Rows.Single()[0], Is.EqualTo(0L));
+
+        EditManifest(FlagsLine, FlagsLine
+            + "    restrictions:\n      protein_statistics: \"5 of 10 runs under 400 PSMs\"\n      occupancy: \"a phospho pulldown\"\n");
+        var restricted = Build("restricted.duckdb");
+        Assert.Multiple(() =>
+        {
+            Assert.That(Overview(restricted), Is.EqualTo(new List<string> { "occupancy", "protein_statistics" }), "sorted by use");
+            Assert.That(CatalogBuilder.RunQuery(restricted.Path,
+                    $"SELECT dataset_id, bundle_id, \"use\", reason FROM {CatalogBuilder.RestrictionsTable} ORDER BY \"use\"").Rows,
+                Is.EqualTo(new[]
+                {
+                    new object?[] { "PXD999999", bundle.BundleId, "occupancy", "a phospho pulldown" },
+                    new object?[] { "PXD999999", bundle.BundleId, "protein_statistics", "5 of 10 runs under 400 PSMs" },
+                }));
+            Assert.That(restricted.CatalogId, Is.Not.EqualTo(plain.CatalogId), "a catalog restricting a dataset is a different catalog");
+            Assert.That(restricted.Bundles.Single().BundleId, Is.EqualTo(bundle.BundleId), "no re-ingest");
+            var manifest = Manifest.Load(ManifestPath);
+            var (artefacts, _) = CatalogBuilder.SelectArtefacts(Store, restricted.Bundles);
+            Assert.That(CatalogBuilder.CatalogId(restricted.Bundles, [], artefacts, manifest: manifest), Is.EqualTo(restricted.CatalogId));
+        });
+
+        // No entry at all: not stated, which is not the same answer as "no restriction".
+        var bundles = restricted.Bundles;
+        var (noArtefacts, noChecks) = CatalogBuilder.SelectArtefacts(Store, bundles);
+        var unlisted = CatalogBuilder.BuildCatalog(bundles, Path.Combine(_root, "unlisted.duckdb"), artefacts: noArtefacts, engineChecks: noChecks);
+        Assert.That(Overview(unlisted), Is.Null);
+    }
+
+    /// <summary>DATAREPO-74: a use outside the fixed list, or one with no reason, refuses the manifest by name. A misspelt
+    /// key would sit where no filter on the real key finds it, and the dataset would look unrestricted.</summary>
+    [TestCase("      protein_stats: \"few PSMs\"\n", "restrictions has a key that is not a use ('protein_stats')")]
+    [TestCase("      occupancy: \"\"\n", "restrictions['occupancy'] must be a non-empty reason, found an empty str")]
+    public void AnUnknownOrUnexplainedRestrictionIsRefused(string entry, string message)
+    {
+        EditManifest(FlagsLine, FlagsLine + "    restrictions:\n" + entry);
+        var e = Assert.Throws<ManifestException>(() => Manifest.Load(ManifestPath));
+        Assert.That(e!.Message, Does.Contain(message));
     }
 
     [Test]

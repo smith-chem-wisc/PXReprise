@@ -265,7 +265,7 @@ public class GoEngineTests
         }
         var recorded = CatalogBuilder.RunQuery(output, "SELECT engine, artefact_id, definition_id FROM catalog_engine_artefacts").Rows.Single();
         Assert.That(recorded, Is.EqualTo(new object?[] { "go.annotate_groups", artefact.ArtefactId, FakeDefinition }));
-        Assert.That(CatalogBuilder.RunQuery(output, "SELECT catalog_version FROM catalog_meta").Rows.Single()[0], Is.EqualTo("10"));
+        Assert.That(CatalogBuilder.RunQuery(output, "SELECT catalog_version FROM catalog_meta").Rows.Single()[0], Is.EqualTo("11"));
         // The join a consumer makes: a protein's compartment to the map's category, within one dataset and release.
         var joined = CatalogBuilder.RunQuery(output,
             "SELECT DISTINCT c.organelle_category FROM protein_localizations l JOIN organelle_term_categories c "

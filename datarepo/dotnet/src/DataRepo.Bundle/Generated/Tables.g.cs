@@ -457,7 +457,7 @@ public static partial class Tables
     /// <summary>Each study layer's version, by layer name.</summary>
     public static readonly IReadOnlyDictionary<string, string> StudyVersions = new Dictionary<string, string>
     {
-        ["aging"] = "0.5.0",
+        ["aging"] = "0.6.0",
     };
 
     /// <summary>Each study layer's tables, by layer name. Not part of <see cref="Core"/>.</summary>
@@ -482,6 +482,39 @@ public static partial class Tables
                 new ColumnSpec("name", ColumnType.String, IsList: false, Nullable: false),
                 new ColumnSpec("value", ColumnType.String, IsList: false, Nullable: false),
                 new ColumnSpec("value_reserved", ColumnType.Boolean, IsList: false, Nullable: false),
+                new ColumnSpec("term", ColumnType.String, IsList: false, Nullable: true),
+                new ColumnSpec("source_reference", ColumnType.String, IsList: false, Nullable: false),
+                new ColumnSpec("evidence", ColumnType.String, IsList: false, Nullable: true),
+                new ColumnSpec("confidence", ColumnType.String, IsList: false, Nullable: true),
+                new ColumnSpec("curation_version", ColumnType.String, IsList: false, Nullable: false),
+            ]),
+            new TableSpec("curated_run_design", "CuratedRunDesign",
+            [
+                new ColumnSpec("run_id", ColumnType.String, IsList: false, Nullable: false),
+                new ColumnSpec("individual", ColumnType.String, IsList: false, Nullable: false),
+                new ColumnSpec("individual_reserved", ColumnType.Boolean, IsList: false, Nullable: false),
+                new ColumnSpec("injection", ColumnType.Int64, IsList: false, Nullable: true),
+                new ColumnSpec("injection_reserved", ColumnType.String, IsList: false, Nullable: true),
+                new ColumnSpec("fraction", ColumnType.Int64, IsList: false, Nullable: true),
+                new ColumnSpec("fraction_reserved", ColumnType.String, IsList: false, Nullable: true),
+                new ColumnSpec("pool_size", ColumnType.Int64, IsList: false, Nullable: true),
+                new ColumnSpec("pool_size_reserved", ColumnType.String, IsList: false, Nullable: true),
+                new ColumnSpec("acquisition_batch", ColumnType.String, IsList: false, Nullable: true),
+                new ColumnSpec("source_reference", ColumnType.String, IsList: false, Nullable: false),
+                new ColumnSpec("evidence", ColumnType.String, IsList: false, Nullable: true),
+                new ColumnSpec("confidence", ColumnType.String, IsList: false, Nullable: true),
+                new ColumnSpec("curation_version", ColumnType.String, IsList: false, Nullable: false),
+            ]),
+            new TableSpec("curated_design_factors", "CuratedDesignFactor",
+            [
+                new ColumnSpec("run_id", ColumnType.String, IsList: false, Nullable: false),
+                new ColumnSpec("factor", ColumnType.String, IsList: false, Nullable: false),
+                new ColumnSpec("role", ColumnType.String, IsList: false, Nullable: false),
+                new ColumnSpec("level", ColumnType.String, IsList: false, Nullable: false),
+                new ColumnSpec("level_value", ColumnType.Float64, IsList: false, Nullable: true),
+                new ColumnSpec("level_unit", ColumnType.String, IsList: false, Nullable: true),
+                new ColumnSpec("is_reference", ColumnType.Boolean, IsList: false, Nullable: true),
+                new ColumnSpec("is_primary", ColumnType.Boolean, IsList: false, Nullable: true),
                 new ColumnSpec("term", ColumnType.String, IsList: false, Nullable: true),
                 new ColumnSpec("source_reference", ColumnType.String, IsList: false, Nullable: false),
                 new ColumnSpec("evidence", ColumnType.String, IsList: false, Nullable: true),

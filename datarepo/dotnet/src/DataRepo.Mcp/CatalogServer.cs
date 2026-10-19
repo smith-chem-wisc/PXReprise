@@ -689,7 +689,9 @@ public sealed partial class CatalogServer : IDisposable
         var loaded = new Dictionary<string, Dictionary<string, object?>>(StringComparer.Ordinal);
         foreach (var b in Identity.StudyBundles) loaded[PyValues.Str(b.GetValueOrDefault("layer"))] = b;
         var tables = new List<Dictionary<string, object?>>();
-        foreach (var (name, doc) in SchemaDocs.StudyTables[layer])
+        // The layer's tables at the version in force: a Python 0.32.0 parity scope sees aging 0.5.0's.
+        var inForce = SchemaContract.StudyTables(layer).Select(t => t.Name).ToHashSet(StringComparer.Ordinal);
+        foreach (var (name, doc) in SchemaDocs.StudyTables[layer].Where(kv => inForce.Contains(kv.Key)))
         {
             var info = TablesInCatalog().GetValueOrDefault(name);
             tables.Add(new Dictionary<string, object?>(StringComparer.Ordinal)

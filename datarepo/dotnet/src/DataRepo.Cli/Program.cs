@@ -352,6 +352,10 @@ namespace DataRepo.Cli
                             : "     excluded_runs  runs not readable here, so the names were not checked; build checks them against the bundle");
                     unmatched += problems.Count > 0 ? 1 : 0;
                 }
+                // DATAREPO-74: uses the whole dataset is unfit for. An unknown use was already refused when the
+                // manifest loaded, so each one listed here is a key `build` will serve.
+                foreach (var (use, reason) in entry.Restrictions)
+                    Console.WriteLine($"     restricted {use}: {string.Join(" ", reason.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))}");
             }
             // The discovery census (dataset_candidates): read here exactly as `build` reads it, so a malformed file is
             // found before a build refuses it. Ingest never reads it.

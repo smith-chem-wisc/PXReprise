@@ -164,6 +164,7 @@ protein", which is the question the repository exists for.
 | `peptide_index` | 1/base sequence | how many datasets it appears in |
 | `dataset_annotations` | 1/dataset | the producer's notes, flags, status and reason, from the manifest `build` was given |
 | `run_exclusions` | 1/excluded run | runs the manifest's `excluded_runs` leaves out of analysis, with the reason; `run_id` joins `runs` |
+| `dataset_restrictions` | 1/dataset/use | uses the manifest's `restrictions` says the whole dataset is unfit for, with the reason; the same uses are listed on `dataset_overview.restrictions` (NULL when the manifest has no entry for the dataset) |
 
 `dataset_annotations` is taken from the manifest at **build**, not from the bundle. These fields are not
 identity (rewording a note must not re-id a bundle), so they never reach a bundle at all; a reworded

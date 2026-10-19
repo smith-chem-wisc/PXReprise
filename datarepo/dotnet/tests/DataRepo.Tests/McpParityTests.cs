@@ -236,6 +236,11 @@ public class McpParityTests
         {
             ("ptm_site_id", "<dataset_id>:<accession>:<residue><position>:<modification_name>, with '@<site_type>' appended ONLY"),
         }.Select(d => (new Regex(Regex.Escape(d.Item2) + "[^\"]*", RegexOptions.CultureInvariant), $"<{d.Item1}: rewritten for PXR-R21>")),
+        // DATAREPO-80 (aging layer 0.6.0): curated_sample_characteristics.name takes any SDRF header. Description only.
+        .. new[]
+        {
+            ("name", "The characteristic, written the way an SDRF column header is"),
+        }.Select(d => (new Regex(Regex.Escape(d.Item2) + "[^\"]*", RegexOptions.CultureInvariant), $"<{d.Item1}: rewritten for DATAREPO-80>")),
     ];
 
     public static string Normalise(string text, string catalogPath)

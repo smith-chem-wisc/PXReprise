@@ -114,6 +114,11 @@ public sealed record DatasetAnnotation(
 /// <param name="RunId">The run's id as <c>runs.run_id</c> spells it, <c>&lt;dataset_id&gt;:&lt;run base name&gt;</c>.</param>
 public sealed record RunExclusion(string DatasetId, string BundleId, string RunId, string RunName, string Reason);
 
+/// <summary>One USE the build's manifest says a whole dataset is unfit for: a row of <c>dataset_restrictions</c>
+/// (aging DATAREPO-74).</summary>
+/// <param name="Use">One of <see cref="DataRepo.Ingest.DatasetEntry.RestrictionUses"/>.</param>
+public sealed record DatasetRestriction(string DatasetId, string BundleId, string Use, string Reason);
+
 /// <summary>What a build did, in the terms an operator or a release checklist needs.</summary>
 public sealed record CatalogResult
 {
@@ -184,11 +189,13 @@ public static class CatalogBuilder
     /// the exclusions themselves are hashed into the id, which moves whenever they do. The discovery census
     /// (<c>dataset_candidates</c> from the manifest's <c>candidates</c> TSV, aging 088 AGING-P11) joined "10" on the
     /// same reasoning: still unreleased, the census file's sha256 is hashed into the id when there is one, and a
-    /// manifest naming none builds the catalog -- and the id -- it built before. Inside a <see cref="SchemaContract.Python0320"/> scope it stays "8", and go and the annotations are left
+    /// manifest naming none builds the catalog -- and the id -- it built before. "11" adds
+    /// <c>dataset_restrictions</c> and <c>dataset_overview.restrictions</c> from the manifest's <c>restrictions</c>
+    /// (aging DATAREPO-74), and the aging layer's design tables (0.6.0, DATAREPO-79). Inside a <see cref="SchemaContract.Python0320"/> scope it stays "8", and go and the annotations are left
     /// out, so a parity build is still what Python 0.32.0 built. Same principle as
     /// <c>manifest.CONTENT_FIELDS</c> one level down -- an id moves when its own content moves, and not
     /// otherwise.</remarks>
-    public static string CatalogVersion => SchemaContract.IsPython0320 ? "8" : "10";
+    public static string CatalogVersion => SchemaContract.IsPython0320 ? "8" : "11";
 
     /// <summary>Whether this build loads go's artefacts: always, except when reproducing Python 0.32.0, which had
     /// no go engine.</summary>
@@ -212,8 +219,16 @@ public static class CatalogBuilder
     /// <summary>The <see cref="DatasetEntry.NonContentFields"/> a reader sees in <c>run_exclusions</c> rather than in
     /// <c>dataset_annotations</c>: a per-RUN fact, so one row per run joinable on <c>runs.run_id</c>, not a list in a
     /// per-dataset row that every analysis would have to unnest. Together with <see cref="AnnotationFields"/> they are
-    /// every non-content field but <c>raw</c> (a test).</summary>
+    /// every non-content field but <c>raw</c> (a test), with <see cref="RestrictionFields"/>.</summary>
     public static readonly IReadOnlyList<string> RunExclusionFields = ["excluded_runs"];
+
+    /// <summary>The derived table of uses the build's manifest says a whole dataset is unfit for (DATAREPO-74).</summary>
+    public const string RestrictionsTable = "dataset_restrictions";
+
+    /// <summary>The <see cref="DatasetEntry.NonContentFields"/> a reader sees in <c>dataset_restrictions</c> and in
+    /// <c>dataset_overview.restrictions</c>: a fixed vocabulary, so a filter can be written on it, which a note in
+    /// <c>notes</c> cannot be.</summary>
+    public static readonly IReadOnlyList<string> RestrictionFields = ["restrictions"];
 
     /// <summary>The package version a catalog id hashes and <c>catalog_meta.builder_version</c> records
     /// (Python's <c>__version__</c>): this assembly's informational version, without build metadata.</summary>
@@ -266,6 +281,7 @@ public static class CatalogBuilder
         "protein_genes",
         AnnotationsTable,
         RunExclusionsTable,
+        RestrictionsTable,
     ];
 
     /// <summary>Views that apply the producing search engine's acceptance rule, so no caller has to restate
@@ -381,6 +397,11 @@ public static class CatalogBuilder
                 ["n_ptm_sites"] = "Rows in `ptm_sites`, at any ambiguity level, contaminants included.",
                 ["n_open_findings"] = "Findings at severity warning or error. Read them before quoting "
                     + "any number from this row.",
+                ["restrictions"] = "The uses the producer says this whole dataset is UNFIT for, e.g. "
+                    + "`protein_statistics` or `occupancy`, sorted; each one's reason is in `dataset_restrictions`. "
+                    + "READ IT before using a number from the dataset. Empty when the manifest entry restricts "
+                    + "nothing; NULL when the build's manifest has no entry for the dataset, which is not stated, "
+                    + "never 'no restriction'.",
             }),
         ["protein_index"] = new(
             "One row per accession ACROSS datasets, built from `proteins` -- which is the search's "
@@ -505,6 +526,22 @@ public static class CatalogBuilder
                     + "schema from provenance.json itself; this is the declaration.",
                 ["sdrf"] = "The SDRF the producer declared. The ingest finds and hashes the SDRF under the "
                     + "run folder; this is the declaration.",
+            }),
+        [RestrictionsTable] = new(
+            "One row per (dataset, use) the producer says the WHOLE dataset is unfit for (the manifest's "
+            + "`restrictions`, aging DATAREPO-74), with the producer's reason. The dataset is still in every table, "
+            + "and nothing here filters it: a use listed here is the producer's ruling that the dataset must not be "
+            + "used that way, so an analysis of that kind leaves the dataset out itself. The uses: "
+            + "`protein_statistics` (protein-level statistics), `quantitation` (any quantity), `age_analysis`, "
+            + "`any_analysis` (none at all), `occupancy` (PTM site occupancy, e.g. a pulldown that inflates the "
+            + "modified form on purpose) and `cysteine` (cysteine peptides and sites, e.g. a search that fixed "
+            + "carbamidomethyl where the lab used another alkylant). `dataset_overview.restrictions` lists the "
+            + "uses on each dataset's row. Taken from the manifest `datarepo build` was given, so a change reaches "
+            + "the catalog at the next build without a re-ingest, and moves the catalog id.",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["use"] = "The use the dataset is unfit for: one of the six above.",
+                ["reason"] = "The producer's reason, verbatim.",
             }),
         [RunExclusionsTable] = new(
             "One row per run the producer EXCLUDES FROM ANALYSIS (the manifest's `excluded_runs`, G85), with the "
@@ -812,7 +849,18 @@ public static class CatalogBuilder
         IReadOnlyList<ArtefactRef>? artefacts = null,
         string? packageVersion = null,
         Manifest? manifest = null) =>
-        CatalogIdOf(bundles, studyBundles, artefacts, packageVersion, Annotations(bundles, manifest), RunExclusions(bundles, manifest), Census(manifest));
+        CatalogIdOf(bundles, studyBundles, artefacts, packageVersion, Annotations(bundles, manifest), RunExclusions(bundles, manifest),
+            Restrictions(bundles, manifest), Census(manifest));
+
+    /// <summary>Each bundle's dataset restrictions from <paramref name="manifest"/> (DATAREPO-74), in dataset then use
+    /// order. A dataset the manifest does not list, or lists without restrictions, has none.</summary>
+    /// <remarks>From the manifest the catalog is BUILT with, for <see cref="Annotations"/>'s reason.</remarks>
+    public static List<DatasetRestriction> Restrictions(IReadOnlyList<BundleRef> bundles, Manifest? manifest) =>
+        bundles.OrderBy(r => r.DatasetId, SourcesPy.CodePointOrder)
+            .SelectMany(r => manifest is not null && manifest.Datasets.TryGetValue(r.DatasetId, out var e)
+                ? e.Restrictions.Select(p => new DatasetRestriction(r.DatasetId, r.BundleId, p.Use, p.Reason))
+                : [])
+            .ToList();
 
     /// <summary>The discovery census <paramref name="manifest"/> names as <c>candidates</c>, read and checked, or null
     /// when it names none -- or inside a <see cref="SchemaContract.Python0320"/> scope, whose catalogs had no census.</summary>
@@ -858,14 +906,15 @@ public static class CatalogBuilder
         string? packageVersion,
         IReadOnlyList<DatasetAnnotation> annotations,
         IReadOnlyList<RunExclusion> exclusions,
+        IReadOnlyList<DatasetRestriction> restrictions,
         CandidateCensus? census)
     {
         var text = new StringBuilder();
         text.Append($"datarepo/{packageVersion ?? PackageVersion}\ncatalog/{CatalogVersion}\nschema/{SchemaContract.Version}\n");
         // A study layer's tables are part of what a catalog holds, so its version is part of the catalog's
         // identity. Without this, adding a column to `age_effect` would leave two different catalogs sharing an id.
-        foreach (var (layer, version) in Tables.StudyVersions.OrderBy(kv => kv.Key, SourcesPy.CodePointOrder))
-            text.Append($"study/{layer}/{version}\n");
+        foreach (var layer in Tables.StudyVersions.Keys.Order(SourcesPy.CodePointOrder))
+            text.Append($"study/{layer}/{SchemaContract.StudyVersion(layer)}\n");
         foreach (var r in bundles.OrderBy(r => r.DatasetId, SourcesPy.CodePointOrder).ThenBy(r => r.BundleId, SourcesPy.CodePointOrder))
             text.Append($"{r.DatasetId}\t{r.BundleId}\n");
         // And so are its ROWS: a catalog built with a delivery of age effects and one built without it answer
@@ -886,6 +935,11 @@ public static class CatalogBuilder
         if (AnnotationsActive)
             foreach (var x in exclusions.OrderBy(x => x.DatasetId, SourcesPy.CodePointOrder).ThenBy(x => x.RunName, SourcesPy.CodePointOrder))
                 text.Append($"run-exclusion/{x.DatasetId}\t{PyFormat.Json(new List<object?> { x.RunName, x.Reason }, ensureAscii: true)}\n");
+        // And which uses a dataset is unfit for (DATAREPO-74), on the same rule: none without, so a catalog that
+        // restricts nothing keeps the id it had.
+        if (AnnotationsActive)
+            foreach (var x in restrictions.OrderBy(x => x.DatasetId, SourcesPy.CodePointOrder).ThenBy(x => x.Use, SourcesPy.CodePointOrder))
+                text.Append($"restriction/{x.DatasetId}\t{PyFormat.Json(new List<object?> { x.Use, x.Reason }, ensureAscii: true)}\n");
         // And the discovery census: two catalogs that answer "why is PXDn not here?" differently are different
         // catalogs. The file's bytes, not its path (a moved file is the same census); no line without one, so a
         // manifest naming no census keeps the id it had.
@@ -1248,10 +1302,10 @@ public static class CatalogBuilder
                     $"study layer '{r.Layer}' appears twice ({prior.BundleId} and "
                     + $"{r.BundleId}). A catalog holds one delivery per layer.");
             seenLayers[r.Layer] = r;
-            if (r.LayerVersion != Tables.StudyVersions[r.Layer])
+            if (r.LayerVersion != SchemaContract.StudyVersion(r.Layer))
                 throw new CatalogException(
                     $"study bundle {r.BundleId} was written against {r.Layer} "
-                    + $"{r.LayerVersion}, and this build carries {Tables.StudyVersions[r.Layer]}. A "
+                    + $"{r.LayerVersion}, and this build carries {SchemaContract.StudyVersion(r.Layer)}. A "
                     + "column added between the two would land silently null, so re-run "
                     + "`datarepo study`, or build with the version that wrote it.");
         }
@@ -1266,8 +1320,9 @@ public static class CatalogBuilder
         var datasets = seen.Keys.Order(SourcesPy.CodePointOrder).ToList();
         var annotations = Annotations(bundles, manifest);
         var exclusions = RunExclusions(bundles, manifest);
+        var restrictions = Restrictions(bundles, manifest);
         var census = Census(manifest);
-        var cid = CatalogIdOf(bundles, study, engines, null, annotations, exclusions, census);
+        var cid = CatalogIdOf(bundles, study, engines, null, annotations, exclusions, restrictions, census);
         if (census is not null)
         {
             // Where the census came from, beside the manifest the CLI records: the path a reader can open and the
@@ -1316,6 +1371,7 @@ public static class CatalogBuilder
                 {
                     CreateAnnotations(con, annotations);
                     CreateRunExclusions(con, exclusions);
+                    CreateRestrictions(con, restrictions);
                 }
                 if (census is not null) rowCounts[CandidateCensus.Table] = LoadCandidates(con, census, bundles);
                 checks = [
@@ -1417,6 +1473,29 @@ public static class CatalogBuilder
         ");
         foreach (var x in exclusions)
             Exec(con, $"INSERT INTO \"{RunExclusionsTable}\" VALUES (?, ?, ?, ?, ?)", x.DatasetId, x.BundleId, x.RunId, x.RunName, x.Reason);
+    }
+
+    /// <summary><c>dataset_restrictions</c> (DATAREPO-74), written even when empty, and the same uses on each
+    /// <c>dataset_overview</c> row, so a reader of a dataset's numbers meets them without knowing the table exists
+    /// (D19: a tool has to be chosen; a column in the answer cannot be skipped).</summary>
+    /// <remarks>Needs <c>dataset_annotations</c>: a dataset the manifest does not list gets NULL, not an empty list,
+    /// because nothing says it has no restriction.</remarks>
+    private static void CreateRestrictions(DuckDBConnection con, IReadOnlyList<DatasetRestriction> restrictions)
+    {
+        Exec(con, $@"
+        CREATE TABLE ""{RestrictionsTable}"" (
+            dataset_id VARCHAR, bundle_id VARCHAR, ""use"" VARCHAR, reason VARCHAR
+        )
+        ");
+        foreach (var x in restrictions)
+            Exec(con, $"INSERT INTO \"{RestrictionsTable}\" VALUES (?, ?, ?, ?)", x.DatasetId, x.BundleId, x.Use, x.Reason);
+        Exec(con, "ALTER TABLE dataset_overview ADD COLUMN restrictions VARCHAR[]");
+        Exec(con, $@"
+        UPDATE dataset_overview o SET restrictions = CASE WHEN a.in_manifest THEN coalesce(
+            (SELECT list(r.""use"" ORDER BY r.""use"") FROM ""{RestrictionsTable}"" r WHERE r.dataset_id = o.dataset_id),
+            []::VARCHAR[]) END
+        FROM ""{AnnotationsTable}"" a WHERE a.dataset_id = o.dataset_id
+        ");
     }
 
     /// <summary>Fills <c>dataset_candidates</c> (created empty with the core tables) from the census, in accession
@@ -1575,7 +1654,7 @@ public static class CatalogBuilder
         taken.UnionWith(DerivedTables);
         taken.UnionWith(AcceptedViews.Select(kv => kv.Key));
         taken.UnionWith(GrainViews.Select(kv => kv.Key));
-        foreach (var (layer, tables) in Tables.Study)
+        foreach (var (layer, tables) in SchemaContract.StudyLayers)
         {
             var r = byLayer.GetValueOrDefault(layer);
             foreach (var spec in tables)
@@ -2032,7 +2111,7 @@ public static class CatalogBuilder
         foreach (var r in studyBundles.OrderBy(s => s.Layer, SourcesPy.CodePointOrder))
         {
             var layer = r.Layer;
-            var layerTables = Tables.Study[layer].Select(t => t.Name).ToHashSet(StringComparer.Ordinal);
+            var layerTables = SchemaContract.StudyTables(layer).Select(t => t.Name).ToHashSet(StringComparer.Ordinal);
             var keys = Integrity.StudyCompositeIdentifiers.GetValueOrDefault(layer) ?? new Dictionary<string, string[]>();
             foreach (var (table, key) in keys.OrderBy(k => k.Key, SourcesPy.CodePointOrder))
             {
@@ -2055,6 +2134,24 @@ public static class CatalogBuilder
                     + $"SELECT 1 FROM \"{target}\" t WHERE t.\"{targetColumn}\" = s.val)");
                 checks.Add(new CatalogCheck($"{layer}.{table}.{column} -> {target}.{targetColumn}", "study-reference",
                     dangling == 0, dangling, 0, dangling == 0 ? null : $"e.g. {PyStr(example)}"));
+            }
+            if (layerTables.Contains("curated_design_factors") && layerTables.Contains("curated_run_design"))
+            {
+                // A3 (ptmQtl, our aging 106): a design factor describes a sample, so every run of one sample (its
+                // fractions, its injections) carries the same factor rows. Only the catalog knows which runs share
+                // a sample, so this is checked here and not by `datarepo study`.
+                var (split, example) = CountAndExample(con, @"
+                    WITH runs_of AS (
+                        SELECT DISTINCT a.sample_id, d.run_id FROM curated_run_design d JOIN assays a ON a.run_id = d.run_id),
+                    signature AS (
+                        SELECT r.sample_id, r.run_id,
+                               coalesce(string_agg(f.factor || chr(31) || f.level, chr(30) ORDER BY f.factor), '') AS sig
+                        FROM runs_of r LEFT JOIN curated_design_factors f ON f.run_id = r.run_id
+                        GROUP BY r.sample_id, r.run_id)
+                    SELECT count(*), min(sample_id) FROM (
+                        SELECT sample_id FROM signature GROUP BY sample_id HAVING count(DISTINCT sig) > 1)");
+                checks.Add(new CatalogCheck($"{layer}.curated_design_factors: one sample's runs carry the same factor rows",
+                    "study-design", split == 0, split, 0, split == 0 ? null : $"e.g. sample {PyStr(example)}"));
             }
         }
         return checks;
@@ -2181,11 +2278,11 @@ public static class CatalogBuilder
         var views = AcceptedViews.Select(kv => kv.Key).Concat(GrainViews.Select(kv => kv.Key)).ToHashSet(StringComparer.Ordinal);
         foreach (var name in DerivedTables.Concat(AcceptedViews.Select(kv => kv.Key)).Concat(GrainViews.Select(kv => kv.Key)))
         {
-            if (name is AnnotationsTable or RunExclusionsTable && !AnnotationsActive) continue;
+            if (name is AnnotationsTable or RunExclusionsTable or RestrictionsTable && !AnnotationsActive) continue;
             var rows = Count(con, $"SELECT count(*) FROM \"{name}\"");
             Exec(con, "INSERT INTO catalog_tables VALUES (?, ?, ?)", name, rows, views.Contains(name) ? "view" : "derived");
         }
-        foreach (var (layer, tables) in Tables.Study)
+        foreach (var (layer, tables) in SchemaContract.StudyLayers)
             foreach (var spec in tables)
                 Exec(con, "INSERT INTO catalog_tables VALUES (?, ?, ?)", spec.Name, studyCounts.GetValueOrDefault(spec.Name, 0), $"study:{layer}");
 

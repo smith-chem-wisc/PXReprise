@@ -33,7 +33,23 @@ public sealed record DatasetEntry
     /// <summary><c>(run base name, reason)</c> pairs, sorted by run, from <c>excluded_runs: {run: reason}</c> (G85):
     /// runs the producer leaves out of ANALYSIS. They were searched and stay in the bundle.</summary>
     public IReadOnlyList<(string Run, string Reason)> ExcludedRuns { get; init; } = [];
+    /// <summary><c>(use, reason)</c> pairs, sorted by use, from <c>restrictions: {use: reason}</c> (aging DATAREPO-74):
+    /// uses the producer says the WHOLE dataset is unfit for. Each use is one of <see cref="RestrictionUses"/>.</summary>
+    public IReadOnlyList<(string Use, string Reason)> Restrictions { get; init; } = [];
     public IReadOnlyDictionary<string, object?> Raw { get; init; } = new Dictionary<string, object?>();
+
+    /// <summary>The uses a <c>restrictions</c> entry may name, each with what it rules out (aging DATAREPO-74, their 101).</summary>
+    /// <remarks>A short fixed list, and the reason this is a field rather than a sentence in <c>notes</c>: a key from a
+    /// list can be filtered on, and free text cannot. aging owns the list; a new key is added when they ask.</remarks>
+    public static readonly IReadOnlyDictionary<string, string> RestrictionUses = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["protein_statistics"] = "protein-level statistics: abundance comparisons and their tests",
+        ["quantitation"] = "any quantity from the dataset",
+        ["age_analysis"] = "any analysis of age",
+        ["any_analysis"] = "any analysis at all",
+        ["occupancy"] = "PTM site occupancy, e.g. from a pulldown that inflates the modified form on purpose",
+        ["cysteine"] = "cysteine peptides and sites, e.g. from a search that fixed carbamidomethyl where the lab used another alkylant",
+    };
 
     /// <summary>Manifest fields that shape what a bundle CONTAINS, so they go into its content hash.</summary>
     /// <remarks>Anything that reaches a written row is an input to the content hash, and nothing else
@@ -56,6 +72,7 @@ public sealed record DatasetEntry
         ["provenance_schema"] = "the producer's declared expectation; the ingest reads the schema from provenance.json itself and refuses a version it cannot map",
         ["sdrf"] = "declared but not read -- the SDRF is found under the run folder and hashed as a file",
         ["excluded_runs"] = "the producer's judgement of which runs an ANALYSIS should leave out (G85); every run is still searched, ingested and counted the same, so no row changes, and the catalog takes the field at build (run_exclusions)",
+        ["restrictions"] = "the producer's judgement of which USES the whole dataset is unfit for (DATAREPO-74); no row changes, and the catalog takes the field at build (dataset_restrictions, dataset_overview.restrictions)",
         ["raw"] = "the source row itself, which is the container for every field above",
     };
 
@@ -216,6 +233,7 @@ public sealed record Manifest(
                 Reason = row.GetValueOrDefault("reason"),
                 Notes = row.GetValueOrDefault("notes"),
                 ExcludedRuns = ExcludedRunPairs(DatasetNode(root, i, "excluded_runs"), $"{path}: {accession}"),
+                Restrictions = RestrictionPairs(DatasetNode(root, i, "restrictions"), $"{path}: {accession}"),
                 Raw = row,
             };
         }
@@ -310,6 +328,34 @@ public sealed record Manifest(
                     $"{where}: excluded_runs[{PyRepr(name)}] must be a non-empty reason, found {(reason is string ? "an empty str" : PyTypeName(reason))}. "
                     + "A reader is owed why a searched run is left out of analysis.");
             seen[name] = text;
+        }
+        return seen.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => (kv.Key, kv.Value)).ToList();
+    }
+
+    /// <summary><c>{use: reason}</c> to <c>(use, reason)</c> pairs sorted by use (DATAREPO-74).</summary>
+    /// <remarks>Read from the YAML node, as <see cref="ExcludedRunPairs"/> is, so a use is the key's text. A use not in
+    /// <see cref="DatasetEntry.RestrictionUses"/> is refused rather than kept: a misspelt key would sit in the catalog
+    /// where no filter on the real key finds it, and the dataset would look unrestricted.</remarks>
+    private static IReadOnlyList<(string Use, string Reason)> RestrictionPairs(YamlDotNet.RepresentationModel.YamlNode? node, string where)
+    {
+        if (node is null || PyYaml.Plain(node) is null) return [];
+        if (node is not YamlDotNet.RepresentationModel.YamlMappingNode map)
+            throw new ManifestException(
+                $"{where}: restrictions must map a use to the reason the dataset is unfit for it, found {PyTypeName(PyYaml.Plain(node))}");
+        var known = string.Join(", ", DatasetEntry.RestrictionUses.Keys.Order(StringComparer.Ordinal));
+        var seen = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (key, value) in map.Children)
+        {
+            if (key is not YamlDotNet.RepresentationModel.YamlScalarNode { Value: { } use } || !DatasetEntry.RestrictionUses.ContainsKey(use))
+                throw new ManifestException(
+                    $"{where}: restrictions has a key that is not a use ({PyRepr(PyYaml.Plain(key))}). The uses are: {known}. "
+                    + "Ask dataRepo to add one rather than write another: a key no filter knows leaves the dataset looking unrestricted.");
+            var reason = PyYaml.Plain(value);
+            if (reason is not string text || text.Trim().Length == 0)
+                throw new ManifestException(
+                    $"{where}: restrictions[{PyRepr(use)}] must be a non-empty reason, found {(reason is string ? "an empty str" : PyTypeName(reason))}. "
+                    + "A reader is owed why a dataset is unfit for a use.");
+            seen[use] = text;
         }
         return seen.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => (kv.Key, kv.Value)).ToList();
     }

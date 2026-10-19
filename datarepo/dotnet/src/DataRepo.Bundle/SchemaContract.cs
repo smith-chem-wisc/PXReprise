@@ -68,6 +68,39 @@ public static class SchemaContract
     /// <summary>The table's columns under the schema version in force here (<see cref="Version"/>).</summary>
     public static IReadOnlyList<ColumnSpec> Columns(TableSpec spec) => ColumnsAt(spec, Version);
 
+    /// <summary>Each study layer's version as Python 0.32.0 wrote it.</summary>
+    public static readonly IReadOnlyDictionary<string, string> Python0320StudyVersions =
+        new Dictionary<string, string>(StringComparer.Ordinal) { ["aging"] = "0.5.0" };
+
+    /// <summary>Every study table added after Python 0.32.0's layer versions, with the layer version that added it.</summary>
+    /// <remarks>A parity catalog holds exactly the tables Python built, so a table added since is not even created
+    /// empty there. Add a table's entry in the commit that adds the table; the parity tests fail on one left out.</remarks>
+    public static readonly IReadOnlyList<(string Layer, string Version, string Table)> AddedStudyTables =
+    [
+        ("aging", "0.6.0", "curated_run_design"),
+        ("aging", "0.6.0", "curated_design_factors"),
+    ];
+
+    /// <summary>The layer's version in force here: <see cref="Tables.StudyVersions"/>, or Python 0.32.0's inside a
+    /// <see cref="Python0320"/> scope.</summary>
+    public static string StudyVersion(string layer) =>
+        IsPython0320 && Python0320StudyVersions.TryGetValue(layer, out var pinned) ? pinned : Tables.StudyVersions[layer];
+
+    /// <summary>The layer's tables at the version in force here (<see cref="StudyVersion"/>), in the schema's order.</summary>
+    public static IReadOnlyList<TableSpec> StudyTables(string layer)
+    {
+        var at = System.Version.Parse(StudyVersion(layer));
+        var later = AddedStudyTables
+            .Where(a => a.Layer == layer && System.Version.Parse(a.Version) > at)
+            .Select(a => a.Table)
+            .ToHashSet(StringComparer.Ordinal);
+        return later.Count == 0 ? Tables.Study[layer] : Tables.Study[layer].Where(t => !later.Contains(t.Name)).ToList();
+    }
+
+    /// <summary>Every study layer with its tables at the version in force here, in <see cref="Tables.Study"/>'s order.</summary>
+    public static IEnumerable<(string Layer, IReadOnlyList<TableSpec> Tables)> StudyLayers =>
+        Tables.Study.Keys.Select(layer => (layer, StudyTables(layer)));
+
     /// <summary>Pins Python 0.32.0's schema version until the result is disposed.</summary>
     public static IDisposable Python0320()
     {

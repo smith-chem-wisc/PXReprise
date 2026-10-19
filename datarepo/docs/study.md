@@ -143,7 +143,8 @@ Run on the union and reported in `catalog_checks`, and a failure refuses the bui
 | Kind | What it asserts |
 |---|---|
 | `study-unique` | no table repeats its own declared key |
-| `study-reference` | `age_effects.dataset_id` and `age_effect_refusals.dataset_id` are datasets the catalog holds; `sample_ages.sample_id` and `curated_sample_characteristics.sample_id` are samples it holds; `clock_features.clock_id` is a clock it holds |
+| `study-reference` | `age_effects.dataset_id` and `age_effect_refusals.dataset_id` are datasets the catalog holds; `sample_ages.sample_id` and `curated_sample_characteristics.sample_id` are samples it holds; `curated_run_design.run_id` and `curated_design_factors.run_id` are runs it holds, and every run of `curated_design_factors` is in `curated_run_design`; `clock_features.clock_id` is a clock it holds |
+| `study-design` | every run of one sample (through `assays`) carries the same `curated_design_factors` rows |
 
 An age effect naming a dataset the catalog does not hold is **refused, not dropped**. Section D's
 answer would otherwise come back smaller than the delivery supports, with nothing to say why.
@@ -186,6 +187,37 @@ deposit files and papers, and the only route into `samples` was an SDRF (aging 0
   row per sample; a per-run condition (control and progeria in one deposit) needs nothing extra.
 - `datarepo_sql` points at the table whenever a query reads `samples` and it holds rows
   (`study_tables_on_these_samples`).
+- **`name` takes any SDRF header verbatim**, `comment[...]` included, so protocol fields such as
+  `comment[alkylation reagent]` load as rows (aging DATAREPO-80).
+
+## Curated design (layer 0.6.0)
+
+Two tables carry how aging curated each deposit's design (aging 102, DATAREPO-79, amended by
+DATAREPO-82 in aging 108), keyed per **run** because fractions and technical replicates are runs of one
+sample:
+
+- **`curated_run_design`**, one row per run: `individual`, `injection`, `fraction`, `pool_size`,
+  `acquisition_batch`, with the curation's `source_reference`, `evidence`, `confidence` and
+  `curation_version`. A pool's `individual` is the pool's own label, and `pool_size` > 1 says it is a
+  pool. A reserved word is an answer: in `individual` it stays, and `individual_reserved` (computed)
+  marks it; in a number column the number is empty and the word is in its `_reserved` companion.
+- **`curated_design_factors`**, one row per (run, factor): `role` (`condition` or `stratum`), `level`
+  as written, `level_value` and `level_unit` for an ordered factor (an `age group` in years,
+  UO:0000036), `is_reference`, `is_primary` and `term`. A run the factor does not concern has **no
+  row**, so `level` is never a reserved word.
+
+`datarepo study` refuses a delivery that breaks any of these rules, naming the rule:
+- a `_reserved` companion holds only a reserved word, and never beside its number; numbers are at
+  least 1;
+- every factor row's run is in `curated_run_design`, delivered with it;
+- `role` is `condition` or `stratum`, the same on every row of one factor in one dataset;
+- `level` is never a reserved word, and `level_unit` is set exactly when `level_value` is;
+- a **condition** has a reference level and another level, and no level is both;
+- a **stratum** has at least two levels and no reference level (`is_reference` empty).
+
+The build adds the two checks that need the catalog (above): every run is a run it holds, and the runs
+of one sample carry the same factor rows. An aging study bundle written before 1.3.4 is layer 0.5.0,
+and a 1.3.4 build refuses it, so run `datarepo study` again before the first 1.3.4 publish.
 
 ## Not in the study path yet
 

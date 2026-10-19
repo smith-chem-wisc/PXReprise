@@ -1,6 +1,7 @@
-# aging study layer, v0.5.0 (2026-09-29: `CuratedSampleCharacteristic`, aging 078 REQ-DATAREPO-6;
-# v0.4.0 2026-09-26: `SampleAge.age_source`, aging 071 DATAREPO-59; v0.3.0 2026-09-22;
-# v0.2.0 earlier the same day; v0.1.0 2026-09-20).
+# aging study layer, v0.6.0 (2026-10-19: `CuratedRunDesign` and `CuratedDesignFactor`, aging 102
+# DATAREPO-79 as amended by DATAREPO-82 (aging 108), with ptmQtl's A1-A4; v0.5.0 2026-09-29:
+# `CuratedSampleCharacteristic`, aging 078 REQ-DATAREPO-6; v0.4.0 2026-09-26: `SampleAge.age_source`,
+# aging 071 DATAREPO-59; v0.3.0 2026-09-22; v0.2.0 earlier the same day; v0.1.0 2026-09-20).
 #
 # The rule (U5): a study layer ADDS tables keyed on core identifiers and never alters a core table.
 # Everything the core stores stays usable by a non-aging consumer, and a second study layer can sit
@@ -25,7 +26,7 @@ description: >-
   effects and their refusals, the cross-dataset pooled effect, organelle-level summaries, age clocks
   and cross-species age mapping. aging owns the content; every table is keyed on core identifiers and
   no core table is altered.
-version: 0.5.0
+version: 0.6.0
 license: https://creativecommons.org/licenses/by/4.0/
 
 prefixes:
@@ -75,6 +76,22 @@ enums:
           Entered by the study owner from a named source such as the deposit's PRIDE record or its
           paper. `age_source_reference` says which, and a curated row whose source cannot be named
           should not be delivered.
+
+  DesignFactorRole:
+    description: >-
+      What a design factor does in the design (QuantProject AGING-D1, their 052; aging 108). The
+      two are analysed differently, so a factor is always one or the other.
+    permissible_values:
+      condition:
+        description: >-
+          A comparison the design makes, such as age group or genotype. It has a reference level
+          (`is_reference = true`) and at least one other level.
+      stratum:
+        description: >-
+          What a sample IS, such as an organism part, a cell type, a preparation or a separate
+          experiment. Each stratum is analysed apart and never compared with another, so it has no
+          reference level: PXD021762's liver and heart mitochondria are two strata, and neither is a
+          control.
 
   AgeEstimator:
     description: >-
@@ -161,7 +178,7 @@ classes:
       vs progeria on the same deposit) needs no extra table.
     attributes:
       sample_id: {range: Sample, required: true, description: "Sample this row describes. Must be a sample the catalog holds."}
-      name: {required: true, description: "The characteristic, written the way an SDRF column header is, e.g. `characteristics[organism part]`, `characteristics[cell type]`, `characteristics[cell line]`, `characteristics[disease]`. It is the same vocabulary as `sample_characteristics.name`, so the two can be read side by side on one filter. Part of the key: one curated value per characteristic per sample."}
+      name: {required: true, description: "The characteristic, written the way an SDRF column header is, e.g. `characteristics[organism part]`, `characteristics[cell type]`, `characteristics[cell line]`, `characteristics[disease]`. Any SDRF header is taken verbatim, `comment[...]` included, so aging's protocol fields arrive as rows such as `comment[alkylation reagent]` (aging DATAREPO-80); nothing checks the header's form. It is the same vocabulary as `sample_characteristics.name`, so the two can be read side by side on one filter. Part of the key: one curated value per characteristic per sample."}
       value: {required: true, description: "The curated value as a name, e.g. `SH-SY5Y`, `brain`, `Hutchinson-Gilford progeria syndrome`, `normal`, or an SDRF reserved word the curator wrote: `not applicable` (the characteristic does not apply, e.g. the tissue of a cell line) or `not available` (the sources were read and do not say). No row means the characteristic was not curated at all. Those are three different answers (G42), so filter on `value_reserved` before counting values."}
       value_reserved: {range: boolean, required: true, description: "True when `value` is an SDRF reserved word (`not available`, `not applicable`, `unknown`, `none`, `na`, `n/a`), the same list and meaning as `sample_characteristics.value_reserved`: the curator looked and there is no value. Computed by `datarepo study` from `value`. A delivered value that disagrees is refused. A reserved row is not an annotation."}
       term: {range: uriorcurie, description: "The ontology term for `value` where the curator gave one: UBERON (organism part), CL (cell type), Cellosaurus `CVCL_` (cell line), MONDO or DOID (disease; PATO:0000461 for normal)."}
@@ -169,6 +186,58 @@ classes:
       evidence: {description: "The curator's note: the sentence, table cell or mapping the value rests on. Verbatim, and free text."}
       confidence: {description: "aging's own rating of the row, verbatim (`high`, `medium`, `low` in `aging-curation/1`). It is aging's vocabulary, so it is not an enum here. Filter on it before trusting a `low` row like the others."}
       curation_version: {required: true, description: "The curation that produced the row, e.g. `aging-curation/1`. Two rows from different curation versions may disagree by design, and this is how a caller can tell. It is a curation label, not software. It is never written into `sample_ages.normalizer_version`, which names software."}
+
+  CuratedRunDesign:
+    description: >-
+      How one run sits in its deposit's design, as aging CURATED it (aging 102, DATAREPO-79): which
+      individual it came from, which injection and fraction it is, how many individuals were pooled,
+      and its acquisition batch. Keyed per RUN, not per sample, because technical replicates and
+      fractions are runs of one sample and a design is about telling them apart. Like
+      `curated_sample_characteristics`, every row is aging's reading of the deposit, never an SDRF
+      cell. An empty cell means not known. A curator's reserved word (`not applicable`, `not
+      available`) is an answer and is kept apart from it: in `individual` the word stays and
+      `individual_reserved` marks it, and in a number column the number is empty and the word is in
+      the column's `_reserved` companion (ptmQtl A4).
+    attributes:
+      run_id: {range: Run, required: true, description: "The run, as `runs.run_id` spells it: `<dataset_id>:<run base name>`. A run the catalog does not hold is refused at build."}
+      individual: {required: true, description: "The animal, donor or culture the run's sample came from, as the curation names it. Every run of one individual repeats it: its technical replicates and its fractions. For a POOL it is the pool's own label, and `pool_size` > 1 says it is a pool; it is never `not applicable` for a pool, because PXD058082's five pools, each injected three times, would then read as fifteen (aging 108 c). It may be an SDRF reserved word, which `individual_reserved` marks."}
+      individual_reserved: {range: boolean, required: true, description: "True when `individual` is an SDRF reserved word (`not available`, `not applicable`, `unknown`, `none`, `na`, `n/a`), the list `sample_characteristics.value_reserved` uses. Computed by `datarepo study` from `individual`; a delivered value that disagrees is refused."}
+      injection: {range: integer, minimum_value: 1, description: "Which injection of the same sample this run is (1, 2, ...): the technical replicate. Empty when not known. When the curator wrote a reserved word it is in `injection_reserved` and this is empty."}
+      injection_reserved: {description: "The SDRF reserved word the curator wrote for `injection`, verbatim. Set only when `injection` is empty: `datarepo study` refuses a row with both, and a word that is not reserved."}
+      fraction: {range: integer, minimum_value: 1, description: "Which fraction of the sample this run is (1, 2, ...). Empty when not known. An unfractionated run carries `not applicable` in `fraction_reserved` and nothing here."}
+      fraction_reserved: {description: "The SDRF reserved word the curator wrote for `fraction`, verbatim, e.g. `not applicable` for an unfractionated run. Set only when `fraction` is empty; `datarepo study` refuses a row with both, and a word that is not reserved."}
+      pool_size: {range: integer, minimum_value: 1, description: "How many individuals were pooled into the run's sample: 1 for one individual, more for a pool, whose `individual` is then the pool's label. When the source gives only a range (PXD035446: \"2-3 mice per sample\"), this and `pool_size_reserved` are both empty and the range is quoted in `evidence`: the exact number is not known."}
+      pool_size_reserved: {description: "The SDRF reserved word the curator wrote for `pool_size`, verbatim. Set only when `pool_size` is empty; `datarepo study` refuses a row with both, and a word that is not reserved."}
+      acquisition_batch: {description: "The acquisition batch the curation assigns to the run, verbatim, so runs acquired together can be told from runs acquired apart. Empty when not known."}
+      source_reference: {required: true, description: "What the row was read from, e.g. `PMID 40544948` or `PXD058082 sample table`. REQUIRED: a curated row whose source cannot be named is not delivered."}
+      evidence: {description: "The curator's note: the sentence, table cell or mapping the row rests on. Verbatim, and free text."}
+      confidence: {description: "aging's own rating of the row, verbatim (`high`, `medium`, `low` in `aging-curation/1`). aging's vocabulary, so not an enum here."}
+      curation_version: {required: true, description: "The curation that produced the row, e.g. `aging-curation/1`. A curation label, not software."}
+
+  CuratedDesignFactor:
+    description: >-
+      One design factor's level on one run, as aging CURATED it (aging 102, DATAREPO-79, amended by
+      DATAREPO-82 in aging 108). A factor is a `condition` (a comparison with a reference level) or a
+      `stratum` (what a sample is, analysed apart). A run the factor does not concern has NO row,
+      and `level` never holds a reserved word, so no row means "this factor does not apply to this
+      run": PXD017475's nine secretome runs have no `pulldown` row, while its ten pulldown runs carry
+      `bait` or `control`. `datarepo study` refuses a delivery that breaks the rules on `role`,
+      `is_reference` and `level`, and `build` refuses a run the catalog does not hold, a run missing
+      from `curated_run_design`, and two runs of one sample with different factor rows.
+    attributes:
+      run_id: {range: Run, required: true, description: "The run, as `runs.run_id` spells it. Must also be a run of `curated_run_design`."}
+      factor: {required: true, description: "The design factor, named by the curator, e.g. `age group`, `genotype`, `organism part`, `pulldown`. Part of the key: one level per factor per run."}
+      role: {range: DesignFactorRole, required: true, description: "`condition` or `stratum`. Every row of one factor in one dataset has the same role."}
+      level: {required: true, description: "The level as the depositor or the paper writes it, e.g. `24 months`, `KO`, `liver`. Never an SDRF reserved word: a run whose level is `not applicable` or `not available` has no row for the factor (aging 108 b), and `datarepo study` refuses a reserved word here."}
+      level_value: {range: float, description: "The level as a number, for an ordered factor (age, dose, time, passage), in `level_unit` (ptmQtl A1). An `age group` is in years (UO:0000036), months / 12 to 4 places, as `sample_ages.age_years` has it. A range or a bound (\"3 to 6 months\", \"Age < 28\") has no number. Named `level_value`, not `value`, because `value` is text in `curated_sample_characteristics`, and a number of the same name one table over invites a wrong join."}
+      level_unit: {range: uriorcurie, description: "The unit of `level_value`, one UO term: so far year (UO:0000036), week (UO:0000034) and gray (UO:0000134). Set exactly when `level_value` is."}
+      is_reference: {range: boolean, description: "For a condition: true for the reference level (the control), false for the others. Within a dataset each condition has at least one reference level and at least one other level, and no level is both. EMPTY on every row of a stratum, which has no reference."}
+      is_primary: {range: boolean, description: "True when this factor is the authors' own comparison (ptmQtl A2). Empty means not stated."}
+      term: {range: uriorcurie, description: "The ontology term for `level` where the curator gave one."}
+      source_reference: {required: true, description: "What the row was read from, e.g. `PMID 40544948`. REQUIRED: a curated row whose source cannot be named is not delivered."}
+      evidence: {description: "The curator's note: the sentence, table cell or mapping the row rests on. Verbatim, and free text."}
+      confidence: {description: "aging's own rating of the row, verbatim (`high`, `medium`, `low` in `aging-curation/1`)."}
+      curation_version: {required: true, description: "The curation that produced the row, e.g. `aging-curation/1`. A curation label, not software."}
 
   AgeEffect:
     description: >-
@@ -362,6 +431,8 @@ classes:
     attributes:
       sample_ages: {range: SampleAge, multivalued: true, inlined_as_list: true, description: "Rows of the sample_ages table."}
       curated_sample_characteristics: {range: CuratedSampleCharacteristic, multivalued: true, inlined_as_list: true, description: "Rows of the curated_sample_characteristics table."}
+      curated_run_design: {range: CuratedRunDesign, multivalued: true, inlined_as_list: true, description: "Rows of the curated_run_design table."}
+      curated_design_factors: {range: CuratedDesignFactor, multivalued: true, inlined_as_list: true, description: "Rows of the curated_design_factors table."}
       age_effects: {range: AgeEffect, multivalued: true, inlined_as_list: true, description: "Rows of the age_effects table."}
       age_effect_refusals: {range: AgeEffectRefusal, multivalued: true, inlined_as_list: true, description: "Rows of the age_effect_refusals table."}
       age_effect_meta: {range: AgeEffectMeta, multivalued: true, inlined_as_list: true, description: "Rows of the age_effect_meta table."}

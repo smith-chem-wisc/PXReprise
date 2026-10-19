@@ -119,6 +119,9 @@ public static class Integrity
                 ["sample_ages"] = ["sample_id"],
                 // One curated value per characteristic per sample (aging 078, REQ-DATAREPO-6).
                 ["curated_sample_characteristics"] = ["sample_id", "name"],
+                // One design row per run, one level per factor per run (aging 102, DATAREPO-79).
+                ["curated_run_design"] = ["run_id"],
+                ["curated_design_factors"] = ["run_id", "factor"],
                 ["age_effects"] = ["dataset_id", "feature_id", "response", "estimator", "quant_basis", "model_form", "stratum"],
                 ["age_effect_refusals"] = ["dataset_id", "feature_id", "response", "estimator", "quant_basis", "model_form", "stratum"],
                 ["age_effect_meta"] = ["organism", "feature_id", "response", "estimator", "quant_basis", "stratum", "tissue", "acquisition", "quant_method"],
@@ -145,6 +148,9 @@ public static class Integrity
             [
                 ("sample_ages", "sample_id", "samples", "sample_id"),
                 ("curated_sample_characteristics", "sample_id", "samples", "sample_id"),
+                ("curated_run_design", "run_id", "runs", "run_id"),
+                ("curated_design_factors", "run_id", "runs", "run_id"),
+                ("curated_design_factors", "run_id", "curated_run_design", "run_id"),
                 ("age_effects", "dataset_id", "datasets", "dataset_id"),
                 ("age_effect_refusals", "dataset_id", "datasets", "dataset_id"),
                 ("clock_features", "clock_id", "clock_models", "clock_id"),
