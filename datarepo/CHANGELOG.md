@@ -4,6 +4,43 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [Unreleased]
+
+**A catalog folder: views over the store instead of copies** (D48 step 1, PXReprise's public-data contract). The ingest
+path stays `cs-1.1.0` and the schema 0.0.15, so **no re-ingest**. The catalog format moves to 12. `--out <name>.duckdb`
+builds the same one-file catalog as before.
+
+### Added
+- **`build --out <folder>`** writes `catalog-<catalog id>.duckdb` and then a `latest.json` pointer naming it. No file a
+  reader holds is ever replaced, so a running MCP server or script keeps the catalog it opened.
+  - The bundle tables (except `samples`) and the engine tables are views over the store's Parquet. The derived, study,
+    manifest and metadata tables are copied, and they are small.
+  - **Measured on aging's store** (169 deposits, 192 million PSMs, pinned to the serving catalog's bundles):
+    - the build took 8.4 minutes; today's one-file build takes 1 to 3 hours;
+    - the catalog is 298 MB against 62.4 GiB;
+    - every one of the 47 tables and views both catalogs hold has the same rows (counts, plus checksums below
+      10 million rows);
+    - the site regenerated from it is byte-identical to aging's live site, apart from the finding order below.
+  - `--keep N` deletes older catalog files, never the current one or one built for a release.
+- **`release_id` beside `catalog_id`.** It hashes the schema and the bundles, study deliveries and engine artefacts, so
+  a folder and a one-file catalog of the same data share it (D48 rule 9). `catalog_meta` gains `release_id`, `layout`
+  and `data_root`.
+- **Every reader takes a folder or its `latest.json`:** `query`, `catalog`, `site`, `publish` and `mcp`.
+  - A server on a folder keeps the catalog it opened, and says when the pointer names a newer one.
+  - Its sandbox allows the store's directory and nothing else (`allowed_directories`, then
+    `enable_external_access=false`, then `lock_configuration=true`). A file outside the store, a `..` escape, `ATTACH`
+    and `SET` are all refused.
+- **PXR-R26:** "a folder is a bundle exactly when it holds `bundle.json`, written last" is stated in `docs/ingest.md`,
+  with a test.
+
+### Changed
+- **A folder build does not re-run ingest's uniqueness and reference checks over every table.** Each bundle passed them
+  when it was written, and identifiers are namespaced by dataset; one `catalog_checks` row says so. Row counts are still
+  checked against `bundle.json`.
+- **The site orders a dataset's findings by `finding_id` after their code.** Two findings with one code
+  (`count_mismatch` on PSMs and on peptides) came out in scan order, which views do not keep. On aging's site 22 dataset
+  pages reorder those two lines once.
+
 ## [1.3.4] - 2026-10-19
 
 **A dataset's restrictions are served** (aging DATAREPO-74), and **the aging layer carries aging's curated design**

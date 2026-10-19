@@ -226,7 +226,7 @@ bounded is an attacker.
 | | |
 |---|---|
 | Connection | read-only (`ACCESS_MODE=READ_ONLY`) **and** `enable_external_access=false` |
-| Filesystem | `disabled_filesystems='LocalFileSystem'`, set immediately after connecting |
+| Filesystem | `disabled_filesystems='LocalFileSystem'`, set immediately after connecting. **A catalog folder** (its tables are views over the store) gets instead: `allowed_directories` set to the store, then `enable_external_access=false`, then `lock_configuration=true`, in that order, so the store's files read and nothing else does |
 | Statements | one per call; `SELECT`, `EXPLAIN`, `PRAGMA`, `SHOW` only — refused **by name, before running**, with a message saying what to send instead |
 | Rows | 1,000, with a `truncated` flag and a sentence saying the answer is not whole |
 | Characters | 50,000, dropping **whole rows** — never half a peptidoform |
@@ -241,6 +241,12 @@ Three things there were measured rather than assumed, on DuckDB 1.5.5, and each 
   why the filesystem is disabled too. Both settings are one-way once the database is running.
 - **The obvious timeout probe no longer proves anything.** DuckDB 1.5 answers
   `SELECT count(*) FROM range(3000000000)` from metadata in half a second.
+
+**Serving a catalog folder.** `--catalog` may name a catalog folder (or its `latest.json`), and the server opens the
+file the pointer names. It keeps that file for its whole life, on purpose, so one conversation is answered from one
+catalog. When a newer build has moved the pointer, every answer carries `catalog_file_changed`, naming the newer file:
+restart the server to serve it. In the folder sandbox, a file outside the store and a `..` escape out of it are refused,
+and so are `ATTACH`, `COPY` and `SET` (by name, as for any catalog).
 
 One consequence worth knowing: `disabled_filesystems` belongs to the database *instance*, not the
 connection, and DuckDB refuses a second connection to an open file with a different config. So

@@ -227,6 +227,42 @@ A failure here is a bug or a damaged store, not a property of the data, so it st
 is the same line the ingester draws: a Finding is for something true about the dataset, and this
 would be something false about the catalog.
 
+## A catalog folder: views over the store, versioned files, a pointer
+
+`--out` decides the layout. A name ending `.duckdb` writes one movable file holding a copy of every row, as before.
+Any other path is a **catalog folder** (D48 step 1, PXReprise's public-data contract):
+
+```
+catalogs/
+  catalog-7af21bbdd37814ef.duckdb    one versioned catalog per build, never replaced
+  catalog-511e89f90d259bf9.duckdb    an older one, kept until --keep prunes it
+  latest.json                        names the current file, with its catalog_id and release_id
+```
+
+- **The bundle and engine tables are views** over the store's Parquet (`psms`, `quant_values`, `proteins`, ...), with
+  `dataset_id` and `bundle_id` written into each view per file, so a filter on one dataset reads that dataset's files
+  only. `samples` is still copied (a few thousand rows), because its `*_name` columns are added to it. The derived
+  tables, the study tables, the manifest's tables and the catalog's own tables are copied too: they are small. A
+  catalog folder is megabytes, not tens of gigabytes, and a build copies no bundle rows.
+- **A build writes a new file and then the pointer.** No file a reader holds is ever replaced: an MCP server or a
+  script keeps the catalog it opened, and the next one opened gets the new file. `latest.json` is written beside
+  itself and moved into place, so a reader never sees half of one. An unchanged rebuild writes nothing and points
+  `latest.json` at the existing file again.
+- **`--keep N`** deletes the folder's catalog files beyond the newest N, never the current one and never one built
+  for a release (`--release`).
+- **Two ids.** `catalog_id` names one catalog file, and hashes the builder, the layout and (for a folder) the store's
+  path. `release_id` names the data: the schema and the bundles, study deliveries and engine artefacts. A folder and a
+  one-file catalog of the same bundles share their `release_id`. Both are in `catalog_meta`, with `layout` (`views` or
+  `copies`) and `data_root`.
+- **Checks.** The row counts are checked against every bundle's `bundle.json` in both layouts. A folder build does not
+  re-run ingest's uniqueness and reference checks over every table: each bundle passed them when it was written, and
+  every identifier is namespaced by its dataset. `catalog_checks` has one `integrity` row saying so.
+- **The views read the store where the build found it.** Moving the store means rebuilding the folder catalog. The
+  store must be one folder, holding the bundles, `_study/` and `_engine/`; the build refuses otherwise.
+
+Every reader takes the folder or its `latest.json` in place of a file: `query`, `catalog`, `site`, `publish` and
+`mcp`.
+
 ## Rebuilding is cheap and idempotent
 
 The catalog is content-addressed on the bundle ids, the schema version and the builder version, like

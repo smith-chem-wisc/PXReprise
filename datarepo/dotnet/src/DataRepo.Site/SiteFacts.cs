@@ -189,10 +189,13 @@ public static partial class SiteGenerator
                 "SELECT dataset_id, instruments, search_database, sdrf_status, pipeline_repo, " +
                 "pipeline_commit FROM datasets"));
             bundles = ByDataset(Rows(con, "SELECT * FROM catalog_bundles"));
+            // finding_id last: two findings with one code (count_mismatch on PSMs and on peptides) otherwise come out in
+            // scan order, which a catalog folder's views over Parquet do not keep, and the same catalog would then not
+            // give byte-identical pages (D48 step 1).
             findings = Rows(con,
                 "SELECT dataset_id, code, severity, message FROM findings WHERE status = 'open' " +
                 "ORDER BY dataset_id, CASE severity WHEN 'error' THEN 0 WHEN 'warning' THEN 1 " +
-                "ELSE 2 END, code");
+                "ELSE 2 END, code, finding_id");
             // The searched proteome's own species name, taken from the entries that carry its taxon.
             // A contaminant entry has no taxon (schema 0.0.7), so it cannot lend its species here.
             names = Rows(con,

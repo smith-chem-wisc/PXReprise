@@ -202,6 +202,16 @@ public class FolderCatalogTests
         Assert.That(() => box.Query("SET enable_external_access = true"), Throws.InstanceOf<DataRepoException>());
     }
 
+    /// <summary>The site and <c>query</c> take the folder too, and read the catalog its pointer names.</summary>
+    [Test]
+    public void TheSiteAndQueryReadTheFolder()
+    {
+        var built = Build(Folder);
+        var site = DataRepo.Site.SiteGenerator.BuildSite(Folder, Path.Combine(_root, "site"));
+        Assert.That(site.CatalogId, Is.EqualTo(built.CatalogId));
+        Assert.That(CatalogBuilder.RunQuery(Path.Combine(Folder, CatalogPointer.FileName), "SELECT count(*) FROM psms").Rows.Single()[0], Is.EqualTo(60L));
+    }
+
     [Test]
     public void AParityBuildWritesOneFileOnly()
     {
