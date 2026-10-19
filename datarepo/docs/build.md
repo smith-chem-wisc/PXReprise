@@ -171,7 +171,7 @@ protein", which is the question the repository exists for.
 | `protein_index` | 1/accession | gene, organism, how many datasets have it, and how many have **accepted** evidence for it |
 | `protein_datasets` | 1/accession/dataset | accepted protein groups and peptidoforms, best group q-value |
 | `peptide_index` | 1/base sequence | how many datasets it appears in |
-| `dataset_annotations` | 1/dataset | the producer's notes, flags, status and reason, from the manifest `build` was given |
+| `dataset_annotations` | 1/dataset | the producer's notes, flags, status and reason, its declared `sdrf`, and the `operator_sdrf` the ingest read in place of any other SDRF (G107), from the manifest `build` was given |
 | `run_exclusions` | 1/excluded run | runs the manifest's `excluded_runs` leaves out of analysis, with the reason; `run_id` joins `runs` |
 | `dataset_restrictions` | 1/dataset/use | uses the manifest's `restrictions` says the whole dataset is unfit for, with the reason; the same uses are listed on `dataset_overview.restrictions` (NULL when the manifest has no entry for the dataset) |
 
