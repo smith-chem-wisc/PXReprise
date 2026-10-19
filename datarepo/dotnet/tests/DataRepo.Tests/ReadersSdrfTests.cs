@@ -73,10 +73,16 @@ public class ReadersSdrfTests
     private static void SameJson(object? actual, object? expected, string what) =>
         Assert.That(Py(actual), Is.EqualTo(Py(expected)), what);
 
+    /// <summary>Record fields mzLib added after the 1.0.593 the expected projection was written with, so the projection
+    /// has columns pyMzLib's did not. No ingest code reads them. Each is named here so another one fails.</summary>
+    /// <remarks>1.0.595: <c>entrapment_fraction</c> on the PSM record.</remarks>
+    private static readonly string[] FieldsAddedSince1_0_593 = ["entrapment_fraction"];
+
     /// <summary>Column by column, naming the first differing row, so a failure says where.</summary>
     private static void SameColumns(Dictionary<string, List<object?>> actual, Dictionary<string, object?> expected, string what)
     {
-        Assert.That(actual.Keys.ToList(), Is.EqualTo(expected.Keys.ToList()), $"{what}: column names and order");
+        Assert.That(actual.Keys.Where(k => !FieldsAddedSince1_0_593.Contains(k)).ToList(), Is.EqualTo(expected.Keys.ToList()),
+            $"{what}: column names and order");
         foreach ((string name, object? values) in expected)
         {
             List<object?> want = AsList(values);
@@ -84,6 +90,11 @@ public class ReadersSdrfTests
             Assert.That(got, Has.Count.EqualTo(want.Count), $"{what}: {name} length");
             for (int i = 0; i < want.Count; i++)
             {
+                // mzLib #1403 (1.0.594): its own ProForma writes a UniProt-named modification as its UNIMOD id. No row
+                // of ours reads this field (Proforma.cs translates the full sequence), so only that change is allowed.
+                if (name == "pro_forma" && want[i] is string before && before.Contains("[UniProt:", StringComparison.Ordinal)
+                    && got[i] is string after && !after.Contains("[UniProt:", StringComparison.Ordinal))
+                    continue;
                 if (Py(got[i]) != Py(want[i]))
                     Assert.Fail($"{what}: column {name} row {i}: C# {Py(got[i])}, Python {Py(want[i])}");
             }
