@@ -612,6 +612,32 @@ public class CatalogTests
         }
     }
 
+    /// <summary>PXReprise PXR-R26: a folder is a bundle exactly when it holds <c>bundle.json</c>, which ingest writes last.
+    /// A killed ingest, or an upload still sending its Parquet, leaves tables without one, and nothing sees them.</summary>
+    [Test]
+    public void AFolderWithTablesButNoBundleJsonIsNotABundle()
+    {
+        var store = FixtureStore();
+        try
+        {
+            var manifest = FixtureManifest();
+            var real = Path.Combine(store, "PXD999999", "aeb10630abbcaf72");
+            var partial = Path.Combine(store, "PXD999999", "ffff000000000000");
+            Directory.CreateDirectory(partial);
+            foreach (var table in Directory.EnumerateFiles(real, "*.parquet"))
+                File.Copy(table, Path.Combine(partial, Path.GetFileName(table)));
+            Assert.That(CatalogBuilder.DiscoverBundles(store, "PXD999999").Select(b => b.BundleId), Is.EqualTo(new[] { "aeb10630abbcaf72" }));
+            Assert.That(CatalogBuilder.SelectBundles(manifest, ["PXD999999"], store).Single().BundleId, Is.EqualTo("aeb10630abbcaf72"),
+                "no 'two bundles' refusal: the partial folder is not one");
+            var built = BuildFixture(store, Path.Combine(store, "catalog.duckdb"));
+            Assert.That(built.Bundles.Select(b => b.BundleId), Is.EqualTo(new[] { "aeb10630abbcaf72" }));
+        }
+        finally
+        {
+            Directory.Delete(store, recursive: true);
+        }
+    }
+
     [Test]
     public void SelectionRefusesToGuess()
     {

@@ -238,6 +238,15 @@ store/PXD036557/6fea2187b2d9f737/
   bundle.json  inputs with hashes, row counts, reader log, reconciliation, modification registry
 ```
 
+**A folder is a bundle exactly when it holds `bundle.json`, and then every table it lists is complete.**
+Ingest writes every table and every source first and `bundle.json` last, and `build` counts no other
+folder. So a killed ingest, or an upload that has sent some of the Parquet, is never loaded, and the next
+ingest of the same inputs writes into the folder again. Anyone copying a bundle elsewhere keeps the same
+order: tables and `sources/` first, `bundle.json` last (PXReprise PXR-R26). A study bundle's `study.json`
+is written last the same way. An engine artefact is written in a staging folder beside it and moved into
+place whole. `ingest --overwrite` and `study --overwrite` rewrite a folder in place while its manifest
+file exists, so never pass them on a store that other machines read.
+
 Column names, order and types come from the LinkML schema: `DataRepo.SchemaGen` generates
 `dotnet/src/DataRepo.Bundle/Generated/Tables.g.cs` from it, and CI fails if that file is stale. There is no second, drifting
 copy of the column list.

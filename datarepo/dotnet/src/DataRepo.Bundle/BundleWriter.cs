@@ -150,6 +150,9 @@ public sealed class BundleWriter(string store, string datasetId, string? ingestP
     public string BundlePath() => PathText(Path.Combine(Store, DatasetId, BundleId));
 
     /// <summary>Writes every table, copies the recorded sources, and emits <c>bundle.json</c>.</summary>
+    /// <remarks><b><c>bundle.json</c> is written LAST, and that is a guarantee others rely on</b> (PXReprise PXR-R26): a
+    /// folder is a bundle exactly when it holds one, and then every table it lists is complete. Discovery counts no
+    /// other folder, so a killed ingest, or an upload still sending its Parquet, is never loaded.</remarks>
     /// <exception cref="IngestException">The bundle is already written and <paramref name="overwrite"/> is
     /// false, or a reference between the tables does not resolve.</exception>
     public string Write(bool overwrite = false)
