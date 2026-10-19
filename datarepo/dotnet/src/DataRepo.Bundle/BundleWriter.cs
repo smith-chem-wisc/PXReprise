@@ -32,7 +32,8 @@ public sealed class BundleWriter(string store, string datasetId, string? ingestP
     /// and an <c>sdrf_conflicting_rows</c> finding; PXR-R12, a UniProt XML in any namespace, and an empty database
     /// refused; G101, sites and occupancy placed only against the copy of an accession the search's TCAmbiguity kept;
     /// G26, modification accessions and masses from mzLib's own loaders, by the exact token; G107 and PXR-R22, the
-    /// SDRF read is the manifest's operator_sdrf, else the sha256-checked SDRF the search's design came from.
+    /// SDRF read is the manifest's operator_sdrf, else the sha256-checked SDRF the search's design came from; schema
+    /// 0.0.16: assay kinds, sequence_window, and PXR-R23's pooled assays for a design sample of several files.
     /// </remarks>
     public const string IngesterVersion = "cs-1.2.0";
 

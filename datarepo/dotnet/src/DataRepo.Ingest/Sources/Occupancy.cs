@@ -256,15 +256,17 @@ public static class Occupancy
                 continue;
             }
             string? run;
+            string? pooled = null;
             if (columns is { BySample: true })
             {
                 var sample = columns.SampleOf(label);
                 run = sample?.Run;
-                if (run is null)
+                pooled = sample?.PooledAssay;
+                if (run is null && pooled is null)
                 {
                     output.Count(sample is null
                         ? "label is neither a deposited run nor a sample of the design"
-                        : "sample has no single run (several files, or a file that is not a run)", nEntries);
+                        : "sample has no single run (several files, or a file that is not a run) and is not one SDRF sample's files", nEntries);
                     continue;
                 }
             }
@@ -285,10 +287,11 @@ public static class Occupancy
                 continue;
             }
             if (segments.Count != accessions.Count) output.RealignedCells++;
-            var assayId = $"{datasetId}:{run}:label_free";
+            // A pooled sample's cell is one value over its files (DEF-OCC-GROUPING sample_group; PXR-R23).
+            var assayId = pooled ?? $"{datasetId}:{run}:label_free";
             if (!assayIds.Contains(assayId))
             {
-                output.Count("run has no label-free assay", nEntries);
+                output.Count(pooled is null ? "run has no label-free assay" : "pooled sample has no assay", nEntries);
                 continue;
             }
             foreach (var (index, accession) in segments.Keys.Zip(assigned))
@@ -309,7 +312,7 @@ public static class Occupancy
                         {
                             ["ptm_site_id"] = site,
                             ["assay_id"] = assayId,
-                            ["denominator_grouping"] = "run",
+                            ["denominator_grouping"] = pooled is null ? "run" : "sample_group",
                             ["sample_label"] = label,
                             ["protein_group_id"] = groupId,
                             ["mm_position"] = Int(E(entry, "position")),

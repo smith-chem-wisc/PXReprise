@@ -38,8 +38,24 @@ public sealed class SampleColumns
     /// <param name="Label">The column label, <c>{Condition}_{Biorep}</c>.</param>
     /// <param name="Files">The design's <c>FileName</c> cells for this sample, in file order.</param>
     /// <param name="Run">The deposited run whose assay the values belong to, or null.</param>
-    /// <param name="WhyNoRun">Why <paramref name="Run"/> is null, in words for a finding; null when it is not.</param>
-    public sealed record Sample(string Label, IReadOnlyList<string> Files, string? Run, string? WhyNoRun);
+    /// <param name="WhyNoRun">Why the values belong to no assay, in words for a finding; null when they belong to one
+    /// (<paramref name="Run"/>'s, or <see cref="PooledAssay"/>).</param>
+    public sealed record Sample(string Label, IReadOnlyList<string> Files, string? Run, string? WhyNoRun)
+    {
+        /// <summary>The pooled assay a sample of several files is stored against (<c>&lt;dataset_id&gt;:design:&lt;label&gt;</c>,
+        /// PXR-R23), or null.</summary>
+        public string? PooledAssay { get; init; }
+
+        /// <summary>The SDRF sample whose files the pooled sample's are, exactly.</summary>
+        public string? PooledSampleId { get; init; }
+
+        /// <summary>Each file a pooled sample pools: its run, and the design's <c>Fraction</c> and <c>Techrep</c> as
+        /// written (null where the cell is not an integer).</summary>
+        public IReadOnlyList<(string Run, long? Fraction, long? TechnicalReplicate)> PooledRuns { get; init; } = [];
+    }
+
+    /// <summary>One design row: a file and the sample, fraction and technical replicate it holds.</summary>
+    public sealed record DesignRow(string FileName, string Label, long? Fraction, long? TechnicalReplicate);
 
     private readonly IReadOnlyDictionary<string, Sample> _samples;
 
@@ -61,6 +77,9 @@ public sealed class SampleColumns
     /// <summary>The design's sample for a column label, or null when the design has none.</summary>
     public Sample? SampleOf(string label) => _samples.TryGetValue(label, out var sample) ? sample : null;
 
+    /// <summary>Every sample of the design, in label order.</summary>
+    public IEnumerable<Sample> Samples => _samples.Values.OrderBy(s => s.Label, StringComparer.Ordinal);
+
     /// <summary>Counts one value of <paramref name="label"/> left out for having no run.</summary>
     public void Withhold(string label, string definitionId)
     {
@@ -73,11 +92,14 @@ public sealed class SampleColumns
     /// <param name="tablePath">The protein-group table; the design is looked for beside it.</param>
     /// <param name="labels">Every column label that holds at least one value the ingest would store.</param>
     /// <param name="runNames">The searched runs. Not written to: a sample label is not an unmatched run name.</param>
+    /// <param name="sampleOfRun">Each searched run's SDRF sample, for runs with exactly one assay. With it, a sample of
+    /// several files is stored against a pooled assay when its files are exactly one SDRF sample's (PXR-R23, schema
+    /// 0.0.16); without it (Python 0.32.0) such a sample's values are left out.</param>
     /// <exception cref="IngestException">A label is neither a run nor a design sample, there is no design to place
     /// sample labels with, or the design is not one MetaMorpheus could have read.</exception>
     public static SampleColumns ForTable(
         string tablePath, string datasetId, IEnumerable<string> labels, RunNameMap runNames, ReaderLog? log = null,
-        IngestRules rules = IngestRules.Current)
+        IngestRules rules = IngestRules.Current, IReadOnlyDictionary<string, string>? sampleOfRun = null)
     {
         var probe = new RunNameMap(runNames.Deposited);
         var holding = labels.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
@@ -94,7 +116,7 @@ public sealed class SampleColumns
                 + "these columns by sample when the search had an experimental design, and there is no "
                 + $"{DesignFileName} beside the table to say which files each sample holds, so the values cannot be placed.");
 
-        var samples = ReadDesign(designPath, datasetId, runNames, log, rules);
+        var samples = ReadDesign(designPath, datasetId, runNames, log, rules, sampleOfRun);
         var unknown = holding.Where(l => !samples.ContainsKey(l)).ToList();
         if (unknown.Count > 0)
             throw new IngestException(
@@ -110,10 +132,16 @@ public sealed class SampleColumns
 
     /// <summary>Reads the design as MetaMorpheus does: by position (FileName, Condition, Biorep, Fraction, Techrep),
     /// header skipped, the label <c>{Condition}_{Biorep}</c> with Biorep as the integer written.</summary>
+    /// <remarks>With <paramref name="sampleOfRun"/>, a sample of several files gets a pooled assay when its files are all
+    /// searched runs, all of one SDRF sample, and that SDRF sample has no other run (PXR-R23): one SDRF sample is then
+    /// exactly one design sample, so the value has a sample to belong to. Anything else is left out, saying which rule
+    /// failed; it is never split onto runs, and never rebuilt from per-file columns.</remarks>
     private static Dictionary<string, Sample> ReadDesign(
-        string path, string datasetId, RunNameMap runNames, ReaderLog? log, IngestRules rules)
+        string path, string datasetId, RunNameMap runNames, ReaderLog? log, IngestRules rules,
+        IReadOnlyDictionary<string, string>? sampleOfRun = null)
     {
-        var (files, order) = DesignFiles(path, datasetId, log, rules);
+        var designRows = DesignRows(path, datasetId, log, rules);
+        var (files, order) = Group(designRows);
 
         // A private map, so a design file that is not a run is not reported as an unmatched USI run name.
         var probe = new RunNameMap(runNames.Deposited);
@@ -132,7 +160,19 @@ public sealed class SampleColumns
             var run = runOf[label];
             string? why = null;
             if (held.Count > 1)
+            {
                 why = $"{held.Count} files (fractions or technical replicates), summed into one value";
+                if (sampleOfRun is not null)
+                {
+                    var pooled = Pool(label, designRows.Where(r => r.Label == label).ToList(), probe, sampleOfRun, datasetId);
+                    if (pooled.Sample is not null)
+                    {
+                        samples[label] = pooled.Sample;
+                        continue;
+                    }
+                    why += $", and {pooled.WhyNot}";
+                }
+            }
             else if (run is null)
                 why = $"its file '{held[0]}' is not a searched run";
             else if (shared.Contains(run))
@@ -142,15 +182,61 @@ public sealed class SampleColumns
         return samples;
     }
 
+    /// <summary>A design sample of several files as a pooled assay, or why it cannot be one (PXR-R23).</summary>
+    private static (Sample? Sample, string WhyNot) Pool(
+        string label, List<DesignRow> rows, RunNameMap probe, IReadOnlyDictionary<string, string> sampleOfRun, string datasetId)
+    {
+        var runs = rows.Select(r => probe.Resolve(Path.GetFileNameWithoutExtension(r.FileName))).ToList();
+        var notRuns = rows.Where((_, i) => runs[i] is null).Select(r => r.FileName).ToList();
+        if (notRuns.Count > 0)
+            return (null, $"its file(s) {Names(notRuns)} are not searched runs");
+        var sdrfSamples = runs.Select(r => sampleOfRun.GetValueOrDefault(r!)).Distinct().ToList();
+        if (sdrfSamples.Contains(null))
+            return (null, "a file of it has no single SDRF sample");
+        if (sdrfSamples.Count > 1)
+            return (null, $"its files are {sdrfSamples.Count} SDRF samples' ({Names(sdrfSamples.Select(s => s!.Split(':', 2)[1]).ToList())})");
+        var sample = sdrfSamples[0]!;
+        var others = sampleOfRun.Where(kv => kv.Value == sample && !runs.Contains(kv.Key)).Select(kv => kv.Key)
+            .Order(StringComparer.Ordinal).ToList();
+        if (others.Count > 0)
+            return (null, $"its SDRF sample '{sample.Split(':', 2)[1]}' also holds {Names(others)}");
+        return (new Sample(label, rows.Select(r => r.FileName).ToList(), null, null)
+        {
+            PooledAssay = $"{datasetId}:design:{label}",
+            PooledSampleId = sample,
+            PooledRuns = rows.Select((r, i) => (runs[i]!, r.Fraction, r.TechnicalReplicate)).ToList(),
+        }, "");
+    }
+
     /// <summary>A design's samples: label -> the <c>FileName</c> cells it holds, in file order, and the labels in
     /// first-seen order. Read as MetaMorpheus reads it (see <see cref="ReadDesign"/>).</summary>
     /// <exception cref="IngestException">A row MetaMorpheus would have refused.</exception>
     public static (Dictionary<string, List<string>> Files, List<string> Order) DesignFiles(
-        string path, string datasetId, ReaderLog? log = null, IngestRules rules = IngestRules.Current)
+        string path, string datasetId, ReaderLog? log = null, IngestRules rules = IngestRules.Current) =>
+        Group(DesignRows(path, datasetId, log, rules));
+
+    private static (Dictionary<string, List<string>> Files, List<string> Order) Group(List<DesignRow> rows)
     {
-        var (_, rows) = Readers.ReadTsv(path, log, DesignNote, rules);
         var files = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         var order = new List<string>();
+        foreach (var row in rows)
+        {
+            if (!files.TryGetValue(row.Label, out var list))
+            {
+                files[row.Label] = list = [];
+                order.Add(row.Label);
+            }
+            list.Add(row.FileName);
+        }
+        return (files, order);
+    }
+
+    /// <summary>A design's rows, in file order, read as MetaMorpheus reads them (see <see cref="ReadDesign"/>).</summary>
+    /// <exception cref="IngestException">A row MetaMorpheus would have refused.</exception>
+    public static List<DesignRow> DesignRows(string path, string datasetId, ReaderLog? log = null, IngestRules rules = IngestRules.Current)
+    {
+        var (_, rows) = Readers.ReadTsv(path, log, DesignNote, rules);
+        var output = new List<DesignRow>(rows.Count);
         for (int i = 0; i < rows.Count; i++)
         {
             var row = rows[i];
@@ -164,13 +250,10 @@ public sealed class SampleColumns
                 throw new IngestException($"{datasetId}: {DesignFileName} row {i + 2} has Biorep '{row[2]}', not an integer.");
             // SampleGroupLabels.ForSample: $"{Condition}_{BiologicalReplicate + 1}", where MetaMorpheus read Biorep - 1.
             var label = $"{row[1]}_{biorep.ToString(CultureInfo.InvariantCulture)}";
-            if (!files.TryGetValue(label, out var list))
-            {
-                files[label] = list = [];
-                order.Add(label);
-            }
-            list.Add(row[0]);
+            static long? Integer(string cell) =>
+                long.TryParse(cell, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) ? n : null;
+            output.Add(new DesignRow(row[0], label, Integer(row[3]), Integer(row[4])));
         }
-        return (files, order);
+        return output;
     }
 }

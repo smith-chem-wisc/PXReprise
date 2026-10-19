@@ -416,11 +416,21 @@ public static class Ingester
         long proteinGroupCount = 0;
         var proteinGroupQuant = new List<Row>();
         SampleColumns? sampleColumns = null;
+        var pooledRunRows = new List<Row>();
         var pgPath = Join(resultsDir, "AllQuantifiedProteinGroups.tsv");
         if (File.Exists(pgPath))
         {
             writer.AddSource(pgPath, "protein_group_quant");
-            (proteinGroups, proteinGroupQuant, proteinGroupCount, sampleColumns) = Quant.ProteinGroupRows(pgPath, datasetId, runNames, log, rules);
+            // Each searched run's SDRF sample, for a run with exactly one assay: a design sample of several files that
+            // is exactly one SDRF sample's files is stored against a pooled assay (PXR-R23, schema 0.0.16).
+            IReadOnlyDictionary<string, string>? sampleOfRun = rules == IngestRules.Current
+                ? assays.GroupBy(a => ((string)a["run_id"]!).Split(':', 2)[1], StringComparer.Ordinal)
+                    .Where(g => g.Count() == 1)
+                    .ToDictionary(g => g.Key, g => (string)g.First()["sample_id"]!, StringComparer.Ordinal)
+                : null;
+            (proteinGroups, proteinGroupQuant, proteinGroupCount, sampleColumns) = Quant.ProteinGroupRows(pgPath, datasetId, runNames, log, rules, sampleOfRun);
+            if (rules == IngestRules.Current && sampleColumns.BySample)
+                pooledRunRows = PlaceDesignSamples(sampleColumns, assays, datasetId);
             // The design reaches rows only when it placed the columns, so only then is it an input (PXR-R9). Copied,
             // so a reader can see which files each sample holds.
             if (sampleColumns.BySample)
@@ -681,6 +691,7 @@ public static class Ingester
         writer.Add("sample_characteristics", characteristics);
         writer.Add("runs", runRows);
         writer.Add("assays", assays);
+        if (rules == IngestRules.Current) writer.Add("assay_runs", pooledRunRows);
         writer.Add("psms", psmRows);
         writer.Add("peptidoforms", peptidoforms);
         writer.Add("protein_groups", proteinGroups);
@@ -761,6 +772,14 @@ public static class Ingester
                     kv => kv.Key, kv => (object?)kv.Value.ToDictionary(d => d.Key, d => (object?)d.Value, StringComparer.Ordinal),
                     StringComparer.Ordinal),
             };
+        if (rules == IngestRules.Current && sampleColumns is { BySample: true })
+            // PXR-R23: each pooled sample, its assay and the SDRF sample it is.
+            ((OrderedDictionary<string, object?>)writer.Notes["protein_group_columns"]!)["pooled_samples"] = sampleColumns.Samples
+                .Where(s => s.PooledAssay is not null)
+                .ToDictionary(s => s.Label, s => (object?)new OrderedDictionary<string, object?>
+                {
+                    ["assay_id"] = s.PooledAssay, ["sample_id"] = s.PooledSampleId, ["files"] = (long)s.Files.Count,
+                }, StringComparer.Ordinal);
         writer.Notes["reconciliation"] = checks.Select(c => c.AsDict()).ToList();
         writer.Notes["collapsed_duplicates"] = collapsed.Select(c => new OrderedDictionary<string, object?>
         {
@@ -992,6 +1011,41 @@ public static class Ingester
             : "The SDRF was used only for the runs it names that were searched";
         var status = code.StartsWith("sdrf_", StringComparison.Ordinal) ? code["sdrf_".Length..] : code;
         return Finding(datasetId, code, "warning", $"{what}: {string.Join("; ", parts)}. sdrf_status is `{status}`.");
+    }
+
+    /// <summary>What a design-labelled protein-group table makes of the assays (PXR-R23, schema 0.0.16).</summary>
+    /// <remarks>A sample of one file stays on its run's assay, which gets the sample's <c>design_label</c>: its values are
+    /// that search's sample values. A sample of several files that is one SDRF sample's files becomes a pooled assay,
+    /// <c>&lt;dataset_id&gt;:design:&lt;label&gt;</c> with no run, and the files it pools are its <c>assay_runs</c>.</remarks>
+    /// <returns>The <c>assay_runs</c> rows; <paramref name="assays"/> gains the pooled assays.</returns>
+    private static List<Row> PlaceDesignSamples(SampleColumns columns, List<Row> assays, string datasetId)
+    {
+        var byId = assays.ToDictionary(a => (string)a["assay_id"]!, StringComparer.Ordinal);
+        var assayRuns = new List<Row>();
+        foreach (var sample in columns.Samples)
+        {
+            if (sample.Run is { } run && byId.TryGetValue($"{datasetId}:{run}:label_free", out var own))
+                own["design_label"] = sample.Label;
+            if (sample.PooledAssay is not { } pooled) continue;
+            assays.Add(new Row
+            {
+                ["assay_id"] = pooled,
+                ["assay_kind"] = "design_sample",
+                ["run_id"] = null,
+                ["channel"] = "label_free",
+                ["sample_id"] = sample.PooledSampleId,
+                ["design_label"] = sample.Label,
+            });
+            foreach (var (pooledRun, fraction, techrep) in sample.PooledRuns)
+                assayRuns.Add(new Row
+                {
+                    ["assay_id"] = pooled,
+                    ["run_id"] = $"{datasetId}:{pooledRun}",
+                    ["fraction"] = fraction,
+                    ["technical_replicate"] = techrep,
+                });
+        }
+        return assayRuns;
     }
 
     /// <summary>Which SDRF describes a dataset's samples, and why (G107, PXR-R22).</summary>
@@ -1256,8 +1310,9 @@ public static class Ingester
         [
             Finding(datasetId, "sample_quant_not_stored", "warning",
                 $"The protein-group table is labelled by sample through the search's {SampleColumns.DesignFileName}, and "
-                + $"{columns.Withheld.Count} sample(s) have no single run: {string.Join("; ", shown)}{more}. A stored "
-                + "quantity belongs to one assay (one run), and a sample's value belongs to none, so it is never split "
+                + $"{columns.Withheld.Count} sample(s) belong to no assay: {string.Join("; ", shown)}{more}. A sample of one "
+                + "file is stored on its run's assay, and one of several files on a pooled assay when its files are exactly "
+                + "one SDRF sample's; these are neither, so their values have no sample to belong to and are never split "
                 + $"onto runs: {total} protein-group value(s) (intensity and spectral count) of these samples are not "
                 + "stored, nor is their PTM site occupancy. Peptide quantities are per file and are stored. A missing "
                 + "protein-group quantity for these samples therefore means 'not stored', not 'not measured'. The design "

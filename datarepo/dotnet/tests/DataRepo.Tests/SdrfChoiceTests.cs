@@ -200,6 +200,82 @@ public class SdrfChoiceTests
         Assert.That(() => DataRepo.Ingest.Manifest.Load(Manifest), Throws.TypeOf<ManifestException>().With.Message.Contains("operator_sdrf"));
     }
 
+    // ---------------------------------------------------------------- PXR-R23: pooled assays (schema 0.0.16)
+
+    private const string Pooled = $"{Accession}:design:all_1";
+
+    /// <summary>A design sample of two fractions that is one SDRF sample's files: its values have a sample to belong to.</summary>
+    [Test]
+    public void ASampleOfSeveralFilesThatIsOneSdrfSamplesIsAPooledAssay()
+    {
+        Design("B_one_sample_two_fractions");
+        NameOperatorSdrf(WriteSdrf("x.sdrf.tsv", ("donor", "24M", RunA), ("donor", "24M", RunB)));
+        var result = Ingest();
+        var assays = Rows(result, "assays");
+        var pooled = assays.Single(a => (string)a["assay_id"]! == Pooled);
+        var quants = Rows(result, "quant_values");
+        var occupancy = Rows(result, "ptm_stoichiometry");
+        Assert.Multiple(() =>
+        {
+            Assert.That(pooled["assay_kind"], Is.EqualTo("design_sample"));
+            Assert.That(pooled["run_id"], Is.Null, "a pooled sample has no single run");
+            Assert.That(pooled["sample_id"], Is.EqualTo($"{Accession}:donor"));
+            Assert.That(pooled["design_label"], Is.EqualTo("all_1"));
+            Assert.That(assays.Where(a => (string)a["assay_kind"]! == "run").Select(a => a["run_id"]),
+                Is.EquivalentTo(new[] { $"{Accession}:{RunA}", $"{Accession}:{RunB}" }), "the runs keep their own assays");
+            Assert.That(Rows(result, "assay_runs").Select(r => $"{r["assay_id"]}|{r["run_id"]}|{r["fraction"]}|{r["technical_replicate"]}"),
+                Is.EquivalentTo(new[] { $"{Pooled}|{Accession}:{RunA}|1|1", $"{Pooled}|{Accession}:{RunB}|2|1" }));
+            var protein = quants.Where(q => (string)q["feature_type"]! == "protein_group").ToList();
+            Assert.That(protein, Is.Not.Empty);
+            Assert.That(protein.Select(q => q["assay_id"]).Distinct(), Is.EqualTo(new[] { Pooled }), "protein values are the sample's");
+            Assert.That(quants.Where(q => (string)q["feature_type"]! == "peptidoform").Select(q => q["assay_id"]),
+                Has.None.EqualTo(Pooled), "no peptide value names a pooled assay");
+            Assert.That(occupancy, Is.Not.Empty);
+            Assert.That(occupancy.Select(o => $"{o["assay_id"]}|{o["denominator_grouping"]}").Distinct(), Is.EqualTo(new[] { $"{Pooled}|sample_group" }));
+            Assert.That(result.Findings.Select(f => f["code"]), Does.Not.Contain("sample_quant_not_stored"));
+            Assert.That((string?)BundleJson(result)["protein_group_columns"]!["pooled_samples"]!["all_1"]!["assay_id"], Is.EqualTo(Pooled));
+        });
+    }
+
+    /// <summary>The same sample whose files are two SDRF samples' has no sample to belong to, and stays left out.</summary>
+    [Test]
+    public void ASampleOfSeveralFilesOverTwoSdrfSamplesIsLeftOut()
+    {
+        Design("B_one_sample_two_fractions");
+        var result = Ingest();  // the deposit's metadata SDRF: one sample per file
+        Assert.Multiple(() =>
+        {
+            Assert.That(Rows(result, "assays").Select(a => a["assay_kind"]).Distinct(), Is.EqualTo(new[] { "run" }));
+            Assert.That(Rows(result, "assay_runs"), Is.Empty);
+            Assert.That(Rows(result, "quant_values").Where(q => (string)q["feature_type"]! == "protein_group"), Is.Empty);
+            var finding = result.Findings.Single(f => (string)f["code"]! == "sample_quant_not_stored");
+            Assert.That((string)finding["message"]!, Does.Contain("its files are 2 SDRF samples'"));
+        });
+    }
+
+    /// <summary>A sample of one file stays on its run's assay, which says the design placed it.</summary>
+    [Test]
+    public void ASampleOfOneFileKeepsItsRunsAssayWithItsLabel()
+    {
+        Design("A_one_file_per_sample");
+        NameOperatorSdrf(TwoSamples());
+        var assays = Rows(Ingest(), "assays");
+        Assert.Multiple(() =>
+        {
+            Assert.That(assays.Select(a => $"{a["run_id"]}|{a["assay_kind"]}|{a["design_label"]}"), Is.EquivalentTo(new[]
+            {
+                $"{Accession}:{RunA}|run|all_1", $"{Accession}:{RunB}|run|all_2",
+            }));
+        });
+    }
+
+    [Test]
+    public void APerRunTableLabelsNoAssay()
+    {
+        var assays = Rows(Ingest(), "assays");
+        Assert.That(assays.Select(a => $"{a["assay_kind"]}|{a["design_label"]}"), Is.EqualTo(new[] { "run|", "run|" }));
+    }
+
     // ---------------------------------------------------------------- PXR-R22: the SDRF the search's design came from
 
     [TestCase("question", false)]

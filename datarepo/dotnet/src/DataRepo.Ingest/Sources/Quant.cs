@@ -170,10 +170,13 @@ public static class Quant
     /// one goes is <see cref="SampleColumns"/>'s decision (PXR-R9).</remarks>
     /// <returns>The groups, their quantities (intensity and spectral count as separate rows told apart by
     /// definition), the producer-style group count at 1% FDR, for reconciling, and how the columns were placed.</returns>
+    /// <param name="sampleOfRun">Each searched run's SDRF sample, so a design sample of several files that is one SDRF
+    /// sample's files is stored against its pooled assay (PXR-R23); null leaves such values out.</param>
     /// <exception cref="IngestException">A column holding a value can be placed on no run (see
     /// <see cref="SampleColumns.ForTable"/>).</exception>
     public static (List<Row> Groups, List<Row> Quants, long ProducerCount, SampleColumns Columns) ProteinGroupRows(
-        string path, string datasetId, RunNameMap runNames, ReaderLog? log = null, IngestRules rules = IngestRules.Current)
+        string path, string datasetId, RunNameMap runNames, ReaderLog? log = null, IngestRules rules = IngestRules.Current,
+        IReadOnlyDictionary<string, string>? sampleOfRun = null)
     {
         var (header, rows) = Readers.ReadTsv(path, log, NoReader, rules);
         var intensityCols = WideColumns(header, "Intensity");
@@ -190,7 +193,7 @@ public static class Quant
             foreach (var (reported, column) in countCols)
                 if (Number(Cell(row, column)) is not null) holding.Add(reported);
         }
-        var placement = SampleColumns.ForTable(path, datasetId, holding, runNames, log, rules);
+        var placement = SampleColumns.ForTable(path, datasetId, holding, runNames, log, rules, sampleOfRun);
 
         var groups = new List<Row>();
         var quants = new List<Row>();
@@ -229,14 +232,19 @@ public static class Quant
                 {
                     var value = parse(Cell(row, column));
                     if (value is null) continue;
-                    string run;
+                    string assayId;
                     if (!placement.BySample)
                     {
-                        run = runNames.Resolve(reported) ?? reported;
+                        assayId = $"{datasetId}:{runNames.Resolve(reported) ?? reported}:label_free";
                     }
-                    else if (placement.SampleOf(reported)?.Run is { } sampleRun)
+                    else if (placement.SampleOf(reported) is { Run: { } sampleRun })
                     {
-                        run = sampleRun;
+                        assayId = $"{datasetId}:{sampleRun}:label_free";
+                    }
+                    else if (placement.SampleOf(reported) is { PooledAssay: { } pooled })
+                    {
+                        // A sample of several files, one SDRF sample's: its value, against its pooled assay (PXR-R23).
+                        assayId = pooled;
                     }
                     else
                     {
@@ -245,7 +253,7 @@ public static class Quant
                     }
                     quants.Add(new Row
                     {
-                        ["assay_id"] = $"{datasetId}:{run}:label_free",
+                        ["assay_id"] = assayId,
                         ["feature_type"] = "protein_group",
                         ["feature_id"] = groupId,
                         ["value"] = value,
