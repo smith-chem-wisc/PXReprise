@@ -4,11 +4,12 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
-## [Unreleased]
+## [1.3.5] - 2026-10-19
 
 **A catalog folder: views over the store instead of copies** (D48 step 1, PXReprise's public-data contract). The ingest
 path stays `cs-1.1.0` and the schema 0.0.15, so **no re-ingest**. The catalog format moves to 12. `--out <name>.duckdb`
-builds the same one-file catalog as before.
+builds the same one-file catalog as before. The release adds features with a patch number on purpose: 1.4.0 names the
+coming re-ingest release.
 
 ### Added
 - **`build --out <folder>`** writes `catalog-<catalog id>.duckdb` and then a `latest.json` pointer naming it. No file a
