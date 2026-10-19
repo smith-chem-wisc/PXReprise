@@ -534,6 +534,31 @@ public static class Identifications
         return counts;
     }
 
+    /// <summary>The site's 15-residue window (ptmQtl DATAREPO-P30): the residue at <paramref name="position"/> and 7 on
+    /// each side, <c>_</c> past either end, from <paramref name="sequence"/>; null when the position is outside it.</summary>
+    public static string? SequenceWindow(string sequence, long position)
+    {
+        if (position < 1 || position > sequence.Length) return null;
+        var window = new char[15];
+        for (int i = 0; i < 15; i++)
+        {
+            var at = position - 8 + i;  // 0-based index into the sequence
+            window[i] = at >= 0 && at < sequence.Length ? sequence[(int)at] : '_';
+        }
+        return new string(window);
+    }
+
+    /// <summary>Writes each site's <c>sequence_window</c> (schema 0.0.16, DATAREPO-P30) from the accession's one searched
+    /// sequence; NULL when the databases give it none, or several (G101 left an ambiguous accession with none).</summary>
+    public static void AddSequenceWindows(IEnumerable<Row> sites, ProteinSequences sequences)
+    {
+        foreach (var site in sites)
+        {
+            var candidates = sequences.Get((string)site["protein_accession"]!);
+            site["sequence_window"] = candidates.Count == 1 ? SequenceWindow(candidates[0], (long)site["position"]!) : null;
+        }
+    }
+
     /// <summary><c>(accession, 1-based peptide start, residue before it, protein length)</c> for every place a PSM's
     /// peptide sits; the length is null when no sequence was available.</summary>
     /// <remarks><b>The spans cell is never paired with the accession cell.</b> MetaMorpheus de-duplicates it and lists a

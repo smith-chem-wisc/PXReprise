@@ -1970,7 +1970,7 @@ true
 },
 {
 "input":"M[Common Variable:Oxidation on X]",
-"proforma":"M[Info:Oxidation on X]",
+"proforma":"M[UNIMOD:35]",
 "base_sequence":"M",
 "is_modified":true,
 "mods":[
@@ -1979,14 +1979,12 @@ true
 "M",
 "Oxidation on X",
 "Common Variable",
+"UNIMOD:35",
 null,
-null,
-false
+true
 ]
 ],
-"unresolved":[
-"Common Variable:Oxidation on X"
-]
+"unresolved":[]
 },
 {
 "input":"[Common Biological:Acetylation on X]M[Common Variable:Oxidation on M]K-[Common Biological:Amidation on X]",

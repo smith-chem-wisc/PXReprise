@@ -7,7 +7,7 @@
 ],
 "entries":[
 {
-"name":"Carbamidomethyl on C",
+"name":"Carbamidomethyl",
 "targets":[
 "C"
 ],
@@ -17,7 +17,7 @@
 "unimod_curie":"UNIMOD:4"
 },
 {
-"name":"Oxidation on M",
+"name":"Oxidation",
 "targets":[
 "M"
 ],
@@ -410,12 +410,12 @@ null
 [
 "Oxidation on X",
 "X",
-null
+1
 ],
 [
 "Oxidation on X",
 null,
-null
+1
 ],
 [
 "Amidation on X",
@@ -600,57 +600,57 @@ null,
 [
 "CARBAMIDOMETHYL ON C",
 null,
-0
+null
 ],
 [
 "Carbamidomethyl on C on C",
 null,
-0
+null
 ],
 [
 "Carbamidomethyl on C on C",
 "S",
-0
+null
 ],
 [
 "Carbamidomethyl on C on X",
 null,
-0
+null
 ],
 [
 "Carbamidomethyl on C on X",
 "S",
-0
+null
 ],
 [
 "Carbamidomethyl on C on x",
 null,
-0
+null
 ],
 [
 "Carbamidomethyl on C on x",
 "S",
-0
+null
 ],
 [
 "Carbamidomethyl on C on Lysine",
 null,
-0
+null
 ],
 [
 "Carbamidomethyl on C on Lysine",
 "S",
-0
+null
 ],
 [
 "Carbamidomethyl on C on  k",
 null,
-0
+null
 ],
 [
 "Carbamidomethyl on C on  k",
 "S",
-0
+null
 ],
 [
 "Oxidation on M",
@@ -670,57 +670,57 @@ null,
 [
 "OXIDATION ON M",
 null,
-1
+null
 ],
 [
 "Oxidation on M on M",
 null,
-1
+null
 ],
 [
 "Oxidation on M on M",
 "S",
-1
+null
 ],
 [
 "Oxidation on M on X",
 null,
-1
+null
 ],
 [
 "Oxidation on M on X",
 "S",
-1
+null
 ],
 [
 "Oxidation on M on x",
 null,
-1
+null
 ],
 [
 "Oxidation on M on x",
 "S",
-1
+null
 ],
 [
 "Oxidation on M on Lysine",
 null,
-1
+null
 ],
 [
 "Oxidation on M on Lysine",
 "S",
-1
+null
 ],
 [
 "Oxidation on M on  k",
 null,
-1
+null
 ],
 [
 "Oxidation on M on  k",
 "S",
-1
+null
 ],
 [
 "Hydroxylation",

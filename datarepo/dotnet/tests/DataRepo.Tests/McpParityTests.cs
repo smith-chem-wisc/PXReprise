@@ -249,6 +249,29 @@ public class McpParityTests
             ("n_psms_all", "Every PSM row, decoys and above-threshold matches included."),
             ("n_psms_all", "Every PSM row the dataset's bundle holds"),
         }.Select(d => (new Regex(Regex.Escape(d.Item2) + "[^\"]*", RegexOptions.CultureInvariant), $"<{d.Item1}: rewritten for D48 step 2>")),
+        // Schema 0.0.16 (1.4.0): pooled assays (PXR-R23), split-search dataset ids (G95), sdrf's new source word (G104 a).
+        // Where the new text contains the old one, it is masked first.
+        .. new[]
+        {
+            ("assays", "One (run, channel) measurement of one sample. Label-free"),
+            ("assays", "The unit every quantity attaches to (D5). Of two kinds"),
+            ("assay_id", "`<run_id>:<channel>` for a run's assay"),
+            ("assay_id", "<run_id>:<channel>"),
+            ("sample_id", "Sample measured in this assay: the SDRF sample"),
+            ("sample_id", "Sample measured in this assay."),
+            ("run_id", "Raw file this assay belongs to. NULL exactly when"),
+            // 0.0.13's text for assays.run_id is also psms' and runs-keyed tables', unchanged there and masked alike.
+            ("run_id", "Raw file this row belongs to."),
+            ("assay_id", "Assay (run x channel) this value was measured in."),
+            ("assay_id", "The assay this value was measured in: a run's"),
+            ("assay_id", "The run's (or sample group's) assay."),
+            ("assay_id", "The run's or the sample group's assay."),
+            ("dataset_id", "ProteomeXchange accession, e.g. PXD036557. One deposit searched in several parts"),
+            ("dataset_id", "ProteomeXchange accession, e.g. PXD036557."),
+            ("source", "Where this value came from, per the SDRF's own"),
+            ("fraction_source", "Where the SDRF's fraction came from"),
+            // These texts hold escaped quotes (`\"label_free\"`), so the mask runs to the string's real end.
+        }.Select(d => (new Regex(Regex.Escape(d.Item2) + @"(?:[^""\\]|\\.)*", RegexOptions.CultureInvariant), $"<{d.Item1}: rewritten in schema 0.0.16>")),
     ];
 
     public static string Normalise(string text, string catalogPath)

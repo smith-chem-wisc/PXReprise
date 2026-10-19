@@ -5,6 +5,21 @@ Expected outputs for `ModList.cs` / `Proforma.cs`, written on 2026-10-04 by runn
 scratch script that is not in the repository. Every expected value here is what Python returned; nothing was
 written by hand. Regenerate only on purpose, and say why here.
 
+**Regenerated 2026-10-19 (G26, datarepo 1.4.0): `registry_fixture.json` and `parse_fixture.json`.**
+- The fixture install's `Mods/aListOfmods.txt` was not in MetaMorpheus's grammar: no `MT` lines, `Carbamidomethyl on C` and
+  `Oxidation on M` as IDs, and no formula on two entries. So mzLib's loader, which the ingest uses from 1.4.0, read none
+  of it.
+- It was rewritten as MetaMorpheus writes `Mods.txt` (`ID   Carbamidomethyl`, `MT   Common Fixed`, `CF   ...`), and the
+  free-text first line was removed. The masses and accessions the Python reads (`MM`, `DR   Unimod;`) are unchanged.
+- A scratch script recomputed Python 0.32.0's answers for the same inputs the committed files held. It first reproduced
+  all three committed files from the old install, identical but for line endings.
+- What moved:
+  - two entry names (`Carbamidomethyl`, `Oxidation`);
+  - 24 of the 234 lookups, all synthetic variants built from the old names;
+  - one synthetic parse, `M[Common Variable:Oxidation on X]`, which now resolves through the `Oxidation` stem as 0.32.0's
+    lookup does.
+- `cache_fixture.json` is unchanged, and so is every real fixture cell.
+
 Inputs (all read-only):
 
 - MetaMorpheus installs `F:/aging_data/mm_settings/{1.1.9,1.1.10,1.1.11}` (aging's search builds), the repo's

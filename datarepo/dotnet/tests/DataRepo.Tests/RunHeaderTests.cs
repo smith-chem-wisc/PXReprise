@@ -140,7 +140,7 @@ public class RunHeaderTests
         var rows = Build(Report()).Values.OrderBy(r => (string)r["file_name"]!, StringComparer.Ordinal)
             .Select(r => (IReadOnlyDictionary<string, object?>)r).ToList();
         var current = ArrowTables.FromRows("runs", rows);
-        Assert.That(current.Schema.FieldsList.Select(f => f.Name), Is.SupersetOf(SchemaContract.AddedColumns.Select(a => a.Column)));
+        Assert.That(current.Schema.FieldsList.Select(f => f.Name), Is.SupersetOf(SchemaContract.AddedColumns.Where(a => a.Table == "runs").Select(a => a.Column)));
         var utc = (TimestampArray)current.Column(current.Schema.GetFieldIndex("acquisition_datetime"));
         Assert.That(utc.GetTimestamp(rows.FindIndex(r => (string)r["file_name"]! == "utc.raw")),
             Is.EqualTo(new DateTimeOffset(2021, 3, 16, 12, 9, 7, 375, TimeSpan.Zero)));
@@ -150,7 +150,7 @@ public class RunHeaderTests
         {
             var parity = ArrowTables.FromRows("runs", parityRows);
             var expected = Tables.ByName["runs"].Columns.Select(c => c.Name)
-                .Where(n => !SchemaContract.AddedColumns.Any(a => a.Column == n)).ToList();
+                .Where(n => !SchemaContract.AddedColumns.Any(a => a.Table == "runs" && a.Column == n)).ToList();
             Assert.That(parity.Schema.FieldsList.Select(f => f.Name), Is.EqualTo(expected), "0.0.13's columns, in order");
             // A current row cannot be written as a parity one: the columns it fills do not exist there.
             Assert.Throws<IngestException>(() => ArrowTables.FromRows("runs", rows));

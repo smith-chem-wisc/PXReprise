@@ -34,6 +34,8 @@ public static class Integrity
         ("runs", "dataset_id", "datasets", "dataset_id"),
         ("assays", "run_id", "runs", "run_id"),
         ("assays", "sample_id", "samples", "sample_id"),
+        ("assay_runs", "assay_id", "assays", "assay_id"),
+        ("assay_runs", "run_id", "runs", "run_id"),
         ("psms", "run_id", "runs", "run_id"),
         ("psms", "protein_accessions[]", "proteins", "protein_accession"),
         ("peptidoforms", "dataset_id", "datasets", "dataset_id"),
@@ -92,6 +94,7 @@ public static class Integrity
     [
         ("quant_values", ["assay_id", "feature_type", "feature_id", "definition_id"]),
         ("ptm_stoichiometry", ["ptm_site_id", "assay_id"]),
+        ("assay_runs", ["assay_id", "run_id"]),
         ("organelle_term_categories", ["compartment", "category_map_name", "organelle_map_version", "go_release", "organelle_category", "organelle_subcategory"]),
         ("trait_effects", ["feature_type", "feature_key", "trait_id", "response", "scope", "definition_id"]),
         ("ptm_pairs", ["result_type", "scope", "feature_type", "feature_key_a", "feature_key_b", "trait_id", "stratum", "statistic", "definition_id"]),

@@ -553,14 +553,24 @@ public sealed class ModRegistry
         var data = Path.Combine(installDir, "Data");
         var ptmlist = Path.Combine(data, "ptmlist.txt");
         var psimod = Path.Combine(data, "PSI-MOD.obo.xml");
-        if (File.Exists(ptmlist) && File.Exists(psimod))
+        if (File.Exists(ptmlist))
         {
-            var charges = UsefulProteomicsDatabases.Loaders.GetFormalChargesDictionary(UsefulProteomicsDatabases.Loaders.LoadPsiMod(psimod));
+            // MetaMorpheus always ships PSI-MOD; an install without it cannot say which UniProt masses carry a formal
+            // charge, so any entry citing a PSI-MOD term keeps its accession and loses its mass.
+            var hasPsiMod = File.Exists(psimod);
+            var charges = hasPsiMod
+                ? UsefulProteomicsDatabases.Loaders.GetFormalChargesDictionary(UsefulProteomicsDatabases.Loaders.LoadPsiMod(psimod))
+                : new Dictionary<string, int>();
             var installMzLib = InstallMzLib(installDir);
             var signRead = installMzLib is not null && installMzLib >= FormalChargeSignFixed;
             string? Withhold(Omics.Modifications.Modification mod)
             {
-                if (signRead || mod.DatabaseReference is null) return null;
+                if (mod.DatabaseReference is null) return null;
+                if (!hasPsiMod)
+                    return mod.DatabaseReference.TryGetValue("PSI-MOD", out var terms) && terms.Count > 0
+                        ? $"PSI-MOD; {terms[0]} may carry a formal charge, and the install has no Data/PSI-MOD.obo.xml to read it from"
+                        : null;
+                if (signRead) return null;
                 var negative = mod.DatabaseReference.SelectMany(b => b.Value.Select(c => b.Key + "; " + c))
                     .FirstOrDefault(key => charges.TryGetValue(key, out var charge) && charge < 0);
                 return negative is null ? null

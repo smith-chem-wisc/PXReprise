@@ -178,7 +178,7 @@ public sealed class BundleWriter(string store, string datasetId, string? ingestP
 
         Directory.CreateDirectory(Path.Combine(output, SourcesDir));
         var rowCounts = new OrderedDictionary<string, object?>(StringComparer.Ordinal);
-        foreach (var spec in Tables.Core)
+        foreach (var spec in SchemaContract.CoreTables)
         {
             if (!_tables.TryGetValue(spec.Name, out var rows) || rows.Count == 0) continue;
             var batch = ArrowTables.FromRows(spec.Name, SchemaContract.Columns(spec), rows);

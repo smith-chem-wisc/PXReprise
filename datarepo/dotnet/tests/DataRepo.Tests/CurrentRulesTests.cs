@@ -759,6 +759,48 @@ public class CurrentRulesTests
         });
     }
 
+    // ---------------------------------------------------------------- schema 0.0.16: sequence_window (P30), split keys (G95)
+
+    [TestCase(10, "LAAEGSDCIMLK___")]   // residues 3-17: 7 before the C, the C, 4 after, 3 past the end
+    [TestCase(1, "_______MKLAAEGS")]    // the first residue, as a protein N-terminal site takes it
+    [TestCase(14, "GSDCIMLK_______")]   // the last residue, as a protein C-terminal site takes it
+    public void ASiteWindowIsFifteenResiduesWithUnderscoresPastTheEnds(long position, string window)
+    {
+        var got = Identifications.SequenceWindow("MKLAAEGSDCIMLK", position);
+        Assert.Multiple(() =>
+        {
+            Assert.That(got, Is.EqualTo(window));
+            Assert.That(got![7], Is.EqualTo("MKLAAEGSDCIMLK"[(int)position - 1]), "the site's residue is the centre");
+        });
+    }
+
+    [TestCase(0)]
+    [TestCase(15)]
+    public void APositionOutsideTheSequenceHasNoWindow(long position) =>
+        Assert.That(Identifications.SequenceWindow("MKLAAEGSDCIMLK", position), Is.Null);
+
+    [Test]
+    public void AnAccessionWithoutOneSequenceHasNoWindow()
+    {
+        var sequences = Keratin();
+        sequences.KeepSearched(null);  // K1 ambiguous: no sequence
+        var sites = new List<DataRepo.Bundle.Row>
+        {
+            new() { ["protein_accession"] = "K1", ["position"] = 8L },
+            new() { ["protein_accession"] = "P2", ["position"] = 5L },
+            new() { ["protein_accession"] = "NONE", ["position"] = 1L },
+        };
+        Identifications.AddSequenceWindows(sites, sequences);
+        Assert.That(sites.Select(s => s["sequence_window"]), Is.EqualTo(new object?[] { null, "___MPEPCIDEKW__", null }));
+    }
+
+    /// <summary>A split deposit's search is its own dataset, and its spectra are still the deposit's (G95).</summary>
+    [TestCase("PXD073999", "PXD073999")]
+    [TestCase("PXD073999-g2", "PXD073999")]
+    [TestCase("MSV000012345-part_b", "MSV000012345")]
+    public void AUsiNamesTheDepositsAccession(string datasetId, string accession) =>
+        Assert.That(Usi.Mint(datasetId, "run1", 7, "PEPTIDE", 2), Is.EqualTo($"mzspec:{accession}:run1:scan:7:PEPTIDE/2"));
+
     // ---------------------------------------------------------------- G26: modifications from mzLib's own loaders
 
     /// <summary>A MetaMorpheus install holding only <c>Mods/</c> files, written in MetaMorpheus's own format.</summary>

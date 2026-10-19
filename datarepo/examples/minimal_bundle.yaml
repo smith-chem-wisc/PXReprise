@@ -32,6 +32,7 @@ runs:
     qc_pass: true
 assays:
   - assay_id: "PXD036557:file01:label_free"
+    assay_kind: run
     run_id: "PXD036557:file01"
     channel: label_free
     sample_id: "PXD036557:donor01"

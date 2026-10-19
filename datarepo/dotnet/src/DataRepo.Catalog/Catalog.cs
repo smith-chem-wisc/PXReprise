@@ -2046,7 +2046,7 @@ public static partial class CatalogBuilder
     private static Dictionary<string, long> LoadTables(DuckDBConnection con, IReadOnlyList<BundleRef> bundles, bool views = false)
     {
         var rowCounts = new Dictionary<string, long>(StringComparer.Ordinal);
-        foreach (var spec in Tables.Core)
+        foreach (var spec in SchemaContract.CoreTables)
         {
             var table = spec.Name;
             if (Runner.EngineTables.ContainsKey(table)) continue;  // never in a bundle; filled from artefacts
@@ -2409,7 +2409,7 @@ public static partial class CatalogBuilder
     {
         var checks = new List<CatalogCheck>();
         // A table left in the bundles was checked by its ingest and is not here to re-check.
-        foreach (var (table, column) in Integrity.Identifiers.Where(i => !LeftInBundles.Contains(i.Table)))
+        foreach (var (table, column) in Integrity.Identifiers.Where(i => !LeftInBundles.Contains(i.Table) && SchemaContract.TableInForce(i.Table)))
         {
             var (duplicates, example) = CountAndExample(con,
                 $"SELECT count(*), min(k) FROM (SELECT \"{column}\" AS k FROM \"{table}\" "
@@ -2418,8 +2418,10 @@ public static partial class CatalogBuilder
                 duplicates == 0 ? null : $"e.g. {PyStr(example)}"));
         }
 
+        // A table added after the schema in force (a parity catalog's) is not in the catalog to check.
         foreach (var (table, column, target, targetColumn) in Integrity.References
-                     .Where(r => !LeftInBundles.Contains(r.Table) && !LeftInBundles.Contains(r.Target)))
+                     .Where(r => !LeftInBundles.Contains(r.Table) && !LeftInBundles.Contains(r.Target)
+                                 && SchemaContract.TableInForce(r.Table) && SchemaContract.TableInForce(r.Target)))
         {
             var isList = column.EndsWith("[]", StringComparison.Ordinal);
             var name = isList ? column[..^2] : column;
@@ -2640,7 +2642,7 @@ public static partial class CatalogBuilder
         }
 
         Exec(con, "CREATE TABLE catalog_tables (table_name VARCHAR, rows BIGINT, kind VARCHAR)");
-        foreach (var spec in Tables.Core.Where(t => !LeftInBundles.Contains(t.Name)))
+        foreach (var spec in SchemaContract.CoreTables.Where(t => !LeftInBundles.Contains(t.Name)))
         {
             var name = spec.Name;
             var kind = Runner.EngineTables.TryGetValue(name, out var engine) ? $"engine:{engine}"

@@ -1,34 +1,41 @@
-Fixed modifications
-ID   Carbamidomethyl on C
+ID   Carbamidomethyl
 TG   C
 PP   Anywhere.
-CF   H3 C2 N O
+MT   Common Fixed
+CF   C2H3N1O1
 DR   Unimod; 4.
 //
-ID   Oxidation on M
+ID   Oxidation
 TG   M
 PP   Anywhere.
+MT   Common Variable
 CF   O1
 DR   Unimod; 35.
 //
 ID   Hydroxylation
 TG   K or N
 PP   Anywhere.
+MT   Common Biological
 CF   O1
 DR   Unimod; 35.
 //
 ID   Ammonia loss
 TG   C or N
 PP   Anywhere.
+MT   Common Artifact
+CF   H-3 N-1
 DR   Unimod; 385.
 //
 ID   Deamidation
 TG   N or Q
 PP   Anywhere.
+MT   Common Artifact
+CF   H-1 N-1 O1
 DR   Unimod; 7.
 //
 ID   Calcium
 TG   D or E
 PP   Anywhere.
+MT   Metal
 MM   37.946941
 //

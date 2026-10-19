@@ -52,9 +52,19 @@ public static class Usi
         return name;
     }
 
-    /// <summary>A USI for one PSM: <c>mzspec:&lt;dataset&gt;:&lt;run&gt;:scan:&lt;scan&gt;:&lt;proforma&gt;/&lt;charge&gt;</c>.</summary>
+    /// <summary>A USI for one PSM: <c>mzspec:&lt;accession&gt;:&lt;run&gt;:scan:&lt;scan&gt;:&lt;proforma&gt;/&lt;charge&gt;</c>.</summary>
+    /// <remarks>The deposit's accession, which is what PRIDE resolves: one search of a split deposit is the dataset
+    /// <c>&lt;accession&gt;-&lt;group&gt;</c> (G95), and its spectra are still the deposit's.</remarks>
     public static string Mint(string datasetId, string runName, long scan, string proforma, long charge) =>
-        $"mzspec:{datasetId}:{runName}:scan:{scan}:{proforma}/{charge}";
+        $"mzspec:{DepositAccession(datasetId)}:{runName}:scan:{scan}:{proforma}/{charge}";
+
+    /// <summary>The deposit a dataset id names: the id itself, or for a split deposit's search
+    /// (<c>&lt;accession&gt;-&lt;group&gt;</c>, G95) the part before the <c>-</c>. An accession holds none.</summary>
+    public static string DepositAccession(string datasetId)
+    {
+        var dash = datasetId.IndexOf('-');
+        return dash < 0 ? datasetId : datasetId[..dash];
+    }
 }
 
 /// <summary>Maps the names a search reports onto the run ids of deposited files.</summary>

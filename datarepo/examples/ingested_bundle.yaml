@@ -6,10 +6,12 @@
 #   linkml-validate -s schema/datarepo.yaml -C Bundle examples/ingested_bundle.yaml
 assays:
 - assay_id: PXD999999:QE-002106_GM1_a:label_free
+  assay_kind: run
   run_id: PXD999999:QE-002106_GM1_a
   channel: label_free
   sample_id: PXD999999:PXD999999-Sample-1
 - assay_id: PXD999999:QE-002107_GM1_b:label_free
+  assay_kind: run
   run_id: PXD999999:QE-002107_GM1_b
   channel: label_free
   sample_id: PXD999999:PXD999999-Sample-2
@@ -166,6 +168,7 @@ peptidoforms:
   - P68363
   - Q71U36
   is_unique: false
+  is_isoform_specific: false
   engine_full_sequences:
   - AVFVDLEPTVIDEVR
 - peptidoform_id: PXD999999:C[UNIMOD:4]PETLFQPSFIGMESAGIHETTYNSIMK
@@ -180,6 +183,7 @@ peptidoforms:
   protein_accessions:
   - P68032
   is_unique: true
+  is_isoform_specific: true
   engine_full_sequences:
   - C[Common Fixed:Carbamidomethyl on C]PETLFQPSFIGMESAGIHETTYNSIMK
 - peptidoform_id: PXD999999:DDEAAAVALSSLIHALDDLDMVAIVR
@@ -194,6 +198,7 @@ peptidoforms:
   protein_accessions:
   - P13010
   is_unique: true
+  is_isoform_specific: true
   engine_full_sequences:
   - DDEAAAVALSSLIHALDDLDMVAIVR
 - peptidoform_id: PXD999999:DDISVEALQEQLTSVVQEIGHLIDPIATAAR
@@ -208,6 +213,7 @@ peptidoforms:
   protein_accessions:
   - Q9Y4G6
   is_unique: true
+  is_isoform_specific: true
   engine_full_sequences:
   - DDISVEALQEQLTSVVQEIGHLIDPIATAAR
 - peptidoform_id: PXD999999:EAPADMGAHQGVAVLGIALIAMGEEIGAEMALR
@@ -222,6 +228,7 @@ peptidoforms:
   protein_accessions:
   - Q13200
   is_unique: true
+  is_isoform_specific: true
   engine_full_sequences:
   - EAPADMGAHQGVAVLGIALIAMGEEIGAEMALR
 protein_groups:
@@ -501,6 +508,7 @@ ptm_sites:
   best_ambiguity_level: '1'
   n_psms: 1
   best_q_value: 0.000369
+  sequence_window: NEQSPTRCTLEAGAM
 - ptm_site_id: PXD999999:O75396:C52:Carbamidomethyl on C
   dataset_id: PXD999999
   protein_accession: O75396
@@ -513,6 +521,7 @@ ptm_sites:
   best_ambiguity_level: '1'
   n_psms: 1
   best_q_value: 0.000369
+  sequence_window: NEQSPTRCTLEAGAM
 - ptm_site_id: PXD999999:O75396:C70:Carbamidomethyl on C
   dataset_id: PXD999999
   protein_accession: O75396
@@ -525,6 +534,7 @@ ptm_sites:
   best_ambiguity_level: '1'
   n_psms: 1
   best_q_value: 0.000369
+  sequence_window: YIIEQGVCYLVLCEA
 - ptm_site_id: PXD999999:O75396:C75:Carbamidomethyl on C
   dataset_id: PXD999999
   protein_accession: O75396
@@ -537,6 +547,7 @@ ptm_sites:
   best_ambiguity_level: '1'
   n_psms: 1
   best_q_value: 0.000369
+  sequence_window: GVCYLVLCEAAFPKK
 - ptm_site_id: PXD999999:P00761:K77:N6,N6-dimethyllysine on K
   dataset_id: PXD999999
   protein_accession: P00761
@@ -548,6 +559,7 @@ ptm_sites:
   best_ambiguity_level: '1'
   n_psms: 2
   best_q_value: 0.000369
+  sequence_window: EQFINAAKIITHPNF
 ptm_stoichiometry:
 - ptm_site_id: PXD999999:P68363:C129:Carbamidomethyl on C
   assay_id: PXD999999:QE-002106_GM1_a:label_free
@@ -651,6 +663,8 @@ runs:
   run_minutes: 90.0
   qc_pass: true
   instrument_model: Q Exactive Plus
+  instrument_model_source: sdrf
+  instrument_model_accession: MS:1002634
   enrichment:
   - none
   enrichment_source: dataset_declaration
@@ -667,6 +681,8 @@ runs:
   run_minutes: 90.0
   qc_pass: true
   instrument_model: Q Exactive Plus
+  instrument_model_source: sdrf
+  instrument_model_accession: MS:1002634
   enrichment:
   - none
   enrichment_source: dataset_declaration

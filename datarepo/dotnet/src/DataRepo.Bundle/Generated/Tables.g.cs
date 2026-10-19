@@ -5,7 +5,7 @@ namespace DataRepo.Bundle;
 public static partial class Tables
 {
     /// <summary>The core schema's version.</summary>
-    public const string SchemaVersion = "0.0.15";
+    public const string SchemaVersion = "0.0.16";
 
     /// <summary>The core tables, in the schema's order.</summary>
     public static readonly IReadOnlyList<TableSpec> Core =
@@ -116,9 +116,18 @@ public static partial class Tables
         new TableSpec("assays", "Assay",
         [
             new ColumnSpec("assay_id", ColumnType.String, IsList: false, Nullable: false),
-            new ColumnSpec("run_id", ColumnType.String, IsList: false, Nullable: false),
+            new ColumnSpec("assay_kind", ColumnType.String, IsList: false, Nullable: false),
+            new ColumnSpec("run_id", ColumnType.String, IsList: false, Nullable: true),
             new ColumnSpec("channel", ColumnType.String, IsList: false, Nullable: false),
             new ColumnSpec("sample_id", ColumnType.String, IsList: false, Nullable: false),
+            new ColumnSpec("design_label", ColumnType.String, IsList: false, Nullable: true),
+        ]),
+        new TableSpec("assay_runs", "AssayRun",
+        [
+            new ColumnSpec("assay_id", ColumnType.String, IsList: false, Nullable: false),
+            new ColumnSpec("run_id", ColumnType.String, IsList: false, Nullable: false),
+            new ColumnSpec("fraction", ColumnType.Int64, IsList: false, Nullable: true),
+            new ColumnSpec("technical_replicate", ColumnType.Int64, IsList: false, Nullable: true),
         ]),
         new TableSpec("psms", "Psm",
         [
@@ -208,6 +217,7 @@ public static partial class Tables
             new ColumnSpec("localization_score", ColumnType.Float64, IsList: false, Nullable: true),
             new ColumnSpec("n_psms", ColumnType.Int64, IsList: false, Nullable: true),
             new ColumnSpec("best_q_value", ColumnType.Float64, IsList: false, Nullable: true),
+            new ColumnSpec("sequence_window", ColumnType.String, IsList: false, Nullable: true),
         ]),
         new TableSpec("ptm_stoichiometry", "PtmStoichiometry",
         [

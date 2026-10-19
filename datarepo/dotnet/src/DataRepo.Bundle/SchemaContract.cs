@@ -35,15 +35,46 @@ public static class SchemaContract
         ("0.0.15", "runs", "instrument_model_accession"),
         ("0.0.15", "runs", "instrument_serial"),
         ("0.0.15", "runs", "acquisition_start_local"),
+        ("0.0.16", "assays", "assay_kind"),
+        ("0.0.16", "assays", "design_label"),
+        ("0.0.16", "ptm_sites", "sequence_window"),
     ];
+
+    /// <summary>Every core table added after Python 0.32.0's schema 0.0.13, with the version that added it.</summary>
+    /// <remarks>A parity bundle or catalog holds exactly the tables Python wrote, so a table added since is not even
+    /// created empty there. Add a table's entry in the commit that adds the table.</remarks>
+    public static readonly IReadOnlyList<(string Version, string Table)> AddedTables =
+    [
+        ("0.0.16", "assay_runs"),
+    ];
+
+    /// <summary>False for a core table added after the schema version in force here; true for any other name.</summary>
+    public static bool TableInForce(string table)
+    {
+        var at = System.Version.Parse(Version);
+        return !AddedTables.Any(a => a.Table == table && System.Version.Parse(a.Version) > at);
+    }
+
+    /// <summary>The core tables under the schema version in force here (<see cref="Version"/>), in the schema's
+    /// order: <see cref="Tables.Core"/> less any table added after it.</summary>
+    public static IReadOnlyList<TableSpec> CoreTables
+    {
+        get
+        {
+            var at = System.Version.Parse(Version);
+            var later = AddedTables.Where(a => System.Version.Parse(a.Version) > at).Select(a => a.Table).ToHashSet(StringComparer.Ordinal);
+            return later.Count == 0 ? Tables.Core : Tables.Core.Where(t => !later.Contains(t.Name)).ToList();
+        }
+    }
 
     /// <summary>Every core column that was required in Python 0.32.0's schema and is optional since, with the version
     /// that relaxed it. A parity bundle writes it as required, as Python did (the Parquet field's nullability).</summary>
     /// <remarks>provenance_schema: a record stating no schema was stored as the text "None", a value it never wrote
-    /// (G83 item 16); from 0.0.15 it is NULL.</remarks>
+    /// (G83 item 16); from 0.0.15 it is NULL. assays.run_id: NULL from 0.0.16 for a pooled design sample (PXR-R23).</remarks>
     public static readonly IReadOnlyList<(string Version, string Table, string Column)> RelaxedColumns =
     [
         ("0.0.15", "provenance_records", "provenance_schema"),
+        ("0.0.16", "assays", "run_id"),
     ];
 
     /// <summary>The table's columns as schema <paramref name="version"/> has them, in the schema's order.</summary>

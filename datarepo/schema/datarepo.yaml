@@ -18,7 +18,7 @@
 id: https://w3id.org/datarepo/core
 name: datarepo
 title: dataRepo core schema
-version: 0.0.15
+version: 0.0.16
 license: https://creativecommons.org/licenses/by/4.0/
 description: >-
   Generic core schema for an AI-ready repository of reanalyzed public proteomics datasets:
@@ -233,6 +233,13 @@ enums:
       glycopeptide:
       proteoform:
       protein:
+  AssayKind:
+    description: >-
+      What one assay measures (PXR-R23, QuantProject DATAREPO-D4/D6; added in schema 0.0.16). Count runs with
+      `assay_kind = 'run'`: a pooled sample is an assay too.
+    permissible_values:
+      run: {description: "One run's channel: one raw file, label-free or one reporter channel. Every assay before schema 0.0.16 is one."}
+      design_sample: {description: "One sample of the search's experimental design that spans several files (fractions or technical replicates), whose protein-group values and occupancy MetaMorpheus computed over all of them. It has no single run; `assay_runs` lists the files it pools."}
   OccupancyGrouping:
     description: >-
       What an occupancy denominator was accumulated over (QuantProject DEF-OCC-GROUPING). Nothing in
@@ -355,7 +362,7 @@ classes:
     description: One reanalyzed public dataset.
     annotations: {qpx_view: dataset}
     attributes:
-      dataset_id: {identifier: true, pattern: "^(PXD|MSV|JPST|IPX)[0-9]+$", description: "ProteomeXchange accession, e.g. PXD036557."}
+      dataset_id: {identifier: true, pattern: "^(PXD|MSV|JPST|IPX)[0-9]+(-[A-Za-z0-9][A-Za-z0-9_]*)?$", description: "ProteomeXchange accession, e.g. PXD036557. One deposit searched in several parts (PXReprise's split deposits, G95) has one dataset per search, keyed `<accession>-<group>` (schema 0.0.16); a deposit's only search keeps the bare accession. A USI always names the bare accession, which is what PRIDE holds."}
       title: {description: "Title from the archive."}
       organisms: {range: uriorcurie, multivalued: true, required: true, description: "NCBITaxon IDs of the protein DATABASE the search used, as the producer declares it. Not a statement about the samples: PXD050351's title says mice and it is a human cell line, and this field can say only which proteome was searched (aging 070 57g). Sample annotation, where any exists, is in `samples` and `sample_characteristics`."}
       acquisition: {range: Acquisition, required: true, description: "Acquisition mode."}
@@ -409,7 +416,7 @@ classes:
       value: {required: true, description: "Value as written in the SDRF, including a reserved word such as `not available` (see `value_reserved`)."}
       value_reserved: {range: boolean, required: true, description: "True when the cell is an SDRF reserved word (`not available`, `not applicable`, `unknown`, `none`, `na`, `n/a`): the column was ASKED and no value was given. It is what separates 'asked, not available' from 'never asked' (G42), which is no row at all. Filter it out before counting values: a reserved cell is not an annotation."}
       term: {range: uriorcurie, description: "Ontology term for the value, where the SDRF gives one."}
-      source: {description: "Where this value came from, per the SDRF's own `comment[<name> source]` column or, failing that, its row default `comment[characteristics source]` (G62): sdrf's vocabulary, verbatim (D31 grain, sdrf 010-017): deposited, pride project record, config, curated, inferred, default (a value nothing established, e.g. a replicate of 1), publication (read from the paper or a supplement). Not an enum here: the words are sdrf's, and a new one must not fail an ingest. A reserved word such as `not applicable` is kept as written (G75). NULL only when the SDRF records no source, which is every deposited SDRF; never assumed to be `deposited`."}
+      source: {description: "Where this value came from, per the SDRF's own `comment[<name> source]` column or, failing that, its row default `comment[characteristics source]` (G62): sdrf's vocabulary, verbatim (D31 grain, sdrf 010-017): deposited, pride project record, massive dataset record (a MassIVE deposit's record, as `pride project record` is a PRIDE one's; sdrf 029, from schema 0.0.16), config, curated, inferred, default (a value nothing established, e.g. a replicate of 1), publication (read from the paper or a supplement). Not an enum here: the words are sdrf's, and a new one must not fail an ingest. A reserved word such as `not applicable` is kept as written (G75). NULL only when the SDRF records no source, which is every deposited SDRF; never assumed to be `deposited`."}
       source_reference: {description: "Where exactly, when the SDRF says (`comment[<name> source reference]`, SDRF-DR11): a locator such as `mmc2.xlsx!Sheet1!R14C3` or a PMCID with its section. Verbatim; NULL when absent."}
       source_method: {description: "How a `publication` value was read, when the SDRF says (`comment[<name> source method]`, sdrf 019): `rules` (a deterministic reader), `curator` (a person typed it into the evidence file) or `model`. Verbatim; NULL when absent. Measure `model` values separately before trusting them like the others: on sdrf's 39-deposit benchmark every gain in agreement came from model claims."}
 
@@ -423,7 +430,7 @@ classes:
       sha256: {description: "SHA-256 of the file that was searched."}
       pride_checksum_sha1: {description: "Checksum published by the archive, for comparison with sha256 (F6)."}
       fraction: {range: integer, description: "Fraction identifier from the SDRF. A drafted SDRF writes 1 when nothing established it; read `fraction_source` before treating 1 as 'not fractionated'."}
-      fraction_source: {description: "Where the SDRF's fraction came from (`comment[fraction identifier source]`, SDRF-DR10): sdrf's vocabulary, verbatim (D31 grain, sdrf 010-017): deposited, pride project record, config, curated, inferred, default (a value nothing established, e.g. a replicate of 1), publication (read from the paper or a supplement). Not an enum here: the words are sdrf's, and a new one must not fail an ingest. A reserved word is kept as written (G75). NULL only when the SDRF does not say, which is every deposited SDRF and every draft written before sdrf adds the column."}
+      fraction_source: {description: "Where the SDRF's fraction came from (`comment[fraction identifier source]`, SDRF-DR10): sdrf's vocabulary, verbatim (D31 grain, sdrf 010-017): deposited, pride project record, massive dataset record (a MassIVE deposit's record, as `pride project record` is a PRIDE one's; sdrf 029, from schema 0.0.16), config, curated, inferred, default (a value nothing established, e.g. a replicate of 1), publication (read from the paper or a supplement). Not an enum here: the words are sdrf's, and a new one must not fail an ingest. A reserved word is kept as written (G75). NULL only when the SDRF does not say, which is every deposited SDRF and every draft written before sdrf adds the column."}
       technical_replicate: {range: integer, description: "Technical replicate number."}
       technical_replicate_source: {description: "Where the SDRF's technical replicate came from (`comment[technical replicate source]`, SDRF-DR10). Same vocabulary and NULL rule as `fraction_source`."}
       fragmentation: {multivalued: true, description: "HCD, EThcD, ETD… (T10)."}
@@ -441,13 +448,33 @@ classes:
 
   Assay:
     description: >-
-      One (run, channel) measurement of one sample. Label-free: one assay per run, channel
-      "label_free". TMT: one per reporter channel. The unit every quantity attaches to (D5).
+      The unit every quantity attaches to (D5). Of two kinds (`assay_kind`, schema 0.0.16, PXR-R23). A `run` assay
+      is one (run, channel) measurement of one sample: label-free, one per run with channel "label_free"; TMT, one
+      per reporter channel. A `design_sample` assay is one sample of the search's experimental design that spans
+      several files (fractions or technical replicates): MetaMorpheus computes that sample's protein-group values
+      and occupancy over all its files, so they belong to no single run, and they are stored against this assay
+      and never split onto runs. `assay_runs` lists the files it pools. COUNT RUNS WITH `assay_kind = 'run'`; a
+      join of assays to `runs` drops the pooled assays (their `run_id` is NULL), so per-run queries answer as
+      before. Join `quant_values` to `assays` on `assay_id` to get the `sample_id` of every value, one-file or pooled.
     attributes:
-      assay_id: {identifier: true, description: "<run_id>:<channel>"}
-      run_id: {range: Run, required: true, description: "Raw file this row belongs to."}
+      assay_id: {identifier: true, description: "`<run_id>:<channel>` for a run's assay; `<dataset_id>:design:<label>` for a pooled design sample, e.g. `PXD047289:design:aged_9`."}
+      assay_kind: {range: AssayKind, required: true, description: "`run` or `design_sample`. Added in schema 0.0.16; every assay written before is a `run`."}
+      run_id: {range: Run, description: "Raw file this assay belongs to. NULL exactly when `assay_kind = design_sample`: a pooled sample has no single run, so a true value does not exist (relaxed from required in schema 0.0.16)."}
       channel: {required: true, description: "label_free, or the reporter / label channel (e.g. TMT126)."}
-      sample_id: {range: Sample, required: true, description: "Sample measured in this assay."}
+      sample_id: {range: Sample, required: true, description: "Sample measured in this assay: the SDRF sample, for both kinds. A pooled assay is written only when its design sample's files are exactly one SDRF sample's files, so this is that sample."}
+      design_label: {description: "MetaMorpheus's column label `{condition}_{biorep}`, verbatim, for every assay whose protein-group values were placed through the search's experimental design: a pooled sample, or a sample of one file, which stays on its run's assay. Its protein-group values are then that search's SAMPLE values: they come out of one median polish over the design's samples, so a search of the same files without a design could give another number (QuantProject 048). NULL when the protein-group table was per run. Added in schema 0.0.16."}
+
+  AssayRun:
+    description: >-
+      The files a pooled assay (`assay_kind = design_sample`) pools: one row per (assay, run), with the design's
+      `Fraction` and `Techrep` as the search's `ExperimentalDesign.tsv` wrote them (PXR-R23, schema 0.0.16). The
+      design itself is a source of the bundle and in its id, so the values stay tied to the design they hold for.
+      A `run` assay has no rows here.
+    attributes:
+      assay_id: {range: Assay, required: true, description: "The pooled assay."}
+      run_id: {range: Run, required: true, description: "One raw file it pools."}
+      fraction: {range: integer, description: "The design's `Fraction` for this file, as written."}
+      technical_replicate: {range: integer, description: "The design's `Techrep` for this file, as written."}
 
   # ---- identifications ----------------------------------------------------------------------
   Psm:
@@ -547,6 +574,7 @@ classes:
       localization_score: {range: float, description: "Producer's modification-localization score. Null for an ordinary GPTMD hit, which MetaMorpheus does not localize -- absence here means the producer computed none, not that the site is unlocalized, and a caller asking whether a site is confidently localized should be refused rather than given an empty cell."}
       n_psms: {range: integer, description: "Accepted PSMs that placed this site, at any ambiguity level and including contaminant PSMs. This is evidence depth for the site, and it is the measure the producer's occupancy denominator is built from, so it deliberately counts more broadly than a level-1 target-only view would."}
       best_q_value: {range: float, minimum_value: 0, maximum_value: 1, description: "Lowest q-value among the supporting PSMs."}
+      sequence_window: {description: "The site in its protein: 15 characters, the residue the site is keyed on at the centre and 7 on each side, `_` past either end of the sequence (ptmQtl DATAREPO-P30; schema 0.0.16). Taken from the accession's own searched sequence (an isoform its own); a terminal site takes the window of the residue it sits on. Two sites in different datasets, or of different accessions, are the same place only where their windows agree, which is what pooling across searches joins on. NULL when the searched databases give the accession no one sequence: none, or several of which the search's held one this ingest cannot name (G101)."}
 
   PtmStoichiometry:
     description: >-
@@ -567,7 +595,7 @@ classes:
       never by the `|` segment's position (DEF-OCC-ACCESSION). Not stored for TMT or SILAC datasets.
     attributes:
       ptm_site_id: {range: PtmSite, required: true, description: "The site, keyed as `ptm_sites` keys it (the engine's own modification name). MetaMorpheus's position is converted to ours: equal for a residue, 0 -> 1 with `@protein_n_term`, Length + 1 -> Length with `@protein_c_term` (DEF-OCC-KEY)."}
-      assay_id: {range: Assay, required: true, description: "The run's (or sample group's) assay. With `denominator_grouping = run` it is that raw file's label-free assay."}
+      assay_id: {range: Assay, required: true, description: "The run's or the sample group's assay. With `denominator_grouping = run` it is that raw file's label-free assay; with `sample_group` it is a design sample of several files' pooled assay (`assay_kind = design_sample`, schema 0.0.16). The two bases combine a sample's files differently (QuantProject DATA-DEFINITIONS v3.10): `DEF-OCC-COUNT` pools the PSMs of all the sample's files into one numerator and one denominator; `DEF-OCC-INT` sums each file's intensity shares over the sample's files, from MS/MS-identified peptides only."}
       denominator_grouping: {range: OccupancyGrouping, required: true, description: "Whether the denominators on this row cover one run or a pooled sample group (DEF-OCC-GROUPING). Never compare the two."}
       sample_label: {required: true, description: "MetaMorpheus's own `<label>` from the column name, verbatim (e.g. `..._01-calib`), so a row round-trips to the file."}
       protein_group_id: {range: ProteinGroup, required: true, description: "The protein group whose cell the entry was written in."}
@@ -626,7 +654,7 @@ classes:
       counting rows (0.18.0).
     annotations: {qpx_view: feature}
     attributes:
-      assay_id: {range: Assay, required: true, description: "Assay (run x channel) this value was measured in."}
+      assay_id: {range: Assay, required: true, description: "The assay this value was measured in: a run's (run x channel), or, for a protein group of a design sample of several files, that sample's pooled assay (`assay_kind = design_sample`, schema 0.0.16). Peptidoform and PSM values are always a run's: no row of theirs names a pooled assay. A pooled protein-group value follows its definition, cited and never restated here: `DEF-PROT-INT` (per peptide, technical replicates averaged within a fraction, the strongest fraction kept, then the median polish) and `DEF-PROT-SPC` (summed over the sample's files), QuantProject DATA-DEFINITIONS v3.10. It is not what a statistics engine computes from per-file values; never compare or pool the two."}
       feature_type: {range: FeatureType, required: true, description: "Which table feature_id points into."}
       feature_id: {required: true, description: "ID in the table named by feature_type."}
       value: {range: float, description: "The quantity, IN THE UNITS OF ITS `definition_id` AND IN NO OTHER. This column holds several incommensurable quantities at once -- on aging's catalog, FlashLFQ intensities (median 1.2e6) and spectral counts (median 3) sit in the same column, separable only by `definition_id`. Always group or filter by `definition_id`; a median, sum or ratio taken across the bare column mixes units and is meaningless. An agent that did exactly that reported a spurious million-fold protein difference between two of aging's datasets, which is the grain rule (U8) broken inside a single column rather than between tables. Absent row or NA when not measured, never 0. A stored 0 is a measured zero and appears only for a definition that says so -- a spectral count (QuantProject:DEF-PROT-SPC); an intensity is never stored as 0. Count detections with `value > 0`, not by counting rows."}
@@ -916,6 +944,7 @@ classes:
       sample_characteristics: {range: SampleCharacteristic, multivalued: true, inlined_as_list: true, description: "Rows of the sample_characteristics table."}
       runs: {range: Run, multivalued: true, inlined_as_list: true, description: "Rows of the runs table."}
       assays: {range: Assay, multivalued: true, inlined_as_list: true, description: "Rows of the assays table."}
+      assay_runs: {range: AssayRun, multivalued: true, inlined_as_list: true, description: "Rows of the assay_runs table."}
       psms: {range: Psm, multivalued: true, inlined_as_list: true, description: "Rows of the psms table."}
       peptidoforms: {range: Peptidoform, multivalued: true, inlined_as_list: true, description: "Rows of the peptidoforms table."}
       protein_groups: {range: ProteinGroup, multivalued: true, inlined_as_list: true, description: "Rows of the protein_groups table."}

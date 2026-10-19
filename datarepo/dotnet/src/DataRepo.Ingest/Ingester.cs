@@ -453,6 +453,7 @@ public static class Ingester
         var unplaced = new OrderedDictionary<string, long>(StringComparer.Ordinal);
         var ptmSites = Identifications.PtmSiteRows(psmColumns, datasetId, proforma, sequences, unplaced);
         var siteCheck = Identifications.VerifySiteResidues(ptmSites, sequences);
+        if (rules == IngestRules.Current) Identifications.AddSequenceWindows(ptmSites, sequences);
 
         var peptideColumns = new Dictionary<string, List<object?>>(StringComparer.Ordinal);
         if (File.Exists(allPeptidesPath))
@@ -668,6 +669,13 @@ public static class Ingester
         findings.AddRange(SiteResidueFindings(siteCheck, datasetId));
 
         // --- assemble -------------------------------------------------------------------------------------
+        if (rules == IngestRules.Current)
+            // Schema 0.0.16 (PXR-R23): every assay so far is one run's; a pooled design sample says so itself.
+            foreach (var assay in assays)
+            {
+                assay.TryAdd("assay_kind", "run");
+                assay.TryAdd("design_label", null);
+            }
         writer.Add("datasets", [datasetRow]);
         writer.Add("samples", samples);
         writer.Add("sample_characteristics", characteristics);
