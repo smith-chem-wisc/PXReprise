@@ -96,6 +96,12 @@ public static class ChemistryDetector
     /// <summary>The wait of a deposit whose protease cuts almost anywhere (v0.4.19); the screen gives the same status to an immunopeptidome.</summary>
     public const string NonspecificCleavagePark = "waiting_nonspecific_cleavage";
 
+    /// <summary>The label of a deposit whose SDRF names a label we do not know, and nothing else settles it (v0.4.25).</summary>
+    public const string UnknownLabel = "unknown";
+
+    /// <summary>The wait of such a deposit: a person says what the label is (<see cref="DecisionsNeeded"/>).</summary>
+    public const string UnknownLabelPark = "waiting_unknown_label";
+
     /// <summary>
     /// The spellings each protease may have in the pinned mzLib, preferred first. mzLib #1186 (open) renames the |P
     /// variants, so the name is resolved through <see cref="ProteaseDictionary"/> at run time, never hard-coded.
@@ -264,6 +270,7 @@ public static class ChemistryDetector
         ("15n", new(@"\b15N\b", Opt)),
     };
     private static readonly Regex LabelFreeWords = new(@"label[- ]?free", Opt);
+    private static readonly Regex SpectralCounting = new(@"spectr(um|al) count", Opt);
 
     /// <summary>Dimethyl labelling in a deposit's words, shared with the screen: "dimethyl label(l)ed", "dimethyl isotope
     /// labeling", "dimethylation labeling", "reductive dimethylation", "stable isotope dimethyl". Never DiLeu's "N,N-dimethyl
@@ -440,14 +447,31 @@ public static class ChemistryDetector
 
         // Label: an SDRF's comment[label], else PRIDE's quantification methods, else an isotope-labelled dimethyl among
         // PRIDE's identified PTMs, else the text, else label-free.
+        // v0.4.25 (PXD022954, PXD022956): a community-annotated SDRF said "NT=isotope labeling;AC=PRIDE:0000310" on every row,
+        // a term that names no label, while PRIDE's record said MS1 label-free and spectrum counting; the deposit was parked
+        // under a status made of the cell's text. A label cell naming no label we know decides nothing: a curated SDRF, PRIDE's
+        // quantification methods (a label, or label-free), PRIDE's PTMs or the text decide, and with none of them the deposit
+        // waits for a person.
         ChemistryFact label;
         var quant = project?.QuantificationMethods.Select(q => q.Name).Where(n => !string.IsNullOrWhiteSpace(n)).ToList() ?? new List<string>();
         string? quantLabel = quant.Select(q => LabelIn(q, out _)).FirstOrDefault(l => l is not null);
+        var quantFree = quant.Where(q => LabelFreeWords.IsMatch(q) || SpectralCounting.IsMatch(q)).ToList();
         var dimethylPtms = pridePtms.Where(p => LabelledDimethylPtm.IsMatch(p)).ToList();
-        if (sdrfs.FirstOrDefault(s => s.Read.Label is not null) is { Read.Label: { } sl } sdrfLabel) label = new(sl, sdrfLabel.Source);
-        else if (quantLabel is not null) label = new(quantLabel, ChemistrySource.PrideQuant, string.Join("; ", quant));
-        else if (dimethylPtms.Count > 0) label = new("dimethyl", ChemistrySource.PridePtm, string.Join("; ", dimethylPtms));
-        else if (LabelIn(text, out string? ev) is { } tl) label = new(tl, ChemistrySource.ProtocolText, ev);
+        var sdrfLabel = sdrfs.FirstOrDefault(s => s.Read.Label is not null);
+        string? unrecognised = sdrfLabel.Read.Label is { } raw && Labels.All(l => l.Name != raw) ? raw : null;
+        string unrecognisedNote = unrecognised is null ? "" : $"; the SDRF's comment[label] \"{unrecognised}\" names no label";
+        if (sdrfLabel.Read.Label is { } sl && unrecognised is null) label = new(sl, sdrfLabel.Source);
+        else if (unrecognised is not null && curated is not null && sdrfLabel.Source != ChemistrySource.CuratedSdrf)
+            label = new("label_free", ChemistrySource.CuratedSdrf, "the curated SDRF names no label" + unrecognisedNote);
+        else if (quantLabel is not null) label = new(quantLabel, ChemistrySource.PrideQuant, string.Join("; ", quant) + unrecognisedNote);
+        else if (unrecognised is not null && quantFree.Count > 0) label = new("label_free", ChemistrySource.PrideQuant, string.Join("; ", quantFree) + unrecognisedNote);
+        else if (dimethylPtms.Count > 0) label = new("dimethyl", ChemistrySource.PridePtm, string.Join("; ", dimethylPtms) + unrecognisedNote);
+        else if (LabelIn(text, out string? ev) is { } tl) label = new(tl, ChemistrySource.ProtocolText, ev + unrecognisedNote);
+        else if (unrecognised is not null)
+        {
+            label = new(UnknownLabel, sdrfLabel.Source, unrecognised);
+            park ??= UnknownLabelPark;
+        }
         else label = new("label_free", ChemistrySource.Default);
 
         // Every protease name as the pinned mzLib spells it (ProteaseDictionary). A per-file map is searched through

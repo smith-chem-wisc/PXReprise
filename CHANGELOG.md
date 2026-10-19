@@ -7,6 +7,22 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.25 (2026-10-19)
+
+No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual. No profile change.
+
+- **An SDRF label that names no label no longer decides a deposit's label.**
+  - **The bug:** two community-annotated SDRFs said `NT=isotope labeling;AC=PRIDE:0000310` on every row, a term that
+    names no label, while PRIDE's own record said label-free (MS1 intensity, spectrum counting). 0.4.24 took the cell
+    as the label and parked both deposits under a status spelled from the cell's text, with no row in
+    `decisions_needed.tsv`.
+  - **The fix:** a label cell naming no label we know yields to a curated SDRF, then PRIDE's quantification methods (a
+    label, or label-free), PRIDE's identified PTMs and the text. With none of them, the deposit waits as
+    `waiting_unknown_label`, and `decisions_needed.tsv` asks a person what the label is.
+  - A label the SDRF does name (TMT, SILAC, dimethyl, ...) decides as before.
+- **To give such a deposit its look:** `pxreprise batch retry <question.toml> <PXD> --reason "..."`; a `waiting_`
+  status is otherwise settled.
+
 ## 0.4.24 (2026-10-18)
 
 No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual. No profile change.

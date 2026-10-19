@@ -188,6 +188,53 @@ public class ChemistryTests
         Assert.That(c.Label.Source, Is.EqualTo(ChemistrySource.PrideQuant), "a label-free SDRF label says nothing; PRIDE's TMT is next");
     }
 
+    // v0.4.25 (PXD022954, PXD022956): a community-annotated SDRF says "NT=isotope labeling;AC=PRIDE:0000310" on every row,
+    // while PRIDE's record says label-free. v0.4.24 took the cell as the label and parked the deposit under a status made of
+    // its text, with no decisions row.
+    private const string UnknownLabelCell = "NT=isotope labeling;AC=PRIDE:0000310";
+
+    private static SdrfDocument SdrfWithLabel(string name, string label) => new(TestSupport.WriteFile(TestSupport.TempDir(), name,
+        "source name\tcomment[data file]\tcomment[modification parameters]\tcomment[label]\n"
+        + $"s1\ta.raw\tNT=Carbamidomethyl;AC=UNIMOD:4;TA=C;MT=Fixed\t{label}\n"
+        + $"s2\tb.raw\tNT=Carbamidomethyl;AC=UNIMOD:4;TA=C;MT=Fixed\t{label}\n"));
+
+    [TestCase("MS1 intensity based label-free quantification method")]
+    [TestCase("Spectrum counting")]
+    public void AnSdrfLabelThatNamesNoLabelYieldsToPridesLabelFreeRecord(string quant)
+    {
+        var c = ChemistryDetector.Detect(Project("Proteins were digested with trypsin.", null, new[] { quant }), null,
+            SdrfWithLabel("d.sdrf.tsv", UnknownLabelCell), Files);
+        Assert.That((c.Label.Value, c.Label.Source, c.Park), Is.EqualTo(("label_free", ChemistrySource.PrideQuant, (string?)null)));
+        Assert.That(c.Label.Evidence, Does.Contain(quant).And.Contain(UnknownLabelCell).And.Contain("names no label"));
+    }
+
+    [Test]
+    public void AnSdrfLabelThatNamesNoLabelAndNothingElseWaitsForAPerson()
+    {
+        var c = ChemistryDetector.Detect(Project("Proteins were digested with trypsin."), null, SdrfWithLabel("d.sdrf.tsv", UnknownLabelCell), Files);
+        Assert.That((c.Label.Value, c.Label.Source, c.Label.Evidence, c.Park),
+            Is.EqualTo((ChemistryDetector.UnknownLabel, ChemistrySource.DepositedSdrf, UnknownLabelCell, ChemistryDetector.UnknownLabelPark)));
+        Assert.That(DecisionsNeeded.For(ChemistryDetector.UnknownLabelPark), Is.Not.Null, "D34: a person is told");
+    }
+
+    [Test]
+    public void ACuratedLabelFreeSdrfAnswersAnUnknownDepositedLabel()
+    {
+        var c = ChemistryDetector.Detect(Project("Proteins were digested with trypsin."), SdrfWithLabel("c.sdrf.tsv", "label free sample"),
+            SdrfWithLabel("d.sdrf.tsv", UnknownLabelCell), Files);
+        Assert.That((c.Label.Value, c.Label.Source, c.Park), Is.EqualTo(("label_free", ChemistrySource.CuratedSdrf, (string?)null)));
+    }
+
+    [Test]
+    public void AKnownSdrfLabelStillWinsAndAnUnknownOneYieldsToPridesNamedLabel()
+    {
+        var silac = ChemistryDetector.Detect(Project("x", null, new[] { "MS1 intensity based label-free quantification method" }), null,
+            SdrfWithLabel("s.sdrf.tsv", "SILAC heavy"), Files);
+        Assert.That((silac.Label.Value, silac.Label.Source), Is.EqualTo(("silac", ChemistrySource.DepositedSdrf)));
+        var tmt = ChemistryDetector.Detect(Project("x", null, new[] { "TMT" }), null, SdrfWithLabel("d.sdrf.tsv", UnknownLabelCell), Files);
+        Assert.That((tmt.Label.Value, tmt.Label.Source, tmt.Park), Is.EqualTo(("tmt", ChemistrySource.PrideQuant, (string?)null)));
+    }
+
     // Oracle 2026-10-05: MetaMorpheus's mod strings come from mzLib's lookups, never from a table of ours.
     [TestCase("UNIMOD:4", "Common Fixed\tCarbamidomethyl on C")]
     [TestCase("UNIMOD:108", "Unimod\tNethylmaleimide on C")]
