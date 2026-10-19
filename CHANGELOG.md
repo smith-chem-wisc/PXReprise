@@ -41,6 +41,14 @@ mid-batch?** Yes: swap the pin as usual. Without either table the batch runs exa
   - on the delivering machine: `assigned_to_worker`, `probed_by_worker` and `worker_fallback`;
   - on the prober: `handed_off`.
 - **New command `pxreprise worker sums|check|release`** ([Commands](docs/commands.md)).
+- **A profile may name a MetaMorpheus build by commit, not only by release:** `metamorpheus = "master@3a6a76632"`.
+  - A release is checked by its banner, as before. A commit build (MetaMorpheus's CI zip for every push to master)
+    prints "Not a release version." there, so it is checked by the commit its `--help` names instead.
+  - The pin's name keys the machine file's `[metamorpheus]` table, the settings folder and the spectral library
+    registry.
+  - Provenance records no release for a commit build.
+  - The probe checks the build too.
+  - No shipped profile changes: every one names a release.
 - **The manifest note names each extra database with its sha256 prefix,** for example
   `aging_isoforms_mouse.xml (sha 01e972ef51ed)`, taken from the search's own recorded inputs. A question's overlay can
   keep its name while its content changes, and the prefix tells the versions apart (the ageing project's request).
