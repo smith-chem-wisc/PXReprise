@@ -30,7 +30,7 @@ datarepo doctor                # what this build is, and whether an MCP server i
 `doctor` is the first thing to run on a new machine:
 
 ```
-datarepo 1.3.2  schema 0.0.15
+datarepo 1.3.3  schema 0.0.15
   runtime          .NET 10.0.10
   mzLib            1.0.593.0
   parquet          ParquetSharp 24.0.0.0
@@ -364,6 +364,12 @@ loader's own table is gap G26.
 `ptm_site_id` is `<dataset_id>:<accession>:<residue><position>:<modification_name>`, and the last
 component is the engine's own name for the modification, not its UNIMOD accession.
 
+That name can hold `:` itself, because Unimod names every isotope label that way (`NEM:2H(5) on C`,
+`Label:13C(6) on K`). So read a site's parts from its columns, never by splitting the key. Up to 1.3.2
+the ingest refused any such name as an unparsed token, and PXReprise's NEM-labelled deposits PXD011740
+and PXD010091 were refused for it (PXR-R21). Since 1.3.3 it refuses only a token that really did not
+parse as `Category:Name on X`. No bundle that 1.3.2 wrote changes.
+
 A key ending in the accession cannot be formed for a modification that has none, so those sites were
 not written as nulls -- they were not written. The evidence survived at PSM and peptidoform level,
 where the id comes from the sequence, and disappeared at site level. Across the three ingested
@@ -419,7 +425,7 @@ is what they have always effectively been. Asked as DATAREPO-26.
 ## Reproducing a bundle
 
 A bundle id is a hash of every input, the schema version and the ingest path's version
-(`BundleWriter.IngesterVersion`, `cs-1.1.0` in 1.1.0 to 1.3.2), so **two sites get the same bundle id exactly
+(`BundleWriter.IngesterVersion`, `cs-1.1.0` in 1.1.0 to 1.3.3), so **two sites get the same bundle id exactly
 when they would write the same rows**. To reproduce one:
 
 1. **Use the release that wrote it.** `bundle.json`'s `ingester.version` names the program's version

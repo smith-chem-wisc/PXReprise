@@ -4,6 +4,32 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [1.3.3] - 2026-10-19
+
+**A search whose modification names hold `:` ingests** (PXReprise PXR-R21), and **`build` removes what killed
+builds left behind** (aging DATAREPO-83 a). The ingest path stays `cs-1.1.0` and the schema 0.0.15, so **no
+re-ingest**: only inputs 1.3.2 refused change, so every bundle 1.3.2 writes keeps its id (D47). The catalog format
+stays 10. A catalog id hashes the program's version, so a rebuild on 1.3.3 gets a new id from the same bundles.
+
+### Fixed
+- **Unimod's isotope labels no longer refuse an ingest** (PXR-R21). Unimod names every isotope label with a `:`
+  (`NEM:2H(5)`, `Label:13C(6)`, `Dimethyl:2H(4)`), and 1.3.2 refused any modification name holding one, as if only an
+  unparsed token could. That held back PXReprise's NEM-labelled deposits PXD011740 and PXD010091. The name is the last
+  part of `ptm_site_id`, so a `:` in it leaves the key unambiguous. Now only a token that does not parse as
+  `Category:Name on X` is refused. Measured on both searches (scratch store): PXD011740 `fc49ca1c4a3f078c`, 647
+  `NEM:2H(5) on C` sites with 1,943 occupancy rows; PXD010091 `ed3e2de3811bb5d5`, 506 sites with 3,478. Their
+  `modification` (the UNIMOD accession) is NULL, because the registry does not yet read mzLib's Unimod names (G26).
+  `ptm_site_id`'s description says to take a site's parts from its columns, never by splitting the key.
+- **A killed build's staged catalog is removed by the next build** (DATAREPO-83 a). A build now records its process
+  beside the staged `.building` file. Every build first removes the staged files whose builder is no longer running,
+  and prints `removed` with the size. A file staged by 1.3.2 or earlier has no record: on Windows it is removed when
+  nothing holds it open, and elsewhere it is named in a `note` and left alone. A second build of the same catalog
+  while one runs is refused instead of deleting the first one's file under it.
+- **A catalog shorter than its own header says is caught** (aging 107). A build checks the written file's length
+  before moving it into place, and the MCP server checks it when it opens a catalog and refuses a short one by name.
+  Before, DuckDB opened such a file and failed only when a query reached the missing tail ("Reached the end of the
+  file").
+
 ## [1.3.2] - 2026-10-11
 
 **On Windows, `build` replaces a catalog that something is reading** (aging DATAREPO-78 and DATAREPO-81, PXReprise
