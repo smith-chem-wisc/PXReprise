@@ -4,6 +4,40 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [1.3.4] - 2026-10-19
+
+**A dataset's restrictions are served** (aging DATAREPO-74), and **the aging layer carries aging's curated design**
+(DATAREPO-79, amended by DATAREPO-82; layer 0.6.0). The ingest path stays `cs-1.1.0` and the schema 0.0.15, so **no
+re-ingest**: every bundle keeps its id. The catalog format moves to 11. **An aging study bundle written before 1.3.4
+is layer 0.5.0, and a 1.3.4 build refuses it: run `datarepo study` again before the first 1.3.4 publish.** The
+release adds features with a patch number on purpose: 1.4.0 names the coming re-ingest release.
+
+### Added
+- **`restrictions` in a manifest entry** (DATAREPO-74, aging 101): `{use: reason}` for a use the whole dataset is
+  unfit for. The uses are a fixed list (`protein_statistics`, `quantitation`, `age_analysis`, `any_analysis`,
+  `occupancy`, `cysteine`). Loading a manifest refuses any other key, and a use with no reason. The build writes them to
+  the new `dataset_restrictions` table and to a new `dataset_overview.restrictions` column. That column is empty when
+  the entry restricts nothing and NULL when the manifest has no entry for the dataset. The restrictions are hashed into
+  the catalog id, so a changed one needs only a rebuild. `datarepo manifest` lists them.
+- **`curated_run_design` and `curated_design_factors`** (DATAREPO-79): how aging curated each run's individual,
+  injection, fraction, pool size and batch, and each run's design factors. A factor's `role` is `condition` or
+  `stratum`, and an ordered factor carries `level_value` / `level_unit`. `is_reference` and `is_primary` are flags. A
+  number's reserved word goes in its `_reserved` companion, and `individual_reserved` is computed.
+  - `datarepo study` refuses a delivery that breaks a rule, naming it:
+    - a condition needs a reference level and another level, and no level may be both;
+    - a stratum needs two or more levels and no reference;
+    - `level` is never a reserved word (a run a factor does not concern has no row);
+    - `level_unit` is set exactly when `level_value` is;
+    - a factor keeps one role per dataset;
+    - every factor run is in `curated_run_design`.
+  - `build` refuses a run the catalog does not hold, and two runs of one sample with different factor rows.
+
+### Changed
+- `curated_sample_characteristics.name` is described as taking any SDRF header, `comment[...]` included
+  (DATAREPO-80). Nothing checked its form before either.
+- A Python 0.32.0 parity scope pins the study layers at Python's versions too (aging 0.5.0, without the new tables),
+  so parity catalogs and study bundles stay reproducible.
+
 ## [1.3.3] - 2026-10-19
 
 **A search whose modification names hold `:` ingests** (PXReprise PXR-R21), and **`build` removes what killed

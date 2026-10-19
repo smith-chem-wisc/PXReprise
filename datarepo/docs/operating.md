@@ -43,10 +43,10 @@ installed, and no .NET or Python is needed.
 | macOS, Intel | `datarepo-<version>-osx-x64.tar.gz` |
 
 ```bash
-mkdir -p /opt/datarepo-1.3.3 && cd /opt/datarepo-1.3.3
-curl -LO https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.3.3/datarepo-1.3.3-linux-x64.tar.gz
-tar -xzf datarepo-1.3.3-linux-x64.tar.gz          # tar keeps the executable bit; a zip would lose it
-/opt/datarepo-1.3.3/datarepo/datarepo doctor
+mkdir -p /opt/datarepo-1.3.4 && cd /opt/datarepo-1.3.4
+curl -LO https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.3.4/datarepo-1.3.4-linux-x64.tar.gz
+tar -xzf datarepo-1.3.4-linux-x64.tar.gz          # tar keeps the executable bit; a zip would lose it
+/opt/datarepo-1.3.4/datarepo/datarepo doctor
 ```
 
 Call the program by its path, put its folder on `PATH`, or point a tool at it (PXReprise's machine
@@ -56,7 +56,7 @@ unpacked folder. The commands, arguments and outputs are the ones in [cli.md](cl
 
 Three things depend on running a release:
 
-- **A bundle id hashes the ingest path's version** (`cs-1.1.0` in 1.1.0 to 1.3.3). A bundle written by code
+- **A bundle id hashes the ingest path's version** (`cs-1.1.0` in 1.1.0 to 1.3.4). A bundle written by code
   nobody released cannot be reproduced by anyone, so its id means nothing.
 - **`datarepo run` refuses a development build.** It records the exact build behind every engine
   output: the version and the commit the release was built from. A build that reports `0.0.0-dev`,
@@ -73,7 +73,7 @@ part of the catalog id, and the site's footer names it.
 the changes its [changelog](../CHANGELOG.md) lists (among them, `peptidoforms.is_unique` now means
 one gene in the searched sequences: see [limitations.md](limitations.md#6--unique-means-one-gene-in-the-searched-sequences)).
 Its first ingest path (`cs-1.0.0`) and schema 0.0.14 give every dataset a new bundle id, so
-re-ingest each dataset once with 1.0.0. 1.1.0 moves the schema to 0.0.15 (each run's start time and instrument), so a store written by 1.0.0 is re-ingested once more; an instance still on the Python package should go straight to 1.3.3. 1.2.0, 1.3.0, 1.3.1, 1.3.2 and 1.3.3 keep the ingest path `cs-1.1.0` and schema 0.0.15, so a store written by 1.1.0 needs no re-ingest: install 1.3.3, run the go engine (1.2.0) and register the orthology snapshot (1.3.0), and rebuild. 1.3.1 ingests the searches with an experimental design that 1.3.0 refused. 1.3.2 lets a reader of the catalog (an MCP server, a script) stay open while `build` replaces it on Windows. 1.3.3 ingests the searches 1.3.2 refused over a modification name holding `:` (Unimod's isotope labels, such as `NEM:2H(5)`), and a build removes the staged catalogs that killed builds left beside the output. `build` refuses a bundle written against schema 0.0.13 and
+re-ingest each dataset once with 1.0.0. 1.1.0 moves the schema to 0.0.15 (each run's start time and instrument), so a store written by 1.0.0 is re-ingested once more; an instance still on the Python package should go straight to 1.3.4. 1.2.0, 1.3.0, 1.3.1, 1.3.2, 1.3.3 and 1.3.4 keep the ingest path `cs-1.1.0` and schema 0.0.15, so a store written by 1.1.0 needs no re-ingest: install 1.3.4, run the go engine (1.2.0) and register the orthology snapshot (1.3.0), and rebuild. 1.3.1 ingests the searches with an experimental design that 1.3.0 refused. 1.3.2 lets a reader of the catalog (an MCP server, a script) stay open while `build` replaces it on Windows. 1.3.3 ingests the searches 1.3.2 refused over a modification name holding `:` (Unimod's isotope labels, such as `NEM:2H(5)`), and a build removes the staged catalogs that killed builds left beside the output. 1.3.4 serves a dataset's `restrictions` from the manifest and moves the aging study layer to 0.6.0 (its design tables), so an aging study bundle written before 1.3.4 is refused by the build until `datarepo study` writes it again. `build` refuses a bundle written against schema 0.0.13 and
 names it. A Python install is no longer needed for anything.
 
 ### Building from source
@@ -168,6 +168,22 @@ next `build` writes it to the catalog's `run_exclusions` table and moves the cat
 does not read it. `datarepo manifest` checks every name against the dataset's runs and exits `1` on
 one that is not a run, and `build` refuses such a name, so a misspelt exclusion never leaves the run
 it meant looking fit for analysis.
+
+A whole dataset that is unfit for some **use** gets a `restrictions` entry, one reason per use (aging
+DATAREPO-74):
+
+```yaml
+    restrictions:
+      protein_statistics: "5 of 10 runs under 400 PSMs; trypsin 15-35% of intensity"
+      occupancy: "a phospho pulldown inflates the modified form on purpose"
+```
+
+The uses are a fixed list: `protein_statistics`, `quantitation`, `age_analysis`, `any_analysis`,
+`occupancy` and `cysteine`. Loading the manifest refuses any other key, and a use with no reason,
+because a misspelt key would sit where no filter on the real one finds it. The dataset stays in every
+table. The next `build` writes the restrictions to `dataset_restrictions` and onto the dataset's
+`dataset_overview.restrictions`, and moves the catalog id, with no re-ingest. `datarepo manifest` lists
+them as `restricted <use>: <reason>`.
 
 The **discovery census** (every accession you screened, with its verdict) goes in a tab-separated file
 that the manifest names at the top level, relative to the manifest's folder or absolute:
