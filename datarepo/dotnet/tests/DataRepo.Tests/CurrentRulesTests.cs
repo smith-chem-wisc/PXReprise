@@ -173,6 +173,11 @@ public class CurrentRulesTests
             "comment[label]", "comment[instrument]", "comment[fraction identifier]", "comment[technical replicate]",
             "comment[data file]",
         ];
+        return WriteSdrfWith(header, rows);
+    }
+
+    private static string WriteSdrfWith(string[] header, params string[][] rows)
+    {
         var dir = Path.Combine(Path.GetTempPath(), "datarepo-g83-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         var path = Path.Combine(dir, "t.sdrf.tsv");
@@ -229,6 +234,104 @@ public class CurrentRulesTests
     {
         var path = WriteSdrf(["s1", "homo sapiens", cell, "a1", "label free sample", "NT=Q Exactive", cell, cell, "run1.raw"]);
         Assert.That(Sdrf.Parse(path, "PXD1", rules: IngestRules.Current).RunFacts["run1"]["fraction"], Is.EqualTo(value));
+    }
+
+    // ---------------------------------------------------------------- G106: one source name, rows that disagree
+
+    private static readonly string[] SampleHeader =
+    [
+        "source name", "characteristics[organism]", "characteristics[age]", "characteristics[individual]",
+        "comment[age source]", "comment[characteristics source]", "comment[fraction identifier]",
+        "comment[fraction identifier source]", "comment[data file]",
+    ];
+
+    private static string? Characteristic(SdrfTable table, string sampleId, string name) =>
+        (string?)table.Characteristics.SingleOrDefault(c => (string)c["sample_id"]! == sampleId && (string)c["name"]! == name)?["value"];
+
+    /// <summary>PXD012307's shape: two animals, 24 and 3 months old, written as one source name over 4 files.</summary>
+    [Test]
+    public void ACellTheRowsDisagreeOnHasNoValue()
+    {
+        var path = WriteSdrfWith(SampleHeader,
+            ["Sample 1", "mus musculus", "24M", "old_14", "", "", "1", "deposited", "a.raw"],
+            ["Sample 1", "mus musculus", "24M", "old_14", "", "", "2", "deposited", "b.raw"],
+            ["Sample 1", "mus musculus", "3M", "young_11", "", "", "1", "drafted", "c.raw"],
+            ["Sample 1", "mus musculus", "3M", "young_11", "", "", "2", "drafted", "d.raw"]);
+        var current = Sdrf.Parse(path, "PXD1", rules: IngestRules.Current);
+        var python = Sdrf.Parse(path, "PXD1", rules: IngestRules.Python0320);
+        var sample = current.Samples.Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(Characteristic(current, "PXD1:Sample 1", "characteristics[age]"), Is.Null, "no row's age is the sample's");
+            Assert.That(Characteristic(current, "PXD1:Sample 1", "characteristics[individual]"), Is.Null);
+            Assert.That(sample["individual_id"], Is.Null, "the typed column read from the cell is NULL too");
+            Assert.That(Characteristic(current, "PXD1:Sample 1", "characteristics[organism]"), Is.EqualTo("mus musculus"), "agreeing rows keep it");
+            Assert.That(sample["organism"], Is.EqualTo("NCBITaxon:10090"));
+            Assert.That(current.Conflicts.Select(c => c.Column),
+                Is.EqualTo(new[] { "characteristics[age]", "characteristics[individual]" }),
+                "a fraction is the file's, so rows differing there are no conflict");
+            var age = current.Conflicts[0];
+            Assert.That(age.SampleId, Is.EqualTo("PXD1:Sample 1"));
+            Assert.That(age.Values.Select(v => v.Value), Is.EqualTo(new[] { "24M", "3M" }));
+            Assert.That(age.Values.Select(v => string.Join(",", v.Runs)), Is.EqualTo(new[] { "a,b", "c,d" }), "each value names its rows' runs");
+            Assert.That(current.Assays, Has.Count.EqualTo(4), "every file is still an assay of the sample");
+            Assert.That(Characteristic(python, "PXD1:Sample 1", "characteristics[age]"), Is.EqualTo("24M"), "0.32.0: the first row won");
+            Assert.That(python.Conflicts, Is.Empty);
+        });
+    }
+
+    /// <summary>An empty cell says nothing, so it neither agrees nor disagrees; a reserved word is a value.</summary>
+    [TestCase("24M", "", "24M", false)]
+    [TestCase("", "3M", "3M", false)]             // 0.32.0 read the first row only, and so lost it
+    [TestCase("24M", "not available", null, true)]
+    [TestCase("24M", " 24M ", "24M", false)]      // the same value, padded
+    public void OnlyWrittenCellsDisagree(string first, string second, string? value, bool conflict)
+    {
+        var path = WriteSdrfWith(SampleHeader,
+            ["s1", "homo sapiens", first, "", "", "", "1", "", "a.raw"],
+            ["s1", "homo sapiens", second, "", "", "", "2", "", "b.raw"]);
+        var current = Sdrf.Parse(path, "PXD1", rules: IngestRules.Current);
+        Assert.Multiple(() =>
+        {
+            Assert.That(Characteristic(current, "PXD1:s1", "characteristics[age]"), Is.EqualTo(value));
+            Assert.That(current.Conflicts.Count > 0, Is.EqualTo(conflict));
+        });
+    }
+
+    /// <summary>A characteristic's own source the rows disagree on is NULL: it is not absent, so the row default
+    /// (<c>comment[characteristics source]</c>) must not stand in for it (G75).</summary>
+    [Test]
+    public void ASourceTheRowsDisagreeOnIsNotTheRowDefault()
+    {
+        var path = WriteSdrfWith(SampleHeader,
+            ["s1", "homo sapiens", "24M", "", "publication", "deposited", "1", "", "a.raw"],
+            ["s1", "homo sapiens", "24M", "", "pride project record", "deposited", "2", "", "b.raw"]);
+        var current = Sdrf.Parse(path, "PXD1", rules: IngestRules.Current);
+        var age = current.Characteristics.Single(c => (string)c["name"]! == "characteristics[age]");
+        var organism = current.Characteristics.Single(c => (string)c["name"]! == "characteristics[organism]");
+        Assert.Multiple(() =>
+        {
+            Assert.That(age["value"], Is.EqualTo("24M"), "the value agrees");
+            Assert.That(age["source"], Is.Null);
+            Assert.That(organism["source"], Is.EqualTo("deposited"), "an agreed row default still applies");
+            Assert.That(current.Conflicts.Single().Column, Is.EqualTo("comment[age source]"));
+        });
+    }
+
+    /// <summary>An organism the rows disagree on falls back to the manifest's, as an organism with no term does:
+    /// <c>samples.organism</c> is required.</summary>
+    [Test]
+    public void AnOrganismTheRowsDisagreeOnIsTheManifests()
+    {
+        var path = WriteSdrfWith(SampleHeader,
+            ["s1", "homo sapiens", "", "", "", "", "1", "", "a.raw"],
+            ["s1", "mus musculus", "", "", "", "", "2", "", "b.raw"]);
+        var current = Sdrf.Parse(path, "PXD1", "NCBITaxon:10116", rules: IngestRules.Current);
+        Assert.Multiple(() =>
+        {
+            Assert.That(current.Samples.Single()["organism"], Is.EqualTo("NCBITaxon:10116"));
+            Assert.That(Characteristic(current, "PXD1:s1", "characteristics[organism]"), Is.Null);
+        });
     }
 
     // ---------------------------------------------------------------- helpers for file-backed items

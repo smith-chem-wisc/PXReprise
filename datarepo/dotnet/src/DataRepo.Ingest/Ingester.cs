@@ -348,7 +348,8 @@ public static class Ingester
                 sdrfStatus = "unmatched";
                 samples = [];
                 characteristics = [];
-                findings.Add(SdrfGateFinding(datasetId, "sdrf_unmatched", namedUnsearched, []));
+                findings.Add(SdrfGateFinding(datasetId, "sdrf_unmatched", namedUnsearched, [],
+                    rules == IngestRules.Current ? sdrf : null));
             }
             else if (namedUnsearched.Count > 0 || unnamed.Count > 0)
             {
@@ -362,6 +363,7 @@ public static class Ingester
             }
         }
         if (samples.Count == 0) Synthetic(runRows);
+        findings.AddRange(SdrfConflictFindings(sdrf.Conflicts, samples, datasetId));
         static bool Annotated(List<Row> samples) => samples.Any(s =>
             new[] { "organism_part", "cell_type", "disease", "individual_id" }.Any(c => s.TryGetValue(c, out var v) && !IsFalsy(v)));
         string uncoded;
@@ -919,9 +921,18 @@ public static class Ingester
     }
 
     /// <summary>What the data-file gate did with an SDRF that does not match the searched runs (G62).</summary>
-    private static Row SdrfGateFinding(string datasetId, string code, List<string> namedUnsearched, List<string> unnamed)
+    /// <param name="table">The parsed SDRF, to say why nothing matched when it names no searched file; null keeps
+    /// Python 0.32.0's message, which then ended in an empty list (PXD021762's stored "SDRF" was an HTML page).</param>
+    private static Row SdrfGateFinding(string datasetId, string code, List<string> namedUnsearched, List<string> unnamed, SdrfTable? table = null)
     {
         var parts = new List<string>();
+        if (table is not null && namedUnsearched.Count == 0 && unnamed.Count == 0)
+            parts.Add(table.Assays.Count > 0
+                ? "every file it names is one the search left out"
+                : !table.Columns.Any(c => PyText.Strip(c) == "source name")
+                    ? "it has no `source name` column, so it may not be an SDRF at all (its first column is "
+                      + $"`{(table.Columns.Count > 0 ? PyText.Strip(table.Columns[0]) : "")}`)"
+                    : "no row names both a source name and a data file");
         if (namedUnsearched.Count > 0)
             parts.Add(
                 $"it names {namedUnsearched.Count} file(s) the search did not use, whose rows were not "
@@ -936,6 +947,34 @@ public static class Ingester
             : "The SDRF was used only for the runs it names that were searched";
         var status = code.StartsWith("sdrf_", StringComparison.Ordinal) ? code["sdrf_".Length..] : code;
         return Finding(datasetId, code, "warning", $"{what}: {string.Join("; ", parts)}. sdrf_status is `{status}`.");
+    }
+
+    /// <summary>The sample-level SDRF cells whose rows disagree within one source name, and so got no value (G106).</summary>
+    /// <remarks>Only for samples the bundle keeps: the data-file gate may have dropped the rest.</remarks>
+    private static List<Row> SdrfConflictFindings(List<SdrfConflict> conflicts, List<Row> samples, string datasetId)
+    {
+        var kept = samples.Select(s => (string)s["sample_id"]!).ToHashSet(StringComparer.Ordinal);
+        var shown = conflicts.Where(c => kept.Contains(c.SampleId)).ToList();
+        if (shown.Count == 0) return [];
+        static string Runs(IReadOnlyList<string?> runs)
+        {
+            var names = runs.Select(r => r ?? "a row naming no data file").ToList();
+            return string.Join(", ", names.Take(10)) + (names.Count > 10 ? $" and {names.Count - 10} more" : "");
+        }
+        var parts = shown.Take(10).Select(c =>
+            $"{c.Column} of `{c.SampleId.Split(':', 2)[1]}` is "
+            + string.Join(" or ", c.Values.Select(v => $"`{v.Value}` ({v.Runs.Count} row(s): {Runs(v.Runs)})")));
+        int sampleCount = shown.Select(c => c.SampleId).Distinct(StringComparer.Ordinal).Count();
+        return
+        [
+            Finding(datasetId, "sdrf_conflicting_rows", "warning",
+                $"The SDRF's rows for one source name disagree on {shown.Count} sample-level cell(s), in "
+                + $"{sampleCount} sample(s), so those samples have no value there: no sample_characteristics row, and "
+                + "a samples column read from the cell is NULL (organism falls back to the manifest's). No row's "
+                + "value was taken over another's. Disagreeing rows usually mean the SDRF gave several samples one "
+                + "source name, so sample-level questions on these columns cannot be answered until it is curated. "
+                + string.Join("; ", parts) + (shown.Count > 10 ? $"; and {shown.Count - 10} more" : "") + "."),
+        ];
     }
 
     /// <summary>The SDRF characteristics behind the four curated sample columns an <c>sdrf_skeleton</c> finding names.</summary>

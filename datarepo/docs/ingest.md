@@ -481,6 +481,7 @@ It exits 1 on any failure. Against aging's 0.9.0 bundles it fails (PXD036557: 29
 | `no_design_file` | warning | No experimental design, so between-group comparisons are unavailable. |
 | `no_output_sdrf` | info | The search wrote no SDRF back out. |
 | `sdrf_skeleton` | warning | The deposited SDRF has no biological annotation at all. |
+| `sdrf_conflicting_rows` | warning | The SDRF's rows for one source name write different values in a sample-level column (a characteristic, a factor value, material type or their source comments). That sample gets no value there: no `sample_characteristics` row, and the `samples` column read from it is NULL. No row's value is taken over another's. The message names each column, its values and the runs of the rows that wrote them. |
 | `no_sdrf` | warning | No SDRF; each run was given a synthetic, unannotated sample. |
 | `count_mismatch` | warning | A count disagrees with the producer's summary. |
 | `unresolved_modifications` | warning | A modification has neither a UNIMOD accession nor a mass. Its `ptm_sites` rows exist and carry `modification_name`, with `modification` null. |
