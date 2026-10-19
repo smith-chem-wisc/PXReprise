@@ -7,6 +7,18 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.27 (2026-10-19)
+
+No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual. No profile change.
+
+- **A search keeps a copy of the SDRF its design came from:** `04_search/design/<name>.sdrf.tsv`.
+  - The provenance's `experimental_design.sdrf` now names that copy.
+  - `sdrf_origin` names the file it was copied from: the question's curated SDRF, the deposit's own, or PXReprise's
+    default.
+  - **Why:** a question's SDRF can be edited after its search. Seven of the ageing project's were, so the bytes those
+    searches used survived only in that project's git history (dataRepo's request).
+  - `sdrf_sha256` is unchanged, and the copy matches it.
+
 ## 0.4.26 (2026-10-19)
 
 No MetaMorpheus change. **Machine file:** no change, unless you add the new `[workers]` or `[worker]` table. **Safe

@@ -38,7 +38,7 @@ public class SearchStageTests
 
     private sealed record Rig(string Root, Machine Machine, Profile Profile, string Spectra, string Qc);
 
-    private static Rig Setup(bool library = true, string machineExtra = "", bool depositChemistry = false, string mm = "1.1.11")
+    private static Rig Setup(bool library = true, string machineExtra = "", bool depositChemistry = false, string mm = "1.1.11", bool design = false)
     {
         string root = TestSupport.TempDir();
         // A MetaMorpheus "install": the fake CMD, and the Mods and Contaminants folders the engine reads beside it.
@@ -73,6 +73,7 @@ public class SearchStageTests
             [quant]
             method = "flashlfq"
             mbr = true
+            {(design ? "design = \"sdrf\"" : "")}
             [deposit]
             max_files = 60
             [qc]
@@ -318,6 +319,33 @@ public class SearchStageTests
             Assert.That(prov, Does.Contain("QuantProject U15"));
         }
         finally { Environment.SetEnvironmentVariable("FAKE_MM_IGNORE_DESIGN", null); }
+    }
+
+    // v0.4.27 (dataRepo 052, PXR-R28): seven of aging's question SDRFs were edited after their searches, and no search
+    // folder kept the bytes it used. The search now keeps a copy, and its record names the copy.
+    [Test]
+    public async Task TheSearchKeepsACopyOfTheSdrfItsDesignCameFrom()
+    {
+        var rig = Setup(library: false, design: true);
+        string curated = TestSupport.WriteFile(TestSupport.TempDir(), "PXD000301.sdrf.tsv",
+            "source name\tcharacteristics[organism]\tcharacteristics[biological replicate]\tassay name\tcomment[label]\tcomment[data file]\t"
+            + "comment[technical replicate]\tcomment[fraction identifier]\tfactor value[age group]\n"
+            + "young 1\thomo sapiens\t1\trun 1\tlabel free sample\ta.raw\t1\t1\tyoung\n"
+            + "old 1\thomo sapiens\t1\trun 2\tlabel free sample\tb.raw\t1\t1\told\n");
+        var o = await SearchStage.RunAsync(Req(rig, "04_search") with { CuratedDesign = curated }, CancellationToken.None);
+        Assert.That(o.Success, Is.True);
+        File.AppendAllText(curated, "edited after the search\n");
+
+        var design = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(o.ProvenanceFile))!["experimental_design"]!;
+        string kept = design["sdrf"]!.GetValue<string>();
+        Assert.Multiple(() =>
+        {
+            Assert.That(design["source"]!.GetValue<string>(), Is.EqualTo("question"));
+            Assert.That(kept, Is.EqualTo(Path.Combine(rig.Root, "run", "04_search", "design", "PXD000301.sdrf.tsv")));
+            Assert.That(design["sdrf_origin"]!.GetValue<string>(), Is.EqualTo(curated));
+            Assert.That(Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(kept))),
+                Is.EqualTo(design["sdrf_sha256"]!.GetValue<string>()), "the copy is the bytes the search used, though the question's file changed since");
+        });
     }
 
     // aging 043 (PXR-A37): the Jarome NEM deposits ran 0.2-3.2% Cys; whole proteomes 12-26%.
