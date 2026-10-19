@@ -316,6 +316,15 @@ public class McpTests
 
     /// <summary>The whole MCP path in process: the SDK client lists the tools with the Python server's schemas and
     /// gets each tool's answer as the text <see cref="Mcp.Mcp.Call"/> renders.</summary>
+    /// <summary>Python's tool text with the one sentence D48 step 2 changed: PSMs left the catalog, so the sql
+    /// tool no longer names <c>psms_1pct</c> and says where the PSM counts are.</summary>
+    private static string SinceStep2(string python) => python.Replace(
+        "Prefer the *_1pct views (psms_1pct, peptidoforms_1pct, protein_groups_1pct): they apply the producing search "
+        + "engine's acceptance rule, so you do not have to restate it. Call describe",
+        "Prefer the *_1pct views (peptidoforms_1pct, protein_groups_1pct): they apply the producing search engine's "
+        + "acceptance rule, so you do not have to restate it. PSMs are not in the catalog; dataset_overview has each "
+        + "dataset's PSM counts. Call describe", StringComparison.Ordinal);
+
     [Test]
     public async Task TheSdkServesTheToolsAsThePythonServerDoes()
     {
@@ -335,7 +344,7 @@ public class McpTests
             foreach (var (tool, expected) in tools.Zip(python))
             {
                 Assert.That(tool.ProtocolTool.Title, Is.EqualTo((string)expected!["title"]!));
-                Assert.That(tool.Description, Is.EqualTo((string)expected["description"]!));
+                Assert.That(tool.Description, Is.EqualTo(SinceStep2((string)expected["description"]!)));
                 Assert.That(JsonNode.DeepEquals(JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText()), expected["inputSchema"]), tool.Name);
                 Assert.That(JsonNode.DeepEquals(JsonNode.Parse(tool.ProtocolTool.OutputSchema!.Value.GetRawText()), expected["outputSchema"]), tool.Name);
             }

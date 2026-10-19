@@ -63,10 +63,10 @@ public static class Mcp
             + $"cannot be written to. Results are capped at {Sandbox.RowCap.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)} rows or {Sandbox.CharCap.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)} "
             + "characters with a 'truncated' flag, and a query still running after "
             + $"{PyFormat.FormatG(Sandbox.TimeoutSecondsDefault)} s is stopped -- so aggregate in "
-            + "SQL rather than fetching rows to count them. Prefer the *_1pct views (psms_1pct, "
-            + "peptidoforms_1pct, protein_groups_1pct): they apply the producing search engine's "
-            + "acceptance rule, so you do not have to restate it. Call describe('<table>') first if "
-            + "you are unsure of a column.",
+            + "SQL rather than fetching rows to count them. Prefer the *_1pct views (peptidoforms_1pct, "
+            + "protein_groups_1pct): they apply the producing search engine's acceptance rule, so you "
+            + "do not have to restate it. PSMs are not in the catalog; dataset_overview has each "
+            + "dataset's PSM counts. Call describe('<table>') first if you are unsure of a column.",
             """{"properties":{"query":{"title":"Query","type":"string"},"max_rows":{"anyOf":[{"type":"integer"},{"type":"null"}],"default":null,"title":"Max Rows"}},"required":["query"],"type":"object","title":"datarepo_sqlArguments"}""",
             """{"type":"object","additionalProperties":true,"title":"datarepo_sqlDictOutput"}"""),
     ];

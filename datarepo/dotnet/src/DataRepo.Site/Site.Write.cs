@@ -25,8 +25,12 @@ public static partial class SiteGenerator
             "",
             "Before you answer from this data:",
             "",
-            "- Counts at 1% FDR come from the `*_1pct` views (`psms_1pct`, `peptidoforms_1pct`, " +
-            "`protein_groups_1pct`). The base tables also hold decoys and sub-threshold matches.",
+            facts.PsmsInCatalog
+                ? "- Counts at 1% FDR come from the `*_1pct` views (`psms_1pct`, `peptidoforms_1pct`, " +
+                  "`protein_groups_1pct`). The base tables also hold decoys and sub-threshold matches."
+                : "- Counts at 1% FDR come from the `*_1pct` views (`peptidoforms_1pct`, `protein_groups_1pct`) " +
+                  "and, for PSMs, from `dataset_overview.n_psms_1pct`: PSMs stay in each dataset's bundle, not in " +
+                  "the catalog. The base tables also hold decoys and sub-threshold matches.",
             "- Each dataset page lists its open findings. A `low_id_rate` or `sdrf_skeleton` finding " +
             "means the absence of a protein, or of sample metadata, is weak evidence.",
             "- An empty table means nothing was delivered. It does not mean the answer is zero or " +

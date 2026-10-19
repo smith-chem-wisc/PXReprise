@@ -361,11 +361,11 @@ public class CatalogTests
                 var rebuilt = BuildFixture(store, output, overwrite: true);
                 Assert.That(rebuilt.Skipped, Is.False);
                 using var cmd = reader.CreateCommand();
-                cmd.CommandText = "SELECT count(*) FROM psms";
-                Assert.That(cmd.ExecuteScalar(), Is.EqualTo(60L), "the reader still answers from the catalog it opened");
+                cmd.CommandText = "SELECT count(*) FROM peptidoforms";
+                Assert.That(cmd.ExecuteScalar(), Is.EqualTo(40L), "the reader still answers from the catalog it opened");
             }
             Assert.That(Directory.EnumerateFiles(store, "*.building*"), Is.Empty, "no staging file is left behind");
-            Assert.That(CatalogBuilder.RunQuery(output, "SELECT count(*) FROM psms").Rows.Single()[0], Is.EqualTo(60L));
+            Assert.That(CatalogBuilder.RunQuery(output, "SELECT count(*) FROM peptidoforms").Rows.Single()[0], Is.EqualTo(40L));
         }
         finally
         {
@@ -687,7 +687,7 @@ public class CatalogTests
         try
         {
             BuildFixture(store, output);
-            Assert.Throws<CatalogException>(() => CatalogBuilder.RunQuery(output, "DELETE FROM psms"));
+            Assert.Throws<CatalogException>(() => CatalogBuilder.RunQuery(output, "DELETE FROM peptidoforms"));
             var (columns, rows) = CatalogBuilder.RunQuery(output, "SELECT dataset_id, n_psms_all, organisms FROM dataset_overview;", limit: 1);
             Assert.That(columns, Is.EqualTo(new[] { "dataset_id", "n_psms_all", "organisms" }));
             Assert.That(rows.Single(), Is.EqualTo(new object?[] { "PXD999999", 60L, new List<object?> { "NCBITaxon:9606" } }));

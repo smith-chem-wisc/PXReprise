@@ -36,6 +36,16 @@ public sealed record BundleRef(string Path, IReadOnlyDictionary<string, object?>
 
     public IReadOnlyDictionary<string, long> RowCounts => CatalogBuilder.StrMap(SourcesPy.Get(Manifest, "tables"), CatalogBuilder.PyInt);
 
+    /// <summary>The target PSMs the ingest counted at the producer's 1% rule (<c>bundle.json</c>'s reconciliation
+    /// <c>psms_target_1pct</c>), or null when the bundle recorded no such count: unknown, never 0.</summary>
+    public long? Psms1pct =>
+        SourcesPy.Get(Manifest, "reconciliation") is IEnumerable<object?> checks
+            ? checks.OfType<IReadOnlyDictionary<string, object?>>()
+                .Where(c => SourcesPy.Str(SourcesPy.Get(c, "name", "")) == "psms_target_1pct")
+                .Select(c => SourcesPy.Get(c, "observed") is { } n ? CatalogBuilder.PyInt(n) : (long?)null)
+                .FirstOrDefault()
+            : null;
+
     /// <summary>The table's Parquet file, or null when the bundle omits the table (it had no rows).</summary>
     public string? TablePath(string table)
     {
@@ -164,6 +174,9 @@ public sealed record CatalogResult
     /// <summary>Staged catalogs left in place because nothing says whether their build is still running.</summary>
     public IReadOnlyList<StagedCatalog> StagedKept { get; init; } = [];
 
+    /// <summary>How long each phase of the build took, in order, so a slow publish says where its time went.</summary>
+    public IReadOnlyList<KeyValuePair<string, TimeSpan>> Timings { get; init; } = [];
+
     public IReadOnlyList<CatalogCheck> FailedChecks => Checks.Where(c => !c.Ok).ToList();
 }
 
@@ -218,11 +231,22 @@ public static class CatalogBuilder
     /// <c>dataset_restrictions</c> and <c>dataset_overview.restrictions</c> from the manifest's <c>restrictions</c>
     /// (aging DATAREPO-74), and the aging layer's design tables (0.6.0, DATAREPO-79). "12" adds the folder layout (views
     /// over the store's Parquet, versioned files, <c>latest.json</c>; D48 step 1) and <c>catalog_meta.release_id</c>,
-    /// <c>layout</c> and <c>data_root</c>. Inside a <see cref="SchemaContract.Python0320"/> scope it stays "8", and go and the annotations are left
+    /// <c>layout</c> and <c>data_root</c>. "13" leaves PSMs in the bundles (no <c>psms</c> or <c>psms_1pct</c>; D48 step
+    /// 2): <c>dataset_overview</c>'s two PSM counts are the ones each bundle recorded at ingest. Inside a
+    /// <see cref="SchemaContract.Python0320"/> scope it stays "8", and go and the annotations are left
     /// out, so a parity build is still what Python 0.32.0 built. Same principle as
     /// <c>manifest.CONTENT_FIELDS</c> one level down -- an id moves when its own content moves, and not
     /// otherwise.</remarks>
-    public static string CatalogVersion => SchemaContract.IsPython0320 ? "8" : "12";
+    public static string CatalogVersion => SchemaContract.IsPython0320 ? "8" : "13";
+
+    /// <summary>Bundle tables a catalog does not hold. PSMs are archived per deposit, never in a catalog (PXReprise's
+    /// public-data contract, rule 3; D48 step 2): they are 82% of a store's bytes, and nothing served from a catalog
+    /// needs a row of them, only their counts, which each bundle recorded at ingest. A Python 0.32.0 parity build keeps
+    /// them, as 0.32.0 did.</summary>
+    public static IReadOnlySet<string> LeftInBundles => SchemaContract.IsPython0320 ? NoTables : PsmTables;
+
+    private static readonly IReadOnlySet<string> NoTables = new HashSet<string>(StringComparer.Ordinal);
+    private static readonly IReadOnlySet<string> PsmTables = new HashSet<string>(StringComparer.Ordinal) { "psms" };
 
     /// <summary>Whether this build loads go's artefacts: always, except when reproducing Python 0.32.0, which had
     /// no go engine.</summary>
@@ -340,6 +364,11 @@ public static class CatalogBuilder
             "SELECT * FROM protein_groups WHERE target_decoy <> 'decoy' AND q_value <= {t}"),
     ];
 
+    /// <summary>The <see cref="AcceptedViews"/> this build creates: those over a table it holds. <c>psms_1pct</c>'s rule
+    /// stays written above, as the specification the ingest's own count is tested against.</summary>
+    private static IEnumerable<KeyValuePair<string, string>> CatalogedAcceptedViews =>
+        AcceptedViews.Where(kv => !LeftInBundles.Contains(kv.Key[..^"_1pct".Length]));
+
     /// <summary>Views that restate a table at a coarser grain than it is stored at, so a caller never has to.</summary>
     /// <remarks>
     /// <c>ptm_sites</c> is keyed on the search engine's own name for a modification, which is the grain the
@@ -418,8 +447,11 @@ public static class CatalogBuilder
             + "says by how much, and the producer's number stays canonical.",
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["n_psms_1pct"] = "PSMs passing the producer's acceptance rule (`psms_1pct`).",
-                ["n_psms_all"] = "Every PSM row, decoys and above-threshold matches included.",
+                ["n_psms_1pct"] = "Target PSMs passing the producer's acceptance rule, as the ingest counted them "
+                    + "(`bundle.json` reconciliation `psms_target_1pct`). The PSMs themselves stay in the dataset's bundle "
+                    + "(`psms.parquet`), not in the catalog. NULL when the bundle recorded no such count.",
+                ["n_psms_all"] = "Every PSM row the dataset's bundle holds, decoys and above-threshold matches included "
+                    + "(`bundle.json`'s `psms` count).",
                 ["n_protein_groups_1pct"] = "Protein groups at 1% group-level FDR, contaminants included.",
                 ["n_ptm_sites"] = "Rows in `ptm_sites`, at any ambiguity level, contaminants included.",
                 ["n_open_findings"] = "Findings at severity warning or error. Read them before quoting "
@@ -573,10 +605,10 @@ public static class CatalogBuilder
         [RunExclusionsTable] = new(
             "One row per run the producer EXCLUDES FROM ANALYSIS (the manifest's `excluded_runs`, G85), with the "
             + "producer's reason. The run was searched and is still in every bundle-backed table -- `runs`, "
-            + "`psms`, `quant_values`, `assays` -- and in every count derived from them, `dataset_overview` and "
-            + "the `_1pct` views included; nothing here filters them. So ANY analysis across runs or samples "
+            + "`quant_values`, `assays` and the bundle's PSMs -- and in every count derived from them, `dataset_overview` "
+            + "and the `_1pct` views included; nothing here filters them. So ANY analysis across runs or samples "
             + "(abundance, age effects, per-run statistics) must leave these runs out itself, with an anti-join: "
-            + "`... WHERE run_id NOT IN (SELECT run_id FROM run_exclusions)` on `runs` or `psms`, or through "
+            + "`... WHERE run_id NOT IN (SELECT run_id FROM run_exclusions)` on `runs`, or through "
             + "`assays.run_id` for quantities. Identification counts the producer reports are of the whole search "
             + "and include them. Taken from the manifest `datarepo build` was given, not from the bundle, so a "
             + "changed exclusion reaches the catalog at the next build without a re-ingest, and moves the "
@@ -1284,7 +1316,9 @@ public static class CatalogBuilder
         foreach (var (bundle, artefact) in GoPairs(bundles, artefacts))
             foreach (var (table, expected) in artefact.RowCounts.OrderBy(kv => kv.Key, SourcesPy.CodePointOrder))
             {
-                var (observed, _) = CountAndExample(con, $"SELECT count(*), NULL FROM \"{table}\" WHERE bundle_id = ?", bundle.BundleId);
+                var observed = IsView(con, table)
+                    ? FooterRowsOf(con, artefact.TablePath(table))
+                    : CountAndExample(con, $"SELECT count(*), NULL FROM \"{table}\" WHERE bundle_id = ?", bundle.BundleId).Count;
                 checks.Add(new CatalogCheck($"{artefact.Engine}/{artefact.ArtefactId}/{table}", "row_count", observed == expected,
                     observed, expected, $"engine artefact {artefact.ArtefactId} for {bundle.DatasetId} bundle {bundle.BundleId}"));
             }
@@ -1430,16 +1464,25 @@ public static class CatalogBuilder
         Dictionary<string, long> studyCounts;
         List<CatalogCheck> checks;
         int indexes;
+        var timings = new List<KeyValuePair<string, TimeSpan>>();
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        void Lap(string phase)
+        {
+            timings.Add(new(phase, clock.Elapsed));
+            clock.Restart();
+        }
         try
         {
             using (var con = Open(staging, readOnly: false))
             {
                 rowCounts = LoadTables(con, bundles, views);
-                BuildDerived(con);
+                Lap("tables");
+                BuildDerived(con, bundles, Lap);
                 studyCounts = CreateStudyTables(con, study);
                 foreach (var (k, v) in CreateEngineTables(con, engines, views)) rowCounts[k] = v;
                 foreach (var (k, v) in LoadGoRows(con, bundles, engines, views)) rowCounts[k] = v;
                 BuildEngineDerived(con, bundles);
+                Lap("study and engines");
                 if (AnnotationsActive)
                 {
                     CreateAnnotations(con, annotations);
@@ -1447,13 +1490,20 @@ public static class CatalogBuilder
                     CreateRestrictions(con, restrictions);
                 }
                 if (census is not null) rowCounts[CandidateCensus.Table] = LoadCandidates(con, census, bundles);
+                Lap("manifest");
                 checks = [
                     .. CheckRowCounts(con, bundles),
                     .. views ? [IntegrityCheckedAtIngest()] : CheckIntegrity(con),
-                    .. CheckStudy(con, study),
-                    .. CheckEngines(con, engines.Where(r => r.Engine != Runner.GoEngine).ToList()),
-                    .. CheckGo(con, bundles, engines),
-                    .. CheckOrthology(con, engines),
+                ];
+                Lap("checks: bundles");
+                checks.AddRange(CheckStudy(con, study));
+                Lap("checks: study");
+                checks.AddRange(CheckEngines(con, engines.Where(r => r.Engine != Runner.GoEngine).ToList()));
+                checks.AddRange(CheckGo(con, bundles, engines));
+                checks.AddRange(CheckOrthology(con, engines));
+                Lap("checks: engines");
+                checks = [
+                    .. checks,
                     .. engineChecks ?? [],
                     .. AnnotationsActive ? [AnnotationCheck(annotations)] : Array.Empty<CatalogCheck>(),
                     .. AnnotationsActive && exclusions.Count > 0 ? [RunExclusionCheck(con, exclusions)] : Array.Empty<CatalogCheck>(),
@@ -1469,10 +1519,13 @@ public static class CatalogBuilder
                         "the bundles do not hold together as one catalog, so nothing was written:\n"
                         + $"  - {detail}");
                 }
+                Lap("checks: manifest");
                 indexes = BuildIndexes(con);
+                Lap("indexes");
                 WriteCatalogTables(con, bundles, rowCounts, checks, cid, instance, notes, study, studyCounts, engines, census is not null,
                     rid, layout, dataRoot);
             }
+            Lap("catalog tables");
             // aging 107: a file shorter than its own header says is never moved into place.
             using (var written = Open(staging, readOnly: true))
                 if (CatalogFile.Shortfall(written, staging) is { } shortBy)
@@ -1513,6 +1566,7 @@ public static class CatalogBuilder
                     : $"The new one could not be deleted either: delete {staging} once nothing holds it."));
         }
         var pointer = views ? WritePointer(folder!, full, cid, rid) : null;
+        Lap("move");
         var counts = new Dictionary<string, long>(rowCounts, StringComparer.Ordinal);
         foreach (var (k, v) in studyCounts) if (v != 0) counts[k] = v;
         return new CatalogResult
@@ -1521,7 +1575,7 @@ public static class CatalogBuilder
             Pruned = views && keep is not null ? Prune(folder!, keep.Value, full) : [],
             Datasets = datasets, Bundles = bundles, StudyBundles = study,
             Artefacts = engines, RowCounts = counts, Checks = checks, Indexes = indexes,
-            StagedRemoved = stagedRemoved, StagedKept = stagedKept,
+            StagedRemoved = stagedRemoved, StagedKept = stagedKept, Timings = timings,
         };
     }
 
@@ -1942,7 +1996,9 @@ public static class CatalogBuilder
         foreach (var r in artefacts.OrderBy(a => a.Engine, SourcesPy.CodePointOrder).ThenBy(a => a.ArtefactId, SourcesPy.CodePointOrder))
             foreach (var (table, expected) in r.RowCounts.OrderBy(kv => kv.Key, SourcesPy.CodePointOrder))
             {
-                var (observed, _) = CountAndExample(con, $"SELECT count(*), NULL FROM \"{table}\" WHERE artefact_id = ?", r.ArtefactId);
+                var observed = IsView(con, table)
+                    ? FooterRowsOf(con, r.TablePath(table))
+                    : CountAndExample(con, $"SELECT count(*), NULL FROM \"{table}\" WHERE artefact_id = ?", r.ArtefactId).Count;
                 checks.Add(new CatalogCheck($"{r.Engine}/{r.ArtefactId}/{table}", "row_count", observed == expected,
                     observed, expected, $"engine artefact {r.ArtefactId}"));
             }
@@ -1973,6 +2029,7 @@ public static class CatalogBuilder
             var table = spec.Name;
             if (Runner.EngineTables.ContainsKey(table)) continue;  // never in a bundle; filled from artefacts
             if (views && GoActive && Runner.GoTables.Contains(table)) continue;
+            if (LeftInBundles.Contains(table)) continue;
             var asView = views && table != "samples";
             var parts = new List<string>();
             foreach (var r in bundles)
@@ -2058,16 +2115,18 @@ public static class CatalogBuilder
     /// <remarks>The views come first: everything below counts through them, so the catalog's headline numbers
     /// are the same numbers the bundle reconciled against the producer's <c>results.txt</c>. A catalog whose
     /// front page disagreed with the bundle it was built from would be worse than no front page.</remarks>
-    private static void BuildDerived(DuckDBConnection con)
+    private static void BuildDerived(DuckDBConnection con, IReadOnlyList<BundleRef> bundles, Action<string> lap)
     {
         AddSampleNames(con);
+        lap("derived: sample names");
         var threshold = PyFormat.FloatRepr(Identifications.ProducerThreshold);
-        foreach (var (name, body) in AcceptedViews)
+        foreach (var (name, body) in CatalogedAcceptedViews)
             Exec(con, $"CREATE VIEW \"{name}\" AS {body.Replace("{t}", threshold)}");
         foreach (var (name, body) in GrainViews)
             Exec(con, $"CREATE VIEW \"{name}\" AS {body}");
 
-        Exec(con, @"
+        var psmCounts = LeftInBundles.Contains("psms") ? PsmCountsFromBundles(con, bundles) : null;
+        Exec(con, $@"
         CREATE TABLE dataset_overview AS
         SELECT
             d.dataset_id,
@@ -2084,12 +2143,16 @@ public static class CatalogBuilder
             d.search_engine_version,
             (SELECT count(*) FROM runs r WHERE r.dataset_id = d.dataset_id) AS n_runs,
             (SELECT count(*) FROM samples s WHERE s.dataset_id = d.dataset_id) AS n_samples,
-            (SELECT count(*) FROM psms_1pct p WHERE p.dataset_id = d.dataset_id) AS n_psms_1pct,
+            {(psmCounts is null
+                ? "(SELECT count(*) FROM psms_1pct p WHERE p.dataset_id = d.dataset_id)"
+                : $"(SELECT c.n_psms_1pct FROM {psmCounts} c WHERE c.dataset_id = d.dataset_id)")} AS n_psms_1pct,
             (SELECT count(*) FROM peptidoforms_1pct pf
               WHERE pf.dataset_id = d.dataset_id) AS n_peptidoforms_1pct,
             (SELECT count(*) FROM protein_groups_1pct pg
               WHERE pg.dataset_id = d.dataset_id) AS n_protein_groups_1pct,
-            (SELECT count(*) FROM psms p WHERE p.dataset_id = d.dataset_id) AS n_psms_all,
+            {(psmCounts is null
+                ? "(SELECT count(*) FROM psms p WHERE p.dataset_id = d.dataset_id)"
+                : $"(SELECT c.n_psms_all FROM {psmCounts} c WHERE c.dataset_id = d.dataset_id)")} AS n_psms_all,
             (SELECT count(*) FROM ptm_sites ps WHERE ps.dataset_id = d.dataset_id) AS n_ptm_sites,
             (SELECT count(*) FROM quant_values q
                JOIN assays a ON a.assay_id = q.assay_id
@@ -2099,6 +2162,8 @@ public static class CatalogBuilder
               WHERE f.dataset_id = d.dataset_id AND f.severity IN ('warning', 'error')) AS n_open_findings
         FROM datasets d
         ");
+        if (psmCounts is not null) Exec(con, $"DROP TABLE {psmCounts}");
+        lap("derived: overview");
 
         Exec(con, @"
         CREATE TABLE protein_datasets AS
@@ -2128,6 +2193,7 @@ public static class CatalogBuilder
                ON p.dataset_id = o.dataset_id AND p.protein_accession = o.protein_accession
         GROUP BY o.dataset_id, o.protein_accession, o.is_contaminant
         ");
+        lap("derived: protein_datasets");
 
         // Attributes are recorded per dataset in `proteins`, so the global row has to pick. max() is an
         // arbitrary choice made deterministic; `protein_datasets` keeps the per-dataset truth.
@@ -2155,6 +2221,7 @@ public static class CatalogBuilder
                ON d.dataset_id = p.dataset_id AND d.protein_accession = p.protein_accession
         GROUP BY p.protein_accession
         ");
+        lap("derived: protein_index");
 
         // What the search actually PLACED, as against what it declared (aging 024 section 6).
         //
@@ -2186,6 +2253,7 @@ public static class CatalogBuilder
         )
         GROUP BY dataset_id, bundle_id, tag
         ");
+        lap("derived: modifications");
 
         Exec(con, @"
         CREATE TABLE peptide_index AS
@@ -2198,6 +2266,22 @@ public static class CatalogBuilder
         FROM peptidoforms_1pct
         GROUP BY base_sequence
         ");
+        lap("derived: peptide_index");
+    }
+
+    /// <summary>Each bundle's PSM counts as its ingest recorded them, in a temporary table <c>dataset_overview</c> reads
+    /// in place of the PSMs the catalog no longer holds.</summary>
+    /// <remarks><c>n_psms_all</c> is <c>bundle.json</c>'s <c>psms</c> row count, 0 when the bundle wrote no PSM file
+    /// (it had none). <c>n_psms_1pct</c> is the reconciliation's <c>psms_target_1pct</c>, counted at ingest with the
+    /// acceptance rule the <c>psms_1pct</c> view applied (<c>Identifications.ProducerCounts</c>): on aging's 170 bundles
+    /// (2026-10-19) both equal the counts 1.3.5's views gave. NULL when a bundle recorded no such count.</remarks>
+    private static string PsmCountsFromBundles(DuckDBConnection con, IReadOnlyList<BundleRef> bundles)
+    {
+        const string table = "bundle_psm_counts";
+        Exec(con, $"CREATE TEMP TABLE {table} (dataset_id VARCHAR, n_psms_1pct BIGINT, n_psms_all BIGINT)");
+        foreach (var r in bundles)
+            Exec(con, $"INSERT INTO {table} VALUES (?, ?, ?)", r.DatasetId, r.Psms1pct, r.RowCounts.GetValueOrDefault("psms"));
+        return table;
     }
 
     private static string? ColumnDataType(DuckDBConnection con, string table, string column)
@@ -2216,8 +2300,7 @@ public static class CatalogBuilder
         foreach (var (table, column) in IndexColumns)
         {
             // A view over Parquet takes no index; its files' own statistics prune the scan instead.
-            if (Count(con, "SELECT count(*) FROM information_schema.tables WHERE table_name = ? AND table_type = 'VIEW'", table) > 0)
-                continue;
+            if (IsView(con, table)) continue;
             var kind = ColumnDataType(con, table, column);
             if (kind is null || kind.EndsWith("[]", StringComparison.Ordinal) || kind.StartsWith("STRUCT", StringComparison.Ordinal))
                 continue;
@@ -2229,9 +2312,18 @@ public static class CatalogBuilder
 
     /// <summary>Every table must hold exactly the rows its bundle manifest says it wrote.</summary>
     /// <remarks>The catalog's version of the ingester's reconciliation, and it catches the thing a content hash
-    /// cannot: a bundle whose Parquet was truncated or edited after <c>bundle.json</c> was written.</remarks>
+    /// cannot: a bundle whose Parquet was truncated or edited after <c>bundle.json</c> was written.
+    /// <para>A table the catalog copied is counted in the catalog, so the copy is checked too. A view over the store,
+    /// and a table left in the bundles (<see cref="LeftInBundles"/>), is counted from each Parquet file's footer, all
+    /// footers in one read. Counting a view per bundle lists every bundle's file each time: on aging's 170 bundles,
+    /// 0.13 s for each of 3,310 checks.</para></remarks>
     private static List<CatalogCheck> CheckRowCounts(DuckDBConnection con, IReadOnlyList<BundleRef> bundles)
     {
+        var copied = Query(con, "SELECT table_name FROM information_schema.tables WHERE table_type = 'BASE TABLE'")
+            .Select(row => (string)row[0]!).ToHashSet(StringComparer.Ordinal);
+        var footers = FooterRows(con, bundles
+            .SelectMany(r => r.RowCounts.Keys.Where(t => Tables.ByName.ContainsKey(t) && !copied.Contains(t)).Select(r.TablePath))
+            .OfType<string>().ToList());
         var checks = new List<CatalogCheck>();
         foreach (var r in bundles)
             foreach (var (table, expected) in r.RowCounts.OrderBy(kv => kv.Key, SourcesPy.CodePointOrder))
@@ -2242,11 +2334,36 @@ public static class CatalogBuilder
                         $"bundle {r.BundleId} claims a table no schema {SchemaContract.Version} knows"));
                     continue;
                 }
-                var (observed, _) = CountAndExample(con, $"SELECT count(*), NULL FROM \"{table}\" WHERE bundle_id = ?", r.BundleId);
+                long? observed;
+                if (copied.Contains(table))
+                    (observed, _) = CountAndExample(con, $"SELECT count(*), NULL FROM \"{table}\" WHERE bundle_id = ?", r.BundleId);
+                else
+                    observed = r.TablePath(table) is { } path ? footers.GetValueOrDefault(AsPosix(path)) : 0;
                 checks.Add(new CatalogCheck($"{r.DatasetId}/{table}", "row_count", observed == expected, observed, expected,
                     $"bundle {r.BundleId}"));
             }
         return checks;
+    }
+
+    /// <summary>Whether <paramref name="table"/> is a view (over the store's files) rather than a copy.</summary>
+    private static bool IsView(DuckDBConnection con, string table) =>
+        Count(con, "SELECT count(*) FROM information_schema.tables WHERE table_name = ? AND table_type = 'VIEW'", table) > 0;
+
+    /// <summary>One file's footer row count, 0 when there is no file (a table with no rows is not written), null when
+    /// the footer cannot be read. A view's rows from one bundle or artefact are exactly that file's: counting them
+    /// through the view lists every file it reads, once per check.</summary>
+    private static long? FooterRowsOf(DuckDBConnection con, string? path) =>
+        path is null ? 0 : FooterRows(con, [path]).GetValueOrDefault(AsPosix(path));
+
+    /// <summary>The row count each Parquet file's footer records, by the file's posix path; no row is read.</summary>
+    private static Dictionary<string, long?> FooterRows(DuckDBConnection con, IReadOnlyList<string> paths)
+    {
+        var rows = new Dictionary<string, long?>(StringComparer.Ordinal);
+        if (paths.Count == 0) return rows;
+        var list = string.Join(", ", paths.Select(p => Quote(AsPosix(p))));
+        foreach (var row in Query(con, $"SELECT file_name, num_rows FROM parquet_file_metadata([{list}])"))
+            rows[AsPosix((string)row[0]!)] = row[1] is null ? null : Convert.ToInt64(row[1], CultureInfo.InvariantCulture);
+        return rows;
     }
 
     /// <summary>The bundle's referential rules, re-run across the union.</summary>
@@ -2257,7 +2374,8 @@ public static class CatalogBuilder
     private static List<CatalogCheck> CheckIntegrity(DuckDBConnection con)
     {
         var checks = new List<CatalogCheck>();
-        foreach (var (table, column) in Integrity.Identifiers)
+        // A table left in the bundles was checked by its ingest and is not here to re-check.
+        foreach (var (table, column) in Integrity.Identifiers.Where(i => !LeftInBundles.Contains(i.Table)))
         {
             var (duplicates, example) = CountAndExample(con,
                 $"SELECT count(*), min(k) FROM (SELECT \"{column}\" AS k FROM \"{table}\" "
@@ -2266,7 +2384,8 @@ public static class CatalogBuilder
                 duplicates == 0 ? null : $"e.g. {PyStr(example)}"));
         }
 
-        foreach (var (table, column, target, targetColumn) in Integrity.References)
+        foreach (var (table, column, target, targetColumn) in Integrity.References
+                     .Where(r => !LeftInBundles.Contains(r.Table) && !LeftInBundles.Contains(r.Target)))
         {
             var isList = column.EndsWith("[]", StringComparison.Ordinal);
             var name = isList ? column[..^2] : column;
@@ -2485,7 +2604,7 @@ public static class CatalogBuilder
         }
 
         Exec(con, "CREATE TABLE catalog_tables (table_name VARCHAR, rows BIGINT, kind VARCHAR)");
-        foreach (var spec in Tables.Core)
+        foreach (var spec in Tables.Core.Where(t => !LeftInBundles.Contains(t.Name)))
         {
             var name = spec.Name;
             var kind = Runner.EngineTables.TryGetValue(name, out var engine) ? $"engine:{engine}"
@@ -2496,8 +2615,8 @@ public static class CatalogBuilder
                 : "bundle";
             Exec(con, "INSERT INTO catalog_tables VALUES (?, ?, ?)", name, rowCounts.GetValueOrDefault(name, 0), kind);
         }
-        var views = AcceptedViews.Select(kv => kv.Key).Concat(GrainViews.Select(kv => kv.Key)).ToHashSet(StringComparer.Ordinal);
-        foreach (var name in DerivedTables.Concat(AcceptedViews.Select(kv => kv.Key)).Concat(GrainViews.Select(kv => kv.Key)))
+        var views = CatalogedAcceptedViews.Select(kv => kv.Key).Concat(GrainViews.Select(kv => kv.Key)).ToHashSet(StringComparer.Ordinal);
+        foreach (var name in DerivedTables.Concat(CatalogedAcceptedViews.Select(kv => kv.Key)).Concat(GrainViews.Select(kv => kv.Key)))
         {
             if (name is AnnotationsTable or RunExclusionsTable or RestrictionsTable && !AnnotationsActive) continue;
             var rows = Count(con, $"SELECT count(*) FROM \"{name}\"");

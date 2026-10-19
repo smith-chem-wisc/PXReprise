@@ -44,9 +44,10 @@ The parts of the proposal below that it settled in practice:
   build pins one or stops.
 - **The catalog is derived, never the product.** It is one movable file built from the bundles and
   safe to delete, and it is content-addressed on them, so rebuilding is a no-op.
-- **The producer's acceptance rule is applied once.** `psms_1pct`, `peptidoforms_1pct` and
-  `protein_groups_1pct` are views, so the catalog's headline numbers are the numbers the bundle
-  reconciled rather than a second opinion.
+- **The producer's acceptance rule is applied once.** `peptidoforms_1pct` and `protein_groups_1pct`
+  are views, and each dataset's PSM count at the rule is the one its bundle reconciled (PSMs stay in the
+  bundles), so the catalog's headline numbers are the numbers the bundle reconciled rather than a second
+  opinion.
 - **Cross-dataset indexes are the point.** `protein_index`, `protein_datasets` and `peptide_index`
   answer "which datasets have this", which no single bundle can.
 - **Nothing is served that does not hold together.** Row counts, uniqueness and references are

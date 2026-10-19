@@ -241,6 +241,14 @@ public class McpParityTests
         {
             ("name", "The characteristic, written the way an SDRF column header is"),
         }.Select(d => (new Regex(Regex.Escape(d.Item2) + "[^\"]*", RegexOptions.CultureInvariant), $"<{d.Item1}: rewritten for DATAREPO-80>")),
+        // D48 step 2 (catalog format 13): PSMs stay in the bundles, so their two counts are the bundle's own. Descriptions only.
+        .. new[]
+        {
+            ("n_psms_1pct", "PSMs passing the producer's acceptance rule (`psms_1pct`)."),
+            ("n_psms_1pct", "Target PSMs passing the producer's acceptance rule, as the ingest counted them"),
+            ("n_psms_all", "Every PSM row, decoys and above-threshold matches included."),
+            ("n_psms_all", "Every PSM row the dataset's bundle holds"),
+        }.Select(d => (new Regex(Regex.Escape(d.Item2) + "[^\"]*", RegexOptions.CultureInvariant), $"<{d.Item1}: rewritten for D48 step 2>")),
     ];
 
     public static string Normalise(string text, string catalogPath)

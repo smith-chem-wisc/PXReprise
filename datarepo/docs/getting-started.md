@@ -174,15 +174,16 @@ datarepo publish manifest.yaml --site site --title "Example repository" --purpos
 
 ```
 catalog  …/example-instance/catalog.duckdb
-  id       78df2ea37c0fc6eb
+  id       582ecbe510c54ccf
   dataset  PXD999999    bundle 695a592f6bdfbf63
   note     logs.resolve_genes coverage (databases with an artefact): 0 of 1; no artefact for 89fb8c7a1140 (PXD999999)
   note     go.annotate_groups coverage (bundles with an artefact): 0 of 1; no artefact for PXD999999 (695a592f6bdfbf63)
   tables   assays 2, datasets 1, definitions 14, findings 6, gene_resolutions 0, …
-  indexes  22
-  checks   60 run, all passed
+  indexes  18
+  checks   57 run, all passed
+  timing   tables 0.2 s, derived: sample names 0.0 s, …
 site     site
-  catalog  78df2ea37c0fc6eb
+  catalog  582ecbe510c54ccf
   wrote    36 files, 1 dataset page
   skipped  croissant.json: no --data-url: a Croissant file describes downloadable files, …
   skipped  robots.txt: no --base-url: both need the site's absolute address
@@ -230,8 +231,9 @@ dataset_id  n_psms_1pct  n_protein_groups_1pct  n_open_findings
 PXD999999   58           3                      5
 ```
 
-58 of the 60 PSMs pass 1% FDR. The other two are kept, not deleted: the base `psms` table holds
-every match, and views such as `psms_1pct` apply the search engine's threshold for you.
+58 of the 60 PSMs pass 1% FDR. The other two are kept, not deleted: the bundle's `psms.parquet` holds
+every match (PSMs stay in the bundle, not in the catalog), and views such as `peptidoforms_1pct` apply the
+search engine's threshold for you.
 
 Before you trust a number, read its dataset's findings, most serious first:
 
@@ -264,7 +266,7 @@ datarepo mcp --catalog catalog.duckdb --check
 
 ```
 catalog  catalog.duckdb
-  id       78df2ea37c0fc6eb
+  id       582ecbe510c54ccf
   built    … by datarepo 1.3.5
   dataset  PXD999999           58 PSMs at 1%
   tools    datarepo_describe, datarepo_search, datarepo_sql

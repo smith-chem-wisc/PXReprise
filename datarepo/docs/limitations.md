@@ -273,7 +273,8 @@ whether its dataset has an open finding that touches it.
 - **Quote the `catalog_id`.** A number without it is not reproducible; the corpus grows weekly.
 - **Check row counts before interpreting a zero.** Empty table, empty result and "no such effect"
   are three different statements.
-- **Use the acceptance views** (`psms_1pct`, …), not the raw tables.
+- **Use the acceptance views** (`peptidoforms_1pct`, …), not the raw tables, and `dataset_overview.n_psms_1pct`
+  for PSMs.
 - **Key on accessions**, not gene symbols (§4), and never on list position (§5).
 - **Read `is_unique` for what it is:** one gene in the searched sequences, from datarepo 1.0.0 (§6).
 - **Exclude decoys explicitly**, and read the contaminant label per dataset (§7).

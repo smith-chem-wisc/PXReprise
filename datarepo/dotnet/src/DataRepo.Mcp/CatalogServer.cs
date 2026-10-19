@@ -351,8 +351,16 @@ public sealed partial class CatalogServer : IDisposable
         if (definition is not null) return definition;
         foreach (var layer in SchemaDocs.StudyTables.Keys)
             if (lower == PyValues.Lower(layer)) return DescribeStudyLayer(layer);
+        if (lower is "psms" or "psms_1pct" && !TablesInCatalog().ContainsKey(lower)) throw new ToolException(PsmsLeftInBundles);
         throw new ToolException(UnknownTarget(target));
     }
+
+    /// <summary>What an agent is told when it reaches for PSMs in a catalog that leaves them in the bundles
+    /// (<see cref="CatalogBuilder.LeftInBundles"/>, D48 step 2): where they are, and where their counts are.</summary>
+    internal const string PsmsLeftInBundles =
+        "PSMs are not in this catalog: each dataset's PSMs stay in its bundle, as psms.parquet (PXReprise's public-data "
+        + "contract, rule 3). Per-dataset PSM counts are in dataset_overview (n_psms_1pct, n_psms_all), the producer's "
+        + "own count is in metrics (psms_1pct), and peptide-level evidence is in peptidoforms_1pct.";
 
     private string UnknownTarget(string target)
     {

@@ -123,7 +123,9 @@ public class FolderCatalogTests
         var b = Dump(folder.Path, skip);
         Assert.That(b.Keys, Is.EqualTo(a.Keys), "the same tables and views");
         Assert.That(a.Keys, Has.Count.GreaterThan(50), "every table and view is compared");
-        Assert.That(a["psms"].Rows, Has.Count.EqualTo(60));
+        Assert.That(a.Keys, Has.None.StartsWith("psms"), "PSMs stay in the bundles in either layout");
+        Assert.That(a["dataset_overview"].Rows.Single(), Does.Contain("\"n_psms_1pct\":58").And.Contain("\"n_psms_all\":60"),
+            "their counts are the bundle's own");
         Assert.That(a["quant_values"].Rows, Is.Not.Empty);
         foreach (var name in a.Keys)
         {
@@ -132,7 +134,7 @@ public class FolderCatalogTests
         }
         Assert.Multiple(() =>
         {
-            foreach (var view in new[] { "psms", "peptidoforms", "quant_values", "proteins", "runs", "gene_resolutions", "protein_localizations" })
+            foreach (var view in new[] { "peptidoforms", "quant_values", "proteins", "runs", "gene_resolutions", "protein_localizations" })
                 Assert.That(b[view].Kind, Is.EqualTo("VIEW"), $"{view} reads the store");
             foreach (var table in new[] { "samples", "dataset_overview", "protein_index", "curated_run_design" })
                 Assert.That(b[table].Kind, Is.EqualTo("BASE TABLE"), $"{table} is materialised");
@@ -141,7 +143,7 @@ public class FolderCatalogTests
 
         using var con = CatalogBuilder.Open(folder.Path, readOnly: true);
         var meta = Rows(con, "SELECT catalog_version, release_id, layout, data_root FROM catalog_meta").Single();
-        Assert.That(meta, Is.EqualTo(new object?[] { "12", folder.ReleaseId, "views", CatalogBuilder.AsPosix(Path.GetFullPath(Store)) + "/" }));
+        Assert.That(meta, Is.EqualTo(new object?[] { "13", folder.ReleaseId, "views", CatalogBuilder.AsPosix(Path.GetFullPath(Store)) + "/" }));
         Assert.That(Rows(con, "SELECT ok FROM catalog_checks WHERE kind = 'integrity'").Single()[0], Is.EqualTo(true),
             "the per-bundle integrity checks are not re-run, and the catalog says so");
     }
@@ -178,13 +180,31 @@ public class FolderCatalogTests
         Build(Folder);
         using var server = new CatalogServer(Folder);
         Assert.That(server.CatalogFileChanged, Is.Null);
-        Assert.That(server.Box.Query("SELECT count(*) FROM psms").Rows[0][0], Is.GreaterThanOrEqualTo(2L), "the views read the store");
+        Assert.That(server.Box.Query("SELECT count(*) FROM peptidoforms").Rows[0][0], Is.GreaterThanOrEqualTo(2L), "the views read the store");
 
         File.WriteAllText(ManifestPath, File.ReadAllText(ManifestPath).Replace(
             "    flags: [low_id_rate, no_design_file]\n", "    flags: [low_id_rate, no_design_file]\n    notes: a note\n", StringComparison.Ordinal));
         var newer = Build(Folder);
         Assert.That(server.CatalogFileChanged, Does.StartWith($"A newer catalog, catalog-{newer.CatalogId}.duckdb, has been published in "));
-        Assert.That(server.Box.Query("SELECT count(*) FROM psms").Rows[0][0], Is.GreaterThanOrEqualTo(2L), "and it still answers");
+        Assert.That(server.Box.Query("SELECT count(*) FROM peptidoforms").Rows[0][0], Is.GreaterThanOrEqualTo(2L), "and it still answers");
+    }
+
+    /// <summary>D48 step 2: an agent that reaches for PSMs is told where they are and where their counts are, whichever
+    /// tool it reaches with.</summary>
+    [Test]
+    public void AnAgentThatAsksForPsmsIsToldWhereTheyAre()
+    {
+        Build(Folder);
+        using var server = new CatalogServer(Folder);
+        Assert.Multiple(() =>
+        {
+            foreach (var target in new[] { "psms", "Psms", "psms_1pct" })
+                Assert.That(() => server.Describe(target), Throws.InstanceOf<ToolException>().With.Message.StartsWith("PSMs are not in this catalog"), target);
+            Assert.That(() => server.Sql("SELECT count(*) FROM psms_1pct"),
+                Throws.InstanceOf<CatalogException>().With.Message.Contain("psms_1pct").And.Message.Contain("PSMs are not in this catalog"));
+            Assert.That(server.Sql("SELECT n_psms_1pct, n_psms_all FROM dataset_overview")["rows"],
+                Is.EqualTo(new List<object?> { new List<object?> { 58L, 60L } }));
+        });
     }
 
     /// <summary>D14's class, for a folder catalog: the views read the store, and nothing else is read.</summary>
@@ -209,7 +229,7 @@ public class FolderCatalogTests
         var built = Build(Folder);
         var site = DataRepo.Site.SiteGenerator.BuildSite(Folder, Path.Combine(_root, "site"));
         Assert.That(site.CatalogId, Is.EqualTo(built.CatalogId));
-        Assert.That(CatalogBuilder.RunQuery(Path.Combine(Folder, CatalogPointer.FileName), "SELECT count(*) FROM psms").Rows.Single()[0], Is.EqualTo(60L));
+        Assert.That(CatalogBuilder.RunQuery(Path.Combine(Folder, CatalogPointer.FileName), "SELECT n_psms_all FROM dataset_overview").Rows.Single()[0], Is.EqualTo(60L));
     }
 
     [Test]

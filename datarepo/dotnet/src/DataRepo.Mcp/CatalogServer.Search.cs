@@ -353,7 +353,15 @@ public sealed partial class CatalogServer
     /// <returns>Columns, rows as lists, whether the answer was cut short and by which cap, and the provenance.</returns>
     public Dictionary<string, object?> Sql(string query, long? maxRows = null)
     {
-        var result = Box.Query(query, maxRows);
+        BoundedResult result;
+        try
+        {
+            result = Box.Query(query, maxRows);
+        }
+        catch (CatalogException e) when (Regex.IsMatch(e.Message, @"\bpsms(_1pct)?\b") && !TablesInCatalog().ContainsKey("psms"))
+        {
+            throw new CatalogException($"{e.Message}\n{PsmsLeftInBundles}");
+        }
         var provenance = Provenance();
         var (touched, undetermined) = TablesTouched(query);
 

@@ -124,9 +124,10 @@ keyed on samples (`sample_ages`, `curated_sample_characteristics`), the result a
 **`study_tables_on_these_samples`**. A curated tissue or cell line never enters `samples`, so a
 NULL there is not "unknown" (aging 078).
 
-Prefer the acceptance views — `psms_1pct`, `peptidoforms_1pct`, `protein_groups_1pct` — which apply
+Prefer the acceptance views — `peptidoforms_1pct`, `protein_groups_1pct` — which apply
 the producing search engine's rule once so no caller restates it. Each one states the rule it
-applies in its own `describe`.
+applies in its own `describe`. PSMs are not in the catalog (format 13): `dataset_overview` has each
+dataset's PSM counts, and a query or `describe` that names `psms` or `psms_1pct` is told so.
 
 ## Every answer carries its provenance — and it is a fact about the server
 

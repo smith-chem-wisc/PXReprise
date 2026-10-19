@@ -138,6 +138,7 @@ internal static class CatalogCommands
         Console.WriteLine($"  checks   {result.Checks.Count} run, all passed");
         if (verbose)
             foreach (var check in result.Checks) Console.WriteLine($"    ok     {check.Kind,-10} {check.Name}");
+        Console.WriteLine($"  timing   {string.Join(", ", result.Timings.Select(t => $"{t.Key} {t.Value.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture)} s"))}");
         return 0;
     }
 

@@ -4,6 +4,29 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [Unreleased]
+
+**PSMs stay in the bundles** (D48 step 2a, PXReprise's public-data contract rule 3). The ingest path stays `cs-1.1.0`
+and the schema 0.0.15, so **no re-ingest**. The catalog format moves to 13.
+
+### Changed
+- **No `psms` table or `psms_1pct` view in a catalog**, in either layout. PSMs are 82% of a store's bytes and nothing a
+  catalog serves needs a row of them. Each bundle keeps its `psms.parquet`, which DuckDB reads directly
+  (`catalog_bundles.path` is the bundle's folder). A Python 0.32.0 parity build keeps them.
+  - `dataset_overview.n_psms_1pct` and `n_psms_all` are the counts each bundle recorded at ingest (its reconciliation's
+    `psms_target_1pct` and its `psms` row count). On aging's 170 bundles they equal what 1.3.5 counted from the PSMs.
+  - The MCP server says where the PSMs are when a query or `describe` names `psms` or `psms_1pct`, and its `sql` tool
+    text no longer offers `psms_1pct`.
+- **The row counts are checked from each Parquet file's footer** when the table is a view (a folder catalog's bundle,
+  engine and go tables) or is left in the bundles (the PSMs). A copied table is still counted in the catalog.
+- **Measured on aging's store** (170 deposits, pinned to aging's folder catalog `32c632fd8bc361d4`): a folder build
+  takes **144 s, against 573 s** with 1.3.5's code. The bundle checks went from 432 s to 0.6 s, the engine and go
+  checks from 72 s to 2.7 s. Every table both catalogs hold has the same rows, and the site regenerated from it is
+  identical apart from `llms.txt`'s sentence about PSM counts.
+
+### Added
+- **`build` and `publish` print how long each phase took** (`timing   tables 4.6 s, derived: overview 5.8 s, ...`).
+
 ## [1.3.5] - 2026-10-19
 
 **A catalog folder: views over the store instead of copies** (D48 step 1, PXReprise's public-data contract). The ingest

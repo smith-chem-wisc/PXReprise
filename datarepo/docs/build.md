@@ -53,9 +53,18 @@ what was cited. `--release` is also recorded in `catalog_meta.notes`.
 One DuckDB file. Tables are **materialised, not views over Parquet**, so the catalog is one movable
 artifact — copy it to a server, mount it in a container, hand it to an agent (D1).
 
-**Every schema table exists**, even the ones no bundle filled. A bundle omits a table it has no rows
-for, which is right for a file that is the product; a catalog that did the same would leave a caller
+**Every schema table exists**, even the ones no bundle filled, except `psms`. A bundle omits a table it has
+no rows for, which is right for a file that is the product; a catalog that did the same would leave a caller
 unable to tell "no such table" from "no such rows".
+
+**PSMs stay in the bundles** (catalog format 13, D48 step 2; PXReprise's public-data contract, rule 3). They are
+82% of a store's bytes, and nothing a catalog serves needs a row of them. Each dataset's PSM counts are in
+`dataset_overview` (`n_psms_1pct`, `n_psms_all`), taken from the counts its bundle recorded at ingest. The PSMs
+themselves are each bundle's `psms.parquet`, which DuckDB reads directly:
+
+```sql
+SELECT count(*) FROM read_parquet('<store>/PXD036557/84ca279df425c0a2/psms.parquet');
+```
 
 **Every row says where it came from.** Each table gains `dataset_id` and `bundle_id` in front of its
 own columns. `dataset_id` is taken from the bundle rather than from the row, so the tables that have
@@ -66,21 +75,21 @@ accession from two datasets would be indistinguishable.
 
 | View | Rule |
 |---|---|
-| `psms_1pct` | target, `q_value` ≤ 0.01, `q_value_notch` ≤ 0.01 where there is one, **and** a notch that resolved |
-| `peptidoforms_1pct` | the same, on `best_q_value` / `best_q_value_notch` |
+| `peptidoforms_1pct` | target, `best_q_value` ≤ 0.01, `best_q_value_notch` ≤ 0.01 where there is one |
 | `protein_groups_1pct` | anything not a decoy — **contaminants count** — with `q_value` ≤ 0.01 |
 
 The rule is MetaMorpheus's and it is not guessable, so it is applied once here rather than restated
 in every query. It is the same rule the ingester counts by when a bundle reconciles itself against
 `results.txt`, and a test asserts the SQL and the ingester's count agree, so the two cannot drift. Counting
 through these views is what makes the catalog's headline numbers the same numbers the bundle
-reconciled: 26,582 PSMs, 5,541 peptides and 1,652 protein groups for PXD036557.
+reconciled: 5,541 peptides and 1,652 protein groups for PXD036557.
 
-The notch clause is the one a caller would never write unaided. A search that cannot settle on one
-notch reports its candidates separated by `|`, and the producer excludes such a match from its
-headline count even though both q-values pass. `psms.notch` holds that text and
-`psms.notch_ambiguous` holds the conclusion, so `WHERE notch_ambiguous` shows you exactly what the
-view dropped.
+PSMs follow the same rule, with one more clause: a notch that resolved. A search that cannot settle on
+one notch reports its candidates separated by `|`, and the producer excludes such a match from its
+headline count even though both q-values pass. The ingester counts by it, and that count is
+`dataset_overview.n_psms_1pct` (26,582 for PXD036557). In a bundle's `psms.parquet`, `notch` holds the
+text and `notch_ambiguous` the conclusion. A catalog built before format 13 has the rule as a
+`psms_1pct` view.
 
 ### A view that coarsens a grain, rather than applying a rule
 
@@ -170,8 +179,8 @@ protein", which is the question the repository exists for.
 identity (rewording a note must not re-id a bundle), so they never reach a bundle at all; a reworded
 note reaches the catalog at the next `build`, with no re-ingest, and moves the catalog id. A dataset the
 manifest does not list keeps NULLs and a `catalog_checks` row of kind `manifest` names it.
-`run_exclusions` is built the same way. Its runs are still in `runs`, `psms` and `quant_values` and in
-every count, so an analysis anti-joins it (`run_id NOT IN (SELECT run_id FROM run_exclusions)`). `build`
+`run_exclusions` is built the same way. Its runs are still in `runs` and `quant_values`, in the bundles'
+PSMs and in every count, so an analysis anti-joins it (`run_id NOT IN (SELECT run_id FROM run_exclusions)`). `build`
 refuses an exclusion that names no run of the dataset's bundle.
 
 `dataset_candidates`, the core table that answers "why is PXDn not here?", is also filled at build from
@@ -191,7 +200,7 @@ search's protein *list*, decoys and sub-threshold matches included, not its answ
 "which datasets have this protein" almost always means the second column, so both are there with
 names that say which is which.
 
-Point-lookup indexes are built on the columns those questions land on — `psms.run_id`,
+In a one-file catalog, point-lookup indexes are built on the columns those questions land on —
 `peptidoforms.base_sequence`, `quant_values.feature_id`, `proteins.gene` and the rest. List-valued
 columns such as `protein_accessions` cannot carry a DuckDB index; the derived tables cover them.
 
@@ -239,7 +248,7 @@ catalogs/
   latest.json                        names the current file, with its catalog_id and release_id
 ```
 
-- **The bundle and engine tables are views** over the store's Parquet (`psms`, `quant_values`, `proteins`, ...), with
+- **The bundle and engine tables are views** over the store's Parquet (`quant_values`, `peptidoforms`, `proteins`, ...), with
   `dataset_id` and `bundle_id` written into each view per file, so a filter on one dataset reads that dataset's files
   only. `samples` is still copied (a few thousand rows), because its `*_name` columns are added to it. The derived
   tables, the study tables, the manifest's tables and the catalog's own tables are copied too: they are small. A
@@ -254,7 +263,8 @@ catalogs/
   path. `release_id` names the data: the schema and the bundles, study deliveries and engine artefacts. A folder and a
   one-file catalog of the same bundles share their `release_id`. Both are in `catalog_meta`, with `layout` (`views` or
   `copies`) and `data_root`.
-- **Checks.** The row counts are checked against every bundle's `bundle.json` in both layouts. A folder build does not
+- **Checks.** The row counts are checked against every bundle's `bundle.json` in both layouts: a copied table is
+  counted in the catalog, and a view's files (and the PSMs) from each Parquet file's footer. A folder build does not
   re-run ingest's uniqueness and reference checks over every table: each bundle passed them when it was written, and
   every identifier is namespaced by its dataset. `catalog_checks` has one `integrity` row saying so.
 - **The views read the store where the build found it.** Moving the store means rebuilding the folder catalog. The

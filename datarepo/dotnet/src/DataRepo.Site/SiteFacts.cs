@@ -27,6 +27,10 @@ public sealed class SiteFacts
 
     /// <summary>The question the instance serves (<c>--purpose</c>), already trimmed; null for none.</summary>
     public string? Purpose { get; set; }
+
+    /// <summary>Whether the catalog holds PSMs. Catalog format 13 leaves them in the bundles (D48 step 2); a Python
+    /// 0.32.0 catalog holds them.</summary>
+    public bool PsmsInCatalog { get; init; }
 }
 
 public static partial class SiteGenerator
@@ -165,6 +169,7 @@ public static partial class SiteGenerator
         List<Dict> overview, findings, names, modifications, metrics, merit;
         Dictionary<string, Dict> extra, bundles;
         Dict proteins;
+        bool psmsInCatalog;
         using (var con = new DuckDBConnection($"Data Source={catalog};ACCESS_MODE=READ_ONLY"))
         {
             con.Open();
@@ -184,6 +189,7 @@ public static partial class SiteGenerator
                     $"{catalog} is catalog format {PyText.Str(Get(meta, "catalog_version"))}, built before the " +
                     "contaminant label was per dataset (format 7); rebuild it with this datarepo");
             }
+            psmsInCatalog = Columns(con, "psms").Count > 0;
             overview = Rows(con, "SELECT * FROM dataset_overview ORDER BY dataset_id");
             extra = ByDataset(Rows(con,
                 "SELECT dataset_id, instruments, search_database, sdrf_status, pipeline_repo, " +
@@ -273,7 +279,7 @@ public static partial class SiteGenerator
             ds["finding_codes"] = Findings(ds).Select(f => PyText.Str(f["code"])).Distinct()
                 .OrderBy(c => c, StringComparer.Ordinal).Cast<object?>().ToList();
         }
-        return new SiteFacts { Meta = meta, Datasets = datasets, Merit = merit, Proteins = proteins };
+        return new SiteFacts { Meta = meta, Datasets = datasets, Merit = merit, Proteins = proteins, PsmsInCatalog = psmsInCatalog };
     }
 
     private static Dictionary<string, Dict> ByDataset(List<Dict> rows)

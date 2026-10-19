@@ -19,29 +19,31 @@ Your catalog will differ. That is the point of §1.
 
 ### The acceptance views, not the raw tables
 
-`psms`, `peptidoforms` and `protein_groups` hold **everything the producer wrote**, including rows
-above the FDR threshold and decoys. The views `psms_1pct`, `peptidoforms_1pct` and
-`protein_groups_1pct` apply the producing search engine's own acceptance rule, once, in one place.
+`peptidoforms` and `protein_groups` hold **everything the producer wrote**, including rows above the
+FDR threshold and decoys. The views `peptidoforms_1pct` and `protein_groups_1pct` apply the producing
+search engine's own acceptance rule, once, in one place.
 
 ```sql
-SELECT 'psms' AS t, (SELECT count(*) FROM psms) AS raw,
-                    (SELECT count(*) FROM psms_1pct) AS accepted
-UNION ALL SELECT 'peptidoforms',   (SELECT count(*) FROM peptidoforms),
-                                   (SELECT count(*) FROM peptidoforms_1pct)
+SELECT 'peptidoforms' AS t, (SELECT count(*) FROM peptidoforms) AS raw,
+                            (SELECT count(*) FROM peptidoforms_1pct) AS accepted
 UNION ALL SELECT 'protein_groups', (SELECT count(*) FROM protein_groups),
                                    (SELECT count(*) FROM protein_groups_1pct);
 ```
 
 ```
              t      raw  accepted
-          psms  2707851   1361409
   peptidoforms   911187    198444
 protein_groups    31318     19246
 ```
 
-**Half the PSMs and four-fifths of the peptidoforms are below the bar.** Query `psms` instead of
-`psms_1pct` and you will roughly double your answer. Unless you are specifically studying the
+**Four-fifths of the peptidoforms are below the bar.** Query `peptidoforms` instead of
+`peptidoforms_1pct` and you will roughly quintuple your answer. Unless you are specifically studying the
 decoy distribution or the score tail, use the view.
+
+**PSMs are not in the catalog** (catalog format 13). Each dataset's counts are in `dataset_overview`:
+`n_psms_1pct` at the same acceptance rule, and `n_psms_all` for every row. On the catalog above that is
+1,361,409 accepted of 2,707,851, half of them below the bar. The PSMs themselves are each bundle's
+`psms.parquet`, which DuckDB reads directly: `catalog_bundles.path` is each dataset's bundle folder.
 
 The views are not a filter applied at write time — the rows are all there, and a consumer who wants
 a different threshold can have one. That is rule 4 in the [docs index](README.md): emit the data,
@@ -231,8 +233,8 @@ This section is the reason the page exists.
 ### Querying the raw table instead of the acceptance view
 
 ```sql
-SELECT count(*) FROM psms;          -- 2,707,851   includes decoys and everything above 1% FDR
-SELECT count(*) FROM psms_1pct;     -- 1,361,409   the number you meant
+SELECT count(*) FROM peptidoforms;        -- 911,187   includes decoys and everything above 1% FDR
+SELECT count(*) FROM peptidoforms_1pct;   -- 198,444   the number you meant
 ```
 
 ### Treating a NULL as a measured absence
