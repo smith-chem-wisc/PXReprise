@@ -148,8 +148,11 @@ public sealed partial class CatalogServer : IDisposable
     private Dictionary<string, Dictionary<string, object?>>? _tables;
     private readonly (long, long)? _openedStat;
 
+    /// <param name="catalog">A catalog file, or a catalog folder (or its <c>latest.json</c>), whose current file is served.</param>
     public CatalogServer(string catalog, double timeoutSeconds = Sandbox.TimeoutSecondsDefault, int rowCap = Sandbox.RowCap, int charCap = Sandbox.CharCap)
     {
+        _pointer = CatalogPointer.IsPointer(catalog) ? catalog : null;
+        catalog = CatalogPointer.Resolve(catalog);
         Box = new Sandbox(catalog, timeoutSeconds, rowCap, charCap);
         try
         {
@@ -165,6 +168,9 @@ public sealed partial class CatalogServer : IDisposable
     }
 
     private readonly string _catalogFile;
+
+    /// <summary>The catalog folder or pointer the server was started on, or null when it was given one file.</summary>
+    private readonly string? _pointer;
 
     private (long, long)? FileStat()
     {
@@ -188,6 +194,23 @@ public sealed partial class CatalogServer : IDisposable
     {
         get
         {
+            if (_pointer is not null)
+            {
+                // A folder's files never change; a newer catalog is a new file the pointer names (D48 step 1).
+                string? current;
+                try
+                {
+                    current = CatalogPointer.Resolve(_pointer);
+                }
+                catch (CatalogException)
+                {
+                    current = null;
+                }
+                if (current is not null && !string.Equals(System.IO.Path.GetFullPath(current), System.IO.Path.GetFullPath(_catalogFile), StringComparison.OrdinalIgnoreCase))
+                    return $"A newer catalog, {System.IO.Path.GetFileName(current)}, has been published in {SourcesPy.PathStr(_pointer)}. "
+                        + $"Every answer still comes from the catalog this server opened ({PyValues.Str(Identity.CatalogId)}). "
+                        + "Restart the MCP server to serve the newer one.";
+            }
             if (FileStat() == _openedStat) return null;
             return $"The file at {Box.Path} has changed since this server opened it. Every answer "
                 + $"still comes from the catalog it opened ({PyValues.Str(Identity.CatalogId)}), which may no "

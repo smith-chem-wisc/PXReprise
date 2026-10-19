@@ -119,11 +119,36 @@ public sealed record RunExclusion(string DatasetId, string BundleId, string RunI
 /// <param name="Use">One of <see cref="DataRepo.Ingest.DatasetEntry.RestrictionUses"/>.</param>
 public sealed record DatasetRestriction(string DatasetId, string BundleId, string Use, string Reason);
 
+/// <summary>How a catalog holds the bundles' rows (D48 step 1).</summary>
+public enum CatalogLayout
+{
+    /// <summary>One movable <c>.duckdb</c> file holding a copy of every row (D10). <c>--out</c> names a <c>.duckdb</c> file.</summary>
+    File,
+
+    /// <summary>A folder of versioned <c>catalog-&lt;catalog id&gt;.duckdb</c> files and a <c>latest.json</c> pointer. The
+    /// bundle and engine tables are VIEWS over the store's Parquet, so a build copies no rows and never replaces a file
+    /// a reader holds (PXReprise's public-data contract, D48).</summary>
+    Folder,
+}
+
 /// <summary>What a build did, in the terms an operator or a release checklist needs.</summary>
 public sealed record CatalogResult
 {
+    /// <summary>The catalog file written: <c>--out</c> itself, or the versioned file inside the <c>--out</c> folder.</summary>
     public required string Path { get; init; }
     public required string CatalogId { get; init; }
+
+    /// <summary>What the catalog's data is: its bundles, study deliveries and engine artefacts, and the schema (D48 rule 9).
+    /// Two catalogs of the same data (a local and a hosted one, or two builder versions) share it.</summary>
+    public string? ReleaseId { get; init; }
+
+    public CatalogLayout Layout { get; init; } = CatalogLayout.File;
+
+    /// <summary>The <c>latest.json</c> a folder build rewrote; null for a file build.</summary>
+    public string? Pointer { get; init; }
+
+    /// <summary>Older catalog files <c>--keep</c> deleted from the folder.</summary>
+    public IReadOnlyList<string> Pruned { get; init; } = [];
     public required IReadOnlyList<string> Datasets { get; init; }
     public required IReadOnlyList<BundleRef> Bundles { get; init; }
     public IReadOnlyList<StudyBundleRef> StudyBundles { get; init; } = [];
@@ -191,11 +216,13 @@ public static class CatalogBuilder
     /// same reasoning: still unreleased, the census file's sha256 is hashed into the id when there is one, and a
     /// manifest naming none builds the catalog -- and the id -- it built before. "11" adds
     /// <c>dataset_restrictions</c> and <c>dataset_overview.restrictions</c> from the manifest's <c>restrictions</c>
-    /// (aging DATAREPO-74), and the aging layer's design tables (0.6.0, DATAREPO-79). Inside a <see cref="SchemaContract.Python0320"/> scope it stays "8", and go and the annotations are left
+    /// (aging DATAREPO-74), and the aging layer's design tables (0.6.0, DATAREPO-79). "12" adds the folder layout (views
+    /// over the store's Parquet, versioned files, <c>latest.json</c>; D48 step 1) and <c>catalog_meta.release_id</c>,
+    /// <c>layout</c> and <c>data_root</c>. Inside a <see cref="SchemaContract.Python0320"/> scope it stays "8", and go and the annotations are left
     /// out, so a parity build is still what Python 0.32.0 built. Same principle as
     /// <c>manifest.CONTENT_FIELDS</c> one level down -- an id moves when its own content moves, and not
     /// otherwise.</remarks>
-    public static string CatalogVersion => SchemaContract.IsPython0320 ? "8" : "11";
+    public static string CatalogVersion => SchemaContract.IsPython0320 ? "8" : "12";
 
     /// <summary>Whether this build loads go's artefacts: always, except when reproducing Python 0.32.0, which had
     /// no go engine.</summary>
@@ -907,10 +934,14 @@ public static class CatalogBuilder
         IReadOnlyList<DatasetAnnotation> annotations,
         IReadOnlyList<RunExclusion> exclusions,
         IReadOnlyList<DatasetRestriction> restrictions,
-        CandidateCensus? census)
+        CandidateCensus? census,
+        string? dataRoot = null)
     {
         var text = new StringBuilder();
         text.Append($"datarepo/{packageVersion ?? PackageVersion}\ncatalog/{CatalogVersion}\nschema/{SchemaContract.Version}\n");
+        // A folder catalog's views name the store's files by absolute path, so two folder catalogs of one release over
+        // two data roots are two different files; a one-file catalog holds copies and names no path. No line for it.
+        if (dataRoot is not null) text.Append($"layout/views\ndata-root/{dataRoot}\n");
         // A study layer's tables are part of what a catalog holds, so its version is part of the catalog's
         // identity. Without this, adding a column to `age_effect` would leave two different catalogs sharing an id.
         foreach (var layer in Tables.StudyVersions.Keys.Order(SourcesPy.CodePointOrder))
@@ -1205,10 +1236,33 @@ public static class CatalogBuilder
 
     /// <summary>go's rows into its three core tables, with the matched bundle's provenance columns.</summary>
     /// <returns><c>{table: total rows}</c> for the tables that received any.</returns>
-    private static Dictionary<string, long> LoadGoRows(DuckDBConnection con, IReadOnlyList<BundleRef> bundles, IReadOnlyList<ArtefactRef> artefacts)
+    /// <remarks>With <paramref name="views"/> each go table is a view over the artefacts' Parquet, or a typed empty view
+    /// when none holds it: <see cref="LoadTables"/> left them for this.</remarks>
+    private static Dictionary<string, long> LoadGoRows(DuckDBConnection con, IReadOnlyList<BundleRef> bundles, IReadOnlyList<ArtefactRef> artefacts, bool views = false)
     {
         var counts = new Dictionary<string, long>(StringComparer.Ordinal);
         if (!GoActive) return counts;
+        if (views)
+        {
+            var pairs = GoPairs(bundles, artefacts);
+            foreach (var table in Runner.GoTables)
+            {
+                var parts = pairs
+                    .Select(p => (p.Bundle, Path: p.Artefact.TablePath(table)))
+                    .Where(p => p.Path is not null)
+                    .Select(p => $"SELECT {Quote(p.Bundle.DatasetId)} AS dataset_id, {Quote(p.Bundle.BundleId)} AS bundle_id, * "
+                        + $"FROM read_parquet({Quote(AsPosix(p.Path!))})")
+                    .ToList();
+                if (parts.Count == 0)
+                {
+                    CreateEmptyView(con, table, DatasetProvenance, SchemaContract.Columns(Tables.ByName[table]).Where(c => c.Name != "dataset_id"));
+                    continue;
+                }
+                Exec(con, $"CREATE VIEW \"{table}\" AS\n{string.Join("\nUNION ALL BY NAME\n", parts)}");
+                counts[table] = Count(con, $"SELECT count(*) FROM \"{table}\"");
+            }
+            return counts;
+        }
         foreach (var (bundle, artefact) in GoPairs(bundles, artefacts))
             foreach (var table in Runner.GoTables)
             {
@@ -1267,9 +1321,17 @@ public static class CatalogBuilder
         IReadOnlyList<StudyBundleRef>? studyBundles = null,
         IReadOnlyList<ArtefactRef>? artefacts = null,
         IReadOnlyList<CatalogCheck>? engineChecks = null,
-        Manifest? manifest = null)
+        Manifest? manifest = null,
+        int? keep = null)
     {
         if (bundles.Count == 0) throw new CatalogException("no bundles to build a catalog from");
+        var layout = LayoutOf(@out);
+        if (layout == CatalogLayout.Folder && SchemaContract.IsPython0320)
+            throw new CatalogException("a Python 0.32.0 parity build writes one .duckdb file: name one with --out");
+        if (keep is < 1) throw new CatalogException($"--keep must keep at least the current catalog, got {keep}");
+        if (keep is not null && layout == CatalogLayout.File)
+            throw new CatalogException("--keep prunes the versioned files of a catalog folder, and --out names one .duckdb file");
+        var views = layout == CatalogLayout.Folder;
 
         var seen = new Dictionary<string, BundleRef>(StringComparer.Ordinal);
         foreach (var r in bundles)
@@ -1322,7 +1384,9 @@ public static class CatalogBuilder
         var exclusions = RunExclusions(bundles, manifest);
         var restrictions = Restrictions(bundles, manifest);
         var census = Census(manifest);
-        var cid = CatalogIdOf(bundles, study, engines, null, annotations, exclusions, restrictions, census);
+        var dataRoot = views ? DataRoot(bundles, study, engines) : null;
+        var cid = CatalogIdOf(bundles, study, engines, null, annotations, exclusions, restrictions, census, dataRoot);
+        var rid = ReleaseId(bundles, study, engines);
         if (census is not null)
         {
             // Where the census came from, beside the manifest the CLI records: the path a reader can open and the
@@ -1337,17 +1401,26 @@ public static class CatalogBuilder
             };
             notes = withCensus;
         }
-        var full = System.IO.Path.GetFullPath(@out);
+        // A folder build writes a new versioned file and never replaces one a reader may hold; a file build writes --out.
+        var folder = views ? System.IO.Path.GetFullPath(@out) : null;
+        var full = views ? System.IO.Path.Combine(folder!, CatalogPointer.FileOf(cid)) : System.IO.Path.GetFullPath(@out);
+        var shown = views ? BundleWriter.PathText(full) : @out;
         var staging = StagedCatalogs.PathFor(full, cid);
         // DATAREPO-83 a: a killed build cannot remove what it staged, so every build removes what dead builds left.
-        var (stagedRemoved, stagedKept) = StagedCatalogs.Sweep(full, staging);
-        if (!overwrite && ReadCatalogId(@out) == cid)
+        // In a folder every catalog id stages its own file, so the sweep covers them all.
+        var (stagedRemoved, stagedKept) = StagedCatalogs.Sweep(full, staging, views ? ".catalog-" : null);
+        if (!overwrite && ReadCatalogId(full) == cid)
+        {
+            // An unchanged folder catalog becomes the current one again (a rebuild after a rollback, say).
+            var current = views ? WritePointer(folder!, full, cid, rid) : null;
             return new CatalogResult
             {
-                Path = @out, CatalogId = cid, Datasets = datasets, Bundles = bundles,
-                StudyBundles = study, Artefacts = engines, Skipped = true,
+                Path = shown, CatalogId = cid, ReleaseId = rid, Layout = layout, Pointer = current,
+                Pruned = views && keep is not null ? Prune(folder!, keep.Value, full) : [],
+                Datasets = datasets, Bundles = bundles, StudyBundles = study, Artefacts = engines, Skipped = true,
                 StagedRemoved = stagedRemoved, StagedKept = stagedKept,
             };
+        }
 
         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(full)!);
         DeleteDatabase(staging);
@@ -1361,11 +1434,11 @@ public static class CatalogBuilder
         {
             using (var con = Open(staging, readOnly: false))
             {
-                rowCounts = LoadTables(con, bundles);
+                rowCounts = LoadTables(con, bundles, views);
                 BuildDerived(con);
                 studyCounts = CreateStudyTables(con, study);
-                foreach (var (k, v) in CreateEngineTables(con, engines)) rowCounts[k] = v;
-                foreach (var (k, v) in LoadGoRows(con, bundles, engines)) rowCounts[k] = v;
+                foreach (var (k, v) in CreateEngineTables(con, engines, views)) rowCounts[k] = v;
+                foreach (var (k, v) in LoadGoRows(con, bundles, engines, views)) rowCounts[k] = v;
                 BuildEngineDerived(con, bundles);
                 if (AnnotationsActive)
                 {
@@ -1376,7 +1449,7 @@ public static class CatalogBuilder
                 if (census is not null) rowCounts[CandidateCensus.Table] = LoadCandidates(con, census, bundles);
                 checks = [
                     .. CheckRowCounts(con, bundles),
-                    .. CheckIntegrity(con),
+                    .. views ? [IntegrityCheckedAtIngest()] : CheckIntegrity(con),
                     .. CheckStudy(con, study),
                     .. CheckEngines(con, engines.Where(r => r.Engine != Runner.GoEngine).ToList()),
                     .. CheckGo(con, bundles, engines),
@@ -1397,7 +1470,8 @@ public static class CatalogBuilder
                         + $"  - {detail}");
                 }
                 indexes = BuildIndexes(con);
-                WriteCatalogTables(con, bundles, rowCounts, checks, cid, instance, notes, study, studyCounts, engines, census is not null);
+                WriteCatalogTables(con, bundles, rowCounts, checks, cid, instance, notes, study, studyCounts, engines, census is not null,
+                    rid, layout, dataRoot);
             }
             // aging 107: a file shorter than its own header says is never moved into place.
             using (var written = Open(staging, readOnly: true))
@@ -1438,15 +1512,132 @@ public static class CatalogBuilder
                     ? "The new one was deleted; build again once nothing holds the catalog."
                     : $"The new one could not be deleted either: delete {staging} once nothing holds it."));
         }
+        var pointer = views ? WritePointer(folder!, full, cid, rid) : null;
         var counts = new Dictionary<string, long>(rowCounts, StringComparer.Ordinal);
         foreach (var (k, v) in studyCounts) if (v != 0) counts[k] = v;
         return new CatalogResult
         {
-            Path = @out, CatalogId = cid, Datasets = datasets, Bundles = bundles, StudyBundles = study,
+            Path = shown, CatalogId = cid, ReleaseId = rid, Layout = layout, Pointer = pointer,
+            Pruned = views && keep is not null ? Prune(folder!, keep.Value, full) : [],
+            Datasets = datasets, Bundles = bundles, StudyBundles = study,
             Artefacts = engines, RowCounts = counts, Checks = checks, Indexes = indexes,
             StagedRemoved = stagedRemoved, StagedKept = stagedKept,
         };
     }
+
+    /// <summary>Points <paramref name="folder"/>'s <c>latest.json</c> at <paramref name="catalogFile"/> (<see cref="CatalogPointer"/>):
+    /// written beside it under a temporary name, then moved over the old pointer, so a reader never sees half of one.</summary>
+    /// <returns>The pointer's path.</returns>
+    private static string WritePointer(string folder, string catalogFile, string catalogId, string releaseId)
+    {
+        var pointer = System.IO.Path.Combine(folder, CatalogPointer.FileName);
+        var doc = new OrderedDictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["catalog"] = System.IO.Path.GetFileName(catalogFile),
+            ["catalog_id"] = catalogId,
+            ["release_id"] = releaseId,
+            ["catalog_version"] = CatalogVersion,
+            ["builder_version"] = PackageVersion,
+            ["pointed_utc"] = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'+00:00'", CultureInfo.InvariantCulture),
+        };
+        var temporary = System.IO.Path.Combine(folder, $".{CatalogPointer.FileName}.{Environment.ProcessId}.tmp");
+        File.WriteAllText(temporary, PyFormat.JsonIndented(doc) + "\n", new UTF8Encoding(false));
+        ReplaceFile(temporary, pointer, ReplaceBudget);
+        return BundleWriter.PathText(pointer);
+    }
+
+    /// <summary>The layout <c>--out</c> asks for: a name ending <c>.duckdb</c> is one file, anything else a folder.</summary>
+    public static CatalogLayout LayoutOf(string @out) =>
+        @out.EndsWith(".duckdb", StringComparison.OrdinalIgnoreCase) ? CatalogLayout.File : CatalogLayout.Folder;
+
+    /// <summary>The store a folder catalog's views read, as the absolute posix prefix every view path starts with.</summary>
+    /// <remarks>One root, because the MCP sandbox allows exactly one directory (D14 kept, D48 step 1): bundles
+    /// (<c>&lt;store&gt;/&lt;dataset&gt;/&lt;bundle&gt;</c>), study deliveries (<c>&lt;store&gt;/_study/&lt;layer&gt;/&lt;id&gt;</c>)
+    /// and engine artefacts (<c>&lt;store&gt;/_engine/&lt;engine&gt;/&lt;id&gt;</c>) must all sit in it.</remarks>
+    /// <exception cref="CatalogException">They do not share one store.</exception>
+    private static string DataRoot(IReadOnlyList<BundleRef> bundles, IReadOnlyList<StudyBundleRef> study, IReadOnlyList<ArtefactRef> artefacts)
+    {
+        static string Up(string path, int levels)
+        {
+            var dir = System.IO.Path.GetFullPath(path);
+            for (var i = 0; i < levels; i++) dir = System.IO.Path.GetDirectoryName(dir)!;
+            return AsPosix(dir).TrimEnd('/') + "/";
+        }
+        var roots = bundles.Select(b => (Up(b.Path, 2), $"bundle {b.BundleId}"))
+            .Concat(study.Select(s => (Up(s.Path, 3), $"study bundle {s.BundleId}")))
+            .Concat(artefacts.Select(a => (Up(a.Path, 3), $"engine artefact {a.ArtefactId}")))
+            .ToList();
+        var root = roots[0].Item1;
+        var other = roots.FirstOrDefault(r => !string.Equals(r.Item1, root, StringComparison.OrdinalIgnoreCase));
+        if (other.Item1 is not null)
+            throw new CatalogException(
+                $"a catalog folder reads one store, and {other.Item2} is in {other.Item1}, not {root}. "
+                + "Build from one store, or write one .duckdb file instead (--out <name>.duckdb).");
+        return root;
+    }
+
+    /// <summary>What a catalog's data is (D48 rule 9): the schema and the sorted bundles, study deliveries and engine
+    /// artefacts. Not the builder, the layout or the data root, which <see cref="CatalogId"/> covers: a local and a
+    /// hosted catalog of one release, or two builders' catalogs of it, share this and differ there.</summary>
+    /// <remarks>Rule 9 names the bundles and the schema. The study deliveries and engine artefacts are data in the same
+    /// sense (an age effect, a gene resolution), so two catalogs that differ in them are not one release.</remarks>
+    public static string ReleaseId(IReadOnlyList<BundleRef> bundles, IReadOnlyList<StudyBundleRef>? study = null, IReadOnlyList<ArtefactRef>? artefacts = null)
+    {
+        var text = new StringBuilder($"datarepo-release\nschema/{SchemaContract.Version}\n");
+        foreach (var r in bundles.OrderBy(r => r.DatasetId, SourcesPy.CodePointOrder).ThenBy(r => r.BundleId, SourcesPy.CodePointOrder))
+            text.Append($"bundle/{r.DatasetId}\t{r.BundleId}\n");
+        foreach (var r in (study ?? []).OrderBy(r => r.Layer, SourcesPy.CodePointOrder).ThenBy(r => r.BundleId, SourcesPy.CodePointOrder))
+            text.Append($"study-bundle/{r.Layer}\t{r.BundleId}\n");
+        foreach (var r in (artefacts ?? []).OrderBy(r => r.Engine, SourcesPy.CodePointOrder).ThenBy(r => r.ArtefactId, SourcesPy.CodePointOrder))
+            text.Append($"engine/{r.Engine}\t{r.ArtefactId}\n");
+        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text.ToString())))[..16];
+    }
+
+    /// <summary>Deletes the folder's catalog files beyond the newest <paramref name="keep"/>, never the current one and
+    /// never one built for a release (<c>--release</c>).</summary>
+    /// <remarks>Deleting a file a DuckDB reader holds is allowed (it keeps its copy); a file something else holds is
+    /// skipped and tried again next time.</remarks>
+    /// <returns>The files deleted.</returns>
+    private static List<string> Prune(string folder, int keep, string current)
+    {
+        var files = Directory.EnumerateFiles(folder, "catalog-*.duckdb")
+            .Select(f => new FileInfo(f))
+            .OrderByDescending(f => f.LastWriteTimeUtc).ThenByDescending(f => f.Name, StringComparer.Ordinal)
+            .ToList();
+        var pruned = new List<string>();
+        foreach (var file in files.Skip(keep))
+        {
+            if (string.Equals(file.FullName, System.IO.Path.GetFullPath(current), StringComparison.OrdinalIgnoreCase)) continue;
+            if (ReleaseOf(file.FullName) is not null) continue;
+            if (TryDeleteDatabase(file.FullName)) pruned.Add(BundleWriter.PathText(file.FullName));
+        }
+        return pruned;
+    }
+
+    /// <summary>The release a catalog file was built for (<c>catalog_meta.notes.release</c>), or null.</summary>
+    private static string? ReleaseOf(string path)
+    {
+        try
+        {
+            using var con = Open(path, readOnly: true);
+            if (Query(con, "SELECT notes FROM catalog_meta").SingleOrDefault()?[0] is not string notes) return null;
+            using var doc = System.Text.Json.JsonDocument.Parse(notes);
+            return doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("release", out var release) && release.ValueKind == System.Text.Json.JsonValueKind.String
+                ? release.GetString() : null;
+        }
+        catch (Exception e) when (e is DuckDBException or IOException or System.Text.Json.JsonException)
+        {
+            return "unreadable";  // not ours to delete
+        }
+    }
+
+    /// <summary>The row a folder catalog records in place of re-running ingest's integrity checks over every table (D48 1c).</summary>
+    private static CatalogCheck IntegrityCheckedAtIngest() => new(
+        "integrity (uniqueness and references, per bundle)", "integrity", true, null, null,
+        "checked when each bundle was written, and not re-run here: the ingest refuses a bundle whose tables do not hold "
+        + "together, every identifier is namespaced by its dataset, and the row counts above show each table is the one "
+        + "its bundle.json lists");
 
     /// <summary><c>dataset_annotations</c>: one row per dataset, from the build's manifest (G84).</summary>
     private static void CreateAnnotations(DuckDBConnection con, IReadOnlyList<DatasetAnnotation> annotations)
@@ -1716,7 +1907,7 @@ public static class CatalogBuilder
     }
 
     /// <summary>Create every engine table, filled from the chosen artefacts or empty with the right columns.</summary>
-    private static Dictionary<string, long> CreateEngineTables(DuckDBConnection con, IReadOnlyList<ArtefactRef> artefacts)
+    private static Dictionary<string, long> CreateEngineTables(DuckDBConnection con, IReadOnlyList<ArtefactRef> artefacts, bool views = false)
     {
         var rowCounts = new Dictionary<string, long>(StringComparer.Ordinal);
         foreach (var (table, engine) in Runner.EngineTables)
@@ -1732,12 +1923,13 @@ public static class CatalogBuilder
             }
             if (parts.Count == 0)
             {
-                CreateEmpty(con, table, EngineProvenance, Tables.ByName[table].Columns);
+                if (views) CreateEmptyView(con, table, EngineProvenance, Tables.ByName[table].Columns);
+                else CreateEmpty(con, table, EngineProvenance, Tables.ByName[table].Columns);
                 rowCounts[table] = 0;
                 continue;
             }
             var union = string.Join("\nUNION ALL BY NAME\n", parts);
-            Exec(con, $"CREATE TABLE \"{table}\" AS\n{union}");
+            Exec(con, $"CREATE {(views ? "VIEW" : "TABLE")} \"{table}\" AS\n{union}");
             rowCounts[table] = Count(con, $"SELECT count(*) FROM \"{table}\"");
         }
         return rowCounts;
@@ -1768,14 +1960,20 @@ public static class CatalogBuilder
         return checks;
     }
 
-    /// <summary>Materialise every schema table as the union of the bundles that hold it.</summary>
-    private static Dictionary<string, long> LoadTables(DuckDBConnection con, IReadOnlyList<BundleRef> bundles)
+    /// <summary>Every schema table as the union of the bundles that hold it: a copy, or with <paramref name="views"/> a
+    /// view over the bundles' Parquet (D48 step 1).</summary>
+    /// <remarks>In a views catalog <c>samples</c> is still copied (a few thousand rows): its <c>&lt;column&gt;_name</c>
+    /// columns are added by ALTER and UPDATE (G74), which a view cannot take. go's tables come from go's artefacts
+    /// (<see cref="LoadGoRows"/>), so here they are left for that.</remarks>
+    private static Dictionary<string, long> LoadTables(DuckDBConnection con, IReadOnlyList<BundleRef> bundles, bool views = false)
     {
         var rowCounts = new Dictionary<string, long>(StringComparer.Ordinal);
         foreach (var spec in Tables.Core)
         {
             var table = spec.Name;
             if (Runner.EngineTables.ContainsKey(table)) continue;  // never in a bundle; filled from artefacts
+            if (views && GoActive && Runner.GoTables.Contains(table)) continue;
+            var asView = views && table != "samples";
             var parts = new List<string>();
             foreach (var r in bundles)
             {
@@ -1784,16 +1982,26 @@ public static class CatalogBuilder
             }
             if (parts.Count == 0)
             {
-                CreateEmpty(con, table, DatasetProvenance, SchemaContract.Columns(spec).Where(c => c.Name != "dataset_id"));
+                var columns = SchemaContract.Columns(spec).Where(c => c.Name != "dataset_id");
+                if (asView) CreateEmptyView(con, table, DatasetProvenance, columns);
+                else CreateEmpty(con, table, DatasetProvenance, columns);
                 continue;
             }
             // BY NAME rather than positionally: the bundles all carry one schema version, and a union that lined
             // columns up by position would turn a violation of that into silent nonsense.
             var union = string.Join("\nUNION ALL BY NAME\n", parts);
-            Exec(con, $"CREATE TABLE \"{table}\" AS\n{union}");
+            Exec(con, $"CREATE {(asView ? "VIEW" : "TABLE")} \"{table}\" AS\n{union}");
             rowCounts[table] = Count(con, $"SELECT count(*) FROM \"{table}\"");
         }
         return rowCounts;
+    }
+
+    /// <summary>A view with a table's columns and no rows: a table no selected bundle or artefact holds still exists to
+    /// be queried in a views catalog (D10's rule), and says "none" rather than "no such table".</summary>
+    private static void CreateEmptyView(DuckDBConnection con, string table, IEnumerable<(string Name, string Type)> prefix, IEnumerable<ColumnSpec> columns)
+    {
+        var all = prefix.Concat(columns.Select(c => (c.Name, SqlType(c))));
+        Exec(con, $"CREATE VIEW \"{table}\" AS SELECT {string.Join(", ", all.Select(c => $"CAST(NULL AS {c.Item2}) AS \"{c.Item1}\""))} WHERE false");
     }
 
     /// <summary>Give each term-only <c>samples</c> column a <c>&lt;column&gt;_name</c> beside it (G74).</summary>
@@ -2007,6 +2215,9 @@ public static class CatalogBuilder
         var built = 0;
         foreach (var (table, column) in IndexColumns)
         {
+            // A view over Parquet takes no index; its files' own statistics prune the scan instead.
+            if (Count(con, "SELECT count(*) FROM information_schema.tables WHERE table_name = ? AND table_type = 'VIEW'", table) > 0)
+                continue;
             var kind = ColumnDataType(con, table, column);
             if (kind is null || kind.EndsWith("[]", StringComparison.Ordinal) || kind.StartsWith("STRUCT", StringComparison.Ordinal))
                 continue;
@@ -2169,16 +2380,22 @@ public static class CatalogBuilder
         IReadOnlyList<StudyBundleRef> studyBundles,
         IReadOnlyDictionary<string, long> studyCounts,
         IReadOnlyList<ArtefactRef> artefacts,
-        bool censusLoaded)
+        bool censusLoaded,
+        string? releaseId = null,
+        CatalogLayout layout = CatalogLayout.File,
+        string? dataRoot = null)
     {
-        Exec(con, @"
+        // Python 0.32.0's catalog_meta had ten columns; the release id, layout and data root follow them (D48 step 1).
+        var extra = SchemaContract.IsPython0320 ? "" : ", release_id VARCHAR, layout VARCHAR, data_root VARCHAR";
+        Exec(con, $@"
         CREATE TABLE catalog_meta (
             catalog_id VARCHAR, catalog_version VARCHAR, schema_version VARCHAR,
             qpx_version VARCHAR, builder VARCHAR, builder_version VARCHAR,
-            built_utc VARCHAR, instance VARCHAR, n_datasets BIGINT, notes JSON
+            built_utc VARCHAR, instance VARCHAR, n_datasets BIGINT, notes JSON{extra}
         )
         ");
-        Exec(con, "INSERT INTO catalog_meta VALUES (?, ?, ?, ?, 'datarepo', ?, ?, ?, ?, ?)",
+        var values = new List<object?>
+        {
             cid,
             CatalogVersion,
             SchemaContract.Version,
@@ -2188,7 +2405,11 @@ public static class CatalogBuilder
             DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'+00:00'", CultureInfo.InvariantCulture),
             instance,
             (long)bundles.Count,
-            PyFormat.Json(notes ?? new Dictionary<string, object?>(), sortKeys: false, ensureAscii: true));
+            PyFormat.Json(notes ?? new Dictionary<string, object?>(), sortKeys: false, ensureAscii: true),
+        };
+        if (!SchemaContract.IsPython0320) values.AddRange([releaseId, layout == CatalogLayout.Folder ? "views" : "copies", dataRoot]);
+        Exec(con, $"INSERT INTO catalog_meta VALUES (?, ?, ?, ?, 'datarepo', {string.Join(", ", values.Skip(4).Select(_ => "?"))})",
+            values.ToArray());
 
         Exec(con, @"
         CREATE TABLE catalog_bundles (
@@ -2318,6 +2539,7 @@ public static class CatalogBuilder
     /// <exception cref="CatalogException">There is no catalog at <paramref name="path"/>.</exception>
     public static Dictionary<string, object?> DescribeCatalog(string path)
     {
+        path = CatalogPointer.Resolve(path);
         if (!File.Exists(path)) throw new CatalogException($"no catalog at {SourcesPy.PathStr(path)}");
         using var con = Open(path, readOnly: true);
         List<Dictionary<string, object?>> meta;
@@ -2365,6 +2587,7 @@ public static class CatalogBuilder
     /// valid against it.</exception>
     public static (List<string> Columns, List<object?[]> Rows) RunQuery(string path, string sql, int? limit = null)
     {
+        path = CatalogPointer.Resolve(path);
         if (!File.Exists(path)) throw new CatalogException($"no catalog at {SourcesPy.PathStr(path)}");
         var statement = sql.Trim().TrimEnd(';');
         if (limit is not null) statement = $"SELECT * FROM ({statement}) LIMIT {limit.Value}";

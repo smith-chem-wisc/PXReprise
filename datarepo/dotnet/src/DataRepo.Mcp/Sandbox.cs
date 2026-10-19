@@ -107,9 +107,11 @@ public sealed class Sandbox : IDisposable
         TimeoutSeconds = timeoutSeconds;
         RowCapValue = rowCap;
         CharCapValue = charCap;
+        DataRoot = DataRootOf(path);
         var builder = new DuckDBConnectionStringBuilder { DataSource = path };
         builder["ACCESS_MODE"] = "READ_ONLY";
-        builder["enable_external_access"] = "false";
+        // A folder catalog's views read the store, so external access is closed only after the store is allowed.
+        if (DataRoot is null) builder["enable_external_access"] = "false";
         _con = new DuckDBConnection(builder.ConnectionString);
         try
         {
@@ -126,12 +128,51 @@ public sealed class Sandbox : IDisposable
             _con.Dispose();
             throw new CatalogException($"refusing to serve a damaged catalog: {shortBy}. Rebuild it, or restore it from a copy.");
         }
-        // Order matters and is not optional: this cannot be set at connect time, and once set it cannot be unset.
-        // Do it before any caller-supplied SQL reaches the connection.
-        using var cmd = _con.CreateCommand();
-        cmd.CommandText = $"SET disabled_filesystems='{DisabledFilesystems}'";
-        cmd.ExecuteNonQuery();
+        // Order matters and is not optional: none of this can be set at connect time, and once set none of it can be
+        // unset. Do it before any caller-supplied SQL reaches the connection.
+        var lockdown = DataRoot is null
+            ? [$"SET disabled_filesystems='{DisabledFilesystems}'"]
+            // A folder catalog (D48 step 1): the files under its store read, and nothing else does. allowed_directories
+            // must come BEFORE external access is closed, and lock_configuration then makes all of it one-way.
+            : new[]
+            {
+                $"SET allowed_directories = ['{DataRoot.Replace("'", "''")}']",
+                "SET enable_external_access = false",
+                "SET lock_configuration = true",
+            };
+        foreach (var statement in lockdown)
+        {
+            using var cmd = _con.CreateCommand();
+            cmd.CommandText = statement;
+            cmd.ExecuteNonQuery();
+        }
         TimeZone = TimeZoneOverride ?? SessionTimeZone();
+    }
+
+    /// <summary>The store a folder catalog's views read (<c>catalog_meta.data_root</c>), or null for a catalog that holds
+    /// its own rows, whose sandbox reads no file at all.</summary>
+    public string? DataRoot { get; }
+
+    /// <summary><c>catalog_meta.data_root</c>, read before the sandbox opens, on a connection that runs no caller SQL.</summary>
+    private static string? DataRootOf(string path)
+    {
+        try
+        {
+            var builder = new DuckDBConnectionStringBuilder { DataSource = path };
+            builder["ACCESS_MODE"] = "READ_ONLY";
+            builder["enable_external_access"] = "false";
+            using var con = new DuckDBConnection(builder.ConnectionString);
+            con.Open();
+            using var cmd = con.CreateCommand();
+            cmd.CommandText = "SELECT count(*) FROM information_schema.columns WHERE table_name = 'catalog_meta' AND column_name = 'data_root'";
+            if (Convert.ToInt64(cmd.ExecuteScalar()) == 0) return null;
+            cmd.CommandText = "SELECT data_root FROM catalog_meta";
+            return cmd.ExecuteScalar() as string;
+        }
+        catch (DuckDBException)
+        {
+            return null;  // the real open reports what is wrong with the file
+        }
     }
 
     /// <summary>The zone a TIMESTAMP WITH TIME ZONE is shown in: DuckDB's <c>TimeZone</c> setting, which is what

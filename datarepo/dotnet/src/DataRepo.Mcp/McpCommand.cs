@@ -27,7 +27,7 @@ public static class McpCommand
         Summary + "\n\n" +
         "options:\n" +
         "  -h, --help         show this help message and exit\n" +
-        "  --catalog CATALOG  the catalog .duckdb file to serve; never auto-discovered\n" +
+        "  --catalog CATALOG  the catalog .duckdb file, or catalog folder, to serve; never auto-discovered\n" +
         "  --install          register it with Claude Code and exit\n" +
         "  --list             show the datarepo servers already registered\n" +
         "  --check            open the catalog and report, without serving\n" +

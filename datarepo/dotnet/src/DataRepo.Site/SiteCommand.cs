@@ -38,7 +38,7 @@ public static class SiteCommand
         {
             Usage, "", Summary, "",
             "positional arguments:",
-            $"  {"catalog",-22} the catalog .duckdb file",
+            $"  {"catalog",-22} the catalog .duckdb file, or a catalog folder",
             "",
             "options:",
             $"  {"-h, --help",-22} show this help message and exit",

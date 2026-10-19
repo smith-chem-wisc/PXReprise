@@ -42,13 +42,15 @@ internal static class StagedCatalogs
     /// writing them. A staged catalog whose builder is running is in neither.</returns>
     /// <exception cref="CatalogException">A running build is writing <paramref name="ownStaging"/>: two builds of one
     /// catalog would write one file.</exception>
-    public static (List<StagedCatalog> Removed, List<StagedCatalog> Kept) Sweep(string output, string ownStaging)
+    /// <param name="family">The staged files' common prefix: by default <c>.&lt;output's name&gt;.</c>; a catalog folder,
+    /// whose every catalog id stages its own file, passes <c>.catalog-</c>.</param>
+    public static (List<StagedCatalog> Removed, List<StagedCatalog> Kept) Sweep(string output, string ownStaging, string? family = null)
     {
         var removed = new List<StagedCatalog>();
         var kept = new List<StagedCatalog>();
         var dir = System.IO.Path.GetDirectoryName(output)!;
         if (!Directory.Exists(dir)) return (removed, kept);
-        var prefix = $".{System.IO.Path.GetFileName(output)}.";
+        var prefix = family ?? $".{System.IO.Path.GetFileName(output)}.";
         var staged = Directory.EnumerateFiles(dir, prefix + "*")
             .Select(StagedOf).OfType<string>().Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal);
         foreach (var path in staged)

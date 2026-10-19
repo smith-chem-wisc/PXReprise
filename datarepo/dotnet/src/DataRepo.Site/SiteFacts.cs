@@ -159,6 +159,7 @@ public static partial class SiteGenerator
     /// <exception cref="CatalogException">There is no catalog at <paramref name="catalog"/>.</exception>
     public static SiteFacts ReadSiteFacts(string catalog)
     {
+        catalog = CatalogPointer.Resolve(catalog);
         if (!File.Exists(catalog)) throw new CatalogException($"no catalog at {catalog}");
         Dict meta;
         List<Dict> overview, findings, names, modifications, metrics, merit;

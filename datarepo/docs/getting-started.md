@@ -174,7 +174,7 @@ datarepo publish manifest.yaml --site site --title "Example repository" --purpos
 
 ```
 catalog  …/example-instance/catalog.duckdb
-  id       c538581ce730f487
+  id       7af21bbdd37814ef
   dataset  PXD999999    bundle 695a592f6bdfbf63
   note     logs.resolve_genes coverage (databases with an artefact): 0 of 1; no artefact for 89fb8c7a1140 (PXD999999)
   note     go.annotate_groups coverage (bundles with an artefact): 0 of 1; no artefact for PXD999999 (695a592f6bdfbf63)
@@ -182,7 +182,7 @@ catalog  …/example-instance/catalog.duckdb
   indexes  22
   checks   60 run, all passed
 site     site
-  catalog  c538581ce730f487
+  catalog  7af21bbdd37814ef
   wrote    36 files, 1 dataset page
   skipped  croissant.json: no --data-url: a Croissant file describes downloadable files, …
   skipped  robots.txt: no --base-url: both need the site's absolute address
@@ -264,7 +264,7 @@ datarepo mcp --catalog catalog.duckdb --check
 
 ```
 catalog  catalog.duckdb
-  id       c538581ce730f487
+  id       7af21bbdd37814ef
   built    … by datarepo 1.3.4
   dataset  PXD999999           58 PSMs at 1%
   tools    datarepo_describe, datarepo_search, datarepo_sql

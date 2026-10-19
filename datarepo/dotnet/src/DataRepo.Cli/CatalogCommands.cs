@@ -38,7 +38,8 @@ internal static class CatalogCommands
         .Positional("manifest", "the producing instance's manifest.yaml")
         .Positional("accession", "datasets to load; default is every 'include'", "*")
         .Option("--store", Args.Kind.Value, "where bundles live; default is the manifest's store")
-        .Option("--out", Args.Kind.Value, "catalog file to write; default is <store>/../catalog.duckdb")
+        .Option("--out", Args.Kind.Value, "catalog to write: a <name>.duckdb file holding every row, or a folder of versioned catalogs over the store with a latest.json pointer; default is <store>/../catalog.duckdb")
+        .Option("--keep", Args.Kind.Value, "with a folder --out, keep the newest N catalog files and delete the rest (never the current one or one built for a release)", metavar: "N")
         .Option("--bundle", Args.Kind.Append, "pin a dataset to one bundle id; repeatable", metavar: "PXD=ID")
         .Option("--latest", Args.Kind.Flag, "when a dataset has several bundles, take the newest instead of refusing")
         .Option("--study", Args.Kind.Append, "load a study layer's delivery, pinned to one bundle id; repeatable", metavar: "LAYER=ID")
@@ -52,12 +53,21 @@ internal static class CatalogCommands
         var a = BuildSpec($"{Prog} build").Parse(argv);
         return Build(a.Positional("manifest"), a.Positionals("accession").ToList(), a.Value("--store"), a.Value("--out"),
             a.List("--bundle"), a.Flag("--latest"), a.List("--study"), a.List("--study-latest"), a.Value("--release"),
-            a.Flag("--overwrite"), a.Flag("--verbose"));
+            a.Flag("--overwrite"), a.Flag("--verbose"), Keep(a.Value("--keep")));
+    }
+
+    /// <summary><c>--keep N</c> as a number, or null when not given.</summary>
+    private static int? Keep(string? value)
+    {
+        if (value is null) return null;
+        if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var n) || n < 1)
+            throw new CatalogException($"--keep wants a number of catalog files, at least 1, got {PyFormat.Repr(value)}");
+        return n;
     }
 
     private static int Build(string manifestPath, List<string> accessions, string? storeArg, string? outArg,
         IReadOnlyList<string> bundlePins, bool latest, IReadOnlyList<string> studyPins, IReadOnlyList<string> studyLatest,
-        string? release, bool overwrite, bool verbose)
+        string? release, bool overwrite, bool verbose, int? keep = null)
     {
         var manifest = Manifest.Load(manifestPath);
         if (accessions.Count == 0) accessions = manifest.IngestableEntries().Select(e => e.Accession).ToList();
@@ -86,9 +96,15 @@ internal static class CatalogCommands
         if (release is not null) notes["release"] = release;
         if (studyBundles.Count > 0) notes["study"] = studyBundles.ToDictionary(r => r.Layer, r => (object?)r.BundleId);
 
-        var result = CatalogBuilder.BuildCatalog(bundles, output, overwrite, manifest.Instance, notes, studyBundles, artefacts, engineChecks, manifest);
+        var result = CatalogBuilder.BuildCatalog(bundles, output, overwrite, manifest.Instance, notes, studyBundles, artefacts, engineChecks, manifest, keep);
         Console.WriteLine($"catalog  {result.Path}");
         Console.WriteLine($"  id       {result.CatalogId}");
+        if (result.Pointer is not null)
+        {
+            Console.WriteLine($"  release  {result.ReleaseId}");
+            Console.WriteLine($"  latest   {result.Pointer} names it");
+        }
+        foreach (var pruned in result.Pruned) Console.WriteLine($"  pruned   {pruned}");
         foreach (var s in result.StagedRemoved)
             Console.WriteLine($"  removed  {s.Path} ({N(s.Bytes)} bytes), staged by a build that is no longer running");
         foreach (var s in result.StagedKept)
@@ -196,7 +212,8 @@ internal static class CatalogCommands
             .Positional("accession", "datasets to load; default is every 'include' that has a bundle, naming those without", "*")
             .Option("--site", Args.Kind.Value, "the site directory: empty, or a site written before", required: true)
             .Option("--store", Args.Kind.Value, "where bundles live; default is the manifest's store")
-            .Option("--out", Args.Kind.Value, "catalog file to write; default is <store>/../catalog.duckdb")
+            .Option("--out", Args.Kind.Value, "catalog to write: a <name>.duckdb file, or a catalog folder (see build); default is <store>/../catalog.duckdb")
+            .Option("--keep", Args.Kind.Value, "with a folder --out, keep the newest N catalog files", metavar: "N")
             .Option("--study-latest", Args.Kind.Append, "load a study layer's newest delivery; repeatable. None is loaded unless named", metavar: "LAYER")
             .Option("--title", Args.Kind.Value, "the site's name; default from the catalog's instance")
             .Option("--base-url", Args.Kind.Value, "where the site will be served, for absolute links and the sitemap")
@@ -226,7 +243,7 @@ internal static class CatalogCommands
         // Not --overwrite: a catalog whose id is unchanged is kept, so an unchanged store republishes
         // byte-identical pages and the site's git diff is empty. Any change to its contents rebuilds it.
         var code = Build(a.Positional("manifest"), accessions, store, output, [], latest: true, [], a.List("--study-latest"),
-            release: null, overwrite: false, verbose: false);
+            release: null, overwrite: false, verbose: false, keep: Keep(a.Value("--keep")));
         if (code != 0) return code;
         var siteArgs = new List<string> { output, "--out", a.Value("--site")! };
         foreach (var name in new[] { "--title", "--base-url", "--data-url", "--notice", "--about", "--purpose" })

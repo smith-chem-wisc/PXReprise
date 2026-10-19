@@ -156,7 +156,7 @@ A development build (version `0.0.0-dev`, or no recorded commit) is refused: see
 Build the catalog from every ingested dataset, then write the static site.
 
 ```text
-usage: datarepo publish [-h] --site SITE [--store STORE] [--out OUT] [--study-latest LAYER] [--title TITLE] [--base-url BASE_URL] [--data-url DATA_URL] [--notice NOTICE] [--about ABOUT] [--purpose TEXT] [--keyword WORD] manifest [accession ...]
+usage: datarepo publish [-h] --site SITE [--store STORE] [--out OUT] [--keep N] [--study-latest LAYER] [--title TITLE] [--base-url BASE_URL] [--data-url DATA_URL] [--notice NOTICE] [--about ABOUT] [--purpose TEXT] [--keyword WORD] manifest [accession ...]
 
 build the catalog from every ingested dataset, then write the static site
 
@@ -168,7 +168,8 @@ options:
   -h, --help             show this help message and exit
   --site SITE            the site directory: empty, or a site written before (required)
   --store STORE          where bundles live; default is the manifest's store
-  --out OUT              catalog file to write; default is <store>/../catalog.duckdb
+  --out OUT              catalog to write: a <name>.duckdb file, or a catalog folder (see build); default is <store>/../catalog.duckdb
+  --keep N               with a folder --out, keep the newest N catalog files
   --study-latest LAYER   load a study layer's newest delivery; repeatable. None is loaded unless named
   --title TITLE          the site's name; default from the catalog's instance
   --base-url BASE_URL    where the site will be served, for absolute links and the sitemap
@@ -184,7 +185,7 @@ options:
 Load bundles into one DuckDB catalog.
 
 ```text
-usage: datarepo build [-h] [--store STORE] [--out OUT] [--bundle PXD=ID] [--latest] [--study LAYER=ID] [--study-latest LAYER] [--release RELEASE] [--overwrite] [-v] manifest [accession ...]
+usage: datarepo build [-h] [--store STORE] [--out OUT] [--keep N] [--bundle PXD=ID] [--latest] [--study LAYER=ID] [--study-latest LAYER] [--release RELEASE] [--overwrite] [-v] manifest [accession ...]
 
 load bundles into one DuckDB catalog
 
@@ -195,7 +196,8 @@ positional arguments:
 options:
   -h, --help             show this help message and exit
   --store STORE          where bundles live; default is the manifest's store
-  --out OUT              catalog file to write; default is <store>/../catalog.duckdb
+  --out OUT              catalog to write: a <name>.duckdb file holding every row, or a folder of versioned catalogs over the store with a latest.json pointer; default is <store>/../catalog.duckdb
+  --keep N               with a folder --out, keep the newest N catalog files and delete the rest (never the current one or one built for a release)
   --bundle PXD=ID        pin a dataset to one bundle id; repeatable
   --latest               when a dataset has several bundles, take the newest instead of refusing
   --study LAYER=ID       load a study layer's delivery, pinned to one bundle id; repeatable
@@ -217,7 +219,7 @@ usage: datarepo site [-h] --out OUT [--title TITLE] [--base-url BASE_URL] [--dat
 write the public static site for one catalog
 
 positional arguments:
-  catalog                the catalog .duckdb file
+  catalog                the catalog .duckdb file, or a catalog folder
 
 options:
   -h, --help             show this help message and exit
@@ -284,7 +286,7 @@ serve one catalog to an agent over stdio (MCP)
 
 options:
   -h, --help         show this help message and exit
-  --catalog CATALOG  the catalog .duckdb file to serve; never auto-discovered
+  --catalog CATALOG  the catalog .duckdb file, or catalog folder, to serve; never auto-discovered
   --install          register it with Claude Code and exit
   --list             show the datarepo servers already registered
   --check            open the catalog and report, without serving
