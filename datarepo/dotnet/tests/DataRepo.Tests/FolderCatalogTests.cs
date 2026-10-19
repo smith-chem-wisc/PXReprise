@@ -189,6 +189,39 @@ public class FolderCatalogTests
         Assert.That(server.Box.Query("SELECT count(*) FROM peptidoforms").Rows[0][0], Is.GreaterThanOrEqualTo(2L), "and it still answers");
     }
 
+    /// <summary>D48 step 2b: a folder build derives each deposit's rows once and later builds reuse them; a deposit whose
+    /// derived files no longer hold what their record says is derived again.</summary>
+    [Test]
+    public void EachDepositIsDerivedOnceAndReused()
+    {
+        var first = Build(Folder);
+        Assert.That((first.DerivedComputed, first.DerivedReused), Is.EqualTo((1, 0)));
+        var root = Path.Combine(Folder, "derived", CatalogBuilder.DerivationId, "PXD999999");
+        var deposit = Directory.GetDirectories(root).Single();
+        Assert.That(Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).Select(Path.GetFileName), Is.EquivalentTo(new[]
+        {
+            "dataset_overview.parquet", "protein_datasets.parquet", "protein_partials.parquet", "search_modifications_placed.parquet",
+            "peptide_partials.parquet", CatalogBuilder.DerivedRecord,
+        }), "nothing staged is left behind");
+
+        var original = File.ReadAllText(ManifestPath);
+        void Note(string text) => File.WriteAllText(ManifestPath, original.Replace(
+            "    flags: [low_id_rate, no_design_file]\n", $"    flags: [low_id_rate, no_design_file]\n    notes: {text}\n", StringComparison.Ordinal));
+        Note("a note");
+        var second = Build(Folder);
+        Assert.That(second.CatalogId, Is.Not.EqualTo(first.CatalogId));
+        Assert.That((second.DerivedComputed, second.DerivedReused), Is.EqualTo((0, 1)), "a note is not a deposit's rows");
+
+        var file = Path.Combine(deposit, "protein_datasets.parquet");
+        File.WriteAllBytes(file, File.ReadAllBytes(file)[..64]);
+        Note("another note");
+        var third = Build(Folder);
+        Assert.That((third.DerivedComputed, third.DerivedReused), Is.EqualTo((1, 0)), "a cut file is derived again, not served");
+        Assert.That(third.FailedChecks, Is.Empty);
+        Assert.That(CatalogBuilder.RunQuery(third.Path, "SELECT count(*) FROM protein_datasets").Rows.Single()[0],
+            Is.EqualTo(CatalogBuilder.RunQuery(first.Path, "SELECT count(*) FROM protein_datasets").Rows.Single()[0]));
+    }
+
     /// <summary>D48 step 2: an agent that reaches for PSMs is told where they are and where their counts are, whichever
     /// tool it reaches with.</summary>
     [Test]
@@ -217,6 +250,8 @@ public class FolderCatalogTests
         using var box = new Sandbox(built.Path);
         Assert.That(box.DataRoot, Is.EqualTo(CatalogBuilder.AsPosix(Path.GetFullPath(Store)) + "/"));
         Assert.That(box.Query("SELECT count(*) FROM quant_values").Rows[0][0], Is.GreaterThan(0L));
+        Assert.That(box.DerivedRoot, Does.EndWith($"/derived/{CatalogBuilder.DerivationId}/"));
+        Assert.That(box.Query("SELECT count(*) FROM protein_datasets").Rows[0][0], Is.GreaterThan(0L), "the derived rows read too");
         foreach (var path in new[] { CatalogBuilder.AsPosix(outside), CatalogBuilder.AsPosix(Path.GetFullPath(Store)) + "/../secret.csv" })
             Assert.That(() => box.Query($"SELECT * FROM read_csv_auto('{path}')"), Throws.InstanceOf<DataRepoException>(), path);
         Assert.That(() => box.Query("SET enable_external_access = true"), Throws.InstanceOf<DataRepoException>());

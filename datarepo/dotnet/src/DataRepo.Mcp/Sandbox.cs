@@ -107,7 +107,7 @@ public sealed class Sandbox : IDisposable
         TimeoutSeconds = timeoutSeconds;
         RowCapValue = rowCap;
         CharCapValue = charCap;
-        DataRoot = DataRootOf(path);
+        (DataRoot, DerivedRoot) = RootsOf(path);
         var builder = new DuckDBConnectionStringBuilder { DataSource = path };
         builder["ACCESS_MODE"] = "READ_ONLY";
         // A folder catalog's views read the store, so external access is closed only after the store is allowed.
@@ -132,11 +132,12 @@ public sealed class Sandbox : IDisposable
         // unset. Do it before any caller-supplied SQL reaches the connection.
         var lockdown = DataRoot is null
             ? [$"SET disabled_filesystems='{DisabledFilesystems}'"]
-            // A folder catalog (D48 step 1): the files under its store read, and nothing else does. allowed_directories
-            // must come BEFORE external access is closed, and lock_configuration then makes all of it one-way.
+            // A folder catalog (D48 step 1): the files under its store, and its per-deposit derived rows (step 2b), read,
+            // and nothing else does. allowed_directories must come BEFORE external access is closed, and
+            // lock_configuration then makes all of it one-way.
             : new[]
             {
-                $"SET allowed_directories = ['{DataRoot.Replace("'", "''")}']",
+                $"SET allowed_directories = [{string.Join(", ", new[] { DataRoot, DerivedRoot }.OfType<string>().Select(d => $"'{d.Replace("'", "''")}'"))}]",
                 "SET enable_external_access = false",
                 "SET lock_configuration = true",
             };
@@ -153,8 +154,13 @@ public sealed class Sandbox : IDisposable
     /// its own rows, whose sandbox reads no file at all.</summary>
     public string? DataRoot { get; }
 
-    /// <summary><c>catalog_meta.data_root</c>, read before the sandbox opens, on a connection that runs no caller SQL.</summary>
-    private static string? DataRootOf(string path)
+    /// <summary>Where a folder catalog's per-deposit derived rows are (<c>catalog_meta.derived_root</c>, D48 step 2b), or
+    /// null.</summary>
+    public string? DerivedRoot { get; }
+
+    /// <summary><c>catalog_meta.data_root</c> and <c>derived_root</c>, read before the sandbox opens, on a connection that
+    /// runs no caller SQL.</summary>
+    private static (string? DataRoot, string? DerivedRoot) RootsOf(string path)
     {
         try
         {
@@ -163,15 +169,19 @@ public sealed class Sandbox : IDisposable
             builder["enable_external_access"] = "false";
             using var con = new DuckDBConnection(builder.ConnectionString);
             con.Open();
-            using var cmd = con.CreateCommand();
-            cmd.CommandText = "SELECT count(*) FROM information_schema.columns WHERE table_name = 'catalog_meta' AND column_name = 'data_root'";
-            if (Convert.ToInt64(cmd.ExecuteScalar()) == 0) return null;
-            cmd.CommandText = "SELECT data_root FROM catalog_meta";
-            return cmd.ExecuteScalar() as string;
+            string? Column(string column)
+            {
+                using var cmd = con.CreateCommand();
+                cmd.CommandText = $"SELECT count(*) FROM information_schema.columns WHERE table_name = 'catalog_meta' AND column_name = '{column}'";
+                if (Convert.ToInt64(cmd.ExecuteScalar()) == 0) return null;
+                cmd.CommandText = $"SELECT {column} FROM catalog_meta";
+                return cmd.ExecuteScalar() as string;
+            }
+            return (Column("data_root"), Column("derived_root"));
         }
         catch (DuckDBException)
         {
-            return null;  // the real open reports what is wrong with the file
+            return (null, null);  // the real open reports what is wrong with the file
         }
     }
 

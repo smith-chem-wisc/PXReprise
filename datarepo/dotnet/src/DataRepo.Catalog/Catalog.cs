@@ -174,6 +174,12 @@ public sealed record CatalogResult
     /// <summary>Staged catalogs left in place because nothing says whether their build is still running.</summary>
     public IReadOnlyList<StagedCatalog> StagedKept { get; init; } = [];
 
+    /// <summary>For a folder build, how many deposits' derived rows this build computed, and how many it reused from an
+    /// earlier build (D48 step 2b).</summary>
+    public int DerivedComputed { get; init; }
+
+    public int DerivedReused { get; init; }
+
     /// <summary>How long each phase of the build took, in order, so a slow publish says where its time went.</summary>
     public IReadOnlyList<KeyValuePair<string, TimeSpan>> Timings { get; init; } = [];
 
@@ -206,7 +212,7 @@ public sealed record DerivedDoc(string Description, IReadOnlyDictionary<string, 
 /// <para>Every SQL statement is the Python's, run on the same DuckDB engine version (DuckDB.NET 1.5.5 ships
 /// DuckDB 1.5.5), so the work is done where the Python did it: in SQL.</para>
 /// </remarks>
-public static class CatalogBuilder
+public static partial class CatalogBuilder
 {
     /// <summary>Bumped when a build produces a different catalog from the same bundles.</summary>
     /// <remarks>Part of the content hash, so a change to the builder gives every catalog a new id even from
@@ -967,13 +973,16 @@ public static class CatalogBuilder
         IReadOnlyList<RunExclusion> exclusions,
         IReadOnlyList<DatasetRestriction> restrictions,
         CandidateCensus? census,
-        string? dataRoot = null)
+        string? dataRoot = null,
+        string? derivedRoot = null)
     {
         var text = new StringBuilder();
         text.Append($"datarepo/{packageVersion ?? PackageVersion}\ncatalog/{CatalogVersion}\nschema/{SchemaContract.Version}\n");
         // A folder catalog's views name the store's files by absolute path, so two folder catalogs of one release over
         // two data roots are two different files; a one-file catalog holds copies and names no path. No line for it.
         if (dataRoot is not null) text.Append($"layout/views\ndata-root/{dataRoot}\n");
+        // And where its per-deposit derived rows are, a directory named by the derivation id (D48 step 2b).
+        if (derivedRoot is not null) text.Append($"derived-root/{derivedRoot}\n");
         // A study layer's tables are part of what a catalog holds, so its version is part of the catalog's
         // identity. Without this, adding a column to `age_effect` would leave two different catalogs sharing an id.
         foreach (var layer in Tables.StudyVersions.Keys.Order(SourcesPy.CodePointOrder))
@@ -1419,7 +1428,8 @@ public static class CatalogBuilder
         var restrictions = Restrictions(bundles, manifest);
         var census = Census(manifest);
         var dataRoot = views ? DataRoot(bundles, study, engines) : null;
-        var cid = CatalogIdOf(bundles, study, engines, null, annotations, exclusions, restrictions, census, dataRoot);
+        var derivedRoot = views ? DerivedRootOf(System.IO.Path.GetFullPath(@out)) : null;
+        var cid = CatalogIdOf(bundles, study, engines, null, annotations, exclusions, restrictions, census, dataRoot, derivedRoot);
         var rid = ReleaseId(bundles, study, engines);
         if (census is not null)
         {
@@ -1465,6 +1475,7 @@ public static class CatalogBuilder
         List<CatalogCheck> checks;
         int indexes;
         var timings = new List<KeyValuePair<string, TimeSpan>>();
+        int derivedComputed, derivedReused;
         var clock = System.Diagnostics.Stopwatch.StartNew();
         void Lap(string phase)
         {
@@ -1477,7 +1488,7 @@ public static class CatalogBuilder
             {
                 rowCounts = LoadTables(con, bundles, views);
                 Lap("tables");
-                BuildDerived(con, bundles, Lap);
+                var derivedChecks = BuildDerived(con, bundles, Lap, derivedRoot, out derivedComputed, out derivedReused);
                 studyCounts = CreateStudyTables(con, study);
                 foreach (var (k, v) in CreateEngineTables(con, engines, views)) rowCounts[k] = v;
                 foreach (var (k, v) in LoadGoRows(con, bundles, engines, views)) rowCounts[k] = v;
@@ -1494,6 +1505,7 @@ public static class CatalogBuilder
                 checks = [
                     .. CheckRowCounts(con, bundles),
                     .. views ? [IntegrityCheckedAtIngest()] : CheckIntegrity(con),
+                    .. derivedChecks,
                 ];
                 Lap("checks: bundles");
                 checks.AddRange(CheckStudy(con, study));
@@ -1523,7 +1535,7 @@ public static class CatalogBuilder
                 indexes = BuildIndexes(con);
                 Lap("indexes");
                 WriteCatalogTables(con, bundles, rowCounts, checks, cid, instance, notes, study, studyCounts, engines, census is not null,
-                    rid, layout, dataRoot);
+                    rid, layout, dataRoot, derivedRoot);
             }
             Lap("catalog tables");
             // aging 107: a file shorter than its own header says is never moved into place.
@@ -1576,6 +1588,7 @@ public static class CatalogBuilder
             Datasets = datasets, Bundles = bundles, StudyBundles = study,
             Artefacts = engines, RowCounts = counts, Checks = checks, Indexes = indexes,
             StagedRemoved = stagedRemoved, StagedKept = stagedKept, Timings = timings,
+            DerivedComputed = derivedComputed, DerivedReused = derivedReused,
         };
     }
 
@@ -2115,20 +2128,47 @@ public static class CatalogBuilder
     /// <remarks>The views come first: everything below counts through them, so the catalog's headline numbers
     /// are the same numbers the bundle reconciled against the producer's <c>results.txt</c>. A catalog whose
     /// front page disagreed with the bundle it was built from would be worse than no front page.</remarks>
-    private static void BuildDerived(DuckDBConnection con, IReadOnlyList<BundleRef> bundles, Action<string> lap)
+    private static List<CatalogCheck> BuildDerived(DuckDBConnection con, IReadOnlyList<BundleRef> bundles, Action<string> lap, string? derivedRoot,
+        out int computed, out int reused)
     {
+        (computed, reused) = (0, 0);
         AddSampleNames(con);
         lap("derived: sample names");
+        CreateAcceptedViews(con);
+        foreach (var (name, body) in GrainViews)
+            Exec(con, $"CREATE VIEW \"{name}\" AS {body}");
+        if (derivedRoot is not null) return BuildDerivedFromDeposits(con, bundles, derivedRoot, lap, out computed, out reused);
+
+        var psmCounts = LeftInBundles.Contains("psms") ? PsmCountsFromBundles(con, bundles) : null;
+        Exec(con, $"CREATE TABLE dataset_overview AS {OverviewSelect(psmCounts)}");
+        if (psmCounts is not null) Exec(con, $"DROP TABLE {psmCounts}");
+        lap("derived: overview");
+        Exec(con, $"CREATE TABLE protein_datasets AS {ProteinDatasetsSelect}");
+        lap("derived: protein_datasets");
+        Exec(con, $"CREATE TABLE protein_index AS {ProteinIndexSelect}");
+        lap("derived: protein_index");
+        Exec(con, $"CREATE TABLE search_modifications_placed AS {ModificationsPlacedSelect}");
+        lap("derived: modifications");
+        Exec(con, $"CREATE TABLE peptide_index AS {PeptideIndexSelect}");
+        lap("derived: peptide_index");
+        return [];
+    }
+
+    /// <summary>The <see cref="CatalogedAcceptedViews"/>, with the producer's threshold written in.</summary>
+    private static void CreateAcceptedViews(DuckDBConnection con)
+    {
         var threshold = PyFormat.FloatRepr(Identifications.ProducerThreshold);
         foreach (var (name, body) in CatalogedAcceptedViews)
             Exec(con, $"CREATE VIEW \"{name}\" AS {body.Replace("{t}", threshold)}");
-        foreach (var (name, body) in GrainViews)
-            Exec(con, $"CREATE VIEW \"{name}\" AS {body}");
+    }
 
-        var psmCounts = LeftInBundles.Contains("psms") ? PsmCountsFromBundles(con, bundles) : null;
-        Exec(con, $@"
-        CREATE TABLE dataset_overview AS
-        SELECT
+    // The per-dataset derived tables' SQL, one text for both builds: a one-file catalog runs it over the whole corpus, a
+    // catalog folder over one deposit at a time (DepositDerived). Every join and group is within a dataset, so the rows
+    // are the same either way.
+
+    /// <summary><c>dataset_overview</c>: one row per dataset. <paramref name="psmCounts"/> names the table of each bundle's
+    /// own PSM counts when the catalog holds no PSMs (<see cref="PsmCountsFromBundles"/>).</summary>
+    private static string OverviewSelect(string? psmCounts) => $@"        SELECT
             d.dataset_id,
             d.bundle_id,
             d.title,
@@ -2161,13 +2201,9 @@ public static class CatalogBuilder
             (SELECT count(*) FROM findings f
               WHERE f.dataset_id = d.dataset_id AND f.severity IN ('warning', 'error')) AS n_open_findings
         FROM datasets d
-        ");
-        if (psmCounts is not null) Exec(con, $"DROP TABLE {psmCounts}");
-        lap("derived: overview");
+";
 
-        Exec(con, @"
-        CREATE TABLE protein_datasets AS
-        WITH observed AS (
+    private const string ProteinDatasetsSelect = @"        WITH observed AS (
             SELECT DISTINCT dataset_id, protein_accession, is_contaminant FROM proteins
         ),
         in_groups AS (
@@ -2192,19 +2228,16 @@ public static class CatalogBuilder
         LEFT JOIN in_peptides p
                ON p.dataset_id = o.dataset_id AND p.protein_accession = o.protein_accession
         GROUP BY o.dataset_id, o.protein_accession, o.is_contaminant
-        ");
-        lap("derived: protein_datasets");
+";
 
-        // Attributes are recorded per dataset in `proteins`, so the global row has to pick. max() is an
-        // arbitrary choice made deterministic; `protein_datasets` keeps the per-dataset truth.
-        //
-        // `n_datasets` counts where the accession appears in the search output at all -- decoys and
-        // sub-threshold matches included, because `proteins` is the search's protein list, not its answer.
-        // `n_datasets_1pct` counts where it has evidence that passed. An agent asking "which datasets have
-        // this protein" almost always means the second one, so both are here with names that say which is which.
-        Exec(con, @"
-        CREATE TABLE protein_index AS
-        SELECT
+    // Attributes are recorded per dataset in `proteins`, so the global row has to pick. max() is an
+    // arbitrary choice made deterministic; `protein_datasets` keeps the per-dataset truth.
+    //
+    // `n_datasets` counts where the accession appears in the search output at all -- decoys and
+    // sub-threshold matches included, because `proteins` is the search's protein list, not its answer.
+    // `n_datasets_1pct` counts where it has evidence that passed. An agent asking "which datasets have
+    // this protein" almost always means the second one, so both are here with names that say which is which.
+    private const string ProteinIndexSelect = @"        SELECT
             p.protein_accession,
             max(p.gene)                                AS gene,
             max(p.organism)                            AS organism,
@@ -2220,23 +2253,20 @@ public static class CatalogBuilder
         LEFT JOIN protein_datasets d
                ON d.dataset_id = p.dataset_id AND d.protein_accession = p.protein_accession
         GROUP BY p.protein_accession
-        ");
-        lap("derived: protein_index");
+";
 
-        // What the search actually PLACED, as against what it declared (aging 024 section 6).
-        //
-        // Derived from the peptidoforms, not from `ptm_sites`, and the choice is the whole point. `ptm_sites`
-        // is per RESOLVED PROTEIN POSITION, so it drops every placement without one. A placed view built on it
-        // would have reported that N-terminal acetylation was NEVER PLACED in any of the three datasets while
-        // 3,085 peptidoforms carried it: a view trusted about ABSENCE must draw from the table that loses nothing.
-        //
-        // Grain: accession-or-mass, and it cannot name the chemistry. A ProForma tag carries a UNIMOD
-        // accession or a mass, never an `IdWithMotif`, so `_declared` and `_placed` are NOT comparable row for
-        // row. Do not resolve a position rule through an accession from here: one accession spans entries with
-        // different rules (UNIMOD:34 covers Anywhere, N-terminal and C-terminal across ~20 entries).
-        Exec(con, @"
-        CREATE TABLE search_modifications_placed AS
-        SELECT
+    // What the search actually PLACED, as against what it declared (aging 024 section 6).
+    //
+    // Derived from the peptidoforms, not from `ptm_sites`, and the choice is the whole point. `ptm_sites`
+    // is per RESOLVED PROTEIN POSITION, so it drops every placement without one. A placed view built on it
+    // would have reported that N-terminal acetylation was NEVER PLACED in any of the three datasets while
+    // 3,085 peptidoforms carried it: a view trusted about ABSENCE must draw from the table that loses nothing.
+    //
+    // Grain: accession-or-mass, and it cannot name the chemistry. A ProForma tag carries a UNIMOD
+    // accession or a mass, never an `IdWithMotif`, so `_declared` and `_placed` are NOT comparable row for
+    // row. Do not resolve a position rule through an accession from here: one accession spans entries with
+    // different rules (UNIMOD:34 covers Anywhere, N-terminal and C-terminal across ~20 entries).
+    private const string ModificationsPlacedSelect = @"        SELECT
             dataset_id,
             bundle_id,
             tag,
@@ -2252,12 +2282,9 @@ public static class CatalogBuilder
             FROM peptidoforms_1pct
         )
         GROUP BY dataset_id, bundle_id, tag
-        ");
-        lap("derived: modifications");
+";
 
-        Exec(con, @"
-        CREATE TABLE peptide_index AS
-        SELECT
+    private const string PeptideIndexSelect = @"        SELECT
             base_sequence,
             count(DISTINCT dataset_id)           AS n_datasets,
             list_sort(list(DISTINCT dataset_id)) AS dataset_ids,
@@ -2265,9 +2292,7 @@ public static class CatalogBuilder
             min(best_q_value)                    AS best_q_value
         FROM peptidoforms_1pct
         GROUP BY base_sequence
-        ");
-        lap("derived: peptide_index");
-    }
+";
 
     /// <summary>Each bundle's PSM counts as its ingest recorded them, in a temporary table <c>dataset_overview</c> reads
     /// in place of the PSMs the catalog no longer holds.</summary>
@@ -2502,10 +2527,12 @@ public static class CatalogBuilder
         bool censusLoaded,
         string? releaseId = null,
         CatalogLayout layout = CatalogLayout.File,
-        string? dataRoot = null)
+        string? dataRoot = null,
+        string? derivedRoot = null)
     {
-        // Python 0.32.0's catalog_meta had ten columns; the release id, layout and data root follow them (D48 step 1).
-        var extra = SchemaContract.IsPython0320 ? "" : ", release_id VARCHAR, layout VARCHAR, data_root VARCHAR";
+        // Python 0.32.0's catalog_meta had ten columns; the release id, layout and data root follow them (D48 step 1), then
+        // where a folder catalog's per-deposit derived rows are (step 2b).
+        var extra = SchemaContract.IsPython0320 ? "" : ", release_id VARCHAR, layout VARCHAR, data_root VARCHAR, derived_root VARCHAR";
         Exec(con, $@"
         CREATE TABLE catalog_meta (
             catalog_id VARCHAR, catalog_version VARCHAR, schema_version VARCHAR,
@@ -2526,7 +2553,7 @@ public static class CatalogBuilder
             (long)bundles.Count,
             PyFormat.Json(notes ?? new Dictionary<string, object?>(), sortKeys: false, ensureAscii: true),
         };
-        if (!SchemaContract.IsPython0320) values.AddRange([releaseId, layout == CatalogLayout.Folder ? "views" : "copies", dataRoot]);
+        if (!SchemaContract.IsPython0320) values.AddRange([releaseId, layout == CatalogLayout.Folder ? "views" : "copies", dataRoot, derivedRoot]);
         Exec(con, $"INSERT INTO catalog_meta VALUES (?, ?, ?, ?, 'datarepo', {string.Join(", ", values.Skip(4).Select(_ => "?"))})",
             values.ToArray());
 

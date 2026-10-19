@@ -6,8 +6,9 @@ each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-**PSMs stay in the bundles** (D48 step 2a, PXReprise's public-data contract rule 3). The ingest path stays `cs-1.1.0`
-and the schema 0.0.15, so **no re-ingest**. The catalog format moves to 13.
+**PSMs stay in the bundles, and a catalog folder computes each deposit's derived rows once** (D48 step 2, PXReprise's
+public-data contract rules 3 and 5). The ingest path stays `cs-1.1.0` and the schema 0.0.15, so **no re-ingest**. The
+catalog format moves to 13. On aging's store a folder publish takes 61 s, against 573 s with 1.3.5.
 
 ### Changed
 - **No `psms` table or `psms_1pct` view in a catalog**, in either layout. PSMs are 82% of a store's bytes and nothing a
@@ -24,8 +25,20 @@ and the schema 0.0.15, so **no re-ingest**. The catalog format moves to 13.
   checks from 72 s to 2.7 s. Every table both catalogs hold has the same rows, and the site regenerated from it is
   identical apart from `llms.txt`'s sentence about PSM counts.
 
+- **A catalog folder computes each deposit's derived rows once** (D48 step 2b, the contract's rule 5).
+  - `dataset_overview`, `protein_datasets` and `search_modifications_placed`, and the partial rows `protein_index` and
+    `peptide_index` aggregate, are written per deposit under `<folder>/derived/<derivation id>/`. It is the same SQL a
+    one-file catalog runs over the corpus, run over the deposit's own files.
+  - A later build reuses them while the bundle and the derivation id (the SQL, the catalog format, the schema and
+    DuckDB's version) are the same. A deposit whose files no longer hold their recorded rows is derived again.
+  - `protein_datasets` and `search_modifications_placed` become views over those files; `catalog_meta` gains
+    `derived_root`, which the folder sandbox also allows.
+  - **On aging's store:** the first build derives all 170 deposits once (155 s in all); a rebuild reuses them and takes
+    **61 s**. The directory is 155 MB and the catalog file 132 MB, against 298 MB.
+
 ### Added
-- **`build` and `publish` print how long each phase took** (`timing   tables 4.6 s, derived: overview 5.8 s, ...`).
+- **`build` and `publish` print how long each phase took** (`timing   tables 4.6 s, derived: overview 5.8 s, ...`), and
+  for a folder how many deposits' derived rows were computed and how many reused.
 
 ## [1.3.5] - 2026-10-19
 

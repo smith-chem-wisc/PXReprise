@@ -134,6 +134,8 @@ internal static class CatalogCommands
                     + $"loaded; --study {layer}={refs[^1].BundleId} to include it");
         }
         Console.WriteLine($"  tables   {string.Join(", ", result.RowCounts.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => $"{kv.Key} {N(kv.Value)}"))}");
+        if (result.Layout == CatalogLayout.Folder)
+            Console.WriteLine($"  derived  {result.DerivedComputed} deposit(s) computed, {result.DerivedReused} reused from an earlier build");
         Console.WriteLine($"  indexes  {result.Indexes}");
         Console.WriteLine($"  checks   {result.Checks.Count} run, all passed");
         if (verbose)

@@ -227,7 +227,7 @@ bounded is an attacker.
 | | |
 |---|---|
 | Connection | read-only (`ACCESS_MODE=READ_ONLY`) **and** `enable_external_access=false` |
-| Filesystem | `disabled_filesystems='LocalFileSystem'`, set immediately after connecting. **A catalog folder** (its tables are views over the store) gets instead: `allowed_directories` set to the store, then `enable_external_access=false`, then `lock_configuration=true`, in that order, so the store's files read and nothing else does |
+| Filesystem | `disabled_filesystems='LocalFileSystem'`, set immediately after connecting. **A catalog folder** (its tables are views over the store) gets instead: `allowed_directories` set to the store and the folder's own per-deposit derived rows (`catalog_meta.data_root` and `derived_root`), then `enable_external_access=false`, then `lock_configuration=true`, in that order, so those files read and nothing else does |
 | Statements | one per call; `SELECT`, `EXPLAIN`, `PRAGMA`, `SHOW` only — refused **by name, before running**, with a message saying what to send instead |
 | Rows | 1,000, with a `truncated` flag and a sentence saying the answer is not whole |
 | Characters | 50,000, dropping **whole rows** — never half a peptidoform |

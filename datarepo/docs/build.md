@@ -246,6 +246,7 @@ catalogs/
   catalog-7af21bbdd37814ef.duckdb    one versioned catalog per build, never replaced
   catalog-511e89f90d259bf9.duckdb    an older one, kept until --keep prunes it
   latest.json                        names the current file, with its catalog_id and release_id
+  derived/2b6d2776916b293a/          each deposit's derived rows, computed once (step 2b)
 ```
 
 - **The bundle and engine tables are views** over the store's Parquet (`quant_values`, `peptidoforms`, `proteins`, ...), with
@@ -253,6 +254,16 @@ catalogs/
   only. `samples` is still copied (a few thousand rows), because its `*_name` columns are added to it. The derived
   tables, the study tables, the manifest's tables and the catalog's own tables are copied too: they are small. A
   catalog folder is megabytes, not tens of gigabytes, and a build copies no bundle rows.
+- **Each deposit's derived rows are computed once** (D48 step 2b) and kept in the folder, under
+  `derived/<derivation id>/<dataset>/<bundle>/`: its `dataset_overview` row, its `protein_datasets` and
+  `search_modifications_placed` rows, and the partial rows `protein_index` and `peptide_index` are aggregated from. They
+  are the same SQL a one-file catalog runs over the whole corpus, run over that deposit's own files. A later build
+  reuses them while the bundle and the derivation id are the same. The id hashes that SQL, the catalog format, the
+  schema and DuckDB's version, so a change to any of them derives every deposit again, once. `protein_datasets` and
+  `search_modifications_placed` are views over those files; `dataset_overview` and the two indexes are copied. A
+  deposit's directory is written beside its final name and moved into place whole, `derived.json` (each file's row
+  count) last, and one whose files no longer hold those rows is derived again. On aging's store (170 deposits) the
+  directory is 155 MB, about 0.9 MB a deposit; `build` prints how many deposits it computed and how many it reused.
 - **A build writes a new file and then the pointer.** No file a reader holds is ever replaced: an MCP server or a
   script keeps the catalog it opened, and the next one opened gets the new file. `latest.json` is written beside
   itself and moved into place, so a reader never sees half of one. An unchanged rebuild writes nothing and points
@@ -262,7 +273,7 @@ catalogs/
 - **Two ids.** `catalog_id` names one catalog file, and hashes the builder, the layout and (for a folder) the store's
   path. `release_id` names the data: the schema and the bundles, study deliveries and engine artefacts. A folder and a
   one-file catalog of the same bundles share their `release_id`. Both are in `catalog_meta`, with `layout` (`views` or
-  `copies`) and `data_root`.
+  `copies`), `data_root` and `derived_root`. The MCP sandbox for a folder allows those two directories and nothing else.
 - **Checks.** The row counts are checked against every bundle's `bundle.json` in both layouts: a copied table is
   counted in the catalog, and a view's files (and the PSMs) from each Parquet file's footer. A folder build does not
   re-run ingest's uniqueness and reference checks over every table: each bundle passed them when it was written, and
