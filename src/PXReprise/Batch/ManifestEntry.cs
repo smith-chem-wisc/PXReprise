@@ -94,7 +94,13 @@ public static class ManifestEntry
         string enrichment = earlier?.Enrichment is { Length: > 0 } curated ? curated : screened;
         var search = JsonNode.Parse(File.ReadAllText(Path.Combine(runDir, "04_search", "provenance.json")))!;
         string mm = search["tools"]?["MetaMorpheus"]?["release"]?.GetValue<string>() ?? profile.MetaMorpheus;
-        var extras = search["extra_databases"]?.AsArray().Select(x => Path.GetFileName(x!.GetValue<string>())).ToList() ?? new List<string>();
+        // v0.4.26 (aging 137, PXR-A124): an overlay keeps its name when its content changes (aging D125), so the note gives
+        // each one's sha256 prefix from the search's own inputs: that is what tells two versions apart.
+        string Sha12(string name) =>
+            search["inputs"]?.AsArray().FirstOrDefault(i => i?["path"]?.GetValue<string>() is { } p
+                && string.Equals(Path.GetFileName(p.Replace('\\', '/')), name, StringComparison.OrdinalIgnoreCase))?["sha256"]?.GetValue<string>() is { Length: >= 12 } s
+                ? $"{name} (sha {s[..12]})" : name;
+        var extras = search["extra_databases"]?.AsArray().Select(x => Sha12(Path.GetFileName(x!.GetValue<string>().Replace('\\', '/')))).ToList() ?? new List<string>();
 
         var notes = new List<string>();
         // From what the search did (its provenance flags), no longer assumed: an SDRF design and the search's own SDRF exist

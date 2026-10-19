@@ -26,6 +26,8 @@ public static class DecisionsNeeded
             "name a modelled alkylant in a curated SDRF; search with no cysteine modification (state it); or exclude the deposit"),
         ["waiting_multi_protease"] = new("Which protease digested each file? The deposit used several and the file names do not say which.",
             "assign a protease per file in a curated SDRF; or exclude the deposit"),
+        [ChemistryDetector.UnknownLabelPark] = new("Is the deposit labelled, and with what? Its SDRF's label column names no label we know, and nothing else in the deposit says.",
+            "name the label (or label free sample) in a curated SDRF; or exclude the deposit"),
         ["deferred_mixed_labelling"] = new("The spectra show isobaric reporter ions in some files and not others. Which files are searched, and how?",
             "exclude one group of files ([exceptions]); split into one search per group (waits on dataRepo R8); or exclude the deposit"),
         ["deferred_needs_design_selection"] = new("The deposit is larger than a search takes whole. Which files make the experiment?",

@@ -30,6 +30,9 @@ public static class ProfileLoader
 
         var eng = root.RequiredTable("engine");
         string mm = eng.RequiredString("metamorpheus");
+        // v0.4.26: a release ("1.1.12") or a commit pin ("master@3a6a76632"), see Search.MetaMorpheusPin.
+        if (!Search.MetaMorpheusPin.TryParse(mm, out _))
+            throw new ConfigException(file, $"engine.metamorpheus must name a release (\"1.1.12\") or a commit pin (\"master@3a6a76632\"), not '{mm}'");
         var tasks = eng.StringList("tasks", required: true);
         // "<category>\t<IdWithMotif>" as MetaMorpheus's ListOfModsGptmd holds them; checked against the pinned
         // MetaMorpheus's Mods files when a search is prepared, not here.

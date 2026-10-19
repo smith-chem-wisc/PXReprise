@@ -13,7 +13,7 @@ namespace PXReprise;
 public static class Program
 {
     /// <summary>The verbs, listed by the <c>version</c> verb. Keep in step with <see cref="Dispatch"/>.</summary>
-    public static readonly string[] Verbs = { "version", "profiles", "validate", "census", "rank", "chemistry", "fetch", "qc", "search", "qc-payload", "batch", "library" };
+    public static readonly string[] Verbs = { "version", "profiles", "validate", "census", "rank", "chemistry", "fetch", "qc", "search", "qc-payload", "batch", "library", "worker" };
 
     /// <summary>Where profiles are read from when --profiles is not given: beside the executable.</summary>
     public static string DefaultProfilesDir => Path.Combine(AppContext.BaseDirectory, "profiles");
@@ -273,6 +273,10 @@ public static class Program
                 if (args.Option("profile") is not null && rest[0] != "research") throw new UsageException("--profile is for batch research only");
                 var q = QuestionLoader.Load(rest[1]);
                 var b = q.Batch ?? throw new ConfigException(q.SourceFile, "a batch needs a [batch] table");
+                // A probe worker (v0.4.26) runs the controller's copy of the question, whose [batch] is the controller's: its
+                // state directory and run root are its machine file's.
+                var worker = args.Option("machine") is { } wm ? Machine.Load(wm).Worker : null;
+                if (worker is not null) b = b with { StateDir = worker.StateDir, RunRoot = worker.RunRoot };
                 Directory.CreateDirectory(b.StateDir);
                 string stop = Path.Combine(b.StateDir, "STOP"), stateFile = Path.Combine(b.StateDir, "state.json");
                 switch (rest[0])
@@ -314,7 +318,8 @@ public static class Program
                         var runner = new Batch.BatchRunner(q, profiles, machine, new Fetch.PrideFiles(client), new PrideProjectSearch(client),
                             args.Option("run-date") ?? DateTime.UtcNow.ToString("yyyy-MM-dd"))
                         { CommandLine = args.Raw };
-                        await runner.RunAsync(Batch.BatchRunner.LoadQueue(b.Queue), ct).ConfigureAwait(false);
+                        // A probe worker (v0.4.26) takes its deposits from the controller's assignments, not from a queue file.
+                        await runner.RunAsync(machine.Worker is null ? Batch.BatchRunner.LoadQueue(b.Queue) : Array.Empty<Batch.QueueEntry>(), ct).ConfigureAwait(false);
                         return new { finished = true };
                     }
                 }
@@ -331,6 +336,39 @@ public static class Program
                 args.AllowOnly("machine", "reason");
                 string root = Machine.Load(args.Required("machine")).SpectralLibraryRoot;
                 return rest[0] == "list" ? Search.SpectralLibrary.List(root) : Search.SpectralLibrary.Repair(root, rest[1], args.Required("reason"));
+            }
+
+            case "worker":
+            {
+                // v0.4.26, a probe worker's share (design/PLAN_worker.md):
+                //   pxreprise worker sums <dir>             write <dir>\SHA256SUMS (a software folder or database set)
+                //   pxreprise worker check <dir> [--sums F] check <dir>'s files against SHA256SUMS (exit 1 on a mismatch)
+                //   pxreprise worker release <share> --reason "..." [--metamorpheus NAME] [--dotnet NAME] [--database-set NAME]
+                //     publish THIS build (the one running) to the share and raise current.toml's generation
+                var rest = args.Words.Skip(1).ToList();
+                if (!(rest is ["sums", _] || rest is ["check", _] || rest is ["release", _]))
+                    throw new UsageException("usage: pxreprise worker sums <dir>, worker check <dir> [--sums FILE], or worker release <share> --reason \"...\" [--metamorpheus NAME] [--dotnet NAME] [--database-set NAME]");
+                switch (rest[0])
+                {
+                    case "sums":
+                        args.AllowOnly();
+                        return new { dir = Path.GetFullPath(rest[1]), files = Batch.Sha256Sums.Write(rest[1]), sums = Path.GetFullPath(Path.Combine(rest[1], Batch.Sha256Sums.FileName)) };
+                    case "check":
+                    {
+                        args.AllowOnly("sums");
+                        var (n, problems) = Batch.Sha256Sums.Check(rest[1], args.Option("sums"));
+                        if (problems.Count > 0)
+                            throw new InvalidDataException($"{problems.Count} of {n} file(s) do not match: {string.Join("; ", problems.Take(20))}{(problems.Count > 20 ? "; ..." : "")}");
+                        return new { dir = Path.GetFullPath(rest[1]), files_checked = n, ok = true };
+                    }
+                    default:
+                    {
+                        args.AllowOnly("reason", "metamorpheus", "dotnet", "database-set");
+                        var c = new Batch.WorkerShare(rest[1]).Release(AppContext.BaseDirectory, RunRecord.Versions()["pxreprise"],
+                            args.Option("metamorpheus"), args.Option("dotnet"), args.Option("database-set"), args.Required("reason"));
+                        return new { generation = c.Generation, pxreprise = c.Pxreprise, software = c.Software, metamorpheus = c.MetaMorpheus, dotnet = c.Dotnet, database_set = c.DatabaseSet };
+                    }
+                }
             }
 
             default:

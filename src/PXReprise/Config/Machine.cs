@@ -35,7 +35,9 @@ public sealed record Machine(
     int AsperaAttempts = 3,
     string PrideHttps = "globus",
     DepositLimits? DepositLimits = null,
-    double? ProbeSearchMinutes = null)
+    double? ProbeSearchMinutes = null,
+    WorkerConfig? Worker = null,
+    WorkersConfig? Workers = null)
 {
     public static Machine Load(string file)
     {
@@ -96,7 +98,30 @@ public sealed record Machine(
         var limits = DepositLimits.Load(root.OptionalTable("deposit_limits"));
         // The probe search's wall clock (the profile's probe_search_minutes otherwise): larger files take longer.
         double? probeMinutes = root.OptionalNumber("probe_search_minutes");
+        // v0.4.26 (design/PLAN_worker.md; the user, 2026-10-19: "it would only run probes. and the full searches would only
+        // be run on this machine"): [worker] makes this machine a probe worker for the controller behind the share, and
+        // [workers] makes it that controller. Never both.
+        WorkerConfig? worker = null;
+        if (root.OptionalTable("worker") is { } wt)
+        {
+            // The question it runs is the controller's copy on the share, whose [batch] paths are the controller's: the
+            // worker's own run root and state directory are named here.
+            string Here(string p) => Path.GetFullPath(Path.Combine(Path.GetDirectoryName(file)!, p));
+            worker = new WorkerConfig(wt.RequiredString("share"), Here(wt.RequiredString("run_root")), Here(wt.RequiredString("state_dir")));
+            wt.RefuseUnknownKeys();
+        }
+        WorkersConfig? workers = null;
+        if (root.OptionalTable("workers") is { } ws)
+        {
+            workers = new WorkersConfig(ws.RequiredString("share"), checked((int)(ws.OptionalInteger("window") ?? 6)),
+                ws.OptionalNumber("quiet_hours") ?? 2, ws.OptionalNumber("assignment_hours") ?? 24);
+            ws.RefuseUnknownKeys();
+        }
         root.RefuseUnknownKeys();
+        if (worker is not null && workers is not null) throw new ConfigException(file, "[worker] and [workers] do not go together: a machine probes for a controller, or controls workers");
+        if (worker is not null && datarepo is not null) throw new ConfigException(file, "a probe worker ([worker]) never ingests: remove 'datarepo'");
+        if (workers is { Window: < 1 }) throw new ConfigException(file, "'workers.window' must be 1 or more");
+        if (workers is { QuietHours: <= 0 } or { AssignmentHours: <= 0 }) throw new ConfigException(file, "'workers.quiet_hours' and 'workers.assignment_hours' must be positive");
         if (probeMinutes is <= 0) throw new ConfigException(file, "'probe_search_minutes' must be positive");
         if (asperaAttempts < 0) throw new ConfigException(file, "'aspera_attempts' must not be negative (0 sends every attempt to HTTPS)");
         if (prideHttps is not ("globus" or "ftp")) throw new ConfigException(file, $"'pride_https' must be \"globus\" or \"ftp\", not \"{prideHttps}\"");
@@ -113,7 +138,7 @@ public sealed record Machine(
         if (passWait < 0) throw new ConfigException(file, "'pass_wait_minutes' must not be negative");
         if (searchTimeout <= 0) throw new ConfigException(file, "'search_timeout_h' must be positive");
         if (stall < 0) throw new ConfigException(file, "'search_stall_minutes' must not be negative (0 turns the stall check off)");
-        return new Machine(file, workRoot, dbDir, mm, settings, threads, dotnet, licence, libraries, minFree, datarepo, attempts, parallel, qcPython, passes, passWait, searchTimeout, stall, dotnetRoot, fetchStall, slots, catchUp, ascp, asperaKey, asperaAttempts, prideHttps, limits, probeMinutes);
+        return new Machine(file, workRoot, dbDir, mm, settings, threads, dotnet, licence, libraries, minFree, datarepo, attempts, parallel, qcPython, passes, passWait, searchTimeout, stall, dotnetRoot, fetchStall, slots, catchUp, ascp, asperaKey, asperaAttempts, prideHttps, limits, probeMinutes, worker, workers);
     }
 
     public string CmdFor(string release) =>
@@ -121,6 +146,19 @@ public sealed record Machine(
             ? cmd
             : throw new UsageException($"{Path.GetFileName(SourceFile)} names no MetaMorpheus {release} (has: {string.Join(", ", MetaMorpheus.Keys)})");
 }
+
+/// <summary>
+/// The machine's <c>[workers]</c> (v0.4.26): the share it controls probe workers through; how many deposits it assigns
+/// ahead (<c>window</c>); how long without a heartbeat before it probes for itself (<c>quiet_hours</c>); and how long one
+/// assignment may wait for its probe before this machine takes it back (<c>assignment_hours</c>).
+/// </summary>
+public sealed record WorkersConfig(string Share, int Window = 6, double QuietHours = 2, double AssignmentHours = 24);
+
+/// <summary>
+/// The machine's <c>[worker]</c> (v0.4.26): the controller's share as this machine sees it, and this machine's own run
+/// root and state directory (the question it runs is the controller's copy, whose <c>[batch]</c> is the controller's).
+/// </summary>
+public sealed record WorkerConfig(string Share, string RunRoot, string StateDir);
 
 /// <summary>
 /// The machine's <c>[deposit_limits]</c> (v0.4.21): the profiles' deposit gates as this box sets them. Each key left out

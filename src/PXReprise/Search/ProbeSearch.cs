@@ -74,7 +74,10 @@ public static class ProbeSearch
         Directory.CreateDirectory(tasksDir);
         string cmd = m.CmdFor(p.MetaMorpheus);
         var runner = new MetaMorpheusRunner(cmd, m.Dotnet, m.DotnetRoot);
-        var (release, _) = runner.GenerateDefaults(tasksDir);
+        var (banner, _) = runner.GenerateDefaults(tasksDir);
+        var pin = MetaMorpheusPin.Parse(p.MetaMorpheus);
+        pin.Check(banner, runner.Commit(), p.Key);
+        string release = pin.Name;
         var known = TaskFiles.KnownMods(Path.Combine(Path.GetDirectoryName(cmd)!, "Mods"));
         string toml = Path.Combine(tasksDir, "probe_SearchTask.toml");
         File.WriteAllText(toml, TaskText(File.ReadAllText(Path.Combine(tasksDir, TaskFiles.FileName(TaskKind.Search))), m, chem, known));

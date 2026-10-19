@@ -7,6 +7,69 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.26 (2026-10-19)
+
+No MetaMorpheus change. **Machine file:** no change, unless you add the new `[workers]` or `[worker]` table. **Safe
+mid-batch?** Yes: swap the pin as usual. Without either table the batch runs exactly as in 0.4.25. No profile change.
+
+- **A second machine can run the probes.**
+  - **How it works:** the machine with `[worker]` probes the deposits the delivering machine (`[workers]`) assigns it,
+    and hands each one back through a shared folder.
+  - **Every full search, ingest and publish stays on the delivering machine,** so every result still comes from one
+    machine, one software set and one spectral library.
+  - **A probe is three raw files,** so a machine with little memory can do it.
+- **The delivering machine checks every probe before using it:**
+  - every file against the package's `READY.json` (size and SHA-256);
+  - the PXReprise version that probed it, the profile it passed under, and the database set;
+  - then it runs its own duplicate screen, which the prober cannot run.
+
+  A damaged package, or one probed under another version, another copy of the question or another database set, is
+  assigned again. After three refused packages, that deposit is probed on the delivering machine.
+- **Both machines probe by the same question.** At each start the delivering machine's batch publishes the question it
+  loaded (with its decisions file and designs folder) to the share. The prober runs that copy, names its own run root
+  and state directory in `[worker]`, and stops between deposits when the copy changes.
+- **The delivering machine never waits forever.** It probes for itself when the prober has had no heartbeat for
+  `quiet_hours`, when the heartbeat says the prober stopped, or when one deposit has waited `assignment_hours`.
+- **Version changes are acted on at once:**
+  - `pxreprise worker release` publishes a build to the prober and raises the generation in `control\current.toml`.
+  - The prober checks its own version and its databases against the release before it starts.
+  - It stops between deposits as soon as the generation changes.
+  - The delivering machine logs a warning at start when the release is not its own version.
+- **The prober keeps no probe files.** It deletes them as soon as it has handed them off. It deletes a deposit's whole
+  folder once the delivering machine has taken it, or has taken the deposit back.
+- **New statuses:**
+  - on the delivering machine: `assigned_to_worker`, `probed_by_worker` and `worker_fallback`;
+  - on the prober: `handed_off`.
+- **New command `pxreprise worker sums|check|release`** ([Commands](docs/commands.md)).
+- **A profile may name a MetaMorpheus build by commit, not only by release:** `metamorpheus = "master@3a6a76632"`.
+  - A release is checked by its banner, as before. A commit build (MetaMorpheus's CI zip for every push to master)
+    prints "Not a release version." there, so it is checked by the commit its `--help` names instead.
+  - The pin's name keys the machine file's `[metamorpheus]` table, the settings folder and the spectral library
+    registry.
+  - Provenance records no release for a commit build.
+  - The probe checks the build too.
+  - No shipped profile changes: every one names a release.
+- **The manifest note names each extra database with its sha256 prefix,** for example
+  `aging_isoforms_mouse.xml (sha 01e972ef51ed)`, taken from the search's own recorded inputs. A question's overlay can
+  keep its name while its content changes, and the prefix tells the versions apart (the ageing project's request).
+  Notes are not part of a bundle, so no bundle id moves.
+
+## 0.4.25 (2026-10-19)
+
+No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual. No profile change.
+
+- **An SDRF label that names no label no longer decides a deposit's label.**
+  - **The bug:** two community-annotated SDRFs said `NT=isotope labeling;AC=PRIDE:0000310` on every row, a term that
+    names no label, while PRIDE's own record said label-free (MS1 intensity, spectrum counting). 0.4.24 took the cell
+    as the label and parked both deposits under a status spelled from the cell's text, with no row in
+    `decisions_needed.tsv`.
+  - **The fix:** a label cell naming no label we know yields to a curated SDRF, then PRIDE's quantification methods (a
+    label, or label-free), PRIDE's identified PTMs and the text. With none of them, the deposit waits as
+    `waiting_unknown_label`, and `decisions_needed.tsv` asks a person what the label is.
+  - A label the SDRF does name (TMT, SILAC, dimethyl, ...) decides as before.
+- **To give such a deposit its look:** `pxreprise batch retry <question.toml> <PXD> --reason "..."`; a `waiting_`
+  status is otherwise settled.
+
 ## 0.4.24 (2026-10-18)
 
 No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual. No profile change.

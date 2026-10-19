@@ -38,7 +38,7 @@ public class SearchStageTests
 
     private sealed record Rig(string Root, Machine Machine, Profile Profile, string Spectra, string Qc);
 
-    private static Rig Setup(bool library = true, string machineExtra = "", bool depositChemistry = false)
+    private static Rig Setup(bool library = true, string machineExtra = "", bool depositChemistry = false, string mm = "1.1.11")
     {
         string root = TestSupport.TempDir();
         // A MetaMorpheus "install": the fake CMD, and the Mods and Contaminants folders the engine reads beside it.
@@ -53,14 +53,14 @@ public class SearchStageTests
         TestSupport.WriteFile(db, "proteome.xml", "<uniprot>\n<entry>\n<accession>Q8WZ42</accession>\n</entry>\n<entry>\n<accession>P04264</accession>\n</entry>\n</uniprot>\n");
         var machine = Machine.Load(TestSupport.WriteFile(root, "machine.toml",
             // CMD.dll, run as `dotnet CMD.dll`: the one launch that works on every OS (the apphost is CMD.exe only on Windows).
-            $"work_root = '{root}'\ndatabase_dir = '{db}'\nmax_threads = 4\n{machineExtra}[metamorpheus]\n\"1.1.11\" = '{Path.Combine(install, "CMD.dll")}'\n"));
+            $"work_root = '{root}'\ndatabase_dir = '{db}'\nmax_threads = 4\n{machineExtra}[metamorpheus]\n\"{mm}\" = '{Path.Combine(install, "CMD.dll")}'\n"));
         var profile = ProfileLoader.Load(TestSupport.WriteFile(root, "profile.toml", $"""
             id = "test-dda"
             version = 1
             [accepts]
             acquisition = ["dda"]
             [engine]
-            metamorpheus = "1.1.11"
+            metamorpheus = "{mm}"
             tasks = ["Calibration", "Gptmd", "Search"]
             gptmd_extra_mods = ["Trypsin Digested\tGG (Ubiquitination Site) on K"]
             spectral_library = {(library ? "true" : "false")}
@@ -158,6 +158,64 @@ public class SearchStageTests
         Assert.That(single.Success, Is.True);
         Assert.That(File.ReadAllText(Path.Combine(rig.Root, "run", "04_search_2", "tasks", "3_SearchTask.toml")), Does.Contain("Protease = \"Glu-C\""));
         Assert.That(File.Exists(Path.Combine(rig.Spectra, "a.toml")), Is.False);
+    }
+
+    // v0.4.26 (the user, 2026-10-19: "explore using metamorpheus master instead of the release"): a build of master says
+    // "Not a release version." where a release prints its number, so a commit pin is checked by the commit --help names.
+    [Test]
+    public async Task ACommitPinnedBuildIsCheckedByItsCommitAndRecordsNoRelease()
+    {
+        var rig = Setup(library: false, mm: "master@0123456789a");
+        Environment.SetEnvironmentVariable("FAKE_MM_RELEASE", "Not a release version.");
+        try
+        {
+            var o = await SearchStage.RunAsync(Req(rig, "04_search"), CancellationToken.None);
+            Assert.That(o.Success, Is.True);
+            var tool = JsonNode.Parse(File.ReadAllText(o.ProvenanceFile))!["tools"]!["MetaMorpheus"]!;
+            Assert.Multiple(() =>
+            {
+                Assert.That(tool["release"], Is.Null, "a commit build is no release");
+                Assert.That(tool["commit"]!.GetValue<string>(), Is.EqualTo("0123456789abcdef0123456789abcdef01234567"));
+                Assert.That(tool["expected_release"]!.GetValue<string>(), Is.EqualTo("master@0123456789a"));
+            });
+        }
+        finally { Environment.SetEnvironmentVariable("FAKE_MM_RELEASE", null); }
+    }
+
+    [TestCase("master@fedcba9876", null, "built from commit 0123456789abcdef")]
+    [TestCase("1.1.11", "Not a release version.", "MetaMorpheus is unknown, test-dda@1 expects 1.1.11")]
+    public void ABuildOtherThanTheOnePinnedIsRefused(string mm, string? banner, string message)
+    {
+        var rig = Setup(library: false, mm: mm);
+        Environment.SetEnvironmentVariable("FAKE_MM_RELEASE", banner);
+        try
+        {
+            Assert.That(async () => await SearchStage.RunAsync(Req(rig, "04_search"), CancellationToken.None),
+                Throws.TypeOf<SearchSetupException>().With.Message.Contains(message));
+        }
+        finally { Environment.SetEnvironmentVariable("FAKE_MM_RELEASE", null); }
+    }
+
+    [TestCase("1.1.12", true)]
+    [TestCase("master@3a6a766", false)]
+    [TestCase("pxr-integration@d49de5f87281bfb7418d46a9f7f260b39fab538a", false)]
+    public void APinNamesAReleaseOrACommit(string value, bool release)
+    {
+        var pin = MetaMorpheusPin.Parse(value);
+        Assert.That((pin.Name, pin.IsRelease), Is.EqualTo((value, release)));
+    }
+
+    [TestCase("master")]
+    [TestCase("master@3a6a76")]       // fewer than 7 hex digits
+    [TestCase("master@3A6A76632")]    // git prints commits in lower case
+    [TestCase("@3a6a76632")]
+    [TestCase("1.1.12+3a6a76632")]
+    public void AValueThatNamesNoBuildIsRefusedWhenTheProfileLoads(string value)
+    {
+        Assert.That(MetaMorpheusPin.TryParse(value, out _), Is.False);
+        string root = TestSupport.TempDir();
+        string file = TestSupport.WriteFile(root, "profile.toml", $"id = \"x\"\nversion = 1\n[accepts]\n[engine]\nmetamorpheus = \"{value}\"\ntasks = [\"Search\"]\n");
+        Assert.That(() => ProfileLoader.Load(file), Throws.TypeOf<ConfigException>().With.Message.Contains("commit pin"));
     }
 
     [Test]

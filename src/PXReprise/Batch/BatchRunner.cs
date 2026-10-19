@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -49,6 +50,35 @@ public sealed class BatchRunner
     private double? _probeMinutes;
     private DateTime _limitsStamp, _limitsChecked;
 
+    // v0.4.26 (design/PLAN_worker.md): the share with a probe worker. On the controller ([workers]) fresh deposits are
+    // probed there and only searched here; on the worker ([worker]) the driver only probes what the controller assigns.
+    private readonly WorkerShare? _share;
+    private bool? _workerWasQuiet;
+    private DateTime _waitLogged;
+
+    /// <summary>A deposit assigned to the probe worker, waiting for its package.</summary>
+    internal const string AssignedStatus = "assigned_to_worker";
+    /// <summary>A deposit the probe worker passed: this machine fetches the rest and searches it, with no probe of its own.</summary>
+    internal const string ProbedByWorkerStatus = "probed_by_worker";
+    /// <summary>A deposit taken back from the worker (a refused or unusable package): probed here.</summary>
+    internal const string WorkerFallbackStatus = "worker_fallback";
+    /// <summary>On the worker: a deposit whose package was written to the share.</summary>
+    internal const string HandedOffStatus = "handed_off";
+    private const int MaxWorkerAttempts = 3;
+
+    /// <summary>How often the controller looks for packages while every deposit left waits on the worker, and how often
+    /// the worker looks for assignments while it has none.</summary>
+    internal TimeSpan WorkerPoll { get; set; } = TimeSpan.FromMinutes(1);
+
+    /// <summary>How often the worker writes its heartbeat, during a probe too.</summary>
+    internal TimeSpan HeartbeatEvery { get; set; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>Tests only: replaces the probe (the screen, the gates, the probe fetch, QC and search).</summary>
+    internal Func<QueueEntry, CancellationToken, Task<Profile?>>? ProbeForTest { get; set; }
+
+    /// <summary>Tests only: replaces the whole-deposit fetch.</summary>
+    internal Func<QueueEntry, Profile, CancellationToken, Task<bool>>? FetchWholeForTest { get; set; }
+
     /// <summary>The deposits being searched (up to search_slots) while the next one is screened and fetched.</summary>
     internal IReadOnlyList<string> Searching { get { lock (_searching) return _searching.ToList(); } }
 
@@ -61,15 +91,22 @@ public sealed class BatchRunner
         _q = q;
         _profiles = profiles;
         _m = m;
-        _limits = m.DepositLimits;
-        _probeMinutes = m.ProbeSearchMinutes;
-        _limitsStamp = File.Exists(m.SourceFile) ? File.GetLastWriteTimeUtc(m.SourceFile) : default;
+        _share = m.Workers is { } w ? new WorkerShare(w.Share) : m.Worker is { } wk ? new WorkerShare(wk.Share) : null;
+        // A probe worker gates deposits by the controller's limits (control\deposit_limits.toml), read at its start.
+        _limits = m.Worker is null ? m.DepositLimits : null;
+        _probeMinutes = m.Worker is null ? m.ProbeSearchMinutes : null;
+        _limitsStamp = m.Worker is null && File.Exists(m.SourceFile) ? File.GetLastWriteTimeUtc(m.SourceFile) : default;
         _files = files;
         _search = search;
         _runDate = runDate;
-        var b = q.Batch ?? throw new ConfigException(q.SourceFile, "a batch needs a [batch] table (run_root, state_dir, queue)");
-        _stateDir = b.StateDir;
-        _runRoot = b.RunRoot;
+        // A probe worker runs the controller's copy of the question, whose [batch] is the controller's: its own run root
+        // and state directory come from its machine file (v0.4.26).
+        if (m.Worker is { } worker) (_stateDir, _runRoot) = (worker.StateDir, worker.RunRoot);
+        else
+        {
+            var b = q.Batch ?? throw new ConfigException(q.SourceFile, "a batch needs a [batch] table (run_root, state_dir, queue)");
+            (_stateDir, _runRoot) = (b.StateDir, b.RunRoot);
+        }
         Directory.CreateDirectory(_stateDir);
         Directory.CreateDirectory(_runRoot);
     }
@@ -345,6 +382,13 @@ public sealed class BatchRunner
 
     public async Task RunAsync(IReadOnlyList<QueueEntry> queue, CancellationToken ct)
     {
+        if (_m.Worker is not null)
+        {
+            ClaimOrDie();
+            try { await ProbeWorkerAsync(ct).ConfigureAwait(false); }
+            finally { try { File.Delete(PidFile); } catch (IOException) { } }
+            return;
+        }
         queue = queue.Select(WithQuestionSpecies).ToList();
         ClaimOrDie();
         Log($"batch start: pid {Environment.ProcessId}, {queue.Count} queued, free {FreeGb():0} GB");
@@ -355,6 +399,7 @@ public sealed class BatchRunner
         if (_m.DepositLimits is not null || _m.ProbeSearchMinutes is not null)
             Log($"  limits   machine [deposit_limits] {(_m.DepositLimits?.Describe() is { Length: > 0 } dl ? dl : "(none)")}"
                 + (_m.ProbeSearchMinutes is { } pm ? $"; probe_search_minutes {pm:0.#}" : "") + "; the profiles' own values otherwise");
+        if (_m.Workers is { } workers) StartControlling(workers);
         CancellationTokenSource? stopPublishing = null;
         Task? publisher = null;
         bool ranOut = false;
@@ -520,7 +565,8 @@ public sealed class BatchRunner
     /// </summary>
     internal bool Retriable(string acc) =>
         !File.Exists(Path.Combine(Run(acc), "04_search", "provenance.json")) && Settled(acc).Length == 0
-        && Entry(acc)?["status"]?.GetValue<string>() is "fetch_unavailable" or "probe_fetch_unavailable" or "probing" or "search_interrupted";
+        && Entry(acc)?["status"]?.GetValue<string>() is "fetch_unavailable" or "probe_fetch_unavailable" or "probing" or "search_interrupted"
+            or ProbedByWorkerStatus;
 
     /// <summary>
     /// A failed probe or whole-deposit fetch. Unavailability that outlasted every attempt (PRIDE down for hours, S52) is
@@ -567,33 +613,62 @@ public sealed class BatchRunner
     private async Task<(QueueEntry, Profile)?> NextReadyAsync(IReadOnlyList<QueueEntry> queue, HashSet<string> consumed,
         IReadOnlySet<string> busy, CancellationToken ct)
     {
-        while (!ct.IsCancellationRequested && !File.Exists(StopFile) && !_diskShort)
+        // v0.4.26: the deposits left to the probe worker, set aside for this look only.
+        var waiting = new HashSet<string>(StringComparer.Ordinal);
+        try
         {
-            bool catchUpTurn = _m.CatchUpEvery > 0 && (_started + 1) % _m.CatchUpEvery == 0;
-            var catchUp = catchUpTurn ? CatchUpCandidate(queue, consumed, busy) : null;
-            var e = catchUp ?? PickNext(queue, consumed, busy);
-            // v0.4.21: with no new deposit left, every start is a catch-up re-search while one is due. The queue ran out on
-            // 2026-10-17 with 91 deposits still searched under profiles the question no longer names.
-            if (e is null && _m.CatchUpEvery > 0 && !catchUpTurn) e = catchUp = CatchUpCandidate(queue, consumed, busy);
-            if (e is null) return null;
-            consumed.Add(e.Accession);
-            if (catchUp is not null && !StartCatchUp(e)) continue;
-            Record(e.Accession, ("status", "probing"), ("title", e.Title), ("organism", e.Organism));
-            if (await PrepareAsync(e, ct).ConfigureAwait(false) is { } profile)
+            while (!ct.IsCancellationRequested && !File.Exists(StopFile) && !_diskShort)
             {
-                _started++;
-                return (e, profile);
+                if (_m.Workers is not null) TendWorker(queue);
+                bool catchUpTurn = _m.CatchUpEvery > 0 && (_started + 1) % _m.CatchUpEvery == 0;
+                var catchUp = catchUpTurn ? CatchUpCandidate(queue, consumed, busy) : null;
+                var e = catchUp ?? PickNext(queue, consumed, busy);
+                // v0.4.21: with no new deposit left, every start is a catch-up re-search while one is due. The queue ran out on
+                // 2026-10-17 with 91 deposits still searched under profiles the question no longer names.
+                if (e is null && _m.CatchUpEvery > 0 && !catchUpTurn) e = catchUp = CatchUpCandidate(queue, consumed, busy);
+                if (e is null)
+                {
+                    if (waiting.Count == 0) return null;
+                    // Everything left waits on the worker's probes: look again in a while (STOP is watched meanwhile).
+                    if (DateTime.UtcNow - _waitLogged > TimeSpan.FromMinutes(30))
+                    {
+                        Log($"waiting on the probe worker for {waiting.Count} deposit(s) ({Brief(waiting.Order(StringComparer.Ordinal).ToList())}); nothing else to start");
+                        _waitLogged = DateTime.UtcNow;
+                    }
+                    consumed.ExceptWith(waiting);
+                    waiting.Clear();
+                    if (!await WaitAsync(WorkerPoll, ct).ConfigureAwait(false)) return null;
+                    continue;
+                }
+                consumed.Add(e.Accession);
+                if (catchUp is null && PendingOnWorker(e.Accession)) { waiting.Add(e.Accession); continue; }
+                if (catchUp is not null && !StartCatchUp(e)) continue;
+                if (WorkerPassProfile(e.Accession) is null) Record(e.Accession, ("status", "probing"), ("title", e.Title), ("organism", e.Organism));
+                if (await PrepareAsync(e, ct).ConfigureAwait(false) is { } profile)
+                {
+                    _started++;
+                    _waitLogged = default;
+                    return (e, profile);
+                }
             }
+            return null;
         }
-        return null;
+        finally { consumed.ExceptWith(waiting); }
     }
 
-    /// <summary>The screen, the probe and the whole-deposit fetch: the profile to search with, or null when settled otherwise.</summary>
+    /// <summary>
+    /// The screen, the probe and the whole-deposit fetch: the profile to search with, or null when settled otherwise. A
+    /// deposit the probe worker passed skips the probe (v0.4.26), after this machine's own duplicate screen.
+    /// </summary>
     private async Task<Profile?> PrepareAsync(QueueEntry e, CancellationToken ct)
     {
         if (PrepareForTest is { } prepare) return await prepare(e, ct).ConfigureAwait(false);
-        var profile = await ProbeAsync(e, ct).ConfigureAwait(false);
-        return profile is not null && await FetchWholeAsync(e, profile, ct).ConfigureAwait(false) ? profile : null;
+        Profile? profile;
+        if (WorkerPassProfile(e.Accession) is { } passed)
+            profile = await ScreenWorkerPassAsync(e, ct).ConfigureAwait(false) ? passed : null;
+        else
+            profile = await (ProbeForTest ?? ProbeAsync)(e, ct).ConfigureAwait(false);
+        return profile is not null && await (FetchWholeForTest ?? FetchWholeAsync)(e, profile, ct).ConfigureAwait(false) ? profile : null;
     }
 
     /// <summary>
@@ -632,7 +707,8 @@ public sealed class BatchRunner
                 // turn is the next driver's to take.
                 if (PickNext(queue, consumed, none) is not { } e) break;
                 consumed.Add(e.Accession);
-                Record(e.Accession, ("status", "probing"), ("title", e.Title), ("organism", e.Organism));
+                if (PendingOnWorker(e.Accession)) continue;   // v0.4.26: the worker probes it
+                if (WorkerPassProfile(e.Accession) is null) Record(e.Accession, ("status", "probing"), ("title", e.Title), ("organism", e.Organism));
                 if (await PrepareAsync(e, cut).ConfigureAwait(false) is not null)
                 {
                     fetched.Add(e.Accession);
@@ -872,24 +948,7 @@ public sealed class BatchRunner
             Log($"{acc} chemistry: {Describe(chem)}");
         }
 
-        // The same raw files already searched under another accession: refused before any download (PXR-A9).
-        // The deposit being searched counts too: it is fetched in full, and the next one is screened alongside it (PXR-A21).
-        var searching = Searching;
-        var copies = _q.Publish?.Manifest is { } mfp && File.Exists(mfp) ? ManifestEntry.ExcludedCopiesOf(ManifestEntry.ReadLf(mfp), acc) : null;
-        foreach (string copy in copies ?? new HashSet<string>())
-            Log($"{acc} duplicate screen: {copy} is excluded in the manifest as this deposit's copy, so it is not compared");
-        var dup = DuplicateScreen.Check(acc, listing.Select(f => (f.FileName, f.FileSizeBytes)).ToList(),
-            DuplicateScreen.Index(DuplicateRoots(), searching.Count == 0 ? null : searching.Select(Run).ToArray()), copies);
-        string When(string other) => searching.Contains(other) ? "being searched now" : "already searched";
-        if (dup.DuplicateOf is { } original)
-        {
-            Log($"{acc} SCREENED OUT (excluded_duplicate): all {listing.Count} raw files (name and size) are in {original}, {When(original)}");
-            Record(acc, ("status", "excluded_duplicate"), ("duplicate_of", original));
-            Experiment(acc, xr, "excluded_duplicate", $"all {listing.Count} raw files are in {original}");
-            return null;
-        }
-        foreach (var (other, shared) in dup.Partial)
-            Log($"{acc} shares {shared} of {listing.Count} raw files (name and size) with {other}, {When(other)}; not a duplicate, continuing");
+        if (ExcludedAsDuplicate(acc, listing, xr)) return null;
 
         var sizes = listing.Select(f => f.FileSizeBytes / 1e6).OrderBy(x => x).ToList();
         var dep = DepositFor(acc, profile);
@@ -978,6 +1037,33 @@ public sealed class BatchRunner
             return null;
         Experiment(acc, xr, "probed", $"to be searched under {profile.Key}");
         return profile;
+    }
+
+    /// <summary>
+    /// The same raw files already searched under another accession: refused before any download (PXR-A9). The deposit
+    /// being searched counts too: it is fetched in full, and the next one is screened alongside it (PXR-A21). True when
+    /// the deposit is excluded as a duplicate. <paramref name="xr"/> is null for a probe worker's pass (v0.4.26), whose
+    /// experiment record was written there.
+    /// </summary>
+    private bool ExcludedAsDuplicate(string acc, IReadOnlyList<UsefulProteomicsDatabases.PrideArchiveFile> listing, ExperimentRecord? xr)
+    {
+        var searching = Searching;
+        var copies = _q.Publish?.Manifest is { } mfp && File.Exists(mfp) ? ManifestEntry.ExcludedCopiesOf(ManifestEntry.ReadLf(mfp), acc) : null;
+        foreach (string copy in copies ?? new HashSet<string>())
+            Log($"{acc} duplicate screen: {copy} is excluded in the manifest as this deposit's copy, so it is not compared");
+        var dup = DuplicateScreen.Check(acc, listing.Select(f => (f.FileName, f.FileSizeBytes)).ToList(),
+            DuplicateScreen.Index(DuplicateRoots(), searching.Count == 0 ? null : searching.Select(Run).ToArray()), copies);
+        string When(string other) => searching.Contains(other) ? "being searched now" : "already searched";
+        if (dup.DuplicateOf is { } original)
+        {
+            Log($"{acc} SCREENED OUT (excluded_duplicate): all {listing.Count} raw files (name and size) are in {original}, {When(original)}");
+            Record(acc, ("status", "excluded_duplicate"), ("duplicate_of", original));
+            if (xr is not null) Experiment(acc, xr, "excluded_duplicate", $"all {listing.Count} raw files are in {original}");
+            return true;
+        }
+        foreach (var (other, shared) in dup.Partial)
+            Log($"{acc} shares {shared} of {listing.Count} raw files (name and size) with {other}, {When(other)}; not a duplicate, continuing");
+        return false;
     }
 
     /// <summary>
@@ -1810,28 +1896,37 @@ public sealed class BatchRunner
     internal void RefreshLimits(bool now = false)
     {
         string? said = null;
+        // v0.4.26: a probe worker takes the controller's limits from the share; the full searches they gate run there.
+        string source = _m.Worker is not null ? _share!.LimitsFile : _m.SourceFile;
         lock (_limitsGate)
         {
             var t = DateTime.UtcNow;
-            if ((!now && t - _limitsChecked < TimeSpan.FromSeconds(30)) || !File.Exists(_m.SourceFile)) return;
+            if ((!now && t - _limitsChecked < TimeSpan.FromSeconds(30)) || !File.Exists(source)) return;
             _limitsChecked = t;
-            var stamp = File.GetLastWriteTimeUtc(_m.SourceFile);
+            var stamp = File.GetLastWriteTimeUtc(source);
             if (stamp == _limitsStamp) return;
             _limitsStamp = stamp;
             string before = LimitsText(_limits, _probeMinutes);
             try
             {
-                var fresh = Machine.Load(_m.SourceFile);
-                (_limits, _probeMinutes) = (fresh.DepositLimits, fresh.ProbeSearchMinutes);
+                if (_m.Worker is not null) (_limits, _probeMinutes) = _share!.ReadLimits();
+                else
+                {
+                    var fresh = Machine.Load(_m.SourceFile);
+                    (_limits, _probeMinutes) = (fresh.DepositLimits, fresh.ProbeSearchMinutes);
+                }
                 string after = LimitsText(_limits, _probeMinutes);
-                if (after != before) said = $"limits changed in {Path.GetFileName(_m.SourceFile)}: {before} -> {after} (the rest of the machine file is read at start only)";
+                if (after != before)
+                    said = $"limits changed in {Path.GetFileName(source)}: {before} -> {after}"
+                           + (_m.Worker is null ? " (the rest of the machine file is read at start only)" : " (the controller's)");
             }
-            catch (Exception ex) when (ex is UsageException or IOException)
+            catch (Exception ex) when (ex is UsageException or IOException or UnauthorizedAccessException)
             {
-                said = $"{Path.GetFileName(_m.SourceFile)} changed but does not load ({ex.Message}); the limits stay {before}";
+                said = $"{Path.GetFileName(source)} changed but does not load ({ex.Message}); the limits stay {before}";
             }
         }
         if (said is not null) Log(said);
+        if (said is not null && _m.Workers is not null) WriteSharedLimits();
     }
 
     private string ParamsFile(string acc, Profile profile)
@@ -1854,6 +1949,570 @@ public sealed class BatchRunner
         yield return _runRoot;
         yield return _m.WorkRoot;
         if (_q.Publish?.Manifest is { } mf && File.Exists(mf) && ManifestEntry.WorkRootOf(mf) is { } wr) yield return wr;
+    }
+
+    // ------------------------------------------------------------------ v0.4.26: the controller of a probe worker
+
+    /// <summary>The worker's record fields this machine never takes: its own bookkeeping, not facts of the deposit.</summary>
+    private static readonly HashSet<string> NotAdopted = new(StringComparer.Ordinal)
+    {
+        "status", "updated_utc", "earlier_detail", "worker_attempt", "assigned_utc", "handed_off_attempt", "handed_off_utc",
+        "probe_outcome", "probe_attempt", "probe_files_deleted", "probe_files_deleted_gb", "local_deleted", "local_deleted_why",
+    };
+
+    /// <summary>At the driver's start: the limits for the worker's probes, and a loud line when the worker's release is
+    /// not this build, so a version change that was not published is seen at once.</summary>
+    private void StartControlling(WorkersConfig w)
+    {
+        Log($"  workers  fresh deposits are probed by the worker behind {w.Share} (window {w.Window}; probed here after {w.QuietHours:0.#} h "
+            + $"without its heartbeat, or {w.AssignmentHours:0.#} h on one deposit); every full search runs here");
+        string self = Provenance.RunRecord.Versions()["pxreprise"];
+        try
+        {
+            var current = _share!.ReadCurrent();
+            if (current is null)
+                Log("  workers  WARNING: the share has no control\\current.toml: the worker runs nothing until `pxreprise worker release` writes one");
+            else if (current.Pxreprise != self)
+                Log($"  workers  WARNING: control\\current.toml (generation {current.Generation}) names pxreprise {current.Pxreprise}, but this driver is {self}: "
+                    + "the worker's packages are not used, and their deposits are probed here, until `pxreprise worker release` publishes this build");
+            else
+                Log($"  workers  release generation {current.Generation}: pxreprise {current.Pxreprise}" + (current.DatabaseSet is { } set ? $", database set {set}" : ""));
+        }
+        catch (Exception ex) when (ex is IOException or UsageException or UnauthorizedAccessException)
+        {
+            Log($"  workers  control\\current.toml does not read: {ex.Message}");
+        }
+        // The question this driver loaded, with the files it reads, so the worker probes by the same exceptions, holds and
+        // designs. A driver reads its question only at start, so this copy changes only at a start; the worker stops
+        // between deposits when it does, and every package names the copy it was probed under.
+        try
+        {
+            string? decisions = TomlSection.Load(_q.SourceFile).OptionalTable("relevance")?.OptionalString("decisions");
+            var files = decisions is null ? Array.Empty<string>() : new[] { Path.Combine(Path.GetDirectoryName(Path.GetFullPath(_q.SourceFile))!, decisions) };
+            var dirs = _q.Designs is { } dg ? new[] { dg.Dir } : Array.Empty<string>();
+            var (id, left) = _share!.PublishQuestion(_q.SourceFile, files, dirs);
+            _questionIdentity = id;
+            Log($"  workers  question published for the worker's probes ({id[..12]})"
+                + (left.Count > 0 ? $"; NOT published, being outside the question's folder: {string.Join(", ", left)}" : ""));
+        }
+        catch (Exception ex) when (ex is IOException or UsageException or UnauthorizedAccessException)
+        {
+            Log($"  workers  WARNING: the question could not be published to the share ({ex.Message}): the worker's packages are not used until it is");
+            _questionIdentity = "unpublished";
+        }
+        WriteSharedLimits();
+    }
+
+    /// <summary>The identity of the question copy this driver published at its start.</summary>
+    private string? _questionIdentity;
+
+    private string? _sharedLimits;
+
+    /// <summary>This machine's deposit limits on the share, for the worker's probes; rewritten only when they change.</summary>
+    private void WriteSharedLimits()
+    {
+        if (_m.Workers is null) return;
+        DepositLimits? l;
+        double? p;
+        lock (_limitsGate) (l, p) = (_limits, _probeMinutes);
+        string text = WorkerShare.LimitsText(l, p, Environment.MachineName);
+        if (text == _sharedLimits) return;
+        try
+        {
+            _share!.WriteLimits(text);
+            _sharedLimits = text;
+            Log($"  workers  limits for the worker's probes: {LimitsText(l, p)}");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Log($"workers: the limits could not be written to the share: {ex.Message}");
+        }
+    }
+
+    private bool WorkerQuiet() => _share!.Quiet(TimeSpan.FromHours(_m.Workers!.QuietHours), DateTime.UtcNow);
+
+    /// <summary>
+    /// Takes in every finished probe package, says when the worker goes quiet or comes back, and refills its window of
+    /// assignments while it is alive. Never fails the batch: a share that cannot be read is logged and tried again.
+    /// </summary>
+    private void TendWorker(IReadOnlyList<QueueEntry> queue)
+    {
+        try
+        {
+            bool quiet = WorkerQuiet();
+            if (quiet != _workerWasQuiet)
+            {
+                var (beat, state) = _share!.Heartbeat();
+                string seen = beat is { } b ? $"heartbeat {b:yyyy-MM-dd'T'HH:mm:ss'Z'}" + (state is null ? "" : $": {state}") : "no heartbeat";
+                Log(quiet ? $"the probe worker is quiet ({seen}): fresh deposits are probed here until it is back"
+                          : $"the probe worker is alive ({seen}): fresh deposits are left to its probes");
+                _workerWasQuiet = quiet;
+            }
+            foreach (string dir in _share!.ReadyPackages()) Adopt(dir);
+            if (!quiet) Assign(queue);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidDataException or UsageException)
+        {
+            Log($"workers: the share could not be tended ({ex.GetType().Name}: {ex.Message}); trying again at the next look");
+        }
+    }
+
+    /// <summary>
+    /// The worker's window: the first fresh deposits in queue order (no state here yet, not held, not searched), marked
+    /// assigned here and written to <c>accessions\assigned.tsv</c> in that order.
+    /// </summary>
+    private void Assign(IReadOnlyList<QueueEntry> queue)
+    {
+        var w = _m.Workers!;
+        var ds = State()["datasets"]!.AsObject();
+        var rows = new List<WorkerShare.Assignment>();
+        string now = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
+        foreach (var x in queue)
+        {
+            if (rows.Count >= w.Window) break;
+            var o = ds[x.Accession] as JsonObject;
+            string? s = o?["status"]?.GetValue<string>();
+            if (s is not null && s != AssignedStatus) continue;
+            if (_q.Holds.ContainsKey(x.Accession) || File.Exists(Path.Combine(Run(x.Accession), "04_search", "provenance.json"))) continue;
+            if (s is null)
+            {
+                Record(x.Accession, ("status", AssignedStatus), ("title", x.Title), ("organism", x.Organism), ("assigned_utc", now), ("worker_attempt", 1));
+                Log($"{x.Accession} ASSIGNED to the probe worker");
+                o = Entry(x.Accession);
+            }
+            rows.Add(new WorkerShare.Assignment(x.Accession, x.QueuedOrganism ?? x.Organism, o?["worker_attempt"]?.GetValue<int>() ?? 1,
+                o?["assigned_utc"]?.GetValue<string>() ?? now, x.Title));
+        }
+        _share!.WriteAssignments(rows);
+    }
+
+    /// <summary>
+    /// A fresh deposit (no state here, or assigned) waits for the worker's probe while the worker is alive. A quiet worker,
+    /// or an assignment older than <c>assignment_hours</c>, gives it back to this machine, which probes it: the worker
+    /// speeds the batch up and never stops it.
+    /// </summary>
+    private bool PendingOnWorker(string acc)
+    {
+        if (_m.Workers is not { } w) return false;
+        var o = Entry(acc);
+        string? s = o?["status"]?.GetValue<string>();
+        if (s is not null && s != AssignedStatus) return false;
+        string? why = null;
+        if (WorkerQuiet()) why = "the probe worker is quiet";
+        else if (s == AssignedStatus && o?["assigned_utc"]?.GetValue<string>() is { } at
+                 && DateTime.TryParse(at, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var t)
+                 && DateTime.UtcNow - t > TimeSpan.FromHours(w.AssignmentHours))
+            why = $"its assignment is older than {w.AssignmentHours:0.#} h and no package came";
+        if (why is null) return true;
+        if (s == AssignedStatus)
+        {
+            Log($"{acc} taken back from the probe worker ({why}): probed here");
+            Record(acc, ("status", WorkerFallbackStatus), ("detail", why));
+        }
+        return false;
+    }
+
+    /// <summary>The profile a probe worker's pass names, when the deposit waits as one (v0.4.26); else null.</summary>
+    private Profile? WorkerPassProfile(string acc) =>
+        Entry(acc) is { } o && o["status"]?.GetValue<string>() == ProbedByWorkerStatus
+        && o["profile"]?.GetValue<string>() is { } key && _q.Profiles.Contains(key) && _profiles.TryGetValue(key, out var p) ? p : null;
+
+    /// <summary>
+    /// A worker's pass gets this machine's duplicate screen, since the worker cannot see the searches here. False when the
+    /// deposit stops: a duplicate, or PRIDE unavailable (it stays a pass for the next look).
+    /// </summary>
+    private async Task<bool> ScreenWorkerPassAsync(QueueEntry e, CancellationToken ct)
+    {
+        string acc = e.Accession;
+        List<UsefulProteomicsDatabases.PrideArchiveFile> listing;
+        try
+        {
+            listing = (await _files.ListFilesAsync(acc, ct).ConfigureAwait(false))
+                .Where(f => f.FileName.EndsWith(".raw", StringComparison.OrdinalIgnoreCase)).ToList();
+        }
+        catch (Exception ex) when (FetchStage.IsTransient(ex)) { Log($"{acc} size listing failed ({ex.Message}); retry next pass"); return false; }
+        if (_q.ExceptionFor(acc) is { SelectsFiles: true } exception) listing = listing.Where(f => exception.Keeps(f.FileName)).ToList();
+        Log($"{acc} probe passed on {Entry(acc)?["probed_by"]} under {Entry(acc)?["profile"]}: duplicate screen here, then the whole fetch");
+        return !ExcludedAsDuplicate(acc, listing, null);
+    }
+
+    /// <summary>
+    /// Takes in one probe package. It is checked, moved into the run root (its own files into <c>00_worker</c>), and the
+    /// worker's record of the deposit and its decision rows are taken. A pass waits as <c>probed_by_worker</c> for the
+    /// whole fetch and the search here; a park is recorded as the worker left it. A package that fails its check, or was
+    /// probed under another build, another copy of the question, a profile the question here does not name or another
+    /// database set, is set aside without its raw files and the deposit assigned again; after three attempts it is probed
+    /// here.
+    /// </summary>
+    private void Adopt(string dir)
+    {
+        string acc = Path.GetFileName(dir);
+        var o = Entry(acc);
+        string? s = o?["status"]?.GetValue<string>();
+        if (s != AssignedStatus)
+        {
+            Log($"{acc} probe package from the worker not used: this machine has the deposit as {s ?? "unknown"}; package deleted");
+            Directory.Delete(dir, recursive: true);
+            return;
+        }
+        int attempt = o!["worker_attempt"]?.GetValue<int>() ?? 1;
+        var (pkg, problems) = WorkerShare.Verify(dir);
+        string? refusal = pkg is null ? $"it fails its check: {string.Join("; ", problems.Take(5))}{(problems.Count > 5 ? $"; +{problems.Count - 5} more" : "")}" : null;
+        if (pkg is not null)
+        {
+            string self = Provenance.RunRecord.Versions()["pxreprise"];
+            string? question = pkg.Ready["question_identity"]?.GetValue<string>();
+            if (pkg.Attempt < attempt)
+            {
+                Log($"{acc} probe package of attempt {pkg.Attempt} is stale (attempt {attempt} is assigned); deleted");
+                Directory.Delete(dir, recursive: true);
+                return;
+            }
+            // Each of these is a worker not yet switched to what this driver runs. It stops between deposits once it sees
+            // the change, so the deposit is assigned again rather than probed here at once.
+            if (pkg.Pxreprise != self) refusal = $"it was probed by pxreprise {pkg.Pxreprise}, and this machine runs {self}";
+            else if (_questionIdentity is not null && question != _questionIdentity)
+                refusal = $"it was probed under another copy of the question ({(question is null ? "none named" : question[..Math.Min(12, question.Length)])}), "
+                          + $"not the one this driver loaded ({_questionIdentity[..Math.Min(12, _questionIdentity.Length)]})";
+            else if (pkg.Outcome == "passed" && (pkg.Profile is not { } key || !_q.Profiles.Contains(key) || !_profiles.ContainsKey(key)))
+                refusal = $"it passed under {pkg.Profile ?? "no profile"}, which the question here does not name";
+            else if (DatabaseSetMismatch(pkg) is { } db) refusal = db;
+        }
+        if (refusal is not null)
+        {
+            string aside = SetAsideName(dir, "rejected");
+            Directory.Move(dir, aside);
+            foreach (string raw in Directory.EnumerateFiles(aside, "*.raw", SearchOption.AllDirectories)) File.Delete(raw);
+            if (attempt >= MaxWorkerAttempts)
+            {
+                Log($"{acc} PROBE PACKAGE REFUSED ({refusal}); set aside as {Path.GetFileName(aside)} without its raw files; the deposit is probed here");
+                Record(acc, ("status", WorkerFallbackStatus), ("detail", $"probe package refused: {refusal}"));
+            }
+            else
+            {
+                Log($"{acc} PROBE PACKAGE REFUSED ({refusal}); set aside as {Path.GetFileName(aside)} without its raw files; assigned again (attempt {attempt + 1} of {MaxWorkerAttempts})");
+                Record(acc, ("worker_attempt", attempt + 1), ("assigned_utc", DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture)));
+            }
+            return;
+        }
+        string target = Run(acc);
+        if (Directory.Exists(target)) Directory.Move(target, SetAsideName(target, "before-worker"));
+        WorkerShare.MoveTree(dir, target);
+        string meta = Path.Combine(target, "00_worker");
+        Directory.CreateDirectory(meta);
+        foreach (string name in new[] { WorkerShare.ReadyName, WorkerShare.StateEntryName, WorkerShare.DecisionsName })
+            if (File.Exists(Path.Combine(target, name))) File.Move(Path.Combine(target, name), Path.Combine(meta, name), overwrite: true);
+        var fields = pkg!.Entry.Where(kv => !NotAdopted.Contains(kv.Key)).Select(kv => (kv.Key, kv.Value?.DeepClone())).ToList();
+        fields.Add(("status", pkg.Outcome == "passed" ? ProbedByWorkerStatus : pkg.Outcome));
+        fields.Add(("probed_by", pkg.Ready["machine"]?.DeepClone()));
+        fields.Add(("probe_package_utc", pkg.Ready["written_utc"]?.DeepClone()));
+        Record(acc, fields.ToArray());
+        foreach (string line in pkg.DecisionLines)
+        {
+            var c = line.Split('\t');
+            if (c.Length < 5 || c[1] != acc) continue;
+            if (DecisionsNeeded.Announce(_runRoot, acc, c[2], c[4]) is { } d)
+                Log($"{acc} DECISION NEEDED ({c[2]}): {d.Question} Listed in {DecisionsNeeded.FileName}.");
+        }
+        Log($"{acc} PROBE PACKAGE taken from {pkg.Ready["machine"]} (attempt {pkg.Attempt}): " + (pkg.Outcome == "passed"
+            ? $"passed under {pkg.Profile}; fetched whole and searched here"
+            : pkg.Outcome + (pkg.Entry["detail"]?.GetValue<string>() is { } det ? $": {det}" : "")));
+    }
+
+    /// <summary>Why a package's databases are not the release's set, or null when they are (or the release names none).</summary>
+    private string? DatabaseSetMismatch(WorkerShare.Package pkg)
+    {
+        var current = _share!.ReadCurrent();
+        if (current?.DatabaseSet is null) return null;
+        string? want = _share.DatabaseSetIdentity(current), got = pkg.Ready["database_set_identity"]?.GetValue<string>();
+        return got == want ? null
+            : $"it was probed on {(pkg.Ready["database_set"]?.GetValue<string>() is { } set ? $"database set {set} ({got?[..12]})" : "an unnamed database set")}, not {current.DatabaseSet} ({want?[..12]})";
+    }
+
+    /// <summary><c>&lt;path&gt;.&lt;label&gt;-&lt;utc&gt;</c>, made unique.</summary>
+    private static string SetAsideName(string path, string label)
+    {
+        string stamp = $"{path}.{label}-{DateTime.UtcNow:yyyyMMdd'T'HHmmss'Z'}", aside = stamp;
+        for (int k = 2; Directory.Exists(aside) || File.Exists(aside); k++) aside = $"{stamp}-{k}";
+        return aside;
+    }
+
+    // ------------------------------------------------------------------ v0.4.26: the probe worker
+
+    private sealed record WorkerDoing(string Accession, string Stage);
+    private volatile WorkerDoing? _doing;
+    private int _workerGeneration;
+    private bool _heartbeatFailed;
+
+    /// <summary>
+    /// The probe worker's driver: probes the deposits the controller assigns, in its order, and hands each one back as a
+    /// package (a pass with its probe files, or a park without them). It never fetches a whole deposit, searches, ingests
+    /// or publishes. It runs only the release <c>control\current.toml</c> names, checks its databases against that
+    /// release's set before anything else, and stops between deposits when the release changes, so a new version is
+    /// taken up at once and never half-way through a probe.
+    /// </summary>
+    private async Task ProbeWorkerAsync(CancellationToken ct)
+    {
+        var share = _share!;
+        string self = Provenance.RunRecord.Versions()["pxreprise"];
+        Log($"batch start: pid {Environment.ProcessId}, probe worker for the controller behind {share.Root}; free {FreeGb():0} GB");
+        Log($"  engine   pxreprise {self}");
+        Log($"  question {_q.SourceFile} ({_q.Name}); profiles {string.Join(", ", _q.Profiles)}");
+        string? refusal = null, dbIdentity = null;
+        WorkerShare.Current? current = null;
+        try
+        {
+            current = share.ReadCurrent();
+            if (!string.Equals(Path.GetFullPath(_q.SourceFile), Path.GetFullPath(share.QuestionFile), StringComparison.OrdinalIgnoreCase))
+                refusal = $"this batch runs {_q.SourceFile}; a probe worker runs the controller's copy of the question, {share.QuestionFile}";
+            else if (share.QuestionIdentity() is null || Sha256Sums.Check(share.QuestionDir).Problems.Count > 0)
+                refusal = "the controller's copy of the question is missing or changing; start again in a minute";
+            else if (current is null) refusal = "the share has no control\\current.toml yet: nothing to run";
+            else if (current.Pxreprise != self)
+                refusal = $"control\\current.toml (generation {current.Generation}) names pxreprise {current.Pxreprise}, but this build is {self}: "
+                          + $"install {current.Software ?? current.Pxreprise} from the share's software folder";
+            else if (current.DatabaseSet is { } set)
+            {
+                string sums = Path.Combine(share.DatabaseSets, set, Sha256Sums.FileName);
+                var (n, bad) = Sha256Sums.Check(_m.DatabaseDir, sums);
+                if (bad.Count > 0) refusal = $"{bad.Count} of {n} file(s) of database set {set} do not match in {_m.DatabaseDir}: {string.Join("; ", bad.Take(5))}";
+                else
+                {
+                    dbIdentity = Sha256Sums.Identity(sums);
+                    Log($"  databases set {set}: all {n} file(s) in {_m.DatabaseDir} match its SHA256SUMS");
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UsageException or UnauthorizedAccessException)
+        {
+            refusal = $"the release does not read ({ex.Message})";
+        }
+        if (refusal is not null)
+        {
+            Log($"probe worker: not starting: {refusal}");
+            WriteWorkerHeartbeat($"not started: {refusal}");
+            return;
+        }
+        _workerGeneration = current!.Generation;
+        _questionIdentity = share.QuestionIdentity();
+        RefreshLimits(now: true);
+        Log($"  release  generation {current.Generation}; question copy {_questionIdentity![..12]}; limits the controller's: {LimitsText(Limits, ProbeMinutes)}");
+        using var beat = new CancellationTokenSource();
+        var heartbeat = Task.Run(() => HeartbeatLoopAsync(beat.Token), CancellationToken.None);
+        string why = "cancelled";
+        try { why = await WorkerLoopAsync(current, dbIdentity, ct).ConfigureAwait(false); }
+        finally
+        {
+            beat.Cancel();
+            await heartbeat.ConfigureAwait(false);
+            _doing = null;
+            WriteWorkerHeartbeat($"stopped: {why}");
+        }
+    }
+
+    /// <summary>The worker's loop; returns why it stopped.</summary>
+    private async Task<string> WorkerLoopAsync(WorkerShare.Current current, string? dbIdentity, CancellationToken ct)
+    {
+        var share = _share!;
+        var retryAfter = new Dictionary<string, DateTime>(StringComparer.Ordinal);
+        while (!ct.IsCancellationRequested)
+        {
+            if (File.Exists(StopFile) || File.Exists(share.StopFile)) { Log("STOP file present: the probe worker finishes (no probe under way)"); return "STOP"; }
+            if (FreeGb() < _m.MinFreeGb) { Log($"free space {FreeGb():0} GB below {_m.MinFreeGb:0} GB floor: stopping"); return "disk floor"; }
+            List<WorkerShare.Assignment> rows;
+            try
+            {
+                var now = share.ReadCurrent();
+                if (now?.Generation != current.Generation)
+                {
+                    string to = now is null ? "none" : $"{now.Generation} (pxreprise {now.Pxreprise})";
+                    Log($"control\\current.toml changed: generation {current.Generation} -> {to}: the probe worker stops for the switch");
+                    return $"release generation {current.Generation} -> {to}";
+                }
+                // The controller restarted on a changed question (an exception, a hold, a design): probe by the new one.
+                if (share.QuestionIdentity() is { } q && q != _questionIdentity)
+                {
+                    Log($"the controller's question changed ({_questionIdentity![..12]} -> {q[..12]}): the probe worker stops; start it again to probe by the new one");
+                    return "question changed: start again";
+                }
+                rows = share.ReadAssignments();
+                ForgetReceived(rows);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or UsageException or InvalidDataException)
+            {
+                Log($"probe worker: the share does not read ({ex.GetType().Name}: {ex.Message}); trying again in {WorkerPoll.TotalMinutes:0.#} min");
+                if (!await WaitAsync(WorkerPoll, ct).ConfigureAwait(false)) return "STOP";
+                continue;
+            }
+            var next = rows.FirstOrDefault(r => !HandedOff(r) && !(retryAfter.TryGetValue(r.Accession, out var t) && t > DateTime.UtcNow));
+            if (next is null)
+            {
+                if (!await WaitAsync(WorkerPoll, ct).ConfigureAwait(false)) return ct.IsCancellationRequested ? "cancelled" : "STOP";
+                continue;
+            }
+            await ProbeAndHandOffAsync(next, current, dbIdentity, retryAfter, ct).ConfigureAwait(false);
+        }
+        return "cancelled";
+    }
+
+    private bool HandedOff(WorkerShare.Assignment a) => (Entry(a.Accession)?["handed_off_attempt"]?.GetValue<int>() ?? 0) >= a.Attempt;
+
+    /// <summary>
+    /// One assignment: the probe (unless this attempt was already probed and only its hand-off failed), then the package.
+    /// A probe PRIDE could not finish is tried again after <c>pass_wait_minutes</c>; it is not handed off.
+    /// </summary>
+    private async Task ProbeAndHandOffAsync(WorkerShare.Assignment a, WorkerShare.Current current, string? dbIdentity,
+        Dictionary<string, DateTime> retryAfter, CancellationToken ct)
+    {
+        string acc = a.Accession;
+        try
+        {
+            var o = Entry(acc);
+            if (!(o?["probe_attempt"]?.GetValue<int>() == a.Attempt && o["probe_outcome"] is not null))
+            {
+                var e = WithQuestionSpecies(new QueueEntry(acc, a.Title, a.Organism.ToLowerInvariant()));
+                _doing = new WorkerDoing(acc, "probing");
+                Log($"{acc} PROBE for the controller (attempt {a.Attempt})");
+                // A deposit assigned again (its earlier package refused) is probed into a fresh folder, deleted again once received.
+                Record(acc, ("status", "probing"), ("title", e.Title), ("organism", e.Organism), ("worker_attempt", a.Attempt), ("local_deleted", false));
+                var profile = await (ProbeForTest ?? ProbeAsync)(e, ct).ConfigureAwait(false);
+                string status = Entry(acc)?["status"]?.GetValue<string>() ?? "probing";
+                if (profile is null && status is "probing" or "probe_fetch_unavailable" or "fetch_paused_disk")
+                {
+                    Log($"{acc} probe not finished ({status}): tried again in {_m.PassWaitMinutes:0} min");
+                    retryAfter[acc] = DateTime.UtcNow.AddMinutes(_m.PassWaitMinutes);
+                    return;
+                }
+                Record(acc, ("probe_outcome", profile is not null ? "passed" : status), ("probe_attempt", a.Attempt));
+            }
+            string outcome = Entry(acc)!["probe_outcome"]!.GetValue<string>();
+            string? profileKey = Entry(acc)?["profile"]?.GetValue<string>();
+            _doing = new WorkerDoing(acc, "handing off");
+            var meta = new JsonObject
+            {
+                ["outcome"] = outcome, ["profile"] = profileKey, ["attempt"] = a.Attempt, ["machine"] = Environment.MachineName,
+                ["pxreprise"] = Provenance.RunRecord.Versions()["pxreprise"], ["generation"] = current.Generation,
+                ["database_set"] = current.DatabaseSet, ["database_set_identity"] = dbIdentity, ["question_identity"] = _questionIdentity,
+            };
+            string dest;
+            try { dest = _share!.WritePackage(Run(acc), acc, Entry(acc)!, DecisionLinesFor(acc), meta, withRaw: outcome == "passed"); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Log($"{acc} HAND-OFF failed ({ex.GetType().Name}: {ex.Message}); tried again in {_m.PassWaitMinutes:0} min");
+                retryAfter[acc] = DateTime.UtcNow.AddMinutes(_m.PassWaitMinutes);
+                return;
+            }
+            Record(acc, ("status", HandedOffStatus), ("handed_off_attempt", a.Attempt),
+                ("handed_off_utc", DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture)));
+            Log($"{acc} HANDED OFF ({outcome}{(outcome == "passed" ? $" under {profileKey}" : "")}) to {dest}");
+            DeleteProbeFiles(acc, "handed off");
+        }
+        finally { _doing = null; }
+    }
+
+    /// <summary>The deposit's rows in this machine's decisions_needed.tsv, which travel with its package.</summary>
+    private List<string> DecisionLinesFor(string acc)
+    {
+        string path = Path.Combine(_runRoot, DecisionsNeeded.FileName);
+        return File.Exists(path)
+            ? File.ReadAllText(path).ReplaceLineEndings("\n").Split('\n').Skip(1).Where(l => l.Split('\t') is { Length: > 2 } c && c[1] == acc).ToList()
+            : new List<string>();
+    }
+
+    /// <summary>
+    /// The worker's probe files go as soon as they are handed off (the user, 2026-10-19: "make sure the other box deletes
+    /// probe files"): PRIDE is the source, a pass carries them to the controller, and a park needs none.
+    /// </summary>
+    private void DeleteProbeFiles(string acc, string why)
+    {
+        string fetch = Path.Combine(Run(acc), "02_fetch");
+        var targets = new[] { Path.Combine(fetch, "spectra"), Path.Combine(fetch, NotSelectedFolder) }.Where(Directory.Exists)
+            .SelectMany(d => Directory.EnumerateFiles(d).Where(f => f.EndsWith(".raw", StringComparison.OrdinalIgnoreCase)
+                                                                   || f.Contains(".raw.partial", StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+        long bytes = 0;
+        int n = 0;
+        foreach (string f in targets)
+        {
+            try
+            {
+                long size = new FileInfo(f).Length;
+                File.Delete(f);
+                bytes += size;
+                n++;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Log($"{acc} probe file not deleted ({why}): {Path.GetFileName(f)}: {ex.Message}"); }
+        }
+        Log($"{acc} PROBE FILES deleted ({why}): {n} file(s), {bytes / 1e9:0.00} GB");
+        Record(acc, ("probe_files_deleted", n), ("probe_files_deleted_gb", Math.Round(bytes / 1e9, 2)));
+    }
+
+    /// <summary>
+    /// The worker keeps nothing the controller has, and nothing it was not asked for. A handed-off deposit whose package
+    /// left the share (taken in, or set aside) has its local folder deleted; so has a deposit the controller took back (no
+    /// longer assigned, never handed off). The state entry stays as the record.
+    /// </summary>
+    private void ForgetReceived(IReadOnlyList<WorkerShare.Assignment> rows)
+    {
+        var assigned = rows.Select(r => r.Accession).ToHashSet(StringComparer.Ordinal);
+        foreach (var (acc, node) in State()["datasets"]!.AsObject())
+        {
+            if (node is not JsonObject o || o["local_deleted"]?.GetValue<bool>() == true || !Directory.Exists(Run(acc))) continue;
+            bool handedOff = o["status"]?.GetValue<string>() == HandedOffStatus;
+            string? why = handedOff && !Directory.Exists(Path.Combine(_share!.Deposits, acc)) ? "the controller has its package"
+                : !handedOff && !assigned.Contains(acc) ? "no longer assigned: the controller took it back" : null;
+            if (why is null) continue;
+            string d = Run(acc);
+            if (!Path.GetFullPath(d).StartsWith(Path.GetFullPath(_runRoot).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                continue;
+            try
+            {
+                long bytes = Directory.EnumerateFiles(d, "*", SearchOption.AllDirectories).Sum(f => new FileInfo(f).Length);
+                Directory.Delete(d, recursive: true);
+                Log($"{acc} local folder deleted ({why}): {bytes / 1e9:0.00} GB");
+                Record(acc, ("local_deleted", true), ("local_deleted_why", why));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Log($"{acc} local folder not deleted ({why}): {ex.Message}"); }
+        }
+    }
+
+    private async Task HeartbeatLoopAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            WriteWorkerHeartbeat(null);
+            try { await Task.Delay(HeartbeatEvery, ct).ConfigureAwait(false); }
+            catch (OperationCanceledException) { break; }
+        }
+    }
+
+    /// <summary>The worker's heartbeat on the share: who, which release, what it is doing, and its free space.</summary>
+    private void WriteWorkerHeartbeat(string? state)
+    {
+        var doing = _doing;
+        var o = new JsonObject
+        {
+            ["machine"] = Environment.MachineName,
+            ["pid"] = Environment.ProcessId,
+            ["pxreprise"] = Provenance.RunRecord.Versions()["pxreprise"],
+            ["generation"] = _workerGeneration,
+            ["state"] = state ?? (doing is null ? "waiting for assignments" : "working"),
+            ["accession"] = doing?.Accession,
+            ["stage"] = doing?.Stage,
+            ["free_gb"] = Math.Round(FreeGb(), 1),
+            ["handed_off"] = State()["datasets"]!.AsObject().Count(kv => kv.Value?["handed_off_attempt"] is not null),
+        };
+        try
+        {
+            _share!.WriteHeartbeat(o);
+            if (_heartbeatFailed) Log("heartbeat written to the share again");
+            _heartbeatFailed = false;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            if (!_heartbeatFailed) Log($"heartbeat not written to the share ({ex.Message}); the controller probes for itself after its quiet_hours");
+            _heartbeatFailed = true;
+        }
     }
 
     public static IReadOnlyList<QueueEntry> LoadQueue(string path) =>
