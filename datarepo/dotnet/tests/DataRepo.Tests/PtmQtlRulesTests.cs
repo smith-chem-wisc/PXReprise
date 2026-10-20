@@ -26,6 +26,20 @@ public class PtmQtlRulesTests
         });
     }
 
+    // ---------------------------------------------------------------- S7 "Name" (D57)
+
+    [TestCase("PEPTIDEK[Common Biological:Succinylation on K]", "PEPTIDEK[UniProt:N6-succinyllysine on K]", true)]   // one site, two names
+    [TestCase("PEPTIDEK[Common Biological:Acetylation on K]", "PEPTIDEK[Common Biological:Acetylation on K]", true)]
+    [TestCase("PEPTIDEK[Common Biological:Acetylation on K]", "PEPTIDEK[Common Biological:Methylation on K]", false)] // another modification
+    [TestCase("PEK[Common Biological:Acetylation on K]TIDEK", "PEKTIDEK[Common Biological:Acetylation on K]", false)] // another position
+    [TestCase("PEPTIDEK[Common Biological:Acetylation on K]", "PEPTIDEK[Nonsense:No such modification on K]", false)] // does not resolve
+    public void SeveralNamesAreKeptOnlyWhenTheyAreOneSetOfModifications(string first, string other, bool kept)
+    {
+        var verdict = PtmQtlRules.SameModifications([first, other]);
+        TestContext.Out.WriteLine($"{first} | {other}: {verdict ?? "left out"}");
+        Assert.That(verdict is not null, Is.EqualTo(kept));
+    }
+
     // ---------------------------------------------------------------- S3, S3b
 
     [TestCase(new[] { "none" }, null, "whole_proteome")]

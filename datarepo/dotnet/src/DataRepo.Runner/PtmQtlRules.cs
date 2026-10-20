@@ -91,6 +91,46 @@ public static class PtmQtlRules
         return (letters.ToString(), placements);
     }
 
+    // ---------------------------------------------------------------- S7 "Name": several names (ptmQtl D57)
+
+    public const string SameByUnimod = "unimod";
+    public const string SameByFormula = "formula";
+
+    /// <summary>A MetaMorpheus full sequence in mzLib's converter's Unimod form, or null when it has none.</summary>
+    public static string? UnimodForm(string fullSequence) =>
+        Omics.SequenceConversion.SequenceConversionService.Default.Convert(fullSequence, "mzLib", "Unimod",
+            new Omics.SequenceConversion.ConversionWarnings(), Omics.SequenceConversion.SequenceConversionHandlingMode.ReturnNull);
+
+    /// <summary>A full sequence as its base sequence and each modification's position and chemical formula, resolved
+    /// through <c>MzLibModificationLookup</c> and then <c>GlobalModificationLookup</c>; null when any does not resolve.</summary>
+    public static string? FormulaForm(string fullSequence)
+    {
+        if (Omics.SequenceConversion.SequenceConversionService.Default.Parse(fullSequence, "mzLib", new Omics.SequenceConversion.ConversionWarnings(),
+                Omics.SequenceConversion.SequenceConversionHandlingMode.ReturnNull) is not Omics.SequenceConversion.CanonicalSequence s) return null;
+        var parts = new List<string> { s.BaseSequence };
+        foreach (var m in s.Modifications)
+        {
+            var r = Omics.SequenceConversion.MzLibModificationLookup.Instance.TryResolve(m) ?? Omics.SequenceConversion.GlobalModificationLookup.Instance.TryResolve(m);
+            var formula = r?.MzLibModification?.ChemicalFormula ?? r?.ChemicalFormula;
+            if (formula is null) return null;
+            parts.Add($"{m.PositionType}{m.ResidueIndex}:{formula.Formula}");
+        }
+        return string.Join(";", parts);
+    }
+
+    /// <summary>S7 (ptmQtl D57, their user, 2026-10-19): whether a peptidoform's several MetaMorpheus names are the same
+    /// modifications at the same positions, as ptmQtl's runner decides it (<c>tools/PtmQtlRunner</c>, 19a8340).</summary>
+    /// <returns><see cref="SameByUnimod"/> when every name has a Unimod form and they agree; else
+    /// <see cref="SameByFormula"/> when every name's modifications resolve to one formula at each position (isomers pass,
+    /// and so do synonyms one of which has no Unimod form); else null, and the peptidoform is left out.</returns>
+    public static string? SameModifications(IReadOnlyList<string> names)
+    {
+        var unimod = names.Select(UnimodForm).ToList();
+        if (unimod.All(u => u is not null)) return unimod.Distinct(StringComparer.Ordinal).Count() == 1 ? SameByUnimod : null;
+        var formula = names.Select(FormulaForm).ToList();
+        return formula.All(f => f is not null) && formula.Distinct(StringComparer.Ordinal).Count() == 1 ? SameByFormula : null;
+    }
+
     // ---------------------------------------------------------------- S2c: blocking modifications at a C-terminus
 
     public const string S2c = "S2c";

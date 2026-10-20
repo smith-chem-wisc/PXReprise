@@ -188,6 +188,7 @@ public static class PtmQtlBundle
                 throw new RunnerException($"{where}: '{r[0]}' carries two UNIMOD accessions in ptm_sites");
 
         var observations = new List<PeptidoformObservation>();
+        var verdicts = new Dictionary<string, string?>(StringComparer.Ordinal);
         var prefix = bundle.DatasetId + ":";
         foreach (var r in Query(con, $"""
             WITH ident AS (
@@ -210,10 +211,21 @@ public static class PtmQtlBundle
             """))
         {
             var names = ((System.Collections.IEnumerable?)r[1] ?? Array.Empty<object>()).Cast<object?>().Select(n => (string)n!).ToList();
-            if (names.Count != 1)
+            if (names.Count == 0)
             {
-                counts[$"observations left out: {names.Count} MetaMorpheus names"] = counts.GetValueOrDefault($"observations left out: {names.Count} MetaMorpheus names") + 1;
+                counts["observations left out: no MetaMorpheus name"] = counts.GetValueOrDefault("observations left out: no MetaMorpheus name") + 1;
                 continue;
+            }
+            // S7 (D57): several names are kept under the first when they are one set of modifications.
+            if (names.Count > 1)
+            {
+                var combination = string.Join("|", names);
+                if (!verdicts.TryGetValue(combination, out var verdict)) verdicts[combination] = verdict = PtmQtlRules.SameModifications(names);
+                if (verdict is null)
+                {
+                    counts["observations left out: several names, other modifications"] = counts.GetValueOrDefault("observations left out: several names, other modifications") + 1;
+                    continue;
+                }
             }
             var (protein, start) = ((string)r[2]!, Convert.ToInt32(r[3]));
             char? previous = start == 2 ? (nterms.Contains((protein, 2)) ? 'M' : 'X') : null;
@@ -221,6 +233,10 @@ public static class PtmQtlBundle
                 r[5] is null ? double.NaN : Convert.ToDouble(r[5]), previous));
         }
         counts["observations"] = observations.Count;
+        // ptmQtl's three counters (their summary.tsv): distinct name combinations, not rows.
+        counts["several_names_kept_unimod"] = verdicts.Count(v => v.Value == PtmQtlRules.SameByUnimod);
+        counts["several_names_kept_formula"] = verdicts.Count(v => v.Value == PtmQtlRules.SameByFormula);
+        counts["several_names_left_out"] = verdicts.Count(v => v.Value is null);
 
         var occupancy = Query(con, $"""
             SELECT a.run_id, s.protein_accession, s.position, s.residue, s.site_type, s.modification_name, o.occupancy_state,
