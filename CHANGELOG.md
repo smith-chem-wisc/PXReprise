@@ -9,8 +9,20 @@ A new version of the engine never changes a finished result. Methods live in ver
 
 ## 0.4.27 (2026-10-19)
 
-No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual. No profile change.
+No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual, then publish the
+build to the probing machine (`pxreprise worker release`; a build-only release, which its supervisor takes by itself).
+No profile change.
 
+- **The probing machine now gets every probe, not only fresh deposits.** A re-search under a newer profile, a retry and
+  a deferred deposit's second look go to it too, while its heartbeat is fresh.
+  - **Why:** 0.4.26 assigned only deposits that had never been probed. On 2026-10-19 the ageing project's queue held one
+    such deposit of about 295, so the prober sat idle while this machine probed re-searches itself.
+  - A deposit whose raw files are all on this machine already (downloaded ahead) is still probed here.
+  - **When the prober's window is full,** this machine waits while it has a search running, and probes the next
+    deposit itself when nothing is searching. batch.log says `probed here: the probe worker has its N deposit(s) and
+    nothing is searching here`.
+  - An assignment is keyed on its `assigned_utc`, so a deposit handed off before is probed again when it is assigned
+    again. Its attempt number goes on from the last one.
 - **A search keeps a copy of the SDRF its design came from:** `04_search/design/<name>.sdrf.tsv`.
   - The provenance's `experimental_design.sdrf` now names that copy.
   - `sdrf_origin` names the file it was copied from: the question's curated SDRF, the deposit's own, or PXReprise's

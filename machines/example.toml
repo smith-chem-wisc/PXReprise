@@ -68,9 +68,10 @@ min_free_gb = 50
 # qc_python = "C:/path/to/python.exe"
 
 # OPTIONAL (0.4.26). Two machines on one batch: one runs every probe, the other every full search and delivery. They
-# share one folder. On the machine that delivers, [workers] names it. It assigns its next `window` fresh deposits to the
-# prober. It probes for itself when the prober's heartbeat is older than `quiet_hours`, or when one deposit has waited
-# `assignment_hours` for its probe. See docs/commands.md, `worker`.
+# share one folder. On the machine that delivers, [workers] names it. It assigns its next `window` deposits to probe to
+# the prober, and probes one itself only when it holds its files already, or when the window is full and nothing
+# searches here. It probes for itself when the prober's heartbeat is older than `quiet_hours`, or when one deposit has
+# waited `assignment_hours` for its probe. See docs/commands.md, `worker`.
 # [workers]
 # share = "D:/pxreprise-share"
 # window = 6

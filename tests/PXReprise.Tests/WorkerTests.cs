@@ -37,13 +37,13 @@ public class WorkerTests
         }
     }
 
-    private static (BatchRunner Runner, string Dir, WorkerShare Share) Controller()
+    private static (BatchRunner Runner, string Dir, WorkerShare Share) Controller(int window = 2, string top = "")
     {
         string dir = TestSupport.TempDir(), share = Path.Combine(dir, "share");
         Directory.CreateDirectory(share);
         var question = QuestionLoader.Load(TestSupport.WriteFile(dir, "question.toml", Question));
         var machine = Machine.Load(TestSupport.WriteFile(dir, "machine.toml",
-            $"work_root = '{dir}'\nmin_free_gb = 0\n[metamorpheus]\n\"1.1.11\" = 'C:/nowhere/CMD.exe'\n[workers]\nshare = '{share}'\nwindow = 2\n"));
+            $"work_root = '{dir}'\nmin_free_gb = 0\n{top}[metamorpheus]\n\"1.1.11\" = 'C:/nowhere/CMD.exe'\n[workers]\nshare = '{share}'\nwindow = {window}\n"));
         var runner = new BatchRunner(question, Profiles, machine, new Files(), new FakeSearch(), "2026-10-19") { WorkerPoll = TimeSpan.FromMilliseconds(50) };
         return (runner, dir, new WorkerShare(share));
     }
@@ -352,7 +352,107 @@ public class WorkerTests
         Assert.That(Log(dir), Does.Contain("assigned again (attempt 2 of 3)"));
     }
 
+    // v0.4.27 (the user: "it would only run probes", then "do what works best"): not only fresh deposits. On 2026-10-19 the
+    // ageing queue held one fresh deposit of 295; the rest of the work was re-searches, retries and second looks.
+    [Test]
+    public async Task AReSearchOrRetryIsProbedByTheWorkerTooAndADepositWhoseFilesAreHereIsProbedHere()
+    {
+        var (runner, dir, share) = Controller();
+        share.WriteHeartbeat(new JsonObject { ["state"] = "working" });
+        runner.Record("PXD000701", ("status", "requeued_user"), ("title", "a"), ("organism", "human"));
+        // Downloaded ahead under STOP: every listed raw file is here.
+        runner.Record("PXD000702", ("status", "fetched"), ("title", "b"), ("organism", "human"), ("n_listed", 2));
+        string spectra = Path.Combine(dir, "runs", "PXD000702", "02_fetch", "spectra");
+        Directory.CreateDirectory(spectra);
+        TestSupport.WriteFile(spectra, "x1.raw", "raw");
+        TestSupport.WriteFile(spectra, "x2.raw", "raw");
+        var probedHere = new List<string>();
+        runner.ProbeForTest = (e, ct) => { lock (probedHere) probedHere.Add(e.Accession); runner.Record(e.Accession, ("status", "skipped_test")); return Task.FromResult<Profile?>(null); };
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+        var run = runner.RunAsync(new[] { new QueueEntry("PXD000701", "a", "human"), new QueueEntry("PXD000702", "b", "human") }, cts.Token);
+        await Until(() => share.ReadAssignments().Any(a => a.Accession == "PXD000701") && probedHere.Contains("PXD000702"), cts.Token);
+        File.WriteAllText(Path.Combine(dir, "state", "STOP"), "test");
+        await run;
+
+        Assert.That(probedHere, Is.EqualTo(new[] { "PXD000702" }), "the retry went to the worker; the deposit whose files are here was probed here");
+        Assert.That(runner.State()["datasets"]!["PXD000701"]!["status"]!.GetValue<string>(), Is.EqualTo(BatchRunner.AssignedStatus));
+    }
+
+    // A catch-up re-search moves its earlier search aside, raw files with it, so files on disk do not keep its probe here.
+    [Test]
+    public async Task ACatchUpReSearchIsAssignedToTheWorkerEvenWithItsRawFilesStillHere()
+    {
+        var (runner, dir, share) = Controller(top: "catch_up_every = 4\n");
+        share.WriteHeartbeat(new JsonObject { ["state"] = "working" });
+        runner.Record("PXD000731", ("status", "searched"), ("profile", "label-free-dda@0"), ("title", "c"), ("organism", "human"), ("n_listed", 1));
+        string run = Path.Combine(dir, "runs", "PXD000731");
+        Directory.CreateDirectory(Path.Combine(run, "04_search"));
+        TestSupport.WriteFile(Path.Combine(run, "04_search"), "provenance.json", "{}");
+        Directory.CreateDirectory(Path.Combine(run, "02_fetch", "spectra"));
+        TestSupport.WriteFile(Path.Combine(run, "02_fetch", "spectra"), "x1.raw", "raw");
+        var probedHere = new List<string>();
+        runner.ProbeForTest = (e, ct) => { lock (probedHere) probedHere.Add(e.Accession); return Task.FromResult<Profile?>(null); };
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+        var go = runner.RunAsync(Array.Empty<QueueEntry>(), cts.Token);
+        await Until(() => share.ReadAssignments().Any(a => a.Accession == "PXD000731"), cts.Token);
+        File.WriteAllText(Path.Combine(dir, "state", "STOP"), "test");
+        await go;
+
+        Assert.That(probedHere, Is.Empty);
+        Assert.That(Log(dir), Does.Contain("PXD000731 RE-SEARCH (catch-up").And.Contain("PXD000731 ASSIGNED to the probe worker (attempt 1; a catch-up re-search)"));
+    }
+
+    [Test]
+    public async Task WithTheWorkersWindowFullThisMachineWaitsWhileItSearchesAndProbesWhenItHasNothingToSearch()
+    {
+        var (runner, dir, share) = Controller(window: 1);
+        share.WriteHeartbeat(new JsonObject { ["state"] = "working" });
+        // A pass from the worker is searched first, and its search holds this machine busy until released.
+        runner.Record("PXD000711", ("status", BatchRunner.ProbedByWorkerStatus), ("profile", "label-free-dda@1"), ("title", "p"), ("organism", "human"));
+        var release = new TaskCompletionSource();
+        var probedHere = new List<string>();
+        runner.FetchWholeForTest = (e, p, ct) => Task.FromResult(true);
+        runner.SearchForTest = async (e, p, ct) => await release.Task.WaitAsync(ct);
+        runner.ProbeForTest = (e, ct) => { lock (probedHere) probedHere.Add(e.Accession); runner.Record(e.Accession, ("status", "skipped_test")); return Task.FromResult<Profile?>(null); };
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var queue = new[] { new QueueEntry("PXD000711", "p", "human"), new QueueEntry("PXD000712", "a", "human"), new QueueEntry("PXD000713", "b", "human") };
+
+        var run = runner.RunAsync(queue, cts.Token);
+        await Until(() => share.ReadAssignments().Any(a => a.Accession == "PXD000712") && runner.Searching.Contains("PXD000711"), cts.Token);
+        await Task.Delay(300, cts.Token);
+        Assert.That(probedHere, Is.Empty, "a search runs here, so PXD000713 waits for room in the worker's window");
+        release.SetResult();
+        await Until(() => probedHere.Contains("PXD000713"), cts.Token);
+        File.WriteAllText(Path.Combine(dir, "state", "STOP"), "test");
+        await run;
+
+        Assert.That(probedHere, Is.EqualTo(new[] { "PXD000713" }), "once nothing searches here, this machine probes rather than sit idle");
+        Assert.That(Log(dir), Does.Contain("PXD000713 probed here: the probe worker has its 1 deposit(s) and nothing is searching here"));
+    }
+
     // ------------------------------------------------------------------ the probe worker
+
+    [Test]
+    public async Task TheWorkerProbesADepositAssignedAgainEvenWithTheSameAttemptNumber()
+    {
+        var (runner, dir, share) = Worker();
+        // Handed off once before (the comparison test of 2026-10-19), then assigned again later as a catch-up re-search.
+        runner.Record("PXD000721", ("status", "handed_off"), ("handed_off_attempt", 1), ("handed_off_assigned_utc", "2026-10-19T19:01:34Z"));
+        share.WriteAssignments(new[] { new WorkerShare.Assignment("PXD000721", "human", 1, "2026-10-20T01:00:00.000Z", "a") });
+        int probes = 0;
+        runner.ProbeForTest = (e, ct) => { Interlocked.Increment(ref probes); runner.Record(e.Accession, ("status", "waiting_species"), ("detail", "x")); return Task.FromResult<Profile?>(null); };
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+        var run = runner.RunAsync(Array.Empty<QueueEntry>(), cts.Token);
+        await Until(() => share.ReadyPackages().Count == 1, cts.Token);
+        File.WriteAllText(share.StopFile, "test");
+        await run;
+
+        Assert.That(probes, Is.EqualTo(1));
+        Assert.That(runner.State()["datasets"]!["PXD000721"]!["handed_off_assigned_utc"]!.GetValue<string>(), Is.EqualTo("2026-10-20T01:00:00.000Z"));
+    }
 
     [Test]
     public async Task TheWorkerProbesOnlyItsAssignmentsHandsThemOffAndDeletesItsProbeFiles()
