@@ -30,6 +30,8 @@ public class PtmQtlEngineTests
     private static double D(string v) => v.Length == 0 ? double.NaN : double.Parse(v, Inv);
 
     /// <summary>The reference inputs, one <see cref="PtmQtlDataset"/> per dataset.</summary>
+    /// <remarks>The reference case predates the sequence window (D35; ptmQtl 038 item 4), so every site is given one
+    /// window, the same in every dataset, and v2's pooled rows stand as written.</remarks>
     private static List<PtmQtlDataset> Datasets()
     {
         var runs = Tsv("inputs/runs.tsv");
@@ -48,7 +50,23 @@ public class PtmQtlEngineTests
                 D(c["intensity_total"]), bool.Parse(c["unmodified_quantified"]))).ToList(),
             runs.Where(r => r["dataset"] == ds).ToDictionary(r => r["run"], r => r["combine_to"], StringComparer.Ordinal),
             unimod,
-            enriched.Contains(ds))).ToList();
+            enriched.Contains(ds))
+        {
+            Windows = new OneWindowEach(),
+        }).ToList();
+    }
+
+    /// <summary>A window for every (accession, position), the same in every dataset.</summary>
+    private sealed class OneWindowEach : IReadOnlyDictionary<(string, int), string?>
+    {
+        public string? this[(string, int) key] => $"window of {key.Item1} {key.Item2}";
+        public bool TryGetValue((string, int) key, out string? value) { value = this[key]; return true; }
+        public bool ContainsKey((string, int) key) => true;
+        public IEnumerable<(string, int)> Keys => [];
+        public IEnumerable<string?> Values => [];
+        public int Count => 0;
+        public IEnumerator<KeyValuePair<(string, int), string?>> GetEnumerator() => Enumerable.Empty<KeyValuePair<(string, int), string?>>().GetEnumerator();
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
     }
 
     /// <summary>A row cell as the reference program writes it.</summary>
@@ -99,7 +117,7 @@ public class PtmQtlEngineTests
             produced.AddRange(result.Rows);
             pooled.AddRange(result.Pairs.Select(p => (ds.DatasetId, p.Pair, p.A, p.B)));
         }
-        produced.AddRange(PtmQtlCore.Pool("mouse", pooled));
+        produced.AddRange(PtmQtlCore.Pool("mouse", pooled).Rows);
 
         var expected = Tsv("expected/ptm_pairs.tsv");
         string Key(Func<string, string> get) => string.Join("|", get("result_type"), get("scope"), get("feature_key_a"), get("feature_key_b"));
@@ -159,9 +177,8 @@ public class PtmQtlEngineTests
     [Test, Category("RealData")]
     public void ARealBundleReadsAndRuns()
     {
-        const string bundlePath = "F:/aging_data/repo/store/PXD035107/8d3e89df26f138e5";
-        if (!Directory.Exists(bundlePath)) Assert.Ignore("aging's store is not on this machine");
-        var (dataset, counts) = PtmQtlBundle.Read(DataRepo.Catalog.BundleRef.Load(bundlePath), enriched: false);
+        var bundle = RealBundle("PXD035107") ?? throw new IgnoreException($"no schema {SchemaContract.Version} bundle of PXD035107 under {RealStore}");
+        var (dataset, counts) = PtmQtlBundle.Read(bundle, enriched: false);
         TestContext.Out.WriteLine(string.Join("\n", counts.Select(kv => $"{kv.Key}: {kv.Value}")));
         Assert.That(dataset.Observations, Is.Not.Empty);
         Assert.That(dataset.Occupancy, Is.Not.Empty);
@@ -203,13 +220,71 @@ public class PtmQtlEngineTests
                 var file = PtmQtlEngine.WritePairSites(pairs, Path.Combine(dir, ds.DatasetId + ".tsv"));
                 stored.AddRange(PtmQtlEngine.ReadPairSites(file).Select(p => (ds.DatasetId, p.Pair, p.A, p.B)));
             }
-            var (a, b) = (PtmQtlCore.Pool("mouse", inMemory), PtmQtlCore.Pool("mouse", stored));
+            var (a, b) = (PtmQtlCore.Pool("mouse", inMemory).Rows, PtmQtlCore.Pool("mouse", stored).Rows);
             Assert.That(b, Has.Count.EqualTo(a.Count).And.Count.GreaterThan(0));
             for (var i = 0; i < a.Count; i++)
                 foreach (var (column, value) in a[i])
                     Assert.That(Cell(b[i][column]), Is.EqualTo(Cell(value)), $"row {i}, {column}");
         }
         finally { Remove(dir); }
+    }
+
+    /// <summary>S7 (D36): one tier per search, as mzLib's QuantifiedPsmRule chooses it, and a PSM passes only strictly
+    /// below 0.01 on that tier's value.</summary>
+    [Test]
+    public void EachSearchFiltersOnTheTierMzLibChoosesForIt()
+    {
+        using var con = new DuckDB.NET.Data.DuckDBConnection("DataSource=:memory:");
+        con.Open();
+        using (var c = con.CreateCommand())
+        {
+            // trained: PEP q-values, and target PEPs that differ. untrained: MetaMorpheus's 2 for every PEP q-value,
+            // with notch q-values. failed: PEP 0 for every target, and no notch. The tier is read from target PSMs
+            // only (S7), so the decoys' and the contaminant's values change nothing.
+            c.CommandText = """
+                CREATE TABLE t AS SELECT * FROM (VALUES
+                  ('trained', 'target', 0.0, 0.005, 0.5, 0.5), ('trained', 'target', 0.02, 0.01, 0.001, 0.001), ('trained', 'decoy', 0.95, 0.9, 0.9, 0.9),
+                  ('untrained', 'target', 2.0, 2.0, 0.009, 0.5), ('untrained', 'target', 2.0, 2.0, NULL, 0.001), ('untrained', 'decoy', 2.0, 2.0, 0.9, 0.9),
+                  ('failed', 'target', 0.0, 0.001, NULL, 0.009), ('failed', 'contaminant', 0.7, 0.001, 0.001, 0.01), ('failed', 'decoy', 0.9, 0.5, 0.5, 0.5)
+                ) v(search, target_decoy, pep, pep_q_value, q_value_notch, q_value)
+                """;
+            c.ExecuteNonQuery();
+        }
+        var tiers = PtmQtlBundle.Tiers(con, "t");
+        Assert.That(tiers, Is.EquivalentTo(new Dictionary<string, Quantification.QuantifiedPsmTier>
+        {
+            ["trained"] = Quantification.QuantifiedPsmTier.PepQValue,
+            ["untrained"] = Quantification.QuantifiedPsmTier.QValueNotch,
+            ["failed"] = Quantification.QuantifiedPsmTier.QValue,
+        }));
+        using var q = con.CreateCommand();
+        q.CommandText = $"SELECT string_agg(search || ':' || CAST(q_value AS DOUBLE), ' ' ORDER BY search, q_value) FROM t WHERE target_decoy = 'target' AND {PtmQtlBundle.PassesSql(tiers)}";
+        // trained keeps its PEP q 0.005 (not 0.01: strictly below); untrained keeps notch 0.009, never a NULL notch;
+        // failed keeps q 0.009, not 0.01.
+        Assert.That(q.ExecuteScalar(), Is.EqualTo("failed:0.009 trained:0.5 untrained:0.5"));
+    }
+
+    /// <summary>D35: a site is pooled only where every dataset holding it gives it one window; otherwise it, and every
+    /// pair holding it, is left out and counted.</summary>
+    [TestCase("another window", "D35 sites left out: windows disagree")]
+    [TestCase(null, "D35 sites left out: no window")]
+    public void APooledSiteNeedsOneWindowInEveryDatasetHoldingIt(string? window, string reason)
+    {
+        var all = Datasets().SelectMany(ds => PtmQtlCore.SitePairs(ds).Pairs.Select(p => (ds.DatasetId, p.Pair, p.A, p.B))).ToList();
+        var agreed = PtmQtlCore.Pool("mouse", all);
+        var key = (string)agreed.Rows[0]["feature_key_a"]!;
+        var one = all.First(x => x.A.CanonicalKey == key || x.B.CanonicalKey == key).DatasetId;
+        PairSite Move(PairSite s) => s.CanonicalKey == key ? s with { Window = window } : s;
+        var moved = PtmQtlCore.Pool("mouse", all.Select(x => x.DatasetId == one ? (x.DatasetId, x.Pair, Move(x.A), Move(x.B)) : x));
+        bool Holds(Row r) => (string)r["feature_key_a"]! == key || (string)r["feature_key_b"]! == key;
+        Assert.Multiple(() =>
+        {
+            Assert.That(agreed.LeftOut.Where(kv => kv.Key.StartsWith("D35 sites", StringComparison.Ordinal)).Sum(kv => kv.Value), Is.Zero);
+            Assert.That(moved.Rows.Any(Holds), Is.False);
+            Assert.That(moved.Rows, Has.Count.EqualTo(agreed.Rows.Count(r => !Holds(r))).And.Count.GreaterThan(0));
+            Assert.That(moved.LeftOut[reason], Is.EqualTo(1));
+            Assert.That(moved.LeftOut["D35 dataset pairs left out"], Is.EqualTo(all.Count(x => x.A.CanonicalKey == key || x.B.CanonicalKey == key)));
+        });
     }
 
     [Test]
@@ -252,9 +327,9 @@ public class PtmQtlEngineTests
     [Test, Category("RealData")]
     public void TwoRealBundlesPairAndPool()
     {
-        string[] paths = ["F:/aging_data/repo/store/PXD035107/8d3e89df26f138e5", "F:/aging_data/repo/store/PXD017944/26c4f6a212cb80a6"];
-        if (paths.Any(p => !Directory.Exists(p))) Assert.Ignore("aging's store is not on this machine");
-        var bundles = paths.Select(DataRepo.Catalog.BundleRef.Load).ToList();
+        var found = new[] { "PXD035107", "PXD017944" }.Select(RealBundle).ToList();
+        if (found.Any(b => b is null)) Assert.Ignore($"no schema {SchemaContract.Version} bundles of PXD035107 and PXD017944 under {RealStore}");
+        var bundles = found.Select(b => b!).ToList();
         var store = Scratch();
         try
         {
@@ -286,6 +361,20 @@ public class PtmQtlEngineTests
                 Throws.TypeOf<RunnerException>().With.Message.Contains("Run ptmqtl.site_pairs on them first"));
         }
         finally { Remove(store); }
+    }
+
+    /// <summary>The store the RealData tests read: aging's, or a scratch re-ingest named by DATAREPO_TEST_STORE. The
+    /// engines read only schema 0.0.16 bundles, which aging's store holds from its 1.4.0 re-ingest on.</summary>
+    private static string RealStore => Environment.GetEnvironmentVariable("DATAREPO_TEST_STORE") ?? "F:/aging_data/repo/store";
+
+    /// <summary>The newest current-schema bundle of a deposit in <see cref="RealStore"/>, read in place; null when none.</summary>
+    private static DataRepo.Catalog.BundleRef? RealBundle(string deposit)
+    {
+        var folder = Path.Combine(RealStore, deposit);
+        return !Directory.Exists(folder) ? null
+            : Directory.EnumerateDirectories(folder).Where(d => File.Exists(Path.Combine(d, BundleWriter.ManifestName)))
+                .Select(DataRepo.Catalog.BundleRef.Load).Where(b => b.SchemaVersion == SchemaContract.Version)
+                .OrderByDescending(b => b.WrittenUtc, StringComparer.Ordinal).FirstOrDefault();
     }
 
     private static string RepoRoot()
@@ -328,7 +417,7 @@ public class PtmQtlEngineTests
             var bundle = DataRepo.Catalog.BundleRef.Load(DataRepo.Ingest.Ingester.Ingest(manifestPath, "PXD999999", store).BundlePath);
             var reference = Datasets();
             var d1 = PtmQtlCore.SitePairs(reference.Single(d => d.DatasetId == "D1"));
-            var pooledRows = PtmQtlCore.Pool("mouse", reference.SelectMany(ds => PtmQtlCore.SitePairs(ds).Pairs.Select(p => (ds.DatasetId, p.Pair, p.A, p.B))));
+            var pooledRows = PtmQtlCore.Pool("mouse", reference.SelectMany(ds => PtmQtlCore.SitePairs(ds).Pairs.Select(p => (ds.DatasetId, p.Pair, p.A, p.B)))).Rows;
             var artefact = WriteArtefact(store, PtmQtlEngine.SitePairsEngine, new() { ["bundle"] = bundle.BundleId, ["enrichment"] = "e1" },
                 new() { ["species"] = "mouse" }, d1.Rows);
             var pool = WriteArtefact(store, PtmQtlEngine.PoolPairsEngine, new() { ["site_pairs:PXD999999"] = artefact.ArtefactId, ["enrichment"] = "e1" },

@@ -102,8 +102,8 @@ public static class PtmQtlEngine
     private static readonly string[] PairSiteColumns =
     [
         "result_type", "overlapping", "statistic", "p_value", "n", "statistic_n",
-        "a_protein", "a_position", "a_residue", "a_modification", "a_protein_n_term", "a_canonical_key",
-        "b_protein", "b_position", "b_residue", "b_modification", "b_protein_n_term", "b_canonical_key",
+        "a_protein", "a_position", "a_residue", "a_modification", "a_protein_n_term", "a_canonical_key", "a_window",
+        "b_protein", "b_position", "b_residue", "b_modification", "b_protein_n_term", "b_canonical_key", "b_window",
     ];
 
     /// <summary>Each pair, its mzLib fields and both sites, as <see cref="PairSitesFile"/>. Numbers are written
@@ -116,8 +116,8 @@ public static class PtmQtlEngine
             foreach (var s in new[] { a.Modification, b.Modification, a.CanonicalKey, b.CanonicalKey })
                 if (s.Contains('\t') || s.Contains('\n')) throw new RunnerException($"a site name holds a tab or a newline: {s}");
             text.Append(string.Join('\t', p.ResultType, p.Overlapping, R(p.Statistic), R(p.PValue), p.N.ToString(Inv), p.StatisticN.ToString(Inv),
-                a.Protein, a.Position.ToString(Inv), a.Residue, a.Modification, a.ProteinNTerm, a.CanonicalKey,
-                b.Protein, b.Position.ToString(Inv), b.Residue, b.Modification, b.ProteinNTerm, b.CanonicalKey)).Append('\n');
+                a.Protein, a.Position.ToString(Inv), a.Residue, a.Modification, a.ProteinNTerm, a.CanonicalKey, a.Window ?? "",
+                b.Protein, b.Position.ToString(Inv), b.Residue, b.Modification, b.ProteinNTerm, b.CanonicalKey, b.Window ?? "")).Append('\n');
         }
         File.WriteAllText(path, text.ToString(), new UTF8Encoding(false));
         return path;
@@ -127,8 +127,10 @@ public static class PtmQtlEngine
     public static List<(PtmPair Pair, PairSite A, PairSite B)> ReadPairSites(string path) =>
         ReadTsv(path, PairSiteColumns, PairSitesFile).Select(r =>
         {
-            var a = new PairSite(r["a_protein"], int.Parse(r["a_position"], Inv), r["a_residue"][0], r["a_modification"], bool.Parse(r["a_protein_n_term"]), r["a_canonical_key"]);
-            var b = new PairSite(r["b_protein"], int.Parse(r["b_position"], Inv), r["b_residue"][0], r["b_modification"], bool.Parse(r["b_protein_n_term"]), r["b_canonical_key"]);
+            var a = new PairSite(r["a_protein"], int.Parse(r["a_position"], Inv), r["a_residue"][0], r["a_modification"], bool.Parse(r["a_protein_n_term"]), r["a_canonical_key"],
+                r["a_window"].Length == 0 ? null : r["a_window"]);
+            var b = new PairSite(r["b_protein"], int.Parse(r["b_position"], Inv), r["b_residue"][0], r["b_modification"], bool.Parse(r["b_protein_n_term"]), r["b_canonical_key"],
+                r["b_window"].Length == 0 ? null : r["b_window"]);
             var pair = new PtmPair
             {
                 ResultType = Enum.Parse<PairResultType>(r["result_type"]),
@@ -154,6 +156,27 @@ public static class PtmQtlEngine
             ["search_engine"] = engine, ["search_engine_version"] = version, ["lacks_met_removed_protein_n_term"] = lacks,
         };
     }
+
+    /// <summary>Every database file the bundle's search read (ptmQtl D35: name, sha256, release), from its
+    /// <c>bundle.json</c>. The release is not recorded by the ingest, so it is null: unknown, never guessed (G96).</summary>
+    public static List<object?> Databases(BundleRef bundle)
+    {
+        var read = (bundle.Manifest.GetValueOrDefault("protein_databases") as IReadOnlyDictionary<string, object?>)?.GetValueOrDefault("read");
+        return (read as IEnumerable<object?> ?? []).OfType<IReadOnlyDictionary<string, object?>>()
+            .Select(d => (object?)new Dictionary<string, object?>
+            {
+                ["name"] = Path.GetFileName(((d.GetValueOrDefault("path") as string) ?? "").Replace('\\', '/')),
+                ["sha256"] = d.GetValueOrDefault("sha256"),
+                ["entries"] = d.GetValueOrDefault("entries"),
+                ["release"] = null,
+            }).ToList();
+    }
+
+    /// <summary>What the run record says of one bundle: its search gate (S6), its databases (D35).</summary>
+    private static Dictionary<string, object?> BundleRecord(BundleRef bundle) => new()
+    {
+        ["dataset_id"] = bundle.DatasetId, ["bundle_id"] = bundle.BundleId, ["search_gate"] = Gate(bundle), ["databases"] = Databases(bundle),
+    };
 
     /// <summary><c>ptmqtl.site_pairs</c>: one artefact per bundle.</summary>
     /// <exception cref="RunnerException">A missing or bad input, a bundle the reader refuses, or a development datarepo.</exception>
@@ -201,6 +224,8 @@ public static class PtmQtlEngine
                         ["rows_p"] = (long)pairs.Rows.Count(r => (string)r["result_type"]! == "P"),
                         ["rows_a"] = (long)pairs.Rows.Count(r => (string)r["result_type"]! == "A"),
                         ["search_gate"] = Gate(bundle),
+                        ["quantified_psm_tier"] = dataset.Tiers.ToDictionary(kv => kv.Key, kv => (object?)kv.Value),
+                        ["databases"] = Databases(bundle),
                     },
                     ["acceptance"] = "passed",
                 };
@@ -267,7 +292,8 @@ public static class PtmQtlEngine
             }
             install ??= EngineRunner.InstallIdentity();
             var input = members.SelectMany(m => ReadPairSites(Path.Combine(m.Artefact.Path, PairSitesFile)).Select(p => (m.Bundle.DatasetId, p.Pair, p.A, p.B)));
-            var rows = PtmQtlCore.Pool(group.Key, input);
+            var pooled = PtmQtlCore.Pool(group.Key, input);
+            var rows = pooled.Rows;
             var record = new Dictionary<string, object?>(StringComparer.Ordinal)
             {
                 ["definition_id"] = PtmQtlCore.PairDefinition,
@@ -282,6 +308,8 @@ public static class PtmQtlEngine
                     ["datasets"] = (long)members.Count,
                     ["rows_p"] = (long)rows.Count(r => (string)r["result_type"]! == "P"),
                     ["rows_a"] = (long)rows.Count(r => (string)r["result_type"]! == "A"),
+                    ["left_out"] = Counts(pooled.LeftOut),
+                    ["bundles"] = members.Select(m => (object?)BundleRecord(m.Bundle)).ToList(),
                 },
                 ["acceptance"] = "passed",
             };
@@ -384,6 +412,8 @@ public static class PtmQtlEngine
                         ["sites"] = (long)fit.Rows.Count,
                         ["fitted"] = (long)fit.Rows.Count(r => r["estimable_int"] is true),
                         ["search_gate"] = Gate(bundle),
+                        ["quantified_psm_tier"] = dataset.Tiers.ToDictionary(kv => kv.Key, kv => (object?)kv.Value),
+                        ["databases"] = Databases(bundle),
                     },
                     ["acceptance"] = "passed",
                 };

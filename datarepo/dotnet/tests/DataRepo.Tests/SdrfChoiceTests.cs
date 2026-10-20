@@ -261,6 +261,32 @@ public class SdrfChoiceTests
         });
     }
 
+    /// <summary>DATAREPO-P32: the ptmQtl engines read a pooled sample of fractions as one S4 sample, its runs combined
+    /// into it and its cells under the sample's key.</summary>
+    [Test]
+    public void ThePtmQtlEnginesReadAPooledSampleAsOneSample()
+    {
+        Design("B_one_sample_two_fractions");
+        NameOperatorSdrf(WriteSdrf("x.sdrf.tsv", ("donor", "24M", RunA), ("donor", "24M", RunB)));
+        var result = Ingest();
+        // The fixture's two pooled cells are on level-2D sites, which S1 leaves out; here they are made level 1.
+        var sitesPath = Path.Combine(result.BundlePath, "ptm_sites.parquet");
+        var siteRows = ArrowTables.ReadParquet(sitesPath).Rows;
+        foreach (var s in siteRows) s["best_ambiguity_level"] = "1";
+        ArrowTables.WriteParquet(ArrowTables.FromRows("ptm_sites", siteRows.Cast<IReadOnlyDictionary<string, object?>>().ToList()), sitesPath);
+        var (dataset, counts) = DataRepo.Runner.PtmQtlBundle.Read(DataRepo.Catalog.BundleRef.Load(result.BundlePath), enriched: false);
+        var sample = $"{Accession}:donor";
+        var eligible = Rows(result, "ptm_stoichiometry").Count(o => (string)o["assay_id"]! == Pooled);
+        Assert.Multiple(() =>
+        {
+            Assert.That(counts["P32 pooled samples read"], Is.EqualTo(1));
+            Assert.That(dataset.RunToSample[$"{Accession}:{RunA}"], Is.EqualTo(sample));
+            Assert.That(dataset.RunToSample[$"{Accession}:{RunB}"], Is.EqualTo(sample));
+            Assert.That(dataset.Occupancy.Select(c => c.Run).Distinct(), Is.EqualTo(new[] { sample }));
+            Assert.That(dataset.Occupancy, Has.Count.EqualTo(eligible).And.Count.GreaterThan(0));
+        });
+    }
+
     /// <summary>The same sample whose files are two SDRF samples' has no sample to belong to, and stays left out.</summary>
     [Test]
     public void ASampleOfSeveralFilesOverTwoSdrfSamplesIsLeftOut()

@@ -24,13 +24,25 @@ public sealed record PtmQtlDataset(string DatasetId, string Species, IReadOnlyLi
 {
     /// <summary>Each IdWithMotif's category (S2).</summary>
     public Dictionary<string, string> Categories() => PtmQtlCore.Categories(CategoryNames ?? Observations.Select(o => o.FullSequence));
+
+    /// <summary>Each (accession, position)'s sequence window (S5, D35), as the bundle stores it; absent or null when
+    /// it has none.</summary>
+    public IReadOnlyDictionary<(string, int), string?> Windows { get; init; } = new Dictionary<(string, int), string?>();
+
+    /// <summary>Each search's quantified-PSM tier (S7), for the run record.</summary>
+    public IReadOnlyDictionary<string, string> Tiers { get; init; } = new Dictionary<string, string>(StringComparer.Ordinal);
 }
 
 /// <summary>One site of a stored pair, with what pooling needs to rebuild the mzLib site and key it (S5).</summary>
-public sealed record PairSite(string Protein, int Position, char Residue, string Modification, bool ProteinNTerm, string CanonicalKey)
+/// <param name="Window">The site's sequence window in its dataset (D35), or null when it has none: such a site is never
+/// pooled.</param>
+public sealed record PairSite(string Protein, int Position, char Residue, string Modification, bool ProteinNTerm, string CanonicalKey, string? Window = null)
 {
     public ModificationSite ToSite() => new(Protein, Position, Residue, Modification);
 }
+
+/// <summary>One species' pooled rows, and the sites left out of them (D35), counted by reason.</summary>
+public sealed record PoolResult(List<Row> Rows, Dictionary<string, long> LeftOut);
 
 /// <summary>One dataset's pairs: the <c>ptm_pairs</c> rows, and the mzLib pairs behind them, for pooling.</summary>
 public sealed record SitePairsResult(List<Row> Rows, List<(PtmPair Pair, PairSite A, PairSite B)> Pairs, Dictionary<string, long> LeftOut);
@@ -177,8 +189,9 @@ public static class PtmQtlCore
         return SiteOccupancyCalculator.CombineRuns(cells, dataset.RunToSample).ToList();
     }
 
-    private static PairSite Site(ModificationSite s, ISet<(string, int)> nterms, IReadOnlyDictionary<string, string> unimod) =>
-        new(s.ProteinAccession, s.Position, s.Residue, s.Modification, nterms.Contains((s.ProteinAccession, s.Position)), Key(s, true, nterms, unimod));
+    private static PairSite Site(ModificationSite s, ISet<(string, int)> nterms, PtmQtlDataset dataset) =>
+        new(s.ProteinAccession, s.Position, s.Residue, s.Modification, nterms.Contains((s.ProteinAccession, s.Position)), Key(s, true, nterms, dataset.Unimod),
+            dataset.Windows.GetValueOrDefault((s.ProteinAccession, s.Position)));
 
     private static string Family(bool same) => $"A.{(same ? "intra" : "inter")}_protein.biological x biological";
 
@@ -236,7 +249,7 @@ public static class PtmQtlCore
         var pairs = new List<(PtmPair, PairSite, PairSite)>();
         foreach (var (p, isA) in produced)
         {
-            var (a, b) = (Site(p.SiteA, nterms, dataset.Unimod), Site(p.SiteB, nterms, dataset.Unimod));
+            var (a, b) = (Site(p.SiteA, nterms, dataset), Site(p.SiteB, nterms, dataset));
             var (ka, kb) = (Key(p.SiteA, false, nterms, dataset.Unimod), Key(p.SiteB, false, nterms, dataset.Unimod));
             if (string.CompareOrdinal(ka, kb) > 0) (ka, kb) = (kb, ka);
             rows.Add(PairRow(isA, dataset.DatasetId, ka, kb, p.SiteA.ProteinAccession, p.SiteB.ProteinAccession, p.Overlapping,
@@ -248,18 +261,34 @@ public static class PtmQtlCore
 
     /// <summary><c>ptmqtl.pool_pairs</c>: one species' dataset pairs matched on the cross-dataset key, in two or more datasets.</summary>
     /// <param name="pairs">Each dataset's pairs, with their sites as the dataset's artefact stored them.</param>
-    public static List<Row> Pool(string species, IEnumerable<(string Scope, PtmPair Pair, PairSite A, PairSite B)> pairs)
+    /// <remarks>D35: a site joins only where its sequence window agrees. When the datasets holding a site (by its
+    /// cross-dataset key) disagree on its window, or any of them has none, the site is left out of the pooled rows and
+    /// counted, and so is every pair holding it. Datasets are never refused for their search databases.</remarks>
+    public static PoolResult Pool(string species, IEnumerable<(string Scope, PtmPair Pair, PairSite A, PairSite B)> pairs)
     {
         var keys = new Dictionary<ModificationSite, string>();
-        var input = new List<(string, PtmPair)>();
+        var windows = new Dictionary<string, HashSet<string?>>(StringComparer.Ordinal);
+        var given = new List<(string, PtmPair, PairSite, PairSite)>();
         foreach (var (scope, pair, a, b) in pairs)
         {
             foreach (var s in new[] { a, b })
+            {
                 if (keys.TryGetValue(s.ToSite(), out var known) && known != s.CanonicalKey)
                     throw new RunnerException($"the site {s.ToSite().Key} has two cross-dataset keys ({known}, {s.CanonicalKey})");
-                else keys[s.ToSite()] = s.CanonicalKey;
-            input.Add((scope, pair));
+                keys[s.ToSite()] = s.CanonicalKey;
+                if (!windows.TryGetValue(s.CanonicalKey, out var seen)) windows[s.CanonicalKey] = seen = [];
+                seen.Add(s.Window);
+            }
+            given.Add((scope, pair, a, b));
         }
+        var leftOut = new Dictionary<string, long>(StringComparer.Ordinal)
+        {
+            ["D35 sites left out: no window"] = windows.Count(w => w.Value.Contains(null)),
+            ["D35 sites left out: windows disagree"] = windows.Count(w => !w.Value.Contains(null) && w.Value.Count > 1),
+        };
+        bool Joins(PairSite s) => windows[s.CanonicalKey] is { Count: 1 } w && !w.Contains(null);
+        var input = given.Where(g => Joins(g.Item3) && Joins(g.Item4)).Select(g => (g.Item1, g.Item2)).ToList();
+        leftOut["D35 dataset pairs left out"] = given.Count - input.Count;
         var rows = new List<Row>();
         foreach (var g in GlobalPairEngine.Combine(input, s => keys[s], minScopes: 2))
         {
@@ -268,7 +297,7 @@ public static class PtmQtlCore
                 isA ? g.CombinedZ : g.Statistic, null, isA ? g.PValue : double.NaN, isA ? g.Q : double.NaN,
                 g.Scopes, g.ScopesAgreeing, meta: true));
         }
-        return rows;
+        return new PoolResult(rows, leftOut);
     }
 
     /// <summary><c>ptmqtl.site_traits</c> on one dataset and one trait (<c>DEF-SITE-TRAIT v1</c>).</summary>

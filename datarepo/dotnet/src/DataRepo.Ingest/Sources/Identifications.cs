@@ -550,12 +550,19 @@ public static class Identifications
 
     /// <summary>Writes each site's <c>sequence_window</c> (schema 0.0.16, DATAREPO-P30) from the accession's one searched
     /// sequence; NULL when the databases give it none, or several (G101 left an ambiguous accession with none).</summary>
+    /// <remarks>A protein N-terminal site takes the window of residue 1 (ptmQtl S5, D35), whichever residue it is keyed
+    /// on: residue 2 when the initiator Met was removed, as for 377 of PXD022196's 494. MetaMorpheus pools the Met-kept
+    /// and Met-removed forms in one cell (<c>pos0</c>), and pooling keys the site with no position
+    /// (<c>@protein_n_term</c>), so a window centred on the keyed residue would keep one protein's N-terminus apart
+    /// between two searches that keyed it on different residues. Our ptmQtl 040 assumed every such site was keyed on
+    /// residue 1.</remarks>
     public static void AddSequenceWindows(IEnumerable<Row> sites, ProteinSequences sequences)
     {
         foreach (var site in sites)
         {
             var candidates = sequences.Get((string)site["protein_accession"]!);
-            site["sequence_window"] = candidates.Count == 1 ? SequenceWindow(candidates[0], (long)site["position"]!) : null;
+            var position = site.GetValueOrDefault("site_type") as string == "protein_n_term" ? 1L : (long)site["position"]!;
+            site["sequence_window"] = candidates.Count == 1 ? SequenceWindow(candidates[0], position) : null;
         }
     }
 

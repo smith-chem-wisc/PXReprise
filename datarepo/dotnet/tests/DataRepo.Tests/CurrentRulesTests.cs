@@ -794,6 +794,23 @@ public class CurrentRulesTests
         Assert.That(sites.Select(s => s["sequence_window"]), Is.EqualTo(new object?[] { null, "___MPEPCIDEKW__", null }));
     }
 
+    /// <summary>ptmQtl S5 (D35): a protein N-terminal site takes residue 1's window, also when it is keyed on residue 2
+    /// after the initiator Met was removed; any other site keyed on residue 2 takes residue 2's.</summary>
+    [Test]
+    public void AProteinNTerminalSiteTakesResidueOnesWindow()
+    {
+        var sequences = Keratin();
+        sequences.KeepSearched(null);
+        var sites = new List<DataRepo.Bundle.Row>
+        {
+            new() { ["protein_accession"] = "P2", ["position"] = 2L, ["site_type"] = "protein_n_term" },
+            new() { ["protein_accession"] = "P2", ["position"] = 1L, ["site_type"] = "protein_n_term" },
+            new() { ["protein_accession"] = "P2", ["position"] = 2L, ["site_type"] = "residue" },
+        };
+        Identifications.AddSequenceWindows(sites, sequences);
+        Assert.That(sites.Select(s => s["sequence_window"]), Is.EqualTo(new object?[] { "_______MPEPCIDE", "_______MPEPCIDE", "______MPEPCIDEK" }));
+    }
+
     /// <summary>A split deposit's search is its own dataset, and its spectra are still the deposit's (G95).</summary>
     [TestCase("PXD073999", "PXD073999")]
     [TestCase("PXD073999-g2", "PXD073999")]
