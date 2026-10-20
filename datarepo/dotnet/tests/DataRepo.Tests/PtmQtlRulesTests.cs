@@ -101,7 +101,8 @@ public class PtmQtlRulesTests
     [Test]
     public void ACysteinePoorDepositLosesItsResidueCysteineSitesOnly()
     {
-        var sites = PtmQtlRules.CysteineSites([("P1", 4, 'C', "residue"), ("P1", 4, 'C', "residue"), ("P1", 1, 'C', "protein_n_term"), ("P1", 9, 'K', "residue")], "MMTS");
+        var sites = PtmQtlRules.CysteineSites([("P1", 4, 'C', "residue"), ("P1", 4, 'C', "residue"), ("P1", 1, 'C', "protein_n_term"), ("P1", 9, 'K', "residue")],
+            PtmQtlRules.CysteinePoorReason("MMTS"));
         Assert.That(sites.Select(s => $"{s.Protein}:{s.Position}"), Is.EqualTo(new[] { "P1:4" }));
         Assert.That(sites[0].Reason, Is.EqualTo("S2d (a): cysteine-poor deposit (MMTS), cysteine site"));
     }
@@ -143,8 +144,12 @@ public class PtmQtlRulesTests
         var sites = PtmQtlRules.CarriedSites([
             ("P1", 10, $"PEPCK[{name}]AR"),       // K14
             ("P2", 10, $"PEPCK[{name}]AR"),       // a shared PSM: its one start for each accession
+            ("P3", 10, $"PEPCK[{name}]AR"),       // P3 K14 is no stored site of that modification
             ("P1", 30, $"PEPCK[Common Biological:Methylation on K]AR"),
-        ], name, "NEM");
+        ], name, "NEM", new HashSet<(string, int, string)>
+        {
+            ("P1", 14, "Crotonylation on K"), ("P2", 14, "Crotonylation on K"), ("P3", 14, "Methylation on K"), ("P1", 34, "Methylation on K"),
+        });
         Assert.That(sites.Select(s => $"{s.Protein}:{s.Position}:{s.Modification}"), Is.EqualTo(new[] { "P1:14:Crotonylation on K", "P2:14:Crotonylation on K" }));
         Assert.That(sites[0].Reason, Is.EqualTo("S2d (b): Crotonylation on K = NEM - carbamidomethyl, carried by a Cys-containing peptidoform"));
     }

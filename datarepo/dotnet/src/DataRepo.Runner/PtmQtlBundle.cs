@@ -333,13 +333,16 @@ public static class PtmQtlBundle
                 FROM {psms}
                 WHERE target_decoy = 'target' AND {passes} AND base_sequence LIKE '%C%' AND start_residue IS NOT NULL
                 """).Select(r => ((string)r[0]!, Convert.ToInt32(r[1]), Convert.ToInt32(r[2])));
-            excluded.AddRange(PtmQtlRules.CoveredSites(spans, targetSites.Select(s => (s.Item1, s.Item2, s.Item3))));
+            var covered = PtmQtlRules.CoveredSites(spans, targetSites.Select(s => (s.Item1, s.Item2, s.Item3)));
+            var places = covered.Select(e => (e.Protein, e.Position)).ToHashSet();
+            excluded.AddRange(covered);
+            excluded.AddRange(PtmQtlRules.CysteineSites(targetSites, PtmQtlRules.NemReason).Where(e => !places.Contains((e.Protein, e.Position))));
             physical = observations.Where(o => !PtmQtlRules.Parse(o.FullSequence).Base.Contains('C')).ToList();
         }
         else
         {
             if (deposit.CysteineClass == "cysteine_poor")
-                excluded.AddRange(PtmQtlRules.CysteineSites(targetSites, deposit.CysteineReason));
+                excluded.AddRange(PtmQtlRules.CysteineSites(targetSites, PtmQtlRules.CysteinePoorReason(deposit.CysteineReason)));
             // (b): the first name of each confident target peptidoform, as ptmQtl's screen reads them.
             var flagged = new List<(string Name, string Label)>();
             foreach (var s in PtmQtlRules.Screen(Query(con, $"""
@@ -366,7 +369,9 @@ public static class PtmQtlBundle
                     JOIN {peptidoforms} p ON p.peptidoform = s.peptidoform
                     WHERE len(p.engine_full_sequences) > 0
                     """).Select(r => ((string)r[0]!, Convert.ToInt32(r[1]), (string)r[2]!)).ToList();
-                foreach (var (name, label) in flagged) excluded.AddRange(PtmQtlRules.CarriedSites(carriers, name, label));
+                var stored = Query(con, $"SELECT DISTINCT protein_accession, position, modification_name FROM {sites} WHERE target_decoy = 'target'")
+                    .Select(r => ((string)r[0]!, Convert.ToInt32(r[1]), (string)r[2]!)).ToHashSet();
+                foreach (var (name, label) in flagged) excluded.AddRange(PtmQtlRules.CarriedSites(carriers, name, label, stored));
             }
         }
         foreach (var rule in excluded.Select(e => e.Rule).Distinct()) counts[$"{rule} sites"] = excluded.Count(e => e.Rule == rule);

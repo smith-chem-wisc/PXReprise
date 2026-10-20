@@ -173,15 +173,23 @@ public static class PtmQtlRules
         return sites.Distinct()
             .Where(s => byProtein.TryGetValue(s.Protein, out var list) && list.Any(sp => s.Position >= sp.First && s.Position <= sp.Last))
             .OrderBy(s => s.Protein, StringComparer.Ordinal).ThenBy(s => s.Position)
-            .Select(s => new ExcludedSite(s.Protein, s.Position, s.Residue, null, S2dA, "S2d (a): NEM deposit (S76), covered by a Cys-containing peptidoform"))
+            .Select(s => new ExcludedSite(s.Protein, s.Position, s.Residue, null, S2dA, NemReason))
             .ToList();
     }
 
-    /// <summary>S2d (a), a cysteine-poor deposit: every cysteine site (a residue site on C).</summary>
-    public static List<ExcludedSite> CysteineSites(IEnumerable<(string Protein, int Position, char Residue, string SiteType)> sites, string? reason) =>
+    /// <summary>The reason S2d (a) gives an NEM deposit's sites, as ptmQtl's <c>measure.py</c> writes it.</summary>
+    public const string NemReason = "S2d (a): NEM deposit (S76), covered by a Cys-containing peptidoform";
+
+    /// <summary>The reason S2d (a) gives a cysteine-poor deposit's cysteine sites.</summary>
+    public static string CysteinePoorReason(string? reagent) => $"S2d (a): cysteine-poor deposit ({reagent ?? "listed"}), cysteine site";
+
+    /// <summary>S2d (a): every cysteine site (a residue site on C). A cysteine-poor deposit loses these only; an NEM
+    /// deposit loses them as well as every covered site (aging's S76: "no cysteine site, no Cys-containing peptide";
+    /// <c>measure.py</c>'s <c>covered | on_c</c>), so a cysteine site no passing PSM covers is out there too.</summary>
+    public static List<ExcludedSite> CysteineSites(IEnumerable<(string Protein, int Position, char Residue, string SiteType)> sites, string reason) =>
         sites.Where(s => s.Residue == 'C' && s.SiteType == "residue").Select(s => (s.Protein, s.Position)).Distinct()
             .OrderBy(s => s.Protein, StringComparer.Ordinal).ThenBy(s => s.Position)
-            .Select(s => new ExcludedSite(s.Protein, s.Position, 'C', null, S2dA, $"S2d (a): cysteine-poor deposit ({reason ?? "listed"}), cysteine site"))
+            .Select(s => new ExcludedSite(s.Protein, s.Position, 'C', null, S2dA, reason))
             .ToList();
 
     /// <summary>One modification's S2d (b) screen in one deposit.</summary>
@@ -213,18 +221,24 @@ public static class PtmQtlRules
             }).ToList();
     }
 
-    /// <summary>S2d (b): the sites that a Cys-containing target PSM carries one matched modification on.</summary>
+    /// <summary>S2d (b): the stored sites of one matched modification that a Cys-containing target PSM carries it on.</summary>
     /// <param name="carriers">(accession, peptide start, MetaMorpheus full sequence) of target PSMs passing S7's tier at
     /// ambiguity level 1 with a C in their sequence; a shared PSM's one start goes to each accession.</param>
     /// <param name="name">The <c>Category:IdWithMotif</c> name.</param>
+    /// <param name="sites">(accession, position, IdWithMotif) of the dataset's stored target sites: a place the PSMs
+    /// put the modification on is a site only where <c>ptm_sites</c> holds one, as <c>measure.py</c> reads it.</param>
     /// <remarks>A modification before the first residue is placed on residue 1, as ptmQtl's <c>measure.py</c> does.</remarks>
-    public static List<ExcludedSite> CarriedSites(IEnumerable<(string Protein, int Start, string FullSequence)> carriers, string name, string label)
+    public static List<ExcludedSite> CarriedSites(IEnumerable<(string Protein, int Start, string FullSequence)> carriers, string name, string label,
+        IReadOnlySet<(string Protein, int Position, string Modification)> sites)
     {
         var idm = PtmQtlCore.IdWithMotif(name);
         var found = new SortedSet<(string, int)>();
         foreach (var c in carriers)
             foreach (var m in Parse(c.FullSequence).Modifications.Where(m => m.Name == name))
-                found.Add((c.Protein, c.Start + Math.Max(m.Position, 1) - 1));
+            {
+                var position = c.Start + Math.Max(m.Position, 1) - 1;
+                if (sites.Contains((c.Protein, position, idm))) found.Add((c.Protein, position));
+            }
         return found.Select(f => new ExcludedSite(f.Item1, f.Item2, null, idm, S2dB,
             $"S2d (b): {idm} = {label} - carbamidomethyl, carried by a Cys-containing peptidoform")).ToList();
     }
