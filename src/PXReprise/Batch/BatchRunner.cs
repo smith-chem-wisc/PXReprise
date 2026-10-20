@@ -1970,7 +1970,7 @@ public sealed class BatchRunner
     /// not this build, so a version change that was not published is seen at once.</summary>
     private void StartControlling(WorkersConfig w)
     {
-        Log($"  workers  fresh deposits are probed by the worker behind {w.Share} (window {w.Window}; probed here after {w.QuietHours:0.#} h "
+        Log($"  workers  probes go to the worker behind {w.Share} (window {w.Window}; probed here after {w.QuietHours:0.#} h "
             + $"without its heartbeat, or {w.AssignmentHours:0.#} h on one deposit); every full search runs here");
         string self = Provenance.RunRecord.Versions()["pxreprise"];
         try
