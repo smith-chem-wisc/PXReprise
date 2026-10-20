@@ -13,12 +13,22 @@ entry is written out at the release.
 
 ### Added
 - **`datarepo run ptmqtl.site_pairs | ptmqtl.pool_pairs | ptmqtl.site_traits`** (ptmQtl 025; our 026, 031). These
-  apply `ptmQtl:DEF-PTM-PAIR v2` and `ptmQtl:DEF-SITE-TRAIT v1` through mzLib only.
+  apply `ptmQtl:DEF-PTM-PAIR v2` and `ptmQtl:DEF-SITE-TRAIT v1` through mzLib only. They follow ptmQtl's DEFINITIONS.md
+  as of 2026-10-19 (G99, `design/PTMQTL_ENGINE.md`):
+  - S7's quantified-PSM rule (mzLib `QuantifiedPsmRule`);
+  - S2c and S2d's artefact sites, listed in each artefact's `excluded_sites.tsv`;
+  - S3b's sample types;
+  - pooled fraction samples (DATAREPO-P32);
+  - the sequence-window check in pooling (D35).
+  Each rule reproduces ptmQtl's own exclusion lists site for site on re-ingested bundles.
   - `site_pairs` gives same-molecule and co-varying pairs per search.
-  - `pool_pairs` pools them per species, from the stored artefacts.
+  - `pool_pairs` pools them per species, from the stored artefacts, whole proteomes only.
   - `site_traits` gives site-trait fits per search and trait.
-  - Inputs: `--input enrichment=<tsv>` (the operator's PTM-enriched deposits) and, for `site_traits`,
-    `--input traits=<tsv>`.
+  - Inputs, each hashed into every artefact:
+    - `--input enrichment=<tsv>`: ptmQtl's capture list, `dataset`, `class`;
+    - `--input capture_runs=<tsv>`: needed for a `capture_runs` deposit;
+    - `--input cysteine=<tsv>`: S2d's deposits, `dataset`, `class` = `nem` / `cysteine_poor`, `reason`;
+    - for `site_traits`, `--input traits=<tsv>`.
   - Each artefact records whether its search predates mzLib 1.0.592: such a search lacks protein N-termini after
     Met removal.
 - **`build` loads them** into `ptm_pairs` and `trait_effects`.
