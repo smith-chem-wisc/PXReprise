@@ -12,7 +12,7 @@ public class ConfigTests
         var profiles = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
         Assert.That(profiles.Keys, Is.EquivalentTo(new[] { "label-free-dda@1", "label-free-dda@2", "label-free-dda@3", "label-free-dda@4",
             "label-free-dda@5", "label-free-dda@6", "label-free-dda@7", "label-free-dda@8", "label-free-dda-lowres@1", "label-free-dda-lowres@2",
-            "label-free-dda-lowres@3", "tmt-dda@1" }));
+            "label-free-dda-lowres@3", "label-free-dda-lowres@4", "tmt-dda@1" }));
 
         // D44 (2026-10-17): @8 is @7 on agingPTM-v4; nothing else. No lowres version on v4: it cost an ion-trap run 4% of its PSMs.
         foreach (var (newer, older) in new[] { ("label-free-dda@8", "label-free-dda@7") })
@@ -41,6 +41,17 @@ public class ConfigTests
         Assert.That((low3.Tasks, low3.Deposit, low3.Qc with { Excludable = low2x.Qc.Excludable }), Is.EqualTo((low2x.Tasks, low2x.Deposit, low2x.Qc)));
         Assert.That(low3.Qc.Excludable, Is.EqualTo(low2x.Qc.Excludable));
         Assert.That(low3.Databases.Select(kv => (kv.Key, kv.Value.Proteome)), Is.EquivalentTo(low2x.Databases.Select(kv => (kv.Key, kv.Value.Proteome))),
+            "no database change, so no D29 rebuild");
+
+        // v0.4.28 (PXD022393, PXD016430): lowres@4 is lowres@3 with ion-trap HCD searched as LowCID; nothing else.
+        var low4 = profiles["label-free-dda-lowres@4"];
+        Assert.That((low4.IonTrapHcd, low4.IonTrapHcdLowCid, low3.IonTrapHcdLowCid), Is.EqualTo((true, true, false)));
+        Assert.That(low4 with { Version = 3, IonTrapHcdLowCid = false, Description = low3.Description, Databases = low3.Databases,
+            Accepts = low3.Accepts, Tasks = low3.Tasks, GptmdExtraMods = low3.GptmdExtraMods, Deposit = low3.Deposit, Qc = low3.Qc },
+            Is.EqualTo(low3), "every other scalar setting equals lowres@3's");
+        Assert.That((low4.Tasks, low4.Deposit, low4.Qc with { Excludable = low3.Qc.Excludable }), Is.EqualTo((low3.Tasks, low3.Deposit, low3.Qc)));
+        Assert.That(low4.Qc.Excludable, Is.EqualTo(low3.Qc.Excludable));
+        Assert.That(low4.Databases.Select(kv => (kv.Key, kv.Value.Proteome)), Is.EquivalentTo(low3.Databases.Select(kv => (kv.Key, kv.Value.Proteome))),
             "no database change, so no D29 rebuild");
 
         // The user 2026-10-12 (aging 089 PXR-A94, ptmQtl 018 PXR-P17): @7 is @6 with the probe search on; nothing else.

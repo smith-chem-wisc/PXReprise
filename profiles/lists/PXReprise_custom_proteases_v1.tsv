@@ -1,0 +1,5 @@
+# PXReprise's own digestion agents, for proteases mzLib's proteases.tsv does not have (v0.4.28). Same columns as mzLib's
+# file; MetaMorpheus 1.1.12 reads them from proteases_custom.tsv in its settings folder. Never edit an entry in place:
+# searches ran against it. A changed list ships as _v2.tsv. See PXReprise_custom_proteases_v1.PROVENANCE.md.
+Name	Motif	Specificity	PSI-MS Accession	PSI-MS Name	Cleavage Modification
+trypsin+chymotrypsin	K|,R|,F[P]|,W[P]|,Y[P]|,L[P]|	full		Trypsin and chymotrypsin

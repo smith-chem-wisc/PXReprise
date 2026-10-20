@@ -270,6 +270,7 @@ public static class SearchStage
         string settingsDir = Path.Combine(m.MetaMorpheusSettingsRoot, release);
         Directory.CreateDirectory(m.MetaMorpheusSettingsRoot);
         InstallCustomModifications(p, chem, settingsDir, runner, prov);
+        InstallCustomProteases(chem, settingsDir, runner, prov);
         var dbs = new List<string> { proteome, contaminants };
         dbs.AddRange(extras);   // after the proteome and the contaminants: the first -d stays "the search database"
         prov.Set("extra_databases", new JsonArray(extras.Select(x => (JsonNode?)x).ToArray()));
@@ -556,6 +557,19 @@ public static class SearchStage
         string installed = CustomModificationFile.Install(p, settingsDir, needed, () => runner.SeedSettings(settingsDir));
         prov?.Input(installed);
         prov?.Note($"custom modification(s) {string.Join(", ", needed.Select(i => i.Replace('\t', ' ')))} from the profile's {p.CustomModifications}, installed into MetaMorpheus's settings folder (G40)");
+    }
+
+    /// <summary>
+    /// v0.4.28: the custom proteases the deposit's chemistry names (whole deposit or per file), installed into MetaMorpheus's
+    /// settings folder before it starts; it reads them only at its start.
+    /// </summary>
+    internal static void InstallCustomProteases(Discovery.DepositChemistry? chem, string settingsDir, MetaMorpheusRunner runner, AgingProvenance? prov)
+    {
+        var needed = CustomProteases.UsedBy(chem);
+        if (needed.Count == 0) return;
+        string installed = CustomProteases.Install(settingsDir, needed, () => runner.SeedSettings(settingsDir));
+        prov?.Input(installed);
+        prov?.Note($"custom protease(s) {string.Join(", ", needed)} from {CustomProteases.FileName}, installed into MetaMorpheus's settings folder as {CustomProteases.MetaMorpheusFileName}");
     }
 
     /// <summary>D32: each searched file's fragmentation as QC decided it; null unless the profile writes it per file.</summary>

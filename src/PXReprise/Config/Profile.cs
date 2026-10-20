@@ -88,7 +88,8 @@ public sealed record Profile(
     bool IonTrapHcd = false,          // PXR-A68: with per_file, HCD read in an ion trap is searched as HCD at the low-res tolerance
     string? CustomModifications = null,   // G40: a MetaMorpheus modification file shipped under lists/, installed before a search that uses it
     IReadOnlyDictionary<string, string>? ThiolReagents = null,   // G40: an unmodelled thiol reagent -> "Type\tIdWithMotif" in that file
-    string PrecursorWindow = "default")   // "probe": the precursor and FlashLFQ windows from the probe's measured offset
+    string PrecursorWindow = "default",   // "probe": the precursor and FlashLFQ windows from the probe's measured offset
+    bool IonTrapHcdLowCid = false)    // v0.4.28: with ion_trap_hcd, HCD read in an ion trap is searched as LowCID (MetaMorpheus's low-res path)
 {
     /// <summary>The values of <c>[engine] precursor_window</c>: MetaMorpheus's own windows, or windows wide enough for the
     /// precursor offset the probe search measured (a profile without calibration; PXD045821, 2026-10-17).</summary>

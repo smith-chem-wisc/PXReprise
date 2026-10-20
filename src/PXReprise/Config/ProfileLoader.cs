@@ -61,6 +61,11 @@ public static class ProfileLoader
         bool ionTrapHcd = eng.OptionalBool("ion_trap_hcd") ?? false;
         if (ionTrapHcd && fragmentation != "per_file")
             throw new ConfigException(file, "engine.ion_trap_hcd needs fragmentation = \"per_file\": it is decided per file from the MS2 headers");
+        // v0.4.28: searched as HCD, MetaMorpheus deconvolutes each low-res MS2 spectrum first and finds almost nothing to
+        // match (PXD022393: 107 PSMs on one file, 2,442 as LowCID; PXD016430: 3,300 and 9,173). LowCID is its low-res path.
+        bool ionTrapHcdLowCid = eng.OptionalBool("ion_trap_hcd_lowcid") ?? false;
+        if (ionTrapHcdLowCid && !ionTrapHcd)
+            throw new ConfigException(file, "engine.ion_trap_hcd_lowcid needs engine.ion_trap_hcd = true: it says how ion-trap HCD is searched");
         // G40: modifications no UniMod entry describes (NBF, aging 072 PXR-A69), in a MetaMorpheus modification file shipped
         // under lists/, read here with mzLib's own reader (the one MetaMorpheus uses), so a malformed entry fails at load.
         string? customMods = eng.OptionalString("custom_modifications");
@@ -167,7 +172,7 @@ public static class ProfileLoader
         return new Profile(id, version, status, description, accepts, mm, tasks, extraMods, library, timeout, dbs,
             panel ?? Path.GetFileName(shipped!), exclude,
             method, mbr, deposit, gates, Path.GetDirectoryName(Path.GetFullPath(file))!, design, chemistry, writeSdrf, shipped, fragmentation, lowResTolerance, probeSearch, probeMinutes, ionTrapHcd,
-            customMods, thiolReagents, precursorWindow);
+            customMods, thiolReagents, precursorWindow, ionTrapHcdLowCid);
     }
 
     /// <summary>
@@ -192,6 +197,9 @@ public static class ProfileLoader
     public static IReadOnlyDictionary<string, Profile> LoadDirectory(string dir)
     {
         if (!Directory.Exists(dir)) throw new UsageException($"no profiles directory: {dir}");
+        // v0.4.28: PXReprise's own digestion agents, merged into mzLib's dictionary before any chemistry resolves a name.
+        string customProteases = Path.Combine(dir, "lists", Search.CustomProteases.FileName);
+        if (File.Exists(customProteases)) Search.CustomProteases.Load(customProteases);
         var all = new SortedDictionary<string, Profile>(StringComparer.Ordinal);
         foreach (string f in Directory.EnumerateFiles(dir, "*.toml").OrderBy(f => f, StringComparer.Ordinal))
         {
