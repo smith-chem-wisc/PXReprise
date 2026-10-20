@@ -229,6 +229,35 @@ public class PtmQtlEngineTests
         finally { Remove(dir); }
     }
 
+    /// <summary>S2c and S2d leave a site out of type A (and site-trait fits), never out of type P; S3b with no
+    /// whole-proteome run gives type P only.</summary>
+    [Test]
+    public void AnExcludedSiteLeavesTypeAAndANonWholeProteomeHasTypePOnly()
+    {
+        var d1 = Datasets().Single(d => d.DatasetId == "D1");
+        var all = PtmQtlCore.SitePairs(d1);
+        var (pair, a, _) = all.Pairs.First(p => p.Pair.ResultType == PairResultType.A);
+        var excluded = d1 with { Excluded = [new ExcludedSite(a.Protein, a.Position, a.Residue, PtmQtlCore.IdWithMotif(a.Modification), "S2c", "test")] };
+        var without = PtmQtlCore.SitePairs(excluded);
+        bool Holds((PtmPair Pair, PairSite A, PairSite B) p) => p.A.CanonicalKey == a.CanonicalKey || p.B.CanonicalKey == a.CanonicalKey;
+        Assert.Multiple(() =>
+        {
+            Assert.That(without.Pairs.Where(p => p.Pair.ResultType == PairResultType.A).Any(Holds), Is.False);
+            Assert.That(without.Pairs.Count(p => p.Pair.ResultType == PairResultType.P), Is.EqualTo(all.Pairs.Count(p => p.Pair.ResultType == PairResultType.P)));
+            Assert.That(without.LeftOut["S2c cells left out"], Is.GreaterThan(0));
+        });
+
+        var noWholeProteome = d1 with { OccupancyRuns = new HashSet<string>() };
+        var typeP = PtmQtlCore.SitePairs(noWholeProteome);
+        Assert.Multiple(() =>
+        {
+            Assert.That(typeP.Rows.Select(r => r["result_type"]).Distinct(), Is.EqualTo(new[] { "P" }));
+            Assert.That(typeP.LeftOut, Does.ContainKey("S3b no whole-proteome run: type A not computed"));
+            Assert.That(() => PtmQtlCore.SiteTraits(noWholeProteome, "t", new Dictionary<string, double>(), new Dictionary<string, string>()),
+                Throws.TypeOf<RunnerException>().With.Message.Contains("S3b"));
+        });
+    }
+
     /// <summary>S7 (D36): one tier per search, as mzLib's QuantifiedPsmRule chooses it, and a PSM passes only strictly
     /// below 0.01 on that tier's value.</summary>
     [Test]
@@ -335,7 +364,9 @@ public class PtmQtlEngineTests
         {
             var enrichment = Path.Combine(store, "enrichment.tsv");
             File.WriteAllText(enrichment, "dataset\tenriched_ptm\n");
-            var inputs = new Dictionary<string, string> { ["enrichment"] = enrichment };
+            var cysteine = Path.Combine(store, "cysteine.tsv");
+            File.WriteAllText(cysteine, "dataset\tclass\treason\n");
+            var inputs = new Dictionary<string, string> { ["enrichment"] = enrichment, ["cysteine"] = cysteine };
             var written = PtmQtlEngine.SitePairs(store, bundles, inputs, StandInInstall).Written;
             Assert.That(written, Has.Count.EqualTo(2));
             foreach (var a in written)
@@ -478,7 +509,7 @@ public class PtmQtlEngineTests
             // A second enrichment list for the same bundle: two artefacts for one slot are refused, not picked.
             WriteArtefact(store, PtmQtlEngine.SitePairsEngine, new() { ["bundle"] = bundle.BundleId, ["enrichment"] = "e2" }, new() { ["species"] = "mouse" }, d1.Rows);
             Assert.That(() => DataRepo.Catalog.CatalogBuilder.SelectArtefacts(store, bundles),
-                Throws.TypeOf<DataRepo.Bundle.CatalogException>().With.Message.Contains("another enrichment list"));
+                Throws.TypeOf<DataRepo.Bundle.CatalogException>().With.Message.Contains("another enrichment list, or other capture or cysteine lists"));
         }
         finally { Remove(root); }
     }

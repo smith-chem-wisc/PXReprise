@@ -124,10 +124,36 @@ public static class PtmQtlBundle
         return $"coalesce((CASE search {string.Join(" ", cases)} END) < {QuantifiedPsmRule.DefaultThreshold.ToString(System.Globalization.CultureInfo.InvariantCulture)}, false)";
     }
 
-    /// <summary>The bundle as one dataset's engine inputs.</summary>
-    /// <param name="enriched">From the operator's enrichment list (S3).</param>
-    /// <returns>The inputs, and counts of what was read and left out, for the run record.</returns>
+    /// <summary>The bundle as one dataset's engine inputs, with the deposit a PTM capture (S3) or not.</summary>
     public static (PtmQtlDataset Dataset, Dictionary<string, long> Counts) Read(BundleRef bundle, bool enriched)
+    {
+        var (dataset, counts, _) = Read(bundle, new PtmQtlDeposit(enriched ? "ptm_capture" : null));
+        return (dataset, counts);
+    }
+
+    /// <summary>The modifications a MetaMorpheus install knew, by its folder, loaded once per process (S2d (b)'s masses).</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DataRepo.Ingest.ModRegistry> Registries = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>mzLib's monoisotopic mass of a <c>Category:IdWithMotif</c> name, from the MetaMorpheus install the
+    /// bundle's search read (<c>bundle.json</c> <c>modification_registry.source</c>), loaded as the ingest loads it (G26).</summary>
+    /// <exception cref="RunnerException">The install is not on this machine, or mzLib gives no mass.</exception>
+    private static double MassOf(BundleRef bundle, string name, string where)
+    {
+        var source = (bundle.Manifest.GetValueOrDefault("modification_registry") as IReadOnlyDictionary<string, object?>)?.GetValueOrDefault("source") as string;
+        if (source is null || !Directory.Exists(source))
+            throw new RunnerException($"{where}: S2d (b) needs the mass of '{name}' from the MetaMorpheus install the search read ({source ?? "not recorded"}), "
+                + "which is not on this machine.");
+        var registry = Registries.GetOrAdd(source, DataRepo.Ingest.ModRegistry.FromMzLib);
+        var colon = name.IndexOf(':');
+        return registry.Lookup(name[(colon + 1)..], category: name[..colon])?.MonoisotopicMass
+            ?? throw new RunnerException($"{where}: mzLib gives '{name}' no mass in {source}, so S2d (b) cannot match it to a cysteine label.");
+    }
+
+    /// <summary>The bundle as one dataset's engine inputs.</summary>
+    /// <param name="deposit">What the operator's lists say of the deposit (S2d, S3, S3b).</param>
+    /// <returns>The inputs; counts of what was read and left out; and the run record's account of the rules: S2d (b)'s
+    /// screen and every site S2c and S2d left out.</returns>
+    public static (PtmQtlDataset Dataset, Dictionary<string, long> Counts, Dictionary<string, object?> Rules) Read(BundleRef bundle, PtmQtlDeposit deposit)
     {
         var where = $"{bundle.DatasetId} bundle {bundle.BundleId}";
         if (bundle.SchemaVersion != SchemaContract.Version)
@@ -211,6 +237,7 @@ public static class PtmQtlBundle
 
         // DATAREPO-P32: a design sample made of fractions of one injection is one S4 sample, and MetaMorpheus's value
         // for it is already S4's combination (ptmQtl 046). Its cells carry the sample's key as their run.
+        var pooledMembers = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         if (bundle.TablePath("assay_runs") is not null)
         {
             var assayRuns = Table(bundle, "assay_runs");
@@ -241,6 +268,7 @@ public static class PtmQtlBundle
                 if (doubled.Count > 0)
                     throw new RunnerException($"{where}: run(s) {string.Join(", ", doubled.Take(3))} hold occupancy of their own and in pooled sample {sample}, which would count them twice.");
                 pooledAssays[assay] = sample;
+                pooledMembers[sample] = members;
                 runToSample[sample] = sample;
             }
             if (pooledAssays.Count > 0)
@@ -281,10 +309,84 @@ public static class PtmQtlBundle
         var categoryNames = Query(con, $"SELECT DISTINCT unnest(engine_full_sequences) FROM {peptidoforms} WHERE target_decoy = 'target' AND base_sequence <> peptidoform")
             .Select(r => (string)r[0]!).ToList();
 
-        return (new PtmQtlDataset(bundle.DatasetId, species[0], observations, occupancy, runToSample, unimod, enriched, categoryNames)
+        // S3, S3b: each run's sample type; occupancy-based results read the whole-proteome runs, and a pooled sample
+        // only when all its files are.
+        var runTypes = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        foreach (var r in Query(con, $"SELECT run_id, enrichment FROM {runs} ORDER BY 1"))
+            runTypes[(string)r[0]!] = PtmQtlRules.RunType((string)r[0]!,
+                r[1] is System.Collections.IEnumerable labels ? labels.Cast<object?>().Select(l => (string)l!).ToList() : null, deposit);
+        var occupancyRuns = runTypes.Where(kv => kv.Value == PtmQtlRules.WholeProteome).Select(kv => kv.Key).ToHashSet(StringComparer.Ordinal);
+        foreach (var (sample, members) in pooledMembers)
+            if (members.All(occupancyRuns.Contains)) occupancyRuns.Add(sample);
+        foreach (var type in runTypes.Values.Distinct()) counts[$"S3b runs: {type}"] = runTypes.Values.Count(v => v == type);
+
+        // S2c and S2d: sites left out of every occupancy-based result.
+        var excluded = new List<ExcludedSite>(PtmQtlRules.BlockedSites(observations));
+        var screened = new List<object?>();
+        List<PeptidoformObservation>? physical = null;
+        var targetSites = Query(con, $"SELECT DISTINCT protein_accession, position, residue, site_type FROM {sites} WHERE target_decoy = 'target'")
+            .Select(r => ((string)r[0]!, Convert.ToInt32(r[1]), ((string)r[2]!)[0], (string)r[3]!)).ToList();
+        if (deposit.CysteineClass == "nem")
+        {
+            var spans = Query(con, $"""
+                SELECT DISTINCT unnest(protein_accessions), start_residue, coalesce(end_residue, start_residue + length(base_sequence) - 1)
+                FROM {psms}
+                WHERE target_decoy = 'target' AND {passes} AND base_sequence LIKE '%C%' AND start_residue IS NOT NULL
+                """).Select(r => ((string)r[0]!, Convert.ToInt32(r[1]), Convert.ToInt32(r[2])));
+            excluded.AddRange(PtmQtlRules.CoveredSites(spans, targetSites.Select(s => (s.Item1, s.Item2, s.Item3))));
+            physical = observations.Where(o => !PtmQtlRules.Parse(o.FullSequence).Base.Contains('C')).ToList();
+        }
+        else
+        {
+            if (deposit.CysteineClass == "cysteine_poor")
+                excluded.AddRange(PtmQtlRules.CysteineSites(targetSites, deposit.CysteineReason));
+            // (b): the first name of each confident target peptidoform, as ptmQtl's screen reads them.
+            var flagged = new List<(string Name, string Label)>();
+            foreach (var s in PtmQtlRules.Screen(Query(con, $"""
+                         SELECT base_sequence, engine_full_sequences[1] FROM {peptidoforms}
+                         WHERE target_decoy = 'target' AND best_q_value < 0.01 AND len(engine_full_sequences) > 0
+                         """).Select(r => ((string)r[0]!, (string)r[1]!))))
+            {
+                if (!s.Flag) continue;
+                var mass = MassOf(bundle, s.Name, where);
+                var label = PtmQtlRules.LabelOf(mass);
+                screened.Add(new Dictionary<string, object?>
+                {
+                    ["modification"] = s.Name, ["peptidoforms"] = s.Peptidoforms, ["with_c"] = s.WithC, ["sequences_with_c"] = s.SequencesWithC,
+                    ["share_with_c"] = s.Share, ["baseline_share_with_c"] = s.BaselineShare, ["mass"] = mass, ["label"] = label,
+                });
+                if (label is not null) flagged.Add((s.Name, label));
+            }
+            if (flagged.Count > 0)
+            {
+                var carriers = Query(con, $"""
+                    SELECT DISTINCT unnest(s.protein_accessions), s.start_residue, p.engine_full_sequences[1]
+                    FROM (SELECT * FROM {psms} WHERE target_decoy = 'target' AND {passes} AND ambiguity_level = '1'
+                            AND base_sequence LIKE '%C%' AND start_residue IS NOT NULL) s
+                    JOIN {peptidoforms} p ON p.peptidoform = s.peptidoform
+                    WHERE len(p.engine_full_sequences) > 0
+                    """).Select(r => ((string)r[0]!, Convert.ToInt32(r[1]), (string)r[2]!)).ToList();
+                foreach (var (name, label) in flagged) excluded.AddRange(PtmQtlRules.CarriedSites(carriers, name, label));
+            }
+        }
+        foreach (var rule in excluded.Select(e => e.Rule).Distinct()) counts[$"{rule} sites"] = excluded.Count(e => e.Rule == rule);
+
+        var rules = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["capture_class"] = deposit.CaptureClass,
+            ["cysteine_class"] = deposit.CysteineClass,
+            ["s2c_applies"] = PtmQtlRules.ModificationAwareDigestionFrom is null,
+            ["s2d_b_flagged"] = screened,
+        };
+        return (new PtmQtlDataset(bundle.DatasetId, species[0], observations, occupancy, runToSample, unimod, deposit.Enriched, categoryNames)
         {
             Windows = windows,
             Tiers = tiers.ToDictionary(kv => kv.Key, kv => kv.Value.ToString(), StringComparer.Ordinal),
-        }, counts);
+            RunTypes = runTypes,
+            OccupancyRuns = occupancyRuns,
+            Excluded = excluded,
+            PhysicalObservations = physical,
+            Poolable = !deposit.Enriched && runTypes.Values.All(t => t == PtmQtlRules.WholeProteome),
+        }, counts, rules);
     }
 }

@@ -31,7 +31,29 @@ public sealed record PtmQtlDataset(string DatasetId, string Species, IReadOnlyLi
 
     /// <summary>Each search's quantified-PSM tier (S7), for the run record.</summary>
     public IReadOnlyDictionary<string, string> Tiers { get; init; } = new Dictionary<string, string>(StringComparer.Ordinal);
+
+    /// <summary>The runs (and pooled samples' keys) whose occupancy enters type A and site-trait fits (S3, S3b): the
+    /// whole-proteome ones. Null means every run, as in ptmQtl's reference case.</summary>
+    public IReadOnlySet<string>? OccupancyRuns { get; init; }
+
+    /// <summary>Each run's sample type (S3b), for the run record.</summary>
+    public IReadOnlyDictionary<string, string> RunTypes { get; init; } = new Dictionary<string, string>(StringComparer.Ordinal);
+
+    /// <summary>Sites S2c and S2d leave out of every occupancy-based result.</summary>
+    public IReadOnlyList<ExcludedSite> Excluded { get; init; } = [];
+
+    /// <summary>The observations type P reads, when S2d (a) leaves some out (an NEM deposit's Cys-containing
+    /// peptidoforms); null means <see cref="Observations"/>.</summary>
+    public IReadOnlyList<PeptidoformObservation>? PhysicalObservations { get; init; }
+
+    /// <summary>Whether this dataset's rows may be pooled: every run a whole proteome (S3b).</summary>
+    public bool Poolable { get; init; } = true;
 }
+
+/// <summary>One site an artefact rule leaves out (S2c, S2d), with the rule and its reason, as ptmQtl's
+/// <c>excluded_sites.tsv</c> writes them.</summary>
+/// <param name="Modification">The IdWithMotif, or null for every modification at that place (S2d (a)).</param>
+public sealed record ExcludedSite(string Protein, int Position, char? Residue, string? Modification, string Rule, string Reason);
 
 /// <summary>One site of a stored pair, with what pooling needs to rebuild the mzLib site and key it (S5).</summary>
 /// <param name="Window">The site's sequence window in its dataset (D35), or null when it has none: such a site is never
@@ -158,12 +180,28 @@ public static class PtmQtlCore
 
     private static void Count(Dictionary<string, long> counts, string reason) => counts[reason] = counts.GetValueOrDefault(reason) + 1;
 
-    /// <summary>S1 + S2 + S4: the stored cells as mzLib cells, biological only, combined per sample.</summary>
+    /// <summary>S1 + S2 (with S2c, S2d) + S3b + S4: the stored cells as mzLib cells, biological and not left out by an
+    /// artefact rule, of whole-proteome runs only, combined per sample.</summary>
     public static List<SiteRunOccupancy> Occupancy(PtmQtlDataset dataset, Dictionary<string, string> categories, Dictionary<string, long> leftOut)
     {
+        var anyModification = dataset.Excluded.Where(e => e.Modification is null).Select(e => (e.Protein, e.Position)).ToHashSet();
+        var oneModification = dataset.Excluded.Where(e => e.Modification is not null).Select(e => (e.Protein, e.Position, e.Modification!)).ToHashSet();
+        var ruleOf = dataset.Excluded.GroupBy(e => (e.Protein, e.Position, e.Modification)).ToDictionary(g => g.Key, g => g.First().Rule);
         var cells = new List<SiteRunOccupancy>();
         foreach (var c in dataset.Occupancy)
         {
+            if (dataset.OccupancyRuns is { } runs && !runs.Contains(c.Run))
+            {
+                Count(leftOut, "S3b run is not a whole proteome");
+                continue;
+            }
+            // Matched on accession, position and IdWithMotif, as ptmQtl's runner does (their 044 item 6).
+            if (oneModification.Contains((c.Protein, c.Position, c.Modification)) || anyModification.Contains((c.Protein, c.Position)))
+            {
+                var rule = ruleOf.GetValueOrDefault((c.Protein, c.Position, c.Modification)) ?? ruleOf[(c.Protein, c.Position, null)];
+                Count(leftOut, $"{rule} cells left out");
+                continue;
+            }
             if (StateOf(c.State) is not OccupancyState state)
             {
                 Count(leftOut, "S1 intensity_unassigned");
@@ -230,20 +268,33 @@ public static class PtmQtlCore
         };
     }
 
-    /// <summary><c>ptmqtl.site_pairs</c> on one dataset: type P always; type A unless the deposit is enriched (S3).</summary>
+    /// <summary>Whether a dataset has occupancy-based results at all: not a PTM-capture deposit (S3), and some
+    /// whole-proteome run (S3b).</summary>
+    public static bool HasOccupancyResults(PtmQtlDataset dataset) => !dataset.Enriched && dataset.OccupancyRuns is not { Count: 0 };
+
+    /// <summary><c>ptmqtl.site_pairs</c> on one dataset: type P always, from every run (S3, S3b); type A from its
+    /// whole-proteome runs, unless the deposit captures a modified form (S3).</summary>
+    /// <remarks>Type P leaves out only what S2d (a) says of it: an NEM deposit's Cys-containing peptidoforms. S2c's and
+    /// S2d's site exclusions reach the occupancy-based results, type A and site-trait fits.</remarks>
     public static SitePairsResult SitePairs(PtmQtlDataset dataset)
     {
         var leftOut = new Dictionary<string, long>(StringComparer.Ordinal);
         var nterms = ProteinNTerms(dataset);
-        var observations = SiteOccupancyCalculator.CombineObservations(dataset.Observations, dataset.RunToSample);
-        var produced = PtmPairEngine.Physical(observations, IsBiological).Select(p => (p, isA: false)).ToList();
-        if (!dataset.Enriched)
+        var physical = SiteOccupancyCalculator.CombineObservations(dataset.PhysicalObservations ?? dataset.Observations, dataset.RunToSample);
+        if (dataset.PhysicalObservations is not null)
+            leftOut["S2d (a) observations left out of type P: Cys-containing peptidoform"] = dataset.Observations.Count - dataset.PhysicalObservations.Count;
+        var produced = PtmPairEngine.Physical(physical, IsBiological).Select(p => (p, isA: false)).ToList();
+        if (HasOccupancyResults(dataset))
         {
+            // The observation side of type A (which sites share a peptide) reads the runs its occupancy reads.
+            var observations = SiteOccupancyCalculator.CombineObservations(
+                dataset.OccupancyRuns is { } runs ? dataset.Observations.Where(o => runs.Contains(o.Run)).ToList() : dataset.Observations, dataset.RunToSample);
             var occupancy = Occupancy(dataset, dataset.Categories(), leftOut);
             produced.AddRange(PtmPairEngine.CoVarying(occupancy, observations, minQuantifiedFraction: MinQuantifiedFraction, excludeCeiling: true)
                 .Select(p => (p, isA: true)));
         }
-        else leftOut["S3 enriched deposit: type A not computed"] = 1;
+        else if (dataset.Enriched) leftOut["S3 enriched deposit: type A not computed"] = 1;
+        else leftOut["S3b no whole-proteome run: type A not computed"] = 1;
 
         var rows = new List<Row>();
         var pairs = new List<(PtmPair, PairSite, PairSite)>();
@@ -309,6 +360,8 @@ public static class PtmQtlCore
     {
         if (dataset.Enriched)
             throw new RunnerException($"{dataset.DatasetId} captures a modified form (ptmQtl S3): no site-trait fit is computed on it.");
+        if (!HasOccupancyResults(dataset))
+            throw new RunnerException($"{dataset.DatasetId} has no whole-proteome run (ptmQtl S3b): no site-trait fit is computed on it.");
         var leftOut = new Dictionary<string, long>(StringComparer.Ordinal);
         var nterms = ProteinNTerms(dataset);
         var occupancy = Occupancy(dataset, dataset.Categories(), leftOut);

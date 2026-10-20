@@ -48,7 +48,7 @@ public static partial class CatalogBuilder
             if (group.Count() > 1)
                 throw new CatalogException(
                     $"{Runner.PtmQtlSitePairs}: {group.Count()} artefacts ({string.Join(", ", group.Select(a => a.ArtefactId))}) for {byBundle[group.Key].DatasetId} "
-                    + $"(another enrichment list). A catalog serves one; move the others out of {EngineFolder(Runner.PtmQtlSitePairs)}.");
+                    + $"(another enrichment list, or other capture or cysteine lists). A catalog serves one; move the others out of {EngineFolder(Runner.PtmQtlSitePairs)}.");
             pairs.Add(group.Single());
         }
 
@@ -77,12 +77,16 @@ public static partial class CatalogBuilder
         }
 
         var all = pairs.Concat(traits).Concat(pools).ToList();
-        var lists = all.Select(a => a.Inputs.GetValueOrDefault("enrichment") ?? "(none)").Distinct(StringComparer.Ordinal).ToList();
+        // The operator's lists every ptmQtl artefact is run under (PtmQtlEngine.ListRoles): the capture list and its
+        // runs (S3, S3b) and S2d's cysteine deposits.
+        string ListsOf(ArtefactRef a) => string.Join(" ", new[] { "enrichment", "capture_runs", "cysteine" }
+            .Select(r => a.Inputs.GetValueOrDefault(r) is { } sha ? $"{r}:{sha[..Math.Min(12, sha.Length)]}" : $"{r}:-"));
+        var lists = all.Select(ListsOf).Distinct(StringComparer.Ordinal).ToList();
         if (lists.Count > 1)
             throw new CatalogException(
-                $"ptmQtl: these artefacts were run under {lists.Count} enrichment lists ({string.Join(", ", lists.Select(l => l[..Math.Min(12, l.Length)]))}). "
-                + "A catalog serves results under one list (ptmQtl S3), so a pooled row and its dataset rows share one gate. "
-                + "Re-run the others with the same --input enrichment, or move them out of the store's _engine folder.");
+                $"ptmQtl: these artefacts were run under {lists.Count} sets of operator lists ({string.Join("; ", lists)}). "
+                + "A catalog serves results under one set (ptmQtl S2d, S3, S3b), so a pooled row and its dataset rows share one gate. "
+                + "Re-run the others with the same --input enrichment, capture_runs and cysteine, or move them out of the store's _engine folder.");
         chosen.AddRange(all);
 
         var uncovered = bundles.Where(b => pairs.All(a => a.Inputs["bundle"] != b.BundleId)).Select(b => b.DatasetId).Order(SourcesPy.CodePointOrder).ToList();
