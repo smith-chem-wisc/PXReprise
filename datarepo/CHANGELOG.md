@@ -14,9 +14,11 @@ entry is written out at the release.
 ### Added
 - **`datarepo run ptmqtl.site_pairs | ptmqtl.pool_pairs | ptmqtl.site_traits`** (ptmQtl 025; our 026, 031). These
   apply `ptmQtl:DEF-PTM-PAIR v2` and `ptmQtl:DEF-SITE-TRAIT v1` through mzLib only. They follow ptmQtl's DEFINITIONS.md
-  as of 2026-10-19 (G99, `design/PTMQTL_ENGINE.md`):
+  as of 2026-10-20 (G99, `design/PTMQTL_ENGINE.md`):
   - S7's quantified-PSM rule (mzLib `QuantifiedPsmRule`);
-  - S2c and S2d's artefact sites, listed in each artefact's `excluded_sites.tsv`;
+  - S2c, S2d and S2e's artefact sites, listed in each artefact's `excluded_sites.tsv`. S2c's blocking modifications are
+    mzLib's own (`Modification.BlocksCleavage`, #1119) plus five lysine acyl amides of ptmQtl's (their D59). S2e
+    leaves out a methyl-K/R site whose PSMs mostly also carry a carbamyl (carbamidomethyl written as two; their D58);
   - S3b's sample types;
   - pooled fraction samples (DATAREPO-P32);
   - the sequence-window check in pooling (D35).
@@ -36,6 +38,13 @@ entry is written out at the release.
   - Pooled rows have NULL `dataset_id` and `bundle_id`.
   - One enrichment list per catalog; two artefacts for one slot are refused.
   - Every catalog gains one coverage check row.
+
+### Changed
+- **A localization-ambiguous peptide row is left out, not stored under its first site** (QuantProject DATAREPO-D7).
+  MetaMorpheus #2917, in no release yet, writes such a row's `Sequence` as several full sequences joined by `|`. 0.32.0
+  and `cs-1.1.0` keyed it on the first, which places the value on a site the search never decided. `cs-1.2.0` leaves
+  it out and writes a `peptide_rows_localization_ambiguous` finding. No search ingested to date writes one (0 of
+  5,605,461 peptide rows in aging's 172 searches), so no stored row moves.
 
 ## [1.3.6] - 2026-10-19
 

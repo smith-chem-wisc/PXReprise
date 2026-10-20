@@ -411,6 +411,33 @@ public static class PtmQtlBundle
                 foreach (var (name, label) in flagged) excluded.AddRange(PtmQtlRules.CarriedSites(carriers, name, label, stored));
             }
         }
+
+        // S2e (ptmQtl D58): a methyl-K/R site whose PSMs mostly also carry a carbamyl, unless the search offered
+        // carbamidomethyl on Met, Lys and the N-terminus. It is a share, so it counts the PSMs of the runs whose
+        // occupancy it protects, the whole-proteome runs, as ptmQtl's list does: another run's PSMs could move a site
+        // either way. S2c's "any" reads every run, since more evidence only leaves more out (the safer error).
+        var declared = bundle.TablePath("search_modifications_declared") is null ? []
+            : Query(con, $"SELECT modification, residues FROM {Table(bundle, "search_modifications_declared")}")
+                .Select(r => ((string?)r[0], (string)r[1]!)).ToList();
+        var s2eApplies = !PtmQtlRules.CarbamidomethylOffered(declared);
+        if (s2eApplies && occupancyRuns.Count > 0)
+        {
+            var methylSites = PtmQtlRules.MethylSites(Query(con, $"""
+                SELECT peptidoform, protein_accessions[1], start_residue, count(*)
+                FROM {psms}
+                WHERE target_decoy = 'target' AND {passes} AND ambiguity_level = '1'
+                  AND len(protein_accessions) = 1 AND start_residue IS NOT NULL AND {PtmQtlRules.MethylPsmSql}
+                  AND run_id IN ({string.Join(", ", occupancyRuns.Order(StringComparer.Ordinal).Select(Q))})
+                GROUP BY ALL
+                """).Select(r => ((string)r[0]!, (string)r[1]!, Convert.ToInt32(r[2]), Convert.ToInt64(r[3]))));
+            var methylStored = Query(con, $"""
+                SELECT DISTINCT protein_accession, position, residue, modification_name, modification FROM {sites}
+                WHERE target_decoy = 'target' AND modification IN ('UNIMOD:34', 'UNIMOD:36', 'UNIMOD:37')
+                """).Select(r => ((string)r[0]!, Convert.ToInt32(r[1]), ((string)r[2]!)[0], (string)r[3]!, (string)r[4]!));
+            counts["S2e methyl-K/R sites"] = methylSites.Count;
+            counts["S2e methyl-K/R sites carbamyl-carried"] = methylSites.Count(s => s.Share >= PtmQtlRules.S2eShare);
+            excluded.AddRange(PtmQtlRules.CarbamylSites(methylSites, methylStored));
+        }
         foreach (var rule in excluded.Select(e => e.Rule).Distinct()) counts[$"{rule} sites"] = excluded.Count(e => e.Rule == rule);
 
         var rules = new Dictionary<string, object?>(StringComparer.Ordinal)
@@ -419,6 +446,7 @@ public static class PtmQtlBundle
             ["cysteine_class"] = deposit.CysteineClass,
             ["s2c_applies"] = PtmQtlRules.ModificationAwareDigestionFrom is null,
             ["s2d_b_flagged"] = screened,
+            ["s2e_applies"] = s2eApplies,
         };
         return (new PtmQtlDataset(bundle.DatasetId, species[0], observations, occupancy, runToSample, unimod, deposit.Enriched, categoryNames)
         {

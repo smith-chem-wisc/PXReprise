@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using DataRepo.Bundle;
+using Omics.SequenceConversion;
 using Quantification.PtmQtl;
 
 namespace DataRepo.Runner;
@@ -18,11 +19,12 @@ public sealed record PtmQtlDeposit(string? CaptureClass = null, IReadOnlySet<str
     public bool Enriched => CaptureClass is "ptm_capture" or "held";
 }
 
-/// <summary>ptmQtl's site rules that are not mzLib's: S2c, S2d and S3b's sample types
-/// (<c>ptmQtl/design/DEFINITIONS.md</c>, 2026-10-19).</summary>
+/// <summary>ptmQtl's site rules that are not mzLib's: S2c, S2d, S2e and S3b's sample types
+/// (<c>ptmQtl/design/DEFINITIONS.md</c>, 2026-10-20).</summary>
 /// <remarks>
-/// <para>Where the definitions are silent, these follow ptmQtl's own implementation of them, read on 2026-10-19:
-/// <c>results/g40_blocking_rule_v2/measure.py</c> (S2c), <c>results/g39_cysteine_rule_v2/measure.py</c> (S2d) and
+/// <para>Where the definitions are silent, these follow ptmQtl's own implementation of them, read on 2026-10-19 and
+/// 2026-10-20: <c>results/g40_blocking_rule_v3/measure.py</c> with the runner's <c>blocking</c> mode (S2c),
+/// <c>results/g39_cysteine_rule_v2/measure.py</c> (S2d), <c>results/g39_carbamyl_methyl_v1</c> (S2e) and
 /// <c>tools/export_observations.py</c> (S3, S7). Where the two disagree, the definitions are followed and the
 /// difference is asked of ptmQtl (the questions are in <c>design/PTMQTL_ENGINE.md</c>).</para>
 /// <para>A site is matched on accession, position and IdWithMotif, never the residue (their 044 item 6).</para>
@@ -135,24 +137,36 @@ public static class PtmQtlRules
 
     public const string S2c = "S2c";
 
-    public const string S2cReason = "S2c: a trypsin-blocking modification on a peptide's C-terminal residue";
+    /// <summary>The reason S2c gives a site, naming whose list made its modification blocking.</summary>
+    public static string S2cReason(string source) =>
+        $"S2c: a trypsin-blocking modification on a peptide's C-terminal residue ({(source == BlockingByMzLib ? "mzLib's list" : "an acyl amide mzLib's list misses")})";
 
-    /// <summary>The blocking modifications, as ptmQtl's <c>measure.py</c> recognises them: a pattern on the IdWithMotif
-    /// and the residue it must sit on.</summary>
-    /// <remarks>Wider than the definitions' list on one point: <c>utyryl</c> also takes hydroxybutyryl and
-    /// 2-hydroxyisobutyryl lysine, which block trypsin as the other acyl groups do. Asked of ptmQtl.</remarks>
-    public static readonly IReadOnlyList<(Regex Pattern, char Residue)> Blocking =
-    [
-        (new Regex("Citrull", RegexOptions.CultureInvariant), 'R'),
-        (new Regex("^GG ", RegexOptions.CultureInvariant), 'K'),
-        (new Regex("^Acetylation on K|N6-acetyllysine", RegexOptions.CultureInvariant), 'K'),
-        (new Regex("uccinyl", RegexOptions.CultureInvariant), 'K'),
-        (new Regex("rotonyl|utyryl|alonyl|lutaryl", RegexOptions.CultureInvariant), 'K'),
-    ];
+    /// <summary>A blocking modification on mzLib's own list (<c>Modification.BlocksCleavage</c>, mzLib #1119, released in
+    /// 1.0.595): the set a search with modification-aware digestion respects.</summary>
+    public const string BlockingByMzLib = "mzLib";
 
-    /// <summary>Whether an IdWithMotif on a residue is one of S2c's blocking modifications.</summary>
-    public static bool IsBlocking(string idWithMotif, char residue) =>
-        Blocking.Any(b => b.Residue == residue && b.Pattern.IsMatch(idWithMotif));
+    /// <summary>A blocking modification ptmQtl adds: an acyl amide on the lysine epsilon-amine that mzLib's list misses.</summary>
+    public const string BlockingByPtmQtl = "ptmQtl: acyl amide mzLib's list misses";
+
+    /// <summary>The lysine acyl amides ptmQtl adds to mzLib's list (S2c v3, their D59; <c>measure.py</c>'s BEYOND),
+    /// asked of cleavageRules as CLEAVAGERULES-P3.</summary>
+    public static readonly Regex AcylAmidesMzLibMisses = new("isonicotinyl|lipoyl|methacryl|myristoyl|palmitoyl", RegexOptions.CultureInvariant);
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string?> BlockingSources = new(StringComparer.Ordinal);
+
+    /// <summary>S2c v3 (ptmQtl D59, 2026-10-20): whose list makes a MetaMorpheus name (<c>Category:IdWithMotif</c>) a
+    /// blocking modification, or null when it is not one, as ptmQtl's runner's <c>blocking</c> mode classifies it.</summary>
+    /// <remarks>The name is resolved by <c>MzLibModificationLookup</c>, then <c>GlobalModificationLookup</c>, and
+    /// classified by mzLib's <c>BlocksCleavage</c>. A name neither lookup resolves is not blocking: it is never guessed.
+    /// The five acyl amides count only on K and only when the name resolves.</remarks>
+    public static string? BlockingSource(string name) => BlockingSources.GetOrAdd(name, n =>
+    {
+        var probe = new CanonicalModification(ModificationPositionType.Residue, 0, n[^1], n);
+        var modification = (MzLibModificationLookup.Instance.TryResolve(probe) ?? GlobalModificationLookup.Instance.TryResolve(probe))?.MzLibModification;
+        if (modification is null) return null;
+        if (modification.BlocksCleavage) return BlockingByMzLib;
+        return n[^1] == 'K' && AcylAmidesMzLibMisses.IsMatch(PtmQtlCore.IdWithMotif(n)) ? BlockingByPtmQtl : null;
+    });
 
     /// <summary>The first MetaMorpheus release that digests aware of a modification (the mzLib #1119 family), or null
     /// while none does: every release to 1.1.12 lacks it, so S2c applies to every search (ptmQtl CLEAVAGERULES-P2).</summary>
@@ -160,10 +174,12 @@ public static class PtmQtlRules
 
     /// <summary>S2c: every site of a blocking modification that some S7 observation carries on its last residue.</summary>
     /// <remarks>Any such observation leaves the site out, mixed evidence too (the user's choice (a)). A protein's own
-    /// C-terminus is not told apart. Observations are read with no run filter: every observation is evidence.</remarks>
+    /// C-terminus is not told apart. The modification must sit on the residue its IdWithMotif names. Observations are
+    /// read with no run filter: every observation is evidence.</remarks>
     public static List<ExcludedSite> BlockedSites(IEnumerable<PeptidoformObservation> observations)
     {
-        var found = new SortedSet<(string, int, char, string)>();
+        // A site's source is mzLib's when any of its names is on mzLib's list.
+        var found = new SortedDictionary<(string, int, char, string), string>();
         foreach (var o in observations.Select(o => (o.FullSequence, o.ProteinAccession, o.StartResidue)).Distinct())
         {
             var (bases, mods) = Parse(o.FullSequence);
@@ -171,10 +187,12 @@ public static class PtmQtlRules
             {
                 if (m.Position != bases.Length || m.Residue is not char residue) continue;
                 var idm = PtmQtlCore.IdWithMotif(m.Name);
-                if (IsBlocking(idm, residue)) found.Add((o.ProteinAccession, o.StartResidue + m.Position - 1, residue, idm));
+                if (idm[^1] != residue || BlockingSource(m.Name) is not { } source) continue;
+                var key = (o.ProteinAccession, o.StartResidue + m.Position - 1, residue, idm);
+                if (!found.TryGetValue(key, out var known) || known != BlockingByMzLib) found[key] = source;
             }
         }
-        return found.Select(f => new ExcludedSite(f.Item1, f.Item2, f.Item3, f.Item4, S2c, S2cReason)).ToList();
+        return found.Select(f => new ExcludedSite(f.Key.Item1, f.Key.Item2, f.Key.Item3, f.Key.Item4, S2c, S2cReason(f.Value))).ToList();
     }
 
     // ---------------------------------------------------------------- S2d: cysteine labels the search did not declare
@@ -281,5 +299,108 @@ public static class PtmQtlRules
             }
         return found.Select(f => new ExcludedSite(f.Item1, f.Item2, null, idm, S2dB,
             $"S2d (b): {idm} = {label} - carbamidomethyl, carried by a Cys-containing peptidoform")).ToList();
+    }
+
+    // ---------------------------------------------------------------- S2e: carbamidomethyl written as carbamyl + methyl
+
+    public const string S2e = "S2e";
+
+    /// <summary>Methyl, dimethyl and trimethyl: S2e's methyl-K/R, under any name.</summary>
+    public static readonly IReadOnlySet<string> Methyls = new HashSet<string>(StringComparer.Ordinal) { "UNIMOD:34", "UNIMOD:36", "UNIMOD:37" };
+
+    public const string Carbamyl = "UNIMOD:5";
+
+    /// <summary>A site is left out when at least this share of the PSMs placing its methyl also carry a carbamyl (ptmQtl
+    /// D58).</summary>
+    public const double S2eShare = 0.5;
+
+    /// <summary>The SQL test for an S2e methyl PSM, as ptmQtl's <c>measure.py</c> writes it: a K or R whose first
+    /// modification in the ProForma is UNIMOD 34, 36 or 37.</summary>
+    public const string MethylPsmSql = @"regexp_matches(peptidoform, '[KR]\[UNIMOD:(34|36|37)\]')";
+
+    /// <summary>One methyl-K/R site's S2e count.</summary>
+    /// <param name="Position">The protein position: the PSM's start plus the residue's place in the peptide.</param>
+    /// <param name="Modification">The methyl's UNIMOD accession.</param>
+    public sealed record MethylSite(string Protein, char Residue, int Position, string Modification, long MethylPsms, long WithCarbamyl)
+    {
+        public double Share => (double)WithCarbamyl / MethylPsms;
+    }
+
+    /// <summary>S2e's counts: per methyl-K/R site, the PSMs that place the methyl there and those of them that also carry a
+    /// carbamyl anywhere.</summary>
+    /// <param name="psms">(ProForma peptidoform, accession, start, PSMs) of the methyl PSMs (<see cref="MethylPsmSql"/>):
+    /// target, passing S7's tier, ambiguity level 1, one accession, a start.</param>
+    /// <remarks>Read off the ProForma's UNIMOD accessions, so a UniProt name and a Common Biological one for the same
+    /// methyl count as one site, as in ptmQtl's <c>measure.py</c>. The ProForma is scanned by bracket depth.</remarks>
+    public static List<MethylSite> MethylSites(IEnumerable<(string Peptidoform, string Protein, int Start, long Psms)> psms)
+    {
+        var sites = new SortedDictionary<(string, char, int, string), (long Methyl, long Carbamyl)>();
+        foreach (var p in psms)
+        {
+            var (sequence, mods) = ParseProforma(p.Peptidoform);
+            var carbamyl = mods.Any(m => m.Accession == Carbamyl);
+            foreach (var (index, accession) in mods)
+            {
+                if (!Methyls.Contains(accession) || index < 0 || index >= sequence.Length || sequence[index] is not ('K' or 'R')) continue;
+                var key = (p.Protein, sequence[index], p.Start + index, accession);
+                var (methyl, carried) = sites.GetValueOrDefault(key);
+                sites[key] = (methyl + p.Psms, carried + (carbamyl ? p.Psms : 0));
+            }
+        }
+        return sites.Select(s => new MethylSite(s.Key.Item1, s.Key.Item2, s.Key.Item3, s.Key.Item4, s.Value.Methyl, s.Value.Carbamyl)).ToList();
+    }
+
+    /// <summary>A ProForma's base sequence and its modifications, each at its residue's 0-based index: -1 for the
+    /// N-terminus, the sequence's length for the C-terminus.</summary>
+    public static (string Sequence, List<(int Index, string Accession)> Modifications) ParseProforma(string proforma)
+    {
+        var letters = new System.Text.StringBuilder();
+        var mods = new List<(int, string)>();
+        int depth = 0, start = -1;
+        bool nterm = false, cterm = false;
+        for (var i = 0; i < proforma.Length; i++)
+        {
+            var ch = proforma[i];
+            if (ch == '[')
+            {
+                if (depth++ == 0) start = i + 1;
+            }
+            else if (ch == ']' && depth > 0)
+            {
+                if (--depth != 0) continue;
+                var text = proforma[start..i];
+                nterm = letters.Length == 0 && i + 1 < proforma.Length && proforma[i + 1] == '-';
+                mods.Add((nterm ? -1 : cterm ? letters.Length : letters.Length - 1, text));
+            }
+            else if (depth == 0 && ch == '-') cterm = letters.Length > 0;
+            else if (depth == 0 && char.IsLetter(ch)) letters.Append(ch);
+        }
+        return (letters.ToString(), mods);
+    }
+
+    /// <summary>The reason S2e gives a site, with its carbamyl share, as ptmQtl's <c>make_list.py</c> writes it.</summary>
+    public static string S2eReason(MethylSite site) =>
+        $"S2e: methyl-K/R whose PSMs mostly also carry a carbamyl ({Math.Round(Math.Round(site.Share, 4) * 100, MidpointRounding.ToEven):0} % of {site.MethylPsms}): carbamidomethyl written as carbamyl + methyl";
+
+    /// <summary>S2e: the stored sites of each methyl-K/R site whose PSMs mostly also carry a carbamyl, under every name the
+    /// deposit stores for that methyl there.</summary>
+    /// <param name="stored">(accession, position, residue, IdWithMotif, UNIMOD accession) of the dataset's target sites.</param>
+    public static List<ExcludedSite> CarbamylSites(IEnumerable<MethylSite> methylSites,
+        IEnumerable<(string Protein, int Position, char Residue, string Name, string Modification)> stored)
+    {
+        var names = stored.GroupBy(s => (s.Protein, s.Position, s.Residue, s.Modification))
+            .ToDictionary(g => g.Key, g => g.Select(s => s.Name).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList());
+        return methylSites.Where(s => s.Share >= S2eShare)
+            .SelectMany(s => names.GetValueOrDefault((s.Protein, s.Position, s.Residue, s.Modification), [])
+                .Select(name => new ExcludedSite(s.Protein, s.Position, s.Residue, name, S2e, S2eReason(s))))
+            .ToList();
+    }
+
+    /// <summary>S2e's gate: whether the search offered carbamidomethyl (UNIMOD:4) on Met, Lys and the N-terminus
+    /// (<c>X</c>), so that it can name the event itself. No stored search does (measured 2026-10-20).</summary>
+    public static bool CarbamidomethylOffered(IEnumerable<(string? Modification, string Residues)> declared)
+    {
+        var residues = declared.Where(d => d.Modification == "UNIMOD:4").SelectMany(d => d.Residues).ToHashSet();
+        return residues.Contains('M') && residues.Contains('K') && residues.Contains('X');
     }
 }

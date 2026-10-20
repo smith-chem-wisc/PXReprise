@@ -487,6 +487,30 @@ public class CurrentRulesTests
         });
     }
 
+    // ---------------------------------------------------------------- DATAREPO-D7: localization-ambiguous peptide rows
+
+    /// <summary>A <c>|</c>-joined peptide row (MetaMorpheus #2917) is left out and counted, never stored under its first
+    /// full sequence's site; 0.32.0's rows keep the first.</summary>
+    [Test]
+    public void ALocalizationAmbiguousPeptideRowIsLeftOutNotStoredAsItsFirstSite()
+    {
+        var path = TempFile("AllQuantifiedPeptides.tsv",
+            "Sequence\tBase Sequence\tIntensity_run1\tIntensity_run2\tDetection Type_run1\tDetection Type_run2\n"
+            + "PEPS[Common Biological:Phosphorylation on S]TIDE\tPEPSTIDE\t100\t200\tMSMS\tMSMS\n"
+            + "PEPS[Common Biological:Phosphorylation on S]TIDEK|PEPST[Common Biological:Phosphorylation on T]IDEK\tPEPSTIDEK\t300\t\tMSMS\t\n");
+        string? Proforma(string s) => s.Replace("[Common Biological:Phosphorylation on S]", "[UNIMOD:21]").Replace("[Common Biological:Phosphorylation on T]", "[UNIMOD:21]");
+        var runs = new RunNameMap(["run1", "run2"]);
+        var ambiguous = new Dictionary<string, long>(StringComparer.Ordinal);
+        var rows = Quant.PeptideQuantRows(path, "PXD1", runs, Proforma, ambiguous: ambiguous);
+        var python = Quant.PeptideQuantRows(path, "PXD1", runs, Proforma, rules: IngestRules.Python0320);
+        Assert.Multiple(() =>
+        {
+            Assert.That(rows.Select(r => (string)r["feature_id"]!).Distinct(), Is.EqualTo(new[] { "PXD1:PEPS[UNIMOD:21]TIDE" }));
+            Assert.That(ambiguous.Single().Value, Is.EqualTo(1), "one value left out");
+            Assert.That(python.Count(r => (string)r["feature_id"]! == "PXD1:PEPS[UNIMOD:21]TIDEK"), Is.EqualTo(1), "0.32.0 keyed it on the first");
+        });
+    }
+
     // ---------------------------------------------------------------- PXR-R12: UniProt namespaces, empty reads
 
     /// <summary>Every namespace a UniProt XML the search read can carry: UniProt's http and https, the

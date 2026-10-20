@@ -68,22 +68,29 @@ public class PtmQtlRulesTests
 
     // ---------------------------------------------------------------- S2c
 
-    [TestCase("Acetylation on K", 'K', true)]
-    [TestCase("N6-acetyllysine on K", 'K', true)]
-    [TestCase("GG (Ubiquitination Site) on K", 'K', true)]
-    [TestCase("Citrullination on R", 'R', true)]
-    [TestCase("Citrulline on R", 'R', true)]
-    [TestCase("N6-succinyllysine on K", 'K', true)]
-    [TestCase("Crotonylation on K", 'K', true)]
-    [TestCase("Hydroxybutyrylation on K", 'K', true)]
-    [TestCase("N6-(2-hydroxyisobutyryl)lysine on K", 'K', true)]
-    [TestCase("Malonylation on K", 'K', true)]
-    [TestCase("Glutarylation on K", 'K', true)]
-    [TestCase("Methylation on K", 'K', false)]
-    [TestCase("Acetylation on X", 'K', false)]
-    [TestCase("Acetylation on K", 'R', false)]
-    public void TheBlockingModificationsAreMeasurePysPatterns(string idWithMotif, char residue, bool blocking) =>
-        Assert.That(PtmQtlRules.IsBlocking(idWithMotif, residue), Is.EqualTo(blocking));
+    // S2c v3 (ptmQtl D59): mzLib's own list, as ptmQtl's results/g40_blocking_rule_v3/blocking_mods.tsv classifies these
+    // names, plus five lysine acyl amides of theirs.
+    [TestCase("Common Biological:Acetylation on K", PtmQtlRules.BlockingByMzLib)]
+    [TestCase("UniProt:N6-acetyllysine on K", PtmQtlRules.BlockingByMzLib)]
+    [TestCase("Trypsin Digested:GG (Ubiquitination Site) on K", PtmQtlRules.BlockingByMzLib)]
+    [TestCase("Common Biological:Citrullination on R", PtmQtlRules.BlockingByMzLib)]
+    [TestCase("UniProt:Citrulline on R", PtmQtlRules.BlockingByMzLib)]
+    [TestCase("UniProt:N6-succinyllysine on K", PtmQtlRules.BlockingByMzLib)]
+    [TestCase("Common Biological:Crotonylation on K", PtmQtlRules.BlockingByMzLib)]
+    [TestCase("Common Biological:Hydroxybutyrylation on K", PtmQtlRules.BlockingByMzLib)]
+    [TestCase("UniProt:N6-(2-hydroxyisobutyryl)lysine on K", PtmQtlRules.BlockingByMzLib)]
+    [TestCase("UniProt:N6-propionyllysine on K", PtmQtlRules.BlockingByMzLib)]
+    [TestCase("UniProt:N6-benzoyllysine on K", PtmQtlRules.BlockingByMzLib)]
+    [TestCase("Common Artifact:Carbamyl on K", PtmQtlRules.BlockingByMzLib)]
+    [TestCase("UniProt:N6-isonicotinyllysine on K", PtmQtlRules.BlockingByPtmQtl)]
+    [TestCase("UniProt:N6-methacryllysine on K", PtmQtlRules.BlockingByPtmQtl)]
+    [TestCase("UniProt:N6-palmitoyl lysine on K", PtmQtlRules.BlockingByPtmQtl)]
+    [TestCase("Common Biological:Methylation on K", null)]
+    [TestCase("UniProt:N6,N6,N6-trimethyllysine on K", null)]
+    [TestCase("Common Biological:Phosphorylation on S", null)]
+    [TestCase("PXReprise:NBF on C", null)]
+    public void TheBlockingModificationsAreMzLibsListAndFiveAcylAmides(string name, string? source) =>
+        Assert.That(PtmQtlRules.BlockingSource(name), Is.EqualTo(source));
 
     [Test]
     public void ABlockingModificationOnAPeptidesLastResidueLeavesItsSiteOut()
@@ -95,10 +102,63 @@ public class PtmQtlRulesTests
             O("r1", "PEK[Common Biological:Acetylation on K]TIDEAR", 30),    // internal: K32 stays
             O("r1", "PEPTIDEAR[Common Biological:Citrullination on R]", 50), // R58 out
             O("r1", "PEPTIDEAK[Common Biological:Methylation on K]", 70),     // not blocking
+            O("r1", "PEPTIDEAK[UniProt:N6-methacryllysine on K]", 90),        // K98 out, by ptmQtl's addition
         ]);
         Assert.That(sites.Select(s => $"{s.Protein}:{s.Residue}{s.Position}:{s.Modification}"),
-            Is.EqualTo(new[] { "P1:K18:Acetylation on K", "P1:R58:Citrullination on R" }));
+            Is.EqualTo(new[] { "P1:K18:Acetylation on K", "P1:R58:Citrullination on R", "P1:K98:N6-methacryllysine on K" }));
         Assert.That(sites.All(s => s.Rule == "S2c" && s.Reason.StartsWith("S2c:", StringComparison.Ordinal)));
+        Assert.That(sites.Select(s => s.Reason.EndsWith("(mzLib's list)", StringComparison.Ordinal)), Is.EqualTo(new[] { true, true, false }));
+    }
+
+    // ---------------------------------------------------------------- S2e
+
+    [TestCase("PEPK[UNIMOD:34]TIDE", "PEPKTIDE", "3:UNIMOD:34")]
+    [TestCase("[UNIMOD:5]-PEPK[UNIMOD:34]TIDE", "PEPKTIDE", "-1:UNIMOD:5 3:UNIMOD:34")]
+    [TestCase("M[UNIMOD:5]EPR[UNIMOD:36][UNIMOD:21]K-[UNIMOD:2]", "MEPRK", "0:UNIMOD:5 3:UNIMOD:36 3:UNIMOD:21 5:UNIMOD:2")]
+    [TestCase("PEPC[Metal:Cu[I]]K", "PEPCK", "3:Metal:Cu[I]")]
+    public void AProFormaIsReadAsItsResiduesAndTheirModifications(string proforma, string sequence, string mods)
+    {
+        var (bases, found) = PtmQtlRules.ParseProforma(proforma);
+        Assert.That(bases, Is.EqualTo(sequence));
+        Assert.That(string.Join(" ", found.Select(m => $"{m.Index}:{m.Accession}")), Is.EqualTo(mods));
+    }
+
+    [Test]
+    public void AMethylSiteWhosePsmsMostlyCarryACarbamylIsLeftOutUnderEachStoredName()
+    {
+        var methyl = PtmQtlRules.MethylSites([
+            ("PEPK[UNIMOD:34]TIDE", "P1", 10, 3),             // K13: 3 PSMs, no carbamyl
+            ("[UNIMOD:5]-PEPK[UNIMOD:34]TIDE", "P1", 10, 2),  // K13: 2 with a carbamyl on the N-terminus
+            ("PEPK[UNIMOD:34]TIDEK[UNIMOD:5]", "P1", 10, 1),  // K13: 1 with a carbamyl on K
+            ("M[UNIMOD:5]EPR[UNIMOD:36]K", "P1", 20, 1),      // R23: 1 of 1
+            ("PEPK[UNIMOD:34]TIDE", "P2", 5, 1),              // K8: 0 of 1
+        ]);
+        Assert.That(methyl.Select(s => $"{s.Protein}:{s.Residue}{s.Position}:{s.Modification}:{s.WithCarbamyl}/{s.MethylPsms}"),
+            Is.EqualTo(new[] { "P1:K13:UNIMOD:34:3/6", "P1:R23:UNIMOD:36:1/1", "P2:K8:UNIMOD:34:0/1" }));
+
+        var excluded = PtmQtlRules.CarbamylSites(methyl, [
+            ("P1", 13, 'K', "Methylation on K", "UNIMOD:34"),
+            ("P1", 13, 'K', "N6-methyllysine on K", "UNIMOD:34"),
+            ("P1", 13, 'K', "Dimethylation on K", "UNIMOD:36"),       // another methyl at the place: its own count
+            ("P1", 23, 'R', "Dimethylation on R", "UNIMOD:36"),
+            ("P2", 8, 'K', "Methylation on K", "UNIMOD:34"),
+        ]);
+        Assert.That(excluded.Select(s => $"{s.Protein}:{s.Residue}{s.Position}:{s.Modification}"),
+            Is.EqualTo(new[] { "P1:K13:Methylation on K", "P1:K13:N6-methyllysine on K", "P1:R23:Dimethylation on R" }),
+            "at least half: 3 of 6 is out");
+        Assert.That(excluded[0].Rule, Is.EqualTo("S2e"));
+        Assert.That(excluded[0].Reason, Is.EqualTo("S2e: methyl-K/R whose PSMs mostly also carry a carbamyl (50 % of 6): carbamidomethyl written as carbamyl + methyl"));
+    }
+
+    [Test]
+    public void S2eLiftsOnlyForASearchOfferingCarbamidomethylOnMetLysAndTheNTerminus()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(PtmQtlRules.CarbamidomethylOffered([("UNIMOD:4", "C"), ("UNIMOD:5", "M"), ("UNIMOD:5", "X")]), Is.False);
+            Assert.That(PtmQtlRules.CarbamidomethylOffered([("UNIMOD:4", "C"), ("UNIMOD:4", "M"), ("UNIMOD:4", "K")]), Is.False);
+            Assert.That(PtmQtlRules.CarbamidomethylOffered([("UNIMOD:4", "C"), ("UNIMOD:4", "M"), ("UNIMOD:4", "K"), ("UNIMOD:4", "X")]), Is.True);
+        });
     }
 
     // ---------------------------------------------------------------- S2d

@@ -519,7 +519,15 @@ public static class Ingester
         if (File.Exists(peptideQuantPath))
         {
             writer.AddSource(peptideQuantPath, "peptide_quant");
-            quantValues.AddRange(Quant.PeptideQuantRows(peptideQuantPath, datasetId, runNames, s => proforma.Get(s).Proforma, peakQuality, log, rules));
+            var ambiguous = new Dictionary<string, long>(StringComparer.Ordinal);
+            quantValues.AddRange(Quant.PeptideQuantRows(peptideQuantPath, datasetId, runNames, s => proforma.Get(s).Proforma, peakQuality, log, rules, ambiguous));
+            if (ambiguous.Count > 0)
+                findings.Add(Finding(datasetId, "peptide_rows_localization_ambiguous", "warning",
+                    $"{ambiguous.Count} row(s) of AllQuantifiedPeptides.tsv name several full sequences, joined by `|`: a peptide "
+                    + "whose modification site the search did not settle (MetaMorpheus #2917). Their "
+                    + $"{ambiguous.Values.Sum()} value(s) are not stored, since storing them under one of the sequences would place "
+                    + "them on a site the search never decided. The PSMs behind them are in `psms`. E.g. "
+                    + string.Join(", ", ambiguous.Keys.Order(StringComparer.Ordinal).Take(3).Select(k => $"`{k}`")) + "."));
         }
 
         // --- search parameters and reported totals --------------------------------------------------------
