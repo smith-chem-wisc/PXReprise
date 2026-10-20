@@ -127,6 +127,17 @@ public static class SearchStage
         if (failed.Count > 0) throw new SearchSetupException($"QC failed or is missing for {string.Join(", ", failed)}");
         // MetaMorpheus reads ExperimentalDesign.tsv from beside the first spectra file; written here, before any task runs.
         var design = p.Design == "sdrf" ? DesignStage.Prepare(r.SpectraDir, files, r.CuratedDesign, r.DesignConditionColumns, r.Organism, r.Accession) : null;
+        // v0.4.27 (dataRepo 052, PXR-R28): the SDRF the design came from is kept in the search's own output, and the record
+        // names that copy. A question's SDRF can be edited after its search (seven of aging's were), and the record must
+        // still name the bytes the search used. `sdrf_sha256` is the copy's too: the bytes are the same.
+        if (design is not null && design["written"]!.GetValue<bool>() && design["sdrf"]?.GetValue<string>() is { } used && File.Exists(used))
+        {
+            string kept = Path.Combine(outDir, "design", Path.GetFileName(used));
+            Directory.CreateDirectory(Path.GetDirectoryName(kept)!);
+            File.Copy(used, kept, overwrite: true);
+            design["sdrf_origin"] = used;
+            design["sdrf"] = kept;
+        }
 
         // The effective parameters, in the aging pipeline's shape, so provenance's params_file is a real file.
         var runner = new MetaMorpheusRunner(m.CmdFor(p.MetaMorpheus), m.Dotnet, m.DotnetRoot);

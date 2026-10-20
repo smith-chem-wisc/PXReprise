@@ -155,8 +155,10 @@ pxreprise worker release <share> --reason "why" [--metamorpheus NAME] [--dotnet 
 
 **How the two machines work together:**
 
-- The delivering machine assigns its next fresh deposits to the prober (`accessions\assigned.tsv`) and starts no probe
-  of its own while the prober is alive.
+- The delivering machine assigns the prober its next deposits to probe (`accessions\assigned.tsv`), up to `window` at
+  a time: fresh deposits, re-searches, retries and second looks alike (since 0.4.27; 0.4.26 assigned fresh deposits
+  only). While the prober is alive, the delivering machine probes only a deposit whose raw files it already holds, and,
+  when the window is full and nothing is searching, the next deposit, rather than sit idle.
 - The prober probes each assigned deposit, then hands back a package in `deposits\<accession>\`, with `READY.json`
   written last. A deposit that passes carries its probe files; a park carries its reason and its
   `decisions_needed.tsv` rows.

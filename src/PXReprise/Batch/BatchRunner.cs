@@ -641,8 +641,12 @@ public sealed class BatchRunner
                     continue;
                 }
                 consumed.Add(e.Accession);
-                if (catchUp is null && PendingOnWorker(e.Accession)) { waiting.Add(e.Accession); continue; }
+                // v0.4.27 (the user: "it would only run probes", then "do what works best"): every probe this machine would run
+                // goes to the probe worker while it is alive, and this machine never sits idle waiting for one.
+                var route = _m.Workers is null || WorkerPassProfile(e.Accession) is not null ? WorkerRoute.Local : RouteToWorker(e.Accession, idleHere: Searching.Count == 0, filesStay: catchUp is null);
+                if (route is WorkerRoute.Pending or WorkerRoute.Defer) { waiting.Add(e.Accession); continue; }
                 if (catchUp is not null && !StartCatchUp(e)) continue;
+                if (route == WorkerRoute.Assign) { AssignToWorker(e, catchUp is not null); waiting.Add(e.Accession); continue; }
                 if (WorkerPassProfile(e.Accession) is null) Record(e.Accession, ("status", "probing"), ("title", e.Title), ("organism", e.Organism));
                 if (await PrepareAsync(e, ct).ConfigureAwait(false) is { } profile)
                 {
@@ -707,7 +711,8 @@ public sealed class BatchRunner
                 // turn is the next driver's to take.
                 if (PickNext(queue, consumed, none) is not { } e) break;
                 consumed.Add(e.Accession);
-                if (PendingOnWorker(e.Accession)) continue;   // v0.4.26: the worker probes it
+                // v0.4.26: the worker probes it. Nothing is assigned while STOP drains: the next driver does that.
+                if (_m.Workers is not null && WorkerPassProfile(e.Accession) is null && RouteToWorker(e.Accession, idleHere: false, filesStay: true) != WorkerRoute.Local) continue;
                 if (WorkerPassProfile(e.Accession) is null) Record(e.Accession, ("status", "probing"), ("title", e.Title), ("organism", e.Organism));
                 if (await PrepareAsync(e, cut).ConfigureAwait(false) is not null)
                 {
@@ -1958,13 +1963,14 @@ public sealed class BatchRunner
     {
         "status", "updated_utc", "earlier_detail", "worker_attempt", "assigned_utc", "handed_off_attempt", "handed_off_utc",
         "probe_outcome", "probe_attempt", "probe_files_deleted", "probe_files_deleted_gb", "local_deleted", "local_deleted_why",
+        "probe_assigned_utc", "handed_off_assigned_utc", "worker_organism",
     };
 
     /// <summary>At the driver's start: the limits for the worker's probes, and a loud line when the worker's release is
     /// not this build, so a version change that was not published is seen at once.</summary>
     private void StartControlling(WorkersConfig w)
     {
-        Log($"  workers  fresh deposits are probed by the worker behind {w.Share} (window {w.Window}; probed here after {w.QuietHours:0.#} h "
+        Log($"  workers  probes go to the worker behind {w.Share} (window {w.Window}; probed here after {w.QuietHours:0.#} h "
             + $"without its heartbeat, or {w.AssignmentHours:0.#} h on one deposit); every full search runs here");
         string self = Provenance.RunRecord.Versions()["pxreprise"];
         try
@@ -2044,12 +2050,12 @@ public sealed class BatchRunner
             {
                 var (beat, state) = _share!.Heartbeat();
                 string seen = beat is { } b ? $"heartbeat {b:yyyy-MM-dd'T'HH:mm:ss'Z'}" + (state is null ? "" : $": {state}") : "no heartbeat";
-                Log(quiet ? $"the probe worker is quiet ({seen}): fresh deposits are probed here until it is back"
-                          : $"the probe worker is alive ({seen}): fresh deposits are left to its probes");
+                Log(quiet ? $"the probe worker is quiet ({seen}): deposits are probed here until it is back"
+                          : $"the probe worker is alive ({seen}): probes are left to it");
                 _workerWasQuiet = quiet;
             }
             foreach (string dir in _share!.ReadyPackages()) Adopt(dir);
-            if (!quiet) Assign(queue);
+            WriteAssignments();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidDataException or UsageException)
         {
@@ -2057,59 +2063,86 @@ public sealed class BatchRunner
         }
     }
 
-    /// <summary>
-    /// The worker's window: the first fresh deposits in queue order (no state here yet, not held, not searched), marked
-    /// assigned here and written to <c>accessions\assigned.tsv</c> in that order.
-    /// </summary>
-    private void Assign(IReadOnlyList<QueueEntry> queue)
+    /// <summary>The worker's assignments: every deposit assigned here, oldest first, written to <c>accessions\assigned.tsv</c>.</summary>
+    private void WriteAssignments()
     {
-        var w = _m.Workers!;
-        var ds = State()["datasets"]!.AsObject();
-        var rows = new List<WorkerShare.Assignment>();
-        string now = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
-        foreach (var x in queue)
-        {
-            if (rows.Count >= w.Window) break;
-            var o = ds[x.Accession] as JsonObject;
-            string? s = o?["status"]?.GetValue<string>();
-            if (s is not null && s != AssignedStatus) continue;
-            if (_q.Holds.ContainsKey(x.Accession) || File.Exists(Path.Combine(Run(x.Accession), "04_search", "provenance.json"))) continue;
-            if (s is null)
-            {
-                Record(x.Accession, ("status", AssignedStatus), ("title", x.Title), ("organism", x.Organism), ("assigned_utc", now), ("worker_attempt", 1));
-                Log($"{x.Accession} ASSIGNED to the probe worker");
-                o = Entry(x.Accession);
-            }
-            rows.Add(new WorkerShare.Assignment(x.Accession, x.QueuedOrganism ?? x.Organism, o?["worker_attempt"]?.GetValue<int>() ?? 1,
-                o?["assigned_utc"]?.GetValue<string>() ?? now, x.Title));
-        }
+        var rows = State()["datasets"]!.AsObject()
+            .Where(kv => kv.Value?["status"]?.GetValue<string>() == AssignedStatus)
+            .Select(kv => (Acc: kv.Key, O: kv.Value!.AsObject()))
+            .OrderBy(x => x.O["assigned_utc"]?.GetValue<string>() ?? "", StringComparer.Ordinal).ThenBy(x => x.Acc, StringComparer.Ordinal)
+            .Select(x => new WorkerShare.Assignment(x.Acc,
+                x.O["worker_organism"]?.GetValue<string>() ?? x.O["organism"]?.GetValue<string>() ?? "human",
+                x.O["worker_attempt"]?.GetValue<int>() ?? 1, x.O["assigned_utc"]?.GetValue<string>() ?? "", x.O["title"]?.GetValue<string>() ?? ""))
+            .ToList();
         _share!.WriteAssignments(rows);
     }
 
+    /// <summary>Where a deposit this machine is about to probe goes (v0.4.27).</summary>
+    internal enum WorkerRoute { Local, Assign, Pending, Defer }
+
     /// <summary>
-    /// A fresh deposit (no state here, or assigned) waits for the worker's probe while the worker is alive. A quiet worker,
-    /// or an assignment older than <c>assignment_hours</c>, gives it back to this machine, which probes it: the worker
-    /// speeds the batch up and never stops it.
+    /// v0.4.27 (the user, 2026-10-19: "it would only run probes", then "do what works best"). Every probe this machine would
+    /// run goes to the worker while it is alive: a fresh deposit, a catch-up re-search, a retry, a deferral's second look.
+    /// Probed here instead:
+    /// <list type="bullet">
+    /// <item>a deposit whose raw files are already here (probing it here costs no download), unless they are about to be
+    /// moved aside with its earlier search (<paramref name="filesStay"/> false: a catch-up re-search);</item>
+    /// <item>one taken back from the worker (quiet, an assignment older than <c>assignment_hours</c>, refused packages);</item>
+    /// <item>one that would wait while the worker has its whole window and nothing is searching here
+    /// (<paramref name="idleHere"/>): this machine never sits idle waiting for a probe.</item>
+    /// </list>
+    /// An assigned deposit is <see cref="WorkerRoute.Pending"/>; one that waits for room in the window while a search runs here
+    /// is <see cref="WorkerRoute.Defer"/>.
     /// </summary>
-    private bool PendingOnWorker(string acc)
+    internal WorkerRoute RouteToWorker(string acc, bool idleHere, bool filesStay)
     {
-        if (_m.Workers is not { } w) return false;
+        var w = _m.Workers!;
         var o = Entry(acc);
         string? s = o?["status"]?.GetValue<string>();
-        if (s is not null && s != AssignedStatus) return false;
-        string? why = null;
-        if (WorkerQuiet()) why = "the probe worker is quiet";
-        else if (s == AssignedStatus && o?["assigned_utc"]?.GetValue<string>() is { } at
-                 && DateTime.TryParse(at, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var t)
-                 && DateTime.UtcNow - t > TimeSpan.FromHours(w.AssignmentHours))
-            why = $"its assignment is older than {w.AssignmentHours:0.#} h and no package came";
-        if (why is null) return true;
         if (s == AssignedStatus)
         {
+            string? why = WorkerQuiet() ? "the probe worker is quiet"
+                : o?["assigned_utc"]?.GetValue<string>() is { } at
+                  && DateTime.TryParse(at, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var t)
+                  && DateTime.UtcNow - t > TimeSpan.FromHours(w.AssignmentHours)
+                    ? $"its assignment is older than {w.AssignmentHours:0.#} h and no package came" : null;
+            if (why is null) return WorkerRoute.Pending;
             Log($"{acc} taken back from the probe worker ({why}): probed here");
             Record(acc, ("status", WorkerFallbackStatus), ("detail", why));
+            return WorkerRoute.Local;
         }
-        return false;
+        if (s == WorkerFallbackStatus || WorkerQuiet() || filesStay && FilesHere(acc, o)) return WorkerRoute.Local;
+        int assigned = State()["datasets"]!.AsObject().Count(kv => kv.Value?["status"]?.GetValue<string>() == AssignedStatus);
+        if (assigned < w.Window) return WorkerRoute.Assign;
+        if (!idleHere) return WorkerRoute.Defer;
+        Log($"{acc} probed here: the probe worker has its {w.Window} deposit(s) and nothing is searching here");
+        return WorkerRoute.Local;
+    }
+
+    /// <summary>Every raw file the deposit's whole fetch listed is on disk here (a deposit downloaded ahead, or fetched).</summary>
+    private bool FilesHere(string acc, JsonObject? o)
+    {
+        if (o?["status"]?.GetValue<string>() == "fetched") return true;
+        if (o?["n_listed"] is not JsonValue nv || !nv.TryGetValue<int>(out int listed) || listed <= 0) return false;
+        string spectra = Path.Combine(Run(acc), "02_fetch", "spectra");
+        return Directory.Exists(spectra) && Directory.EnumerateFiles(spectra, "*.raw").Count() >= listed;
+    }
+
+    /// <summary>
+    /// Assigns <paramref name="e"/> to the worker. The attempt number only ever rises for a deposit, and the assignment time
+    /// is new, so the worker tells a new assignment from one it already handed off.
+    /// </summary>
+    private void AssignToWorker(QueueEntry e, bool catchUp)
+    {
+        int attempt = (Entry(e.Accession)?["worker_attempt"]?.GetValue<int>() ?? 0) + 1;
+        Record(e.Accession, ("status", AssignedStatus), ("title", e.Title), ("organism", e.Organism), ("worker_organism", e.QueuedOrganism ?? e.Organism),
+            ("assigned_utc", DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture)), ("worker_attempt", attempt));
+        Log($"{e.Accession} ASSIGNED to the probe worker (attempt {attempt}{(catchUp ? "; a catch-up re-search" : "")})");
+        try { WriteAssignments(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Log($"workers: assignments not written ({ex.Message}); written again at the next look");
+        }
     }
 
     /// <summary>The profile a probe worker's pass names, when the deposit waits as one (v0.4.26); else null.</summary>
@@ -2355,7 +2388,12 @@ public sealed class BatchRunner
         return "cancelled";
     }
 
-    private bool HandedOff(WorkerShare.Assignment a) => (Entry(a.Accession)?["handed_off_attempt"]?.GetValue<int>() ?? 0) >= a.Attempt;
+    /// <summary>
+    /// This very assignment was handed off. v0.4.27: told by its assignment time, which every new assignment and every
+    /// re-assignment changes; an attempt number alone can repeat for a deposit assigned again later (a catch-up re-search
+    /// of one the worker probed before).
+    /// </summary>
+    private bool HandedOff(WorkerShare.Assignment a) => Entry(a.Accession)?["handed_off_assigned_utc"]?.GetValue<string>() == a.AssignedUtc;
 
     /// <summary>
     /// One assignment: the probe (unless this attempt was already probed and only its hand-off failed), then the package.
@@ -2368,7 +2406,7 @@ public sealed class BatchRunner
         try
         {
             var o = Entry(acc);
-            if (!(o?["probe_attempt"]?.GetValue<int>() == a.Attempt && o["probe_outcome"] is not null))
+            if (!(o?["probe_assigned_utc"]?.GetValue<string>() == a.AssignedUtc && o["probe_outcome"] is not null))
             {
                 var e = WithQuestionSpecies(new QueueEntry(acc, a.Title, a.Organism.ToLowerInvariant()));
                 _doing = new WorkerDoing(acc, "probing");
@@ -2383,7 +2421,7 @@ public sealed class BatchRunner
                     retryAfter[acc] = DateTime.UtcNow.AddMinutes(_m.PassWaitMinutes);
                     return;
                 }
-                Record(acc, ("probe_outcome", profile is not null ? "passed" : status), ("probe_attempt", a.Attempt));
+                Record(acc, ("probe_outcome", profile is not null ? "passed" : status), ("probe_attempt", a.Attempt), ("probe_assigned_utc", a.AssignedUtc));
             }
             string outcome = Entry(acc)!["probe_outcome"]!.GetValue<string>();
             string? profileKey = Entry(acc)?["profile"]?.GetValue<string>();
@@ -2402,7 +2440,7 @@ public sealed class BatchRunner
                 retryAfter[acc] = DateTime.UtcNow.AddMinutes(_m.PassWaitMinutes);
                 return;
             }
-            Record(acc, ("status", HandedOffStatus), ("handed_off_attempt", a.Attempt),
+            Record(acc, ("status", HandedOffStatus), ("handed_off_attempt", a.Attempt), ("handed_off_assigned_utc", a.AssignedUtc),
                 ("handed_off_utc", DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture)));
             Log($"{acc} HANDED OFF ({outcome}{(outcome == "passed" ? $" under {profileKey}" : "")}) to {dest}");
             DeleteProbeFiles(acc, "handed off");
