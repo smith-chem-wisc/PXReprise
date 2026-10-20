@@ -1,0 +1,98 @@
+# label-free-dda-lowres/4: label-free-dda-lowres/3 with HCD read in the ion trap searched as LowCID (v0.4.28,
+# 2026-10-20). /3 searched it as DissociationType HCD with the low-res product tolerance. For every type but LowCID,
+# MetaMorpheus 1.1.12 deconvolutes each MS2 spectrum into neutral fragment masses first (Ms2ScanWithSpecificMass), and a
+# low-res ion-trap spectrum defeats that. LowCID is MetaMorpheus's low-res path (no MS2 deconvolution); its b and y ions
+# are HCD's. One file each, same probe settings, only the dissociation type changed:
+# - PXD022393 (Orbitrap Fusion, rapid ion-trap scans): 107 PSMs at 1% as HCD, 2,442 as LowCID; /3's probe parked it
+#   waiting_no_identifications (0 PSMs in 3 runs).
+# - PXD016430 (39% identified under /2): 3,300 as HCD, 9,173 as LowCID.
+# - A file that mixes ion-trap CID and ion-trap HCD is now one type, LowCID, so it is no longer refused.
+# The databases stay agingPTM-v3, as /3's (D44: agingPTM-v4 cost an ion-trap run 4%). Everything else is /3's, whose
+# notes follow unchanged (where they say ion-trap HCD is searched as HCD, or a CID/HCD mix refused, /4 differs):
+#
+# label-free-dda-lowres/3: label-free-dda-lowres/2 plus the probe search, and precursor and FlashLFQ windows wide enough
+# for the precursor offset it measures (2026-10-17). This profile runs no Calibration task (the user, 2026-10-07: no
+# calibration of low-res data until MetaMorpheus's low-res calibration is merged), yet /2 kept MetaMorpheus's ±5 ppm
+# precursor window and FlashLFQ's 5 ppm, which assume calibrated masses.
+# - PXD045821 (Orbitrap Fusion, MS1 in the Orbitrap, HCD read in the ion trap): its precursors are +8.7 ppm off, and /2
+#   identified 0.37% of its spectra. One of its runs: 292 PSMs at 1% under /2's ±5 ppm, 17,268 at ±10, 18,268 at ±20.
+#   FlashLFQ (mzLib FlashLfqEngine) keeps only XIC peaks within QuantifyPpmTol of the theoretical mass and corrects no
+#   offset: at ±20 ppm it quantified 1,295 peptides at 5 ppm and 10,421 at 20 ppm.
+# - A fixed ±20 ppm costs a deposit with no offset: a PXD015170 run (offset 0.0 ppm) lost 21% of its PSMs and 17% of its
+#   peptides. So the window is set per deposit: precursor_window = "probe" takes the probe runs' median precursor
+#   offsets (the probe takes precursors within ±20 ppm, uncalibrated) and searches with 5 ppm beyond the largest, rounded
+#   up, at most ±20 ppm; MetaMorpheus's windows when none exceeds 2 ppm. Provenance records the offsets and the window.
+# - The probe search is @7's: three probe files against every species database, with its parks (species, alkylation,
+#   no identifications, an unstated enrichment). Ion-trap runs are searched in it with their per-file fragmentation.
+# Everything else is /2's.
+#
+# From /2: HCD read in the ion trap (PXR-A68, aging 072). A Fusion/Lumos/Eclipse "HCD-IT" method fragments by HCD and
+# reads MS2 in the ion trap; ion_trap_hcd searches it as DissociationType HCD with the low-res product tolerance below,
+# written per file. A file that mixes ion-trap and Orbitrap MS2, or ion-trap CID and ion-trap HCD, is still refused.
+#
+# From /1: label-free DDA whose MS2 is read in the ION TRAP (low resolution), e.g. CID on an LTQ Orbitrap
+# or a Fusion/Lumos in ion-trap mode. The Search task only, against the canonical agingPTM-v3 XML (which carries
+# UniProt's and agingPTM's PTM annotations), no Calibration, no GPTMD. The batch never routes here from the screen: only
+# a probe whose spectra fail ONLY low_res_ms2 under the question's earlier profile is re-checked here (v0.4.2).
+# Fragmentation is written per file from the MS2 headers (D32 slice 1): ion-trap CID is searched as LowCID with the low-res
+# product tolerance below. No spectral library: ion-trap spectra must never enter the Orbitrap-HCD libraries the other
+# profiles build. Everything else is label-free-dda@5's.
+id = "label-free-dda-lowres"
+version = 4
+status = "available"
+description = "Label-free DDA with MS2 read in the ion trap; a probe search first, then MetaMorpheus 1.1.12 Search only (no calibration, no GPTMD) with precursor and FlashLFQ windows wide enough for the probe's measured offset, LowCID per file (ion-trap CID and ion-trap HCD alike), FlashLFQ with MBR and an SDRF design; UniProt canonical proteomes with agingPTM-v3 sites"
+
+[accepts]
+acquisition = ["dda"]
+labelling = ["label_free"]
+instrument = ["orbitrap_hcd_only", "orbitrap_hybrid"]
+file_types = [".raw"]
+
+[engine]
+chemistry = "deposit"
+metamorpheus = "1.1.12"
+tasks = ["Search"]
+spectral_library = false
+write_sdrf = true
+fragmentation = "per_file"
+low_res_product_tolerance = "±0.5000 Absolute"
+ion_trap_hcd = true
+ion_trap_hcd_lowcid = true   # v0.4.28: ion-trap HCD searched as LowCID
+probe_search = true
+precursor_window = "probe"
+timeout_h = 8
+
+[databases.human]
+proteome = "UP000005640_all_genecentric_2026_03_agingPTM-v3.xml"
+taxon = 9606
+
+[databases.mouse]
+proteome = "UP000000589_all_genecentric_2026_03_agingPTM-v3.xml"
+taxon = 10090
+
+[databases.rat]
+proteome = "UP000002494_all_genecentric_2026_03_agingPTM-v3.xml"
+taxon = 10116
+
+[contaminants]
+file = "MetaMorpheusContaminants_NoUPS.xml"
+
+[quant]
+method = "flashlfq"
+mbr = true
+design = "sdrf"
+
+[deposit]
+whole = true
+max_files = 120
+probe = "probe_spread"
+max_est_ms2 = 3_000_000
+max_file_mb = 5000
+defer_if_median_file_mb = 2200
+
+[qc]
+ms2_analyzer = "any"
+min_fraction_orbitrap_hcd = 0   # no Orbitrap-HCD gate: that is what this profile is for
+min_ms2 = 5000
+excludable = ["too_few_ms2"]
+max_excluded_frac = 0.10

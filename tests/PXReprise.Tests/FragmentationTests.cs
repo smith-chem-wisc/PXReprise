@@ -65,6 +65,29 @@ public class FragmentationTests
         Assert.That(off.Unsupported, Does.Contain(pair));
     }
 
+    // v0.4.28: searched as HCD, MetaMorpheus deconvolutes each low-res MS2 spectrum first and matches almost nothing:
+    // one PXD022393 file gave 107 PSMs as HCD and 2,442 as LowCID; one PXD016430 file 3,300 and 9,173.
+    [TestCase("IonTrap2D/HCD")]
+    [TestCase("IonTrap3D/HCD")]
+    public void HcdReadInAnIonTrapIsLowCidUnderTheLowCidSwitch(string pair)
+    {
+        var c = Fragmentation.Decide(Pairs((pair, 70386)), ionTrapHcd: true, ionTrapHcdLowCid: true);
+        Assert.That((c.DissociationType, c.LowRes, c.Unsupported), Is.EqualTo(("LowCID", true, (string?)null)));
+        var alone = Fragmentation.Decide(Pairs((pair, 70386)), ionTrapHcdLowCid: true);
+        Assert.That(alone.DissociationType, Is.Null, "the switch says how ion-trap HCD is searched, only where ion_trap_hcd searches it");
+    }
+
+    [Test]
+    public void UnderTheLowCidSwitchIonTrapCidAndHcdInOneFileAreOneLowCidFile()
+    {
+        var c = Fragmentation.Decide(Pairs(("IonTrap2D/CID", 3000), ("IonTrap2D/HCD", 2000)), ionTrapHcd: true, ionTrapHcdLowCid: true);
+        Assert.That((c.DissociationType, c.LowRes, c.Unsupported), Is.EqualTo(("LowCID", true, (string?)null)));
+        var mixed = Fragmentation.Decide(Pairs(("Orbitrap/HCD", 3000), ("IonTrap2D/HCD", 2000)), ionTrapHcd: true, ionTrapHcdLowCid: true);
+        Assert.That(mixed.Unsupported, Is.EqualTo("ion-trap and high-resolution MS2 are mixed in one file"), "Orbitrap and ion-trap MS2 still never merge");
+        foreach (var p in new[] { "Orbitrap/HCD", "Orbitrap/CID", "IonTrap2D/CID", "Orbitrap/UVPD", "IonTrap2D/ETD" })
+            Assert.That(Fragmentation.Decide(Pairs((p, 5000)), ionTrapHcd: true, ionTrapHcdLowCid: true), Is.EqualTo(Fragmentation.Decide(Pairs((p, 5000)))), p);
+    }
+
     [Test]
     public void IonTrapHcdNeverMergesWithOrbitrapHcd()
     {
@@ -171,13 +194,18 @@ public class FragmentationTests
             src.Replace("[engine]", "[engine]\nfragmentation = \"per_file\"\nion_trap_hcd = true"))).IonTrapHcd, Is.True);
         Assert.That(Assert.Throws<Config.ConfigException>(() => Config.ProfileLoader.Load(TestSupport.WriteFile(dir, "e.toml",
             src.Replace("[engine]", "[engine]\nion_trap_hcd = true"))))!.Message, Does.Contain("per_file"));
+        // v0.4.28: ion_trap_hcd_lowcid says how ion-trap HCD is searched, so it needs ion_trap_hcd.
+        Assert.That(Config.ProfileLoader.Load(TestSupport.WriteFile(dir, "f.toml",
+            src.Replace("[engine]", "[engine]\nfragmentation = \"per_file\"\nion_trap_hcd = true\nion_trap_hcd_lowcid = true"))).IonTrapHcdLowCid, Is.True);
+        Assert.That(Assert.Throws<Config.ConfigException>(() => Config.ProfileLoader.Load(TestSupport.WriteFile(dir, "g.toml",
+            src.Replace("[engine]", "[engine]\nfragmentation = \"per_file\"\nion_trap_hcd_lowcid = true"))))!.Message, Does.Contain("ion_trap_hcd = true"));
         var shipped = Config.ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
-        string[] ionTrap = { "label-free-dda-lowres@1", "label-free-dda-lowres@2", "label-free-dda-lowres@3" };
+        string[] ionTrap = { "label-free-dda-lowres@1", "label-free-dda-lowres@2", "label-free-dda-lowres@3", "label-free-dda-lowres@4" };
         Assert.That(shipped.Where(kv => !ionTrap.Contains(kv.Key)).Select(kv => kv.Value.Fragmentation), Has.All.EqualTo("fixed"),
             "no shipped profile changes behaviour (D26): per_file arrives with a new profile");
         Assert.That(ionTrap.Select(k => shipped[k].Fragmentation), Has.All.EqualTo("per_file"), "the ion-trap profiles are the ones that write it");
         Assert.That(shipped.Where(kv => kv.Value.IonTrapHcd).Select(kv => kv.Key),
-            Is.EquivalentTo(new[] { "label-free-dda-lowres@2", "label-free-dda-lowres@3" }));
+            Is.EquivalentTo(new[] { "label-free-dda-lowres@2", "label-free-dda-lowres@3", "label-free-dda-lowres@4" }));
     }
 
     [Test]
@@ -229,6 +257,6 @@ public class FragmentationTests
 
         var shipped = Config.ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
         Assert.That(shipped.Where(kv => kv.Value.PrecursorWindow != "default").Select(kv => kv.Key),
-            Is.EquivalentTo(new[] { "label-free-dda-lowres@3" }), "no shipped profile changes behaviour (D26): the window arrives with a new profile");
+            Is.EquivalentTo(new[] { "label-free-dda-lowres@3", "label-free-dda-lowres@4" }), "no shipped profile changes behaviour (D26): the window arrives with a new profile");
     }
 }

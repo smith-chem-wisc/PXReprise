@@ -135,6 +135,32 @@ public class SearchStageTests
         new[] { new PXReprise.Discovery.CysMod("Nethylmaleimide", "UNIMOD:108", false), new PXReprise.Discovery.CysMod("NEM:2H(5)", "UNIMOD:776", false) },
         new("label_free", PXReprise.Discovery.ChemistrySource.Default), null);
 
+    // v0.4.28 (PXD006815, a MED-FASP chymotrypsin fraction): a custom protease named per file reaches MetaMorpheus. Its
+    // entry is installed into MetaMorpheus's settings folder before the search, and the provenance records it.
+    [Test]
+    public async Task ACustomProteaseNamedPerFileIsInstalledBeforeTheSearchAndRecorded()
+    {
+        CustomProteases.Load(Path.Combine(TestSupport.ProfilesDir, "lists", CustomProteases.FileName));
+        var rig = Setup(library: false, depositChemistry: true);
+        // The fake MetaMorpheus does not seed a settings folder as the real one does (-g --mmsettings): one is made here.
+        Directory.CreateDirectory(Path.Combine(rig.Root, "mm_settings", "1.1.11", "Mods"));
+        var perFile = new Dictionary<string, string> { ["a.raw"] = "trypsin", ["b.raw"] = CustomProteases.TrypsinChymotrypsin };
+        var o = await SearchStage.RunAsync(Req(rig, "04_search") with { Chemistry = Nem(perFile) }, CancellationToken.None);
+        Assert.That(o.Success, Is.True);
+        Assert.That(File.ReadAllText(Path.Combine(rig.Spectra, "b.toml")), Does.Contain($"DigestionAgent = \"{CustomProteases.TrypsinChymotrypsin}\""));
+
+        var prov = JsonNode.Parse(File.ReadAllText(o.ProvenanceFile))!;
+        string installed = prov["inputs"]!.AsArray().Select(i => i!["path"]!.GetValue<string>()).Single(p => p.EndsWith(CustomProteases.MetaMorpheusFileName));
+        // Provenance records an input under the work root relative to it.
+        Assert.That(File.ReadAllText(Path.Combine(rig.Root, installed)), Does.Contain("trypsin+chymotrypsin\tK|,R|,F[P]|,W[P]|,Y[P]|,L[P]|\tfull"));
+        static IEnumerable<string> Notes(JsonNode p) => p["notes"]!.AsArray().Select(n => n!.GetValue<string>());
+        Assert.That(Notes(prov), Has.Some.StartsWith($"custom protease(s) {CustomProteases.TrypsinChymotrypsin} from {CustomProteases.FileName}"));
+
+        // A search naming no custom protease installs nothing.
+        var plain = await SearchStage.RunAsync(Req(rig, "04_search_2") with { Chemistry = Nem() }, CancellationToken.None);
+        Assert.That(Notes(JsonNode.Parse(File.ReadAllText(plain.ProvenanceFile))!), Has.None.Contains("custom protease"));
+    }
+
     [Test]
     public async Task ADepositsChemistryReachesEveryTaskAndEachRawFile()
     {

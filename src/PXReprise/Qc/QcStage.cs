@@ -55,7 +55,7 @@ public static class QcStage
             // D32 (G24): the file's fragmentation from its own MS2 headers, written into its <raw>.toml at search time.
             if (profile.Fragmentation == "per_file" && r.Ms2AnalyzerDissociation is { } pairs)
             {
-                var call = Fragmentation.Decide(pairs, profile.IonTrapHcd);
+                var call = Fragmentation.Decide(pairs, profile.IonTrapHcd, profile.IonTrapHcdLowCid);
                 var entry = report[Path.GetFileName(f)]!.AsObject();
                 entry["fragmentation"] = new JsonObject
                 {

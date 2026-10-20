@@ -91,6 +91,7 @@ public static class ChemistryDetector
     };
     private const string Trypsin = "trypsin";
     private const string LysC = "Lys-C|P";
+    private const string Chymotrypsin = "chymotrypsin|P";
     private const string NonSpecific = "non-specific";
 
     /// <summary>The wait of a deposit whose protease cuts almost anywhere (v0.4.19); the screen gives the same status to an immunopeptidome.</summary>
@@ -165,7 +166,10 @@ public static class ChemistryDetector
     }
 
     /// <summary>The canonical name for an SDRF or free-text protease name, or null.</summary>
-    internal static string? CanonicalProtease(string name) => Proteases.FirstOrDefault(p => p.Pattern.IsMatch(name)).Name;
+    // v0.4.28: one of PXReprise's own digestion agents, named exactly, before the patterns: "trypsin+chymotrypsin" would
+    // otherwise read as trypsin.
+    internal static string? CanonicalProtease(string name) =>
+        Search.CustomProteases.IsCustom(name.Trim()) ? name.Trim() : Proteases.FirstOrDefault(p => p.Pattern.IsMatch(name)).Name;
 
     /// <summary>File-name words for a protease: _GluC_, -AspN-, Chymo.</summary>
     private static readonly (string Name, Regex Pattern)[] ProteaseInFileName =
@@ -306,6 +310,10 @@ public static class ChemistryDetector
             var agents = row.All("comment[cleavage agent details]").Select(c => CanonicalProtease(Field(c, "NT") ?? c) ?? ProteaseByAccession(Field(c, "AC")))
                 .OfType<string>().Distinct().ToList();
             if (agents.Count > 1 && agents.Contains(Trypsin)) agents.Remove(LysC);
+            // v0.4.28: trypsin and chymotrypsin named for one file (a MED-FASP chymotrypsin fraction, or a co-digest) cut at
+            // both enzymes' sites: the combined custom protease, when it is loaded (PXD006815, 2026-10-20).
+            if (agents.Count == 2 && agents.Contains(Trypsin) && agents.Contains(Chymotrypsin) && Search.CustomProteases.IsCustom(Search.CustomProteases.TrypsinChymotrypsin))
+                agents = new List<string> { Search.CustomProteases.TrypsinChymotrypsin };
             if (agents.Count == 1 && file.Length > 0) perFile[file] = agents[0];
             else if (agents.Count > 1 && file.Length > 0) perFile[file] = string.Join(" + ", agents);
             foreach (string cell in row.All("comment[modification parameters]"))

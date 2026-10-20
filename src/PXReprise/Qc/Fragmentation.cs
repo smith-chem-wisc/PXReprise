@@ -15,7 +15,10 @@ public sealed record FragmentationCall(string? DissociationType, bool LowRes, st
 /// type, and treats every scan as high resolution, so Autodetect is used only when every type is one of those and every
 /// scan is read at high resolution;</item>
 /// <item>HCD read in an ion trap is searched as HCD at the low-res tolerance, only when the profile turns
-/// <c>ion_trap_hcd</c> on (PXR-A68); otherwise it is refused, as before;</item>
+/// <c>ion_trap_hcd</c> on (PXR-A68); otherwise it is refused, as before. With <c>ion_trap_hcd_lowcid</c> too (v0.4.28,
+/// <c>label-free-dda-lowres@4</c>) it is searched as LowCID: for every other type MetaMorpheus deconvolutes each MS2
+/// spectrum first (Ms2ScanWithSpecificMass), which a low-res spectrum defeats. On one file of PXD022393, 107 PSMs as HCD
+/// and 2,442 as LowCID; of PXD016430, 3,300 and 9,173. Its b and y ions are the same;</item>
 /// <item>an unknown or unsupported type, ion-trap and high-resolution MS2 mixed in one file, or ion-trap CID and
 /// ion-trap HCD mixed in one file, is refused: a file gets one DissociationType.</item>
 /// </list>
@@ -36,7 +39,9 @@ public static class Fragmentation
 
     /// <param name="ms2AnalyzerDissociation">Counts keyed "<c>analyzer/dissociation</c>", as SpectraQc writes them.</param>
     /// <param name="ionTrapHcd">The profile's <c>ion_trap_hcd</c>: search HCD read in an ion trap as low-res HCD.</param>
-    public static FragmentationCall Decide(IReadOnlyDictionary<string, int> ms2AnalyzerDissociation, bool ionTrapHcd = false)
+    /// <param name="ionTrapHcdLowCid">The profile's <c>ion_trap_hcd_lowcid</c>: search it as LowCID instead, so a file that
+    /// mixes ion-trap CID and ion-trap HCD is one type, LowCID.</param>
+    public static FragmentationCall Decide(IReadOnlyDictionary<string, int> ms2AnalyzerDissociation, bool ionTrapHcd = false, bool ionTrapHcdLowCid = false)
     {
         int total = ms2AnalyzerDissociation.Values.Sum();
         if (total == 0) return new(null, false, "no MS2 scans", "");
@@ -53,7 +58,7 @@ public static class Fragmentation
             string analyzer = parts[0], dissociation = parts.Length > 1 ? parts[1] : "None";
             string? type = HighResolution.Contains(analyzer) && AutodetectTypes.Contains(dissociation) ? dissociation
                 : IonTrap.Contains(analyzer) && dissociation == "CID" ? "LowCID"
-                : ionTrapHcd && IonTrap.Contains(analyzer) && dissociation == "HCD" ? IonTrapHcdType
+                : ionTrapHcd && IonTrap.Contains(analyzer) && dissociation == "HCD" ? (ionTrapHcdLowCid ? "LowCID" : IonTrapHcdType)
                 : null;
             if (type is null)
                 return new(null, false, $"{pair} in {n} of {total} MS2 scans is not a fragmentation MetaMorpheus can be told per file", evidence);

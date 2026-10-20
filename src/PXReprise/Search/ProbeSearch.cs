@@ -97,6 +97,7 @@ public static class ProbeSearch
         string settingsDir = Path.Combine(m.MetaMorpheusSettingsRoot, release);
         Directory.CreateDirectory(m.MetaMorpheusSettingsRoot);
         SearchStage.InstallCustomModifications(p, chem, settingsDir, runner, prov);
+        SearchStage.InstallCustomProteases(chem, settingsDir, runner, prov);
         var args = new List<string> { "-t", toml, "-s" };
         args.AddRange(spectra);
         args.Add("-d"); args.AddRange(dbs);

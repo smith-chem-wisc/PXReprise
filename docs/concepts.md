@@ -40,6 +40,7 @@ is a new version, so every result says exactly which method made it.
 | `label-free-dda-lowres@1` | available | label-free DDA whose MS2 is read in the ion trap (CID): MetaMorpheus's Search task alone, each file's fragmentation written from its own scans, no spectral library. A deposit is sent here only when its probe files fail the Orbitrap check and nothing else |
 | `label-free-dda-lowres@2` | available | `lowres@1`, plus MS2 fragmented by HCD and read in the ion trap (a Fusion, Lumos or Eclipse "HCD-IT" method) |
 | `label-free-dda-lowres@3` | available | `lowres@2`, plus the probe search, which measures each deposit's precursor mass offset. The search then accepts and quantifies precursors within a window wide enough for that offset (below). These profiles run no calibration, and an instrument whose masses are a few ppm off loses most of its identifications at MetaMorpheus's 5 ppm |
+| `label-free-dda-lowres@4` | available | `lowres@3`, with MS2 fragmented by HCD and read in the ion trap searched as MetaMorpheus's LowCID, its low-resolution path. Searched as HCD, MetaMorpheus first deconvolutes each low-resolution spectrum and matches almost nothing: one test file gave 107 PSMs as HCD and 2,442 as LowCID, another 3,300 and 9,173. A file mixing ion-trap CID and ion-trap HCD is now searched too |
 | `tmt-dda@1` | pending | TMT-labelled DDA. Not runnable yet: a question that lists it gets a count of the TMT deposits it would unlock |
 
 Every profile but `@2` needs the ageing project's own databases in the machine's `database_dir`, and runs only where they
@@ -64,6 +65,15 @@ which protease made the deposit's peptides, how its cysteines were alkylated, an
   (`[engine] custom_modifications`, under `profiles/lists/`) and maps the reagent to one of its modifications
   (`[thiol_reagents]`). The deposit is then searched with that modification, variable. Before such a search,
   PXReprise copies the file into the MetaMorpheus settings folder the search uses.
+- **PXReprise's own proteases** (since 0.4.28, any profile). `profiles/lists/PXReprise_custom_proteases_v1.tsv` holds
+  digestion agents mzLib's list lacks, in mzLib's own columns. Before a search that uses one, PXReprise adds it to
+  the `proteases_custom.tsv` in the MetaMorpheus settings folder the search uses. Today the list holds one:
+  - **`trypsin+chymotrypsin`** cuts after K and R, and after F, W, Y and L except before P. It is meant for the
+    chymotrypsin fraction of a MED-FASP digest, where chymotrypsin digests what trypsin left. On one such run, a
+    non-specific search found both kinds of cut at either end of the peptides; chymotrypsin alone identified 651 PSMs,
+    this protease 7,028.
+  - **How a question names it:** in its SDRF, `NT=trypsin+chymotrypsin`, or both trypsin and chymotrypsin in one
+    file's cleavage-agent columns.
 - **When the search fails:** if MetaMorpheus reports it could not use a modification or a per-file protease. It does
   not search on without them.
 

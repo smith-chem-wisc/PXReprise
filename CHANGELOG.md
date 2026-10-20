@@ -7,6 +7,27 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.28 (2026-10-20)
+
+No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual, then publish the
+build to the probing machine (a build-only release). A question takes the new profile by naming it.
+
+- **New profile `label-free-dda-lowres@4`:** `lowres@3`, with MS2 fragmented by HCD and read in the ion trap searched as
+  MetaMorpheus's LowCID.
+  - **Why:** `lowres@2` and `@3` searched it as HCD at the low-res tolerance. For every type but LowCID, MetaMorpheus
+    deconvolutes each MS2 spectrum into fragment masses first, and a low-resolution spectrum defeats that. On one file
+    each, with the same settings and only the type changed: 107 PSMs at 1% as HCD and 2,442 as LowCID (a deposit
+    `lowres@3` had parked as identifying nothing); 3,300 and 9,173 on a deposit identified at 39%.
+  - A file that mixes ion-trap CID and ion-trap HCD is now one type, LowCID, and is searched instead of refused.
+  - Profile key `ion_trap_hcd_lowcid` (needs `ion_trap_hcd`). Earlier profiles are unchanged.
+- **PXReprise's own proteases:** `profiles/lists/PXReprise_custom_proteases_v1.tsv`, in mzLib's columns, merged into
+  mzLib's protease list when the profiles load. Before a search or probe that uses one, it is added to
+  `proteases_custom.tsv` in MetaMorpheus's settings folder, and the search's provenance records the file.
+  - **The first is `trypsin+chymotrypsin`:** cuts after K and R, and after F, W, Y and L except before P. It is for
+    the chymotrypsin fraction of a MED-FASP digest: on one such run, 651 PSMs as chymotrypsin and 7,028 with it.
+  - **A question names it** in its SDRF as `NT=trypsin+chymotrypsin`, or by naming trypsin and chymotrypsin for one
+    file. Before, such a file waited as `waiting_multi_protease`.
+
 ## 0.4.27 (2026-10-19)
 
 No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual, then publish the
