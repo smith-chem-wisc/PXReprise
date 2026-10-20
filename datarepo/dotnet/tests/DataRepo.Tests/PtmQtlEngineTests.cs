@@ -319,11 +319,21 @@ public class PtmQtlEngineTests
     [Test]
     public void FractionsOfOneSampleCombineAndAnythingElseIsRefused()
     {
-        var map = PtmQtlBundle.RunToSample([("f1", "S1", 1), ("f2", "S1", 2), ("r3", "S3", null)], "test");
+        var map = PtmQtlBundle.RunToSample([("f1", "S1", 1, null), ("f2", "S1", 2, null), ("r3", "S3", null, null)], "test");
         Assert.That(map, Is.EquivalentTo(new Dictionary<string, string> { ["f1"] = "S1", ["f2"] = "S1", ["r3"] = "r3" }));
-        Assert.That(() => PtmQtlBundle.RunToSample([("i1", "S8", null), ("i2", "S8", null)], "test"),
+        Assert.That(() => PtmQtlBundle.RunToSample([("i1", "S8", null, null), ("i2", "S8", null, null)], "test"),
             Throws.TypeOf<RunnerException>().With.Message.Contains("not distinct fractions").And.Message.Contains("ptmQtl S4"));
-        Assert.That(() => PtmQtlBundle.RunToSample([("i1", "S8", 1), ("i2", "S8", 1)], "test"), Throws.TypeOf<RunnerException>());
+        Assert.That(() => PtmQtlBundle.RunToSample([("i1", "S8", 1, null), ("i2", "S8", 1, null)], "test"), Throws.TypeOf<RunnerException>());
+
+        // Repeat injections (distinct technical replicates) stay runs; fractions within one injection combine.
+        Assert.That(PtmQtlBundle.RunToSample([("i1", "S8", 1, 1), ("i2", "S8", 1, 2)], "test"),
+            Is.EquivalentTo(new Dictionary<string, string> { ["i1"] = "i1", ["i2"] = "i2" }));
+        Assert.That(PtmQtlBundle.RunToSample([("a1", "S9", 1, 1), ("a2", "S9", 2, 1), ("b1", "S9", 1, 2), ("b2", "S9", 2, 2)], "test"),
+            Is.EquivalentTo(new Dictionary<string, string> { ["a1"] = "S9:tr1", ["a2"] = "S9:tr1", ["b1"] = "S9:tr2", ["b2"] = "S9:tr2" }));
+        Assert.That(() => PtmQtlBundle.RunToSample([("i1", "S8", 1, 1), ("i2", "S8", 1, null)], "test"),
+            Throws.TypeOf<RunnerException>().With.Message.Contains("some runs and not others"));
+        Assert.That(() => PtmQtlBundle.RunToSample([("a1", "S9", 1, 1), ("a2", "S9", 1, 1), ("b1", "S9", 1, 2)], "test"),
+            Throws.TypeOf<RunnerException>().With.Message.Contains("injection 1"));
     }
 
     [Test]

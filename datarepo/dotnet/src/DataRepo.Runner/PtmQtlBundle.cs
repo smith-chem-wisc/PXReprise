@@ -60,8 +60,13 @@ public static class PtmQtlBundle
     }
 
     /// <summary>Runs -> samples (S4), from the bundle's assays and runs.</summary>
-    /// <exception cref="RunnerException">A sample holds several runs that are not distinct fractions.</exception>
-    public static Dictionary<string, string> RunToSample(IEnumerable<(string Run, string Sample, long? Fraction)> runs, string where)
+    /// <remarks>A sample's runs are grouped by technical replicate. Within one replicate, runs are fractions of one
+    /// injection and are combined, so they must carry distinct fractions. Repeat injections (distinct replicates) are
+    /// never combined (S4): an injection of one file stays its own run, and one of several fractions is keyed
+    /// <c>&lt;sample&gt;:tr&lt;n&gt;</c>. A sample whose runs the records cannot tell apart is refused.</remarks>
+    /// <exception cref="RunnerException">A sample holds several runs that are neither distinct fractions nor distinct
+    /// injections, or records a replicate for some runs and not others.</exception>
+    public static Dictionary<string, string> RunToSample(IEnumerable<(string Run, string Sample, long? Fraction, long? TechnicalReplicate)> runs, string where)
     {
         var map = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var group in runs.GroupBy(r => r.Sample, StringComparer.Ordinal))
@@ -72,12 +77,26 @@ public static class PtmQtlBundle
                 map[members[0].Run] = members[0].Run;
                 continue;
             }
-            if (members.Any(m => m.Fraction is null) || members.Select(m => m.Fraction).Distinct().Count() != members.Count)
-                throw new RunnerException(
-                    $"{where}: sample {group.Key} holds {members.Count} runs ({string.Join(", ", members.Select(m => m.Run).Order(StringComparer.Ordinal))}) "
-                    + "that are not distinct fractions, so whether to combine them (fractions) or keep them apart (injections) "
-                    + "cannot be told (ptmQtl S4). The bundle's run and sample records decide it; nothing is guessed.");
-            foreach (var m in members) map[m.Run] = $"{group.Key}";
+            string Refuse(string why) => throw new RunnerException(
+                $"{where}: sample {group.Key} holds {members.Count} runs ({string.Join(", ", members.Select(m => m.Run).Order(StringComparer.Ordinal).Take(4))}{(members.Count > 4 ? ", ..." : "")}) "
+                + $"{why}, so whether to combine them (fractions) or keep them apart (injections) cannot be told (ptmQtl S4). "
+                + "The bundle's run and sample records decide it; nothing is guessed.");
+            if (members.Any(m => m.TechnicalReplicate is null) && members.Any(m => m.TechnicalReplicate is not null))
+                Refuse("that record a technical replicate for some runs and not others");
+            var injections = members.GroupBy(m => m.TechnicalReplicate).ToList();
+            foreach (var injection in injections)
+            {
+                var files = injection.ToList();
+                if (files.Count == 1 && injections.Count > 1)
+                {
+                    map[files[0].Run] = files[0].Run;
+                    continue;
+                }
+                if (files.Any(m => m.Fraction is null) || files.Select(m => m.Fraction).Distinct().Count() != files.Count)
+                    Refuse(injections.Count == 1 ? "that are not distinct fractions" : $"whose injection {injection.Key} holds files that are not distinct fractions");
+                var key = injections.Count == 1 ? group.Key : $"{group.Key}:tr{injection.Key}";
+                foreach (var m in files) map[m.Run] = key;
+            }
         }
         return map;
     }
@@ -171,13 +190,15 @@ public static class PtmQtlBundle
         if (species.Count != 1)
             throw new RunnerException($"{where} records {species.Count} organisms; pooling is within one species (ptmQtl S5).");
 
-        // A run's fraction is the search's own design's where the run is one file of a design sample (assay_runs, schema
-        // 0.0.16), since that is how MetaMorpheus grouped it, else the run's.
-        var designFraction = bundle.TablePath("assay_runs") is null ? "NULL"
-            : $"(SELECT min(ar.fraction) FROM {Table(bundle, "assay_runs")} ar WHERE ar.run_id = a.run_id)";
+        // A run's fraction and technical replicate are the search's own design's where the run is one file of a design
+        // sample (assay_runs, schema 0.0.16), since that is how MetaMorpheus grouped it, else the run's.
+        string Design(string column) => bundle.TablePath("assay_runs") is null ? "NULL"
+            : $"(SELECT min(ar.{column}) FROM {Table(bundle, "assay_runs")} ar WHERE ar.run_id = a.run_id)";
+        long? Long(object? v) => v is null ? null : Convert.ToInt64(v);
         var runToSample = RunToSample(Query(con,
-                $"SELECT a.run_id, a.sample_id, coalesce({designFraction}, r.fraction) FROM {assays} a JOIN {runs} r USING (run_id) WHERE a.assay_id LIKE '%:label_free'")
-            .Select(r => ((string)r[0]!, (string)r[1]!, r[2] is null ? (long?)null : Convert.ToInt64(r[2]))), where);
+                $"SELECT a.run_id, a.sample_id, coalesce({Design("fraction")}, r.fraction), coalesce({Design("technical_replicate")}, r.technical_replicate) "
+                + $"FROM {assays} a JOIN {runs} r USING (run_id) WHERE a.assay_id LIKE '%:label_free'")
+            .Select(r => ((string)r[0]!, (string)r[1]!, Long(r[2]), Long(r[3]))), where);
         counts["samples combined from fractions"] = runToSample.GroupBy(kv => kv.Value).Count(g => g.Count() > 1);
 
         var nterms = Query(con, $"SELECT DISTINCT protein_accession, position FROM {sites} WHERE site_type = 'protein_n_term'")
