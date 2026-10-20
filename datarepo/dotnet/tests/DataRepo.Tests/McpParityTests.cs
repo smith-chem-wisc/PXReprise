@@ -270,6 +270,9 @@ public class McpParityTests
             ("dataset_id", "ProteomeXchange accession, e.g. PXD036557."),
             ("source", "Where this value came from, per the SDRF's own"),
             ("fraction_source", "Where the SDRF's fraction came from"),
+            // DATAREPO-84: source_db names a non-UniProt entry's own source (1.4.0's text, then 0.0.13's).
+            ("source_db", "Where the entry came from: `uniprot` for a Swiss-Prot"),
+            ("source_db", "uniprot, or the custom database that supplied it"),
             // These texts hold escaped quotes (`\"label_free\"`), so the mask runs to the string's real end.
         }.Select(d => (new Regex(Regex.Escape(d.Item2) + @"(?:[^""\\]|\\.)*", RegexOptions.CultureInvariant), $"<{d.Item1}: rewritten in schema 0.0.16>")),
         // 1.4.0 gives dataset_overview.n_quant_values a description it never had (pooled values count too), so the

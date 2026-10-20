@@ -222,18 +222,23 @@ public static class Identifications
 
     /// <summary>Where an accession came from. Decoy entries are kept, since PSM rows point at them and FDR
     /// cannot be recomputed without them, but they are not UniProt entries.</summary>
-    private static string SourceDb(string accession, bool contaminant)
+    /// <param name="otherSource">Under <see cref="IngestRules.Current"/>, the source and taxon a target accession's own
+    /// database entry names when it is not UniProt (<see cref="ProteinSequences.OtherSource"/>); null otherwise.</param>
+    private static string SourceDb(string accession, bool contaminant, (string Source, string? Taxon)? otherSource = null)
     {
         if (accession.ToUpperInvariant().StartsWith(DecoyPrefix, StringComparison.Ordinal)) return "decoy";
-        return contaminant ? "contaminants" : "uniprot";
+        // A target entry from another source says so (aging's Ensembl-only isoforms, DATAREPO-84): "uniprot" would be
+        // false there. Every entry of every database searched to date is Swiss-Prot or TrEMBL (measured 2026-10-20).
+        return contaminant ? "contaminants" : otherSource?.Source ?? "uniprot";
     }
 
     /// <summary>The NCBITaxon term for one database entry, or null where we do not have one.</summary>
     /// <remarks>The dataset's organism is evidence about the searched proteome and nothing else: a contaminant
     /// is bovine, porcine or bacterial by design, and a reversed decoy is no organism's protein. No
-    /// name-to-taxon mapping happens here (D1, G36).</remarks>
-    private static string? EntryTaxon(string sourceDb, string? datasetOrganism) =>
-        sourceDb == "uniprot" ? datasetOrganism : null;
+    /// name-to-taxon mapping happens here (D1, G36). A target entry of another source takes the taxon its own entry
+    /// names, which is all that is known of it.</remarks>
+    private static string? EntryTaxon(string sourceDb, string? datasetOrganism, (string Source, string? Taxon)? otherSource = null) =>
+        sourceDb == "uniprot" ? datasetOrganism : otherSource is { } other && sourceDb == other.Source ? other.Taxon : null;
 
     private static string Canonical(string acc) => acc.Contains('-') ? acc.Split('-')[0] : acc;
 
@@ -247,9 +252,12 @@ public static class Identifications
     /// <para><b>The row's own organism wins over the dataset's.</b> All 339 contaminants once read
     /// <c>NCBITaxon:9606</c>, bovine albumin included.</para>
     /// </remarks>
+    /// <param name="otherSource">Under <see cref="IngestRules.Current"/>: a target accession's non-UniProt source and
+    /// taxon, from its own database entry (DATAREPO-84); null, or returning null, for UniProt's.</param>
     public static List<Row> ProteinRows(
         IEnumerable<IReadOnlyDictionary<string, List<object?>>> columnsList, string datasetId, string? organism,
-        Func<string, bool?>? contaminantOf = null, Dictionary<string, long>? unresolved = null)
+        Func<string, bool?>? contaminantOf = null, Dictionary<string, long>? unresolved = null,
+        Func<string, (string Source, string? Taxon)?>? otherSource = null)
     {
         var output = new Dictionary<string, Row>(StringComparer.Ordinal);
         foreach (var columns in columnsList)
@@ -292,13 +300,14 @@ public static class Identifications
                     var gene = geneParts[j] ?? "";
                     var primary = gene.Split(',')[0].Replace("primary:", "").Trim();
                     var organismName = (organismParts[j] ?? "").Trim();
-                    var sourceDb = SourceDb(acc, contaminant);
+                    var other = otherSource?.Invoke(acc);
+                    var sourceDb = SourceDb(acc, contaminant, other);
                     output[acc] = new Row
                     {
                         ["protein_accession"] = acc,
                         ["canonical_accession"] = Canonical(acc),
                         ["gene"] = primary.Length == 0 ? null : primary,
-                        ["organism"] = EntryTaxon(sourceDb, organism),
+                        ["organism"] = EntryTaxon(sourceDb, organism, other),
                         // A reversed decoy is no organism's protein, so it carries no species name either (G44).
                         ["organism_name"] = sourceDb == "decoy" ? null : organismName.Length == 0 ? null : organismName,
                         ["length"] = null,
@@ -314,7 +323,8 @@ public static class Identifications
 
     /// <summary>Adds any accession that appears only in the protein-group table, so a group's
     /// <c>protein_accessions</c> never point at nothing.</summary>
-    public static List<Row> AddGroupProteins(List<Row> proteins, IEnumerable<IReadOnlyDictionary<string, object?>> proteinGroups, string? organism)
+    public static List<Row> AddGroupProteins(List<Row> proteins, IEnumerable<IReadOnlyDictionary<string, object?>> proteinGroups, string? organism,
+        Func<string, (string Source, string? Taxon)?>? otherSource = null)
     {
         var known = proteins.Select(r => (string)r["protein_accession"]!).ToHashSet(StringComparer.Ordinal);
         foreach (var group in proteinGroups)
@@ -328,7 +338,8 @@ public static class Identifications
             {
                 var acc = accessions[j];
                 if (!known.Add(acc)) continue;
-                var sourceDb = SourceDb(acc, contaminant);
+                var other = otherSource?.Invoke(acc);
+                var sourceDb = SourceDb(acc, contaminant, other);
                 proteins.Add(new Row
                 {
                     ["protein_accession"] = acc,
@@ -336,7 +347,7 @@ public static class Identifications
                     ["gene"] = genes[j],
                     // The group table carries no per-accession species name: the taxon where it is safe, and a
                     // null organism_name, never a species guessed from the group's other members.
-                    ["organism"] = EntryTaxon(sourceDb, organism),
+                    ["organism"] = EntryTaxon(sourceDb, organism, other),
                     ["organism_name"] = null,
                     ["length"] = null,
                     ["source_db"] = sourceDb,

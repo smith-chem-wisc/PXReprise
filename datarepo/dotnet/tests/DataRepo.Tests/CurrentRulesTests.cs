@@ -417,6 +417,76 @@ public class CurrentRulesTests
         });
     }
 
+    // ---------------------------------------------------------------- DATAREPO-84: entries of another source
+
+    /// <summary>One Swiss-Prot entry and one of aging's Ensembl-only isoforms, in aging's own format (their 116).</summary>
+    private const string EnsemblDb = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <uniprot xmlns="http://uniprot.org/uniprot">
+        <entry dataset="Swiss-Prot"><accession>Q8R429</accession><name>AT2A1_MOUSE</name>
+          <gene><name type="primary">Atp2a1</name></gene>
+          <organism><name type="scientific">Mus musculus</name><dbReference type="NCBI Taxonomy" id="10090"/></organism>
+          <sequence length="6">MEAAHS</sequence></entry>
+        <entry dataset="Ensembl" created="2026-10-20" modified="2026-10-20" version="1">
+          <accession>ENSMUSP00000292642</accession><name>ENSMUSP00000292642_MOUSE</name>
+          <protein><recommendedName><fullName>Ensembl-only form of Atp2a1 (not a UniProt entry)</fullName></recommendedName></protein>
+          <gene><name type="primary">Atp2a1</name></gene>
+          <organism><name type="scientific">Mus musculus</name><dbReference type="NCBI Taxonomy" id="10090"/></organism>
+          <comment type="miscellaneous"><text>Not a UniProt entry.</text></comment>
+          <dbReference type="Ensembl" id="ENSMUST00000000001.1"><property type="protein sequence ID" value="ENSMUSP00000292642.1"/></dbReference>
+          <sequence length="7">MEAAHSK</sequence></entry>
+        </uniprot>
+        """;
+
+    /// <summary>A target entry of another source is read with its accession, sequence, source and its own taxon; a
+    /// UniProt entry names no other source; 0.32.0's reading is unchanged.</summary>
+    [Test]
+    public void AnEnsemblEntryIsReadWithItsSourceAndTaxon()
+    {
+        var path = TempFile("aging_isoforms_mouse.xml", EnsemblDb);
+        var sequences = new ProteinSequences();
+        Assert.That(ProteinDb.ReadDatabase(path, sequences), Is.EqualTo(2));
+        Assert.Multiple(() =>
+        {
+            Assert.That(sequences.Get("ENSMUSP00000292642"), Is.EqualTo(new[] { "MEAAHSK" }));
+            Assert.That(sequences.OtherSource("ENSMUSP00000292642"), Is.EqualTo(("ensembl", (string?)"NCBITaxon:10090")));
+            Assert.That(sequences.OtherSource("Q8R429"), Is.Null, "a Swiss-Prot entry is UniProt's");
+            Assert.That(ProteinDb.IterUniprotXml(path, IngestRules.Python0320).ToList(),
+                Is.EqualTo(new[] { ("Q8R429", "MEAAHS"), ("ENSMUSP00000292642", "MEAAHSK") }));
+        });
+        var contaminants = new ProteinSequences();
+        ProteinDb.ReadDatabase(TempFile("my_contaminants.xml", EnsemblDb), contaminants);
+        Assert.That(contaminants.OtherSource("ENSMUSP00000292642"), Is.Null, "a contaminant panel names no target source");
+    }
+
+    /// <summary>The protein row says the source the entry names, takes the entry's own taxon, and is its own
+    /// canonical; a UniProt accession beside it keeps its row.</summary>
+    [Test]
+    public void AnEnsemblProteinRowSaysEnsembl()
+    {
+        var sequences = new ProteinSequences();
+        ProteinDb.ReadDatabase(TempFile("aging_isoforms_mouse.xml", EnsemblDb), sequences);
+        var columns = new Dictionary<string, List<object?>>
+        {
+            ["accession"] = ["Q8R429|ENSMUSP00000292642"],
+            ["gene_name"] = ["primary:Atp2a1"],
+            ["organism_name"] = ["Mus musculus"],
+            ["decoy_contam_target"] = ["T"],
+        };
+        var rows = Identifications.ProteinRows([columns], "PXD1", "NCBITaxon:10090", otherSource: sequences.OtherSource)
+            .ToDictionary(r => (string)r["protein_accession"]!);
+        Assert.Multiple(() =>
+        {
+            var e = rows["ENSMUSP00000292642"];
+            Assert.That((e["source_db"], e["canonical_accession"], e["organism"], e["organism_name"], e["gene"]),
+                Is.EqualTo(("ensembl", "ENSMUSP00000292642", "NCBITaxon:10090", "Mus musculus", "Atp2a1")));
+            var u = rows["Q8R429"];
+            Assert.That((u["source_db"], u["canonical_accession"], u["organism"]), Is.EqualTo(("uniprot", "Q8R429", "NCBITaxon:10090")));
+            var without = Identifications.ProteinRows([columns], "PXD1", "NCBITaxon:10090").Single(r => (string)r["protein_accession"]! == "ENSMUSP00000292642");
+            Assert.That(without["source_db"], Is.EqualTo("uniprot"), "0.32.0's rows: every target read uniprot");
+        });
+    }
+
     // ---------------------------------------------------------------- PXR-R12: UniProt namespaces, empty reads
 
     /// <summary>Every namespace a UniProt XML the search read can carry: UniProt's http and https, the

@@ -497,11 +497,13 @@ public static class Ingester
             return status switch { "contaminant" => true, "target" => false, _ => null };
         }
         var unresolvedLabels = new Dictionary<string, long>(StringComparer.Ordinal);
+        // DATAREPO-84: a target entry of another source than UniProt (aging's Ensembl-only isoforms) is labelled with it.
+        Func<string, (string Source, string? Taxon)?>? otherSource = rules == IngestRules.Current ? sequences.OtherSource : null;
         var proteins = Identifications.AddGroupProteins(
             Identifications.ProteinRows(
                 new[] { psmColumns, peptideColumns }.Where(c => c.Count > 0).ToList(),
-                datasetId, DatasetEntry.Text(entry.Organism), ContaminantOf, unresolvedLabels),
-            proteinGroups, DatasetEntry.Text(entry.Organism));
+                datasetId, DatasetEntry.Text(entry.Organism), ContaminantOf, unresolvedLabels, otherSource),
+            proteinGroups, DatasetEntry.Text(entry.Organism), otherSource);
 
         // --- quantities -----------------------------------------------------------------------------------
         var mbrBlock = Map(Get(searchProvenance, "mbr"));
