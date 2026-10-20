@@ -37,13 +37,14 @@ public class WorkerTests
         }
     }
 
-    private static (BatchRunner Runner, string Dir, WorkerShare Share) Controller(int window = 2, string top = "")
+    // gap 0: the worker is assigned the very next deposits, as before v0.4.29, unless a test is about the gap.
+    private static (BatchRunner Runner, string Dir, WorkerShare Share) Controller(int window = 2, string top = "", int gap = 0)
     {
         string dir = TestSupport.TempDir(), share = Path.Combine(dir, "share");
         Directory.CreateDirectory(share);
         var question = QuestionLoader.Load(TestSupport.WriteFile(dir, "question.toml", Question));
         var machine = Machine.Load(TestSupport.WriteFile(dir, "machine.toml",
-            $"work_root = '{dir}'\nmin_free_gb = 0\n{top}[metamorpheus]\n\"1.1.11\" = 'C:/nowhere/CMD.exe'\n[workers]\nshare = '{share}'\nwindow = {window}\n"));
+            $"work_root = '{dir}'\nmin_free_gb = 0\n{top}[metamorpheus]\n\"1.1.11\" = 'C:/nowhere/CMD.exe'\n[workers]\nshare = '{share}'\nwindow = {window}\ngap = {gap}\n"));
         var runner = new BatchRunner(question, Profiles, machine, new Files(), new FakeSearch(), "2026-10-19") { WorkerPoll = TimeSpan.FromMilliseconds(50) };
         return (runner, dir, new WorkerShare(share));
     }
@@ -222,7 +223,11 @@ public class WorkerTests
         Assert.Throws<ConfigException>(() => Machine.Load(TestSupport.WriteFile(dir, "both.toml",
             $"work_root = '{dir}'\n[metamorpheus]\n\"1.1.11\" = 'C:/x/CMD.exe'\n{Worker}[workers]\nshare = 'T'\n")));
         var m = Machine.Load(TestSupport.WriteFile(dir, "ctl.toml", $"work_root = '{dir}'\n[metamorpheus]\n\"1.1.11\" = 'C:/x/CMD.exe'\n[workers]\nshare = 'T'\n"));
-        Assert.That(m.Workers, Is.EqualTo(new WorkersConfig("T", 6, 2, 24)));
+        Assert.That(m.Workers, Is.EqualTo(new WorkersConfig("T", 6, 2, 24, 5)), "the worker is kept 5 deposits behind this machine's next");
+        Assert.That(Machine.Load(TestSupport.WriteFile(dir, "gap.toml", $"work_root = '{dir}'\n[metamorpheus]\n\"1.1.11\" = 'C:/x/CMD.exe'\n[workers]\nshare = 'T'\ngap = 10\n")).Workers!.Gap,
+            Is.EqualTo(10));
+        Assert.That(Assert.Throws<ConfigException>(() => Machine.Load(TestSupport.WriteFile(dir, "neg.toml",
+            $"work_root = '{dir}'\n[metamorpheus]\n\"1.1.11\" = 'C:/x/CMD.exe'\n[workers]\nshare = 'T'\ngap = -1\n")))!.Message, Does.Contain("'workers.gap'"));
         var w = Machine.Load(Machine0(Worker)).Worker!;
         Assert.That((w.Share, w.RunRoot, w.StateDir), Is.EqualTo(("S", Path.Combine(dir, "runs"), Path.Combine(dir, "state"))), "relative to the machine file");
     }
@@ -404,32 +409,95 @@ public class WorkerTests
         Assert.That(Log(dir), Does.Contain("PXD000731 RE-SEARCH (catch-up").And.Contain("PXD000731 ASSIGNED to the probe worker (attempt 1; a catch-up re-search)"));
     }
 
+    // v0.4.29 (the user, 2026-10-20: "keep the worker stocked with probe sets that are five or 10 spots down the line"): on
+    // 2026-10-20 the worker probed PXD028590 while this machine, having taken it back, fetched it.
     [Test]
-    public async Task WithTheWorkersWindowFullThisMachineWaitsWhileItSearchesAndProbesWhenItHasNothingToSearch()
+    public async Task TheWorkerIsStockedBeyondTheGapWhileThisMachineProbesTheDepositsAheadOfIt()
     {
-        var (runner, dir, share) = Controller(window: 1);
+        var (runner, dir, share) = Controller(window: 2, gap: 2);
         share.WriteHeartbeat(new JsonObject { ["state"] = "working" });
-        // A pass from the worker is searched first, and its search holds this machine busy until released.
-        runner.Record("PXD000711", ("status", BatchRunner.ProbedByWorkerStatus), ("profile", "label-free-dda@1"), ("title", "p"), ("organism", "human"));
-        var release = new TaskCompletionSource();
         var probedHere = new List<string>();
-        runner.FetchWholeForTest = (e, p, ct) => Task.FromResult(true);
-        runner.SearchForTest = async (e, p, ct) => await release.Task.WaitAsync(ct);
         runner.ProbeForTest = (e, ct) => { lock (probedHere) probedHere.Add(e.Accession); runner.Record(e.Accession, ("status", "skipped_test")); return Task.FromResult<Profile?>(null); };
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        var queue = new[] { new QueueEntry("PXD000711", "p", "human"), new QueueEntry("PXD000712", "a", "human"), new QueueEntry("PXD000713", "b", "human") };
+        var queue = Enumerable.Range(1, 5).Select(i => new QueueEntry($"PXD00074{i}", "t", "human")).ToArray();
 
         var run = runner.RunAsync(queue, cts.Token);
-        await Until(() => share.ReadAssignments().Any(a => a.Accession == "PXD000712") && runner.Searching.Contains("PXD000711"), cts.Token);
-        await Task.Delay(300, cts.Token);
-        Assert.That(probedHere, Is.Empty, "a search runs here, so PXD000713 waits for room in the worker's window");
-        release.SetResult();
-        await Until(() => probedHere.Contains("PXD000713"), cts.Token);
+        await Until(() => { lock (probedHere) return probedHere.Count == 3; }, cts.Token);
         File.WriteAllText(Path.Combine(dir, "state", "STOP"), "test");
         await run;
 
-        Assert.That(probedHere, Is.EqualTo(new[] { "PXD000713" }), "once nothing searches here, this machine probes rather than sit idle");
-        Assert.That(Log(dir), Does.Contain("PXD000713 probed here: the probe worker has its 1 deposit(s) and nothing is searching here"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(share.ReadAssignments().Select(a => a.Accession), Is.EqualTo(new[] { "PXD000743", "PXD000744" }),
+                "the two after this machine's next two");
+            Assert.That(probedHere, Is.EqualTo(new[] { "PXD000741", "PXD000742", "PXD000745" }),
+                "this machine probes its own two, passes over the worker's, and probes the next with the worker's window full");
+            Assert.That(Log(dir), Does.Contain("the next 2 deposit(s) are probed here, and the worker's window of 2 is filled from the ones after them"));
+        });
+    }
+
+    [Test]
+    public async Task AWorkersPassGoesAheadOfTheDepositsStillToBeProbedHere()
+    {
+        var (runner, dir, share) = Controller(window: 1, gap: 5);
+        share.WriteHeartbeat(new JsonObject { ["state"] = "working" });
+        runner.Record("PXD000753", ("status", BatchRunner.ProbedByWorkerStatus), ("profile", "label-free-dda@1"), ("title", "p"), ("organism", "human"));
+        var order = new List<string>();
+        void Did(string what) { lock (order) order.Add(what); }
+        runner.ProbeForTest = (e, ct) => { Did($"probe {e.Accession}"); runner.Record(e.Accession, ("status", "skipped_test")); return Task.FromResult<Profile?>(null); };
+        runner.FetchWholeForTest = (e, p, ct) => { Did($"fetch {e.Accession}"); runner.Record(e.Accession, ("status", "fetched")); return Task.FromResult(true); };
+        runner.SearchForTest = (e, p, ct) => { Did($"search {e.Accession}"); return Task.CompletedTask; };
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var queue = new[] { new QueueEntry("PXD000751", "a", "human"), new QueueEntry("PXD000752", "b", "human"), new QueueEntry("PXD000753", "p", "human") };
+
+        var run = runner.RunAsync(queue, cts.Token);
+        await Until(() => { lock (order) return order.Count >= 4; }, cts.Token);
+        File.WriteAllText(Path.Combine(dir, "state", "STOP"), "test");
+        await run;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(order.IndexOf("fetch PXD000753"), Is.EqualTo(0), "the worker's pass, last in the queue, is taken first");
+            Assert.That(order, Does.Contain("probe PXD000751").And.Contain("probe PXD000752").And.Contain("search PXD000753"));
+            Assert.That(share.ReadAssignments(), Is.Empty, "two deposits are within the gap of 5: nothing for the worker");
+            Assert.That(Log(dir), Does.Contain("PXD000753 taken next: the probe worker passed it"));
+        });
+    }
+
+    [Test]
+    public async Task ATakeBackRewritesTheWorkersAssignmentsBeforeTheDepositIsProbedHere()
+    {
+        var (runner, dir, share) = Controller(window: 1);
+        share.WriteHeartbeat(new JsonObject { ["state"] = "working" });
+        List<WorkerShare.Assignment>? atProbe = null;
+        runner.ProbeForTest = (e, ct) => { atProbe = share.ReadAssignments(); runner.Record(e.Accession, ("status", "skipped_test")); return Task.FromResult<Profile?>(null); };
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+        var run = runner.RunAsync(new[] { new QueueEntry("PXD000761", "t", "human") }, cts.Token);
+        await Until(() => share.ReadAssignments().Any(a => a.Accession == "PXD000761"), cts.Token);
+        share.WriteHeartbeat(new JsonObject { ["state"] = "stopped: cancelled" });   // the worker went down
+        await run;
+
+        Assert.That(atProbe, Is.Empty, "the worker must not find it in assigned.tsv while this machine probes it");
+        Assert.That(Log(dir), Does.Contain("PXD000761 taken back from the probe worker (the probe worker is quiet): probed here"));
+    }
+
+    // Owed since 2026-10-20: PXD006815's worker probe failed (no memory left there) and it was assigned straight back.
+    [Test]
+    public async Task ADepositWhoseWorkerProbeFailedIsProbedHereNotAssignedAgain()
+    {
+        var (runner, dir, share) = Controller();
+        share.WriteHeartbeat(new JsonObject { ["state"] = "working" });
+        runner.Record("PXD000771", ("status", "probe_search_failed"), ("probed_by", "WORKER"), ("worker_attempt", 1), ("title", "t"), ("organism", "human"));
+        var probedHere = new List<string>();
+        runner.ProbeForTest = (e, ct) => { lock (probedHere) probedHere.Add(e.Accession); runner.Record(e.Accession, ("status", "skipped_test")); return Task.FromResult<Profile?>(null); };
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+        await runner.RunAsync(new[] { new QueueEntry("PXD000771", "t", "human") }, cts.Token);
+
+        Assert.That(probedHere, Is.EqualTo(new[] { "PXD000771" }));
+        Assert.That(share.ReadAssignments(), Is.Empty);
+        Assert.That(Log(dir), Does.Not.Contain("PXD000771 ASSIGNED"));
     }
 
     // ------------------------------------------------------------------ the probe worker

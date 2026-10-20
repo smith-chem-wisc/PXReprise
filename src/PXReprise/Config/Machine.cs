@@ -114,13 +114,14 @@ public sealed record Machine(
         if (root.OptionalTable("workers") is { } ws)
         {
             workers = new WorkersConfig(ws.RequiredString("share"), checked((int)(ws.OptionalInteger("window") ?? 6)),
-                ws.OptionalNumber("quiet_hours") ?? 2, ws.OptionalNumber("assignment_hours") ?? 24);
+                ws.OptionalNumber("quiet_hours") ?? 2, ws.OptionalNumber("assignment_hours") ?? 24, checked((int)(ws.OptionalInteger("gap") ?? 5)));
             ws.RefuseUnknownKeys();
         }
         root.RefuseUnknownKeys();
         if (worker is not null && workers is not null) throw new ConfigException(file, "[worker] and [workers] do not go together: a machine probes for a controller, or controls workers");
         if (worker is not null && datarepo is not null) throw new ConfigException(file, "a probe worker ([worker]) never ingests: remove 'datarepo'");
         if (workers is { Window: < 1 }) throw new ConfigException(file, "'workers.window' must be 1 or more");
+        if (workers is { Gap: < 0 }) throw new ConfigException(file, "'workers.gap' must not be negative (0 assigns the very next deposits)");
         if (workers is { QuietHours: <= 0 } or { AssignmentHours: <= 0 }) throw new ConfigException(file, "'workers.quiet_hours' and 'workers.assignment_hours' must be positive");
         if (probeMinutes is <= 0) throw new ConfigException(file, "'probe_search_minutes' must be positive");
         if (asperaAttempts < 0) throw new ConfigException(file, "'aspera_attempts' must not be negative (0 sends every attempt to HTTPS)");
@@ -149,10 +150,12 @@ public sealed record Machine(
 
 /// <summary>
 /// The machine's <c>[workers]</c> (v0.4.26): the share it controls probe workers through; how many deposits it assigns
-/// ahead (<c>window</c>); how long without a heartbeat before it probes for itself (<c>quiet_hours</c>); and how long one
-/// assignment may wait for its probe before this machine takes it back (<c>assignment_hours</c>).
+/// ahead (<c>window</c>); how long without a heartbeat before it probes for itself (<c>quiet_hours</c>); how long one
+/// assignment may wait for its probe before this machine takes it back (<c>assignment_hours</c>); and (v0.4.29) how many
+/// of the deposits it will probe next it keeps for itself, the worker's window being filled from the ones after them
+/// (<c>gap</c>).
 /// </summary>
-public sealed record WorkersConfig(string Share, int Window = 6, double QuietHours = 2, double AssignmentHours = 24);
+public sealed record WorkersConfig(string Share, int Window = 6, double QuietHours = 2, double AssignmentHours = 24, int Gap = 5);
 
 /// <summary>
 /// The machine's <c>[worker]</c> (v0.4.26): the controller's share as this machine sees it, and this machine's own run

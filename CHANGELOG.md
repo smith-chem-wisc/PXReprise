@@ -7,6 +7,30 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.29 (unreleased)
+
+No MetaMorpheus change. **Machine file:** optional new key `[workers] gap` (default 5). **Safe mid-batch?** Yes: swap
+the pin as usual, then publish the build to the probing machine (a build-only release).
+
+- **The probing machine works further down the queue (the user: "keep the worker stocked with probe sets that are five
+  or 10 spots down the line").** Before, it was assigned the very next deposits, the same ones the delivering machine
+  reached first. When it went quiet, the delivering machine took them back and probed them, and on 2026-10-20 one
+  deposit was probed on both machines.
+  - **The delivering machine keeps its next `gap` deposits to probe (default 5) for itself.** The prober's window is
+    filled from the ones after them, at every look, while its heartbeat is fresh. The order is the queue's, then the
+    catch-up re-searches due.
+  - **A deposit the prober passed goes ahead of the queue** on the delivering machine (the user: "when it finishes a
+    probe, then move that repo up the queue on the local box"). It needs no probe there, so it is fetched next, after
+    any deposit already downloaded.
+  - **The delivering machine no longer waits for room in the prober's window:** it probes its own deposits. It passes
+    over a deposit assigned to the prober, and waits only when the prober's deposits are all that is left.
+- **A take-back rewrites `accessions\assigned.tsv` at once.** Before, the file was rewritten only at the next look, so
+  a prober coming back could probe a deposit the delivering machine already had.
+- **A deposit whose probe failed on the prober is probed on the delivering machine,** not assigned again. PXD006815's
+  probe failed there for want of memory and was assigned straight back.
+- **A deposit with raw files on the delivering machine is probed there,** even when only some of them have arrived (a
+  download cut by STOP, for example). Before, only a deposit with all its files counted.
+
 ## 0.4.28 (2026-10-20)
 
 No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual, then publish the
