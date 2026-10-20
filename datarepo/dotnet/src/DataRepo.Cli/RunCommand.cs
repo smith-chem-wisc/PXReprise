@@ -33,7 +33,7 @@ internal static class RunCommand
     {
         var a = new Args.Spec("datarepo run", Cli.Summaries["run"])
             .Positional("engine", $"the engine to run: {string.Join(", ", EngineRunner.Engines)}")
-            .Positional("accession", "datasets to run on (logs: their searched databases; go: their protein groups; none for logs.register_orthology)", "*")
+            .Positional("accession", "datasets to run on (logs: their searched databases; go, ptmqtl: their searches; none for logs.register_orthology)", "*")
             .Option("--store", Args.Kind.Value, "the instance's bundle store", required: true)
             .Option("--input", Args.Kind.Append, "an input file by role; repeatable", metavar: "ROLE=PATH")
             .Option("--bundle", Args.Kind.Append, "pin a dataset to one bundle id", metavar: "PXD=ID")
@@ -90,6 +90,26 @@ internal static class RunCommand
             throw new Args.UsageException("usage: datarepo run [-h] --store STORE [--input ROLE=PATH] [--bundle PXD=ID] [--latest] engine [accession ...]",
                 $"{engine} needs at least one accession");
         var bundles = PickBundles(store, accessions, pins, a.Flag("--latest"));
+        if (engine.StartsWith("ptmqtl.", StringComparison.Ordinal))
+        {
+            var ran = engine switch
+            {
+                PtmQtlEngine.SitePairsEngine => PtmQtlEngine.SitePairs(store, bundles, inputs),
+                PtmQtlEngine.PoolPairsEngine => PtmQtlEngine.PoolPairs(store, bundles, inputs),
+                _ => PtmQtlEngine.SiteTraits(store, bundles, inputs),
+            };
+            foreach (var reference in ran.Written)
+            {
+                var summary = reference.Record.GetValueOrDefault("engine_summary") as IReadOnlyDictionary<string, object?>;
+                Console.WriteLine($"written  {reference.Engine} artefact {reference.ArtefactId}  {reference.Path}");
+                Console.WriteLine($"  rows     {PyFormat.Repr(reference.RowCounts.ToDictionary(kv => kv.Key, kv => (object?)kv.Value))}");
+                if (summary?.GetValueOrDefault("search_gate") is IReadOnlyDictionary<string, object?> gate && gate.GetValueOrDefault("lacks_met_removed_protein_n_term") is true)
+                    Console.WriteLine($"  gate     searched by {gate["search_engine"]} {gate["search_engine_version"]}: lacks protein N-termini after Met removal (ptmQtl S6); nothing filled in");
+            }
+            foreach (var reference in ran.AlreadyDone)
+                Console.WriteLine($"done     {reference.Engine} artefact {reference.ArtefactId} already exists; nothing re-run");
+            return 0;
+        }
         var go = engine == GoEngine.Engine;
         // go's published definition id (go D40); GoEngine.Run refuses a call without one.
         var result = go ? GoEngine.Run(store, bundles, inputs, GoEngine.DefinitionId) : LogsEngine.Run(store, bundles, inputs);

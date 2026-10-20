@@ -244,7 +244,11 @@ public static partial class CatalogBuilder
     /// <see cref="SchemaContract.Python0320"/> scope it stays "8", and go and the annotations are left
     /// out, so a parity build is still what Python 0.32.0 built. Same principle as
     /// <c>manifest.CONTENT_FIELDS</c> one level down -- an id moves when its own content moves, and not
-    /// otherwise.</remarks>
+    /// otherwise. "14" (1.4.0) reads schema 0.0.16 bundles (<c>assay_runs</c>, pooled assays; <c>n_quant_values</c>
+    /// counts every value, <c>dataset_annotations.operator_sdrf</c>) and loads the ptmQtl engines' artefacts into
+    /// <c>ptm_pairs</c> and <c>trait_effects</c>, with a catalog column <c>artefact_id</c> on both and NULL
+    /// <c>dataset_id</c> / <c>bundle_id</c> on pooled rows (<c>CatalogPtmQtl.cs</c>). The engines were built as "11"
+    /// on their own branch and never released under it.</remarks>
     public static string CatalogVersion => SchemaContract.IsPython0320 ? "8" : "14";
 
     /// <summary>Bundle tables a catalog does not hold. PSMs are archived per deposit, never in a catalog (PXReprise's
@@ -1115,6 +1119,7 @@ public static partial class CatalogBuilder
         {
             SelectGoArtefacts(store, bundles, chosen, checks);
             SelectOrthology(store, chosen, checks);
+            SelectPtmQtl(store, bundles, chosen, checks);
         }
         return (chosen, checks);
     }
@@ -1505,6 +1510,7 @@ public static partial class CatalogBuilder
                 studyCounts = CreateStudyTables(con, study);
                 foreach (var (k, v) in CreateEngineTables(con, engines, views)) rowCounts[k] = v;
                 foreach (var (k, v) in LoadGoRows(con, bundles, engines, views)) rowCounts[k] = v;
+                foreach (var (k, v) in LoadPtmQtlRows(con, bundles, engines, views)) rowCounts[k] = v;
                 BuildEngineDerived(con, bundles);
                 Lap("study and engines");
                 if (AnnotationsActive)
@@ -1523,9 +1529,10 @@ public static partial class CatalogBuilder
                 Lap("checks: bundles");
                 checks.AddRange(CheckStudy(con, study));
                 Lap("checks: study");
-                checks.AddRange(CheckEngines(con, engines.Where(r => r.Engine != Runner.GoEngine).ToList()));
+                checks.AddRange(CheckEngines(con, engines.Where(r => r.Engine != Runner.GoEngine && !PtmQtlTables.ContainsKey(r.Engine)).ToList()));
                 checks.AddRange(CheckGo(con, bundles, engines));
                 checks.AddRange(CheckOrthology(con, engines));
+                checks.AddRange(CheckPtmQtl(con, engines));
                 Lap("checks: engines");
                 checks = [
                     .. checks,
@@ -2046,8 +2053,8 @@ public static partial class CatalogBuilder
     /// <summary>Every schema table as the union of the bundles that hold it: a copy, or with <paramref name="views"/> a
     /// view over the bundles' Parquet (D48 step 1).</summary>
     /// <remarks>In a views catalog <c>samples</c> is still copied (a few thousand rows): its <c>&lt;column&gt;_name</c>
-    /// columns are added by ALTER and UPDATE (G74), which a view cannot take. go's tables come from go's artefacts
-    /// (<see cref="LoadGoRows"/>), so here they are left for that.</remarks>
+    /// columns are added by ALTER and UPDATE (G74), which a view cannot take. go's and ptmQtl's tables come from their
+    /// artefacts (<see cref="LoadGoRows"/>, <see cref="LoadPtmQtlRows"/>), so here they are left for that.</remarks>
     private static Dictionary<string, long> LoadTables(DuckDBConnection con, IReadOnlyList<BundleRef> bundles, bool views = false)
     {
         var rowCounts = new Dictionary<string, long>(StringComparer.Ordinal);
@@ -2055,7 +2062,7 @@ public static partial class CatalogBuilder
         {
             var table = spec.Name;
             if (Runner.EngineTables.ContainsKey(table)) continue;  // never in a bundle; filled from artefacts
-            if (views && GoActive && Runner.GoTables.Contains(table)) continue;
+            if (views && GoActive && (Runner.GoTables.Contains(table) || PtmQtlTables.Values.Contains(table))) continue;
             if (LeftInBundles.Contains(table)) continue;
             var asView = views && table != "samples";
             var parts = new List<string>();
@@ -2649,6 +2656,7 @@ public static partial class CatalogBuilder
             var name = spec.Name;
             var kind = Runner.EngineTables.TryGetValue(name, out var engine) ? $"engine:{engine}"
                 : GoActive && Runner.GoTables.Contains(name) ? $"engine:{Runner.GoEngine}"
+                : GoActive && PtmQtlTables.Values.Contains(name) ? "engine:ptmqtl"
                 // The census is the manifest's, not a bundle's. Only when one was loaded: without it the table is
                 // the empty core table it always was.
                 : censusLoaded && name == CandidateCensus.Table ? "manifest"
