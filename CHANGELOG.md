@@ -23,6 +23,9 @@ profile by naming it.
     HCD scans can identify nothing as HCD under the probe's settings and park as identifying nothing; as LowCID it
     passes. Its full search is `lowres@3`'s: HCD at the low-resolution tolerance, and a file mixing ion-trap CID and
     ion-trap HCD is refused again.
+  - **On that deposit the full search does as well as HCD:** three of its files under the full search's settings gave
+    8,627 PSMs as HCD and 8,420 as LowCID. One of them had 107 PSMs as HCD under the probe's settings and 4,862 under
+    the full search's.
   - Profile key `ion_trap_hcd_probe_lowcid` (needs `ion_trap_hcd` and `probe_search`; not with `ion_trap_hcd_lowcid`).
     `lowres@4` is unchanged, since a profile version never changes; its notes here and in the docs are corrected.
 - **The probing machine works further down the queue (the user: "keep the worker stocked with probe sets that are five
