@@ -61,8 +61,10 @@ public static class ProfileLoader
         bool ionTrapHcd = eng.OptionalBool("ion_trap_hcd") ?? false;
         if (ionTrapHcd && fragmentation != "per_file")
             throw new ConfigException(file, "engine.ion_trap_hcd needs fragmentation = \"per_file\": it is decided per file from the MS2 headers");
-        // v0.4.28: searched as HCD, MetaMorpheus deconvolutes each low-res MS2 spectrum first and finds almost nothing to
-        // match (PXD022393: 107 PSMs on one file, 2,442 as LowCID; PXD016430: 3,300 and 9,173). LowCID is its low-res path.
+        // v0.4.28 (lowres@4): ion-trap HCD searched as LowCID, MetaMorpheus's low-res path, in the probe and the search. Its
+        // evidence was measured under the probe's settings only (PXD022393: 107 PSMs on one file as HCD, 2,442 as LowCID).
+        // In the full search LowCID lost 1-16% of PSMs (2026-10-21: PXD052631, PXD016430, PXD015170), so lowres@5 takes
+        // it in the probe only (ion_trap_hcd_probe_lowcid, below).
         bool ionTrapHcdLowCid = eng.OptionalBool("ion_trap_hcd_lowcid") ?? false;
         if (ionTrapHcdLowCid && !ionTrapHcd)
             throw new ConfigException(file, "engine.ion_trap_hcd_lowcid needs engine.ion_trap_hcd = true: it says how ion-trap HCD is searched");
@@ -104,6 +106,16 @@ public static class ProfileLoader
             throw new ConfigException(file, $"engine.precursor_window must be one of {string.Join(", ", Profile.PrecursorWindows)}, not '{precursorWindow}'");
         if (precursorWindow == "probe" && !probeSearch)
             throw new ConfigException(file, "engine.precursor_window = \"probe\" needs probe_search = true: the offset is measured by the probe search");
+        // v0.4.29 (lowres@5): ion-trap HCD as LowCID in the probe search only. Under the probe's settings HCD finds far less
+        // (one PXD016430 file: 3,300 PSMs as HCD, 9,173 as LowCID), so a deposit like PXD022393 parks as identifying nothing;
+        // in the full search HCD finds more (that file: 15,939 under lowres@2, 13,043 as LowCID under lowres@4).
+        bool ionTrapHcdProbeLowCid = eng.OptionalBool("ion_trap_hcd_probe_lowcid") ?? false;
+        if (ionTrapHcdProbeLowCid && !ionTrapHcd)
+            throw new ConfigException(file, "engine.ion_trap_hcd_probe_lowcid needs engine.ion_trap_hcd = true: it says how ion-trap HCD is searched in the probe");
+        if (ionTrapHcdProbeLowCid && !probeSearch)
+            throw new ConfigException(file, "engine.ion_trap_hcd_probe_lowcid needs probe_search = true: it is about the probe search");
+        if (ionTrapHcdProbeLowCid && ionTrapHcdLowCid)
+            throw new ConfigException(file, "engine.ion_trap_hcd_probe_lowcid and engine.ion_trap_hcd_lowcid are set together: ion_trap_hcd_lowcid already takes LowCID in the probe and the search");
         if (precursorWindow == "probe" && tasks.Contains("Calibration"))
             throw new ConfigException(file, "engine.precursor_window = \"probe\" is for a search without calibration; a Calibration task sets its own windows");
         eng.RefuseUnknownKeys();
@@ -172,7 +184,7 @@ public static class ProfileLoader
         return new Profile(id, version, status, description, accepts, mm, tasks, extraMods, library, timeout, dbs,
             panel ?? Path.GetFileName(shipped!), exclude,
             method, mbr, deposit, gates, Path.GetDirectoryName(Path.GetFullPath(file))!, design, chemistry, writeSdrf, shipped, fragmentation, lowResTolerance, probeSearch, probeMinutes, ionTrapHcd,
-            customMods, thiolReagents, precursorWindow, ionTrapHcdLowCid);
+            customMods, thiolReagents, precursorWindow, ionTrapHcdLowCid, ionTrapHcdProbeLowCid);
     }
 
     /// <summary>

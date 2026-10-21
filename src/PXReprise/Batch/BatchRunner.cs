@@ -1030,7 +1030,7 @@ public sealed class BatchRunner
         int onDisk = Directory.EnumerateFiles(Path.Combine(d, "02_fetch", "spectra"), "*.raw").Count();
         if (onDisk > probeFiles.Count)
             Log($"{acc} PROBE reads its {probeFiles.Count} probe files only; {onDisk} raw files are on disk (downloaded ahead)");
-        var (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles);
+        var (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles, probe: true);
         xr.Probe(report);
         if (RoutedByReporters(acc, report, "PROBE"))
         {
@@ -1048,7 +1048,7 @@ public sealed class BatchRunner
             Log($"{acc} PROBE qc: MS2 not read in the Orbitrap (low_res_ms2); routing to {low.Key}");
             profile = low;
             Record(acc, ("profile", profile.Key), ("routed_low_res", true));
-            (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles);
+            (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles, probe: true);
             xr.Probe(report);
             excl = QcExclusion(report, profile.Qc);
             ok = allPass || excl is { Count: > 0 };

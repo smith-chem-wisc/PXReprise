@@ -16,9 +16,10 @@ public sealed record FragmentationCall(string? DissociationType, bool LowRes, st
 /// scan is read at high resolution;</item>
 /// <item>HCD read in an ion trap is searched as HCD at the low-res tolerance, only when the profile turns
 /// <c>ion_trap_hcd</c> on (PXR-A68); otherwise it is refused, as before. With <c>ion_trap_hcd_lowcid</c> too (v0.4.28,
-/// <c>label-free-dda-lowres@4</c>) it is searched as LowCID: for every other type MetaMorpheus deconvolutes each MS2
-/// spectrum first (Ms2ScanWithSpecificMass), which a low-res spectrum defeats. On one file of PXD022393, 107 PSMs as HCD
-/// and 2,442 as LowCID; of PXD016430, 3,300 and 9,173. Its b and y ions are the same;</item>
+/// <c>label-free-dda-lowres@4</c>) it is searched as LowCID, MetaMorpheus's low-res path; its b and y ions are the same.
+/// Under the probe's settings LowCID finds far more (one PXD022393 file: 107 PSMs as HCD, 2,442 as LowCID), but in the
+/// full search it lost 1-16% of PSMs (2026-10-21), so <c>lowres@5</c> decides LowCID for the probe only (the caller says
+/// which: <see cref="QcStage.IonTrapHcdAsLowCid"/>);</item>
 /// <item>an unknown or unsupported type, ion-trap and high-resolution MS2 mixed in one file, or ion-trap CID and
 /// ion-trap HCD mixed in one file, is refused: a file gets one DissociationType.</item>
 /// </list>
@@ -39,8 +40,8 @@ public static class Fragmentation
 
     /// <param name="ms2AnalyzerDissociation">Counts keyed "<c>analyzer/dissociation</c>", as SpectraQc writes them.</param>
     /// <param name="ionTrapHcd">The profile's <c>ion_trap_hcd</c>: search HCD read in an ion trap as low-res HCD.</param>
-    /// <param name="ionTrapHcdLowCid">The profile's <c>ion_trap_hcd_lowcid</c>: search it as LowCID instead, so a file that
-    /// mixes ion-trap CID and ion-trap HCD is one type, LowCID.</param>
+    /// <param name="ionTrapHcdLowCid">Search it as LowCID instead, so a file that mixes ion-trap CID and ion-trap HCD is one
+    /// type, LowCID: <see cref="QcStage.IonTrapHcdAsLowCid"/> of the profile and whether this is the probe's QC.</param>
     public static FragmentationCall Decide(IReadOnlyDictionary<string, int> ms2AnalyzerDissociation, bool ionTrapHcd = false, bool ionTrapHcdLowCid = false)
     {
         int total = ms2AnalyzerDissociation.Values.Sum();

@@ -1,3 +1,8 @@
+# CORRECTION (2026-10-21, v0.4.29): the evidence below was measured under the PROBE's settings only. In the full search
+# LowCID lost PSMs on every deposit searched both ways (PXD052631 -11%, PXD016430 -16%, PXD015170 -1%), and the ten
+# re-searches made under this profile were reverted. lowres@5 takes LowCID in the probe search only. This profile's
+# settings are unchanged (a profile version never changes); only these comments are corrected.
+#
 # label-free-dda-lowres/4: label-free-dda-lowres/3 with HCD read in the ion trap searched as LowCID (v0.4.28,
 # 2026-10-20). /3 searched it as DissociationType HCD with the low-res product tolerance. For every type but LowCID,
 # MetaMorpheus 1.1.12 deconvolutes each MS2 spectrum into neutral fragment masses first (Ms2ScanWithSpecificMass), and a

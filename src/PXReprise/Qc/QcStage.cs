@@ -16,8 +16,10 @@ public static class QcStage
     /// <param name="only">File names to check, the rest of the directory ignored: the probe's own files (v0.4.12). A
     /// deposit downloaded ahead under STOP has every file on disk, and PXD026335's probe (2026-10-13) checked and
     /// searched all 20 of them until its 60-minute limit.</param>
+    /// <param name="probe">This QC is the probe's (<c>02b_qc_probe</c>), whose report the probe search reads its per-file
+    /// fragmentation from; <see cref="IonTrapHcdAsLowCid"/>.</param>
     public static (JsonObject Report, bool AllPass) Run(string spectraDir, string outDir, Profile profile, Machine machine,
-        string paramsFile, string? runDate, IReadOnlySet<string>? only = null)
+        string paramsFile, string? runDate, IReadOnlySet<string>? only = null, bool probe = false)
     {
         Directory.CreateDirectory(outDir);
         var section = JsonSerializer.SerializeToNode(new Dictionary<string, object>
@@ -32,6 +34,9 @@ public static class QcStage
         // A profile that does not take isobaric labels refuses files whose spectra carry reporter ions (G4).
         bool refuseIsobaric = profile.Accepts.Labellings.Count > 0 && !profile.Accepts.Labellings.Contains(Discovery.Labelling.Isobaric);
         var report = new JsonObject();
+        bool lowCid = IonTrapHcdAsLowCid(profile, probe);
+        if (lowCid && !profile.IonTrapHcdLowCid)
+            prov.Note("HCD read in the ion trap is decided as LowCID for the probe search only (ion_trap_hcd_probe_lowcid); the full search's QC decides it as HCD at the low-res tolerance");
         foreach (string f in Directory.EnumerateFiles(spectraDir, "*.raw").Where(f => only is null || only.Contains(Path.GetFileName(f)))
                      .OrderBy(f => Path.GetFileName(f), StringComparer.Ordinal))
         {
@@ -55,7 +60,7 @@ public static class QcStage
             // D32 (G24): the file's fragmentation from its own MS2 headers, written into its <raw>.toml at search time.
             if (profile.Fragmentation == "per_file" && r.Ms2AnalyzerDissociation is { } pairs)
             {
-                var call = Fragmentation.Decide(pairs, profile.IonTrapHcd, profile.IonTrapHcdLowCid);
+                var call = Fragmentation.Decide(pairs, profile.IonTrapHcd, lowCid);
                 var entry = report[Path.GetFileName(f)]!.AsObject();
                 entry["fragmentation"] = new JsonObject
                 {
@@ -98,6 +103,11 @@ public static class QcStage
         prov.Write(outDir);
         return (report, all);
     }
+
+    /// <summary>Whether a QC decides HCD read in an ion trap as LowCID: in the probe and the search under
+    /// <c>ion_trap_hcd_lowcid</c> (lowres@4), in the probe only under <c>ion_trap_hcd_probe_lowcid</c> (lowres@5). Under the
+    /// probe's settings HCD finds far less than LowCID; in the full search LowCID lost 1-16% of PSMs (2026-10-21).</summary>
+    public static bool IonTrapHcdAsLowCid(Profile profile, bool probe) => profile.IonTrapHcdLowCid || probe && profile.IonTrapHcdProbeLowCid;
 
     private static JsonObject Obj(IReadOnlyDictionary<string, int> d)
     {

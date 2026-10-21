@@ -10,8 +10,21 @@ A new version of the engine never changes a finished result. Methods live in ver
 ## 0.4.29 (unreleased)
 
 No MetaMorpheus change. **Machine file:** optional new key `[workers] gap` (default 5). **Safe mid-batch?** Yes: swap
-the pin as usual, then publish the build to the probing machine (a build-only release).
+the pin as usual, then publish the build to the probing machine (a build-only release). A question takes the new
+profile by naming it.
 
+- **New profile `label-free-dda-lowres@5`, and `lowres@4` is not recommended.** `lowres@4` (0.4.28) searched MS2
+  fragmented by HCD and read in the ion trap as MetaMorpheus's LowCID. Its evidence was measured under the probe
+  search's settings only.
+  - **In the full search LowCID lost PSMs on every deposit searched both ways:** 41,562 to 37,052 (-11%, 19 of 22 files
+    lower), 759,981 to 637,306 (-16%, all 44 files lower) and 121,034 to 119,928 (-1%). One file had 3,300 PSMs as HCD
+    under the probe's settings, 15,939 in the `lowres@2` full search, and 13,043 as LowCID in the `lowres@4` one.
+  - **`lowres@5` is `lowres@3` with ion-trap HCD taken as LowCID in the probe search only.** A deposit of rapid ion-trap
+    HCD scans can identify nothing as HCD under the probe's settings and park as identifying nothing; as LowCID it
+    passes. Its full search is `lowres@3`'s: HCD at the low-resolution tolerance, and a file mixing ion-trap CID and
+    ion-trap HCD is refused again.
+  - Profile key `ion_trap_hcd_probe_lowcid` (needs `ion_trap_hcd` and `probe_search`; not with `ion_trap_hcd_lowcid`).
+    `lowres@4` is unchanged, since a profile version never changes; its notes here and in the docs are corrected.
 - **The probing machine works further down the queue (the user: "keep the worker stocked with probe sets that are five
   or 10 spots down the line").** Before, it was assigned the very next deposits, the same ones the delivering machine
   reached first. When it went quiet, the delivering machine took them back and probed them, and on 2026-10-20 one
