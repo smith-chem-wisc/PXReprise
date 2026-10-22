@@ -28,6 +28,10 @@ profile by naming it.
     the full search's.
   - Profile key `ion_trap_hcd_probe_lowcid` (needs `ion_trap_hcd` and `probe_search`; not with `ion_trap_hcd_lowcid`).
     `lowres@4` is unchanged, since a profile version never changes; its notes here and in the docs are corrected.
+- **Fixed: catch-up re-searches of deposits the queue still lists never started.** When it walked the queue, the
+  batch marked every searched deposit as taken, and the catch-up then skipped all of them. Only deposits no longer in
+  the queue were caught up. On 2026-10-22 the queue ran out with 81 re-searches due under profiles the question no
+  longer names. Present since 0.4.1.
 - **The probing machine works further down the queue (the user: "keep the worker stocked with probe sets that are five
   or 10 spots down the line").** Before, it was assigned the very next deposits, the same ones the delivering machine
   reached first. When it went quiet, the delivering machine took them back and probed them, and on 2026-10-20 one

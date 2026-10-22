@@ -749,7 +749,10 @@ public sealed class BatchRunner
         foreach (var x in queue)
         {
             if (consumed.Contains(x.Accession)) continue;
-            if (File.Exists(Path.Combine(Run(x.Accession), "04_search", "provenance.json"))) { consumed.Add(x.Accession); continue; }
+            // Not consumed (v0.4.29): a searched deposit stays a catch-up candidate. Marking it consumed hid every deposit the
+            // queue lists from CatchUpCandidate, so from 2026-10-18 no catch-up started and the queue "ran out" on
+            // 2026-10-22 with 81 D39 re-searches due; only deposits no longer in the queue had been caught up.
+            if (File.Exists(Path.Combine(Run(x.Accession), "04_search", "provenance.json"))) continue;
             string settled = Settled(x.Accession);
             if (settled.Length > 0) { Log($"{x.Accession} skipped: {settled} on a previous pass"); consumed.Add(x.Accession); continue; }
             if (!busy.Contains(x.Organism)) return x;

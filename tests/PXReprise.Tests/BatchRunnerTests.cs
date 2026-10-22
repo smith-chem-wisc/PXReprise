@@ -725,6 +725,34 @@ public class BatchRunnerTests
         Assert.That(log, Does.Contain("PXD000932 RE-SEARCH (catch-up").And.Contain("PXD000933 RE-SEARCH (catch-up"));
     }
 
+    // v0.4.29: the catch-up deposits are in the queue, as in production. PickNext used to mark a searched queue entry
+    // consumed, which hid it from CatchUpCandidate: the queue "ran out" on 2026-10-22 with 81 re-searches due.
+    [Test]
+    public async Task CatchUpReSearchesDepositsTheQueueStillLists()
+    {
+        var (runner, _, _, dir) = Runner(extraMachine: "catch_up_every = 4\n");
+        foreach (var (acc, org) in new[] { ("PXD000942", "rat"), ("PXD000943", "mouse") })
+        {
+            runner.Record(acc, ("status", "searched"), ("profile", "label-free-dda@0"), ("organism", org), ("title", acc));
+            Directory.CreateDirectory(Path.Combine(dir, "runs", acc, "04_search")); TestSupport.WriteFile(Path.Combine(dir, "runs", acc, "04_search"), "provenance.json", "{}");
+        }
+        var started = new List<string>();
+        runner.PrepareForTest = (e, ct) => { runner.Record(e.Accession, ("status", "fetched")); return Task.FromResult<Profile?>(Profiles["label-free-dda@1"]); };
+        runner.SearchForTest = (e, p, ct) =>
+        {
+            lock (started) started.Add(e.Accession);
+            runner.Record(e.Accession, ("status", "searched"), ("profile", p.Key));
+            return Task.CompletedTask;
+        };
+
+        await runner.RunAsync(new[] { new QueueEntry("PXD000941", "new", "mouse"), new QueueEntry("PXD000942", "old", "rat"), new QueueEntry("PXD000943", "old", "mouse") },
+            CancellationToken.None);
+
+        Assert.That(started, Is.EqualTo(new[] { "PXD000941", "PXD000942", "PXD000943" }), "the new deposit, then both queue-listed catch-ups, rat first");
+        string log = File.ReadAllText(Path.Combine(dir, "state", "batch.log"));
+        Assert.That(log, Does.Contain("PXD000942 RE-SEARCH (catch-up").And.Contain("PXD000943 RE-SEARCH (catch-up"));
+    }
+
     // Ion-trap MS2 (low_res_ms2) is searched under a low-res profile when the question names one, never anything else.
     [Test]
     public void OnlyALowResFailureIsRoutedToTheLowResProfile()
