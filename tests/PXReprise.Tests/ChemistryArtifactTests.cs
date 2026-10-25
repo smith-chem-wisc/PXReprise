@@ -54,6 +54,7 @@ public class ChemistryArtifactTests
     [TestCase("gel bands were excised and destained")]
     [TestCase("separated on a 12% polyacrylamide gel")]
     [TestCase("a short GeLC run")]
+    [TestCase("35ug per tissue lysate was gel-digested and samples were injected in technical triplicate")]   // PXD006898
     public void AGelReadsPropionamide(string protocol)
     {
         var c = ChemistryDetector.Detect(Project(protocol), null, null, Files);

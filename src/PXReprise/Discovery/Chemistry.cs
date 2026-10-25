@@ -276,7 +276,7 @@ public static class ChemistryDetector
     public static IReadOnlyList<string> ArtifactKinds { get; } = new[] { RingOpenedNem, GelPropionamide };
 
     /// <summary>A protocol that ran its proteins through a gel: SDS-PAGE, in-gel digestion, gel bands or slices, GeLC.</summary>
-    private static readonly Regex GelWords = new(@"\bSDS[- ]?PAGE\b|\bin[- ]gel\b|\bgel[- ](band|slice|piece|lane|plug)s?\b|\bGeLC\b|\b1-?D[- ]gel|\bpolyacrylamide gel", Opt);
+    private static readonly Regex GelWords = new(@"\bSDS[- ]?PAGE\b|\bin[- ]gel\b|\bgel[- ](band|slice|piece|lane|plug)s?\b|\bGeLC\b|\b1-?D[- ]gel|\bpolyacrylamide gel|\bgel[- ]digest", Opt);
 
     private static readonly Regex NoAlkylation = new(@"without (reduction and )?alkylation|\bnot (reduced and )?alkylated\b|\bno alkylation\b|alkylation (step )?was omitted|omitt?ing (the )?alkylation", Opt);
 
