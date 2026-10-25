@@ -61,8 +61,10 @@ public static class ProfileLoader
         bool ionTrapHcd = eng.OptionalBool("ion_trap_hcd") ?? false;
         if (ionTrapHcd && fragmentation != "per_file")
             throw new ConfigException(file, "engine.ion_trap_hcd needs fragmentation = \"per_file\": it is decided per file from the MS2 headers");
-        // v0.4.28: searched as HCD, MetaMorpheus deconvolutes each low-res MS2 spectrum first and finds almost nothing to
-        // match (PXD022393: 107 PSMs on one file, 2,442 as LowCID; PXD016430: 3,300 and 9,173). LowCID is its low-res path.
+        // v0.4.28 (lowres@4): ion-trap HCD searched as LowCID, MetaMorpheus's low-res path, in the probe and the search. Its
+        // evidence was measured under the probe's settings only (PXD022393: 107 PSMs on one file as HCD, 2,442 as LowCID).
+        // In the full search LowCID lost 1-16% of PSMs (2026-10-21: PXD052631, PXD016430, PXD015170), so lowres@5 takes
+        // it in the probe only (ion_trap_hcd_probe_lowcid, below).
         bool ionTrapHcdLowCid = eng.OptionalBool("ion_trap_hcd_lowcid") ?? false;
         if (ionTrapHcdLowCid && !ionTrapHcd)
             throw new ConfigException(file, "engine.ion_trap_hcd_lowcid needs engine.ion_trap_hcd = true: it says how ion-trap HCD is searched");
@@ -91,6 +93,29 @@ public static class ProfileLoader
             }
             thiolReagents = map;
         }
+        // v0.4.29 (ptmQtl PXR-P18, PXR-P19): a side reaction the chemistry reads -> a GPTMD modification, never variable (the
+        // user, 2026-10-25: variable only for a modification on most peptides, as oxidised methionine is). GPTMD may put it
+        // where the search holds another modification on the residue (MetaMorpheus GptmdEngine.GetPossibleMods), so ring-
+        // opened NEM sits beside NEM and propionamide beside fixed carbamidomethyl.
+        IReadOnlyDictionary<string, string>? artifacts = null;
+        if (root.OptionalTable("chemistry_artifacts") is { } ca)
+        {
+            if (chemistry != "deposit")
+                throw new ConfigException(file, "[chemistry_artifacts] needs engine.chemistry = \"deposit\": a side reaction is read from each deposit");
+            if (!tasks.Contains("Gptmd"))
+                throw new ConfigException(file, "[chemistry_artifacts] adds modifications to GPTMD, and engine.tasks has no Gptmd task");
+            var map = new SortedDictionary<string, string>(StringComparer.Ordinal);
+            foreach (string kind in ca.Keys)
+            {
+                if (!Discovery.ChemistryDetector.ArtifactKinds.Contains(kind))
+                    throw new ConfigException(file, $"[chemistry_artifacts] '{kind}' is not a side reaction the chemistry reads (one of {string.Join(", ", Discovery.ChemistryDetector.ArtifactKinds)})");
+                string modId = ca.RequiredString(kind);
+                if (!modId.Contains('\t') || !modId.EndsWith(" on C", StringComparison.Ordinal))
+                    throw new ConfigException(file, $"[chemistry_artifacts] '{kind}' must name \"Type\\tId on C\", not '{modId.Replace("\t", " / ")}'");
+                map[kind] = modId;
+            }
+            artifacts = map;
+        }
         // D32/D34/D35 slice 3: a short search of the probe files against every species database, measuring species,
         // cysteine share and phospho/GG before the full download. Off unless a profile turns it on.
         bool probeSearch = eng.OptionalBool("probe_search") ?? false;
@@ -104,6 +129,16 @@ public static class ProfileLoader
             throw new ConfigException(file, $"engine.precursor_window must be one of {string.Join(", ", Profile.PrecursorWindows)}, not '{precursorWindow}'");
         if (precursorWindow == "probe" && !probeSearch)
             throw new ConfigException(file, "engine.precursor_window = \"probe\" needs probe_search = true: the offset is measured by the probe search");
+        // v0.4.29 (lowres@5): ion-trap HCD as LowCID in the probe search only. Under the probe's settings HCD finds far less
+        // (one PXD016430 file: 3,300 PSMs as HCD, 9,173 as LowCID), so a deposit like PXD022393 parks as identifying nothing;
+        // in the full search HCD finds more (that file: 15,939 under lowres@2, 13,043 as LowCID under lowres@4).
+        bool ionTrapHcdProbeLowCid = eng.OptionalBool("ion_trap_hcd_probe_lowcid") ?? false;
+        if (ionTrapHcdProbeLowCid && !ionTrapHcd)
+            throw new ConfigException(file, "engine.ion_trap_hcd_probe_lowcid needs engine.ion_trap_hcd = true: it says how ion-trap HCD is searched in the probe");
+        if (ionTrapHcdProbeLowCid && !probeSearch)
+            throw new ConfigException(file, "engine.ion_trap_hcd_probe_lowcid needs probe_search = true: it is about the probe search");
+        if (ionTrapHcdProbeLowCid && ionTrapHcdLowCid)
+            throw new ConfigException(file, "engine.ion_trap_hcd_probe_lowcid and engine.ion_trap_hcd_lowcid are set together: ion_trap_hcd_lowcid already takes LowCID in the probe and the search");
         if (precursorWindow == "probe" && tasks.Contains("Calibration"))
             throw new ConfigException(file, "engine.precursor_window = \"probe\" is for a search without calibration; a Calibration task sets its own windows");
         eng.RefuseUnknownKeys();
@@ -172,7 +207,7 @@ public static class ProfileLoader
         return new Profile(id, version, status, description, accepts, mm, tasks, extraMods, library, timeout, dbs,
             panel ?? Path.GetFileName(shipped!), exclude,
             method, mbr, deposit, gates, Path.GetDirectoryName(Path.GetFullPath(file))!, design, chemistry, writeSdrf, shipped, fragmentation, lowResTolerance, probeSearch, probeMinutes, ionTrapHcd,
-            customMods, thiolReagents, precursorWindow, ionTrapHcdLowCid);
+            customMods, thiolReagents, precursorWindow, ionTrapHcdLowCid, ionTrapHcdProbeLowCid, artifacts);
     }
 
     /// <summary>

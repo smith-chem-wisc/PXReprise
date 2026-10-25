@@ -7,6 +7,66 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.29 (2026-10-25)
+
+No MetaMorpheus change. **Machine file:** optional new key `[workers] gap` (default 5). **Safe mid-batch?** Yes: swap
+the pin as usual, then publish the build to the probing machine (a build-only release). A question takes the new
+profiles by naming them.
+
+- **New profile `label-free-dda@9`: two side reactions of a deposit's own chemistry are offered to GPTMD.** They are
+  never searched as variable: a variable modification is for one on most peptides, as oxidised methionine is.
+  - **Ring-opened NEM** (`Nethylmaleimide+water on C`, +143.058 Da, UniMod 320) where NEM blocks the cysteines.
+  - **Propionamide** (`Propionamide on C`, +71.037 Da, UniMod 24) where the protocol names a gel (SDS-PAGE, in-gel
+    digestion, gel bands or slices, "gel-digested").
+  - Both are typed `Common Artifact` in a new `profiles/lists/PXReprise_custom_modifications_v2.txt`, with v1's NBF
+    entry unchanged. GPTMD may place one where the search already holds another modification on that cysteine, so
+    each sits beside variable NEM or fixed carbamidomethyl.
+  - **Tested on two raw files of each kind, `@8` against `@9`.** Ring-opened NEM was on 137 matches, 7% of the
+    NEM-modified cysteine matches, and 5% more cysteine-peptide matches passed. Propionamide was on 13 matches, 0.25% of
+    the cysteine matches, and took over 9 of 65 methyl-on-K artifacts. PSMs were flat to +0.7%, peptides -0.2%,
+    protein groups unchanged.
+  - **A deposit with neither side reaction is searched exactly as under `@8`.** New profile table
+    `[chemistry_artifacts]` (needs `chemistry = "deposit"` and a GPTMD task). The side reactions read are recorded in
+    the chemistry record and the experiment notes under any profile.
+
+- **New profile `label-free-dda-lowres@5`, and `lowres@4` is not recommended.** `lowres@4` (0.4.28) searched MS2
+  fragmented by HCD and read in the ion trap as MetaMorpheus's LowCID. Its evidence was measured under the probe
+  search's settings only.
+  - **In the full search LowCID lost PSMs on every deposit searched both ways:** 41,562 to 37,052 (-11%, 19 of 22 files
+    lower), 759,981 to 637,306 (-16%, all 44 files lower) and 121,034 to 119,928 (-1%). One file had 3,300 PSMs as HCD
+    under the probe's settings, 15,939 in the `lowres@2` full search, and 13,043 as LowCID in the `lowres@4` one.
+  - **`lowres@5` is `lowres@3` with ion-trap HCD taken as LowCID in the probe search only.** A deposit of rapid ion-trap
+    HCD scans can identify nothing as HCD under the probe's settings and park as identifying nothing; as LowCID it
+    passes. Its full search is `lowres@3`'s: HCD at the low-resolution tolerance, and a file mixing ion-trap CID and
+    ion-trap HCD is refused again.
+  - **On that deposit the full search does as well as HCD:** three of its files under the full search's settings gave
+    8,627 PSMs as HCD and 8,420 as LowCID. One of them had 107 PSMs as HCD under the probe's settings and 4,862 under
+    the full search's.
+  - Profile key `ion_trap_hcd_probe_lowcid` (needs `ion_trap_hcd` and `probe_search`; not with `ion_trap_hcd_lowcid`).
+    `lowres@4` is unchanged, since a profile version never changes; its notes here and in the docs are corrected.
+- **Fixed: catch-up re-searches of deposits the queue still lists never started.** When it walked the queue, the
+  batch marked every searched deposit as taken, and the catch-up then skipped all of them. Only deposits no longer in
+  the queue were caught up. On 2026-10-22 the queue ran out with 81 re-searches due under profiles the question no
+  longer names. Present since 0.4.1.
+- **The probing machine works further down the queue (the user: "keep the worker stocked with probe sets that are five
+  or 10 spots down the line").** Before, it was assigned the very next deposits, the same ones the delivering machine
+  reached first. When it went quiet, the delivering machine took them back and probed them, and on 2026-10-20 one
+  deposit was probed on both machines.
+  - **The delivering machine keeps its next `gap` deposits to probe (default 5) for itself.** The prober's window is
+    filled from the ones after them, at every look, while its heartbeat is fresh. The order is the queue's, then the
+    catch-up re-searches due.
+  - **A deposit the prober passed goes ahead of the queue** on the delivering machine (the user: "when it finishes a
+    probe, then move that repo up the queue on the local box"). It needs no probe there, so it is fetched next, after
+    any deposit already downloaded.
+  - **The delivering machine no longer waits for room in the prober's window:** it probes its own deposits. It passes
+    over a deposit assigned to the prober, and waits only when the prober's deposits are all that is left.
+- **A take-back rewrites `accessions\assigned.tsv` at once.** Before, the file was rewritten only at the next look, so
+  a prober coming back could probe a deposit the delivering machine already had.
+- **A deposit whose probe failed on the prober is probed on the delivering machine,** not assigned again. PXD006815's
+  probe failed there for want of memory and was assigned straight back.
+- **A deposit with raw files on the delivering machine is probed there,** even when only some of them have arrived (a
+  download cut by STOP, for example). Before, only a deposit with all its files counted.
+
 ## 0.4.28 (2026-10-20)
 
 No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual, then publish the

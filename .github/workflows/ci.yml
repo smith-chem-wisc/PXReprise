@@ -1,13 +1,35 @@
 name: CI
 
+# Runs when something the build or the tests read changes (2026-10-21): most pushes are notes and messages no test
+# reads, and each one ran both jobs. The live canaries reach PRIDE, so they run weekly and on demand only.
 on:
   push:
     branches: [master]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "profiles/**"
+      - "examples/**"
+      - "machines/**"
+      - "PXReprise.slnx"
+      - ".github/workflows/**"
   pull_request:
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "profiles/**"
+      - "examples/**"
+      - "machines/**"
+      - "PXReprise.slnx"
+      - ".github/workflows/**"
+  schedule:
+    - cron: "17 9 * * 1"   # Mondays 09:17 UTC
+  workflow_dispatch:
 
 jobs:
   test:
     name: build and offline tests (required)
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,6 +41,7 @@ jobs:
 
   live:
     name: live PRIDE canaries (not required; skipped on an outage)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     continue-on-error: false
     timeout-minutes: 30

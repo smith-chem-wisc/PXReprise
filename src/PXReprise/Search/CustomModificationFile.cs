@@ -19,10 +19,11 @@ public static class CustomModificationFile
     /// </summary>
     public static string Install(Profile p, string settingsDir, IReadOnlyCollection<string> needed, Action seed)
     {
-        if (p.CustomModifications is not { } name || p.ThiolReagents is not { } modelled)
+        var modelled = (p.ThiolReagents?.Values ?? Enumerable.Empty<string>()).Concat(p.ChemistryArtifacts?.Values ?? Enumerable.Empty<string>()).ToHashSet(StringComparer.Ordinal);
+        if (p.CustomModifications is not { } name || modelled.Count == 0)
             throw new SearchSetupException($"the deposit's chemistry needs {Describe(needed)}, and {p.Key} ships no custom modifications");
         // The chemistry is cached per deposit; read under another profile, it may name a modification this one lacks.
-        var missing = needed.Where(id => !modelled.Values.Contains(id)).ToList();
+        var missing = needed.Where(id => !modelled.Contains(id)).ToList();
         if (missing.Count > 0)
             throw new SearchSetupException($"{p.Key} does not model {Describe(missing)}: the deposit's chemistry was read under another profile");
 
@@ -44,6 +45,12 @@ public static class CustomModificationFile
             throw new SearchSetupException($"{target} differs from {p.ListPath(name)}: a changed modification list must ship under a new file name, never replace one that searches used");
         return target;
     }
+
+    /// <summary>(category, "ID on TG") for every modification <paramref name="p"/>'s custom file defines (mzLib's reader), the
+    /// form <see cref="TaskFiles.KnownMods"/> returns; empty when the profile ships none.</summary>
+    public static IReadOnlySet<(string Category, string Name)> Known(Profile p) => p.CustomModifications is not { } name
+        ? new HashSet<(string, string)>()
+        : Omics.Modifications.IO.ModificationLoader.ReadModsFromFile(p.ListPath(name), out _).Select(m => (m.ModificationType, m.IdWithMotif)).ToHashSet();
 
     private static string Describe(IEnumerable<string> ids) => string.Join(", ", ids.Select(i => i.Replace('\t', ' ')));
 }

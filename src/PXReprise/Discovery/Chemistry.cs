@@ -38,6 +38,14 @@ public sealed record CysMod(string Name, string Unimod, bool Fixed, string? Cust
 }
 
 /// <summary>
+/// A side reaction the deposit's own chemistry makes likely on some of its peptides, never on most (ptmQtl PXR-P18,
+/// PXR-P19): <see cref="ChemistryDetector.RingOpenedNem"/> or <see cref="ChemistryDetector.GelPropionamide"/>. A profile's
+/// <c>[chemistry_artifacts]</c> maps each kind to a GPTMD modification; it is never searched variable (the user,
+/// 2026-10-25: variable only for a modification on most peptides, as oxidised methionine is).
+/// </summary>
+public sealed record ChemistryArtifact(string Kind, string Evidence);
+
+/// <summary>
 /// A deposit's chemistry (G19, decided 2026-10-05 as D22 to D24): which protease made its peptides, how its cysteines
 /// were alkylated, and what label it carries. Read before any download. <see cref="Park"/> is set when the search cannot
 /// proceed as is (e.g. <c>waiting_multi_protease</c>).
@@ -48,19 +56,25 @@ public sealed record DepositChemistry(
     ChemistryFact Alkylation,
     IReadOnlyList<CysMod> CysMods,
     ChemistryFact Label,
-    string? Park)
+    string? Park,
+    IReadOnlyList<ChemistryArtifact>? Artifacts = null)
 {
     public bool AnyGuessed => Protease.Guessed || Alkylation.Guessed || Label.Guessed;
 
+    /// <summary>The side reactions read (v0.4.29); empty when none.</summary>
+    public IReadOnlyList<ChemistryArtifact> ArtifactsRead => Artifacts ?? Array.Empty<ChemistryArtifact>();
+
     /// <summary>
     /// The question says the cysteines were never alkylated (v0.4.15, PXR-A99): no cysteine modification, whatever was
-    /// read. A wait on an unmodelled thiol reagent goes with it; any other wait (a protease, a label) stays.
+    /// read. A wait on an unmodelled thiol reagent goes with it; any other wait (a protease, a label) stays. So does a gel's
+    /// propionamide (free cysteines meet the gel's acrylamide); ring-opened NEM goes, with the NEM.
     /// </summary>
     public DepositChemistry Unalkylated(string evidence) => this with
     {
         Alkylation = new("none", ChemistrySource.QuestionException, evidence),
         CysMods = Array.Empty<CysMod>(),
         Park = Park == "waiting_unknown_alkylant" ? null : Park,
+        Artifacts = ArtifactsRead.Where(a => a.Kind != ChemistryDetector.RingOpenedNem).ToList(),
     };
 }
 
@@ -246,6 +260,23 @@ public static class ChemistryDetector
     public static IReadOnlyList<string> UnmodelledThiolReagentNames { get; } = UnmodelledThiolReagents.Select(r => r.Name).ToArray();
 
     private static readonly Regex AlkylationContext = new(@"alkylat|block|thiol|cystein|\bCys\b|derivati[sz]", Opt);
+
+    // ------------------------------------------------------------------ side reactions (ptmQtl PXR-P18, PXR-P19)
+
+    /// <summary>NEM's succinimide ring opens with water (+18.011 Da; UNIMOD:320 Nethylmaleimide+water, +143.058 Da on C).
+    /// Searched with closed NEM only, the McDonagh three and the ten Jarome deposits left +86.037 Da that GPTMD called
+    /// Hydroxybutyrylation on K (ptmQtl 020: 65 of 96 and 82 of 91 such sites on cysteine peptides).</summary>
+    public const string RingOpenedNem = "ring_opened_nem";
+
+    /// <summary>In a gel, free cysteines meet unpolymerised acrylamide: propionamide on C (UNIMOD:24, +71.037 Da). Searched
+    /// with carbamidomethyl fixed, the +14.016 Da left over became methyl on K or R (ptmQtl 020: seven deposits).</summary>
+    public const string GelPropionamide = "gel_propionamide";
+
+    /// <summary>The side reactions a profile's <c>[chemistry_artifacts]</c> may map.</summary>
+    public static IReadOnlyList<string> ArtifactKinds { get; } = new[] { RingOpenedNem, GelPropionamide };
+
+    /// <summary>A protocol that ran its proteins through a gel: SDS-PAGE, in-gel digestion, gel bands or slices, GeLC.</summary>
+    private static readonly Regex GelWords = new(@"\bSDS[- ]?PAGE\b|\bin[- ]gel\b|\bgel[- ](band|slice|piece|lane|plug)s?\b|\bGeLC\b|\b1-?D[- ]gel|\bpolyacrylamide gel|\bgel[- ]digest", Opt);
 
     private static readonly Regex NoAlkylation = new(@"without (reduction and )?alkylation|\bnot (reduced and )?alkylated\b|\bno alkylation\b|alkylation (step )?was omitted|omitt?ing (the )?alkylation", Opt);
 
@@ -499,7 +530,14 @@ public static class ChemistryDetector
         if (protease.Value == NonSpecific || perFile?.Values.Contains(NonSpecific) == true) park ??= NonspecificCleavagePark;
         if (mods.Any(m => m.MetaMorpheusId is null)) park ??= "waiting_unknown_modification";
 
-        return new DepositChemistry(protease, perFile, alkylation, mods, label, park);
+        // v0.4.29 (ptmQtl PXR-P18, PXR-P19): side reactions the chemistry makes likely on SOME peptides, for GPTMD to place.
+        var artifacts = new List<ChemistryArtifact>();
+        if (mods.Any(m => m.Unimod == "UNIMOD:108"))
+            artifacts.Add(new(RingOpenedNem, $"NEM on C ({alkylation.Value}, {alkylation.Source}); its ring opens with water"));
+        if (GelWords.Match(text) is { Success: true } gel && mods.All(m => m.Unimod != "UNIMOD:24"))
+            artifacts.Add(new(GelPropionamide, $"the protocol names a gel: {Snip(text, gel)}"));
+
+        return new DepositChemistry(protease, perFile, alkylation, mods, label, park, artifacts);
     }
 
     // ------------------------------------------------------------------ helpers

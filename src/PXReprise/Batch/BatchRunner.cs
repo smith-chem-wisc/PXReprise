@@ -346,19 +346,22 @@ public sealed class BatchRunner
     private volatile bool _diskShort;
 
     /// <summary>A status the runner does not spend time on again. Clear the state entry to retry.</summary>
-    public string Settled(string acc)
+    public string Settled(string acc) => Settled(acc, Entry(acc));
+
+    /// <summary><see cref="Settled(string)"/> on a state entry already read.</summary>
+    internal string Settled(string acc, JsonObject? entry0)
     {
         if (_q.Holds.ContainsKey(acc)) return "on_hold_user";
-        string? s = Entry(acc)?["status"]?.GetValue<string>();
+        string? s = entry0?["status"]?.GetValue<string>();
         // A deposit deferred by a cap, settled by size, or parked on a second organism (v0.4.19) gets ONE more look when the
         // question adds or changes an exception for it: the exception is recorded on that look, so a deposit that still does
         // not fit settles again (D28).
         if (s is not null && (s.StartsWith("deferred_", StringComparison.Ordinal) || s is "skipped_selection_empty" or "waiting_other_organism")
-            && _q.ExceptionFor(acc) is { } ex && Entry(acc)?["exception"]?.GetValue<string>() != ex.Describe())
+            && _q.ExceptionFor(acc) is { } ex && entry0?["exception"]?.GetValue<string>() != ex.Describe())
             return "";
         // v0.4.21: a deposit a size gate deferred gets ONE more look when the machine's [deposit_limits] change and now fit
         // what its deferral measured; the look records the limits, so a deposit that still does not fit settles again.
-        if (s is not null && Limits is { } lim && Entry(acc) is { } entry
+        if (s is not null && Limits is { } lim && entry0 is { } entry
             && entry["machine_limits"]?.GetValue<string>() != lim.Describe() && lim.Admits(s, entry))
             return "";
         return s is not null && (s is "fetch_failed" or "probe_fetch_failed" or "search_failed"
@@ -619,7 +622,7 @@ public sealed class BatchRunner
         {
             while (!ct.IsCancellationRequested && !File.Exists(StopFile) && !_diskShort)
             {
-                if (_m.Workers is not null) TendWorker(queue);
+                if (_m.Workers is not null) TendWorker(queue, consumed);
                 bool catchUpTurn = _m.CatchUpEvery > 0 && (_started + 1) % _m.CatchUpEvery == 0;
                 var catchUp = catchUpTurn ? CatchUpCandidate(queue, consumed, busy) : null;
                 var e = catchUp ?? PickNext(queue, consumed, busy);
@@ -628,6 +631,8 @@ public sealed class BatchRunner
                 if (e is null && _m.CatchUpEvery > 0 && !catchUpTurn) e = catchUp = CatchUpCandidate(queue, consumed, busy);
                 if (e is null)
                 {
+                    // v0.4.29: a deposit assigned outside the queue (a catch-up re-search) is waited for too.
+                    if (_m.Workers is not null && !WorkerQuiet()) waiting.UnionWith(AssignedToWorker().Where(a => !consumed.Contains(a)));
                     if (waiting.Count == 0) return null;
                     // Everything left waits on the worker's probes: look again in a while (STOP is watched meanwhile).
                     if (DateTime.UtcNow - _waitLogged > TimeSpan.FromMinutes(30))
@@ -641,12 +646,15 @@ public sealed class BatchRunner
                     continue;
                 }
                 consumed.Add(e.Accession);
-                // v0.4.27 (the user: "it would only run probes", then "do what works best"): every probe this machine would run
-                // goes to the probe worker while it is alive, and this machine never sits idle waiting for one.
-                var route = _m.Workers is null || WorkerPassProfile(e.Accession) is not null ? WorkerRoute.Local : RouteToWorker(e.Accession, idleHere: Searching.Count == 0, filesStay: catchUp is null);
-                if (route is WorkerRoute.Pending or WorkerRoute.Defer) { waiting.Add(e.Accession); continue; }
+                // v0.4.29 (the user, 2026-10-20: "keep the worker stocked with probe sets that are five or 10 spots down the
+                // line"): the worker's assignments are made by TendWorker, beyond the next `gap` deposits. Whatever this walk
+                // reaches unassigned is probed here; an assigned deposit waits for its package, unless taken back.
+                if (_m.Workers is not null && WorkerPassProfile(e.Accession) is null && RouteToWorker(e.Accession) == WorkerRoute.Pending)
+                {
+                    waiting.Add(e.Accession);
+                    continue;
+                }
                 if (catchUp is not null && !StartCatchUp(e)) continue;
-                if (route == WorkerRoute.Assign) { AssignToWorker(e, catchUp is not null); waiting.Add(e.Accession); continue; }
                 if (WorkerPassProfile(e.Accession) is null) Record(e.Accession, ("status", "probing"), ("title", e.Title), ("organism", e.Organism));
                 if (await PrepareAsync(e, ct).ConfigureAwait(false) is { } profile)
                 {
@@ -712,7 +720,7 @@ public sealed class BatchRunner
                 if (PickNext(queue, consumed, none) is not { } e) break;
                 consumed.Add(e.Accession);
                 // v0.4.26: the worker probes it. Nothing is assigned while STOP drains: the next driver does that.
-                if (_m.Workers is not null && WorkerPassProfile(e.Accession) is null && RouteToWorker(e.Accession, idleHere: false, filesStay: true) != WorkerRoute.Local) continue;
+                if (_m.Workers is not null && WorkerPassProfile(e.Accession) is null && RouteToWorker(e.Accession) != WorkerRoute.Local) continue;
                 if (WorkerPassProfile(e.Accession) is null) Record(e.Accession, ("status", "probing"), ("title", e.Title), ("organism", e.Organism));
                 if (await PrepareAsync(e, cut).ConfigureAwait(false) is not null)
                 {
@@ -729,15 +737,22 @@ public sealed class BatchRunner
         return fetched;
     }
 
-    /// <summary>The first queued deposit not yet done, preferring one whose species no running search has.</summary>
+    /// <summary>
+    /// The first queued deposit not yet done, preferring one whose species no running search has. A deposit downloaded
+    /// already goes first, then (v0.4.29) one the probe worker passed.
+    /// </summary>
     private QueueEntry? PickNext(IReadOnlyList<QueueEntry> queue, HashSet<string> consumed, IReadOnlySet<string> busy)
     {
         if (DownloadedFirst(queue, consumed, busy) is { } ready) return ready;
+        if (_m.Workers is not null && WorkerPassFirst(queue, consumed, busy) is { } pass) return pass;
         QueueEntry? first = null;
         foreach (var x in queue)
         {
             if (consumed.Contains(x.Accession)) continue;
-            if (File.Exists(Path.Combine(Run(x.Accession), "04_search", "provenance.json"))) { consumed.Add(x.Accession); continue; }
+            // Not consumed (v0.4.29): a searched deposit stays a catch-up candidate. Marking it consumed hid every deposit the
+            // queue lists from CatchUpCandidate, so from 2026-10-18 no catch-up started and the queue "ran out" on
+            // 2026-10-22 with 81 D39 re-searches due; only deposits no longer in the queue had been caught up.
+            if (File.Exists(Path.Combine(Run(x.Accession), "04_search", "provenance.json"))) continue;
             string settled = Settled(x.Accession);
             if (settled.Length > 0) { Log($"{x.Accession} skipped: {settled} on a previous pass"); consumed.Add(x.Accession); continue; }
             if (!busy.Contains(x.Organism)) return x;
@@ -766,6 +781,31 @@ public sealed class BatchRunner
             first ??= x;
         }
         return first;
+    }
+
+    /// <summary>
+    /// v0.4.29 (the user, 2026-10-20: "when it finishes a probe, then move that repo up the queue on the local box"): a
+    /// deposit the probe worker passed goes ahead of every deposit still to be probed here, in queue order (another species
+    /// first, as in <see cref="PickNext"/>). It needs no probe here, so this machine's search slots get it soonest. Read
+    /// from the state, not the queue, so a catch-up re-search the worker passed is found too. Null when there is none.
+    /// </summary>
+    internal QueueEntry? WorkerPassFirst(IReadOnlyList<QueueEntry> queue, ISet<string> consumed, IReadOnlySet<string> busy)
+    {
+        var order = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (int i = 0; i < queue.Count; i++) order.TryAdd(queue[i].Accession, i);
+        var passes = new List<(QueueEntry E, int At, string When)>();
+        foreach (var (acc, node) in State()["datasets"]!.AsObject())
+        {
+            if (consumed.Contains(acc) || node is not JsonObject o || o["status"]?.GetValue<string>() != ProbedByWorkerStatus) continue;
+            if (File.Exists(Path.Combine(Run(acc), "04_search", "provenance.json")) || Settled(acc, o).Length > 0) continue;
+            var qe = order.TryGetValue(acc, out int at) ? queue[at]
+                : o["organism"]?.GetValue<string>() is { } org ? WithQuestionSpecies(new QueueEntry(acc, o["title"]?.GetValue<string>() ?? "", org)) : null;
+            if (qe is not null) passes.Add((qe, order.TryGetValue(acc, out at) ? at : int.MaxValue, o["probe_package_utc"]?.GetValue<string>() ?? ""));
+        }
+        var pick = passes.OrderBy(p => busy.Contains(p.E.Organism) ? 1 : 0).ThenBy(p => p.At).ThenBy(p => p.When, StringComparer.Ordinal)
+            .Select(p => p.E).FirstOrDefault();
+        if (pick is not null) Log($"{pick.Accession} taken next: the probe worker passed it, so it goes ahead of the deposits still to be probed here");
+        return pick;
     }
 
     /// <summary>
@@ -993,7 +1033,7 @@ public sealed class BatchRunner
         int onDisk = Directory.EnumerateFiles(Path.Combine(d, "02_fetch", "spectra"), "*.raw").Count();
         if (onDisk > probeFiles.Count)
             Log($"{acc} PROBE reads its {probeFiles.Count} probe files only; {onDisk} raw files are on disk (downloaded ahead)");
-        var (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles);
+        var (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles, probe: true);
         xr.Probe(report);
         if (RoutedByReporters(acc, report, "PROBE"))
         {
@@ -1011,7 +1051,7 @@ public sealed class BatchRunner
             Log($"{acc} PROBE qc: MS2 not read in the Orbitrap (low_res_ms2); routing to {low.Key}");
             profile = low;
             Record(acc, ("profile", profile.Key), ("routed_low_res", true));
-            (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles);
+            (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles, probe: true);
             xr.Probe(report);
             excl = QcExclusion(report, profile.Qc);
             ok = allPass || excl is { Count: > 0 };
@@ -1970,8 +2010,9 @@ public sealed class BatchRunner
     /// not this build, so a version change that was not published is seen at once.</summary>
     private void StartControlling(WorkersConfig w)
     {
-        Log($"  workers  probes go to the worker behind {w.Share} (window {w.Window}; probed here after {w.QuietHours:0.#} h "
-            + $"without its heartbeat, or {w.AssignmentHours:0.#} h on one deposit); every full search runs here");
+        Log($"  workers  probes go to the worker behind {w.Share}: the next {w.Gap} deposit(s) are probed here, and the worker's "
+            + $"window of {w.Window} is filled from the ones after them; its passes go ahead of the queue (taken back after "
+            + $"{w.QuietHours:0.#} h without its heartbeat, or {w.AssignmentHours:0.#} h on one deposit); every full search runs here");
         string self = Provenance.RunRecord.Versions()["pxreprise"];
         try
         {
@@ -2039,9 +2080,10 @@ public sealed class BatchRunner
 
     /// <summary>
     /// Takes in every finished probe package, says when the worker goes quiet or comes back, and refills its window of
-    /// assignments while it is alive. Never fails the batch: a share that cannot be read is logged and tried again.
+    /// assignments while it is alive, beyond the gap (<see cref="RefillWorker"/>). Never fails the batch: a share that
+    /// cannot be read is logged and tried again.
     /// </summary>
-    private void TendWorker(IReadOnlyList<QueueEntry> queue)
+    private void TendWorker(IReadOnlyList<QueueEntry> queue, ISet<string> consumed)
     {
         try
         {
@@ -2055,6 +2097,7 @@ public sealed class BatchRunner
                 _workerWasQuiet = quiet;
             }
             foreach (string dir in _share!.ReadyPackages()) Adopt(dir);
+            if (!quiet) RefillWorker(queue, consumed);
             WriteAssignments();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidDataException or UsageException)
@@ -2077,55 +2120,95 @@ public sealed class BatchRunner
         _share!.WriteAssignments(rows);
     }
 
-    /// <summary>Where a deposit this machine is about to probe goes (v0.4.27).</summary>
-    internal enum WorkerRoute { Local, Assign, Pending, Defer }
+    /// <summary>Where a deposit this machine's walk reaches goes: probed here, or left to the worker it is assigned to.</summary>
+    internal enum WorkerRoute { Local, Pending }
 
     /// <summary>
-    /// v0.4.27 (the user, 2026-10-19: "it would only run probes", then "do what works best"). Every probe this machine would
-    /// run goes to the worker while it is alive: a fresh deposit, a catch-up re-search, a retry, a deferral's second look.
-    /// Probed here instead:
-    /// <list type="bullet">
-    /// <item>a deposit whose raw files are already here (probing it here costs no download), unless they are about to be
-    /// moved aside with its earlier search (<paramref name="filesStay"/> false: a catch-up re-search);</item>
-    /// <item>one taken back from the worker (quiet, an assignment older than <c>assignment_hours</c>, refused packages);</item>
-    /// <item>one that would wait while the worker has its whole window and nothing is searching here
-    /// (<paramref name="idleHere"/>): this machine never sits idle waiting for a probe.</item>
-    /// </list>
-    /// An assigned deposit is <see cref="WorkerRoute.Pending"/>; one that waits for room in the window while a search runs here
-    /// is <see cref="WorkerRoute.Defer"/>.
+    /// v0.4.29: the walk assigns nothing (<see cref="RefillWorker"/> does, beyond the gap). A deposit assigned to the worker
+    /// is <see cref="WorkerRoute.Pending"/> until its package comes, unless it is taken back: the worker is quiet, or the
+    /// assignment is older than <c>assignment_hours</c>. A take-back rewrites <c>accessions\assigned.tsv</c> at once, so
+    /// the worker does not probe the deposit too (PXD028590 was probed on both machines on 2026-10-20). Everything else
+    /// the walk reaches is probed here.
     /// </summary>
-    internal WorkerRoute RouteToWorker(string acc, bool idleHere, bool filesStay)
+    internal WorkerRoute RouteToWorker(string acc)
     {
         var w = _m.Workers!;
         var o = Entry(acc);
-        string? s = o?["status"]?.GetValue<string>();
-        if (s == AssignedStatus)
+        if (o?["status"]?.GetValue<string>() != AssignedStatus) return WorkerRoute.Local;
+        string? why = WorkerQuiet() ? "the probe worker is quiet"
+            : o["assigned_utc"]?.GetValue<string>() is { } at
+              && DateTime.TryParse(at, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var t)
+              && DateTime.UtcNow - t > TimeSpan.FromHours(w.AssignmentHours)
+                ? $"its assignment is older than {w.AssignmentHours:0.#} h and no package came" : null;
+        if (why is null) return WorkerRoute.Pending;
+        Log($"{acc} taken back from the probe worker ({why}): probed here");
+        Record(acc, ("status", WorkerFallbackStatus), ("detail", why));
+        try { WriteAssignments(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            string? why = WorkerQuiet() ? "the probe worker is quiet"
-                : o?["assigned_utc"]?.GetValue<string>() is { } at
-                  && DateTime.TryParse(at, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var t)
-                  && DateTime.UtcNow - t > TimeSpan.FromHours(w.AssignmentHours)
-                    ? $"its assignment is older than {w.AssignmentHours:0.#} h and no package came" : null;
-            if (why is null) return WorkerRoute.Pending;
-            Log($"{acc} taken back from the probe worker ({why}): probed here");
-            Record(acc, ("status", WorkerFallbackStatus), ("detail", why));
-            return WorkerRoute.Local;
+            Log($"workers: assignments not written ({ex.Message}); written again at the next look");
         }
-        if (s == WorkerFallbackStatus || WorkerQuiet() || filesStay && FilesHere(acc, o)) return WorkerRoute.Local;
-        int assigned = State()["datasets"]!.AsObject().Count(kv => kv.Value?["status"]?.GetValue<string>() == AssignedStatus);
-        if (assigned < w.Window) return WorkerRoute.Assign;
-        if (!idleHere) return WorkerRoute.Defer;
-        Log($"{acc} probed here: the probe worker has its {w.Window} deposit(s) and nothing is searching here");
         return WorkerRoute.Local;
     }
 
-    /// <summary>Every raw file the deposit's whole fetch listed is on disk here (a deposit downloaded ahead, or fetched).</summary>
-    private bool FilesHere(string acc, JsonObject? o)
+    /// <summary>The deposits assigned to the worker now.</summary>
+    private List<string> AssignedToWorker() => State()["datasets"]!.AsObject()
+        .Where(kv => kv.Value?["status"]?.GetValue<string>() == AssignedStatus).Select(kv => kv.Key).ToList();
+
+    /// <summary>
+    /// v0.4.29 (the user, 2026-10-20: "let's have a bigger gap between the sets the worker is probing and the sets this box
+    /// is using. keep the worker stocked with probe sets that are five or 10 spots down the line"). The deposits this
+    /// machine would probe next, in the order it takes them (<see cref="UpcomingProbes"/>): the first <c>gap</c> are left
+    /// for this machine, and the worker's window is filled from the ones after them. Every new assignment is made at least
+    /// <c>gap</c> deposits behind this machine's next, so the two seldom meet on one deposit; and the worker's passes go
+    /// ahead of the queue here (<see cref="WorkerPassFirst"/>). Called only while the worker is alive.
+    /// </summary>
+    private void RefillWorker(IReadOnlyList<QueueEntry> queue, ISet<string> consumed)
     {
-        if (o?["status"]?.GetValue<string>() == "fetched") return true;
-        if (o?["n_listed"] is not JsonValue nv || !nv.TryGetValue<int>(out int listed) || listed <= 0) return false;
-        string spectra = Path.Combine(Run(acc), "02_fetch", "spectra");
-        return Directory.Exists(spectra) && Directory.EnumerateFiles(spectra, "*.raw").Count() >= listed;
+        var w = _m.Workers!;
+        int room = w.Window - AssignedToWorker().Count;
+        if (room <= 0) return;
+        foreach (var (e, catchUp) in UpcomingProbes(queue, consumed).Skip(w.Gap))
+        {
+            if (room == 0) break;
+            if (catchUp && !StartCatchUp(e)) continue;
+            AssignToWorker(e, catchUp);
+            room--;
+        }
+    }
+
+    /// <summary>
+    /// The deposits this machine would probe next, in order: the queue's, then the catch-up re-searches due (D39), in
+    /// <see cref="CatchUpCandidate"/>'s order. Left out, besides what is searched or settled: what this walk took already;
+    /// a deposit assigned to the worker, passed by it or taken back from it; one the worker probed and handed back
+    /// unsettled (a failed probe: probed here next, not assigned again); and one with raw files here (fetched, searching,
+    /// interrupted, or partly downloaded: it costs less here). A catch-up's raw files leave with its earlier search, so
+    /// they keep nothing here.
+    /// </summary>
+    internal IEnumerable<(QueueEntry Entry, bool CatchUp)> UpcomingProbes(IReadOnlyList<QueueEntry> queue, ISet<string> consumed)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var ds = State()["datasets"]!.AsObject();   // one read: Entry() parses state.json at every call
+        foreach (var x in queue)
+        {
+            if (!seen.Add(x.Accession) || consumed.Contains(x.Accession)) continue;
+            var o = ds[x.Accession] as JsonObject;
+            if (File.Exists(Path.Combine(Run(x.Accession), "04_search", "provenance.json")) || Settled(x.Accession, o).Length > 0) continue;
+            string? s = o?["status"]?.GetValue<string>();
+            if (s is AssignedStatus or ProbedByWorkerStatus or WorkerFallbackStatus or "fetched" or "searching" or "search_interrupted" or "fetch_paused_disk") continue;
+            if (o?["probed_by"] is not null) continue;
+            string spectra = Path.Combine(Run(x.Accession), "02_fetch", "spectra");
+            if (Directory.Exists(spectra) && Directory.EnumerateFiles(spectra, "*.raw").Any()) continue;
+            yield return (x, false);
+        }
+        if (_m.CatchUpEvery <= 0) yield break;
+        var none = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var taken = new HashSet<string>(consumed, StringComparer.Ordinal);
+        while (CatchUpCandidate(queue, taken, none) is { } c)
+        {
+            taken.Add(c.Accession);
+            yield return (c, true);
+        }
     }
 
     /// <summary>

@@ -37,10 +37,12 @@ is a new version, so every result says exactly which method made it.
 | `label-free-dda@6` | available | `@5`, plus a thiol reagent with no UniMod entry searched with a modification the profile ships (below); the first is NBF-Cl |
 | `label-free-dda@7` | available | `@6`, plus a short probe search before the whole deposit is downloaded (below) |
 | `label-free-dda@8` | available | `@7` on the ageing project's fourth database release (agingPTM-v4): the same proteomes, with the PTM sites rebuilt from the ageing catalog of 2026-10-17 |
+| `label-free-dda@9` | available | `@8`, plus two side reactions of a deposit's own chemistry offered to GPTMD, never searched as variable: ring-opened NEM where NEM blocks the cysteines, and propionamide where the protocol names a gel (below). A deposit with neither is searched exactly as under `@8` |
 | `label-free-dda-lowres@1` | available | label-free DDA whose MS2 is read in the ion trap (CID): MetaMorpheus's Search task alone, each file's fragmentation written from its own scans, no spectral library. A deposit is sent here only when its probe files fail the Orbitrap check and nothing else |
 | `label-free-dda-lowres@2` | available | `lowres@1`, plus MS2 fragmented by HCD and read in the ion trap (a Fusion, Lumos or Eclipse "HCD-IT" method) |
 | `label-free-dda-lowres@3` | available | `lowres@2`, plus the probe search, which measures each deposit's precursor mass offset. The search then accepts and quantifies precursors within a window wide enough for that offset (below). These profiles run no calibration, and an instrument whose masses are a few ppm off loses most of its identifications at MetaMorpheus's 5 ppm |
-| `label-free-dda-lowres@4` | available | `lowres@3`, with MS2 fragmented by HCD and read in the ion trap searched as MetaMorpheus's LowCID, its low-resolution path. Searched as HCD, MetaMorpheus first deconvolutes each low-resolution spectrum and matches almost nothing: one test file gave 107 PSMs as HCD and 2,442 as LowCID, another 3,300 and 9,173. A file mixing ion-trap CID and ion-trap HCD is now searched too |
+| `label-free-dda-lowres@4` | available | `lowres@3`, with MS2 fragmented by HCD and read in the ion trap searched as MetaMorpheus's LowCID, its low-resolution path, in the probe and the search. **Not recommended: use `lowres@5`.** Its evidence was measured under the probe's settings, where one test file gave 107 PSMs as HCD and 2,442 as LowCID. In the full search LowCID lost PSMs on every deposit searched both ways (1% to 16%) |
+| `label-free-dda-lowres@5` | available | `lowres@3`, with MS2 fragmented by HCD and read in the ion trap taken as LowCID in the probe search only. Under the probe's settings such a deposit can identify nothing as HCD and park; the full search keeps `lowres@3`'s HCD at the low-resolution tolerance. In full searches HCD found more than LowCID in three deposits, and about as much in the deposit the probe change was made for |
 | `tmt-dda@1` | pending | TMT-labelled DDA. Not runnable yet: a question that lists it gets a count of the TMT deposits it would unlock |
 
 Every profile but `@2` needs the ageing project's own databases in the machine's `database_dir`, and runs only where they
@@ -65,6 +67,16 @@ which protease made the deposit's peptides, how its cysteines were alkylated, an
   (`[engine] custom_modifications`, under `profiles/lists/`) and maps the reagent to one of its modifications
   (`[thiol_reagents]`). The deposit is then searched with that modification, variable. Before such a search,
   PXReprise copies the file into the MetaMorpheus settings folder the search uses.
+- **A profile can offer side reactions to GPTMD** (`label-free-dda@9`, `[chemistry_artifacts]`). They are things the
+  chemistry makes likely on some peptides, never on most, so they are never searched as variable:
+  - **ring-opened NEM** (`Nethylmaleimide+water on C`, +143.058 Da) where NEM blocks the cysteines: NEM's ring opens
+    with water;
+  - **propionamide** (`Propionamide on C`, +71.037 Da) where the protocol names a gel (SDS-PAGE, in-gel digestion, gel
+    bands): free cysteines meet the gel's acrylamide.
+  - Both are typed `Common Artifact` in `profiles/lists/PXReprise_custom_modifications_v2.txt`. Only a deposit whose
+    chemistry reads them gets them in its GPTMD list.
+  - On two files of each kind, GPTMD placed ring-opened NEM on 7% of the NEM-modified cysteine matches and propionamide
+    on 0.25% of the cysteine matches. Before, those masses could be read as other modifications (methyl on K, for one).
 - **PXReprise's own proteases** (since 0.4.28, any profile). `profiles/lists/PXReprise_custom_proteases_v1.tsv` holds
   digestion agents mzLib's list lacks, in mzLib's own columns. Before a search that uses one, PXReprise adds it to
   the `proteases_custom.tsv` in the MetaMorpheus settings folder the search uses. Today the list holds one:

@@ -51,6 +51,7 @@ public sealed class ExperimentRecord
         Fact("alkylation", c.Alkylation.Value, c.Alkylation.Source, c.Alkylation.Evidence, c.Alkylation.Guessed);
         Fact("cysteine_mods", string.Join(" + ", c.CysMods.Select(m => $"{m.Name} ({(m.Fixed ? "fixed" : "variable")})")), c.Alkylation.Source);
         Fact("label", c.Label.Value, c.Label.Source, c.Label.Evidence, c.Label.Guessed);
+        foreach (var a in c.ArtifactsRead) Fact($"side_reaction {a.Kind}", "likely on some peptides (GPTMD, where the profile maps it)", c.Alkylation.Source, a.Evidence);
     }
 
     /// <summary>What the probe files' own scans say (measured: they win over text, D34).</summary>
