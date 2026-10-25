@@ -118,7 +118,8 @@ public class QcPayloadTests
     public void BuildsTheContractsShapeFromASmallSearch()
     {
         var (search, qc) = MiniRun(spectralCounts: true);
-        var r = QcPayloadBuilder.Build(search, qc, "PXD000001", "2026-09-28/PXD000001", "1.1.11", QcBins.Vendored());
+        var r = QcPayloadBuilder.Build(search, qc, "PXD000001", "2026-09-28/PXD000001", "1.1.11", QcBins.Vendored(),
+            schema: QcPayloadBuilder.SchemaV1);
         var files = r.Payload["files"]!.AsArray().ToDictionary(f => f!["file"]!.GetValue<string>(), f => f!["metrics"]!.AsObject());
         var dm = r.Payload["dataset_metrics"]!;
         Assert.Multiple(() =>
@@ -140,6 +141,96 @@ public class QcPayloadTests
             Assert.That(files["b"]["precursor_ppm_median"]!.GetValue<double>(), Is.EqualTo(-1.0));
             Assert.That(files["b"]["precursor_ppm_iqr"], Is.Null);
             Assert.That(r.Payload["dataset"]!["notes"]!.AsArray().Select(n => n!.GetValue<string>()), Has.Some.Contains("VENDORED"));
+        });
+    }
+
+    /// <summary>
+    /// qc-payload/2 (qc D13, our qc 010): the per-file counts are the whole search's 1% set restricted to the file
+    /// (pxreprise:DEF-*-1PCT-RUN v1), and the payload lists the databases the search read (qc D14).
+    /// </summary>
+    [Test]
+    public void SchemaTwoCountsTheWholeSearchsOnePercentSetPerFile()
+    {
+        var (search, qc) = MiniRun(spectralCounts: true);
+        string task = Path.Combine(search, "mm", "Task3SearchTask");
+        File.WriteAllText(Path.Combine(task, "AllPSMs.psmtsv"),
+            "File Name\tDecoy/Contaminant/Target\tQValue\tQValue Notch\tNotch\tFull Sequence\tBase Sequence\tPrecursor Charge\tMissed Cleavages\tScan Retention Time\tMass Diff (ppm)\tMatched Ion Mass Diff (Ppm)\n" +
+            "a.raw\tT\t0.001\t0.001\t0\tPEPTIDEK\tPEPTIDEK\t2\t0\t10\t1.5\t\n" +
+            "a.raw\tT\t0.001\t0.001\t1\tPEPTM[Common Variable:Oxidation on M]IDEK\tPEPTMIDEK\t3\t1\t50\t0.5\t\n" +
+            "a.raw\tC\t0.001\t0.001\t0\tKERATINK\tKERATINK\t2\t0\t20\t0.1\t\n" +
+            "b.raw\tT\t0.001\t0.001\t0|1\tPEPTIDEK\tPEPTIDEK\t2\t0\t30\t0.0\t\n" +            // ambiguous notch: not in the set
+            "b.raw\tT\t0.005\t0.005\t0\tANOTHERK\tANOTHERK\t2\t0\t30\t-1.0\t\n" +
+            "b.raw\tT\t0.002\t0.002\t0\tANOTHERK|ANOTHEKR\tANOTHERK|ANOTHEKR\t2\t0\t31\t0.2\t\n" +  // ambiguous sequence: supports none
+            "b.raw\tD\t0.001\t0.001\t0\tDECOYK\tDECOYK\t2\t0\t30\t9\t\n");
+        File.WriteAllText(Path.Combine(task, "AllPeptides.psmtsv"),
+            "File Name\tDecoy/Contaminant/Target\tQValue\tQValue Notch\tFull Sequence\n" +
+            "a.raw\tT\t0.001\t0.001\tPEPTIDEK\n" +
+            "a.raw\tT\t0.5\t0.5\tPEPTM[Common Variable:Oxidation on M]IDEK\n" +    // above 1% at peptide level
+            "b.raw\tT\t0.004\t0.004\tANOTHERK\n");
+        File.WriteAllText(Path.Combine(task, "AllQuantifiedProteinGroups.tsv"),
+            "Protein Accession\tUnique Peptides\tShared Peptides\tProtein Decoy/Contaminant/Target\tProtein QValue\tIntensity_a\tIntensity_b\tSpectralCount_a\tSpectralCount_b\n" +
+            "P1\tPEPTIDEK\t\tT\t0.001\t100\t50\t2\t0\n" +
+            "P2\tANOTHERK|KERATINK\t\tC\t0.001\t100\t\t1\t1\n" +       // a contaminant group counts (DEF-PROTEINGROUP-1PCT)
+            "P4\tPEPTMIDEK\t\tT\t0.2\t10\t10\t1\t0\n" +                 // above 1%
+            "P3\tDECOYK\t\tD\t0.001\t999\t999\t5\t5\n");
+        File.WriteAllText(Path.Combine(search, "provenance.json"),
+            "{\"inputs\": [" +
+            "{\"path\": \"run/PXD000001/04_search/tasks/3_SearchTask.toml\", \"sha256\": \"" + new string('a', 64) + "\"}," +
+            "{\"path\": \"db/UP000000589_all_genecentric_2026_03_agingPTM-v4.xml\", \"sha256\": \"" + new string('b', 64) + "\"}," +
+            "{\"path\": \"F:\\\\aging_batch\\\\pxreprise-x\\\\profiles\\\\lists\\\\MetaMorpheusContaminants_NoUPS.xml\", \"sha256\": \"" + new string('c', 64) + "\"}," +
+            "{\"path\": \"db/uniprotkb_proteome_UP000000589_AND_revi_2026-09-22.xml\", \"sha256\": \"" + new string('d', 64) + "\"}," +
+            "{\"path\": \"run/PXD000001/02_fetch/spectra/a.raw\", \"sha256\": \"" + new string('e', 64) + "\"}]}");
+
+        var r = QcPayloadBuilder.Build(search, qc, "PXD000001", "x", "1.1.12", QcBins.Vendored(), excludedFiles: new[] { "c.raw" });
+        var files = r.Payload["files"]!.AsArray().ToDictionary(f => f!["file"]!.GetValue<string>(), f => f!["metrics"]!.AsObject());
+        var dbs = r.Payload["dataset"]!["search_databases"]!.AsArray();
+        Assert.Multiple(() =>
+        {
+            Assert.That(r.Payload["schema"]!.GetValue<string>(), Is.EqualTo("qc-payload/2"));
+            Assert.That(r.Payload["definitions"]!["psms"]!["id"]!.GetValue<string>(), Is.EqualTo("pxreprise:DEF-PSM-1PCT-RUN"));
+            Assert.That(r.Payload["definitions"]!["protein_groups"]!["id"]!.GetValue<string>(), Is.EqualTo("pxreprise:DEF-PROTEINGROUP-1PCT-RUN"));
+            // psms: exactly T, both q <= 0.01, unambiguous notch. a: 2. b: the q 0.005 row and the ambiguous-sequence row.
+            Assert.That((files["a"]["psms"]!.GetValue<int>(), files["b"]["psms"]!.GetValue<int>()), Is.EqualTo((2, 2)));
+            // peptides: a's oxidised form is above 1% at peptide level; b's ambiguous sequence supports none.
+            Assert.That((files["a"]["peptides"]!.GetValue<int>(), files["b"]["peptides"]!.GetValue<int>()), Is.EqualTo((1, 1)));
+            // groups: a supports P1 (P4 is above 1%); b supports P2, a contaminant group. The decoy never counts.
+            Assert.That((files["a"]["protein_groups"]!.GetValue<int>(), files["b"]["protein_groups"]!.GetValue<int>()), Is.EqualTo((1, 1)));
+            Assert.That(files["a"]["ms2_scans"]!.GetValue<int>(), Is.EqualTo(100), "ms2_scans stays MetaMorpheus's per-file line");
+            Assert.That(files.ContainsKey("c"), Is.False, "c is listed only when the QC report knows it");
+            Assert.That(dbs.Select(d => d!["file"]!.GetValue<string>()), Is.EqualTo(new[]
+                { "UP000000589_all_genecentric_2026_03_agingPTM-v4.xml", "MetaMorpheusContaminants_NoUPS.xml", "uniprotkb_proteome_UP000000589_AND_revi_2026-09-22.xml" }));
+            Assert.That((dbs[0]!["kind"]!.GetValue<string>(), dbs[0]!["uniprot_release"]!.GetValue<string>()), Is.EqualTo(("uniprot_canonical", "2026_03")));
+            Assert.That((dbs[1]!["kind"], dbs[1]!["uniprot_release"]), Is.EqualTo(((JsonNode?)null, (JsonNode?)null)));
+            Assert.That((dbs[2]!["kind"]!.GetValue<string>(), dbs[2]!["uniprot_release"]), Is.EqualTo(("uniprot_reviewed", (JsonNode?)null)),
+                "the reviewed file's name holds a download date, not a UniProt release");
+            Assert.That(r.Payload["dataset"]!["notes"]!.AsArray()[0]!.GetValue<string>(), Does.StartWith("One PSM population per file"));
+        });
+
+        // The same search as /1: MetaMorpheus's per-file lines, aging's definitions, no database list.
+        var v1 = QcPayloadBuilder.Build(search, qc, "PXD000001", "x", "1.1.12", QcBins.Vendored(), schema: QcPayloadBuilder.SchemaV1);
+        var f1 = v1.Payload["files"]!.AsArray().ToDictionary(f => f!["file"]!.GetValue<string>(), f => f!["metrics"]!.AsObject());
+        Assert.Multiple(() =>
+        {
+            Assert.That((f1["a"]["psms"]!.GetValue<int>(), f1["b"]["psms"]!.GetValue<int>()), Is.EqualTo((2, 1)));
+            Assert.That(f1["a"].ContainsKey("peptides"), Is.False);
+            Assert.That(v1.Payload["dataset"]!.AsObject().ContainsKey("search_databases"), Is.False);
+            Assert.That(v1.Payload["definitions"]!["psms"]!["id"]!.GetValue<string>(), Is.EqualTo("aging:DEF-PSM-1PCT-RUN"));
+        });
+    }
+
+    /// <summary>/2 with no AllPeptides.psmtsv and no group peptide columns: those counts are absent (not measured), not 0.</summary>
+    [Test]
+    public void SchemaTwoLeavesOutACountItCannotMeasure()
+    {
+        var (search, qc) = MiniRun(spectralCounts: true);
+        var r = QcPayloadBuilder.Build(search, qc, "PXD000001", "x", "1.1.12", QcBins.Vendored());
+        var a = r.Payload["files"]!.AsArray().Single(f => f!["file"]!.GetValue<string>() == "a")!["metrics"]!.AsObject();
+        Assert.Multiple(() =>
+        {
+            Assert.That(a["psms"]!.GetValue<int>(), Is.EqualTo(2));
+            Assert.That(a.ContainsKey("peptides") || a.ContainsKey("protein_groups"), Is.False);
+            Assert.That(r.Payload["dataset"]!["notes"]!.AsArray().Select(n => n!.GetValue<string>()), Has.Some.StartsWith("peptides is NOT REPORTED"));
+            Assert.That(r.Payload["dataset"]!.AsObject().ContainsKey("search_databases"), Is.False, "no provenance, no list");
         });
     }
 

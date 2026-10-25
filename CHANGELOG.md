@@ -7,6 +7,26 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.30 (2026-10-25)
+
+No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual. Payloads already
+written keep their schema.
+
+- **The QC payload is now `qc-payload/2`** (qc's D13; qctemplates 0.3.0 renders it).
+  - **The per-file `psms`, `peptides` and `protein_groups` are the whole search's 1% set restricted to the file:**
+    `pxreprise:DEF-PSM-1PCT-RUN`, `DEF-PEPTIDE-1PCT-RUN` and `DEF-PROTEINGROUP-1PCT-RUN`, v1. One cutoff for every
+    run, so the PSM counts sum to the dataset's.
+  - Under `/1` they were MetaMorpheus's per-file lines, each from an FDR recomputed on that file alone. Those lines
+    exist only when MetaMorpheus writes its individual-file results, which MetaMorpheus #2914 turns off by default
+    from its next release.
+  - `ms2_scans` is still MetaMorpheus's per-file line.
+  - **The payload lists the databases the search read** (`dataset.search_databases`: file, sha256, kind,
+    UniProt release), from the search's provenance.
+  - A `/1` payload can still be built (`Build(..., schema: QcPayloadBuilder.SchemaV1)`), the proven port of aging's
+    builder.
+  - **On PXD051203** the 39 runs' `/2` PSM counts sum to the dataset's 34,103. The per-run medians are 644 PSMs, 345
+    peptides and 177 protein groups, against 619, 393 and 216 under `/1`.
+
 ## 0.4.29 (2026-10-25)
 
 No MetaMorpheus change. **Machine file:** optional new key `[workers] gap` (default 5). **Safe mid-batch?** Yes: swap

@@ -16,7 +16,7 @@ public sealed record QcPayloadOutcome(
 }
 
 /// <summary>
-/// Stage 5 (aging's numbering): build qc's <c>qc-payload/1</c> into <c>&lt;run&gt;/05_qc/</c>, then, when the machine names
+/// Stage 5 (aging's numbering): build qc's <c>qc-payload/2</c> (since v0.4.30; /1 before) into <c>&lt;run&gt;/05_qc/</c>, then, when the machine names
 /// a Python with qctemplates installed, run qc's <c>validate</c> and <c>render</c> into the same folder. A rejected or
 /// unrenderable payload is recorded as a flag, never raised: QC reporting must not stop a deposit from being delivered.
 /// </summary>
@@ -51,6 +51,9 @@ public static class QcPayloadStage
         prov.Input(Path.Combine(qcDir, "qc_report.json"));
         prov.Input(Path.Combine(task, "results.txt"));
         prov.Input(Path.Combine(task, "AllPSMs.psmtsv"));
+        // qc-payload/2: the whole search's 1% peptides and protein groups the per-file counts are shares of.
+        foreach (string t in new[] { "AllPeptides.psmtsv", "AllQuantifiedProteinGroups.tsv" })
+            if (File.Exists(Path.Combine(task, t))) prov.Input(Path.Combine(task, t));
 
         string payloadFile = Path.Combine(outDir, "qc_payload.json");
         File.WriteAllText(payloadFile, result.Payload.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = Envelope.Json.Encoder }), new UTF8Encoding(false));

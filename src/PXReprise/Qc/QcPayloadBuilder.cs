@@ -61,7 +61,7 @@ public sealed record QcBins(double[] Precursor, double[] Fragment, int RtBins, s
 public sealed record QcPayloadResult(JsonObject Payload, int Files, int? ProteinGroupsQuantified);
 
 /// <summary>
-/// Builds qc's <c>qc-payload/1</c> from a finished MetaMorpheus search: a port of aging's
+/// Builds qc's <c>qc-payload/2</c> (or /1) from a finished MetaMorpheus search: a port of aging's
 /// <c>pipeline/bin/qc_payload.py</c>, value for value (proven on the aging corpus). qc owns the contract
 /// (<c>qc/design/CONTRACT.md</c>); this supplies numbers, never verdicts: gates, outliers and derived ratios
 /// (<c>id_rate</c>, <c>mbr_msms_ratio</c>) are qc's to compute. Every value carries the definition it was computed under.
@@ -80,10 +80,32 @@ public sealed record QcPayloadResult(JsonObject Payload, int Files, int? Protein
 /// </summary>
 public static class QcPayloadBuilder
 {
-    public const string Schema = "qc-payload/1";
+    /// <summary>
+    /// qc-payload/2 (qc D13, qctemplates 0.3.0; our qc 010): the per-file <c>psms</c>, <c>peptides</c> and
+    /// <c>protein_groups</c> are the whole search's 1% set restricted to the file (pxreprise:DEF-*-1PCT-RUN v1), one cutoff
+    /// for every run. Every other field means the same as in /1. What new payloads are built as.
+    /// </summary>
+    public const string Schema = "qc-payload/2";
 
-    /// <summary>The definition each value was computed under; the same block, key for key, as aging's builder.</summary>
-    public static JsonObject Definitions() => new()
+    /// <summary>qc-payload/1: the per-file counts are MetaMorpheus's per-file lines, an FDR recomputed on each file (aging's
+    /// -RUN definitions). The port of aging's builder, kept buildable and proven value for value by its tests.</summary>
+    public const string SchemaV1 = "qc-payload/1";
+
+    /// <summary>The definition each value was computed under; for /1 the same block, key for key, as aging's builder.</summary>
+    public static JsonObject Definitions(string schema = Schema)
+    {
+        var d = DefinitionsV1();
+        if (schema == Schema)
+        {
+            d["psms"] = Def("pxreprise:DEF-PSM-1PCT-RUN", "v1", "PXReprise DEFINITIONS.md");
+            d["peptides"] = Def("pxreprise:DEF-PEPTIDE-1PCT-RUN", "v1", "PXReprise DEFINITIONS.md");
+            d["protein_groups"] = Def("pxreprise:DEF-PROTEINGROUP-1PCT-RUN", "v1", "PXReprise DEFINITIONS.md");
+        }
+        else if (schema != SchemaV1) throw new ArgumentException($"no such payload schema: {schema}", nameof(schema));
+        return d;
+    }
+
+    private static JsonObject DefinitionsV1() => new()
     {
         ["psms"] = Def("aging:DEF-PSM-1PCT-RUN", "v1", "pipeline/docs/provenance.md"),
         ["peptides"] = Def("aging:DEF-PEPTIDE-1PCT-RUN", "v1", "pipeline/docs/provenance.md"),
@@ -272,13 +294,134 @@ public static class QcPayloadBuilder
         public readonly Dictionary<int, int> Charges = new();
         public int Missed, MissedN, Notch, NotchN, Contam, ContamN;
         public readonly List<double> Prec = new(), Frag = new(), Rts = new();
+        public readonly RunSupport Support = new();
+    }
+
+    /// <summary>
+    /// A run's PSMs in pxreprise:DEF-PSM-1PCT-RUN v1 (the whole search's 1% target PSMs from that file), and what they can
+    /// support: the full sequences (none for an ambiguous one, a <c>|</c>) and the base sequences.
+    /// </summary>
+    public sealed class RunSupport
+    {
+        public int Psms { get; internal set; }
+        public HashSet<string> FullSequences { get; } = new(StringComparer.Ordinal);
+        public HashSet<string> BaseSequences { get; } = new(StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    /// pxreprise:DEF-PEPTIDE-1PCT v1, the whole search's 1% target peptides: the full sequences of <c>AllPeptides.psmtsv</c>
+    /// rows that are exactly <c>T</c> with QValue and QValue Notch &lt;= 0.01. Null when the table is absent (not measurable).
+    /// </summary>
+    public static HashSet<string>? ParsePeptideSet(string path)
+    {
+        if (!File.Exists(path)) return null;
+        var set = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var row in Tsv.Read(path))
+        {
+            if ((row.GetValueOrDefault("Decoy/Contaminant/Target") ?? "").Trim() != "T") continue;
+            double? q = Num(row.GetValueOrDefault("QValue")), qn = Num(row.GetValueOrDefault("QValue Notch"));
+            if (q is null || qn is null || q > 0.01 || qn > 0.01) continue;
+            if ((row.GetValueOrDefault("Full Sequence") ?? "").Trim() is { Length: > 0 } fs && !fs.Contains('|')) set.Add(fs);
+        }
+        return set;
+    }
+
+    /// <summary>
+    /// pxreprise:DEF-PROTEINGROUP-1PCT v1, the whole search's 1% groups (Protein QValue &lt;= 0.01, not decoy, so contaminant
+    /// groups count), each as the base sequences of its Unique and Shared Peptides (MetaMorpheus lists both, <c>|</c>-separated).
+    /// Null when the table or those columns are absent (not measurable).
+    /// </summary>
+    public static List<HashSet<string>>? ParseProteinGroupPeptides(string path)
+    {
+        if (!File.Exists(path)) return null;
+        var head = Tsv.Header(path);
+        if (!head.Contains("Unique Peptides") || !head.Contains("Shared Peptides")) return null;
+        var groups = new List<HashSet<string>>();
+        foreach (var row in Tsv.Read(path))
+        {
+            string td = (row.GetValueOrDefault("Protein Decoy/Contaminant/Target") ?? "").Trim().ToUpperInvariant();
+            if (td.StartsWith('D')) continue;
+            if (Num(row.GetValueOrDefault("Protein QValue")) is not { } q || q > 0.01) continue;
+            var peptides = new HashSet<string>(StringComparer.Ordinal);
+            foreach (string col in new[] { "Unique Peptides", "Shared Peptides" })
+                foreach (string p in (row.GetValueOrDefault(col) ?? "").Split('|', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+                    peptides.Add(p);
+            groups.Add(peptides);
+        }
+        return groups;
+    }
+
+    /// <summary>
+    /// The /2 per-file counts (pxreprise:DEF-*-1PCT-RUN v1): the run's PSMs; the 1% peptides one of them supports (same full
+    /// sequence); the 1% groups one of them supports (its base sequence among the group's peptides). A count whose
+    /// whole-search set was not measurable is left out, never zeroed.
+    /// </summary>
+    public static JsonObject RunCounts(RunSupport? run, HashSet<string>? peptideSet, IReadOnlyList<HashSet<string>>? groups,
+        IReadOnlyDictionary<string, List<int>>? groupsByPeptide)
+    {
+        run ??= new RunSupport();
+        var o = new JsonObject { ["psms"] = run.Psms };
+        if (peptideSet is not null) o["peptides"] = run.FullSequences.Count(peptideSet.Contains);
+        if (groups is not null && groupsByPeptide is not null)
+        {
+            var hit = new HashSet<int>();
+            foreach (string b in run.BaseSequences)
+                if (groupsByPeptide.TryGetValue(b, out var gs)) hit.UnionWith(gs);
+            o["protein_groups"] = hit.Count;
+        }
+        return o;
+    }
+
+    /// <summary>Base sequence -> the indices of the groups that list it.</summary>
+    public static Dictionary<string, List<int>> IndexGroups(IReadOnlyList<HashSet<string>> groups)
+    {
+        var o = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+        for (int i = 0; i < groups.Count; i++)
+            foreach (string p in groups[i])
+                (o.TryGetValue(p, out var l) ? l : o[p] = new List<int>()).Add(i);
+        return o;
+    }
+
+    /// <summary>
+    /// qc's <c>dataset.search_databases</c> (qc D14, PXR-C6): one entry per database file the search read, from the search
+    /// provenance's <c>inputs[]</c> (each with its own sha256). <c>kind</c> and <c>uniprot_release</c> are named only where
+    /// the file name says so: <c>uniprot_canonical</c> for UniProt's gene-centric proteome, <c>uniprot_reviewed</c> for the
+    /// reviewed download, the release from a <c>_YYYY_MM</c> token; a derived build (our agingPTM sites) keeps its source's
+    /// kind and release, since its sequences are UniProt's. Null where nothing is known. Empty when there is no provenance.
+    /// </summary>
+    public static JsonArray SearchDatabases(JsonNode? provenance)
+    {
+        var o = new JsonArray();
+        foreach (var input in provenance?["inputs"]?.AsArray() ?? new JsonArray())
+        {
+            string path = input?["path"]?.GetValue<string>() ?? "";
+            string file = path.Split('\\', '/')[^1];
+            string lower = file.ToLowerInvariant();
+            if (!(lower.EndsWith(".xml") || lower.EndsWith(".xml.gz") || lower.EndsWith(".fasta") || lower.EndsWith(".fasta.gz") || lower.EndsWith(".fa")))
+                continue;
+            if (input?["sha256"]?.GetValue<string>() is not { Length: 64 } sha) continue;
+            string? kind = lower.Contains("_all_genecentric_") ? "uniprot_canonical"
+                : lower.StartsWith("uniprotkb_proteome_") && lower.Contains("_and_revi") ? "uniprot_reviewed" : null;
+            var release = Regex.Match(file, @"_(\d{4})_(\d{2})(?=[_.])");
+            o.Add(new JsonObject
+            {
+                ["file"] = file, ["sha256"] = sha, ["kind"] = kind,
+                ["uniprot_release"] = kind is not null && release.Success ? $"{release.Groups[1].Value}_{release.Groups[2].Value}" : null,
+            });
+        }
+        return o;
     }
 
     private static readonly Regex IonPpm = new(@":\s*(-?\d+\.?\d*)");
 
     /// <summary>Per-file PSM metrics and distributions over the accepted 1% target PSMs; mass errors from Notch 0 only.</summary>
     public static (Dictionary<string, JsonObject> Metrics, Dictionary<string, JsonObject> Dists) ParsePsms(
-        string path, IReadOnlyDictionary<string, double?> runMinutes, QcBins bins)
+        string path, IReadOnlyDictionary<string, double?> runMinutes, QcBins bins) => ParsePsms(path, runMinutes, bins, out _);
+
+    /// <inheritdoc cref="ParsePsms(string, IReadOnlyDictionary{string, double?}, QcBins)"/>
+    /// <param name="support">Each run's pxreprise:DEF-PSM-1PCT-RUN PSMs: the same rows the metrics describe.</param>
+    public static (Dictionary<string, JsonObject> Metrics, Dictionary<string, JsonObject> Dists) ParsePsms(
+        string path, IReadOnlyDictionary<string, double?> runMinutes, QcBins bins, out Dictionary<string, RunSupport> support)
     {
         if (!Tsv.Header(path).Contains("QValue Notch"))
             // Without it the population silently widens to QValue alone (qc 010 QC-Q12). Refuse rather than describe other PSMs.
@@ -304,6 +447,9 @@ public static class QcPayloadBuilder
             }
             if (td != "T") continue;
             var f = For(row.GetValueOrDefault("File Name"));
+            f.Support.Psms++;
+            if ((row.GetValueOrDefault("Full Sequence") ?? "").Trim() is { Length: > 0 } fs && !fs.Contains('|')) f.Support.FullSequences.Add(fs);
+            if ((row.GetValueOrDefault("Base Sequence") ?? "").Trim() is { Length: > 0 } bs && !bs.Contains('|')) f.Support.BaseSequences.Add(bs);
             if (Num(row.GetValueOrDefault("Precursor Charge")) is { } ch)
             {
                 int c = (int)ch;
@@ -369,6 +515,7 @@ public static class QcPayloadBuilder
             }
             dists[name] = d;
         }
+        support = per.ToDictionary(kv => kv.Key, kv => kv.Value.Support, StringComparer.Ordinal);
         return (metrics, dists);
     }
 
@@ -461,11 +608,15 @@ public static class QcPayloadBuilder
     /// why an excluded file was left out). <paramref name="excludedReason"/> is the search's <c>excluded_files.reason</c>,
     /// used for an excluded file the QC report gives no reason for.
     /// </summary>
+    /// <param name="schema"><see cref="Schema"/> (/2, the default) or <see cref="SchemaV1"/>. A payload is built as one or the
+    /// other, never mixed: whole-search counts never go out under /1 (qc 011).</param>
     public static QcPayloadResult Build(string searchDir, string qcDir, string accession, string runLabel,
         string? metamorpheusVersion, QcBins bins, IEnumerable<string>? extraNotes = null, IEnumerable<string>? excludedFiles = null,
-        string? excludedReason = null)
+        string? excludedReason = null, string schema = Schema)
     {
         if (string.IsNullOrEmpty(accession)) throw new ArgumentException("an accession is required: an unnamed payload is useless once two datasets exist");
+        if (schema != Schema && schema != SchemaV1) throw new ArgumentException($"no such payload schema: {schema}", nameof(schema));
+        bool v2 = schema == Schema;
         string mm = Path.Combine(searchDir, "mm");
         string task = (Directory.Exists(mm) ? Directory.EnumerateDirectories(mm, "Task*SearchTask").OrderBy(x => x, StringComparer.Ordinal).LastOrDefault() : null)
                       ?? throw new InvalidDataException($"no Task*SearchTask under {mm}: the search has not run");
@@ -485,9 +636,15 @@ public static class QcPayloadBuilder
         var counts = ParseResultsTxt(results);
         var datasetCounts = ParseDatasetCounts(results);
         var calib = ParseCalibration(Path.Combine(mm, "Task1CalibrationTask"));
-        var (psmMetrics, dists) = ParsePsms(Path.Combine(task, "AllPSMs.psmtsv"), runMinutes, bins);
+        var (psmMetrics, dists) = ParsePsms(Path.Combine(task, "AllPSMs.psmtsv"), runMinutes, bins, out var support);
         var peaks = ParsePeaks(Path.Combine(task, "AllQuantifiedPeaks.tsv"));
         var pg = ParseProteinGroups(Path.Combine(task, "AllQuantifiedProteinGroups.tsv"));
+        // /2: the whole search's 1% peptide and group sets, each run's share of them taken from its own 1% PSMs.
+        var peptideSet = v2 ? ParsePeptideSet(Path.Combine(task, "AllPeptides.psmtsv")) : null;
+        var groups = v2 ? ParseProteinGroupPeptides(Path.Combine(task, "AllQuantifiedProteinGroups.tsv")) : null;
+        var groupsByPeptide = groups is null ? null : IndexGroups(groups);
+        string provFile = Path.Combine(searchDir, "provenance.json");
+        var searchProvenance = File.Exists(provFile) ? JsonNode.Parse(File.ReadAllText(provFile, Encoding.UTF8)) : null;
 
         var excluded = (excludedFiles ?? Array.Empty<string>()).Select(Stem).ToHashSet(StringComparer.Ordinal);
         var names = new SortedSet<string>(counts.Keys, StringComparer.Ordinal);
@@ -502,7 +659,13 @@ public static class QcPayloadBuilder
                 if (src is null) return;
                 foreach (var (k, v) in src) m[k] = v?.DeepClone();
             }
-            Merge(counts.GetValueOrDefault(name));
+            if (v2)
+            {
+                // ms2_scans stays MetaMorpheus's per-file line (aging:DEF-MS2); the three counts are the whole search's.
+                if (counts.GetValueOrDefault(name)?["ms2_scans"] is { } ms2) m["ms2_scans"] = ms2.DeepClone();
+                if (!excluded.Contains(name)) Merge(RunCounts(support.GetValueOrDefault(name), peptideSet, groups, groupsByPeptide));
+            }
+            else Merge(counts.GetValueOrDefault(name));
             Merge(calib.GetValueOrDefault(name) ?? new JsonObject { ["calibration_ok"] = false });
             Merge(psmMetrics.GetValueOrDefault(name));
             Merge(peaks.GetValueOrDefault(name));
@@ -523,12 +686,24 @@ public static class QcPayloadBuilder
 
         var notes = new JsonArray
         {
-            "Two PSM populations appear per file, on purpose (qc 010 QC-Q12). The psms / peptides / "
-            + "protein_groups counts are MetaMorpheus's per-file lines, each from an FDR recomputed on that "
-            + "file alone (the -RUN definitions). The PSM-derived metrics and distributions describe the "
-            + "WHOLE-SEARCH 1% set restricted to the file: QValue <= 0.01 and QValue Notch <= 0.01 at "
-            + "whole-search q, unambiguous notch (aging:DEF-PSM-1PCT-INFILE v1). Neither is a sum of the other.",
+            v2
+                ? "One PSM population per file (qc-payload/2, qc D13). The psms / peptides / protein_groups counts and "
+                  + "the PSM-derived metrics and distributions all describe the WHOLE-SEARCH 1% set restricted to the "
+                  + "file: target PSMs with QValue <= 0.01 and QValue Notch <= 0.01 at whole-search q, unambiguous notch "
+                  + "(pxreprise:DEF-PSM-1PCT-RUN v1), and the whole search's 1% peptides and protein groups those PSMs "
+                  + "support (pxreprise:DEF-PEPTIDE-1PCT-RUN, DEF-PROTEINGROUP-1PCT-RUN v1). One cutoff for every run: "
+                  + "the PSM counts sum to the dataset's. ms2_scans is still MetaMorpheus's per-file line."
+                : "Two PSM populations appear per file, on purpose (qc 010 QC-Q12). The psms / peptides / "
+                  + "protein_groups counts are MetaMorpheus's per-file lines, each from an FDR recomputed on that "
+                  + "file alone (the -RUN definitions). The PSM-derived metrics and distributions describe the "
+                  + "WHOLE-SEARCH 1% set restricted to the file: QValue <= 0.01 and QValue Notch <= 0.01 at "
+                  + "whole-search q, unambiguous notch (aging:DEF-PSM-1PCT-INFILE v1). Neither is a sum of the other.",
         };
+        if (v2 && peptideSet is null)
+            notes.Add("peptides is NOT REPORTED per file: the search has no AllPeptides.psmtsv. Absent means not measured.");
+        if (v2 && groups is null)
+            notes.Add("protein_groups is NOT REPORTED per file: the protein-group table has no Unique Peptides and Shared "
+                      + "Peptides columns. Absent means not measured.");
         notes.Add(pg.Quantified is > 0
             ? "pg_missing_frac_msms is DEF-QC-13's _msms variant (SpectralCount_ > 0). The _any variant "
               + "(pg_missing_frac) is not computed and is absent: MBR is on in every run, so an "
@@ -551,18 +726,21 @@ public static class QcPayloadBuilder
         var dm = datasetCounts.DeepClone().AsObject();
         dm["protein_groups_quantified"] = pg.Quantified;
         dm["runs_per_protein_group"] = pg.RunsPer.DeepClone();
+        var dataset = new JsonObject
+        {
+            ["accession"] = accession,
+            ["run_label"] = runLabel,
+            ["search_engine"] = new JsonObject { ["name"] = "MetaMorpheus", ["version"] = metamorpheusVersion },
+        };
+        // Valid under /1 and /2 (qc D14). Written with /2 only, so a /1 payload stays the proven port of aging's builder.
+        if (v2 && SearchDatabases(searchProvenance) is { Count: > 0 } dbs) dataset["search_databases"] = dbs;
+        dataset["notes"] = notes;
         var payload = new JsonObject
         {
-            ["schema"] = Schema,
-            ["dataset"] = new JsonObject
-            {
-                ["accession"] = accession,
-                ["run_label"] = runLabel,
-                ["search_engine"] = new JsonObject { ["name"] = "MetaMorpheus", ["version"] = metamorpheusVersion },
-                ["notes"] = notes,
-            },
+            ["schema"] = schema,
+            ["dataset"] = dataset,
             ["files"] = files,
-            ["definitions"] = Definitions(),
+            ["definitions"] = Definitions(schema),
             ["dataset_metrics"] = dm,
         };
         return new QcPayloadResult(payload, files.Count, pg.Quantified);
