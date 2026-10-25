@@ -29,6 +29,12 @@
 //   dotnet run BuildPtmDb.cs -- --mode isoforms --catalog C.duckdb --out DIR --tag T --xml human=ISO.xml ...
 //       writes isoform_site_verdicts.tsv and isoform_sites_selected.tsv to --sites-out, <xml>_<T>.xml, isoform_provenance_<T>.json
 //   dotnet run BuildPtmDb.cs -- --mode isoforms --from-sites DIR ...   DIR/isoform_sites_selected.tsv instead of the catalog
+// An Ensembl-only entry (<entry dataset="Ensembl">, aging D128: ENSMUSP00000292642) has no -N suffix to name its
+// canonical (aging PXR-A135). Its canonical is the Swiss-Prot entry of its gene in that organism's proteome: the one
+// whose Ensembl gene ID matches the entry's, else the one whose primary gene name does; none or several leaves the
+// entry unresolved (recorded in the provenance, no sites). The same rule then applies. Needs --proteome organism=path.
+//       [--proteome mouse=UP000000589.xml ...]   the proteomes the Ensembl-only entries' canonicals are read from
+//       [--accessions A,B,...]                   write sites on these accessions only (an update to some entries)
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
@@ -61,7 +67,9 @@ double ggPct = double.Parse(opt.GetValueOrDefault("enriched-gg-pct")?[0] ?? "2",
 var exclRows = exclFile is null ? new List<Exclusion>() : Exclusions(exclFile, catalog, phPct, ggPct);
 var excluded = ModSet(exclRows);
 JsonNode? exclProv = exclFile is null ? null : WriteExclusions(exclFile, catalog is not null, phPct, ggPct, sitesOut, exclRows);
-if (mode == "isoforms") return RunIsoforms(catalog, fromSites, outDir, sitesOut, tag, minPsms, xmls, excluded, exclProv);
+var proteomes = (opt.GetValueOrDefault("proteome") ?? new()).Select(s => s.Split('=', 2)).ToDictionary(p => p[0], p => p[1]);
+var only = opt.GetValueOrDefault("accessions")?[0].Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
+if (mode == "isoforms") return RunIsoforms(catalog, fromSites, outDir, sitesOut, tag, minPsms, xmls, proteomes, only, excluded, exclProv);
 if (mode != "proteome") return Usage("--mode is proteome (the default) or isoforms");
 
 var all = Stopwatch.StartNew();
@@ -178,10 +186,36 @@ static (JsonObject Meta, List<Site> Rows) Select(string catalog, int minPsms, Ha
 // ---------------------------------------------------------------------------------------------- --mode isoforms
 
 static int RunIsoforms(string? catalog, string? fromSites, string outDir, string sitesOut, string tag, int minPsms, Dictionary<string, string> xmls,
-    HashSet<string> excluded, JsonNode? exclProv)
+    Dictionary<string, string> proteomes, HashSet<string>? only, HashSet<string> excluded, JsonNode? exclProv)
 {
     var all = Stopwatch.StartNew();
     JsonObject? meta = null;
+    // Ensembl-only entry -> its gene's Swiss-Prot canonical (PXR-A135); the resolution of each goes into the provenance.
+    var canon = new Dictionary<string, string>(StringComparer.Ordinal);
+    var ensemblProv = new JsonObject();
+    foreach (var (org, src) in xmls.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+    {
+        var ens = EnsemblEntries(src);
+        if (ens.Count == 0) continue;
+        if (!proteomes.TryGetValue(org, out string? prot))
+            throw new ArgumentException($"{src} has {ens.Count} Ensembl-only entr{(ens.Count == 1 ? "y" : "ies")} ({string.Join(", ", ens.Select(e => e.Acc))}): give --proteome {org}=<UniProt proteome XML> to find their canonicals");
+        var genes = SwissProtGenes(prot);
+        foreach (var e in ens)
+        {
+            var byId = e.GeneId is null ? new List<string>() : genes.Where(g => g.GeneIds.Contains(e.GeneId)).Select(g => g.Acc).Distinct().ToList();
+            var byName = e.Gene is null ? new List<string>() : genes.Where(g => g.Gene == e.Gene).Select(g => g.Acc).Distinct().ToList();
+            var (hit, by) = byId.Count == 1 ? (byId[0], "ensembl_gene_id") : byName.Count == 1 && byId.Count == 0 ? (byName[0], "gene_name") : ((string?)null, "unresolved");
+            if (hit is not null) canon[e.Acc] = hit;
+            ensemblProv[e.Acc] = new JsonObject
+            {
+                ["organism"] = org, ["gene"] = e.Gene, ["gene_id"] = e.GeneId, ["canonical"] = hit, ["by"] = by,
+                ["matches_by_gene_id"] = new JsonArray(byId.Select(a => (JsonNode?)a).ToArray()),
+                ["matches_by_gene_name"] = new JsonArray(byName.Select(a => (JsonNode?)a).ToArray()),
+                ["proteome"] = prot,
+            };
+            Console.WriteLine($"{org} {e.Acc} ({e.Gene}, {e.GeneId}): canonical {hit ?? "NONE"} by {by}");
+        }
+    }
     // (organism, accession, position, residue, modification) -> (PSMs, datasets, strict)
     var selected = new SortedDictionary<(string Org, string Acc, int Pos, string Res, string Mod), (long Psms, SortedSet<string> Datasets, bool Strict)>(
         Comparer<(string, string, int, string, string)>.Create((a, b) =>
@@ -194,7 +228,7 @@ static int RunIsoforms(string? catalog, string? fromSites, string outDir, string
         }));
     if (catalog is not null)
     {
-        var verdicts = IsoformVerdicts(catalog, out meta).Where(v => !excluded.Contains(v.Dataset + "|" + v.Mod)).ToList();
+        var verdicts = IsoformVerdicts(catalog, canon, out meta).Where(v => !excluded.Contains(v.Dataset + "|" + v.Mod)).ToList();
         var tsv = new StringBuilder("organism\tdataset_id\taccession\tcanonical\tposition\tresidue\tmodification\tn_psms\tn_groups\tgroup_has_canonical\tisoform_only_group\tcanonical_in_dataset\tverdict\r\n");
         foreach (var v in verdicts)
             tsv.Append($"{v.Org}\t{v.Dataset}\t{v.Acc}\t{v.Canonical}\t{v.Pos}\t{v.Res}\t{v.Mod}\t{v.Psms}\t{v.Groups}\t{Py(v.HasCanonical)}\t{Py(v.IsoformOnly)}\t{Py(v.CanonicalInDataset)}\t{v.Verdict}\r\n");
@@ -214,6 +248,11 @@ static int RunIsoforms(string? catalog, string? fromSites, string outDir, string
     else
         foreach (var p in File.ReadLines(Path.Combine(fromSites!, "isoform_sites_selected.tsv")).Skip(1).Where(l => l.Length > 0).Select(l => l.Split('\t')))
             selected[(p[0], p[1], int.Parse(p[2]), p[3], p[4])] = (long.Parse(p[5]), new SortedSet<string>(p[6].Split(','), StringComparer.Ordinal), p[7] == "True");
+    if (only is not null)
+    {
+        foreach (var k in selected.Keys.Where(k => !only.Contains(k.Acc)).ToList()) selected.Remove(k);
+        Console.WriteLine($"--accessions: {selected.Count} selected site(s) on the {only.Count} accession(s) named");
+    }
 
     var prov = new JsonObject
     {
@@ -223,6 +262,8 @@ static int RunIsoforms(string? catalog, string? fromSites, string outDir, string
         ["rule"] = "site on an isoform accession, reported in a 1%-FDR target protein group that lists the isoform and not its canonical " +
                    $"(MetaMorpheus parsimony); >= {minPsms} PSMs summed over those datasets",
         ["dotnet"] = Environment.Version.ToString(),
+        ["ensembl_only_canonicals"] = ensemblProv,
+        ["only_accessions"] = only is null ? null : new JsonArray(only.Order(StringComparer.Ordinal).Select(a => (JsonNode?)a).ToArray()),
         ["organisms"] = new JsonObject(),
     };
     foreach (var (org, src) in xmls.OrderBy(kv => kv.Key, StringComparer.Ordinal))
@@ -318,7 +359,7 @@ static JsonNode WriteExclusions(string file, bool measured, double phPct, double
 }
 
 /// <summary>One row per (dataset, isoform site): the groups it was reported in, and the verdict of aging's rule.</summary>
-static List<IsoVerdict> IsoformVerdicts(string catalog, out JsonObject meta)
+static List<IsoVerdict> IsoformVerdicts(string catalog, Dictionary<string, string> canon, out JsonObject meta)
 {
     using var con = new DuckDBConnection($"Data Source={catalog};ACCESS_MODE=READ_ONLY");
     con.Open();
@@ -332,6 +373,10 @@ static List<IsoVerdict> IsoformVerdicts(string catalog, out JsonObject meta)
         meta["path"] = catalog;
     }
     string names = string.Join(",", Bio.Keys.Select(n => "'" + n.Replace("'", "''") + "'"));
+    static string Lit(string s) => "'" + s.Replace("'", "''") + "'";
+    // An Ensembl-only accession's canonical comes from its gene (PXR-A135); an isoform's from its -N suffix.
+    string canonMap = canon.Count == 0 ? "SELECT NULL::VARCHAR AS acc, NULL::VARCHAR AS canon WHERE false"
+        : "SELECT * FROM (VALUES " + string.Join(", ", canon.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => $"({Lit(kv.Key)}, {Lit(kv.Value)})")) + ") t(acc, canon)";
     var rows = new List<IsoVerdict>();
     using (var c = con.CreateCommand())
     {
@@ -339,11 +384,12 @@ static List<IsoVerdict> IsoformVerdicts(string catalog, out JsonObject meta)
           WITH org AS (SELECT dataset_id, organism_name FROM (
               SELECT dataset_id, organism_name, count(*) n FROM proteins WHERE organism IS NOT NULL GROUP BY 1,2)
             QUALIFY row_number() OVER (PARTITION BY dataset_id ORDER BY n DESC)=1),
+          canon_map AS ({canonMap}),
           site AS (
-            SELECT s.*, split_part(s.protein_accession, '-', 1) AS canonical
-            FROM ptm_sites s
+            SELECT s.*, coalesce(m.canon, split_part(s.protein_accession, '-', 1)) AS canonical
+            FROM ptm_sites s LEFT JOIN canon_map m ON m.acc = s.protein_accession
             WHERE s.target_decoy='target' AND s.best_q_value<=0.01 AND s.best_ambiguity_level='1'
-              AND s.modification_name IN ({names}) AND s.protein_accession LIKE '%-%'),
+              AND s.modification_name IN ({names}) AND (s.protein_accession LIKE '%-%' OR m.acc IS NOT NULL)),
           grp AS (
             SELECT DISTINCT st.ptm_site_id, g.protein_group_id, g.protein_accessions
             FROM ptm_stoichiometry st JOIN protein_groups_1pct g USING (protein_group_id)
@@ -436,6 +482,46 @@ static (Dictionary<(string, int), HashSet<string>> Ann, Dictionary<string, strin
     return (ann, seq);
 }
 
+/// <summary>The isoform XML's Ensembl-only entries (aging D128): accession, primary gene name, Ensembl gene ID (unversioned).</summary>
+static List<EnsemblEntry> EnsemblEntries(string xml) =>
+    UniprotEntries(xml).Where(e => (string?)e.Attribute("dataset") == "Ensembl").Select(e =>
+    {
+        XNamespace ns = e.Name.Namespace;
+        string acc = e.Element(ns + "accession")!.Value;
+        string? gene = e.Element(ns + "gene")?.Elements(ns + "name").FirstOrDefault(n => (string?)n.Attribute("type") == "primary")?.Value;
+        string? id = GeneIds(e).FirstOrDefault();
+        return new EnsemblEntry(acc, gene, id);
+    }).ToList();
+
+/// <summary>Every Swiss-Prot entry of a proteome XML: first accession, primary gene name, Ensembl gene IDs (unversioned).</summary>
+static List<SpGene> SwissProtGenes(string xml) =>
+    UniprotEntries(xml).Where(e => (string?)e.Attribute("dataset") == "Swiss-Prot").Select(e =>
+    {
+        XNamespace ns = e.Name.Namespace;
+        string? gene = e.Element(ns + "gene")?.Elements(ns + "name").FirstOrDefault(n => (string?)n.Attribute("type") == "primary")?.Value;
+        return new SpGene(e.Element(ns + "accession")!.Value, gene, GeneIds(e).ToHashSet(StringComparer.Ordinal));
+    }).ToList();
+
+static IEnumerable<string> GeneIds(XElement e) =>
+    e.Elements(e.Name.Namespace + "dbReference").Where(d => (string?)d.Attribute("type") == "Ensembl")
+        .SelectMany(d => d.Elements(e.Name.Namespace + "property")).Where(p => (string?)p.Attribute("type") == "gene ID")
+        .Select(p => ((string?)p.Attribute("value") ?? "").Split('.')[0]).Where(v => v.Length > 0).Distinct();
+
+/// <summary>Streams a UniProt XML's top-level entries (either of UniProt's two namespaces, as <see cref="LoadUniprot"/>).</summary>
+static IEnumerable<XElement> UniprotEntries(string xml)
+{
+    using var reader = XmlReader.Create(xml, new XmlReaderSettings { DtdProcessing = DtdProcessing.Ignore, IgnoreWhitespace = true });
+    reader.MoveToContent();
+    string ns = reader.NamespaceURI;
+    if (ns is not ("http://uniprot.org/uniprot" or "https://uniprot.org/uniprot"))
+        throw new InvalidDataException($"{xml}: root namespace '{ns}' is not UniProt's");
+    while (!reader.EOF)
+    {
+        if (reader.NodeType != XmlNodeType.Element || reader.LocalName != "entry" || reader.NamespaceURI != ns) { reader.Read(); continue; }
+        yield return (XElement)XNode.ReadFrom(reader);
+    }
+}
+
 /// <summary>Streams the XML line by line (LF out, as v1 wrote), inserting each accession's sites before the entry's
 /// top-level &lt;sequence length=...&gt;. Every accession must reach an insertion point, or nothing is written.</summary>
 static int Annotate(string src, string dst, Dictionary<string, List<Site>> keep)
@@ -515,6 +601,10 @@ record Site(string Organism, string Accession, int Position, string Modification
 }
 
 record Exclusion(string Dataset, string Class, string Source);
+
+record EnsemblEntry(string Acc, string? Gene, string? GeneId);
+
+record SpGene(string Acc, string? Gene, HashSet<string> GeneIds);
 
 record IsoVerdict(string Org, string Dataset, string Acc, string Canonical, int Pos, string Res, string Mod, long Psms, long Groups,
     bool? HasCanonical, bool? IsoformOnly, bool CanonicalInDataset, string Verdict);
