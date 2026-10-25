@@ -7,11 +7,27 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
-## 0.4.29 (unreleased)
+## 0.4.29 (2026-10-25)
 
 No MetaMorpheus change. **Machine file:** optional new key `[workers] gap` (default 5). **Safe mid-batch?** Yes: swap
 the pin as usual, then publish the build to the probing machine (a build-only release). A question takes the new
-profile by naming it.
+profiles by naming them.
+
+- **New profile `label-free-dda@9`: two side reactions of a deposit's own chemistry are offered to GPTMD.** They are
+  never searched as variable: a variable modification is for one on most peptides, as oxidised methionine is.
+  - **Ring-opened NEM** (`Nethylmaleimide+water on C`, +143.058 Da, UniMod 320) where NEM blocks the cysteines.
+  - **Propionamide** (`Propionamide on C`, +71.037 Da, UniMod 24) where the protocol names a gel (SDS-PAGE, in-gel
+    digestion, gel bands or slices, "gel-digested").
+  - Both are typed `Common Artifact` in a new `profiles/lists/PXReprise_custom_modifications_v2.txt`, with v1's NBF
+    entry unchanged. GPTMD may place one where the search already holds another modification on that cysteine, so
+    each sits beside variable NEM or fixed carbamidomethyl.
+  - **Tested on two raw files of each kind, `@8` against `@9`.** Ring-opened NEM was on 137 matches, 7% of the
+    NEM-modified cysteine matches, and 5% more cysteine-peptide matches passed. Propionamide was on 13 matches, 0.25% of
+    the cysteine matches, and took over 9 of 65 methyl-on-K artifacts. PSMs were flat to +0.7%, peptides -0.2%,
+    protein groups unchanged.
+  - **A deposit with neither side reaction is searched exactly as under `@8`.** New profile table
+    `[chemistry_artifacts]` (needs `chemistry = "deposit"` and a GPTMD task). The side reactions read are recorded in
+    the chemistry record and the experiment notes under any profile.
 
 - **New profile `label-free-dda-lowres@5`, and `lowres@4` is not recommended.** `lowres@4` (0.4.28) searched MS2
   fragmented by HCD and read in the ion trap as MetaMorpheus's LowCID. Its evidence was measured under the probe
