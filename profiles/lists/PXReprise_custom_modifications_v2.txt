@@ -1,0 +1,30 @@
+PXReprise custom modifications, version 2
+################################## G40 (2026-10-11): modifications no UniMod entry describes, for a profile's [thiol_reagents].
+################################## v2 (2026-10-25, ptmQtl PXR-P18/P19): two side reactions as Common Artifact, for a profile's
+################################## [chemistry_artifacts], placed by GPTMD (never variable). Their UniMod entries (320, 24) are
+################################## typed "Unimod" in MetaMorpheus; these are the same chemistry under MetaMorpheus's artifact type.
+################################## PXReprise installs this file, under this name, into MetaMorpheus's settings Mods folder
+################################## before a search that uses one. Never edit it in place: a changed list ships as _v3.
+################################## NBF: NBF-Cl (4-chloro-7-nitrobenzofurazan) on a thiol, minus HCl; +163.00179 Da.
+################################## PXD058611 probe (results/nbf-probe_2026-10-11): on 76-86% of identified cysteines.
+ID   NBF
+TG   C
+PP   Anywhere.
+MT   PXReprise
+CF   C6 H1 N3 O3
+//
+################################## Nethylmaleimide+water: NEM on a thiol with its succinimide ring opened by water (UNIMOD:320);
+################################## +143.05824 Da. Light NEM only: d5-NEM opened (+148.0896) has no UniMod entry.
+ID   Nethylmaleimide+water
+TG   C
+PP   Anywhere.
+MT   Common Artifact
+CF   C6 H9 N1 O3
+//
+################################## Propionamide: acrylamide on a free cysteine, from a polyacrylamide gel (UNIMOD:24); +71.03711 Da.
+ID   Propionamide
+TG   C
+PP   Anywhere.
+MT   Common Artifact
+CF   C3 H5 N1 O1
+//

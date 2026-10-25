@@ -218,13 +218,17 @@ public static class SearchStage
                 ["parent_version"] = lib.ParentVersion, ["registry"] = SpectralLibrary.RegistryPath(lib.Root),
             });
 
-        var known = TaskFiles.KnownMods(Path.Combine(Path.GetDirectoryName(cmd)!, "Mods"));
+        // The pinned MetaMorpheus's Mods folder, plus the profile's own file: it is installed into the settings folder's Mods
+        // (below), which MetaMorpheus also reads, so a GPTMD entry from it is known.
+        var known = TaskFiles.KnownMods(Path.Combine(Path.GetDirectoryName(cmd)!, "Mods")).Union(CustomModificationFile.Known(p)).ToHashSet();
         var chem = p.Chemistry == "deposit"
             ? r.Chemistry ?? throw new UsageException($"{p.Key} reads each deposit's chemistry (G19), and none was given for this search")
             : null;
         if (chem?.Park is { } park) throw new SearchSetupException($"the deposit's chemistry cannot be searched as read ({park})");
         int? window = PrecursorWindow(p, r.ProbePrecursorOffsets, prov);
-        var settings = new TaskSettings(m.MaxThreads, p.MatchBetweenRuns, p.GptmdExtraMods, SpectralLibraryMode: lib?.Mode,
+        var artifacts = ArtifactMods(p, chem);
+        var gptmdMods = p.GptmdExtraMods.Concat(artifacts.Select(a => a.ModId)).Distinct(StringComparer.Ordinal).ToList();
+        var settings = new TaskSettings(m.MaxThreads, p.MatchBetweenRuns, gptmdMods, SpectralLibraryMode: lib?.Mode,
             Protease: chem is { ProteasePerFile: null } ? chem.Protease.Value : null,
             FixedCysMods: chem?.CysMods.Where(c => c.Fixed).Select(c => c.MetaMorpheusId!).ToList(),
             VariableCysMods: chem?.CysMods.Where(c => !c.Fixed).Select(c => c.MetaMorpheusId!).ToList(),
@@ -253,6 +257,12 @@ public static class SearchStage
         }
         foreach (string t in tomls) prov.Input(t);
         if (p.GptmdExtraMods.Count > 0) prov.Set("gptmd_extra_mods", new JsonArray(p.GptmdExtraMods.Select(x => (JsonNode?)x).ToArray()));
+        if (artifacts.Count > 0)
+        {
+            prov.Set("chemistry_artifacts", new JsonArray(artifacts.Select(a => (JsonNode?)new JsonObject
+                { ["kind"] = a.Artifact.Kind, ["evidence"] = a.Artifact.Evidence, ["gptmd"] = a.ModId }).ToArray()));
+            prov.Note($"GPTMD may place {string.Join(" and ", artifacts.Select(a => a.ModId.Replace("\t", " / ")))}: side reaction(s) of the deposit's chemistry ({string.Join(", ", artifacts.Select(a => a.Artifact.Kind))}; ptmQtl PXR-P18/P19)");
+        }
 
         // 2. one invocation for the whole chain
         var (contaminants, panelRecord) = Contaminants(p, m);
@@ -552,12 +562,23 @@ public static class SearchStage
     internal static void InstallCustomModifications(Profile p, Discovery.DepositChemistry? chem, string settingsDir,
         MetaMorpheusRunner runner, AgingProvenance? prov)
     {
-        var needed = chem?.CysMods.Where(c => c.CustomId is not null).Select(c => c.CustomId!).Distinct().ToList();
-        if (needed is not { Count: > 0 }) return;
+        var custom = CustomModificationFile.Known(p).Select(k => $"{k.Category}\t{k.Name}").ToHashSet(StringComparer.Ordinal);
+        var needed = (chem?.CysMods.Where(c => c.CustomId is not null).Select(c => c.CustomId!) ?? Enumerable.Empty<string>())
+            .Concat(ArtifactMods(p, chem).Select(a => a.ModId).Where(custom.Contains)).Distinct().ToList();
+        if (needed.Count == 0) return;
         string installed = CustomModificationFile.Install(p, settingsDir, needed, () => runner.SeedSettings(settingsDir));
         prov?.Input(installed);
         prov?.Note($"custom modification(s) {string.Join(", ", needed.Select(i => i.Replace('\t', ' ')))} from the profile's {p.CustomModifications}, installed into MetaMorpheus's settings folder (G40)");
     }
+
+    /// <summary>
+    /// v0.4.29 (ptmQtl PXR-P18/P19): each side reaction the deposit's chemistry read that the profile maps to a GPTMD
+    /// modification. A side reaction the profile does not map is read and recorded, never searched.
+    /// </summary>
+    internal static IReadOnlyList<(Discovery.ChemistryArtifact Artifact, string ModId)> ArtifactMods(Profile p, Discovery.DepositChemistry? chem) =>
+        p.ChemistryArtifacts is not { } map || chem is null
+            ? Array.Empty<(Discovery.ChemistryArtifact, string)>()
+            : chem.ArtifactsRead.Where(a => map.ContainsKey(a.Kind)).Select(a => (a, map[a.Kind])).ToList();
 
     /// <summary>
     /// v0.4.28: the custom proteases the deposit's chemistry names (whole deposit or per file), installed into MetaMorpheus's
@@ -599,6 +620,7 @@ public static class SearchStage
             ["cysteine_mods"] = new JsonArray(c.CysMods.Select(m => (JsonNode?)new JsonObject
                 { ["name"] = m.Name, ["unimod"] = m.CustomId is null ? m.Unimod : null, ["fixed"] = m.Fixed, ["metamorpheus"] = m.MetaMorpheusId }).ToArray()),
             ["label"] = Fact(c.Label),
+            ["artifacts"] = new JsonArray(c.ArtifactsRead.Select(a => (JsonNode?)new JsonObject { ["kind"] = a.Kind, ["evidence"] = a.Evidence }).ToArray()),
             ["guessed"] = c.AnyGuessed,
         };
     }

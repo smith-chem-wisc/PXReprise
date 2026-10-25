@@ -93,6 +93,29 @@ public static class ProfileLoader
             }
             thiolReagents = map;
         }
+        // v0.4.29 (ptmQtl PXR-P18, PXR-P19): a side reaction the chemistry reads -> a GPTMD modification, never variable (the
+        // user, 2026-10-25: variable only for a modification on most peptides, as oxidised methionine is). GPTMD may put it
+        // where the search holds another modification on the residue (MetaMorpheus GptmdEngine.GetPossibleMods), so ring-
+        // opened NEM sits beside NEM and propionamide beside fixed carbamidomethyl.
+        IReadOnlyDictionary<string, string>? artifacts = null;
+        if (root.OptionalTable("chemistry_artifacts") is { } ca)
+        {
+            if (chemistry != "deposit")
+                throw new ConfigException(file, "[chemistry_artifacts] needs engine.chemistry = \"deposit\": a side reaction is read from each deposit");
+            if (!tasks.Contains("Gptmd"))
+                throw new ConfigException(file, "[chemistry_artifacts] adds modifications to GPTMD, and engine.tasks has no Gptmd task");
+            var map = new SortedDictionary<string, string>(StringComparer.Ordinal);
+            foreach (string kind in ca.Keys)
+            {
+                if (!Discovery.ChemistryDetector.ArtifactKinds.Contains(kind))
+                    throw new ConfigException(file, $"[chemistry_artifacts] '{kind}' is not a side reaction the chemistry reads (one of {string.Join(", ", Discovery.ChemistryDetector.ArtifactKinds)})");
+                string modId = ca.RequiredString(kind);
+                if (!modId.Contains('\t') || !modId.EndsWith(" on C", StringComparison.Ordinal))
+                    throw new ConfigException(file, $"[chemistry_artifacts] '{kind}' must name \"Type\\tId on C\", not '{modId.Replace("\t", " / ")}'");
+                map[kind] = modId;
+            }
+            artifacts = map;
+        }
         // D32/D34/D35 slice 3: a short search of the probe files against every species database, measuring species,
         // cysteine share and phospho/GG before the full download. Off unless a profile turns it on.
         bool probeSearch = eng.OptionalBool("probe_search") ?? false;
@@ -184,7 +207,7 @@ public static class ProfileLoader
         return new Profile(id, version, status, description, accepts, mm, tasks, extraMods, library, timeout, dbs,
             panel ?? Path.GetFileName(shipped!), exclude,
             method, mbr, deposit, gates, Path.GetDirectoryName(Path.GetFullPath(file))!, design, chemistry, writeSdrf, shipped, fragmentation, lowResTolerance, probeSearch, probeMinutes, ionTrapHcd,
-            customMods, thiolReagents, precursorWindow, ionTrapHcdLowCid, ionTrapHcdProbeLowCid);
+            customMods, thiolReagents, precursorWindow, ionTrapHcdLowCid, ionTrapHcdProbeLowCid, artifacts);
     }
 
     /// <summary>
