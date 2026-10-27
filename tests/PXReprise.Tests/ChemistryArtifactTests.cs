@@ -76,6 +76,41 @@ public class ChemistryArtifactTests
     }
 
     [Test]
+    public void LabelFreeDda10IsAt9WithGptmdsImprovedScoreFilter()
+    {
+        var all = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
+        var p10 = all["label-free-dda@10"];
+        var p9 = all["label-free-dda@9"];
+        Assert.That(p10.GptmdFilters, Is.EqualTo(new[] { "ImprovedScoreFilter" }));
+        Assert.That(all.Where(kv => kv.Value.GptmdFilters is not null).Select(kv => kv.Key), Is.EqualTo(new[] { "label-free-dda@10" }),
+            "no earlier profile changes");
+        Assert.That(p10 with { Version = 9, Description = p9.Description, GptmdFilters = null, Databases = p9.Databases, Accepts = p9.Accepts,
+            Tasks = p9.Tasks, GptmdExtraMods = p9.GptmdExtraMods, Deposit = p9.Deposit, Qc = p9.Qc, ThiolReagents = p9.ThiolReagents,
+            ChemistryArtifacts = p9.ChemistryArtifacts }, Is.EqualTo(p9), "every other scalar setting of @10 equals @9's");
+        Assert.That((p10.Tasks, p10.GptmdExtraMods, p10.Deposit, p10.Qc with { Excludable = p9.Qc.Excludable }),
+            Is.EqualTo((p9.Tasks, p9.GptmdExtraMods, p9.Deposit, p9.Qc)));
+        Assert.That(p10.Qc.Excludable, Is.EqualTo(p9.Qc.Excludable));
+        Assert.That(p10.Databases.Select(kv => (kv.Key, kv.Value.Proteome)), Is.EquivalentTo(p9.Databases.Select(kv => (kv.Key, kv.Value.Proteome))));
+        Assert.That(p10.ThiolReagents, Is.EquivalentTo(p9.ThiolReagents!));
+        Assert.That(p10.ChemistryArtifacts, Is.EquivalentTo(p9.ChemistryArtifacts!));
+    }
+
+    [TestCase("gptmd_filters = [\"ImprovedScore\"]", "MetaMorpheus 1.1.12 has")]
+    [TestCase("gptmd_filters = [\"FragmentMassConsistencyFilter\"]", "MetaMorpheus 1.1.12 has")]
+    public void AGptmdFilterMetaMorpheusDoesNotKnowIsRefused(string line, string expected)
+    {
+        // MetaMorpheus drops a filter name it cannot resolve without a word, so the profile refuses it at load.
+        string text = File.ReadAllText(Path.Combine(TestSupport.ProfilesDir, "label-free-dda-10.toml"))
+            .Replace("gptmd_filters = [\"ImprovedScoreFilter\"]", line);
+        string dir = TestSupport.TempDir();
+        Directory.CreateDirectory(Path.Combine(dir, "lists"));
+        foreach (string f in Directory.GetFiles(Path.Combine(TestSupport.ProfilesDir, "lists")))
+            File.Copy(f, Path.Combine(dir, "lists", Path.GetFileName(f)));
+        var e = Assert.Throws<ConfigException>(() => ProfileLoader.Load(TestSupport.WriteFile(dir, "p.toml", text)));
+        Assert.That(e!.Message, Does.Contain(expected));
+    }
+
+    [Test]
     public void LabelFreeDda9MapsBothToCommonArtifactsInItsOwnFileAndIsOtherwiseAt8()
     {
         var all = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);

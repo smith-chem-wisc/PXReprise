@@ -26,11 +26,17 @@ on:
     - cron: "17 9 * * 1"   # Mondays 09:17 UTC
   workflow_dispatch:
 
+# A newer push to the same branch stops the run it supersedes (2026-10-25, the user: CI minutes on the private repo).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: build and offline tests (required)
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4

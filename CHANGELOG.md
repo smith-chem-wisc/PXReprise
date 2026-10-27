@@ -7,6 +7,25 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.31 (2026-10-27)
+
+No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual. A question takes
+the new profile by naming it. 0.4.30 was released but never run as a batch, so this swap also brings in its
+`qc-payload/2`.
+
+- **New profile `label-free-dda@10`: GPTMD adds a site only where it improves the match's score.** It is `@9` with
+  MetaMorpheus's `ImprovedScoreFilter` on the GPTMD task. Every other setting, including GPTMD's modification list,
+  is `@9`'s.
+  - **Why:** without a filter, GPTMD adds every placement that fits a mass difference. An entrapment test (GPTMD over
+    the proteome plus a shuffled copy, where any site on the copy is false) found 12.9%, 4.2% and 7.9% of GPTMD's
+    sites false on a mouse, a human and a rat deposit. With the filter: 4.3%, 1.0% and 1.5%, for 0.6%, 0.9% and 3.6%
+    fewer peptides.
+  - **Not done here:** modifications that block the protease at a peptide's cut C-terminus (citrulline, acyl-K) are
+    to be refused by GPTMD and the search themselves, in MetaMorpheus, not by leaving classes out of the list.
+- **A profile can name GPTMD's filters** (`[engine] gptmd_filters`), written into the GPTMD task's `GptmdFilters`
+  and recorded in the search's provenance. MetaMorpheus ignores a filter name it does not know without a warning, so
+  a profile naming one is refused when it loads.
+
 ## 0.4.30 (2026-10-25)
 
 No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual. Payloads already
