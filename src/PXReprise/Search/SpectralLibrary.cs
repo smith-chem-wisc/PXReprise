@@ -74,9 +74,12 @@ public static class SpectralLibrary
     /// <summary>
     /// Copies the library MetaMorpheus produced into the registry as the next version and advances <c>current</c>.
     /// Refuses (without failing the search) when the file is absent, or when another search registered for this
-    /// organism in between: registering then would silently discard that search's contribution.
+    /// organism in between: registering then would silently discard that search's contribution. With
+    /// <paramref name="cleaning"/>, the new version also leaves out what <see cref="LibraryCleaning"/> judges (v0.4.32), so
+    /// a library cleaned once stays clean.
     /// </summary>
-    public static JsonObject Register(LibraryPlan plan, string searchTaskDir, string runLabel, string accession, string metamorpheus)
+    public static JsonObject Register(LibraryPlan plan, string searchTaskDir, string runLabel, string accession, string metamorpheus,
+        LibraryCleaning? cleaning = null)
     {
         var produced = Directory.EnumerateFiles(searchTaskDir, plan.OutputPattern).Select(Path.GetFileName)
             .Where(n => plan.Mode != "write" || !n!.StartsWith("update", StringComparison.Ordinal))
@@ -86,12 +89,13 @@ public static class SpectralLibrary
         string src = Path.Combine(searchTaskDir, produced[^1]!);
         // Two searches can finish together (search_slots > 1): one registers at a time, and the second then sees the
         // first's version and is refused below rather than overwriting it.
-        lock (RegistryGate) return RegisterLocked(plan, src, runLabel, accession, metamorpheus);
+        lock (RegistryGate) return RegisterLocked(plan, src, runLabel, accession, metamorpheus, cleaning);
     }
 
     private static readonly object RegistryGate = new();
 
-    private static JsonObject RegisterLocked(LibraryPlan plan, string src, string runLabel, string accession, string metamorpheus)
+    private static JsonObject RegisterLocked(LibraryPlan plan, string src, string runLabel, string accession, string metamorpheus,
+        LibraryCleaning? cleaning)
     {
         var reg = ReadRegistry(plan.Root);
         var organisms = reg["organisms"]!.AsObject();
@@ -109,8 +113,8 @@ public static class SpectralLibrary
         // COPY, not move: a search that is not delivered keeps what MetaMorpheus wrote. After delivery the run folder's copy
         // is deleted when its bytes still match this version's sha256 (PruneStage, v0.4.18); a copy that lost unreadable
         // entries never matches, so MetaMorpheus's whole file stays in the run folder.
-        int dropped = CopyReadable(src, dest);
-        var rec = VersionRecord(version, rel, plan.Mode, plan.ParentVersion, dest, dropped, new JsonObject
+        var dropped = CopyClean(src, dest, cleaning);
+        var rec = VersionRecord(version, rel, plan.Mode, plan.ParentVersion, dest, dropped, cleaning, new JsonObject
         {
             ["run"] = runLabel, ["accession"] = accession, ["metamorpheus"] = metamorpheus,
             ["metamorpheus_path"] = src, ["metamorpheus_filename"] = Path.GetFileName(src),
@@ -122,12 +126,13 @@ public static class SpectralLibrary
     }
 
     /// <summary>
-    /// A new version of <paramref name="organism"/>'s current library without its unreadable entries (mode
-    /// <c>repair</c>), made current. Nothing is written when there are none. For libraries registered before v0.4.20
-    /// dropped them: mouse v065 (PXD010091) and human v057 (PXD011740) hold Unimod <c>NEM:2H(5)</c>. Run it with no
-    /// driver running: a search that planned on the old current would then be refused at registration (nothing lost).
+    /// A new version of <paramref name="organism"/>'s current library without its unreadable entries and, with
+    /// <paramref name="cleaning"/>, without what <see cref="LibraryCleaning"/> judges (mode <c>repair</c>), made current.
+    /// Nothing is written when there is nothing to drop. For libraries registered before v0.4.20 dropped unreadable
+    /// entries (mouse v065, human v057: Unimod <c>NEM:2H(5)</c>), and before v0.4.32 cleaned them. Run it with no driver
+    /// running: a search that planned on the old current would then be refused at registration (nothing lost).
     /// </summary>
-    public static JsonObject Repair(string root, string organism, string reason)
+    public static JsonObject Repair(string root, string organism, string reason, LibraryCleaning? cleaning = null)
     {
         lock (RegistryGate)
         {
@@ -136,12 +141,14 @@ public static class SpectralLibrary
             string current = entry["current"]?.GetValue<string>() ?? throw new UsageException($"{organism} has no current library");
             int parent = VersionOf(entry, current) ?? throw new SearchSetupException($"{organism}'s current library {current} is not a registered version");
             string src = Path.Combine(root, current);
-            int unreadable = File.ReadLines(src).Count(UnreadableName);
-            if (unreadable == 0)
-                return new JsonObject { ["organism"] = organism, ["repaired"] = false, ["current"] = current, ["version"] = parent };
             var (version, rel, dest) = NextVersion(root, organism, entry);
-            int dropped = CopyReadable(src, dest);
-            var rec = VersionRecord(version, rel, "repair", parent, dest, dropped, new JsonObject
+            var dropped = CopyClean(src, dest, cleaning);
+            if (dropped.Total == 0)
+            {
+                File.Delete(dest);
+                return new JsonObject { ["organism"] = organism, ["repaired"] = false, ["current"] = current, ["version"] = parent };
+            }
+            var rec = VersionRecord(version, rel, "repair", parent, dest, dropped, cleaning, new JsonObject
             {
                 ["repair_of"] = current, ["reason"] = reason, ["pxreprise"] = RunRecord.Versions()["pxreprise"],
             });
@@ -183,26 +190,47 @@ public static class SpectralLibrary
     public static bool UnreadableName(string line) =>
         line.StartsWith("Name:", StringComparison.Ordinal) && CrosslinkLibrarySpectrum.CrosslinkRegex.IsMatch(line);
 
-    /// <summary>
-    /// Copies <paramref name="src"/> to <paramref name="dest"/> without its unreadable entries (each from its "Name:" line
-    /// to the next), keeping the file's line ending; a byte-for-byte copy when it has none. Returns the entries dropped.
-    /// </summary>
-    public static int CopyReadable(string src, string dest)
+    /// <summary>What a copy left out: unreadable entries, and <see cref="LibraryCleaning"/>'s two kinds by modification.</summary>
+    public sealed record Dropped(int Unreadable, int BlockedCTerm, int DoubtfulClass, IReadOnlyDictionary<string, int> ByModification)
     {
-        if (!File.ReadLines(src).Any(UnreadableName))
+        public static readonly Dropped None = new(0, 0, 0, new Dictionary<string, int>());
+        public int Total => Unreadable + BlockedCTerm + DoubtfulClass;
+    }
+
+    /// <summary>
+    /// Copies <paramref name="src"/> to <paramref name="dest"/> without its unreadable entries and the ones
+    /// <paramref name="cleaning"/> judges (each entry from its "Name:" line to the next), keeping the file's line ending;
+    /// a byte-for-byte copy when nothing is dropped.
+    /// </summary>
+    public static Dropped CopyClean(string src, string dest, LibraryCleaning? cleaning = null)
+    {
+        var verdicts = cleaning?.Judge(File.ReadLines(src).Select(LibraryCleaning.FullSequenceOf).OfType<string>())
+                       ?? new Dictionary<string, (string Reason, string Modification)>();
+        if (verdicts.Count == 0 && !File.ReadLines(src).Any(UnreadableName))
         {
             File.Copy(src, dest, overwrite: false);
-            return 0;
+            return Dropped.None;
         }
-        int dropped = 0;
+        int unreadable = 0, blocked = 0, doubtful = 0;
+        var byMod = new SortedDictionary<string, int>(StringComparer.Ordinal);
         bool skipping = false;
         using var w = new StreamWriter(new FileStream(dest, FileMode.CreateNew), new UTF8Encoding(false)) { NewLine = NewLineOf(src) };
         foreach (string line in File.ReadLines(src))
         {
-            if (line.StartsWith("Name:", StringComparison.Ordinal) && (skipping = UnreadableName(line))) dropped++;
+            if (line.StartsWith("Name:", StringComparison.Ordinal))
+            {
+                skipping = true;
+                if (UnreadableName(line)) unreadable++;
+                else if (verdicts.TryGetValue(LibraryCleaning.FullSequenceOf(line)!, out var v))
+                {
+                    if (v.Reason == "blocked_cterm") blocked++; else doubtful++;
+                    byMod[v.Modification] = byMod.GetValueOrDefault(v.Modification) + 1;
+                }
+                else skipping = false;
+            }
             if (!skipping) w.WriteLine(line);
         }
-        return dropped;
+        return new Dropped(unreadable, blocked, doubtful, byMod);
     }
 
     private static string NewLineOf(string path)
@@ -223,7 +251,8 @@ public static class SpectralLibrary
         return (version, rel, dest);
     }
 
-    private static JsonObject VersionRecord(int version, string rel, string mode, int? parent, string dest, int dropped, JsonObject producedBy)
+    private static JsonObject VersionRecord(int version, string rel, string mode, int? parent, string dest, Dropped dropped,
+        LibraryCleaning? cleaning, JsonObject producedBy)
     {
         var rec = new JsonObject
         {
@@ -232,7 +261,17 @@ public static class SpectralLibrary
             ["written_utc"] = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'+00:00'"),
         };
         // Only when something was dropped: every earlier version's record keeps its shape.
-        if (dropped > 0) rec["dropped_unreadable"] = dropped;
+        if (dropped.Unreadable > 0) rec["dropped_unreadable"] = dropped.Unreadable;
+        if (cleaning is not null)
+        {
+            var c = cleaning.Describe();
+            c["dropped_blocked_cterm"] = dropped.BlockedCTerm;
+            c["dropped_doubtful_class"] = dropped.DoubtfulClass;
+            var by = new JsonObject();
+            foreach (var (mod, n) in dropped.ByModification) by[mod] = n;
+            c["dropped_by_modification"] = by;
+            rec["cleaning"] = c;
+        }
         rec["produced_by"] = producedBy;
         return rec;
     }

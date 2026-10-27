@@ -7,7 +7,8 @@
 //
 // Selection (aging, 2026-09-27):
 //   - catalog ptm_sites: target, best_q_value <= 0.01, best_ambiguity_level = '1';
-//   - biological classes only (Bio below); deamidation, citrullination, Gla, sulfo-Y, ADP-ribosyl excluded;
+//   - biological classes only (Bio below); deamidation, citrullination, Gla, sulfo-Y, ADP-ribosyl excluded, and since
+//     agingPTM-v5 hydroxy-P and hydroxy-K;
 //   - n_psms >= --min-psms (5), summed over the organism's datasets;
 //   - dropped when the accession is not in the proteome (isoforms), the residue or position disagrees, or UniProt
 //     already has a 'modified residue' of the same chemistry there. mzLib loads only 'modified residue' and 'lipid
@@ -621,7 +622,9 @@ static partial class Program
         ["Acetylation on K"] = ("acetylK", 'K'), ["Acetylation on X"] = ("acetylNterm", null),
         ["Methylation on K"] = ("me1K", 'K'), ["Dimethylation on K"] = ("me2K", 'K'), ["Trimethylation on K"] = ("me3K", 'K'),
         ["Methylation on R"] = ("me1R", 'R'), ["Dimethylation on R"] = ("me2R", 'R'),
-        ["Hydroxylation on P"] = ("hydroxyP", 'P'), ["Hydroxylation on K"] = ("hydroxyK", 'K'),
+        // agingPTM-v5 (the user, 2026-10-26/27: "clean the databases and keep them clean until other PRs produce clean
+        // databases"): Hydroxylation on P and K are not selected. GPTMD's sites of both carry the misplaced Met/Trp
+        // oxidation fingerprint (results/gptmd-census_2026-10-25). Put them back once GPTMD's own filters make them clean.
         ["Succinylation on K"] = ("succinyl", 'K'), ["Glutarylation on K"] = ("glutaryl", 'K'), ["Malonylation on K"] = ("malonyl", 'K'),
         ["Crotonylation on K"] = ("crotonyl", 'K'), ["Butyrylation on K"] = ("butyryl", 'K'), ["Hydroxybutyrylation on K"] = ("hydroxybutyryl", 'K'),
         ["HexNAc on S"] = ("oglcnac", 'S'), ["HexNAc on T"] = ("oglcnac", 'T'),

@@ -1,0 +1,78 @@
+{
+  "built_utc": "2026-10-27T20:39:44Z",
+  "script": "PXReprise tools/ptm-db/RemoveClasses.cs",
+  "tag": "agingPTM-v5",
+  "rule": "every site of the named GPTMD classes removed (the user, 2026-10-26/27: clean the databases and keep them clean until other PRs produce clean databases); every other byte as in the source",
+  "removed_classes": [
+    "Hydroxylation on P",
+    "Hydroxylation on K"
+  ],
+  "files": [
+    {
+      "source": "F:/aging_data/db/UP000005640_all_genecentric_2026_03_agingPTM-v4.xml",
+      "source_sha256": "c11a9bc3d6c5ab8e60b109243956cd4d8d1fef3de05a447600dd3f6780475646",
+      "output": "F:/aging_data/db/UP000005640_all_genecentric_2026_03_agingPTM-v5.xml",
+      "output_sha256": "1a7c29d99ffae4c1565b31f5bb6033d47ebec7ce177d99380f1343a0ffeedbb7",
+      "modified_residue_features_kept": 63262,
+      "removed": {
+        "Hydroxylation on P": 2635,
+        "Hydroxylation on K": 807
+      }
+    },
+    {
+      "source": "F:/aging_data/db/UP000000589_all_genecentric_2026_03_agingPTM-v4.xml",
+      "source_sha256": "f9cdd188fd7fa65d97792cbf9225704c921727e8fa4b3e4c41c41ffcea7cabd5",
+      "output": "F:/aging_data/db/UP000000589_all_genecentric_2026_03_agingPTM-v5.xml",
+      "output_sha256": "e4e510a553a216943b238a0692c6fefdb111529d817607df0fff63c7db68b363",
+      "modified_residue_features_kept": 59944,
+      "removed": {
+        "Hydroxylation on P": 4753,
+        "Hydroxylation on K": 1715
+      }
+    },
+    {
+      "source": "F:/aging_data/db/UP000002494_all_genecentric_2026_03_agingPTM-v4.xml",
+      "source_sha256": "0f606b275fc62d6f4bcf1ac4cb69179de4c2d1ed59a552657e7964530bbe05f4",
+      "output": "F:/aging_data/db/UP000002494_all_genecentric_2026_03_agingPTM-v5.xml",
+      "output_sha256": "8ed0f1df5c6f908f0124dd9f54f00019eebf56c170d354f3122eebca86e1b15e",
+      "modified_residue_features_kept": 28959,
+      "removed": {
+        "Hydroxylation on P": 799,
+        "Hydroxylation on K": 234
+      }
+    },
+    {
+      "source": "F:/aging_data/db/aging_isoforms_human.xml",
+      "source_sha256": "6fdf086563aa7d4e54a3b094a5c94cc3d03bf5e376493702a0adcc62dd4e5b9d",
+      "output": "F:/aging_data/db/aging_isoforms_human_agingPTM-v5.xml",
+      "output_sha256": "fda3871e0fe7d3fcc0df0df49eb7859f900ba1bf42828813be1365cf7d4e1dd7",
+      "modified_residue_features_kept": 177,
+      "removed": {
+        "Hydroxylation on P": 154,
+        "Hydroxylation on K": 37
+      }
+    },
+    {
+      "source": "F:/aging_data/db/aging_isoforms_mouse.xml",
+      "source_sha256": "4d3ac6446e3a76b95ab99782b952f0d7683a552eec97c9eecc6294101bb62778",
+      "output": "F:/aging_data/db/aging_isoforms_mouse_agingPTM-v5.xml",
+      "output_sha256": "1de3b3f912472f650c7345ca46ee87bfa42cd271842739cbc53a083cb5a46d88",
+      "modified_residue_features_kept": 68,
+      "removed": {
+        "Hydroxylation on P": 22,
+        "Hydroxylation on K": 12
+      }
+    },
+    {
+      "source": "F:/aging_data/db/aging_isoforms_rat.xml",
+      "source_sha256": "ea4a2360e6519aaa4a04e773e7ea34c8c2872e7916f41385ab415d6b1925ecb6",
+      "output": "F:/aging_data/db/aging_isoforms_rat_agingPTM-v5.xml",
+      "output_sha256": "1b9fd18b41cdc1592c90a49361e947ecf069f450a927a62524b501ef7e24fc22",
+      "modified_residue_features_kept": 51,
+      "removed": {
+        "Hydroxylation on P": 30,
+        "Hydroxylation on K": 4
+      }
+    }
+  ]
+}

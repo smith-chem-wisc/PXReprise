@@ -82,7 +82,7 @@ public class ChemistryArtifactTests
         var p10 = all["label-free-dda@10"];
         var p9 = all["label-free-dda@9"];
         Assert.That(p10.GptmdFilters, Is.EqualTo(new[] { "ImprovedScoreFilter" }));
-        Assert.That(all.Where(kv => kv.Value.GptmdFilters is not null).Select(kv => kv.Key), Is.EqualTo(new[] { "label-free-dda@10" }),
+        Assert.That(all.Where(kv => kv.Value.GptmdFilters is not null).Select(kv => kv.Key), Is.EquivalentTo(new[] { "label-free-dda@10", "label-free-dda@11" }),
             "no earlier profile changes");
         Assert.That(p10 with { Version = 9, Description = p9.Description, GptmdFilters = null, Databases = p9.Databases, Accepts = p9.Accepts,
             Tasks = p9.Tasks, GptmdExtraMods = p9.GptmdExtraMods, Deposit = p9.Deposit, Qc = p9.Qc, ThiolReagents = p9.ThiolReagents,
@@ -93,6 +93,25 @@ public class ChemistryArtifactTests
         Assert.That(p10.Databases.Select(kv => (kv.Key, kv.Value.Proteome)), Is.EquivalentTo(p9.Databases.Select(kv => (kv.Key, kv.Value.Proteome))));
         Assert.That(p10.ThiolReagents, Is.EquivalentTo(p9.ThiolReagents!));
         Assert.That(p10.ChemistryArtifacts, Is.EquivalentTo(p9.ChemistryArtifacts!));
+    }
+
+    [Test]
+    public void LabelFreeDda11IsAt10OnAgingPtmV5()
+    {
+        // v0.4.32 (the user, 2026-10-27): the same settings as @10, on the databases without GPTMD hydroxy-P/K.
+        var all = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
+        var p11 = all["label-free-dda@11"];
+        var p10 = all["label-free-dda@10"];
+        Assert.That(p11.Databases.Select(kv => (kv.Key, kv.Value.Proteome)),
+            Is.EquivalentTo(p10.Databases.Select(kv => (kv.Key, kv.Value.Proteome.Replace("_agingPTM-v4.xml", "_agingPTM-v5.xml")))));
+        Assert.That(p11.Databases.Values.Select(d => d.Proteome), Has.All.EndsWith("_agingPTM-v5.xml"));
+        Assert.That(p11 with { Version = 10, Description = p10.Description, Databases = p10.Databases, Accepts = p10.Accepts,
+            Tasks = p10.Tasks, GptmdExtraMods = p10.GptmdExtraMods, GptmdFilters = p10.GptmdFilters, Deposit = p10.Deposit, Qc = p10.Qc,
+            ThiolReagents = p10.ThiolReagents, ChemistryArtifacts = p10.ChemistryArtifacts }, Is.EqualTo(p10), "every other scalar setting of @11 equals @10's");
+        Assert.That((p11.Tasks, p11.GptmdExtraMods, p11.GptmdFilters, p11.Deposit), Is.EqualTo((p10.Tasks, p10.GptmdExtraMods, p10.GptmdFilters, p10.Deposit)));
+        Assert.That(p11.Qc.Excludable, Is.EqualTo(p10.Qc.Excludable));
+        Assert.That(p11.ThiolReagents, Is.EquivalentTo(p10.ThiolReagents!));
+        Assert.That(p11.ChemistryArtifacts, Is.EquivalentTo(p10.ChemistryArtifacts!));
     }
 
     [TestCase("gptmd_filters = [\"ImprovedScore\"]", "MetaMorpheus 1.1.12 has")]
