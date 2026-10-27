@@ -27,7 +27,8 @@ public sealed record TaskSettings(
     IReadOnlyList<string>? VariableCysMods = null,        //   Carbamidomethyl on C and U; empty lists mean no cysteine mod
     bool WriteSdrf = false,                               // MetaMorpheus 1.1.12+: experiment.sdrf.tsv beside the results
     string? ProteomeXchangeAccession = null,              //   stamped into it; only with WriteSdrf
-    double? QuantifyPpmTol = null);                       // the Search task's FlashLFQ tolerance; null keeps the default
+    double? QuantifyPpmTol = null,                        // the Search task's FlashLFQ tolerance; null keeps the default
+    IReadOnlyList<string>? GptmdFilters = null);          // v0.4.31: GPTMD's filters by class name; null keeps the default (none)
 
 public static class TaskFiles
 {
@@ -66,6 +67,9 @@ public static class TaskFiles
 
         if (kind == TaskKind.Gptmd && s.GptmdExtraMods.Count > 0)
             (text, added) = AddGptmdMods(text, s.GptmdExtraMods, knownMods);
+        // MetaMorpheus writes the list as one TOML string of class names joined by an escaped tab ("A\tB").
+        if (kind == TaskKind.Gptmd && s.GptmdFilters is { Count: > 0 } filters)
+            text = Replace(text, "^GptmdFilters = \".*\"$", $"GptmdFilters = \"{string.Join("\\t", filters)}\"", "GptmdFilters", exactlyOne: true);
 
         if (kind == TaskKind.Search)
         {

@@ -38,6 +38,7 @@ is a new version, so every result says exactly which method made it.
 | `label-free-dda@7` | available | `@6`, plus a short probe search before the whole deposit is downloaded (below) |
 | `label-free-dda@8` | available | `@7` on the ageing project's fourth database release (agingPTM-v4): the same proteomes, with the PTM sites rebuilt from the ageing catalog of 2026-10-17 |
 | `label-free-dda@9` | available | `@8`, plus two side reactions of a deposit's own chemistry offered to GPTMD, never searched as variable: ring-opened NEM where NEM blocks the cysteines, and propionamide where the protocol names a gel (below). A deposit with neither is searched exactly as under `@8` |
+| `label-free-dda@10` | available | `@9`, with GPTMD adding a site only where placing the modification improves the match's score (MetaMorpheus's `ImprovedScoreFilter`; below) |
 | `label-free-dda-lowres@1` | available | label-free DDA whose MS2 is read in the ion trap (CID): MetaMorpheus's Search task alone, each file's fragmentation written from its own scans, no spectral library. A deposit is sent here only when its probe files fail the Orbitrap check and nothing else |
 | `label-free-dda-lowres@2` | available | `lowres@1`, plus MS2 fragmented by HCD and read in the ion trap (a Fusion, Lumos or Eclipse "HCD-IT" method) |
 | `label-free-dda-lowres@3` | available | `lowres@2`, plus the probe search, which measures each deposit's precursor mass offset. The search then accepts and quantifies precursors within a window wide enough for that offset (below). These profiles run no calibration, and an instrument whose masses are a few ppm off loses most of its identifications at MetaMorpheus's 5 ppm |
@@ -75,6 +76,11 @@ which protease made the deposit's peptides, how its cysteines were alkylated, an
     bands): free cysteines meet the gel's acrylamide.
   - Both are typed `Common Artifact` in `profiles/lists/PXReprise_custom_modifications_v2.txt`. Only a deposit whose
     chemistry reads them gets them in its GPTMD list.
+- **A profile can name GPTMD's filters** (`label-free-dda@10`, `[engine] gptmd_filters`). Without one, GPTMD adds every
+  placement that fits a mass difference. With `ImprovedScoreFilter` it adds a site only where placing the modification
+  raises the match's score. On three test deposits that cut the share of GPTMD's sites that were false from 4-13% to
+  1-4%, for under 4% fewer peptides. A filter name MetaMorpheus does not know is refused when the profile loads,
+  because MetaMorpheus itself would ignore it without a warning.
   - On two files of each kind, GPTMD placed ring-opened NEM on 7% of the NEM-modified cysteine matches and propionamide
     on 0.25% of the cysteine matches. Before, those masses could be read as other modifications (methyl on K, for one).
 - **PXReprise's own proteases** (since 0.4.28, any profile). `profiles/lists/PXReprise_custom_proteases_v1.tsv` holds

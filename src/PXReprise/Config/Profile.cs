@@ -91,8 +91,14 @@ public sealed record Profile(
     string PrecursorWindow = "default",   // "probe": the precursor and FlashLFQ windows from the probe's measured offset
     bool IonTrapHcdLowCid = false,    // v0.4.28: with ion_trap_hcd, HCD read in an ion trap is searched as LowCID (MetaMorpheus's low-res path)
     bool IonTrapHcdProbeLowCid = false,   // v0.4.29: as LowCID in the probe search only; the full search keeps HCD at the low-res tolerance
-    IReadOnlyDictionary<string, string>? ChemistryArtifacts = null)   // v0.4.29 (ptmQtl PXR-P18/P19): a side reaction -> "Type\tIdWithMotif", added to GPTMD
+    IReadOnlyDictionary<string, string>? ChemistryArtifacts = null,   // v0.4.29 (ptmQtl PXR-P18/P19): a side reaction -> "Type\tIdWithMotif", added to GPTMD
+    IReadOnlyList<string>? GptmdFilters = null)   // v0.4.31: MetaMorpheus's GPTMD filters by class name; null or empty keeps the task's own (none)
 {
+    /// <summary>The GPTMD filters MetaMorpheus 1.1.12 has (EngineLayer/Gptmd/IGptmdFilter.cs). MetaMorpheus drops a name it
+    /// cannot resolve without a word, so a profile may name only these.</summary>
+    public static readonly string[] KnownGptmdFilters =
+        { "ImprovedScoreFilter", "DualDirectionalIonCoverageFilter", "UniDirectionalIonCoverageFilter", "FlankingIonCoverageFilter" };
+
     /// <summary>The values of <c>[engine] precursor_window</c>: MetaMorpheus's own windows, or windows wide enough for the
     /// precursor offset the probe search measured (a profile without calibration; PXD045821, 2026-10-17).</summary>
     public static readonly string[] PrecursorWindows = { "default", "probe" };

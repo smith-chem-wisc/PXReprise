@@ -116,6 +116,21 @@ public class TaskFilesTests
     }
 
     [Test]
+    public void GptmdFiltersAreWrittenIntoTheGptmdTaskOnly()
+    {
+        // MetaMorpheus 1.1.12's default GPTMD task has GptmdFilters = "" and keeps several names joined by an escaped tab.
+        const string g = "GptmdFilters = \"\"\r\nMaxThreadsToUsePerFile = 8\r\n";
+        var one = new TaskSettings(8, false, Array.Empty<string>(), GptmdFilters: new[] { "ImprovedScoreFilter" });
+        var two = one with { GptmdFilters = new[] { "ImprovedScoreFilter", "FlankingIonCoverageFilter" } };
+        Assert.That(TaskFiles.Edit(g, TaskKind.Gptmd, one, Known).Text, Is.EqualTo("GptmdFilters = \"ImprovedScoreFilter\"\r\nMaxThreadsToUsePerFile = 8\r\n"));
+        Assert.That(TaskFiles.Edit(g, TaskKind.Gptmd, two, Known).Text, Does.StartWith(@"GptmdFilters = ""ImprovedScoreFilter\tFlankingIonCoverageFilter"""));
+        Assert.That(TaskFiles.Edit(g, TaskKind.Search, one, Known).Text, Does.StartWith("GptmdFilters = \"\""), "the Search task is left alone");
+        Assert.That(TaskFiles.Edit(g, TaskKind.Gptmd, new TaskSettings(8, false, Array.Empty<string>()), Known).Text, Is.EqualTo(g), "no filters: unchanged");
+        var e = Assert.Throws<SearchSetupException>(() => TaskFiles.Edit("MaxThreadsToUsePerFile = 8", TaskKind.Gptmd, one, Known));
+        Assert.That(e!.Message, Does.Contain("GptmdFilters"));
+    }
+
+    [Test]
     public void ASettingThePinnedEngineLacksIsRefusedNotSkipped()
     {
         var e = Assert.Throws<SearchSetupException>(() => TaskFiles.Edit("MaxThreadsToUsePerFile = 1", TaskKind.Search,

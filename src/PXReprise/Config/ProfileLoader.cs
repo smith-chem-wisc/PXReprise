@@ -37,6 +37,14 @@ public static class ProfileLoader
         // "<category>\t<IdWithMotif>" as MetaMorpheus's ListOfModsGptmd holds them; checked against the pinned
         // MetaMorpheus's Mods files when a search is prepared, not here.
         var extraMods = eng.StringList("gptmd_extra_mods");
+        // v0.4.31 (results/gptmd-entrapment_2026-10-25; the user, 2026-10-27): GPTMD's own filters, by class name, written
+        // into the GPTMD task's GptmdFilters. A name MetaMorpheus does not know would be dropped silently, so it is refused here.
+        var gptmdFilters = eng.StringList("gptmd_filters");
+        foreach (string f in gptmdFilters)
+            if (!Profile.KnownGptmdFilters.Contains(f))
+                throw new ConfigException(file, $"engine.gptmd_filters names '{f}'; MetaMorpheus 1.1.12 has {string.Join(", ", Profile.KnownGptmdFilters)}");
+        if (gptmdFilters.Count > 0 && !tasks.Contains("Gptmd"))
+            throw new ConfigException(file, "engine.gptmd_filters needs a Gptmd task");
         // One library per organism: the first search writes it, every later one updates and consumes it (aging D33).
         bool library = eng.OptionalBool("spectral_library") ?? false;
         // Read so published profiles stay valid, but no longer used: a search's limits are the machine's (search_timeout_h,
@@ -207,7 +215,8 @@ public static class ProfileLoader
         return new Profile(id, version, status, description, accepts, mm, tasks, extraMods, library, timeout, dbs,
             panel ?? Path.GetFileName(shipped!), exclude,
             method, mbr, deposit, gates, Path.GetDirectoryName(Path.GetFullPath(file))!, design, chemistry, writeSdrf, shipped, fragmentation, lowResTolerance, probeSearch, probeMinutes, ionTrapHcd,
-            customMods, thiolReagents, precursorWindow, ionTrapHcdLowCid, ionTrapHcdProbeLowCid, artifacts);
+            customMods, thiolReagents, precursorWindow, ionTrapHcdLowCid, ionTrapHcdProbeLowCid, artifacts,
+            gptmdFilters.Count > 0 ? gptmdFilters : null);
     }
 
     /// <summary>

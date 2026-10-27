@@ -313,7 +313,7 @@ public class ProbeSearchTests
         // The user, 2026-10-12: "Yes to the preliminary search". Profiles already used keep it off (a profile never changes).
         // lowres@3 (2026-10-17) runs it to measure the precursor offset its uncalibrated search must hold.
         Assert.That(Config.ProfileLoader.LoadDirectory(TestSupport.ProfilesDir).Where(kv => kv.Value.ProbeSearch).Select(kv => kv.Key),
-            Is.EquivalentTo(new[] { "label-free-dda@7", "label-free-dda@8", "label-free-dda@9", "label-free-dda-lowres@3", "label-free-dda-lowres@4", "label-free-dda-lowres@5" }));
+            Is.EquivalentTo(new[] { "label-free-dda@7", "label-free-dda@8", "label-free-dda@9", "label-free-dda@10", "label-free-dda-lowres@3", "label-free-dda-lowres@4", "label-free-dda-lowres@5" }));
     }
 
     [Test]
