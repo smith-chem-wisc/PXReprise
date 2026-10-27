@@ -330,12 +330,27 @@ public static class Program
                 // pxreprise library list --machine m.toml
                 // pxreprise library repair <organism> --machine m.toml --reason "...": a new current version without the
                 // spectra mzLib cannot read back (v0.4.20). Run it with no driver running.
+                //   --databases a.xml,b.xml (v0.4.32): also clean it (Search/LibraryCleaning.cs) against the organism's
+                //   target databases, with the modifications of every MetaMorpheus the machine names and the shipped lists.
                 var rest = args.Words.Skip(1).ToList();
                 if (!(rest is ["list"] || rest is ["repair", _]))
-                    throw new UsageException("usage: pxreprise library list --machine m.toml, or library repair <organism> --machine m.toml --reason \"...\"");
-                args.AllowOnly("machine", "reason");
-                string root = Machine.Load(args.Required("machine")).SpectralLibraryRoot;
-                return rest[0] == "list" ? Search.SpectralLibrary.List(root) : Search.SpectralLibrary.Repair(root, rest[1], args.Required("reason"));
+                    throw new UsageException("usage: pxreprise library list --machine m.toml, or library repair <organism> --machine m.toml --reason \"...\" [--databases a.xml,b.xml]");
+                args.AllowOnly("machine", "reason", "databases", "profiles");
+                var libMachine = Machine.Load(args.Required("machine"));
+                string root = libMachine.SpectralLibraryRoot;
+                if (rest[0] == "list") return Search.SpectralLibrary.List(root);
+                Search.LibraryCleaning? cleaning = null;
+                if (args.Option("databases") is { } dbList)
+                {
+                    var modFiles = libMachine.MetaMorpheus.Values
+                        .Select(c => Path.Combine(Path.GetDirectoryName(c)!, "Mods")).Where(Directory.Exists)
+                        .SelectMany(d => Directory.EnumerateFiles(d, "*.txt"))
+                        .Concat(Directory.EnumerateFiles(Path.Combine(ProfilesDir(args), "lists"), "PXReprise_custom_modifications_*.txt"));
+                    cleaning = Search.LibraryCleaning.For(modFiles,
+                        dbList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                            .Select(x => Path.IsPathRooted(x) ? x : Path.Combine(libMachine.DatabaseDir, x)));
+                }
+                return Search.SpectralLibrary.Repair(root, rest[1], args.Required("reason"), cleaning);
             }
 
             case "worker":

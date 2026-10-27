@@ -378,13 +378,21 @@ public static class SearchStage
             {
                 try
                 {
-                    var written = SpectralLibrary.Register(lib, sd, $"{r.RunDate}/{r.Accession}".Trim('/'), r.Accession ?? "", release);
+                    // v0.4.32 (the user, 2026-10-27; cleavageRules PXR-V8): every new version is cleaned, judged against
+                    // this search's own target databases and the modifications it could name.
+                    var cleaning = LibraryCleaning.For(
+                        Directory.EnumerateFiles(Path.Combine(Path.GetDirectoryName(cmd)!, "Mods"), "*.txt")
+                            .Concat(p.CustomModifications is { } custom ? new[] { p.ListPath(custom) } : Array.Empty<string>()),
+                        new[] { proteome }.Concat(extras));
+                    var written = SpectralLibrary.Register(lib, sd, $"{r.RunDate}/{r.Accession}".Trim('/'), r.Accession ?? "", release, cleaning);
                     // A copy: the registry's own node already has a parent there.
                     libRec["written"] = written.DeepClone();
                     prov.Output(Path.Combine(lib.Root, written["path"]!.GetValue<string>()));
                     prov.Note($"spectral library {lib.Organism} v{(int)written["version"]!:000}: {(int)written["n_spectra"]!:N0} spectra, {written["path"]}");
                     if (written["dropped_unreadable"] is { } dropped)
                         prov.Note($"spectral library: {(int)dropped:N0} spectra left out of v{(int)written["version"]!:000}: their modification names hold a count in parentheses, such as NEM:2H(5), which mzLib's reader takes for a crosslink; MetaMorpheus's whole file stays in this run's folder");
+                    if (written["cleaning"] is JsonObject cleaned && ((int)cleaned["dropped_blocked_cterm"]! + (int)cleaned["dropped_doubtful_class"]!) > 0)
+                        prov.Note($"spectral library: cleaned, v{(int)written["version"]!:000} leaves out {(int)cleaned["dropped_blocked_cterm"]!:N0} spectra blocked at a cut C-terminus and {(int)cleaned["dropped_doubtful_class"]!:N0} carrying a GPTMD hydroxy-P/K site; MetaMorpheus's whole file stays in this run's folder");
                 }
                 catch (SearchSetupException e)
                 {

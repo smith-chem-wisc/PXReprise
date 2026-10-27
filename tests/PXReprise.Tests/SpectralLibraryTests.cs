@@ -128,7 +128,7 @@ public class SpectralLibraryTests
         var readable = new[] { ("PEPTIDEK", 2), ("VDPVNFK", 1), ("LGEHNIDVLEGNEQFINAAK", 3) };
         string bad = TestSupport.WriteFile(dir, "lib.msp", Entry("PEPTIDEK", 2) + Entry(Nem, 2) + Entry("VDPVNFK", 1) + Entry("LGEHNIDVLEGNEQFINAAK", 3));
         string good = Path.Combine(dir, "repaired.msp");
-        Assert.That(SpectralLibrary.CopyReadable(bad, good), Is.EqualTo(1));
+        Assert.That(SpectralLibrary.CopyClean(bad, good).Unreadable, Is.EqualTo(1));
         Assert.That(MzLibReads(bad, readable), Is.False, "mzLib read back a library holding NEM:2H(5): the repair may no longer be needed");
         Assert.That(MzLibReads(good, readable), Is.True);
     }

@@ -7,6 +7,31 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.32 (2026-10-27)
+
+No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual, and run
+`library repair` for each organism in the gap (below). A question takes the new profile by naming it.
+
+- **Spectral libraries are cleaned, and stay clean.** Every library version the engine registers, and every
+  `pxreprise library repair <organism> --databases a.xml,b.xml`, leaves out two kinds of spectrum:
+  - **blocked at a cut C-terminus:** the modification on the last residue blocks trypsin (citrulline, acyl-K, GG-K),
+    and mzLib's `CleavageBlockingPolicy` rules out every place the sequence occurs in the organism's target proteins.
+    A spectrum is kept when any occurrence is a protein C-terminus, and when the sequence occurs nowhere. This is
+    cleavageRules' rule (PXR-V8), so the libraries agree with the search once a MetaMorpheus release runs with
+    `RespectCleavageBlockingModifications`. Library-based DIA takes its candidates from the library itself, so these
+    spectra must leave the file, not merely go unscored.
+  - **a GPTMD hydroxylation on P or K:** the classes agingPTM-v5 removes (below). UniProt's own stay.
+  - The version's registry record says what was dropped, by modification (`cleaning`). On rat v037: 3,344 blocked
+    and 5,292 hydroxylated of 265,699 spectra.
+  - **Why:** the user, 2026-10-27: "clean the libraries now and keep them clean until clean libraries are produced. i
+    rather this than starting from no library".
+- **New profile `label-free-dda@11`: `@10` on agingPTM-v5.** v5 is v4 without its GPTMD-added Hydroxylation on P and
+  K sites (human 3,442, mouse 6,468, rat 1,033), every other byte the same; `aging_isoforms_<org>_agingPTM-v5.xml`
+  are the overlays' v5 forms. 19-21% of those sites had Trp or Met within two residues, against 10-13% for every P or K
+  of the same proteins: oxidised Met or Trp placed on the wrong residue. `BuildPtmDb.cs` no longer selects either
+  class, so later databases stay clean until a GPTMD change makes those sites trustworthy.
+- **mzLib 1.0.595** in the engine (MetaMorpheus 1.1.12 keeps 1.0.594 in its own process), for the cleaning rule.
+
 ## 0.4.31 (2026-10-27)
 
 No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual. A question takes
