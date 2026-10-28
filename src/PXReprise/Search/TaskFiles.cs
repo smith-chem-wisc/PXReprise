@@ -232,6 +232,28 @@ public static class TaskFiles
         return crlf ? lf.Replace("\n", "\r\n") : lf;
     }
 
+    /// <summary>
+    /// A profile's <c>[metamorpheus_settings]</c> (v0.4.33) applied to one task file: a setting scoped to this task kind
+    /// must find its key exactly once; an <c>all</c> setting is applied where the task has the key and skipped where it
+    /// has not (the caller checks it landed somewhere). Returns the settings applied.
+    /// </summary>
+    public static (string Text, IReadOnlyList<Config.MetaMorpheusSetting> Applied) ApplySettings(string text, TaskKind kind,
+        IReadOnlyList<Config.MetaMorpheusSetting>? settings)
+    {
+        var applied = new List<Config.MetaMorpheusSetting>();
+        if (settings is null) return (text, applied);
+        string scope = kind.ToString().ToLowerInvariant();
+        foreach (var s in settings)
+        {
+            if (s.Scope == scope || (s.Scope == "all" && Regex.Matches(text, $"^{Regex.Escape(s.Key)} = ", RegexOptions.Multiline).Count == 1))
+            {
+                text = Set(text, s.Key, s.TomlValue);
+                applied.Add(s);
+            }
+        }
+        return (text, applied);
+    }
+
     /// <summary>Adds variable modifications (<c>"Category\tName"</c>), each checked against the pinned MetaMorpheus's list.</summary>
     public static string AddVariableMods(string text, IReadOnlyList<string> mods, IReadOnlySet<(string Category, string Name)> knownMods)
     {

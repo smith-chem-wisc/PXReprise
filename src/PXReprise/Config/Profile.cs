@@ -55,6 +55,14 @@ public sealed record QcGates(
     string Ms2Analyzer, double MinFractionOrbitrapHcd, int MinMs2, IReadOnlyList<string> Excludable, double MaxExcludedFraction);
 
 /// <summary>
+/// One <c>Key = value</c> of a profile's <c>[metamorpheus_settings.&lt;scope&gt;]</c> (v0.4.33): written over the line of
+/// that key in the generated task file of the scope's task kind (<c>all</c>: every task that has the key, at least one).
+/// <paramref name="TomlValue"/> is the literal as written into the task file. A key the pinned MetaMorpheus does not
+/// write is refused when the search is set up, never dropped.
+/// </summary>
+public sealed record MetaMorpheusSetting(string Scope, string Key, string TomlValue);
+
+/// <summary>
 /// How one kind of data is searched: versioned, shared by every question, and knowing nothing about biology
 /// (DESIGN.md section 2). <c>label-free-dda/1</c> is the aging pipeline's v1.
 /// </summary>
@@ -92,8 +100,24 @@ public sealed record Profile(
     bool IonTrapHcdLowCid = false,    // v0.4.28: with ion_trap_hcd, HCD read in an ion trap is searched as LowCID (MetaMorpheus's low-res path)
     bool IonTrapHcdProbeLowCid = false,   // v0.4.29: as LowCID in the probe search only; the full search keeps HCD at the low-res tolerance
     IReadOnlyDictionary<string, string>? ChemistryArtifacts = null,   // v0.4.29 (ptmQtl PXR-P18/P19): a side reaction -> "Type\tIdWithMotif", added to GPTMD
-    IReadOnlyList<string>? GptmdFilters = null)   // v0.4.31: MetaMorpheus's GPTMD filters by class name; null or empty keeps the task's own (none)
+    IReadOnlyList<string>? GptmdFilters = null,   // v0.4.31: MetaMorpheus's GPTMD filters by class name; null or empty keeps the task's own (none)
+    IReadOnlyList<MetaMorpheusSetting>? MetaMorpheusSettings = null)   // v0.4.33: [metamorpheus_settings.<scope>] Key = value
 {
+    /// <summary>The scopes of <c>[metamorpheus_settings]</c>: every task, or one task kind.</summary>
+    public static readonly string[] MetaMorpheusSettingScopes = { "all", "calibration", "gptmd", "search" };
+
+    /// <summary>
+    /// Task-file keys the engine writes itself, from the profile's other keys, the deposit or the machine. A
+    /// <c>[metamorpheus_settings]</c> entry may not name them: two writers of one line would make provenance ambiguous.
+    /// </summary>
+    public static readonly string[] EngineOwnedTaskKeys =
+    {
+        "MaxThreadsToUsePerFile", "MatchBetweenRuns", "SearchType", "WriteSpectralLibrary", "UpdateSpectralLibrary",
+        "WriteSdrf", "ProteomeXchangeAccession", "QuantifyPpmTol", "Protease", "SpecificProtease", "ListOfModsFixed",
+        "ListOfModsVariable", "ListOfModsGptmd", "GptmdFilters", "ProductMassTolerance", "PrecursorMassTolerance",
+        "DissociationType",
+    };
+
     /// <summary>The GPTMD filters MetaMorpheus 1.1.12 has (EngineLayer/Gptmd/IGptmdFilter.cs). MetaMorpheus drops a name it
     /// cannot resolve without a word, so a profile may name only these.</summary>
     public static readonly string[] KnownGptmdFilters =
