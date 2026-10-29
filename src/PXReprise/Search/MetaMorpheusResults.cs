@@ -72,7 +72,7 @@ public static partial class MetaMorpheusResults
     public static string? Mismatch(IEnumerable<LoadedDatabase> loaded, IReadOnlyDictionary<string, string> oursByPath)
     {
         var byName = oursByPath
-            .GroupBy(kv => System.IO.Path.GetFileName(kv.Key), StringComparer.OrdinalIgnoreCase)
+            .GroupBy(kv => FileName(kv.Key), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.Select(kv => kv.Value).ToHashSet(StringComparer.Ordinal), StringComparer.OrdinalIgnoreCase);
         var problems = new List<string>();
         foreach (var db in loaded)
@@ -87,6 +87,12 @@ public static partial class MetaMorpheusResults
         }
         return problems.Count == 0 ? null : string.Join("; ", problems);
     }
+
+    /// <summary>
+    /// A path's file name on either separator: MetaMorpheus writes Windows paths, and the public CI reads them on Linux,
+    /// where <see cref="System.IO.Path.GetFileName(string)"/> does not split on a backslash.
+    /// </summary>
+    public static string FileName(string path) => path[(path.LastIndexOfAny(new[] { '\\', '/' }) + 1)..];
 
     /// <summary>
     /// The identification filter results.txt states: the filter and threshold of its "All target ..." count lines, and

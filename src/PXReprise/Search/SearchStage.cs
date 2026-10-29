@@ -384,9 +384,9 @@ public static class SearchStage
                     ["derived_from"] = new JsonArray(d.DerivedFrom.Select(x => (JsonNode?)new JsonObject { ["file"] = x.File, ["sha256"] = x.Sha256 }).ToArray()),
                 }).ToArray()));
                 // Only the files MetaMorpheus names are hashed (a spectral library is a -d too, and large).
-                var named = loaded.Select(d => Path.GetFileName(d.Path ?? d.File)).Concat(loaded.SelectMany(d => d.DerivedFrom.Select(x => x.File)))
+                var named = loaded.Select(d => MetaMorpheusResults.FileName(d.Path ?? d.File)).Concat(loaded.SelectMany(d => d.DerivedFrom.Select(x => x.File)))
                     .ToHashSet(StringComparer.OrdinalIgnoreCase);
-                var ours = dbs.Where(d => named.Contains(Path.GetFileName(d)) && File.Exists(d)).Distinct(StringComparer.OrdinalIgnoreCase)
+                var ours = dbs.Where(d => named.Contains(MetaMorpheusResults.FileName(d)) && File.Exists(d)).Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToDictionary(d => d, Sha, StringComparer.OrdinalIgnoreCase);
                 if (MetaMorpheusResults.Mismatch(loaded, ours) is { } bad)
                 {
