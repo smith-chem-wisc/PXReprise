@@ -313,6 +313,7 @@ static List<Exclusion> Exclusions(string file, string? catalog, double phPct, do
         using var con = new DuckDBConnection($"Data Source={catalog};ACCESS_MODE=READ_ONLY");
         con.Open();
         using var c = con.CreateCommand();
+        string psms = PsmsOnePercent(con, catalog);
         // The peptidoform spells a mod as the ingesting mzLib serialised it: phospho is UNIMOD:21 throughout; GG was
         // [Info:GG (Ubiquitination Site) on K] before mzLib #1328 and UNIMOD:121 after.
         c.CommandText = @"
@@ -322,7 +323,7 @@ static List<Exclusion> Exclusions(string file, string? catalog, double phPct, do
           FROM (SELECT dataset_id, run_id, count(*) n,
                        count(*) FILTER (WHERE peptidoform LIKE '%UNIMOD:21]%') ph,
                        count(*) FILTER (WHERE peptidoform LIKE '%UNIMOD:121]%' OR peptidoform LIKE '%GG (Ubiquitination Site)%') gg
-                FROM psms_1pct WHERE target_decoy = 'target' GROUP BY 1, 2)
+                FROM " + psms + @" WHERE target_decoy = 'target' GROUP BY 1, 2)
           GROUP BY 1";
         c.Parameters.Add(new DuckDBParameter("ph", phPct));
         c.Parameters.Add(new DuckDBParameter("gg", ggPct));
@@ -337,6 +338,36 @@ static List<Exclusion> Exclusions(string file, string? catalog, double phPct, do
                 }
     }
     return rows.Select(kv => new Exclusion(kv.Key.Item1, kv.Key.Item2, kv.Value)).ToList();
+}
+
+/// <summary>
+/// The 1% PSMs to measure enrichment on: the catalog's <c>psms_1pct</c> where it has one. Catalog version 13 (datarepo
+/// 1.3.5+, 2026-10-19) has no PSM view; the store's bundles still hold <c>psms.parquet</c>, so the PSMs of every bundle the
+/// catalog serves are read from <c>&lt;store&gt;/&lt;dataset&gt;/&lt;bundle&gt;/psms.parquet</c> (the store beside the catalogs
+/// folder), at the catalog's own 1% rule (<c>peptidoforms_1pct</c>: q-value and, where set, notch q-value at most 0.01).
+/// </summary>
+static string PsmsOnePercent(DuckDBConnection con, string catalog)
+{
+    using (var t = con.CreateCommand())
+    {
+        t.CommandText = "select count(*) from information_schema.tables where table_name = 'psms_1pct'";
+        if (Convert.ToInt64(t.ExecuteScalar()) > 0) return "psms_1pct";
+    }
+    string store = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(catalog))!, "..", "store"));
+    var parts = new List<string>();
+    using var c = con.CreateCommand();
+    c.CommandText = "select distinct dataset_id, bundle_id from runs order by 1";
+    using var r = c.ExecuteReader();
+    while (r.Read())
+    {
+        string f = Path.Combine(store, r.GetString(0), r.GetString(1), "psms.parquet");
+        if (!File.Exists(f)) throw new FileNotFoundException($"the catalog serves {r.GetString(0)} bundle {r.GetString(1)}, and its PSMs are not at {f}");
+        parts.Add($"SELECT '{r.GetString(0)}' AS dataset_id, run_id, peptidoform, target_decoy FROM read_parquet('{f.Replace('\\', '/').Replace("'", "''")}') " +
+                  "WHERE q_value <= 0.01 AND (q_value_notch IS NULL OR q_value_notch <= 0.01)");
+    }
+    if (parts.Count == 0) throw new InvalidDataException($"{catalog}: no runs, so no PSMs to measure enrichment on");
+    Console.WriteLine($"enrichment measured on the PSMs of {parts.Count} bundles in {store} (the catalog has no psms_1pct)");
+    return "(" + string.Join(" UNION ALL ", parts) + ")";
 }
 
 /// <summary>"dataset|modification name" for every Bio modification of each excluded (dataset, class).</summary>
@@ -354,7 +385,7 @@ static JsonNode WriteExclusions(string file, bool measured, double phPct, double
     {
         ["rule"] = "a site of a PTM class is not counted from a deposit that enriches that class (user, 2026-10-07)",
         ["declared_file"] = file, ["declared_sha256"] = Sha(file),
-        ["measured"] = measured ? new JsonObject { ["phospho_pct_min"] = phPct, ["gg_pct_min"] = ggPct, ["over"] = "1% target PSMs per run (psms_1pct)" } : null,
+        ["measured"] = measured ? new JsonObject { ["phospho_pct_min"] = phPct, ["gg_pct_min"] = ggPct, ["over"] = "1% target PSMs per run (the catalog's psms_1pct, else each served bundle's psms.parquet at q and notch q <= 0.01)" } : null,
         ["used_file"] = used, ["used_sha256"] = Sha(used), ["rows"] = rows.Count,
     };
 }

@@ -1,0 +1,168 @@
+{
+  "built_utc": "2026-10-28T22:44:38\u002B00:00",
+  "script": "PXReprise tools/ptm-db/BuildPtmDb.cs (C# port of aging results/ptm_db_2026-09-27/build_ptm_db.py)",
+  "tag": "agingPTM-v6",
+  "catalog": {
+    "id": "b978714d36f3878a",
+    "datarepo": "1.3.6",
+    "built_utc": "2026-10-27T21:23:00\u002B00:00",
+    "path": "F:/aging_data/repo/catalogs/catalog-b978714d36f3878a.duckdb"
+  },
+  "from_sites": null,
+  "selection": {
+    "q_max": 0.01,
+    "ambiguity_level": "1",
+    "target_only": true,
+    "min_psms_summed": 5,
+    "modifications": [
+      "Acetylation on K",
+      "Acetylation on X",
+      "Butyrylation on K",
+      "Crotonylation on K",
+      "Dimethylation on K",
+      "Dimethylation on R",
+      "GG (Ubiquitination Site) on K",
+      "Glutarylation on K",
+      "HexNAc on S",
+      "HexNAc on T",
+      "Hydroxybutyrylation on K",
+      "Malonylation on K",
+      "Methylation on K",
+      "Methylation on R",
+      "Phosphorylation on S",
+      "Phosphorylation on T",
+      "Phosphorylation on Y",
+      "Succinylation on K",
+      "Trimethylation on K"
+    ],
+    "excluded_if_uniprot_modified_residue_same_class": true,
+    "uniprot_overlap_ignored_for": [
+      "GG",
+      "oglcnac"
+    ],
+    "enriched_for_excluded": {
+      "rule": "a site of a PTM class is not counted from a deposit that enriches that class (user, 2026-10-07)",
+      "declared_file": "E:/CodeReview/PXReprise/data/ptm-db/enriched_ptm_exclusions_2026-10-28.tsv",
+      "declared_sha256": "0242e17285244c02757d599533d2f665836123d94196a72af6c3138e14b9e320",
+      "measured": {
+        "phospho_pct_min": 5,
+        "gg_pct_min": 2,
+        "over": "1% target PSMs per run (the catalog\u0027s psms_1pct, else each served bundle\u0027s psms.parquet at q and notch q \u003C= 0.01)"
+      },
+      "used_file": "F:/pxreprise_ptmdb_v6/sites\\enriched_exclusions_used.tsv",
+      "used_sha256": "63ed440b4a1214c351ee9e3ce9014d32122b6c2b98c66636774a05b34822962f",
+      "rows": 43
+    }
+  },
+  "note": "The sites come from searches of the corpus these databases then search; the PSM floor limits that feedback.",
+  "dotnet": "10.0.10",
+  "organisms": {
+    "human": {
+      "source_xml": "F:/aging_data/db/UP000005640_all_genecentric_2026_03.xml",
+      "source_sha256": "cc31d2db409e172674949e6c485addd46599e77d8dccba4c631bbdb545349e58",
+      "output_xml": "F:/pxreprise_ptmdb_v6/out\\UP000005640_all_genecentric_2026_03_agingPTM-v6.xml",
+      "output_sha256": "b87d37b574ff86831ee38b6d086a8d567f61db8ab5d847851c0edd244cc34c66",
+      "sites_written": 7889,
+      "proteins_touched": 2639,
+      "sites_by_modification": {
+        "Methylation on K": 1233,
+        "Acetylation on K": 1061,
+        "Phosphorylation on S": 746,
+        "Acetylation on X": 676,
+        "Methylation on R": 674,
+        "Dimethylation on K": 549,
+        "Trimethylation on K": 516,
+        "Dimethylation on R": 496,
+        "Phosphorylation on T": 430,
+        "GG (Ubiquitination Site) on K": 280,
+        "Glutarylation on K": 218,
+        "Succinylation on K": 213,
+        "HexNAc on T": 151,
+        "Hydroxybutyrylation on K": 124,
+        "HexNAc on S": 123,
+        "Malonylation on K": 109,
+        "Butyrylation on K": 108,
+        "Phosphorylation on Y": 94,
+        "Crotonylation on K": 88
+      },
+      "dropped": {
+        "already_in_uniprot": 44,
+        "not_in_canonical_xml": 220,
+        "nterm_acetyl_not_at_1_or_2": 1
+      },
+      "sites_tsv": "F:/pxreprise_ptmdb_v6/sites\\sites_human.tsv",
+      "wall_s": 49
+    },
+    "mouse": {
+      "source_xml": "F:/aging_data/db/UP000000589_all_genecentric_2026_03.xml",
+      "source_sha256": "b10f1780bdd8b9359aeb9f5e6821c78bf3ee2fae26b119fc92100a7f1f61c675",
+      "output_xml": "F:/pxreprise_ptmdb_v6/out\\UP000000589_all_genecentric_2026_03_agingPTM-v6.xml",
+      "output_sha256": "db47863bb689dcd50341bf257da93637ad25d5051b4b26096541408abb731fef",
+      "sites_written": 11538,
+      "proteins_touched": 3576,
+      "sites_by_modification": {
+        "Methylation on K": 1846,
+        "Acetylation on X": 1478,
+        "Acetylation on K": 1081,
+        "Phosphorylation on S": 1056,
+        "Methylation on R": 998,
+        "Trimethylation on K": 754,
+        "Dimethylation on K": 703,
+        "Phosphorylation on T": 666,
+        "Dimethylation on R": 502,
+        "GG (Ubiquitination Site) on K": 341,
+        "HexNAc on S": 315,
+        "Crotonylation on K": 309,
+        "HexNAc on T": 305,
+        "Butyrylation on K": 228,
+        "Hydroxybutyrylation on K": 219,
+        "Succinylation on K": 218,
+        "Glutarylation on K": 190,
+        "Malonylation on K": 176,
+        "Phosphorylation on Y": 153
+      },
+      "dropped": {
+        "already_in_uniprot": 26,
+        "not_in_canonical_xml": 135
+      },
+      "sites_tsv": "F:/pxreprise_ptmdb_v6/sites\\sites_mouse.tsv",
+      "wall_s": 58.8
+    },
+    "rat": {
+      "source_xml": "F:/aging_data/db/UP000002494_all_genecentric_2026_03.xml",
+      "source_sha256": "a914d2eff95c64583dc657e8e160a34ecab2521f22444e2f16b5c48ade01f047",
+      "output_xml": "F:/pxreprise_ptmdb_v6/out\\UP000002494_all_genecentric_2026_03_agingPTM-v6.xml",
+      "output_sha256": "9bbfd9ed282f70fd4f499fb1242b5ebaea813eb4f0c2b132790e5c46959bc2ee",
+      "sites_written": 2048,
+      "proteins_touched": 926,
+      "sites_by_modification": {
+        "Methylation on K": 366,
+        "Acetylation on X": 355,
+        "Methylation on R": 228,
+        "Phosphorylation on S": 193,
+        "Acetylation on K": 154,
+        "Dimethylation on K": 136,
+        "Phosphorylation on T": 111,
+        "Dimethylation on R": 102,
+        "Trimethylation on K": 82,
+        "Succinylation on K": 61,
+        "Glutarylation on K": 44,
+        "HexNAc on S": 37,
+        "Malonylation on K": 31,
+        "Butyrylation on K": 30,
+        "HexNAc on T": 26,
+        "Hydroxybutyrylation on K": 25,
+        "Phosphorylation on Y": 24,
+        "GG (Ubiquitination Site) on K": 22,
+        "Crotonylation on K": 21
+      },
+      "dropped": {
+        "already_in_uniprot": 8,
+        "not_in_canonical_xml": 62
+      },
+      "sites_tsv": "F:/pxreprise_ptmdb_v6/sites\\sites_rat.tsv",
+      "wall_s": 38.3
+    }
+  },
+  "wall_s": 161
+}

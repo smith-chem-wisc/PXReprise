@@ -1,0 +1,23 @@
+enrichment measured on the PSMs of 178 bundles in F:\aging_data\repo\store (the catalog has no psms_1pct)
+human ENSP00000572008 (SORBS1, ENSG00000095637): canonical Q9BX66 by ensembl_gene_id
+mouse ENSMUSP00000133389 (Nrxn1, ENSMUSG00000024109): canonical Q9CS84 by ensembl_gene_id
+mouse ENSMUSP00000141730 (Ncam1, ENSMUSG00000039542): canonical P13595 by gene_name
+mouse ENSMUSP00000292642 (Atp2a1, ENSMUSG00000030730): canonical Q8R429 by ensembl_gene_id
+mouse ENSMUSP00000314297 (Clstn1, ENSMUSG00000039953): canonical Q9EPL2 by ensembl_gene_id
+  human ambiguous_group: 33
+  human isoform_by_parsimony: 137
+  human isoform_group_but_canonical_also_identified: 449
+  human no_1pct_group: 25
+  mouse ambiguous_group: 19
+  mouse isoform_by_parsimony: 24
+  mouse isoform_group_but_canonical_also_identified: 386
+  mouse no_1pct_group: 91
+  rat ambiguous_group: 3
+  rat isoform_group_but_canonical_also_identified: 109
+  rat no_1pct_group: 17
+sites >= 5 PSMs: rule only (loose) 377; with the canonical-absent guard (strict) 54
+human: 213 isoform sites written to F:/pxreprise_ptmdb_v6/out_iso\aging_isoforms_union_human_agingPTM-v6.xml
+mouse: 106 isoform sites written to F:/pxreprise_ptmdb_v6/out_iso\aging_isoforms_union_mouse_agingPTM-v6.xml
+rat: 58 isoform sites written to F:/pxreprise_ptmdb_v6/out_iso\aging_isoforms_union_rat_agingPTM-v6.xml
+provenance: F:/pxreprise_ptmdb_v6/out_iso\isoform_provenance_agingPTM-v6.json
+rc=0

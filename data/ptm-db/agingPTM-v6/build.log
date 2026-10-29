@@ -1,0 +1,8 @@
+22:44:04 proteomes
+enrichment measured on the PSMs of 178 bundles in F:\aging_data\repo\store (the catalog has no psms_1pct)
+human: 7889 sites written to F:/pxreprise_ptmdb_v6/out\UP000005640_all_genecentric_2026_03_agingPTM-v6.xml; dropped {"already_in_uniprot":44,"not_in_canonical_xml":220,"nterm_acetyl_not_at_1_or_2":1}
+mouse: 11538 sites written to F:/pxreprise_ptmdb_v6/out\UP000000589_all_genecentric_2026_03_agingPTM-v6.xml; dropped {"already_in_uniprot":26,"not_in_canonical_xml":135}
+rat: 2048 sites written to F:/pxreprise_ptmdb_v6/out\UP000002494_all_genecentric_2026_03_agingPTM-v6.xml; dropped {"already_in_uniprot":8,"not_in_canonical_xml":62}
+provenance: F:/pxreprise_ptmdb_v6/out\provenance_agingPTM-v6.json
+22:47:04 done
+rc=0
