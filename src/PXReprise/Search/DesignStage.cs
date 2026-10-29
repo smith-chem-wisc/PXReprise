@@ -165,7 +165,9 @@ public static class DesignStage
         ["conditions"] = new JsonArray(d.Files.Select(f => f.Condition).Distinct().Order(StringComparer.Ordinal).Select(c => (JsonNode?)c).ToArray()),
         ["files"] = d.Files.Count,
         ["notes"] = new JsonArray(d.Notes.Select(n => (JsonNode?)n).ToArray()),
-        // QuantProject 012 (PXR-U1): mzLib's whole account, kept per deposit; replicate numbers change when #1426 ships.
+        // QuantProject 012 (PXR-U1): mzLib's whole account, kept per deposit. Since mzLib 1.0.596 (#1426, v0.4.33) the
+        // SDRF's own replicate and fraction numbers are kept, gaps included; MetaMorpheus 1.1.13 quantifies a gap (#2928),
+        // 1.1.12 refuses it, so this engine must not search a 1.1.12 profile with a gapped SDRF.
         ["report"] = d.Report(),
     };
 

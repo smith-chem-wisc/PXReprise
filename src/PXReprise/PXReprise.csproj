@@ -8,14 +8,14 @@
     <Nullable>enable</Nullable>
     <AssemblyName>pxreprise</AssemblyName>
     <RootNamespace>PXReprise</RootNamespace>
-    <Version>0.4.32</Version>
+    <Version>0.4.33</Version>
   </PropertyGroup>
 
   <ItemGroup>
     <!-- 1.0.595 (v0.4.32): one ahead of MetaMorpheus 1.1.12's 1.0.594, for the library cleaning's CleavageBlockingPolicy
          (cleavageRules PXR-V8). MetaMorpheus runs as its own process, so the difference is never shared in one process.
          Rejoin MetaMorpheus's pin at its next release. -->
-    <PackageReference Include="mzLib" Version="1.0.595" />
+    <PackageReference Include="mzLib" Version="1.0.596" />
     <PackageReference Include="Tomlyn" Version="2.10.1" />
   </ItemGroup>
 

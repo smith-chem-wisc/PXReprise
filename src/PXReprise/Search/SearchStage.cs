@@ -247,17 +247,27 @@ public static class SearchStage
                 { ["dissociation_type"] = kv.Value.DissociationType, ["low_res"] = kv.Value.LowRes, ["evidence"] = kv.Value.Evidence }))));
         WritePerFileSettings(files, chem?.ProteasePerFile, fragmentation, p.LowResProductTolerance, prov);
         var tomls = new List<string>();
+        var mmApplied = new HashSet<Config.MetaMorpheusSetting>();
         foreach (var (task, i) in p.Tasks.Select((t, i) => (Enum.Parse<TaskKind>(t), i + 1)))
         {
             string src = Path.Combine(tasksDir, TaskFiles.FileName(task));
             var (text, added) = TaskFiles.Edit(File.ReadAllText(src), task, settings, known);
             if (added.Count > 0)
                 prov.Note($"GPTMD list extended with {added.Count} modification(s) beyond MetaMorpheus's default: {string.Join("; ", added.Select(a => a.Replace("\t", " / ")))}");
+            (text, var applied) = TaskFiles.ApplySettings(text, task, p.MetaMorpheusSettings);
+            mmApplied.UnionWith(applied);
             string dst = Path.Combine(tasksDir, $"{i}_{TaskFiles.FileName(task)}");
             File.WriteAllText(dst, text);
             tomls.Add(dst);
         }
         foreach (string t in tomls) prov.Input(t);
+        if (p.MetaMorpheusSettings is { } mmSettings)
+        {
+            if (mmSettings.FirstOrDefault(s => !mmApplied.Contains(s)) is { } unapplied)
+                throw new SearchSetupException($"{p.Key} sets {unapplied.Key} for {unapplied.Scope} tasks; no task file of the pinned MetaMorpheus has that setting");
+            prov.Set("metamorpheus_settings", new JsonArray(mmSettings.Select(s => (JsonNode?)new JsonObject
+                { ["scope"] = s.Scope, ["key"] = s.Key, ["value"] = s.TomlValue }).ToArray()));
+        }
         if (p.GptmdExtraMods.Count > 0) prov.Set("gptmd_extra_mods", new JsonArray(p.GptmdExtraMods.Select(x => (JsonNode?)x).ToArray()));
         if (p.GptmdFilters is { Count: > 0 }) prov.Set("gptmd_filters", new JsonArray(p.GptmdFilters.Select(x => (JsonNode?)x).ToArray()));
         if (artifacts.Count > 0)

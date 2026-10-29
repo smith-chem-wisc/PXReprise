@@ -7,6 +7,37 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.33 (2026-10-29)
+
+**MetaMorpheus 1.1.13** (released 2026-10-29) for the new profiles. **Machine file:** add `"1.1.13" = "<folder>\CMD.exe"`
+under `[metamorpheus]` (the release's `MetaMorpheus_CommandLine.zip`, sha256 `95f0838f...9110`), and point `datarepo` at
+a release that ingests MetaMorpheus 1.1.13's output (below). **Safe mid-batch?** Yes: swap the pin as usual, and
+clean each organism's library in the gap (`library repair`, as for 0.4.32). A question takes the new profiles by naming them.
+
+- **New profiles `label-free-dda@12` and `label-free-dda-lowres@6`: MetaMorpheus 1.1.13.** Trial on two mouse deposits
+  against 1.1.12 with the same settings: identical PSMs, peptides and protein
+  groups at 1%, intensities r = 1.000. Both also set:
+  - `RespectCleavageBlockingModifications = true` in every task: no peptide ends at a cut on a modification that blocks
+    the protease (citrulline, acyl-K, GG-K after trypsin), and GPTMD no longer places one there (MetaMorpheus #2925,
+    #2915; mzLib #1119). On the trial deposits every such peptide was gone (55 citrullines on one); PSMs +0.1-0.4%.
+  - `WriteIndividualFiles = true`: MetaMorpheus 1.1.13 turned its default off (#2914), and the QC payload's per-file
+    lines come from those tables.
+  - `@12` searches **agingPTM-v6** (below); `lowres@6` keeps agingPTM-v3, as every ion-trap profile has.
+- **Deliveries need a datarepo that reads MetaMorpheus 1.1.13's output.** 1.1.13 quantifies a PSM that is ambiguous only
+  in where its modifications sit under a `|`-joined sequence (#2917). datarepo 1.3.6 refuses such a bundle ("quant_values
+  ... 290 value(s) with no matching row"); dataRepo's release carrying DATAREPO-D7 ingests it.
+- **The engine is on mzLib 1.0.596.** An SDRF's own replicate and fraction numbers are now kept, gaps included (mzLib
+  #1426). MetaMorpheus 1.1.13 quantifies a gap with a warning (#2928); 1.1.12 refuses it. **Do not search a 1.1.12
+  profile with this version**: name `@12` and `lowres@6` ahead of every 1.1.12 profile.
+- **Profiles can set any MetaMorpheus task setting:** `[metamorpheus_settings.<all|calibration|gptmd|search>]`
+  `Key = value`, written over that key's line in the generated task file. A key the pinned MetaMorpheus does not write
+  fails the search set-up; keys the engine writes itself (threads, protease, modification lists, tolerances, library
+  switches) are refused at load. Recorded in provenance as `metamorpheus_settings`.
+- **agingPTM-v6**: the canonical proteomes with the sites of aging's catalog of 2026-10-27
+  (178 datasets): human 7,889, mouse 11,538, rat 2,048 (v5: 7,050, 9,400, 1,634). Enriched-for PTMs left out for 38
+  deposits plus every run measured as enriched; no GPTMD Hydroxylation on P or K. The database builder now
+  measures enrichment from each bundle's `psms.parquet` when the catalog has no `psms_1pct` (catalog version 13).
+
 ## 0.4.32 (2026-10-27)
 
 No MetaMorpheus change. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual, and run

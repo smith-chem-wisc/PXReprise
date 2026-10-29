@@ -142,7 +142,7 @@ public class CensusTests
         Assert.That(tsv.Single(l => l.StartsWith("PXD000100")), Does.Contain("insulin resistance;type 2 diabetes"));   // sorted, so the row is stable
         var prov = JsonDocument.Parse(File.ReadAllText(Path.Combine(outDir, "provenance.json"))).RootElement;
         Assert.That(prov.GetProperty("inputs")[0].GetProperty("sha256").GetString(), Has.Length.EqualTo(64));
-        Assert.That(prov.GetProperty("tools").GetProperty("mzlib").GetString(), Does.StartWith("1.0.595"));
+        Assert.That(prov.GetProperty("tools").GetProperty("mzlib").GetString(), Does.StartWith("1.0.596"));
     }
 
     [Test]
@@ -309,7 +309,7 @@ public class CensusTests
         var (exit, data) = await Run(new FakeSearch(), "version");
         Assert.That(exit, Is.EqualTo(0));
         Assert.That(data.GetProperty("verbs").EnumerateArray().Select(v => v.GetString()), Is.EqualTo(Program.Verbs));
-        Assert.That(data.GetProperty("tools").GetProperty("mzlib").GetString(), Does.StartWith("1.0.595"));
+        Assert.That(data.GetProperty("tools").GetProperty("mzlib").GetString(), Does.StartWith("1.0.596"));
     }
 
     [TestCase(new string[0], "a verb is required")]

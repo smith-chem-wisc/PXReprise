@@ -211,12 +211,39 @@ public static class ProfileLoader
             qc.OptionalNumber("max_excluded_frac") ?? 0);
         qc.RefuseUnknownKeys();
 
+        // v0.4.33: settings of the pinned MetaMorpheus that no other profile key names (MetaMorpheus master, 2026-10-28:
+        // RespectCleavageBlockingModifications, AddAlternativeSitesForDatabaseMods, WriteIndividualFiles's new default).
+        var mmSettings = new List<MetaMorpheusSetting>();
+        if (root.OptionalTable("metamorpheus_settings") is { } mms)
+        {
+            foreach (string scope in mms.Keys.ToList())
+            {
+                if (!Profile.MetaMorpheusSettingScopes.Contains(scope))
+                    throw new ConfigException(file, $"[metamorpheus_settings.{scope}]: the scope must be one of {string.Join(", ", Profile.MetaMorpheusSettingScopes)}");
+                if (scope != "all" && !tasks.Contains(scope[..1].ToUpperInvariant() + scope[1..]))
+                    throw new ConfigException(file, $"[metamorpheus_settings.{scope}] names a task engine.tasks does not run");
+                var t = mms.RequiredTable(scope);
+                foreach (string key in t.Keys.ToList())
+                {
+                    if (!Regex.IsMatch(key, "^[A-Za-z][A-Za-z0-9_]*$"))
+                        throw new ConfigException(file, $"[metamorpheus_settings.{scope}] '{key}' is not a MetaMorpheus task-file key");
+                    if (Profile.EngineOwnedTaskKeys.Contains(key))
+                        throw new ConfigException(file, $"[metamorpheus_settings.{scope}] '{key}' is written by the engine from other keys; set it there");
+                    if (mmSettings.Any(s => s.Key == key && (s.Scope == scope || s.Scope == "all" || scope == "all")))
+                        throw new ConfigException(file, $"[metamorpheus_settings] sets '{key}' twice for one task");
+                    mmSettings.Add(new MetaMorpheusSetting(scope, key, t.RequiredScalarLiteral(key)));
+                }
+                t.RefuseUnknownKeys();
+            }
+            mms.RefuseUnknownKeys();
+        }
+
         root.RefuseUnknownKeys();
         return new Profile(id, version, status, description, accepts, mm, tasks, extraMods, library, timeout, dbs,
             panel ?? Path.GetFileName(shipped!), exclude,
             method, mbr, deposit, gates, Path.GetDirectoryName(Path.GetFullPath(file))!, design, chemistry, writeSdrf, shipped, fragmentation, lowResTolerance, probeSearch, probeMinutes, ionTrapHcd,
             customMods, thiolReagents, precursorWindow, ionTrapHcdLowCid, ionTrapHcdProbeLowCid, artifacts,
-            gptmdFilters.Count > 0 ? gptmdFilters : null);
+            gptmdFilters.Count > 0 ? gptmdFilters : null, mmSettings.Count > 0 ? mmSettings : null);
     }
 
     /// <summary>

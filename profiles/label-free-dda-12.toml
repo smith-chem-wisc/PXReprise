@@ -1,0 +1,166 @@
+# label-free-dda/12: label-free-dda/11 on MetaMorpheus 1.1.13 (released 2026-10-29 at master 315e02b5e; mzLib 1.0.596)
+# and agingPTM-v6 (the user, 2026-10-28: "you could switch the pipeline to the master now", "a good time to clean and
+# update the databases and the libraries and to add any new high quality PTMs to the databases per our prior
+# requirements"). The trial ran a build of that same commit; the release's CMD -g task files are identical to it.
+#  - RespectCleavageBlockingModifications = true in Calibration, GPTMD and Search (cleavageRules PXR-V1/V2; mzLib #1119,
+#    MetaMorpheus #2925, #2915): a modification that blocks the protease is never on the residue it cut after, and GPTMD
+#    no longer places one there. Trial (results/mm-release-switch_2026-10-28): every peptide ending at a cut on
+#    citrulline, acyl-K or GG-K is gone (PXD020688: 55 citrullines, 9 GG-K, 4 acetyl-K; PXD009792: 13, 7, 7 and 7
+#    formyl-K); PSMs +0.1%, peptides -0.1%, protein groups unchanged.
+#  - WriteIndividualFiles = true: MetaMorpheus #2914 turned its default off, and the QC payload's per-file lines
+#    (ms2_scans, qc PXR-C10) and dataRepo's per-run metrics (PXR-D7) come from it. #2893 keeps the whole-search FDR intact.
+#  - AddAlternativeSitesForDatabaseMods (#2913) stays at its default, off (trial: +0.1% peptidoforms, nothing measured).
+#  - agingPTM-v6 (D29; data/ptm-db/agingPTM-v6): sites from aging's catalog b978714d36f3878a (178 datasets), human
+#    7,889, mouse 11,538, rat 2,048 (v5: 7,050, 9,400, 1,634); enriched-for exclusions for 38 deposits plus the measured
+#    ones; no hydroxy-P/K; 0 GO ids missing. Aging's overlays are aging_isoforms_<org>_agingPTM-v6.xml.
+# Every other setting is /11's. NEEDS datarepo 1.4.0 to deliver: #2917's '|'-joined peptide rows are refused by 1.3.6.
+# label-free-dda/11: label-free-dda/10 on agingPTM-v5 (v0.4.32; the user, 2026-10-27: "clean the databases and keep them
+# clean until other PRs produce clean databases"). v5 is v4 without its GPTMD-added Hydroxylation on P and K sites, every
+# other byte unchanged (tools/ptm-db/RemoveClasses.cs; data/ptm-db/agingPTM-v5/): human 3,442 of 10,492 added sites,
+# mouse 6,468 of 15,868, rat 1,033 of 2,667. 19-21% of those sites had W or M within two residues, against 10-13% for
+# every P or K of the same proteins: misplaced Met/Trp oxidation (results/gptmd-census_2026-10-25). UniProt's own
+# hydroxyproline and hydroxylysine stay. BuildPtmDb no longer selects either class, so later builds stay clean; the
+# filtered GPTMD of /10 still offers both, and the real ones come back once a GPTMD change makes them clean. A database
+# change, so a new profile version (D29). Aging's overlays have v5 forms too (aging_isoforms_<org>_agingPTM-v5.xml).
+# Every other setting is /10's. Aging lists @11 ahead of @10 and keeps @10.
+# label-free-dda/10: label-free-dda/9 with GPTMD's ImprovedScoreFilter (v0.4.31; the user, 2026-10-27: "we can definitely
+# implement the improved score filter"). GPTMD then adds a site only where placing the modification raises the match's
+# score. Without a filter GPTMD adds every placement that fits the mass, and entrapment measured 12.9% / 4.2% / 7.9% of
+# its sites false on a mouse, a human and a rat deposit; with the filter 4.3% / 1.0% / 1.5%, for 0.6% / 0.9% / 3.6% fewer
+# peptides (results/gptmd-entrapment_2026-10-25). The GPTMD modification list is /9's: cleavage artifacts (citrulline or
+# acyl-K at a cut C-terminus) are fixed at the source by cleavageRules' MetaMorpheus PRs, not by dropping classes here.
+# Every other setting is /9's. Aging lists @10 ahead of @9 and keeps @9: the deposits searched under @9 are not re-searched.
+# label-free-dda/9: label-free-dda/8 with two side reactions of the deposit's own chemistry offered to GPTMD (v0.4.29;
+# ptmQtl 020, PXR-P18 and PXR-P19). Where NEM is the alkylant, ring-opened NEM (Nethylmaleimide+water on C, +143.058 Da);
+# where the protocol names a gel (SDS-PAGE, in-gel digestion, gel bands), propionamide on C (+71.037 Da). Both are typed
+# Common Artifact in lists/PXReprise_custom_modifications_v2.txt (v1's NBF unchanged) and go to GPTMD, NEVER variable (the
+# user, 2026-10-25: variable only for a modification on most peptides, as oxidised methionine is). Without them the
+# leftover masses were placed as Hydroxybutyrylation on K (+86.037) and methyl on K or R (+14.016). A deposit with
+# neither side reaction is searched exactly as under /8. Aging lists @9 ahead of @8 and keeps @8.
+# label-free-dda/8: label-free-dda/7 on agingPTM-v4 (PXReprise D44, the user 2026-10-17: "update the xml databases
+# with the latest ptms"). The same canonical UniProt 2026_03 proteomes (same source sha256 as v3) with the biological
+# PTM sites rebuilt from the aging catalog of 2026-10-17 (agingPTM-v3 re-applied v2's sites, from the catalog of
+# 2026-10-06). Same selection rule (aging D59, our D29); the enriched-for exclusions now come from the batch's own
+# enrichment record (tools/ptm-db/EnrichedExclusions.cs). A database change, so a new profile version (D29); every other
+# setting is /7's. Aging lists @8 ahead of @7 and keeps @7: the deposits already searched under @7 are not re-searched.
+# label-free-dda/7: label-free-dda/6 with the probe search ON (D32/D34/D35 slice 3, built 2026-10-07 behind
+# engine.probe_search and shipped off until now; the user, 2026-10-12: "Yes to the preliminary search"). Before the whole
+# deposit is downloaded, its probe files are searched briefly (3-19 min each in results/calibration_probe_2026-10-07)
+# against every species database here, with variable phospho and GG, and each run's species, cysteine-peptide share and
+# phospho/GG/acetyl-K shares are kept in the experiment record. Another species parks waiting_species, mixed species
+# waiting_mixed_species, and a whole proteome expected to be carbamidomethylated with under 2% cysteine peptides
+# waiting_alkylation_check (aging 089, PXR-A94: PXD057499 and PXD004916 were searched under /6 at 0.5% and 1.2%; the check
+# existed but no profile ran it). A measured enrichment is recorded beside the screen's call. A deposit that passes is
+# searched exactly as under /6: same databases, tasks and settings.
+# label-free-dda/6: label-free-dda/5 plus modifications no UniMod entry describes (G40, the user 2026-10-11; aging 072
+# PXR-A69, our 074): engine.custom_modifications ships lists/PXReprise_custom_modifications_v1.txt, which PXReprise installs
+# into MetaMorpheus's settings Mods folder before a search that uses it, and [thiol_reagents] maps a thiol reagent the
+# chemistry reads to one of its modifications, searched VARIABLE. NBF-Cl -> NBF on C: the PXD058611 probe found NBF on
+# 76-86% of identified cysteines and 14-24% unmodified (results/nbf-probe_2026-10-11). Under /5 such a deposit parks as
+# waiting_unknown_alkylant. Every deposit that names no such reagent is searched exactly as under /5: same databases
+# (agingPTM-v3; no database change, so no D29 rebuild), same tasks and settings.
+# label-free-dda/5: label-free-dda/4 on UniProt's CANONICAL reference proteomes (PXReprise D38, the user 2026-10-07:
+# "Let's adopt the new databases"): one protein per gene, Swiss-Prot plus TrEMBL for the genes Swiss-Prot lacks,
+# UniProt 2026_03, from the REST API (proteome:<UP> AND is_gene_centric:true; mzLib #1448). The agingPTM-v3 databases
+# add v2's selected sites to them (D29; data/ptm-db/agingPTM-v3/). A TrEMBL entry is a full member of the database
+# (the user: "We don't distinguish").
+# The deposit caps are raised (the user, 2026-10-07, "Do whatever you can"): MetaMorpheus 1.1.12's search step runs about
+# 7x faster than 1.1.11's (results/trial_mm-1.1.12_PXD017058) and two searches run side by side (v0.4.1), so 120 raw
+# files and 3,000,000 estimated MS2 replace 60 and 1,500,000 (provisional D15/D16, re-examined at their trigger).
+# Every other setting is /4's. Results already searched keep the version that produced them; changing a value here makes
+# a NEW version.
+# label-free-dda/4: /3 on MetaMorpheus 1.1.12 with an SDRF design, the search's own SDRF and agingPTM-v2.
+# label-free-dda/3: /1 with the deposit's own chemistry (G19). label-free-dda/1: the aging pipeline's v1.
+id = "label-free-dda"
+version = 12
+status = "available"
+description = "Label-free DDA, high-resolution HCD with MS2 read in the Orbitrap; a short probe search first (species, cysteine share, enrichment); MetaMorpheus 1.1.13 Calibrate/GPTMD/Search with cleavage-blocking modifications respected, FlashLFQ with MBR and an SDRF design; protease and cysteine chemistry read from each deposit; UniProt canonical proteomes with agingPTM-v6 sites (no GPTMD hydroxy-P/K); NBF-Cl modelled by a shipped modification (G40); ring-opened NEM and gel propionamide offered to GPTMD where the chemistry makes them likely; GPTMD adds a site only where it improves the match's score"
+
+[accepts]
+acquisition = ["dda"]
+labelling = ["label_free"]
+# Hybrids MAY read MS2 in the ion trap, so QC checks the files (aging S37: PXD060431). Astral MS2 is not the Orbitrap.
+instrument = ["orbitrap_hcd_only", "orbitrap_hybrid"]
+file_types = [".raw"]
+
+[engine]
+# G19 (D22-D27): each deposit's protease and cysteine chemistry are read first (curated SDRF, deposited SDRF, PRIDE
+# identified PTMs / quantification, protocol text) and searched with, or the deposit waits.
+chemistry = "deposit"
+custom_modifications = "PXReprise_custom_modifications_v2.txt"   # G40, under lists/; v2 adds the two artifacts (/9)
+metamorpheus = "1.1.13"   # released 2026-10-29 at 315e02b5e, the commit the trial ran (results/mm-release-switch_2026-10-28)
+probe_search = true       # /7: see the header; probe_search_minutes stays at its default, 60
+tasks = ["Calibration", "Gptmd", "Search"]
+gptmd_extra_mods = ["Trypsin Digested\tGG (Ubiquitination Site) on K"]
+gptmd_filters = ["ImprovedScoreFilter"]   # /10: see the header
+spectral_library = true   # per organism, written then updated (aging D33)
+# Each search writes experiment.sdrf.tsv beside its results, stamped with the deposit's ProteomeXchange accession
+# (MetaMorpheus #2816, #2870). It describes the search, not the samples, and names no database (sdrf PXR-E7).
+write_sdrf = true
+# NOT IN FORCE (read so the file stays valid): a search's limits are the machine's search_timeout_h (48) and
+# search_stall_minutes (90). The user asked for 8 h here on 2026-10-07; recorded as their figure, enforced by neither.
+timeout_h = 8
+
+# Database FILE NAMES; the directory is machine configuration. agingPTM-v3 (D29, D38): UniProt 2026_03 canonical
+# reference proteomes from REST (http://uniprot.org/uniprot namespace, which dataRepo's ingest reads; the FTP files
+# declare https and would read as empty there), plus agingPTM-v2's selected sites. The aging isoform database is NOT
+# here: it is aging's overlay (every isoform parent is in the canonical sets, checked 2026-10-08).
+[thiol_reagents]
+# G40: a reagent the chemistry reads (ChemistryDetector) -> "Type\tIdWithMotif" in custom_modifications; variable.
+"NBF-Cl" = "PXReprise\tNBF on C"
+
+[chemistry_artifacts]
+# /9 (ptmQtl PXR-P18/P19): a side reaction the chemistry reads (ChemistryDetector) -> "Type\tIdWithMotif" in
+# custom_modifications, added to the GPTMD task's list for that deposit only; never variable.
+ring_opened_nem = "Common Artifact\tNethylmaleimide+water on C"
+gel_propionamide = "Common Artifact\tPropionamide on C"
+
+[databases.human]
+proteome = "UP000005640_all_genecentric_2026_03_agingPTM-v6.xml"
+taxon = 9606
+
+[databases.mouse]
+proteome = "UP000000589_all_genecentric_2026_03_agingPTM-v6.xml"
+taxon = 10090
+
+[databases.rat]
+proteome = "UP000002494_all_genecentric_2026_03_agingPTM-v6.xml"
+taxon = 10116
+
+[contaminants]
+# D35 (the user, 2026-10-07): MetaMorpheus's own panel without the UPS1/UPS2 spike-in standard, AS IS (216 entries, all 48
+# UPS proteins out). MetaMorpheus #2858 merged after the 1.1.12 tag, so the file ships here (lists/, its provenance
+# beside it). MetaMorpheusContaminants_UPS.xml only where a study declares UPS (held, D35).
+file = "MetaMorpheusContaminants_NoUPS.xml"
+
+[quant]
+method = "flashlfq"
+mbr = true
+# D-1 / D31 (the user, 2026-10-07): ExperimentalDesign.tsv from the question's curated SDRF, else the deposit's, else
+# PXReprise's default SDRF (one condition, each file its own biological replicate), so every search is quantified with a
+# design.
+design = "sdrf"
+
+[deposit]
+whole = true              # every raw file or none (aging S43); more than max_files is deferred, never subsampled
+max_files = 120           # was 60 (/4); see the header
+probe = "probe_spread"    # median by size plus first and last by name, never the smallest (aging G38)
+max_est_ms2 = 3_000_000   # was 1,500,000 (/4); a deposit above it runs only by a question's [exceptions] (D28, D-2)
+max_file_mb = 5000
+# EBI drops very large transfers (aging S40). mzLib 1.0.594 resumes a broken download (#1412); a trial on PXD005123
+# (median 2.97 GB) runs 2026-10-08 in F:\pxreprise_largefile_trial. The gate stays until it succeeds; a question's
+# [exceptions] releases a deposit from it.
+defer_if_median_file_mb = 2200
+
+[qc]
+ms2_analyzer = "orbitrap"
+min_fraction_orbitrap_hcd = 0.9
+min_ms2 = 5000
+excludable = ["too_few_ms2"]   # a blank or failed injection may be excluded with a record (aging D52)
+max_excluded_frac = 0.10
+
+[metamorpheus_settings.all]
+RespectCleavageBlockingModifications = true
+
+[metamorpheus_settings.search]
+WriteIndividualFiles = true

@@ -82,7 +82,7 @@ public class ChemistryArtifactTests
         var p10 = all["label-free-dda@10"];
         var p9 = all["label-free-dda@9"];
         Assert.That(p10.GptmdFilters, Is.EqualTo(new[] { "ImprovedScoreFilter" }));
-        Assert.That(all.Where(kv => kv.Value.GptmdFilters is not null).Select(kv => kv.Key), Is.EquivalentTo(new[] { "label-free-dda@10", "label-free-dda@11" }),
+        Assert.That(all.Where(kv => kv.Value.GptmdFilters is not null).Select(kv => kv.Key), Is.EquivalentTo(new[] { "label-free-dda@10", "label-free-dda@11", "label-free-dda@12" }),
             "no earlier profile changes");
         Assert.That(p10 with { Version = 9, Description = p9.Description, GptmdFilters = null, Databases = p9.Databases, Accepts = p9.Accepts,
             Tasks = p9.Tasks, GptmdExtraMods = p9.GptmdExtraMods, Deposit = p9.Deposit, Qc = p9.Qc, ThiolReagents = p9.ThiolReagents,
@@ -93,6 +93,32 @@ public class ChemistryArtifactTests
         Assert.That(p10.Databases.Select(kv => (kv.Key, kv.Value.Proteome)), Is.EquivalentTo(p9.Databases.Select(kv => (kv.Key, kv.Value.Proteome))));
         Assert.That(p10.ThiolReagents, Is.EquivalentTo(p9.ThiolReagents!));
         Assert.That(p10.ChemistryArtifacts, Is.EquivalentTo(p9.ChemistryArtifacts!));
+    }
+
+    [Test]
+    public void LabelFreeDda12IsAt11OnTheNewMetaMorpheusAndAgingPtmV6()
+    {
+        // v0.4.33 (the user, 2026-10-28): @11 on MetaMorpheus's release of 2026-10-29 and agingPTM-v6, cleavage-blocking
+        // modifications respected in every task, and the individual-file tables written again (#2914 turned them off).
+        var all = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
+        var p12 = all["label-free-dda@12"];
+        var p11 = all["label-free-dda@11"];
+        Assert.That(p12.Databases.Select(kv => (kv.Key, kv.Value.Proteome)),
+            Is.EquivalentTo(p11.Databases.Select(kv => (kv.Key, kv.Value.Proteome.Replace("_agingPTM-v5.xml", "_agingPTM-v6.xml")))));
+        Assert.That(p12.MetaMorpheus, Is.Not.EqualTo("1.1.12"));
+        Assert.That(p12.MetaMorpheusSettings, Is.EqualTo(new[]
+        {
+            new MetaMorpheusSetting("all", "RespectCleavageBlockingModifications", "true"),
+            new MetaMorpheusSetting("search", "WriteIndividualFiles", "true"),
+        }));
+        Assert.That(all.Where(kv => kv.Value.MetaMorpheusSettings is not null).Select(kv => kv.Key), Is.EquivalentTo(new[] { "label-free-dda@12", "label-free-dda-lowres@6" }));
+        Assert.That(p12 with { Version = 11, Description = p11.Description, Databases = p11.Databases, Accepts = p11.Accepts,
+            MetaMorpheus = p11.MetaMorpheus, MetaMorpheusSettings = null,
+            Tasks = p11.Tasks, GptmdExtraMods = p11.GptmdExtraMods, GptmdFilters = p11.GptmdFilters, Deposit = p11.Deposit, Qc = p11.Qc,
+            ThiolReagents = p11.ThiolReagents, ChemistryArtifacts = p11.ChemistryArtifacts }, Is.EqualTo(p11), "every other scalar setting of @12 equals @11's");
+        Assert.That((p12.Tasks, p12.GptmdExtraMods, p12.GptmdFilters, p12.Deposit), Is.EqualTo((p11.Tasks, p11.GptmdExtraMods, p11.GptmdFilters, p11.Deposit)));
+        Assert.That(p12.ThiolReagents, Is.EquivalentTo(p11.ThiolReagents!));
+        Assert.That(p12.ChemistryArtifacts, Is.EquivalentTo(p11.ChemistryArtifacts!));
     }
 
     [Test]

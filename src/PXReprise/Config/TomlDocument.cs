@@ -89,6 +89,20 @@ public sealed class TomlSection
         var o => throw new ConfigException(File, $"'{Where(key)}' must be true or false, not {Describe(o)}"),
     };
 
+    /// <summary>
+    /// A boolean, integer, number or string, written back as a TOML literal (<c>true</c>, <c>4</c>, <c>0.5</c>,
+    /// <c>"text"</c>), for tables whose values are copied into another TOML file as they are.
+    /// </summary>
+    public string RequiredScalarLiteral(string key) => Raw(key) switch
+    {
+        bool b => b ? "true" : "false",
+        long l => l.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        double d => d.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+        string s => "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"",
+        null => throw new ConfigException(File, $"'{Where(key)}' is required"),
+        var o => throw new ConfigException(File, $"'{Where(key)}' must be true, false, a number or a string, not {Describe(o)}"),
+    };
+
     /// <summary>An array of strings. A single string is NOT accepted as a one-element list: say what you mean.</summary>
     public IReadOnlyList<string> StringList(string key, bool required = false)
     {
