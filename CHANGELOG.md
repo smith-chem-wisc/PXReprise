@@ -15,6 +15,11 @@ the pin as usual.
 - **A stalled Aspera transfer is given up.** An `ascp` session whose download receives no data for
   `fetch_stall_minutes` (default 5) is killed and the file retried, as an HTTPS download already was. On 2026-10-29 one
   session received nothing for 9.3 h without exiting, and a draining driver waited on it the whole time.
+- **HTTPS downloads are checked by mzLib as they arrive** (pride PXR-W6). A file PRIDE lists an MD5 for is fetched
+  through mzLib's checksum overload (#1427, #1449), which checks its size and MD5 while writing. A copy that fails
+  never reaches the file's name and is fetched again, and a stopped transfer resumes (#1481, mzLib 1.0.596). The
+  engine no longer reads such a file a second time. PRIDE's MD5 is now taken first, and its SHA-1 only where no MD5 is
+  listed. Aspera copies and SHA-1-only files keep the engine's own check.
 - **Search provenance records the mzLib MetaMorpheus runs on** (`metamorpheus_mzlib_version`, read from the release's
   `CMD.deps.json`), beside the engine's own `mzlib`. The two can differ.
 - **A search fails if MetaMorpheus searched other bytes than it was given.** MetaMorpheus 1.1.13 states each loaded

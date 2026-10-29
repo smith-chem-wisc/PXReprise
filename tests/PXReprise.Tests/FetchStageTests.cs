@@ -339,6 +339,44 @@ public class FetchStageTests
         Assert.That(lines.Skip(1), Is.EqualTo(new[] { "a.raw arrived over ftp.pride HTTPS (attempt 1): 0 MB in 0 s" }));
     }
 
+    // v0.4.34 (pride PXR-W6): a file PRIDE lists an MD5 for is fetched through mzLib's checksum overload, which checks it
+    // as it arrives; a copy that fails is a damaged copy, retried like one, and the engine does not read it again.
+    [Test]
+    public async Task AFileWithPridesMd5IsCheckedByMzLibAndADamagedCopyIsFetchedAgain()
+    {
+        string dir = TestSupport.TempDir();
+        string md5 = Convert.ToHexStringLower(System.Security.Cryptography.MD5.HashData(new byte[100]));
+        var lines = new List<string>();
+        var (path, _, attempts) = await FetchStage.DownloadWithRetry(new FlakyPride { CorruptFirst = 1 }, F("a.raw", 100), dir, 3, TimeSpan.Zero,
+            CancellationToken.None, log: lines.Add, expectedChecksum: md5, verify: true);
+        Assert.That((new FileInfo(path).Length, attempts), Is.EqualTo((100L, 2)));
+        Assert.That(lines[0], Does.StartWith("a.raw failed mzLib's size/MD5 check"));
+        Assert.That(lines, Has.Some.EqualTo("a.raw arrived over ftp.pride HTTPS (attempt 2): 0 MB in 0 s, MD5 checked by mzLib"));
+    }
+
+    // v0.4.34: the MD5 comes first, through mzLib's GetFileChecksumsAsync, so the overload above is the usual route.
+    [Test, Category("ExternalService")]
+    public async Task LivePridesChecksumsAreMd5sFirst() =>
+        await ExternalServiceTestHelper.RunAsync("PRIDE", async () =>
+        {
+            var map = await Integrity.PrideChecksumsAsync("PXD034564", CancellationToken.None);
+            Assert.That(map.Keys, Has.Some.EndsWith(".raw"));
+            Assert.That(map.Where(kv => kv.Key.EndsWith(".raw")).All(kv => kv.Value.Length == 32), "every raw file has PRIDE's MD5");
+        });
+
+    [Test]
+    public async Task AFileWithOnlyASha1KeepsTheEnginesOwnCheck()
+    {
+        string dir = TestSupport.TempDir();
+        string sha1 = Convert.ToHexStringLower(System.Security.Cryptography.SHA1.HashData(new byte[100]));
+        var lines = new List<string>();
+        var (_, _, attempts) = await FetchStage.DownloadWithRetry(new FlakyPride { CorruptFirst = 1 }, F("a.raw", 100), dir, 3, TimeSpan.Zero,
+            CancellationToken.None, log: lines.Add, expectedChecksum: sha1, verify: true);
+        Assert.That(attempts, Is.EqualTo(2));
+        Assert.That(lines, Has.Some.Contains("is not PRIDE's file (EBI error response inside the file"));
+        Assert.That(lines, Has.None.Contains("mzLib"));
+    }
+
     // pride 014 (PXR-W4): on the same files in the same minutes, ftp.pride's HTTPS copies came back damaged 2 of 5 times
     // and the Globus host's 0 of 5. The Globus route is the same file with the Globus URL as its only location.
     private static PrideArchiveFile Located(string name, long size)
