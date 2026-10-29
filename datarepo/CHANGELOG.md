@@ -4,6 +4,103 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [1.4.0] - 2026-10-28
+
+**One new ingest path, `cs-1.2.0`, and schema 0.0.16, so an instance re-ingests once; and ptmQtl's engines.** Built
+against mzLib 1.0.595, which carries #1430 and #1446. The catalog format is 14. A catalog refuses to mix `cs-1.1.0`
+(schema 0.0.15) and `cs-1.2.0` (0.0.16) bundles, so an instance keeps serving its last 1.3.x catalog until the whole
+store is re-ingested. On aging's store that is **5.0 h of wall time** at three ingests at a time (168 of 171 deposits,
+every row difference explained: `results/reingest_140_2026-10-20/`). No re-search is needed.
+
+**The first release that ingests a search from MetaMorpheus 1.1.13 or later.** From MetaMorpheus #2917 (in 1.1.13),
+`AllQuantifiedPeptides.tsv` can hold `|`-joined rows. datarepo 1.3.6 refuses such a bundle (`quant_values.feature_id
+(peptidoform) -> peptidoforms.peptidoform_id: ... no matching row`, PXReprise 066); 1.4.0 ingests it (DATAREPO-D7,
+below).
+
+### Added (ingest, `cs-1.2.0`)
+- **Pooled assays** (PXR-R23, QuantProject DATAREPO-D4/D6). A design sample of several files whose files are exactly
+  one SDRF sample's becomes an assay of `assay_kind = 'design_sample'` (`<dataset_id>:design:<label>`, NULL `run_id`).
+  New table `assay_runs` lists the files it pools, with the design's fraction and technical replicate. Its protein-group
+  values and its occupancy are stored against it; 1.3.x withheld them (on aging's store, 908,303 protein-group values
+  and 49,893 occupancy rows in 9 deposits). Peptide and PSM values stay per file. Otherwise the sample's values are not
+  stored, and a `sample_quant_not_stored` finding says why. **Count runs with `assay_kind = 'run'`.**
+- **`assays.design_label`**: MetaMorpheus's `{condition}_{biorep}` label for every assay placed through the design.
+- **`ptm_sites.sequence_window`** (ptmQtl DATAREPO-P30): 15 residues centred on the site, from the accession's own
+  searched sequence, `_` past either end. Two sites are the same place across accessions or deposits only where their
+  windows agree.
+- **Split-search keys** (G95): a deposit searched in several parts has one dataset per search, `<accession>-<group>`.
+  A USI still names the bare accession.
+- **`operator_sdrf`** in a manifest entry (G107, PXR-R22): the instance owner's curated SDRF, read for characteristics
+  only, in place of any other. Its source names must group the searched files exactly as the search's design does, or
+  the ingest is refused. Its bytes are in the bundle id and its path is not. `dataset_annotations` carries it.
+- **`proteins.source_db`** names a non-UniProt target entry's source (`ensembl` for aging's Ensembl-only isoforms,
+  DATAREPO-84), with its own taxon. Bundles before 1.4.0 say `uniprot` for every target.
+- **`massive dataset record`** is a source word sdrf writes (G104 a; schema description only).
+
+### Changed (ingest, `cs-1.2.0`)
+- **Modification accessions and masses come from mzLib's own loaders** (G26), loading the searching install's
+  `Mods/`, `ptmlist.txt` (with PSI-MOD formal charges) and `unimod.xml` in MetaMorpheus's order, by exact token. No
+  accession is lost. **Ten modification tokens change their ProForma**, so their peptidoform keys move (12,551 keys on
+  PXD011740): `Nethylmaleimide on C`, `NEM:2H(5)` and `Nethylmaleimide+water` gain UNIMOD accessions; Hydroxybutyrylation
+  on K, GG on K (1.1.11's install), S-(2,3-dicarboxypropyl)cysteine and NBF go from `[Info:...]` to a mass;
+  O-(2-cholinephosphoryl)serine and N,N,N-trimethylserine lose UniProt's extra proton. Details in `docs/ingest.md`.
+- **The SDRF read is the one the search used** (PXR-R22): `operator_sdrf` when named; else the SDRF the search's design
+  came from, only if its sha256 is the one the search recorded (an edited file is refused by name); else the deposit's
+  own, as before. `bundle.json` says which under `sdrf`.
+- **SDRF rows that disagree within one source name give no value** and an `sdrf_conflicting_rows` finding, never the
+  first row's (G106; PXD012307).
+- **Sites and occupancy are placed only against the copy of an accession the search kept** (G101), by its
+  `TCAmbiguity`. The contaminant panel's older keratins O76011 and P19013 are no longer placed twice (375 fewer
+  `ptm_sites` rows in 28 deposits on aging's store); where nothing says which copy was searched, the pairs count as
+  `ambiguous_sequence` in `unplaced_ptm_sites`.
+- **A UniProt XML is read in any namespace**, as mzLib's loader reads it, and a database that reads as empty is refused
+  (PXR-R12).
+- **mzLib 1.0.593 -> 1.0.595.** Moves no ingested row (measured on PXD022180 and PXD011740).
+
+### Added (engines and catalog)
+- **`datarepo run ptmqtl.site_pairs | ptmqtl.pool_pairs | ptmqtl.site_traits`** (ptmQtl 025; our 026, 031). These
+  apply `ptmQtl:DEF-PTM-PAIR v2` and `ptmQtl:DEF-SITE-TRAIT v1` through mzLib only. They follow ptmQtl's DEFINITIONS.md
+  as of 2026-10-20 (G99, `design/PTMQTL_ENGINE.md`):
+  - S7's quantified-PSM rule (mzLib `QuantifiedPsmRule`);
+  - S2c, S2d and S2e's artefact sites, listed in each artefact's `excluded_sites.tsv`. S2c's blocking modifications are
+    mzLib's own (`Modification.BlocksCleavage`, #1119) plus five lysine acyl amides of ptmQtl's (their D59). S2e
+    leaves out a methyl-K/R site whose PSMs mostly also carry a carbamyl (carbamidomethyl written as two; their D58);
+  - S3b's sample types;
+  - pooled fraction samples (DATAREPO-P32);
+  - the sequence-window check in pooling (D35).
+  Each rule reproduces ptmQtl's own exclusion lists site for site on re-ingested bundles.
+  - `site_pairs` gives same-molecule and co-varying pairs per search.
+  - `pool_pairs` pools them per species, from the stored artefacts, whole proteomes only.
+  - `site_traits` gives site-trait fits per search and trait.
+  - Inputs, each hashed into every artefact:
+    - `--input enrichment=<tsv>`: ptmQtl's capture list, `dataset`, `class`;
+    - `--input capture_runs=<tsv>`: needed for a `capture_runs` deposit;
+    - `--input cysteine=<tsv>`: S2d's deposits, `dataset`, `class` = `nem` / `cysteine_poor`, `reason`;
+    - for `site_traits`, `--input traits=<tsv>`.
+  - Each artefact records whether its search predates mzLib 1.0.592: such a search lacks protein N-termini after
+    Met removal.
+- **`build` loads them** into `ptm_pairs` and `trait_effects`.
+  - Every ptmQtl row carries a new catalog column, `artefact_id`.
+  - Pooled rows have NULL `dataset_id` and `bundle_id`.
+  - One enrichment list per catalog; two artefacts for one slot are refused.
+  - Every catalog gains one coverage check row.
+
+### Changed
+- **A localization-ambiguous peptide row is left out, not stored under its first site** (QuantProject DATAREPO-D7).
+  MetaMorpheus #2917, in no release yet, writes such a row's `Sequence` as several full sequences joined by `|`. 0.32.0
+  and `cs-1.1.0` keyed it on the first, which places the value on a site the search never decided. `cs-1.2.0` leaves
+  it out and writes a `peptide_rows_localization_ambiguous` finding. No search ingested to date writes one (0 of
+  5,605,461 peptide rows in aging's 172 searches), so no stored row moves. A MetaMorpheus 1.1.13 search does: 366
+  such rows on PXD020688 (PXReprise's trial), which 1.3.6 refuses and 1.4.0 ingests with the finding.
+
+### Known limits
+- **The ptmQtl engines follow ptmQtl's DEFINITIONS as of 2026-10-20.** Two later rulings are not in them yet:
+  - S2c's gates (ptmQtl D60): S2c is defined only for a protease that cuts after K or R and a fully specific search,
+    and lifts for a post-1.1.12 search with cleavage blocking on. Every served deposit today is trypsin, fully
+    specific, on 1.1.11 or 1.1.12, so no row differs yet.
+  - S5's merge of one site written under several accessions (ptmQtl D70, DATAREPO-P36): `site_pairs` pairs per
+    accession, so such a site pairs with itself and its partners are counted once per accession.
+
 ## [1.3.6] - 2026-10-19
 
 **PSMs stay in the bundles, and a catalog folder computes each deposit's derived rows once** (D48 step 2, PXReprise's

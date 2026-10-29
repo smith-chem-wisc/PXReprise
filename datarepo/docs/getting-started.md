@@ -5,11 +5,10 @@ ingested, a catalog built, a public site written, and an agent able to ask it qu
 small example instance that ships in this repository (`tests/data/`), so you need no real data and
 no search run of your own.
 
-Every command and every line of output below was run on this example with datarepo 1.3.6. Long
+Every command and every line of output below was run on this example with datarepo 1.4.0. Long
 paths are shortened to `…`, and long lines are wrapped. On Windows the paths print with `\`. The ids
-are content hashes, so on 1.3.6 you should get the same ones; on another version they will differ (a
+are content hashes, so on 1.4.0 you should get the same ones; on another version they will differ (a
 later section says why).
-> This note goes away at the next release.
 
 **Words used here.**
 - A **producer** is the pipeline that searched the data, here MetaMorpheus.
@@ -33,20 +32,20 @@ Work in a new, empty folder. First fetch the repository at the release's tag. It
 those two names are the same folder:
 
 ```bash
-git clone --depth 1 --branch v1.3.6 https://github.com/smith-chem-wisc/dataRepo.git dataRepo-src
+git clone --depth 1 --branch v1.4.0 https://github.com/smith-chem-wisc/dataRepo.git dataRepo-src
 ```
 
 Then download the program for your machine from the
-[v1.3.6 release](https://github.com/smith-chem-wisc/dataRepo/releases/tag/v1.3.6), unpack it, and
+[v1.4.0 release](https://github.com/smith-chem-wisc/dataRepo/releases/tag/v1.4.0), unpack it, and
 put its folder on your `PATH` for this session:
 
 | Machine | Commands |
 |---|---|
-| Linux x64 | `curl -LO https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.3.6/datarepo-1.3.6-linux-x64.tar.gz`<br>`tar -xzf datarepo-1.3.6-linux-x64.tar.gz`<br>`export PATH="$PWD/datarepo:$PATH"` |
-| macOS, Apple silicon | as Linux, with `datarepo-1.3.6-osx-arm64.tar.gz` |
-| macOS, Intel | as Linux, with `datarepo-1.3.6-osx-x64.tar.gz` |
-| Windows, PowerShell | `Invoke-WebRequest https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.3.6/datarepo-1.3.6-win-x64.zip -OutFile datarepo-1.3.6-win-x64.zip`<br>`Expand-Archive datarepo-1.3.6-win-x64.zip -DestinationPath .`<br>`$env:Path = "$PWD\datarepo;" + $env:Path` |
-| Windows, Git Bash | `curl -LO` the `win-x64.zip` as above, `unzip datarepo-1.3.6-win-x64.zip`, then `export PATH="$PWD/datarepo:$PATH"` |
+| Linux x64 | `curl -LO https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.4.0/datarepo-1.4.0-linux-x64.tar.gz`<br>`tar -xzf datarepo-1.4.0-linux-x64.tar.gz`<br>`export PATH="$PWD/datarepo:$PATH"` |
+| macOS, Apple silicon | as Linux, with `datarepo-1.4.0-osx-arm64.tar.gz` |
+| macOS, Intel | as Linux, with `datarepo-1.4.0-osx-x64.tar.gz` |
+| Windows, PowerShell | `Invoke-WebRequest https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.4.0/datarepo-1.4.0-win-x64.zip -OutFile datarepo-1.4.0-win-x64.zip`<br>`Expand-Archive datarepo-1.4.0-win-x64.zip -DestinationPath .`<br>`$env:Path = "$PWD\datarepo;" + $env:Path` |
+| Windows, Git Bash | `curl -LO` the `win-x64.zip` as above, `unzip datarepo-1.4.0-win-x64.zip`, then `export PATH="$PWD/datarepo:$PATH"` |
 
 Unpack a `.tar.gz` with `tar`, which keeps the program's executable bit. On macOS, an archive
 downloaded with a browser is quarantined and the program is refused as unverified; `curl` does not
@@ -61,9 +60,9 @@ datarepo doctor
 ```
 
 ```
-datarepo 1.3.6  schema 0.0.15
+datarepo 1.4.0  schema 0.0.16
   runtime          .NET 10.0.10
-  mzLib            1.0.593.0
+  mzLib            1.0.595.0
   parquet          ParquetSharp 24.0.0.0
   mcp SDK          ModelContextProtocol 2.2.0.0
   mcp registered   no (`datarepo mcp --catalog <path> --install`)
@@ -71,7 +70,7 @@ datarepo 1.3.6  schema 0.0.15
 ready
 ```
 
-Check that the first line says `datarepo 1.3.6`. If it names another version, another `datarepo`
+Check that the first line says `datarepo 1.4.0`. If it names another version, another `datarepo`
 (an older install, such as the Python package) is earlier on your `PATH` and answering instead, and
 every id below will differ; repeat the `PATH` step, or call the program by its path.
 
@@ -122,7 +121,7 @@ datarepo ingest manifest.yaml PXD999999
 
 ```
 PXD999999
-  bundle   …/store/PXD999999/695a592f6bdfbf63
+  bundle   …/store/PXD999999/004f8de1881cec43
   tables   datasets 1, samples 2, sample_characteristics 8, runs 2, assays 2, psms 60, peptidoforms 40,
            protein_groups 5, proteins 62, ptm_sites 36, ptm_stoichiometry 4, quant_values 37,
            definitions 14, provenance_records 3, findings 6, metrics 18, search_modifications_declared 4
@@ -143,7 +142,7 @@ Three things happened:
   with no biology in it, and so on. One is informational. They travel with the data, so nobody
   reads a count without its caveats.
 
-The bundle's name, `695a592f6bdfbf63`, is a hash of its input files, the schema version and the
+The bundle's name, `004f8de1881cec43`, is a hash of its input files, the schema version and the
 ingester version. Run the command again and it says the bundle is unchanged. Change one byte of
 input and you get a second bundle beside the first, so a result someone cited never changes under
 them.
@@ -174,16 +173,18 @@ datarepo publish manifest.yaml --site site --title "Example repository" --purpos
 
 ```
 catalog  …/example-instance/catalog.duckdb
-  id       0581c61e99837046
-  dataset  PXD999999    bundle 695a592f6bdfbf63
+  id       75b1bc1b6f742853
+  dataset  PXD999999    bundle 004f8de1881cec43
   note     logs.resolve_genes coverage (databases with an artefact): 0 of 1; no artefact for 89fb8c7a1140 (PXD999999)
-  note     go.annotate_groups coverage (bundles with an artefact): 0 of 1; no artefact for PXD999999 (695a592f6bdfbf63)
+  note     go.annotate_groups coverage (bundles with an artefact): 0 of 1; no artefact for PXD999999 (004f8de1881cec43)
+  note     logs.register_orthology (snapshots registered): 0 of 1; no snapshot registered
+  note     ptmqtl.site_pairs coverage (bundles with an artefact): 0 of 1; no artefact for PXD999999
   tables   assays 2, datasets 1, definitions 14, findings 6, gene_resolutions 0, …
   indexes  18
-  checks   57 run, all passed
+  checks   60 run, all passed
   timing   tables 0.2 s, derived: sample names 0.0 s, …
 site     site
-  catalog  0581c61e99837046
+  catalog  75b1bc1b6f742853
   wrote    36 files, 1 dataset page
   skipped  croissant.json: no --data-url: a Croissant file describes downloadable files, …
   skipped  robots.txt: no --base-url: both need the site's absolute address
@@ -192,7 +193,7 @@ site     site
 
 `publish` does two things:
 
-- **It builds the catalog.** That is one DuckDB file holding every ingested dataset, with 59
+- **It builds the catalog.** That is one DuckDB file holding every ingested dataset, with 60
   integrity checks run on the result. Any failed check would have stopped it.
 - **It writes the site.** That is a static website with one page per dataset, an `llms.txt` for
   agents, and JSON for programs. Beside the 36 files is a hidden `.datarepo-site.json`, the marker
@@ -266,14 +267,14 @@ datarepo mcp --catalog catalog.duckdb --check
 
 ```
 catalog  catalog.duckdb
-  id       0581c61e99837046
-  built    … by datarepo 1.3.6
+  id       75b1bc1b6f742853
+  built    … by datarepo 1.4.0
   dataset  PXD999999           58 PSMs at 1%
   tools    datarepo_describe, datarepo_search, datarepo_sql
-  empty    30 table(s) present with no rows
+  empty    31 table(s) present with no rows
 ```
 
-`30 table(s) present with no rows` is expected here. The schema has tables for data this small
+`31 table(s) present with no rows` is expected here. The schema has tables for data this small
 example does not have (glycopeptides, age effects, GO annotation, runs excluded from analysis). They exist and are empty, and an
 agent is told so. An empty table is never a negative answer.
 
