@@ -20,6 +20,9 @@ the pin as usual.
   never reaches the file's name and is fetched again, and a stopped transfer resumes (#1481, mzLib 1.0.596). The
   engine no longer reads such a file a second time. PRIDE's MD5 is now taken first, and its SHA-1 only where no MD5 is
   listed. Aspera copies and SHA-1-only files keep the engine's own check.
+- **A design with a numbering gap is refused up front under MetaMorpheus 1.1.12 or older.** Since mzLib 1.0.596 a design
+  keeps the SDRF's own replicate and fraction numbers, gaps included. 1.1.13 quantifies a gap with a warning; older
+  releases refuse the design, and that was caught only after the whole search. The search set-up now names the gaps.
 - **Search provenance records the mzLib MetaMorpheus runs on** (`metamorpheus_mzlib_version`, read from the release's
   `CMD.deps.json`), beside the engine's own `mzlib`. The two can differ.
 - **A search fails if MetaMorpheus searched other bytes than it was given.** MetaMorpheus 1.1.13 states each loaded

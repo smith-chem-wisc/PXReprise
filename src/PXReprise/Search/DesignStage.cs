@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using Readers;
@@ -170,6 +171,36 @@ public static class DesignStage
         // 1.1.12 refuses it, so this engine must not search a 1.1.12 profile with a gapped SDRF.
         ["report"] = d.Report(),
     };
+
+    /// <summary>
+    /// The numbering gaps in an ExperimentalDesign.tsv, in MetaMorpheus 1.1.13's own wording (#2928,
+    /// ExperimentalDesign.AddGapWarning): a condition's biological replicates, a replicate's fractions, a fraction's
+    /// technical replicates. Empty when every numbering runs 1..n. MetaMorpheus 1.1.12 refuses a design with any gap.
+    /// </summary>
+    public static List<string> Gaps(string designFile)
+    {
+        var rows = File.ReadAllLines(designFile).Skip(1).Select(l => l.TrimEnd('\r').Split('\t')).Where(c => c.Length >= 5)
+            .Select(c => (Condition: c[1], Bio: int.Parse(c[2], CultureInfo.InvariantCulture), Fraction: int.Parse(c[3], CultureInfo.InvariantCulture), Tech: int.Parse(c[4], CultureInfo.InvariantCulture)))
+            .ToList();
+        var gaps = new List<string>();
+        void Add(string owner, string level, IEnumerable<int> numbers)
+        {
+            var present = numbers.Distinct().Order().ToList();
+            var missing = Enumerable.Range(1, Math.Max(0, present.LastOrDefault())).Except(present).ToList();
+            if (missing.Count > 0) gaps.Add($"{owner}: {level}s {string.Join(", ", present)}; missing {string.Join(", ", missing)}");
+        }
+        foreach (var c in rows.GroupBy(r => r.Condition).OrderBy(g => g.Key, StringComparer.Ordinal))
+        {
+            Add($"Condition \"{c.Key}\"", "biological replicate", c.Select(r => r.Bio));
+            foreach (var b in c.GroupBy(r => r.Bio).OrderBy(g => g.Key))
+            {
+                Add($"Condition \"{c.Key}\" biorep {b.Key}", "fraction", b.Select(r => r.Fraction));
+                foreach (var f in b.GroupBy(r => r.Fraction).OrderBy(g => g.Key))
+                    Add($"Condition \"{c.Key}\" biorep {b.Key} fraction {f.Key}", "technical replicate", f.Select(r => r.Tech));
+            }
+        }
+        return gaps;
+    }
 
     private static string Sha(string path)
     {

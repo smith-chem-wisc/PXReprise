@@ -41,6 +41,27 @@ public class SearchStageTests
         Assert.That(SearchStage.MetaMorpheusMzLib(Path.Combine(dir, "CMD.dll")), Is.EqualTo("1.0.596"), "the dll form reads the same file");
     }
 
+    // v0.4.34 (reader fix R5): mzLib 1.0.596 keeps an SDRF's numbering gaps; MetaMorpheus 1.1.12 refuses such a design and
+    // quantifies without it, which U15 caught only after the search. Now refused before it starts.
+    [Test]
+    public void DesignNumberingGapsAreFoundAndOnlyOlderReleasesRefuseThem()
+    {
+        string dir = TestSupport.TempDir();
+        string tsv = Path.Combine(dir, "ExperimentalDesign.tsv");
+        File.WriteAllText(tsv, "FileName\tCondition\tBiorep\tFraction\tTechrep\r\na.raw\taged\t1\t1\t1\r\nb.raw\taged\t3\t1\t1\r\nc.raw\tyoung\t1\t1\t1\r\nd.raw\tyoung\t2\t2\t1\r\n");
+        Assert.That(DesignStage.Gaps(tsv), Is.EqualTo(new[]
+        {
+            "Condition \"aged\": biological replicates 1, 3; missing 2",
+            "Condition \"young\" biorep 2: fractions 2; missing 1",
+        }));
+        File.WriteAllText(tsv, "FileName\tCondition\tBiorep\tFraction\tTechrep\na.raw\taged\t1\t1\t1\nb.raw\taged\t2\t1\t1\n");
+        Assert.That(DesignStage.Gaps(tsv), Is.Empty);
+        Assert.That(SearchStage.RefusesDesignGaps("1.1.12"), Is.True);
+        Assert.That(SearchStage.RefusesDesignGaps("1.1.11"), Is.True);
+        Assert.That(SearchStage.RefusesDesignGaps("1.1.13"), Is.False);
+        Assert.That(SearchStage.RefusesDesignGaps("master@315e02b5e"), Is.False, "a commit pin is taken at its word");
+    }
+
     private static string FakeBin
     {
         get

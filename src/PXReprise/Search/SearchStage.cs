@@ -138,6 +138,13 @@ public static class SearchStage
             design["sdrf_origin"] = used;
             design["sdrf"] = kept;
         }
+        // v0.4.34 (reader fix R5): since mzLib 1.0.596 (#1426) a design keeps the SDRF's own numbers, gaps included.
+        // MetaMorpheus 1.1.13 quantifies a gap with a warning (#2928); 1.1.12 and older refuse the design and quantify without
+        // it, which U15 only caught after the whole search. Refused here, before it starts.
+        string designTsv = Path.Combine(r.SpectraDir, "ExperimentalDesign.tsv");
+        if (design is not null && design["written"]?.GetValue<bool>() == true && RefusesDesignGaps(p.MetaMorpheus) && File.Exists(designTsv)
+            && DesignStage.Gaps(designTsv) is { Count: > 0 } numberingGaps)
+            throw new SearchSetupException($"the design has numbering gaps ({string.Join("; ", numberingGaps)}), which MetaMorpheus {p.MetaMorpheus} refuses; search it under a profile on MetaMorpheus 1.1.13 or later");
 
         // The effective parameters, in the aging pipeline's shape, so provenance's params_file is a real file.
         var runner = new MetaMorpheusRunner(m.CmdFor(p.MetaMorpheus), m.Dotnet, m.DotnetRoot);
@@ -540,6 +547,10 @@ public static class SearchStage
         string provFile = prov.Write(outDir);
         return new SearchOutcome(ok, run.ExitCode, run.TimedOut, psms, flags, provFile);
     }
+
+    /// <summary>A released MetaMorpheus older than 1.1.13, which refuses a design with a numbering gap. A commit pin is not.</summary>
+    internal static bool RefusesDesignGaps(string metamorpheus) =>
+        Version.TryParse(metamorpheus, out var v) && v < new Version(1, 1, 13);
 
     /// <summary>
     /// The mzLib version the MetaMorpheus at <paramref name="cmd"/> was built against, from the <c>.deps.json</c> beside it
