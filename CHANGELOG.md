@@ -17,6 +17,12 @@ the pin as usual.
   session received nothing for 9.3 h without exiting, and a draining driver waited on it the whole time.
 - **Search provenance records the mzLib MetaMorpheus runs on** (`metamorpheus_mzlib_version`, read from the release's
   `CMD.deps.json`), beside the engine's own `mzlib`. The two can differ.
+- **A search fails if MetaMorpheus searched other bytes than it was given.** MetaMorpheus 1.1.13 states each loaded
+  database's path and SHA-256, and a GPTMD database's parents. Each is checked against the files the search passed, and
+  recorded as `metamorpheus_databases`. Releases before 1.1.13 state none of this, and nothing is checked.
+- **Search provenance records the identification filter MetaMorpheus states** (`identification_filter`: the filter and
+  threshold of each count line, plus any "PEP filtering was requested, but ..." sentence), and the design-numbering gaps
+  it quantified with a warning (`design_gaps`).
 
 ## 0.4.33 (2026-10-29)
 

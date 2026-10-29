@@ -368,6 +368,45 @@ public static class SearchStage
             ok = false;
             prov.Note($"FAILED (QuantProject U15): the run carries ExperimentalDesign.tsv but quantification did not use it: {why}");
         }
+        // v0.4.34 (reader fixes R3, R4): what MetaMorpheus 1.1.13 states about its own run. R4: every database a task loaded,
+        // and every GPTMD database's parents, must be the bytes this search was given (MetaMorpheus #2898; logs PXR-O11).
+        // R3: the identification filter its count lines state, any PEP-not-done sentence (#2919), and the design gaps it
+        // quantified with a warning (#2928). Releases before 1.1.13 write none of these lines; nothing is then recorded.
+        if (Directory.Exists(mm))
+        {
+            var loaded = Directory.EnumerateFiles(mm, "results.txt", SearchOption.AllDirectories).Order(StringComparer.Ordinal)
+                .SelectMany(f => MetaMorpheusResults.Databases(Path.GetFileName(Path.GetDirectoryName(f))!, File.ReadLines(f))).ToList();
+            if (loaded.Count > 0)
+            {
+                prov.Set("metamorpheus_databases", new JsonArray(loaded.Select(d => (JsonNode?)new JsonObject
+                {
+                    ["task"] = d.Task, ["file"] = d.File, ["path"] = d.Path, ["sha256"] = d.Sha256, ["bytes"] = d.Bytes,
+                    ["derived_from"] = new JsonArray(d.DerivedFrom.Select(x => (JsonNode?)new JsonObject { ["file"] = x.File, ["sha256"] = x.Sha256 }).ToArray()),
+                }).ToArray()));
+                // Only the files MetaMorpheus names are hashed (a spectral library is a -d too, and large).
+                var named = loaded.Select(d => Path.GetFileName(d.Path ?? d.File)).Concat(loaded.SelectMany(d => d.DerivedFrom.Select(x => x.File)))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var ours = dbs.Where(d => named.Contains(Path.GetFileName(d)) && File.Exists(d)).Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(d => d, Sha, StringComparer.OrdinalIgnoreCase);
+                if (MetaMorpheusResults.Mismatch(loaded, ours) is { } bad)
+                {
+                    ok = false;
+                    prov.Note($"FAILED (R4): MetaMorpheus searched other bytes than it was given: {bad}");
+                }
+            }
+            if (sd is not null && File.Exists(Path.Combine(sd, "results.txt")))
+            {
+                var (counts, notes) = MetaMorpheusResults.Filter(File.ReadLines(Path.Combine(sd, "results.txt")));
+                if (counts.Count > 0 || notes.Count > 0)
+                    prov.Set("identification_filter", new JsonObject
+                    {
+                        ["counts"] = new JsonArray(counts.Select(c => (JsonNode?)new JsonObject { ["of"] = c.What, ["filter"] = c.Filter, ["threshold"] = c.Threshold }).ToArray()),
+                        ["notes"] = new JsonArray(notes.Select(n => (JsonNode?)n).ToArray()),
+                    });
+            }
+            var gaps = MetaMorpheusResults.DesignGaps(log.Split('\n'));
+            if (gaps.Count > 0) prov.Set("design_gaps", new JsonArray(gaps.Select(g => (JsonNode?)g).ToArray()));
+        }
         prov.Set("success", (JsonNode)ok);
         if (run.ExitCode == 0 && key["AllQuantifiedProteinGroups.tsv"] is null)
             prov.Note("exit 0 but no AllQuantifiedProteinGroups.tsv: FlashLFQ failed silently (pyMM 003 Q4)");
