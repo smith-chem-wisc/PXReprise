@@ -29,7 +29,8 @@ min_free_gb = 50
 # fetch_passes = 3
 # pass_wait_minutes = 30
 
-# A download whose file has received no data for this many minutes is abandoned and retried (0 turns this off).
+# A download whose file has received no data for this many minutes is abandoned and retried (0 turns this off). Since
+# v0.4.34 this covers Aspera sessions too: an ascp that receives nothing for this long is killed.
 # On a slow or unreliable link, parallel_downloads = 2 can be faster overall than 4. Default 5.
 # fetch_stall_minutes = 5
 

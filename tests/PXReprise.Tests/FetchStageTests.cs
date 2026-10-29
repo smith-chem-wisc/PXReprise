@@ -227,6 +227,40 @@ public class FetchStageTests
             "no Aspera staging folder is left behind");
     }
 
+    // v0.4.34: 2026-10-29, an ascp session sat 9.3 h on PXD045861 with 0 bytes and never exited; nothing timed it out.
+    [Test]
+    public async Task AnAsperaSessionThatReceivesNothingForTheStallTimeIsGivenUp()
+    {
+        var never = new TaskCompletionSource();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        bool exited = await Aspera.WatchAsync(never.Task, () => 0, TimeSpan.FromMilliseconds(300), TimeSpan.FromMilliseconds(20), CancellationToken.None);
+        Assert.That(exited, Is.False, "no bytes for the stall time: the caller kills ascp");
+        Assert.That(sw.Elapsed, Is.GreaterThanOrEqualTo(TimeSpan.FromMilliseconds(300)));
+    }
+
+    [Test]
+    public async Task AnAsperaSessionThatKeepsReceivingIsWaitedForUntilItExits()
+    {
+        var done = new TaskCompletionSource();
+        long bytes = 0;
+        var watch = Aspera.WatchAsync(done.Task, () => bytes += 1000, TimeSpan.FromMilliseconds(200), TimeSpan.FromMilliseconds(20), CancellationToken.None);
+        await Task.Delay(600);
+        Assert.That(watch.IsCompleted, Is.False, "growing past three stall times: still waited for");
+        done.SetResult();
+        Assert.That(await watch, Is.True);
+    }
+
+    [Test]
+    public async Task AZeroAsperaStallWaitsForTheExitAlone()
+    {
+        var done = new TaskCompletionSource();
+        var watch = Aspera.WatchAsync(done.Task, () => 0, TimeSpan.Zero, TimeSpan.FromMilliseconds(10), CancellationToken.None);
+        await Task.Delay(100);
+        Assert.That(watch.IsCompleted, Is.False);
+        done.SetResult();
+        Assert.That(await watch, Is.True);
+    }
+
     // v0.4.18: 2026-10-15, PXD039172's 95 GB began downloading with 125 GB free, and F: reached 0 bytes.
     [Test]
     public void TheDiskFloorCountsWhatAFetchStillAdds()

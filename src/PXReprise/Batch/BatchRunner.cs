@@ -1904,7 +1904,8 @@ public sealed class BatchRunner
             TimeSpan.FromMinutes(_m.FetchStallMinutes),
             _q.ExceptionFor(acc) is { SelectsFiles: true } ex ? new FileSelection(ex.Keeps, ex.Describe()) : null,
             Sha1Source ?? Integrity.PrideChecksumsAsync,
-            _m.AsperaAscp is { } ascp ? new AsperaClient(ascp, _m.AsperaKey!, _m.AsperaAttempts, StartGap: TimeSpan.FromSeconds(10)) : null,
+            _m.AsperaAscp is { } ascp ? new AsperaClient(ascp, _m.AsperaKey!, _m.AsperaAttempts, StartGap: TimeSpan.FromSeconds(10),
+                Stall: TimeSpan.FromMinutes(_m.FetchStallMinutes)) : null,
             PrideHosts.Parse(_m.PrideHttps), FloorForTest ?? new DiskFloor(FreeGb, _m.MinFreeGb));
 
     /// <summary>Tests only: the disk floor a fetch checks (null in production means the run root's drive and <c>min_free_gb</c>).</summary>

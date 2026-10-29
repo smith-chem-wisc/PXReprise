@@ -147,6 +147,9 @@ public static class SearchStage
         {
             ["metamorpheus_cmd"] = m.CmdFor(p.MetaMorpheus),
             ["metamorpheus_version"] = p.MetaMorpheus,
+            // v0.4.34 (reader fix R6; QuantProject 075, ptmQtl 033, go 015): the mzLib MetaMorpheus itself runs on, which
+            // need not be the engine's own (provenance's `mzlib`).
+            ["metamorpheus_mzlib_version"] = MetaMorpheusMzLib(m.CmdFor(p.MetaMorpheus)),
             ["accept_thermo_licence"] = m.AcceptThermoLicence,
             ["tasks"] = new JsonArray(p.Tasks.Select(t => (JsonNode?)t).ToArray()),
             ["max_threads"] = m.MaxThreads,
@@ -497,6 +500,25 @@ public static class SearchStage
         });
         string provFile = prov.Write(outDir);
         return new SearchOutcome(ok, run.ExitCode, run.TimedOut, psms, flags, provFile);
+    }
+
+    /// <summary>
+    /// The mzLib version the MetaMorpheus at <paramref name="cmd"/> was built against, from the <c>.deps.json</c> beside it
+    /// (<c>"mzLib/1.0.596"</c>); null when that file is missing or names no mzLib.
+    /// </summary>
+    internal static string? MetaMorpheusMzLib(string cmd)
+    {
+        string deps = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(cmd))!, Path.GetFileNameWithoutExtension(cmd) + ".deps.json");
+        if (!File.Exists(deps)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(deps));
+            if (!doc.RootElement.TryGetProperty("libraries", out var libs)) return null;
+            foreach (var lib in libs.EnumerateObject())
+                if (lib.Name.StartsWith("mzLib/", StringComparison.Ordinal)) return lib.Name["mzLib/".Length..];
+            return null;
+        }
+        catch (JsonException) { return null; }
     }
 
     /// <summary>

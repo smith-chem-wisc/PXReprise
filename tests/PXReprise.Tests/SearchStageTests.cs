@@ -26,6 +26,21 @@ public class SearchStageTests
         Assert.That(SearchStage.ExcludedFilesRecord(new[] { "c.raw" }, qc)["reason"]!.GetValue<string>(), Is.EqualTo("excluded from the search by --exclude"));
     }
 
+    // v0.4.34 (reader fix R6; QuantProject 075, ptmQtl 033, go 015): the mzLib MetaMorpheus runs on is recorded, read
+    // from the deps file the release ships beside CMD (MetaMorpheus 1.1.13: "mzLib/1.0.596").
+    [Test]
+    public void MetaMorpheusOwnMzLibVersionIsReadFromItsDepsFile()
+    {
+        string dir = TestSupport.TempDir();
+        string cmd = Path.Combine(dir, "CMD.exe");
+        File.WriteAllText(cmd, "");
+        Assert.That(SearchStage.MetaMorpheusMzLib(cmd), Is.Null, "no deps file: nothing recorded");
+        File.WriteAllText(Path.Combine(dir, "CMD.deps.json"),
+            """{"targets":{".NETCoreApp,Version=v10.0":{"mzLib/1.0.596":{}}},"libraries":{"CMD/1.0.0":{"type":"project"},"mzLib/1.0.596":{"type":"package"}}}""");
+        Assert.That(SearchStage.MetaMorpheusMzLib(cmd), Is.EqualTo("1.0.596"));
+        Assert.That(SearchStage.MetaMorpheusMzLib(Path.Combine(dir, "CMD.dll")), Is.EqualTo("1.0.596"), "the dll form reads the same file");
+    }
+
     private static string FakeBin
     {
         get

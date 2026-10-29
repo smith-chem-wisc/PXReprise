@@ -7,6 +7,17 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.34 (unreleased)
+
+**MetaMorpheus** unchanged (1.1.13 for `@12` and `lowres@6`). **Machine file:** no change. **Safe mid-batch?** Yes: swap
+the pin as usual.
+
+- **A stalled Aspera transfer is given up.** An `ascp` session whose download receives no data for
+  `fetch_stall_minutes` (default 5) is killed and the file retried, as an HTTPS download already was. On 2026-10-29 one
+  session received nothing for 9.3 h without exiting, and a draining driver waited on it the whole time.
+- **Search provenance records the mzLib MetaMorpheus runs on** (`metamorpheus_mzlib_version`, read from the release's
+  `CMD.deps.json`), beside the engine's own `mzlib`. The two can differ.
+
 ## 0.4.33 (2026-10-29)
 
 **MetaMorpheus 1.1.13** (released 2026-10-29) for the new profiles. **Machine file:** add `"1.1.13" = "<folder>\CMD.exe"`
