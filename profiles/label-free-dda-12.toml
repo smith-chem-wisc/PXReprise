@@ -1,8 +1,7 @@
-# label-free-dda/12: label-free-dda/11 on the MetaMorpheus release of 2026-10-29 (cut from master 315e02b5e; mzLib 1.0.596)
+# label-free-dda/12: label-free-dda/11 on MetaMorpheus 1.1.13 (released 2026-10-29 at master 315e02b5e; mzLib 1.0.596)
 # and agingPTM-v6 (the user, 2026-10-28: "you could switch the pipeline to the master now", "a good time to clean and
 # update the databases and the libraries and to add any new high quality PTMs to the databases per our prior
-# requirements"). UNTIL THE RELEASE IS PUBLIC this names the master build (commit pin); it is renamed to the release
-# before v0.4.33 is published, and nothing has run under the commit pin outside the trial.
+# requirements"). The trial ran a build of that same commit; the release's CMD -g task files are identical to it.
 #  - RespectCleavageBlockingModifications = true in Calibration, GPTMD and Search (cleavageRules PXR-V1/V2; mzLib #1119,
 #    MetaMorpheus #2925, #2915): a modification that blocks the protease is never on the residue it cut after, and GPTMD
 #    no longer places one there. Trial (results/mm-release-switch_2026-10-28): every peptide ending at a cut on
@@ -75,7 +74,7 @@
 id = "label-free-dda"
 version = 12
 status = "available"
-description = "Label-free DDA, high-resolution HCD with MS2 read in the Orbitrap; a short probe search first (species, cysteine share, enrichment); MetaMorpheus (release of 2026-10-29) Calibrate/GPTMD/Search with cleavage-blocking modifications respected, FlashLFQ with MBR and an SDRF design; protease and cysteine chemistry read from each deposit; UniProt canonical proteomes with agingPTM-v6 sites (no GPTMD hydroxy-P/K); NBF-Cl modelled by a shipped modification (G40); ring-opened NEM and gel propionamide offered to GPTMD where the chemistry makes them likely; GPTMD adds a site only where it improves the match's score"
+description = "Label-free DDA, high-resolution HCD with MS2 read in the Orbitrap; a short probe search first (species, cysteine share, enrichment); MetaMorpheus 1.1.13 Calibrate/GPTMD/Search with cleavage-blocking modifications respected, FlashLFQ with MBR and an SDRF design; protease and cysteine chemistry read from each deposit; UniProt canonical proteomes with agingPTM-v6 sites (no GPTMD hydroxy-P/K); NBF-Cl modelled by a shipped modification (G40); ring-opened NEM and gel propionamide offered to GPTMD where the chemistry makes them likely; GPTMD adds a site only where it improves the match's score"
 
 [accepts]
 acquisition = ["dda"]
@@ -89,7 +88,7 @@ file_types = [".raw"]
 # identified PTMs / quantification, protocol text) and searched with, or the deposit waits.
 chemistry = "deposit"
 custom_modifications = "PXReprise_custom_modifications_v2.txt"   # G40, under lists/; v2 adds the two artifacts (/9)
-metamorpheus = "master@315e02b5"   # becomes the release name before v0.4.33 is published
+metamorpheus = "1.1.13"   # released 2026-10-29 at 315e02b5e, the commit the trial ran (results/mm-release-switch_2026-10-28)
 probe_search = true       # /7: see the header; probe_search_minutes stays at its default, 60
 tasks = ["Calibration", "Gptmd", "Search"]
 gptmd_extra_mods = ["Trypsin Digested\tGG (Ubiquitination Site) on K"]

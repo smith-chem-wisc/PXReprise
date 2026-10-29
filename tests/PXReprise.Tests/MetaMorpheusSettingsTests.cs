@@ -61,6 +61,23 @@ public class MetaMorpheusSettingsTests
     }
 
     [Test]
+    public void Lowres6IsLowres5OnTheNewMetaMorpheusWithTheSameDatabases()
+    {
+        // v0.4.33: nothing runs 1.1.12 after the engine moves to mzLib 1.0.596 (#1426 keeps SDRF replicate gaps, which
+        // 1.1.12 refuses). The ion-trap profile keeps agingPTM-v3 (D44: v4's sites cost an ion-trap run 4% of its PSMs).
+        var all = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
+        var p6 = all["label-free-dda-lowres@6"];
+        var p5 = all["label-free-dda-lowres@5"];
+        Assert.That(p6.MetaMorpheus, Is.EqualTo(all["label-free-dda@12"].MetaMorpheus));
+        Assert.That(p6.MetaMorpheusSettings, Is.EqualTo(all["label-free-dda@12"].MetaMorpheusSettings));
+        Assert.That(p6.Databases.Select(kv => (kv.Key, kv.Value.Proteome)), Is.EquivalentTo(p5.Databases.Select(kv => (kv.Key, kv.Value.Proteome))));
+        Assert.That(p6 with { Version = 5, Description = p5.Description, MetaMorpheus = p5.MetaMorpheus, MetaMorpheusSettings = null,
+            Databases = p5.Databases, Accepts = p5.Accepts, Tasks = p5.Tasks, GptmdExtraMods = p5.GptmdExtraMods, Deposit = p5.Deposit, Qc = p5.Qc },
+            Is.EqualTo(p5), "every other scalar setting of lowres@6 equals lowres@5's");
+        Assert.That((p6.Tasks, p6.Deposit), Is.EqualTo((p5.Tasks, p5.Deposit)));
+    }
+
+    [Test]
     public void ApplySettingsWritesTheTaskScopeAndAllWhereTheKeyExists()
     {
         // MetaMorpheus master's defaults (2026-10-28): the flag in every task's DigestionParams; WriteIndividualFiles in

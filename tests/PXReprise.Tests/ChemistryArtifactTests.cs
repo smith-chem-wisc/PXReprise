@@ -111,7 +111,7 @@ public class ChemistryArtifactTests
             new MetaMorpheusSetting("all", "RespectCleavageBlockingModifications", "true"),
             new MetaMorpheusSetting("search", "WriteIndividualFiles", "true"),
         }));
-        Assert.That(all.Where(kv => kv.Value.MetaMorpheusSettings is not null).Select(kv => kv.Key), Is.EquivalentTo(new[] { "label-free-dda@12" }));
+        Assert.That(all.Where(kv => kv.Value.MetaMorpheusSettings is not null).Select(kv => kv.Key), Is.EquivalentTo(new[] { "label-free-dda@12", "label-free-dda-lowres@6" }));
         Assert.That(p12 with { Version = 11, Description = p11.Description, Databases = p11.Databases, Accepts = p11.Accepts,
             MetaMorpheus = p11.MetaMorpheus, MetaMorpheusSettings = null,
             Tasks = p11.Tasks, GptmdExtraMods = p11.GptmdExtraMods, GptmdFilters = p11.GptmdFilters, Deposit = p11.Deposit, Qc = p11.Qc,
