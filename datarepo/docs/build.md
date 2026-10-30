@@ -171,7 +171,7 @@ protein", which is the question the repository exists for.
 | `protein_index` | 1/accession | gene, organism, how many datasets have it, and how many have **accepted** evidence for it |
 | `protein_datasets` | 1/accession/dataset | accepted protein groups and peptidoforms, best group q-value |
 | `peptide_index` | 1/base sequence | how many datasets it appears in |
-| `dataset_annotations` | 1/dataset | the producer's notes, flags, status and reason, from the manifest `build` was given |
+| `dataset_annotations` | 1/dataset | the producer's notes, flags, status and reason, its declared `sdrf`, and the `operator_sdrf` the ingest read in place of any other SDRF (G107), from the manifest `build` was given |
 | `run_exclusions` | 1/excluded run | runs the manifest's `excluded_runs` leaves out of analysis, with the reason; `run_id` joins `runs` |
 | `dataset_restrictions` | 1/dataset/use | uses the manifest's `restrictions` says the whole dataset is unfit for, with the reason; the same uses are listed on `dataset_overview.restrictions` (NULL when the manifest has no entry for the dataset) |
 
@@ -210,6 +210,7 @@ columns such as `protein_accessions` cannot carry a DuckDB index; the derived ta
 |---|---|
 | `catalog_meta` | catalog id, schema and QPX versions, builder version, when, which instance |
 | `catalog_bundles` | every bundle loaded: its id, path, when it was written, and whether **its own** reconciliation passed |
+| `catalog_reconciliation` | every reconciliation check of every bundle, judged at build: observed, expected, the explained bound and its basis, and a status (format 15) |
 | `catalog_tables` | every table with its row count, marked `bundle` / `derived` / `view` |
 | `catalog_checks` | every check the build ran, and its result |
 
@@ -217,6 +218,36 @@ columns such as `protein_accessions` cannot carry a DuckDB index; the derived ta
 them: a bundle whose own counts disagreed with its producer is flagged here, `datarepo catalog`
 names the check that failed, and a catalog therefore never looks cleaner than the data it was built
 from. PXD036557 was flagged this way until its 12-PSM difference was explained and closed.
+
+From catalog format 15 (datarepo 1.4.1, aging DATAREPO-86) the build judges each check against the
+bound the producer's own file format leaves, computed from the bundle's stored rows, so no bundle is
+ingested again. `catalog_reconciliation.status` is one of:
+
+| status | meaning |
+|---|---|
+| `agrees` | the two numbers are equal |
+| `explained` | they differ, and the producer's number lies inside the bound |
+| `unexplained` | they differ beyond the bound, or the check has no bound |
+| `not_compared` | one side has no number |
+
+- **PSMs** (`psms_target_1pct`): the observed count is recounted from `psms.parquet` with the
+  ingest's rule, so an entrapment target (`ET`, `T|ET`) counts as a target (DATAREPO-87). The bound is
+  [count - counted rows whose q or notch q is exactly the threshold, count + passing rows whose
+  notch never resolved]. MetaMorpheus holds the unrounded q-value of a row printed `0.010000`, and
+  counts some unresolved-notch rows. Both terms are exact.
+- **Peptidoforms** (`peptidoforms_target_1pct`): the count is the ingest's, from the peptide file,
+  which the bundle does not keep. The bound is [count - estimated unresolved-notch rows - rows at the
+  threshold, count]. The estimate counts each passing peptidoform whose best-scoring PSM's notch did
+  not resolve, which is wider than the exact term. `basis` says so.
+- **Protein groups** (`protein_groups_1pct`): when the ingest dropped exact duplicate group rows
+  (`bundle.json` `collapsed_duplicates`), the bound is [count, count + those rows]. MetaMorpheus
+  before 1.1.13 (#2923) could write one group twice and count it twice (PXD027971: 1,184 against 1,185).
+- **Every other check** has no bound. It agrees, or it is unexplained.
+
+`reconciliation_ok` is false, and `reconciliation_failed` names a check, only when the check is
+unexplained. `reconciliation_explained` names the explained ones. The site says "differs within the
+known file-side limit" for those. Observed and expected numbers are never changed: both stay in
+`catalog_reconciliation`, beside the ingest's recorded ones.
 
 ## Checks, and what a failure means
 

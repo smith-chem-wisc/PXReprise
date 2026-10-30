@@ -246,6 +246,9 @@ public static partial class SiteGenerator
                 ["reconciliation_failed"] = (Get(bundle, "reconciliation_failed") as List<object?> ?? []).ToList(),
                 ["path"] = Get(bundle, "path"),
             };
+            // Catalog format 15 (DATAREPO-86); a parity catalog has no such column, and its page keeps 0.32.0's keys.
+            if (bundle is not null && bundle.ContainsKey("reconciliation_explained"))
+                ((Dict)d["bundle"]!)["reconciliation_explained"] = (Get(bundle, "reconciliation_explained") as List<object?> ?? []).ToList();
             d["licence"] = licence;
             d["credit"] = credit;
             d["pipeline_public_repo"] = publicRepo;

@@ -4,6 +4,26 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [Unreleased] (1.4.1)
+
+**No re-ingest: the ingest path stays `cs-1.2.0`.** The catalog format is 15.
+
+### Changed (build)
+- **Reconciliation is judged at build** (aging DATAREPO-86, option a). Each check of each bundle is compared with the
+  bound the producer's own file format leaves, computed from the bundle's stored rows. A difference inside the bound
+  is `explained`, not failed. New catalog table `catalog_reconciliation` (observed, expected, the ingest's recorded
+  numbers, the bound, its basis, a status). `catalog_bundles.reconciliation_failed` names only unexplained checks, and
+  the new `reconciliation_explained` names the rest. On aging's store all 140 PSM and 20 peptidoform differences
+  are inside the bound (`results/reconciliation_bound_2026-10-30/`). The peptidoform bound is an estimate, wider than
+  the exact one, because the bundle keeps no peptide file. A protein-group count one short of the producer's, where the
+  ingest dropped an exact duplicate group row, is explained the same way (PXD027971, aging 122 c: MetaMorpheus 1.1.11
+  wrote `A0A0G2JZW2|D4A2S8` twice and counted both; #2923 in 1.1.13 stops it).
+- **The PSM count is recounted from `psms.parquet`**, which reads an entrapment target (`ET`, `T|ET`) as a target
+  (aging DATAREPO-87). The ingest's own count tested the label for equality with `T`; no stored bundle has an
+  entrapment label, and the recount equals the ingest's count on all 179 of aging's bundles.
+- A folder catalog keeps each deposit's reconciliation terms in its derived directory, so the derivation id moves and
+  every deposit's derived rows are computed once more on the first 1.4.1 publish.
+
 ## [1.4.0] - 2026-10-28
 
 **One new ingest path, `cs-1.2.0`, and schema 0.0.16, so an instance re-ingests once; and ptmQtl's engines.** Built

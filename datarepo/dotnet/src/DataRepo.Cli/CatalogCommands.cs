@@ -168,6 +168,8 @@ internal static class CatalogCommands
             Console.WriteLine($"  {mark} {Cell(r["dataset_id"]),-12} bundle {Cell(r["bundle_id"])}  {Cell(r["written_utc"])}");
             foreach (var name in r["reconciliation_failed"] as IEnumerable<object?> ?? [])
                 Console.WriteLine($"      bundle reconciliation mismatch carried through: {Cell(name)}");
+            foreach (var name in r.GetValueOrDefault("reconciliation_explained") as IEnumerable<object?> ?? [])
+                Console.WriteLine($"      differs within the known file-side limit: {Cell(name)}");
         }
         foreach (var r in Rows(doc.GetValueOrDefault("study_bundles")))
             Console.WriteLine($"  study    {Cell(r["layer"]),-12} bundle {Cell(r["bundle_id"])}  layer {Cell(r["layer_version"])}  {Cell(r["written_utc"])}");

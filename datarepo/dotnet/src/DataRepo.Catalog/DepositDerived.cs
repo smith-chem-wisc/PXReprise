@@ -29,11 +29,11 @@ public static partial class CatalogBuilder
 
     /// <summary>The per-deposit files, in the order they are written.</summary>
     private static readonly string[] DepositFiles =
-        ["dataset_overview", "protein_datasets", "protein_partials", "search_modifications_placed", "peptide_partials"];
+        ["dataset_overview", "protein_datasets", "protein_partials", "search_modifications_placed", "peptide_partials", "reconciliation_terms"];
 
     /// <summary>The bundle tables the per-deposit SQL reads.</summary>
     private static readonly string[] DepositInputs =
-        ["datasets", "runs", "samples", "assays", "findings", "proteins", "protein_groups", "peptidoforms", "ptm_sites", "quant_values"];
+        ["datasets", "runs", "samples", "assays", "findings", "proteins", "protein_groups", "peptidoforms", "ptm_sites", "quant_values", "psms"];
 
     /// <summary>Per (dataset, accession), what <see cref="ProteinIndexSelect"/>'s aggregates need from one deposit: the same
     /// joined rows, reduced so that an aggregate over every deposit's rows gives the corpus build's index.</summary>
@@ -103,7 +103,7 @@ public static partial class CatalogBuilder
         var text = new StringBuilder($"catalog/{CatalogVersion}\nschema/{SchemaContract.Version}\nduckdb/{duckdb}\n"
             + $"threshold/{PyFormat.FloatRepr(Identifications.ProducerThreshold)}\n");
         foreach (var (name, body) in CatalogedAcceptedViews) text.Append($"view/{name}\n{body}\n");
-        foreach (var sql in new[] { OverviewSelect(DepositPsmCounts), ProteinDatasetsSelect, ProteinPartialSelect, ModificationsPlacedSelect, PeptidePartialSelect })
+        foreach (var sql in new[] { OverviewSelect(DepositPsmCounts), ProteinDatasetsSelect, ProteinPartialSelect, ModificationsPlacedSelect, PeptidePartialSelect, ReconciliationTermsSql })
             text.Append(sql).Append('\n');
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text.ToString())))[..16];
     }
@@ -122,9 +122,10 @@ public static partial class CatalogBuilder
     /// rows as views (the overview copied, because <c>restrictions</c> is added to it), the two corpus indexes aggregated.</summary>
     /// <returns>One check per deposit: its derived files hold the rows their record says.</returns>
     private static List<CatalogCheck> BuildDerivedFromDeposits(DuckDBConnection con, IReadOnlyList<BundleRef> bundles, string derivedRoot, Action<string> lap,
-        out int computed, out int reused)
+        out int computed, out int reused, out Dictionary<string, ReconciliationTerms> terms)
     {
         (computed, reused) = (0, 0);
+        terms = new Dictionary<string, ReconciliationTerms>(StringComparer.Ordinal);
         var checks = new List<CatalogCheck>();
         foreach (var r in bundles)
         {
@@ -138,6 +139,9 @@ public static partial class CatalogBuilder
                 computed++;
             }
             else reused++;
+            if (counts is not null)
+                terms[r.BundleId] = ReadReconciliationTerms(con,
+                    $"read_parquet({Quote(AsPosix(System.IO.Path.Combine(dir, "reconciliation_terms.parquet")))})");
             checks.Add(new CatalogCheck($"{r.DatasetId}/derived", "derived", counts is not null, null, null,
                 counts is not null ? $"bundle {r.BundleId}, derivation {DerivationId}" : $"bundle {r.BundleId}: its derived files do not hold the rows {DerivedRecord} records"));
         }
@@ -228,6 +232,7 @@ public static partial class CatalogBuilder
                 Write("protein_partials", ProteinPartialSelect);
                 Write("search_modifications_placed", ModificationsPlacedSelect);
                 Write("peptide_partials", PeptidePartialSelect);
+                Write("reconciliation_terms", ReconciliationTermsSql);
 
                 var record = new SortedDictionary<string, object?>(StringComparer.Ordinal)
                 {

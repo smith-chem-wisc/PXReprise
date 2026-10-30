@@ -143,7 +143,7 @@ public class FolderCatalogTests
 
         using var con = CatalogBuilder.Open(folder.Path, readOnly: true);
         var meta = Rows(con, "SELECT catalog_version, release_id, layout, data_root FROM catalog_meta").Single();
-        Assert.That(meta, Is.EqualTo(new object?[] { "13", folder.ReleaseId, "views", CatalogBuilder.AsPosix(Path.GetFullPath(Store)) + "/" }));
+        Assert.That(meta, Is.EqualTo(new object?[] { "15", folder.ReleaseId, "views", CatalogBuilder.AsPosix(Path.GetFullPath(Store)) + "/" }));
         Assert.That(Rows(con, "SELECT ok FROM catalog_checks WHERE kind = 'integrity'").Single()[0], Is.EqualTo(true),
             "the per-bundle integrity checks are not re-run, and the catalog says so");
     }
@@ -201,7 +201,7 @@ public class FolderCatalogTests
         Assert.That(Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).Select(Path.GetFileName), Is.EquivalentTo(new[]
         {
             "dataset_overview.parquet", "protein_datasets.parquet", "protein_partials.parquet", "search_modifications_placed.parquet",
-            "peptide_partials.parquet", CatalogBuilder.DerivedRecord,
+            "peptide_partials.parquet", "reconciliation_terms.parquet", CatalogBuilder.DerivedRecord,
         }), "nothing staged is left behind");
 
         var original = File.ReadAllText(ManifestPath);

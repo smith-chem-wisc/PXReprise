@@ -714,7 +714,16 @@ public static partial class SiteGenerator
             reconciliation = "failed: " + E(string.Join(", ", Strings(bundle["reconciliation_failed"])))
                 + " <span class=\"note\">(the bundle disagrees with the producer's own count here)</span>";
         else if (PyText.Truthy(bundle["reconciliation_ok"]))
-            reconciliation = "every check agreed with the producer's own counts";
+        {
+            // From catalog format 15 (1.4.1, DATAREPO-86): a difference inside the bound the producer's own file format
+            // leaves (q-values printed at the threshold, notches that never resolved) is explained, not failed.
+            var explained = Strings(bundle.GetValueOrDefault("reconciliation_explained")).ToList();
+            reconciliation = explained.Count == 0
+                ? "every check agreed with the producer's own counts"
+                : "every check agreed with the producer's own counts or differs within the known file-side limit: "
+                    + E(string.Join(", ", explained))
+                    + " <span class=\"note\">(see <code>catalog_reconciliation</code> for the bound)</span>";
+        }
         else
             reconciliation = "not recorded";
 
