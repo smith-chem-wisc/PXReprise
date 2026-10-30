@@ -119,7 +119,8 @@ public class GoEngineTests
         Assert.That(result.AlreadyDone, Is.Empty);
         Assert.That(artefact.Engine, Is.EqualTo("go.annotate_groups"));
         Assert.That(Directory.EnumerateFiles(artefact.Path).Select(Path.GetFileName).Order(),
-            Is.EqualTo(new[] { "annotation_sources.parquet", "go_annotation.tsv", "go_category.tsv", "organelle_term_categories.parquet", "protein_localizations.parquet", "run.json" }));
+            Is.EqualTo(new[] { "annotation_sources.parquet", "go_category.tsv", "organelle_term_categories.parquet", "protein_localizations.parquet", "run.json" }),
+            "no go_annotation.tsv: read back as acceptance, never stored (G110)");
 
         // The record: everything hashed, plus what was not.
         var record = artefact.Record;
@@ -137,17 +138,13 @@ public class GoEngineTests
         Assert.That(summary["annotation_db_sha256"], Is.EqualTo(artefact.Inputs["annotation_database:test_human.xml"]),
             "one database: its own sha256, as go's own run wrote it");
 
-        // go's files are kept in go's format, and read back clean (the acceptance check, without allowPrerelease).
-        var annotation = Go.ReadAnnotation(Path.Combine(artefact.Path, GoEngine.AnnotationFile));
+        // The category file is kept in go's format and reads back clean; the annotation file was read back as acceptance
+        // inside the run and is not stored (G110), so the record keeps its sha256.
         var categories = Go.ReadCategories(Path.Combine(artefact.Path, GoEngine.CategoryFile));
-        Go.CheckCoverage(annotation, categories);
-        Assert.That(annotation.Header["unresolved_go_ids"], Is.EqualTo("1"));
-        Assert.That(annotation.Header["source_file_sha256"], Is.EqualTo(artefact.Inputs["protein_groups"]));
         Assert.That(categories.MapName, Is.EqualTo("fixture"));
+        Assert.That(summary["annotation_file_sha256"], Does.Match("^[0-9a-f]{64}$"));
 
-        // The stored rows are exactly the reader's.
         var localizations = Rows(artefact, "protein_localizations");
-        Assert.That(PyFormat.Json(localizations, sortKeys: false), Is.EqualTo(PyFormat.Json(Go.LocalizationRows(annotation), sortKeys: false)));
         var direct = localizations.Single(r => (string)r["protein_accession"]! == "P05141" && (string)r["compartment"]! == InnerMembrane);
         Assert.That((direct["propagated"], direct["inherited"], direct["n_members"], direct["n_with"], direct["evidence"]),
             Is.EqualTo(((object?)false, (object?)false, (object?)1L, (object?)1L, (object?)"ECO:0000314")));
@@ -164,7 +161,8 @@ public class GoEngineTests
         Assert.That(categoryRows.Single(r => (string)r["compartment"]! == Mitochondrion)["organelle_category"], Is.EqualTo("mitochondrion"));
         Assert.That(categoryRows.Any(r => (string)r["compartment"]! == Cytoplasm), Is.False, "cytoplasm is under no anchor of the map");
         var source = Rows(artefact, "annotation_sources").Single();
-        Assert.That((source["owner_project"], source["source_id"]), Is.EqualTo(((object?)"go", (object?)Go.SourceId(annotation))));
+        Assert.That((source["owner_project"], source["source_id"]), Is.EqualTo(((object?)"go", (object?)$"go:{summary["go_release"]}:{((string)summary["annotation_file_sha256"]!)[..12]}")),
+            "the source names the annotation file that was read and not kept, by its recorded sha256");
     }
 
     [Test]

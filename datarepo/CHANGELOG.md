@@ -17,6 +17,13 @@ each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   threshold the counts across datasets of different scope.** aging's store has served `protein_group` datasets since
   2026-10-29 (PXD045861 first, then PXD061654), beside `database` ones.
 
+### Changed (runner)
+- **A `go.annotate_groups` artefact no longer keeps `go_annotation.tsv`** (G110). The engine still writes it through
+  mzLib and reads it back as acceptance; its sha256 stays in `run.json` (`annotation_file_sha256`). Nothing read the
+  copy (~128 MB a run; aging's 269 copies, 34.2 GB, were deleted on 2026-10-25 with every catalog table equal). The rows
+  are unchanged, so `RunnerVersion` stays 1: an existing artefact keeps its id and is not re-run, and a new one is
+  simply smaller.
+
 ### Changed (build)
 - **Reconciliation is judged at build** (aging DATAREPO-86, option a). Each check of each bundle is compared with the
   bound the producer's own file format leaves, computed from the bundle's stored rows. A difference inside the bound

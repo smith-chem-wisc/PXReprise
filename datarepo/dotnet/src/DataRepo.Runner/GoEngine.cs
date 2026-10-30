@@ -65,8 +65,12 @@ public static class GoEngine
     /// <summary>go D35: drop a GO id the pinned go.obo lacks, and say so, rather than refuse the dataset.</summary>
     public const bool SkipUnknownGoIds = true;
 
-    /// <summary>go's two files, kept in the artefact in go's own format.</summary>
+    /// <summary>go's annotation file, written by mzLib and read back as acceptance, then left out of the artefact (G110,
+    /// 1.4.1): nothing reads it (~128 MB a run; 269 copies, 34.2 GB, deleted 2026-10-25 with every catalog table equal).
+    /// Its sha256 stays in the record (<c>annotation_file_sha256</c>), and the rows it gave are the artefact's Parquet.</summary>
     public const string AnnotationFile = "go_annotation.tsv";
+
+    /// <summary>go's category file, kept in the artefact in go's own format (small: one row per term and category).</summary>
 
     public const string CategoryFile = "go_category.tsv";
 
@@ -359,7 +363,7 @@ public static class GoEngine
                 ["acceptance"] = "passed",
             };
             return EngineRunner.WriteArtefact(store, Engine, aid, record, tables,
-                new Dictionary<string, string> { [AnnotationFile] = annotationPath, [CategoryFile] = categoryPath });
+                new Dictionary<string, string> { [CategoryFile] = categoryPath });
         }
         finally
         {
