@@ -29,6 +29,9 @@ the pin as usual.
     table lacks a design sample. A TmtDesign.txt PXReprise wrote is marked (`TmtDesign.txt.pxreprise`) and removed on
     the next attempt; one put there by hand still stops the search. MetaMorpheus's own TMT SDRF from the trial reads
     back to the trial's design, row for row. An isobaric search no longer carries the label-free `no_design_file` flag.
+    Every SDRF is first restricted to the search's files by mzLib's `SdrfSearchScope.Restrict` (QuantProject 085). Read
+    directly, an SDRF an earlier search wrote was refused for each calibrated file (`X-calib.mzML` in `comment[searched
+    data file]`). What the scope could not join is recorded under `scope`.
   - **Pending:** no deposit routes to it until delivery is settled (QuantProject 078, dataRepo).
 - **A search with low-resolution MS2 writes and reads no spectral library**, whatever the profile says. MetaMorpheus's
   library mode matches every fragment charge, and at the ion trap's ±0.5 Da decoys score as targets do: the TMT trial

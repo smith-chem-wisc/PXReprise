@@ -87,10 +87,11 @@ public static class DesignStage
                 .Order(StringComparer.Ordinal).Select(f => ("deposit", f, (IReadOnlyList<string>?)null)));
         foreach (var (source, sdrf, columns) in candidates)
         {
-            var d = ReadIsobaric(sdrf, searchedFiles, columns, tag, out string plexRule, out string? error);
+            var d = ReadIsobaric(sdrf, searchedFiles, columns, tag, out string plexRule, out var scope, out string? error);
             if (d is { IsValid: true })
             {
                 record = IsobaricRecord(source, sdrf, d, plexRule, kit);
+                record["scope"] = scope;
                 if (refused.Count > 0) record["sdrfs_refused"] = refused;
                 return d;
             }
@@ -98,6 +99,7 @@ public static class DesignStage
             {
                 ["source"] = source, ["sdrf"] = Path.GetFileName(sdrf), ["plex_rule"] = plexRule,
                 ["refusals"] = new JsonArray((error is null ? d!.Refusals.Take(5) : new[] { error }).Select(x => (JsonNode?)x).ToArray()),
+                ["scope"] = scope,
             });
         }
         record = new JsonObject
@@ -192,17 +194,30 @@ public static class DesignStage
         return path;
     }
 
+    /// <remarks>
+    /// The SDRF is first restricted to this search's files by mzLib's <see cref="SdrfSearchScope"/> (QuantProject 085): an
+    /// SDRF an earlier search wrote names that search's files (<c>X-calib.mzML</c>) in <c>comment[searched data file]</c>,
+    /// the column the reader keys on, and only the scope replaces them with this search's names. What the scope could not
+    /// join goes in <paramref name="scope"/>.
+    /// </remarks>
     private static SdrfIsobaricDesign? ReadIsobaric(string sdrf, IReadOnlyList<string> searchedFiles, IReadOnlyList<string>? conditionColumns,
-        IsobaricMassTag tag, out string plexRule, out string? error)
+        IsobaricMassTag tag, out string plexRule, out JsonObject? scope, out string? error)
     {
         error = null;
+        scope = null;
         plexRule = "none";
         try
         {
             var audit = SdrfQuantAuditor.Audit(sdrf);
             string? column = audit.PlexSource == SdrfPlexSource.Column ? audit.PlexEvidence : null;
             plexRule = column is null ? "single: no plex column, so one plex, which mzLib accepts only if every file has the same channels" : $"column: {column}";
-            return SdrfIsobaricDesign.Read(sdrf, new SdrfIsobaricDesignOptions
+            var scoped = SdrfSearchScope.Restrict(new SdrfDocument(sdrf), searchedFiles);
+            scope = new JsonObject
+            {
+                ["searched_without_row"] = Names(scoped.SearchedWithoutRow), ["dropped_data_files"] = Names(scoped.DroppedDataFiles),
+                ["ambiguous"] = Names(scoped.Ambiguous), ["shared_stem"] = Names(scoped.SharedStem),
+            };
+            return SdrfIsobaricDesign.Read(scoped.Document, new SdrfIsobaricDesignOptions
             {
                 Tag = tag, PlexColumn = column, SinglePlex = column is null ? "1" : null,
                 ConditionColumns = conditionColumns, SearchedFiles = searchedFiles.ToList(),
@@ -214,6 +229,8 @@ public static class DesignStage
             return null;
         }
     }
+
+    private static JsonArray Names(IEnumerable<string> names) => new(names.Select(n => (JsonNode?)n).ToArray());
 
     /// <summary>
     /// Writes the design, or removes any stale one, and returns its provenance record (<c>written</c> says which).

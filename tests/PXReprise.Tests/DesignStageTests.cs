@@ -119,6 +119,28 @@ public class DesignStageTests
         Assert.That(File.Exists(Path.Combine(spectra, DesignStage.TmtFileName)) || File.Exists(Path.Combine(spectra, DesignStage.TmtMarkerName)), Is.False);
     }
 
+    // QuantProject 085: an SDRF an earlier search wrote names that search's files in comment[searched data file]
+    // (a-calib.mzML), and mzLib's reader keys on that column. SdrfSearchScope.Restrict puts this search's names there
+    // first, so a re-search of the raw files reads it; read directly, it refused every calibrated file.
+    [Test]
+    public void AnSdrfAnEarlierSearchWroteIsRestrictedToThisSearchFirst()
+    {
+        var (_, metadata, files) = Run();
+        files = files.Take(2).ToList();
+        string sdrf = TmtSdrf(metadata, "PXD000001.sdrf.tsv", twoPlexes: false);
+        var lines = File.ReadAllLines(sdrf).Select(l => l.Split('\t').ToList()).ToList();
+        int dataFile = lines[0].IndexOf("comment[data file]");
+        lines[0].Insert(dataFile + 1, "comment[searched data file]");
+        foreach (var row in lines.Skip(1))
+            row.Insert(dataFile + 1, row[dataFile] == "a.raw" ? "a-calib.mzML" : row[dataFile]);
+        File.WriteAllLines(sdrf, lines.Select(r => string.Join('\t', r)));
+
+        var d = DesignStage.FindIsobaric(metadata, files, null, null, "TMT10", out var rec);
+        Assert.That(d, Is.Not.Null, string.Join(" | ", rec["sdrfs_refused"]?.AsArray().Select(x => x!.ToJsonString()) ?? []));
+        Assert.That((rec["files"]!.GetValue<int>(), rec["plexes"]!.AsArray().Count), Is.EqualTo((2, 1)));
+        Assert.That(rec["scope"]!["searched_without_row"]!.AsArray(), Is.Empty);
+    }
+
     // Two plexes and no plex column: a single plex is refused (a channel names two samples), and nothing infers the plex.
     // With characteristics[plex], the same SDRF gives two plexes.
     [Test]
