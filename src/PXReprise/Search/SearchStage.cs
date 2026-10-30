@@ -146,7 +146,7 @@ public static class SearchStage
         }
         // MetaMorpheus reads ExperimentalDesign.tsv (label-free) or TmtDesign.txt (isobaric, stage 6: from an SDRF, always)
         // from beside the first spectra file; written here, before any task runs.
-        var design = kit is not null ? DesignStage.PrepareIsobaric(r.SpectraDir, files, r.CuratedDesign, r.DesignConditionColumns, kit)
+        var design = kit is not null ? DesignStage.PrepareIsobaric(r.SpectraDir, files, r.CuratedDesign, r.DesignConditionColumns, kit, r.Organism, r.Accession)
             : p.Design == "sdrf" ? DesignStage.Prepare(r.SpectraDir, files, r.CuratedDesign, r.DesignConditionColumns, r.Organism, r.Accession) : null;
         // v0.4.27 (dataRepo 052, PXR-R28): the SDRF the design came from is kept in the search's own output, and the record
         // names that copy. A question's SDRF can be edited after its search (seven of aging's were), and the record must
@@ -578,7 +578,14 @@ public static class SearchStage
             if (c.IntensityShareMax > FlagMaxContaminantIntensityShare)
                 flags.Add($"high_contamination: {Pct(c.IntensityShareMax)} of protein intensity in the worst file, {Pct(c.IntensityShareMedian)} median across {c.IntensitySharePerFile.Count} files (DEF-QC-9 v3.5)");
         }
-        if (!hasDesign)
+        // An isobaric search's design is TmtDesign.txt, always written (stage 6); without a channel design in any SDRF it is
+        // PXReprise's default, and the values compare nothing until one is curated (QuantProject 079).
+        if (kit is not null)
+        {
+            if (design?["flag"]?.GetValue<string>() == DesignStage.NoChannelDesign)
+                flags.Add($"{DesignStage.NoChannelDesign}: no SDRF says which sample is in which channel ({design["reason"]}); PXReprise's default design makes each file its own plex and each channel its own sample; the reporter values compare nothing until a design is curated (QuantProject 079)");
+        }
+        else if (!hasDesign)
             flags.Add("no_design_file: FlashLFQ treated each file as its own biorep under one blank condition; no normalization; not usable for condition comparisons (owner: QuantProject projection)");
         // MetaMorpheus #2816: a failed SDRF write never fails the search; it leaves SdrfWriter_crash.txt (sdrf PXR-E1).
         string? sdrfCrash = Directory.Exists(mm) ? Directory.EnumerateFiles(mm, "SdrfWriter_crash.txt", SearchOption.AllDirectories).FirstOrDefault() : null;

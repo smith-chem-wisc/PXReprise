@@ -359,10 +359,6 @@ public sealed class BatchRunner
         if (s is not null && (s.StartsWith("deferred_", StringComparison.Ordinal) || s is "skipped_selection_empty" or "waiting_other_organism")
             && _q.ExceptionFor(acc) is { } ex && entry0?["exception"]?.GetValue<string>() != ex.Describe())
             return "";
-        // v0.4.34: an isobaric deposit parked without a channel design gets one more look when the question's curated SDRF
-        // for it appears or changes; the look records it, so a design that is still refused settles again.
-        if (s == Search.DesignStage.TmtDesignPark && entry0?["curated_design"]?.GetValue<string>() != CuratedDesignStamp(acc))
-            return "";
         // v0.4.21: a deposit a size gate deferred gets ONE more look when the machine's [deposit_limits] change and now fit
         // what its deferral measured; the look records the limits, so a deposit that still does not fit settles again.
         if (s is not null && Limits is { } lim && entry0 is { } entry
@@ -1084,8 +1080,7 @@ public sealed class BatchRunner
         }
         if (profile.ProbeSearch && !await ProbeSearchAsync(e, profile, acq, chemistry, report, xr, ct).ConfigureAwait(false))
             return null;
-        if (profile.QuantMethod == "reporter_ion" && !IsobaricDesignReady(acc, report, listing.Select(f => f.FileName).ToList(), xr))
-            return null;
+        if (profile.QuantMethod == "reporter_ion") LogIsobaricDesign(acc, report, listing.Select(f => f.FileName).ToList());
         Experiment(acc, xr, "probed", $"to be searched under {profile.Key}");
         return profile;
     }
@@ -1227,40 +1222,23 @@ public sealed class BatchRunner
     /// Never fails the batch: a record that cannot be written is logged.
     /// </summary>
     /// <summary>
-    /// v0.4.34 (PLAN_tmt-dda-2 stage 6): an isobaric deposit is searched only with a channel design, which comes from an
-    /// SDRF (<see cref="Search.DesignStage.FindIsobaric"/>), checked here against the selection before the full download.
-    /// Without one it parks <see cref="Search.DesignStage.TmtDesignPark"/> with a decisions row; a curated SDRF added for
-    /// it later gives it one more look (<see cref="Settled(string, JsonObject?)"/>). Whether to deliver such a deposit
-    /// flagged instead is QuantProject's question (078); until they answer, it parks. True when the search can go on,
-    /// including when the probe files disagree on the kit: the search refuses that with its own reason.
+    /// v0.4.34 (PLAN_tmt-dda-2 stage 6): says, before the full download, which channel design an isobaric deposit will be
+    /// searched with (<see cref="Search.DesignStage.FindIsobaric"/> against the selection). With no SDRF that gives one, it
+    /// is searched on PXReprise's default design and delivered flagged <see cref="Search.DesignStage.NoChannelDesign"/>
+    /// (QuantProject 079), never parked: the identifications are as good as any deposit's, and the values become usable
+    /// when a design is curated and the deposit re-searched.
     /// </summary>
-    private bool IsobaricDesignReady(string acc, JsonObject probeQc, IReadOnlyList<string> selection, ExperimentRecord xr)
+    private void LogIsobaricDesign(string acc, JsonObject probeQc, IReadOnlyList<string> selection)
     {
         var kits = probeQc.Select(kv => kv.Value?["isobaric_kit"]?.GetValue<string>()).Distinct().ToList();
-        if (kits.Count != 1 || kits[0] is not { } kit) return true;
+        if (kits.Count != 1 || kits[0] is not { } kit) return;   // the search refuses it, with its own reason
         string? curated = _q.Designs?.For(acc);
         var columns = _q.Designs is { ConditionColumns.Count: > 0 } ds ? ds.ConditionColumns : null;
         if (Search.DesignStage.FindIsobaric(Path.Combine(Run(acc), "02_fetch", "metadata"), selection, curated, columns, kit, out var rec) is not null)
-        {
             Log($"{acc} PROBE isobaric design: {kit}, the {rec["source"]} SDRF ({rec["plex_rule"]}; {rec["files"]} files)");
-            return true;
-        }
-        string why = $"{kit}: {rec["reason"]}" + (rec["sdrfs_refused"] is JsonArray { Count: > 0 } r
-            ? ": " + string.Join(" | ", r.Select(x => $"{x!["sdrf"]}: {string.Join("; ", x["refusals"]!.AsArray().Take(3).Select(y => y!.GetValue<string>()))}"))
-            : "");
-        Log($"{acc} PARKED ({Search.DesignStage.TmtDesignPark}): {why}");
-        Record(acc, ("status", Search.DesignStage.TmtDesignPark), ("detail", why), ("curated_design", CuratedDesignStamp(acc)));
-        Experiment(acc, xr, Search.DesignStage.TmtDesignPark, why);
-        return false;
-    }
-
-    /// <summary>The question's curated SDRF for <paramref name="acc"/> as "path sha256", or null when it has none: what a
-    /// <see cref="Search.DesignStage.TmtDesignPark"/> park was decided on.</summary>
-    private string? CuratedDesignStamp(string acc)
-    {
-        if (_q.Designs?.For(acc) is not { } c || !File.Exists(c)) return null;
-        using var s = File.OpenRead(c);
-        return $"{c} {Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(s))}";
+        else
+            Log($"{acc} PROBE isobaric design: {kit}, none in any SDRF ({rec["reason"]}): searched on PXReprise's default design, "
+                + $"delivered flagged {Search.DesignStage.NoChannelDesign}");
     }
 
     private void Experiment(string acc, ExperimentRecord xr, string outcome, string? detail, string? park = null)

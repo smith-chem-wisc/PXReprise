@@ -293,24 +293,6 @@ public class BatchRunnerTests
         Assert.Throws<ConfigException>(() => new BatchRunner(fish, Profiles, Machine.Load(Path.Combine(dir, "machine.toml")), new FakeFiles(), new FakeSearch(), "2026-10-15"));
     }
 
-    // v0.4.34 (PLAN_tmt-dda-2 stage 6): an isobaric deposit parked without a channel design waits for a curated SDRF; one
-    // added (or changed) gives it one more look, and the look's record settles it again if that SDRF is refused too.
-    [Test]
-    public void AnIsobaricDepositWithoutADesignIsLookedAtAgainWhenACuratedSdrfArrives()
-    {
-        var (runner, _, _, dir) = Runner("[designs]\ndir = \"designs\"\n");
-        Directory.CreateDirectory(Path.Combine(dir, "designs"));
-        runner.Record("PXD000600", ("status", PXReprise.Search.DesignStage.TmtDesignPark), ("curated_design", null));
-        Assert.That(runner.Settled("PXD000600"), Is.EqualTo(PXReprise.Search.DesignStage.TmtDesignPark));
-        string sdrf = TestSupport.WriteFile(Path.Combine(dir, "designs"), "PXD000600.sdrf.tsv", "source name\n");
-        Assert.That(runner.Settled("PXD000600"), Is.Empty, "the curated SDRF earns one more look");
-        string stamp = $"{sdrf} {Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(sdrf)))}";
-        runner.Record("PXD000600", ("status", PXReprise.Search.DesignStage.TmtDesignPark), ("curated_design", stamp));
-        Assert.That(runner.Settled("PXD000600"), Is.EqualTo(PXReprise.Search.DesignStage.TmtDesignPark), "parked again on the same SDRF: no loop");
-        File.AppendAllText(sdrf, "edited\n");
-        Assert.That(runner.Settled("PXD000600"), Is.Empty, "an edited SDRF earns another look");
-    }
-
     // v0.4.19 (PXD018399, aging 112): its record names mouse and Nothobranchius furzeri, and the 34 killifish runs were
     // searched as mouse beside the 20 mouse runs. A record that names an organism outside the question waits for a
     // person, before any download; an exception that selects the runs (or names the species) is the answer.

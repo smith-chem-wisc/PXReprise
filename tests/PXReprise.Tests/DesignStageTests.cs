@@ -122,15 +122,12 @@ public class DesignStageTests
     // Two plexes and no plex column: a single plex is refused (a channel names two samples), and nothing infers the plex.
     // With characteristics[plex], the same SDRF gives two plexes.
     [Test]
-    public void SeveralPlexesNeedAPlexColumnOrTheDepositParks()
+    public void SeveralPlexesNeedAPlexColumn()
     {
-        var (spectra, metadata, files) = Run();
+        var (_, metadata, files) = Run();
         TmtSdrf(metadata, "PXD000001.sdrf.tsv");
         Assert.That(DesignStage.FindIsobaric(metadata, files, null, null, "TMT10", out var rec), Is.Null);
         Assert.That(rec["sdrfs_refused"]!.AsArray(), Has.Count.EqualTo(1));
-        var e = Assert.Throws<SearchSetupException>(() => DesignStage.PrepareIsobaric(spectra, files, null, null, "TMT10"));
-        Assert.That(e!.Message, Does.StartWith(DesignStage.TmtDesignPark));
-        Assert.That(File.Exists(Path.Combine(spectra, DesignStage.TmtFileName)), Is.False, "a refusal leaves no design");
 
         string curated = TmtSdrf(TestSupport.TempDir(), "PXD000001.sdrf.tsv", plexColumn: "characteristics[plex]");
         var d = DesignStage.FindIsobaric(metadata, files, curated, null, "TMT10", out rec);
@@ -140,14 +137,36 @@ public class DesignStageTests
         Assert.That(rec["plexes"]!.AsArray().Select(x => x!.GetValue<string>()), Is.EqualTo(new[] { "plex1", "plex2" }));
     }
 
+    // With no SDRF that gives a channel design, the search runs on PXReprise's default and is flagged (QuantProject 079,
+    // as D31 for label-free): each file its own plex, each channel its own sample, so no two files are taken to share one.
     [Test]
-    public void WithNoSdrfAnIsobaricDepositParksAndThePersonIsAsked()
+    public void WithNoChannelDesignTheDefaultClaimsNothingAndIsFlagged()
     {
-        var (spectra, _, files) = Run();
-        var e = Assert.Throws<SearchSetupException>(() => DesignStage.PrepareIsobaric(spectra, files, null, null, "TMT10"));
-        Assert.That(e!.Message, Does.Contain("no curated design and no deposited SDRF"));
-        Assert.That(PXReprise.Discovery.DecisionsNeeded.For(DesignStage.TmtDesignPark), Is.Not.Null, "a park that needs a person is announced (D34)");
+        var (spectra, metadata, files) = Run();
+        TmtSdrf(metadata, "PXD000001.sdrf.tsv");   // two plexes, no plex column: refused
+        var rec = DesignStage.PrepareIsobaric(spectra, files, null, null, "TMT10", "mouse", "PXD000001");
+        Assert.That((rec["source"]!.GetValue<string>(), rec["flag"]!.GetValue<string>()), Is.EqualTo((DesignStage.DefaultSource, DesignStage.NoChannelDesign)));
+        Assert.That(rec["reason"]!.GetValue<string>(), Is.EqualTo("every SDRF was refused"));
+        Assert.That(rec["sdrfs_refused"]![0]!["sdrf"]!.GetValue<string>(), Is.EqualTo("PXD000001.sdrf.tsv"));
+        Assert.That(rec["plexes"]!.AsArray().Select(x => x!.GetValue<string>()), Is.EqualTo(new[] { "a", "b", "c", "d" }), "each file its own plex");
+        var rows = File.ReadAllLines(Path.Combine(spectra, DesignStage.TmtFileName)).Skip(1).Select(l => l.Split('\t')).ToList();
+        Assert.That(rows, Has.Count.EqualTo(4 * 10));
+        Assert.That(rows.Select(r => r[2]).Distinct().Count(), Is.EqualTo(40), "each file and channel its own sample");
+        Assert.That(rows.Select(r => r[4]).Distinct(), Is.EqualTo(new[] { DesignStage.DefaultCondition }));
+        Assert.That(Path.GetDirectoryName(rec["sdrf"]!.GetValue<string>()), Does.EndWith("pxreprise_sdrf"), "never in metadata, where a later attempt would read it as the deposit's");
         Assert.Throws<SearchSetupException>(() => DesignStage.FindIsobaric(spectra, files, null, null, "TMT99", out _), "an unknown kit is a wrong call");
+    }
+
+    // As for label-free: a curated design MetaMorpheus would not accept is fixed, not searched around.
+    [Test]
+    public void ARefusedCuratedIsobaricDesignStopsTheSearch()
+    {
+        var (spectra, metadata, files) = Run();
+        TmtSdrf(metadata, "PXD000001.sdrf.tsv", plexColumn: "characteristics[plex]");   // the deposit's would do
+        string curated = TmtSdrf(TestSupport.TempDir(), "PXD000001.sdrf.tsv");          // two plexes, no column
+        var e = Assert.Throws<SearchSetupException>(() => DesignStage.PrepareIsobaric(spectra, files, curated, null, "TMT10"));
+        Assert.That(e!.Message, Does.Contain("the question's design").And.Contain("refused"));
+        Assert.That(File.Exists(Path.Combine(spectra, DesignStage.TmtFileName)), Is.False);
     }
 
     [Test]
