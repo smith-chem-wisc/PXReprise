@@ -205,4 +205,29 @@ public class TaskFilesTests
         }
         return e.ValueKind == JsonValueKind.String ? e.GetString() : null;
     }
+    // v0.4.34 (TMT trial, results/tmt-trial_2026-10-29): the kit fixed on K and X in every task; the search quantifies
+    // reporters, names the kit (MultiplexModId, absent from CMD -g's file), and runs no FlashLFQ.
+    [Test]
+    public void AnIsobaricKitIsFixedInEveryTaskAndTheSearchQuantifiesItsReporters()
+    {
+        var known = new HashSet<(string, string)>(Known) { ("Multiplex Label", "TMT10 on K"), ("Multiplex Label", "TMT10 on X") };
+        const string search = """
+            [SearchParameters]
+            DoLabelFreeQuantification = true
+            DoMultiplexQuantification = false
+            [CommonParameters]
+            MaxThreadsToUsePerFile = 63
+            ListOfModsFixed = "Common Fixed\tCarbamidomethyl on C\t\tCommon Fixed\tCarbamidomethyl on U"
+            """;
+        var (s, _) = TaskFiles.Edit(search, TaskKind.Search, new TaskSettings(8, false, Array.Empty<string>(), MultiplexKit: "TMT10"), known);
+        Assert.That(s.ReplaceLineEndings("\n"), Does.Contain("DoMultiplexQuantification = true\nMultiplexModId = \"TMT10\""));
+        Assert.That(s, Does.Contain("DoLabelFreeQuantification = false"));
+        Assert.That(s, Does.Contain(@"ListOfModsFixed = ""Common Fixed\tCarbamidomethyl on C\t\tCommon Fixed\tCarbamidomethyl on U\t\tMultiplex Label\tTMT10 on K\t\tMultiplex Label\tTMT10 on X"""));
+        // Calibration: the label too, nothing of the search's.
+        var (c, _) = TaskFiles.Edit(Chemistry, TaskKind.Calibration, new TaskSettings(8, false, Array.Empty<string>(), MultiplexKit: "TMT10"), known);
+        Assert.That(c, Does.Contain(@"Multiplex Label\tTMT10 on K\t\tMultiplex Label\tTMT10 on X"""));
+        Assert.That(c, Does.Not.Contain("MultiplexModId"));
+        // A kit the pinned MetaMorpheus does not define is refused, never dropped.
+        Assert.Throws<SearchSetupException>(() => TaskFiles.Edit(search, TaskKind.Search, new TaskSettings(8, false, Array.Empty<string>(), MultiplexKit: "TMT99"), known));
+    }
 }
