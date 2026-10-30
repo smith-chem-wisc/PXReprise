@@ -127,7 +127,14 @@ public static class Ingester
 
     /// <summary>The MetaMorpheus task <c>.toml</c> files the run actually executed (its provenance inputs), never
     /// the shipped templates for tasks that did not run.</summary>
-    private static List<string> TaskFiles(string workRoot, IReadOnlyDictionary<string, object?> searchProvenance)
+    /// <remarks>A search folder can move after it ran: PXReprise keeps a replaced search as
+    /// <c>&lt;accession&gt;.superseded-&lt;stamp&gt;</c>, and its provenance still names the old path. When
+    /// <paramref name="searchDir"/> is given, a task file missing at its recorded path is looked for under the entry's own
+    /// search folder (<c>tasks/&lt;name&gt;</c>) and taken only when its sha256 is the recorded one. Before 1.4.1 it was
+    /// skipped silently, so eleven of aging's bundles kept no task file and declared no modification. One still not found
+    /// goes to <paramref name="missing"/>.</remarks>
+    private static List<string> TaskFiles(string workRoot, IReadOnlyDictionary<string, object?> searchProvenance,
+        string? searchDir = null, List<string>? missing = null)
     {
         var output = new List<string>();
         foreach (var e in List(Get(searchProvenance, "inputs")))
@@ -136,7 +143,16 @@ public static class Ingester
             if (path.ToLowerInvariant().EndsWith("task.toml", StringComparison.Ordinal))
             {
                 var candidate = Join(workRoot, path);
-                if (File.Exists(candidate)) output.Add(candidate);
+                if (File.Exists(candidate))
+                {
+                    output.Add(candidate);
+                    continue;
+                }
+                if (searchDir is null) continue;
+                var moved = Join(Join(searchDir, "tasks"), Path.GetFileName(path.Replace('\\', '/')));
+                var recorded = Get(Map(e), "sha256") is { } sha ? PyFormat.Str(sha) : null;
+                if (recorded is not null && File.Exists(moved) && BundleWriter.Sha256File(moved) == recorded) output.Add(moved);
+                else missing?.Add(path);
             }
         }
         return output;
@@ -270,7 +286,9 @@ public static class Ingester
         var settings = mmSettings;
         if (settings is null && entry.Metamorpheus is not null && S(entry.Metamorpheus).Length > 0)
             settings = Join(Join(manifest.WorkRoot, "mm_settings"), S(entry.Metamorpheus));
-        var registry = settings is not null ? ModRegistry.FromMetaMorpheus(settings, rules) : new ModRegistry();
+        // Current: mzLib's loaders over the install, as MetaMorpheus loads them (G26); Python0320: 0.32.0's file reader.
+        var registry = settings is null ? new ModRegistry()
+            : rules == IngestRules.Current ? ModRegistry.FromMzLib(settings) : ModRegistry.FromMetaMorpheus(settings, rules);
         var proforma = new ProformaCache(registry, rules);
 
         // --- samples and runs -----------------------------------------------------------------------------
@@ -286,14 +304,23 @@ public static class Ingester
         // The QC numbers are the QC stage's, so they cite the namespace its own record declares (D37).
         var qcNamespace = qcDir is not null && namespaceByStageDir.TryGetValue(Path.GetFullPath(qcDir), out var qns) ? qns : searchNamespace;
 
-        var sdrfPath = Directory.GetDirectories(runDir)
-            .SelectMany(d => Directory.Exists(Path.Combine(d, "metadata")) ? Directory.GetFiles(Path.Combine(d, "metadata"), "*.sdrf.tsv") : [])
-            .Order(StringComparer.Ordinal).FirstOrDefault();
+        var sdrfChoice = ChooseSdrf(manifest, entry, runDir, searchProvenance, datasetId, rules);
+        var sdrfPath = sdrfChoice.Path;
         SdrfTable sdrf;
         if (sdrfPath is not null)
         {
             writer.AddSource(BundleWriter.PathText(sdrfPath), "sdrf", Path.GetFileName(sdrfPath));
             sdrf = Sdrf.Parse(sdrfPath, datasetId, DatasetEntry.Text(entry.Organism), log, rules);
+            // A curated SDRF's factor values are its question's grouping, which reaches the catalog through the study
+            // layer; the bundle every question shares keeps only the facts of the samples (G102, G107).
+            if (sdrfChoice.CharacteristicsOnly)
+                sdrf = new SdrfTable
+                {
+                    Samples = sdrf.Samples, Assays = sdrf.Assays, RunFacts = sdrf.RunFacts, SampleOfRun = sdrf.SampleOfRun,
+                    Columns = sdrf.Columns, Conflicts = sdrf.Conflicts.Where(c => !IsFactorValue(c.Column)).ToList(),
+                    Characteristics = sdrf.Characteristics.Where(c => !IsFactorValue((string)c["name"]!)).ToList(),
+                };
+            if (rules == IngestRules.Current) writer.Notes["sdrf"] = sdrfChoice.Note();
         }
         else sdrf = new SdrfTable { Samples = [], Characteristics = [], Assays = [], RunFacts = [], SampleOfRun = [], Columns = [] };
 
@@ -309,6 +336,8 @@ public static class Ingester
         // A file the search left out is not a run, so a run map or SDRF assay naming it is dropped with it rather
         // than refused: both were written about the deposit, before the search chose.
         var excludedStems = excluded.Select(Path.GetFileNameWithoutExtension).ToHashSet(StringComparer.Ordinal);
+        if (sdrfChoice.ChosenBy == "operator_sdrf")
+            CheckOperatorSdrf(sdrf, sdrfPath!, runRows, resultsDir, datasetId, log, rules);
         var enrichmentMixed = Runs.AssignEnrichment(
             runRows, datasetId, entry.Enrichment, entry.MixedEnrichment,
             entry.RunEnrichment.Where(p => !excludedStems.Contains(p.Run)).ToList(), rules);
@@ -348,7 +377,8 @@ public static class Ingester
                 sdrfStatus = "unmatched";
                 samples = [];
                 characteristics = [];
-                findings.Add(SdrfGateFinding(datasetId, "sdrf_unmatched", namedUnsearched, []));
+                findings.Add(SdrfGateFinding(datasetId, "sdrf_unmatched", namedUnsearched, [],
+                    rules == IngestRules.Current ? sdrf : null));
             }
             else if (namedUnsearched.Count > 0 || unnamed.Count > 0)
             {
@@ -362,6 +392,7 @@ public static class Ingester
             }
         }
         if (samples.Count == 0) Synthetic(runRows);
+        findings.AddRange(SdrfConflictFindings(sdrf.Conflicts, samples, datasetId));
         static bool Annotated(List<Row> samples) => samples.Any(s =>
             new[] { "organism_part", "cell_type", "disease", "individual_id" }.Any(c => s.TryGetValue(c, out var v) && !IsFalsy(v)));
         string uncoded;
@@ -401,11 +432,21 @@ public static class Ingester
         long proteinGroupCount = 0;
         var proteinGroupQuant = new List<Row>();
         SampleColumns? sampleColumns = null;
+        var pooledRunRows = new List<Row>();
         var pgPath = Join(resultsDir, "AllQuantifiedProteinGroups.tsv");
         if (File.Exists(pgPath))
         {
             writer.AddSource(pgPath, "protein_group_quant");
-            (proteinGroups, proteinGroupQuant, proteinGroupCount, sampleColumns) = Quant.ProteinGroupRows(pgPath, datasetId, runNames, log, rules);
+            // Each searched run's SDRF sample, for a run with exactly one assay: a design sample of several files that
+            // is exactly one SDRF sample's files is stored against a pooled assay (PXR-R23, schema 0.0.16).
+            IReadOnlyDictionary<string, string>? sampleOfRun = rules == IngestRules.Current
+                ? assays.GroupBy(a => ((string)a["run_id"]!).Split(':', 2)[1], StringComparer.Ordinal)
+                    .Where(g => g.Count() == 1)
+                    .ToDictionary(g => g.Key, g => (string)g.First()["sample_id"]!, StringComparer.Ordinal)
+                : null;
+            (proteinGroups, proteinGroupQuant, proteinGroupCount, sampleColumns) = Quant.ProteinGroupRows(pgPath, datasetId, runNames, log, rules, sampleOfRun);
+            if (rules == IngestRules.Current && sampleColumns.BySample)
+                pooledRunRows = PlaceDesignSamples(sampleColumns, assays, datasetId);
             // The design reaches rows only when it placed the columns, so only then is it an input (PXR-R9). Copied,
             // so a reader can see which files each sample holds.
             if (sampleColumns.BySample)
@@ -431,9 +472,20 @@ public static class Ingester
             var dbPath = PyFormat.Str(db["path"]!);
             writer.AddHashedSource(dbPath, $"protein_database:{Path.GetFileName(dbPath)}", PyFormat.Str(db["sha256"]!));
         }
+        // How the search resolved an accession in both a target and a contaminant database: it decides that protein's
+        // contaminant label below and, under Current, which of its sequences sites and occupancy are placed against.
+        // The task files the search ran, found where its provenance says or, under Current, in the entry's own search
+        // folder by sha256 when the folder has moved since (1.4.1).
+        var missingTasks = new List<string>();
+        var taskFiles = rules == IngestRules.Current
+            ? TaskFiles(manifest.WorkRoot, searchProvenance, searchDir, missingTasks)
+            : TaskFiles(manifest.WorkRoot, searchProvenance);
+        var tc = SearchParams.TcAmbiguity(taskFiles, rules);
+        if (rules == IngestRules.Current) sequences.KeepSearched(tc);
         var unplaced = new OrderedDictionary<string, long>(StringComparer.Ordinal);
         var ptmSites = Identifications.PtmSiteRows(psmColumns, datasetId, proforma, sequences, unplaced);
         var siteCheck = Identifications.VerifySiteResidues(ptmSites, sequences);
+        if (rules == IngestRules.Current) Identifications.AddSequenceWindows(ptmSites, sequences);
 
         var peptideColumns = new Dictionary<string, List<object?>>(StringComparer.Ordinal);
         if (File.Exists(allPeptidesPath))
@@ -460,7 +512,6 @@ public static class Ingester
         }
         // A protein's contaminant label comes from the database it was read from, not from the PSM row it shares
         // with a contaminant (G66). An accession in BOTH is whatever the search's TCAmbiguity made it.
-        var tc = SearchParams.TcAmbiguity(TaskFiles(manifest.WorkRoot, searchProvenance), rules);
         bool? ContaminantOf(string accession)
         {
             var status = sequences.DatabaseStatus(accession);
@@ -468,11 +519,13 @@ public static class Ingester
             return status switch { "contaminant" => true, "target" => false, _ => null };
         }
         var unresolvedLabels = new Dictionary<string, long>(StringComparer.Ordinal);
+        // DATAREPO-84: a target entry of another source than UniProt (aging's Ensembl-only isoforms) is labelled with it.
+        Func<string, (string Source, string? Taxon)?>? otherSource = rules == IngestRules.Current ? sequences.OtherSource : null;
         var proteins = Identifications.AddGroupProteins(
             Identifications.ProteinRows(
                 new[] { psmColumns, peptideColumns }.Where(c => c.Count > 0).ToList(),
-                datasetId, DatasetEntry.Text(entry.Organism), ContaminantOf, unresolvedLabels),
-            proteinGroups, DatasetEntry.Text(entry.Organism));
+                datasetId, DatasetEntry.Text(entry.Organism), ContaminantOf, unresolvedLabels, otherSource),
+            proteinGroups, DatasetEntry.Text(entry.Organism), otherSource);
 
         // --- quantities -----------------------------------------------------------------------------------
         var mbrBlock = Map(Get(searchProvenance, "mbr"));
@@ -488,14 +541,29 @@ public static class Ingester
         if (File.Exists(peptideQuantPath))
         {
             writer.AddSource(peptideQuantPath, "peptide_quant");
-            quantValues.AddRange(Quant.PeptideQuantRows(peptideQuantPath, datasetId, runNames, s => proforma.Get(s).Proforma, peakQuality, log, rules));
+            var ambiguous = new Dictionary<string, long>(StringComparer.Ordinal);
+            quantValues.AddRange(Quant.PeptideQuantRows(peptideQuantPath, datasetId, runNames, s => proforma.Get(s).Proforma, peakQuality, log, rules, ambiguous));
+            if (ambiguous.Count > 0)
+                findings.Add(Finding(datasetId, "peptide_rows_localization_ambiguous", "warning",
+                    $"{ambiguous.Count} row(s) of AllQuantifiedPeptides.tsv name several full sequences, joined by `|`: a peptide "
+                    + "whose modification site the search did not settle (MetaMorpheus #2917). Their "
+                    + $"{ambiguous.Values.Sum()} value(s) are not stored, since storing them under one of the sequences would place "
+                    + "them on a site the search never decided. The PSMs behind them are in `psms`. E.g. "
+                    + string.Join(", ", ambiguous.Keys.Order(StringComparer.Ordinal).Take(3).Select(k => $"`{k}`")) + "."));
         }
 
         // --- search parameters and reported totals --------------------------------------------------------
-        var taskFiles = TaskFiles(manifest.WorkRoot, searchProvenance);
+        if (missingTasks.Count > 0)
+            findings.Add(Finding(datasetId, "task_files_missing", "warning",
+                $"{missingTasks.Count} MetaMorpheus task file(s) the search's provenance names were not found, at the recorded "
+                + "path or with the recorded sha256 under this entry's search folder: "
+                + string.Join(", ", missingTasks.Select(t => $"`{Path.GetFileName(t.Replace('\\', '/'))}`")) + ". "
+                + "`search_modifications_declared` has no rows from them, and settings read from them (the target/contaminant "
+                + "rule, protease and search mode) are unknown here, not defaults."));
         foreach (var path in taskFiles)
             writer.AddSource(path, $"task:{Path.GetFileNameWithoutExtension(path)}", Path.GetFileName(path));
-        var searchModifications = SearchParams.ModificationRows(taskFiles, datasetId, name => registry.Lookup(name, rules: rules)?.UnimodCurie, rules);
+        var searchModifications = SearchParams.ModificationRows(taskFiles, datasetId,
+            (category, name) => registry.Lookup(name, rules: rules, category: category)?.UnimodCurie, rules);
 
         var resultsPath = Join(resultsDir, "results.txt");
         var results = new Dictionary<string, Dictionary<string, long>>(StringComparer.Ordinal);
@@ -649,11 +717,19 @@ public static class Ingester
         findings.AddRange(SiteResidueFindings(siteCheck, datasetId));
 
         // --- assemble -------------------------------------------------------------------------------------
+        if (rules == IngestRules.Current)
+            // Schema 0.0.16 (PXR-R23): every assay so far is one run's; a pooled design sample says so itself.
+            foreach (var assay in assays)
+            {
+                assay.TryAdd("assay_kind", "run");
+                assay.TryAdd("design_label", null);
+            }
         writer.Add("datasets", [datasetRow]);
         writer.Add("samples", samples);
         writer.Add("sample_characteristics", characteristics);
         writer.Add("runs", runRows);
         writer.Add("assays", assays);
+        if (rules == IngestRules.Current) writer.Add("assay_runs", pooledRunRows);
         writer.Add("psms", psmRows);
         writer.Add("peptidoforms", peptidoforms);
         writer.Add("protein_groups", proteinGroups);
@@ -695,20 +771,35 @@ public static class Ingester
         writer.Notes["licence"] = manifest.Licence;
         writer.Notes["credit"] = manifest.Credit;
         writer.Notes["readers"] = log.Entries;
-        writer.Notes["modification_registry"] = new OrderedDictionary<string, object?>
+        var registryNote = new OrderedDictionary<string, object?>
         {
             ["source"] = settings is null ? null : BundleWriter.PathText(settings),
             ["entries"] = (long)registry.Count,
             ["files"] = registry.Sources,
             ["unresolved"] = proforma.Unresolved,
         };
-        writer.Notes["protein_databases"] = new OrderedDictionary<string, object?>
+        if (rules == IngestRules.Current)
+        {
+            registryNote["loader"] = registry.Loader;  // G26: which mzLib read the install
+            registryNote["masses_withheld"] = registry.MassesWithheld;
+        }
+        writer.Notes["modification_registry"] = registryNote;
+        var databasesNote = new OrderedDictionary<string, object?>
         {
             ["read"] = sequences.Files,
             ["missing"] = sequences.Missing,
             ["unplaced_site_pairs"] = unplaced,
             ["site_residue_check"] = siteCheck,
         };
+        if (rules == IngestRules.Current)
+            // G101: which accessions carried several sequences, and which one sites and occupancy were placed against.
+            databasesNote["searched_sequence"] = new OrderedDictionary<string, object?>
+            {
+                ["tc_ambiguity"] = tc,
+                ["resolved"] = sequences.Resolved,
+                ["ambiguous"] = sequences.Ambiguous.ToList(),
+            };
+        writer.Notes["protein_databases"] = databasesNote;
         writer.Notes["occupancy"] = occupancyNote;
         if (sampleColumns is { BySample: true })
             writer.Notes["protein_group_columns"] = new OrderedDictionary<string, object?>
@@ -719,6 +810,14 @@ public static class Ingester
                     kv => kv.Key, kv => (object?)kv.Value.ToDictionary(d => d.Key, d => (object?)d.Value, StringComparer.Ordinal),
                     StringComparer.Ordinal),
             };
+        if (rules == IngestRules.Current && sampleColumns is { BySample: true })
+            // PXR-R23: each pooled sample, its assay and the SDRF sample it is.
+            ((OrderedDictionary<string, object?>)writer.Notes["protein_group_columns"]!)["pooled_samples"] = sampleColumns.Samples
+                .Where(s => s.PooledAssay is not null)
+                .ToDictionary(s => s.Label, s => (object?)new OrderedDictionary<string, object?>
+                {
+                    ["assay_id"] = s.PooledAssay, ["sample_id"] = s.PooledSampleId, ["files"] = (long)s.Files.Count,
+                }, StringComparer.Ordinal);
         writer.Notes["reconciliation"] = checks.Select(c => c.AsDict()).ToList();
         writer.Notes["collapsed_duplicates"] = collapsed.Select(c => new OrderedDictionary<string, object?>
         {
@@ -852,6 +951,11 @@ public static class Ingester
                 + "stored peptide -- typically a PSM ambiguous between peptide sequences (level 4 or 5), "
                 + "where this protein carries a different candidate than the first, which is the one "
                 + "stored");
+        if (unplaced.GetValueOrDefault("ambiguous_sequence") > 0)
+            parts.Add(
+                $"{unplaced["ambiguous_sequence"]} named a protein the searched databases carry with different "
+                + "sequences, where the search's TCAmbiguity does not say which one it searched ("
+                + string.Join(", ", sequences.Ambiguous) + ")");
         if (unplaced.GetValueOrDefault("c_term_no_sequence") > 0)
             parts.Add(
                 $"{unplaced["c_term_no_sequence"]} carried a C-terminal modification on a protein with "
@@ -919,9 +1023,18 @@ public static class Ingester
     }
 
     /// <summary>What the data-file gate did with an SDRF that does not match the searched runs (G62).</summary>
-    private static Row SdrfGateFinding(string datasetId, string code, List<string> namedUnsearched, List<string> unnamed)
+    /// <param name="table">The parsed SDRF, to say why nothing matched when it names no searched file; null keeps
+    /// Python 0.32.0's message, which then ended in an empty list (PXD021762's stored "SDRF" was an HTML page).</param>
+    private static Row SdrfGateFinding(string datasetId, string code, List<string> namedUnsearched, List<string> unnamed, SdrfTable? table = null)
     {
         var parts = new List<string>();
+        if (table is not null && namedUnsearched.Count == 0 && unnamed.Count == 0)
+            parts.Add(table.Assays.Count > 0
+                ? "every file it names is one the search left out"
+                : !table.Columns.Any(c => PyText.Strip(c) == "source name")
+                    ? "it has no `source name` column, so it may not be an SDRF at all (its first column is "
+                      + $"`{(table.Columns.Count > 0 ? PyText.Strip(table.Columns[0]) : "")}`)"
+                    : "no row names both a source name and a data file");
         if (namedUnsearched.Count > 0)
             parts.Add(
                 $"it names {namedUnsearched.Count} file(s) the search did not use, whose rows were not "
@@ -936,6 +1049,203 @@ public static class Ingester
             : "The SDRF was used only for the runs it names that were searched";
         var status = code.StartsWith("sdrf_", StringComparison.Ordinal) ? code["sdrf_".Length..] : code;
         return Finding(datasetId, code, "warning", $"{what}: {string.Join("; ", parts)}. sdrf_status is `{status}`.");
+    }
+
+    /// <summary>What a design-labelled protein-group table makes of the assays (PXR-R23, schema 0.0.16).</summary>
+    /// <remarks>A sample of one file stays on its run's assay, which gets the sample's <c>design_label</c>: its values are
+    /// that search's sample values. A sample of several files that is one SDRF sample's files becomes a pooled assay,
+    /// <c>&lt;dataset_id&gt;:design:&lt;label&gt;</c> with no run, and the files it pools are its <c>assay_runs</c>.</remarks>
+    /// <returns>The <c>assay_runs</c> rows; <paramref name="assays"/> gains the pooled assays.</returns>
+    private static List<Row> PlaceDesignSamples(SampleColumns columns, List<Row> assays, string datasetId)
+    {
+        var byId = assays.ToDictionary(a => (string)a["assay_id"]!, StringComparer.Ordinal);
+        var assayRuns = new List<Row>();
+        foreach (var sample in columns.Samples)
+        {
+            if (sample.Run is { } run && byId.TryGetValue($"{datasetId}:{run}:label_free", out var own))
+                own["design_label"] = sample.Label;
+            if (sample.PooledAssay is not { } pooled) continue;
+            assays.Add(new Row
+            {
+                ["assay_id"] = pooled,
+                ["assay_kind"] = "design_sample",
+                ["run_id"] = null,
+                ["channel"] = "label_free",
+                ["sample_id"] = sample.PooledSampleId,
+                ["design_label"] = sample.Label,
+            });
+            foreach (var (pooledRun, fraction, techrep) in sample.PooledRuns)
+                assayRuns.Add(new Row
+                {
+                    ["assay_id"] = pooled,
+                    ["run_id"] = $"{datasetId}:{pooledRun}",
+                    ["fraction"] = fraction,
+                    ["technical_replicate"] = techrep,
+                });
+        }
+        return assayRuns;
+    }
+
+    /// <summary>Which SDRF describes a dataset's samples, and why (G107, PXR-R22).</summary>
+    /// <param name="Path">The file read, or null when there is none.</param>
+    /// <param name="ChosenBy"><c>operator_sdrf</c>, <c>experimental_design (question)</c>, <c>experimental_design
+    /// (deposit)</c> or <c>metadata</c>.</param>
+    /// <param name="CharacteristicsOnly">True when its factor values are left out.</param>
+    /// <param name="Origin">The search provenance's <c>sdrf_origin</c>, the file its copy was made from; recorded,
+    /// never read and never hashed (PXR-R28).</param>
+    private sealed record SdrfChoice(string? Path, string ChosenBy, bool CharacteristicsOnly, string? Origin = null)
+    {
+        public OrderedDictionary<string, object?> Note() => new()
+        {
+            ["read"] = Path is null ? null : BundleWriter.PathText(Path),
+            ["chosen_by"] = ChosenBy,
+            ["factor_values"] = CharacteristicsOnly ? "left out" : "kept",
+            ["sdrf_origin"] = Origin,
+        };
+    }
+
+    private static bool IsFactorValue(string column) =>
+        PyText.Strip(column).StartsWith("factor value[", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The SDRF to read, under <see cref="IngestRules.Current"/>, in this order:</summary>
+    /// <remarks>
+    /// <list type="number">
+    /// <item>the entry's <c>operator_sdrf</c>, when it names one (G107): the instance owner's curation, which wins for any
+    /// design source; characteristics only, and checked against the search's design by <see cref="CheckOperatorSdrf"/>;</item>
+    /// <item>the SDRF the search's design came from, when its provenance says <c>question</c> or <c>deposit</c>
+    /// (PXR-R22), and only when its bytes are the ones the search recorded. A file edited after the search is not that
+    /// search's record, so a mismatch refuses the ingest by name rather than reading what the search never saw. A
+    /// question's SDRF gives characteristics only; its factor values are that question's grouping, and they reach the
+    /// catalog through the study layer. A deposit's gives everything, as a deposited SDRF always has;</item>
+    /// <item>otherwise the first <c>*/metadata/*.sdrf.tsv</c> under the run folder, as before (and always under
+    /// <see cref="IngestRules.Python0320"/>).</item>
+    /// </list>
+    /// </remarks>
+    /// <exception cref="IngestException">The named SDRF is missing, or a design SDRF does not have its recorded sha256.</exception>
+    private static SdrfChoice ChooseSdrf(Manifest manifest, DatasetEntry entry, string runDir,
+        IReadOnlyDictionary<string, object?> provenance, string datasetId, IngestRules rules)
+    {
+        string? FromMetadata() => Directory.GetDirectories(runDir)
+            .SelectMany(d => Directory.Exists(Path.Combine(d, "metadata")) ? Directory.GetFiles(Path.Combine(d, "metadata"), "*.sdrf.tsv") : [])
+            .Order(StringComparer.Ordinal).FirstOrDefault();
+        if (rules != IngestRules.Current) return new SdrfChoice(FromMetadata(), "metadata", false);
+
+        if (entry.OperatorSdrf is { } own)
+        {
+            if (!File.Exists(own))
+                throw new IngestException($"{datasetId}: the manifest names operator_sdrf {own}, and there is no file there.");
+            return new SdrfChoice(own, "operator_sdrf", true);
+        }
+
+        var design = Map(Get(provenance, "experimental_design"));
+        var source = design?.GetValueOrDefault("source") as string;
+        if (design is not null && source is "question" or "deposit")
+        {
+            var raw = design.GetValueOrDefault("sdrf") as string ?? "";
+            if (raw.Length == 0)
+                throw new IngestException($"{datasetId}: the search provenance says its design came from a {source} SDRF and names no file.");
+            var path = Path.IsPathRooted(raw) ? raw : Path.Combine(manifest.WorkRoot, raw);
+            const string remedy = "Restore the version the search recorded, or name the SDRF to read as the entry's operator_sdrf (G107).";
+            if (!File.Exists(path))
+                throw new IngestException($"{datasetId}: the search's design came from the {source} SDRF {path}, which is not there. {remedy}");
+            var recorded = design.GetValueOrDefault("sdrf_sha256") as string;
+            var actual = BundleWriter.Sha256File(path);
+            if (recorded != actual)
+                throw new IngestException(
+                    $"{datasetId}: the search's design came from the {source} SDRF {path}, recorded with sha256 {recorded ?? "(none)"}, "
+                    + $"and the file there has {actual}. It is not the file the search read, so it is not this search's record. {remedy}");
+            return new SdrfChoice(path, $"experimental_design ({source})", source == "question", design.GetValueOrDefault("sdrf_origin") as string);
+        }
+        return new SdrfChoice(FromMetadata(), "metadata", false);
+    }
+
+    /// <summary>G107: an operator's SDRF must describe the search's own samples, because the stored protein values
+    /// belong to them.</summary>
+    /// <remarks>Every searched file has exactly one row, and the SDRF's source names group the searched files exactly
+    /// as the search's <c>ExperimentalDesign.tsv</c> does (by condition and biological replicate): one source name per
+    /// design sample, and one design sample per source name. Anything else is refused, naming the files and samples.
+    /// Rows for files the search did not use are not checked; the data-file gate drops them.</remarks>
+    /// <exception cref="IngestException">The search has no design, or the SDRF groups its files otherwise.</exception>
+    private static void CheckOperatorSdrf(SdrfTable sdrf, string sdrfPath, List<Row> runRows, string resultsDir, string datasetId,
+        ReaderLog log, IngestRules rules)
+    {
+        static string Names(IEnumerable<string> names)
+        {
+            var list = names.ToList();
+            return string.Join(", ", list.Take(10).Select(n => $"'{n}'")) + (list.Count > 10 ? $" and {list.Count - 10} more" : "");
+        }
+        var file = Path.GetFileName(sdrfPath);
+        var designPath = Path.Combine(resultsDir, SampleColumns.DesignFileName);
+        if (!File.Exists(designPath))
+            throw new IngestException(
+                $"{datasetId}: operator_sdrf {file} must group the searched files as the search's design does, and there is no "
+                + $"{SampleColumns.DesignFileName} in {resultsDir} to check it against.");
+        var stems = runRows.Select(r => Path.GetFileNameWithoutExtension((string)r["file_name"]!)).ToList();
+        var runNames = new RunNameMap(stems);
+        var (files, order) = SampleColumns.DesignFiles(designPath, datasetId, log, rules);
+        var designOf = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var label in order)
+            foreach (var designFile in files[label])
+                if (runNames.Resolve(Path.GetFileNameWithoutExtension(designFile)) is { } run)
+                    designOf[run] = label;
+        var rowsOf = sdrf.Assays.GroupBy(a => ((string)a["run_id"]!).Split(':', 2)[1], StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Select(a => (string)a["sample_id"]!).ToList(), StringComparer.Ordinal);
+
+        var problems = new List<string>();
+        var missing = stems.Where(s => !rowsOf.ContainsKey(s)).ToList();
+        var several = stems.Where(s => rowsOf.TryGetValue(s, out var r) && r.Count > 1).ToList();
+        var undesigned = stems.Where(s => !designOf.ContainsKey(s)).ToList();
+        if (missing.Count > 0) problems.Add($"it has no row for searched file(s) {Names(missing)}");
+        if (several.Count > 0) problems.Add($"it has several rows for {Names(several)}");
+        if (undesigned.Count > 0) problems.Add($"the search's design does not list {Names(undesigned)}");
+        if (problems.Count == 0)
+        {
+            string Source(string run) => rowsOf[run][0].Split(':', 2)[1];
+            foreach (var g in stems.GroupBy(Source, StringComparer.Ordinal))
+            {
+                var labels = g.Select(s => designOf[s]).Distinct(StringComparer.Ordinal).ToList();
+                if (labels.Count > 1) problems.Add($"source name '{g.Key}' holds files of design samples {Names(labels)}");
+            }
+            foreach (var g in stems.GroupBy(s => designOf[s], StringComparer.Ordinal))
+            {
+                var sources = g.Select(Source).Distinct(StringComparer.Ordinal).ToList();
+                if (sources.Count > 1) problems.Add($"design sample '{g.Key}' is split over source names {Names(sources)}");
+            }
+        }
+        if (problems.Count > 0)
+            throw new IngestException(
+                $"{datasetId}: operator_sdrf {file} does not describe the search's samples: {string.Join("; ", problems.Take(10))}"
+                + (problems.Count > 10 ? $"; and {problems.Count - 10} more" : "") + ". Its source names must group the searched "
+                + $"files exactly as the search's {SampleColumns.DesignFileName} does, one row per file, because the stored "
+                + "protein values belong to the search's samples.");
+    }
+
+    /// <summary>The sample-level SDRF cells whose rows disagree within one source name, and so got no value (G106).</summary>
+    /// <remarks>Only for samples the bundle keeps: the data-file gate may have dropped the rest.</remarks>
+    private static List<Row> SdrfConflictFindings(List<SdrfConflict> conflicts, List<Row> samples, string datasetId)
+    {
+        var kept = samples.Select(s => (string)s["sample_id"]!).ToHashSet(StringComparer.Ordinal);
+        var shown = conflicts.Where(c => kept.Contains(c.SampleId)).ToList();
+        if (shown.Count == 0) return [];
+        static string Runs(IReadOnlyList<string?> runs)
+        {
+            var names = runs.Select(r => r ?? "a row naming no data file").ToList();
+            return string.Join(", ", names.Take(10)) + (names.Count > 10 ? $" and {names.Count - 10} more" : "");
+        }
+        var parts = shown.Take(10).Select(c =>
+            $"{c.Column} of `{c.SampleId.Split(':', 2)[1]}` is "
+            + string.Join(" or ", c.Values.Select(v => $"`{v.Value}` ({v.Runs.Count} row(s): {Runs(v.Runs)})")));
+        int sampleCount = shown.Select(c => c.SampleId).Distinct(StringComparer.Ordinal).Count();
+        return
+        [
+            Finding(datasetId, "sdrf_conflicting_rows", "warning",
+                $"The SDRF's rows for one source name disagree on {shown.Count} sample-level cell(s), in "
+                + $"{sampleCount} sample(s), so those samples have no value there: no sample_characteristics row, and "
+                + "a samples column read from the cell is NULL (organism falls back to the manifest's). No row's "
+                + "value was taken over another's. Disagreeing rows usually mean the SDRF gave several samples one "
+                + "source name, so sample-level questions on these columns cannot be answered until it is curated. "
+                + string.Join("; ", parts) + (shown.Count > 10 ? $"; and {shown.Count - 10} more" : "") + "."),
+        ];
     }
 
     /// <summary>The SDRF characteristics behind the four curated sample columns an <c>sdrf_skeleton</c> finding names.</summary>
@@ -1038,8 +1348,9 @@ public static class Ingester
         [
             Finding(datasetId, "sample_quant_not_stored", "warning",
                 $"The protein-group table is labelled by sample through the search's {SampleColumns.DesignFileName}, and "
-                + $"{columns.Withheld.Count} sample(s) have no single run: {string.Join("; ", shown)}{more}. A stored "
-                + "quantity belongs to one assay (one run), and a sample's value belongs to none, so it is never split "
+                + $"{columns.Withheld.Count} sample(s) belong to no assay: {string.Join("; ", shown)}{more}. A sample of one "
+                + "file is stored on its run's assay, and one of several files on a pooled assay when its files are exactly "
+                + "one SDRF sample's; these are neither, so their values have no sample to belong to and are never split "
                 + $"onto runs: {total} protein-group value(s) (intensity and spectral count) of these samples are not "
                 + "stored, nor is their PTM site occupancy. Peptide quantities are per file and are stored. A missing "
                 + "protein-group quantity for these samples therefore means 'not stored', not 'not measured'. The design "

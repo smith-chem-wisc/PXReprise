@@ -17,6 +17,33 @@ each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   threshold the counts across datasets of different scope.** aging's store has served `protein_group` datasets since
   2026-10-29 (PXD045861 first, then PXD061654), beside `database` ones.
 
+### Fixed (ingest)
+- **A search folder moved after it ran keeps its task files.** The ingest finds the MetaMorpheus task files at the
+  paths the search's provenance recorded. PXReprise keeps a replaced search as `<accession>.superseded-<stamp>`, where
+  those paths no longer exist, and the files were skipped without a word. Eleven of aging's served bundles (re-ingested
+  from such folders in the 1.4.0 swap) kept no task file, so they had no `search_modifications_declared` rows and no
+  target/contaminant rule. Now a missing task file is looked for under the entry's own search folder (`tasks/<name>`)
+  and taken only when its sha256 is the recorded one. One still not found gives a `task_files_missing` finding.
+  - **Only those bundles move.** The found files become hashed sources, so their bundle ids change, and every other
+    bundle's id stays (measured: PXD017944 `3cd52dd1b39472d8` unchanged).
+  - **On PXD032040:** 63 declared modifications where there were none. With the search's target/contaminant rule
+    known, 14 proteins (P01008, keratins) are no longer labelled contaminant, 40 occupancy entries are placed (3 more
+    sites, 20 more occupancy rows), and the `contaminant_label_unresolved` finding goes. The ingest path stays
+    `cs-1.2.0`: rows change only where the hashed inputs do.
+
+### Changed (engines, ptmQtl)
+- **One site under several accessions is one site** (ptmQtl DEFINITIONS S5, their D70; our DATAREPO-P36). Within a
+  deposit, sites with the same modification and identical cells in every run (state, modified and covering intensity,
+  fraction), at least one with a modified intensity, are merged under the ordinal-first key, as ptmQtl's runner does.
+  `run.json` counts them. Both `site_pairs` and `site_traits` read the merged sites. On PXD017944: 465 type A pairs
+  where 496 counted the shared sites apart.
+- **S2c's gate** (ptmQtl D60). S2c is defined only for a protease that cuts after K or R (trypsin, trypsin|P,
+  StcE-trypsin: K and R; Lys-C|P: K; Arg-C: R), on a residue it cuts after, in a fully specific search. Elsewhere the
+  deposit is refused, never guessed. It lifts, leaving only the five acyl amides mzLib's list misses, for MetaMorpheus
+  1.1.13 or later with `RespectCleavageBlockingModifications = true` in every task. All read from the bundle's own task
+  files. `run.json`'s rules record `s2c_gate`. On aging's 179 served bundles: 167 trypsin and fully specific (applies),
+  1 lifted (PXD045861), and 11 with no task file (refused until re-ingested with the fix above).
+
 ### Changed (runner)
 - **A `go.annotate_groups` artefact no longer keeps `go_annotation.tsv`** (G110). The engine still writes it through
   mzLib and reads it back as acceptance; its sha256 stays in `run.json` (`annotation_file_sha256`). Nothing read the
