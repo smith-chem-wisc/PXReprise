@@ -507,11 +507,13 @@ public static class SearchStage
                 try
                 {
                     // v0.4.32 (the user, 2026-10-27; cleavageRules PXR-V8): every new version is cleaned, judged against
-                    // this search's own target databases and the modifications it could name.
+                    // this search's own target databases and the modifications it could name. v0.4.34 (cleavageRules 009):
+                    // the blocked-C-terminus rule is off for a search that respected cleavage-blocking modifications.
                     var cleaning = LibraryCleaning.For(
                         Directory.EnumerateFiles(Path.Combine(Path.GetDirectoryName(cmd)!, "Mods"), "*.txt")
                             .Concat(p.CustomModifications is { } custom ? new[] { p.ListPath(custom) } : Array.Empty<string>()),
-                        new[] { proteome }.Concat(extras));
+                        new[] { proteome }.Concat(extras),
+                        blockedCTerm: !p.SearchRespectsCleavageBlocking);
                     var written = SpectralLibrary.Register(lib, sd, $"{r.RunDate}/{r.Accession}".Trim('/'), r.Accession ?? "", release, cleaning);
                     // A copy: the registry's own node already has a parent there.
                     libRec["written"] = written.DeepClone();

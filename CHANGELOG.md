@@ -33,6 +33,13 @@ the pin as usual.
 - **A search with low-resolution MS2 writes and reads no spectral library**, whatever the profile says. MetaMorpheus's
   library mode matches every fragment charge, and at the ion trap's ±0.5 Da decoys score as targets do: the TMT trial
   found 0 PSMs with it and 59,028 without. The lowres profiles never had one.
+- **A search that respects cleavage-blocking modifications no longer has its library checked for them** (cleavageRules
+  009). Since v0.4.32 every new library version drops a spectrum whose last residue carries a modification that blocks
+  trypsin at every place it occurs (PXR-V8). A search run with `RespectCleavageBlockingModifications = true` (`@12`,
+  `lowres@6`, `tmt-dda@2`) writes no such spectrum, and its parent version is already clean: PXD061654's `@12` library
+  (mouse v113, 1,225,187 spectra) had 0. The rule still applies to a search under any other profile. Dropping
+  GPTMD hydroxy-P/K sites is unchanged (750 on that same library). The library record says which rules were applied
+  (`blocked_cterm_rule`).
 - **A calibrating profile puts its one fragmentation call into every task.** Calibration's per-file settings files
   drop a per-file `DissociationType`. A deposit whose files disagree is refused under such a profile.
 - **A stalled Aspera transfer is given up.** An `ascp` session whose download receives no data for

@@ -23,7 +23,9 @@ namespace PXReprise.Search;
 /// the misplaced Met/Trp oxidation fingerprint, results/gptmd-census_2026-10-25). UniProt-annotated hydroxylations keep
 /// their UniProt names and stay.</item>
 /// </list>
-/// Every library this engine registers is filtered, so a library cleaned once stays clean.
+/// Every library this engine registers is filtered, so a library cleaned once stays clean. The first rule is left off for a
+/// search that ran with <c>RespectCleavageBlockingModifications</c> (v0.4.34; cleavageRules 009): it adds no such spectrum
+/// (PXD061654 under <c>label-free-dda@12</c>: 0 of 1,225,187), and its parent version is already clean.
 /// </summary>
 public sealed class LibraryCleaning
 {
@@ -36,20 +38,23 @@ public sealed class LibraryCleaning
 
     private readonly Dictionary<string, Modification> _mods;
     private readonly IReadOnlyList<string> _databases;
+    private readonly bool _blockedCTerm;
     private readonly DigestionParams _digestion = new(Protease, respectCleavageBlockingModifications: true);
 
-    private LibraryCleaning(Dictionary<string, Modification> mods, IReadOnlyList<string> databases)
+    private LibraryCleaning(Dictionary<string, Modification> mods, IReadOnlyList<string> databases, bool blockedCTerm)
     {
         _mods = mods;
         _databases = databases;
+        _blockedCTerm = blockedCTerm;
     }
 
     /// <summary>
     /// The rules for one organism: the modifications a full sequence may name ("Type:IdWithMotif"; mzLib's own first, then
     /// <paramref name="modFiles"/>, the MetaMorpheus Mods files and the profile's custom file), and the organism's target
-    /// protein databases (UniProt XML; only their sequences are read).
+    /// protein databases (UniProt XML; only their sequences are read). <paramref name="blockedCTerm"/> false leaves the
+    /// blocked-C-terminus rule off, for a search that respected cleavage-blocking modifications itself.
     /// </summary>
-    public static LibraryCleaning For(IEnumerable<string> modFiles, IEnumerable<string> databases)
+    public static LibraryCleaning For(IEnumerable<string> modFiles, IEnumerable<string> databases, bool blockedCTerm = true)
     {
         var mods = new Dictionary<string, Modification>(StringComparer.Ordinal);
         void Add(Modification m) { if (m.ModificationType is not null && m.IdWithMotif is not null) mods.TryAdd($"{m.ModificationType}:{m.IdWithMotif}", m); }
@@ -65,13 +70,14 @@ public sealed class LibraryCleaning
         var dbs = databases.ToList();
         if (dbs.Count == 0) throw new UsageException("cleaning a spectral library needs the organism's protein databases");
         foreach (string d in dbs) if (!File.Exists(d)) throw new SearchSetupException($"cleaning a spectral library: database {d} does not exist");
-        return new LibraryCleaning(mods, dbs);
+        return new LibraryCleaning(mods, dbs, blockedCTerm);
     }
 
     public JsonObject Describe() => new()
     {
         ["rule"] = "pxreprise-library-cleaning/1: drop a spectrum blocked at a cut C-terminus (cleavageRules PXR-V8, mzLib CleavageBlockingPolicy, trypsin, every occurrence) or carrying a GPTMD Hydroxylation on P/K site (agingPTM-v5)",
         ["protease"] = Protease,
+        ["blocked_cterm_rule"] = _blockedCTerm ? "applied" : "off: the search respected cleavage-blocking modifications (RespectCleavageBlockingModifications = true), so it wrote no such spectrum",
         ["doubtful_classes"] = new JsonArray(DoubtfulClasses.Select(c => (JsonNode)c).ToArray()),
         ["databases"] = new JsonArray(_databases.Select(d => (JsonNode)d.Replace('\\', '/')).ToArray()),
     };
@@ -89,7 +95,7 @@ public sealed class LibraryCleaning
                 verdicts[full] = ("doubtful_class", cls);
                 continue;
             }
-            if (TryLastResidueMod(full, out string baseSequence, out string name)
+            if (_blockedCTerm && TryLastResidueMod(full, out string baseSequence, out string name)
                 && _mods.TryGetValue(name, out var mod)
                 && CleavageBlockingModifications.BlocksCleavageBy(mod, _digestion.Protease))
                 candidates[full] = (baseSequence, mod, name);

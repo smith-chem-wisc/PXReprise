@@ -106,6 +106,12 @@ public sealed record Profile(
     /// <summary>The scopes of <c>[metamorpheus_settings]</c>: every task, or one task kind.</summary>
     public static readonly string[] MetaMorpheusSettingScopes = { "all", "calibration", "gptmd", "search" };
 
+    /// <summary>The search task runs with <c>RespectCleavageBlockingModifications = true</c> (scope <c>all</c> or
+    /// <c>search</c>), so it writes no peptide ending at a cut in a blocking modification (cleavageRules PXR-V9).</summary>
+    public bool SearchRespectsCleavageBlocking => MetaMorpheusSettings?.Any(s =>
+        s.Key == "RespectCleavageBlockingModifications" && (s.Scope is "all" or "search")
+        && s.TomlValue.Trim().Equals("true", StringComparison.OrdinalIgnoreCase)) == true;
+
     /// <summary>
     /// Task-file keys the engine writes itself, from the profile's other keys, the deposit or the machine. A
     /// <c>[metamorpheus_settings]</c> entry may not name them: two writers of one line would make provenance ambiguous.
