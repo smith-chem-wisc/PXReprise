@@ -12,6 +12,22 @@ A new version of the engine never changes a finished result. Methods live in ver
 **MetaMorpheus** unchanged (1.1.13 for `@12` and `lowres@6`). **Machine file:** no change. **Safe mid-batch?** Yes: swap
 the pin as usual.
 
+- **New profile `tmt-dda@2` (pending): isobaric searches on MetaMorpheus 1.1.13** (design/PLAN_tmt-dda-2.md), built from
+  a TMT trial (results/tmt-trial_2026-10-29: PXD034564, SPS-MS3 TMT10, 60,528 PSMs and 6,508 protein groups, every
+  channel quantified).
+  - **Kit:** QC reads each file's kit from its spectra (`isobaric_kit`: TMT6/10/11/16/18, iTRAQ). It accepts SPS-MS3
+    (`sps_ms3`: ion-trap MS2, reporters in MS3), searched as LowCID at the low-res product tolerance.
+  - **Search:** the kit is fixed on K and the N-terminus in every task, and named (`MultiplexModId`). Reporter-ion
+    quantification; Calibration -> Search; a new `precursor_window = "wide"` (±20 ppm in every task).
+  - **Library:** a chain of its own per kit (`mouse_tmt10`), starting blank, for Orbitrap MS2 only.
+- **A search with low-resolution MS2 writes and reads no spectral library**, whatever the profile says. MetaMorpheus's
+  library mode matches every fragment charge, and at the ion trap's ±0.5 Da decoys score as targets do: the TMT trial
+  found 0 PSMs with it and 59,028 without. The lowres profiles never had one.
+- **A calibrating profile puts its one fragmentation call into every task.** Calibration's per-file settings files
+  drop a per-file `DissociationType`. A deposit whose files disagree is refused under such a profile.
+  - **Design:** the search refuses to start without a TmtDesign.txt, and fails when the reporter table lacks a design
+    sample.
+  - **Pending:** no deposit routes to it until delivery is settled (QuantProject 078, dataRepo).
 - **A stalled Aspera transfer is given up.** An `ascp` session whose download receives no data for
   `fetch_stall_minutes` (default 5) is killed and the file retried, as an HTTPS download already was. On 2026-10-29 one
   session received nothing for 9.3 h without exiting, and a draining driver waited on it the whole time.

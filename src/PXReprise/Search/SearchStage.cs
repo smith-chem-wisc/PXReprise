@@ -47,6 +47,15 @@ public static class SearchStage
     /// </summary>
     internal static int? PrecursorWindow(Profile p, IReadOnlyDictionary<string, double>? offsets, AgingProvenance? prov)
     {
+        if (p.PrecursorWindow == "wide")
+        {
+            prov?.Set("precursor_window", new JsonObject
+            {
+                ["rule"] = $"wide: ±{ProbeMeasures.MaxWindowPpm} ppm in every task (the probe cannot measure an isobaric deposit's offset); Calibration narrows the files it fits",
+                ["window_ppm"] = ProbeMeasures.MaxWindowPpm,
+            });
+            return ProbeMeasures.MaxWindowPpm;
+        }
         if (p.PrecursorWindow != "probe") return null;
         int? window = ProbeMeasures.WindowPpm(offsets?.Values);
         prov?.Set("precursor_window", new JsonObject
@@ -218,8 +227,29 @@ public static class SearchStage
         pin.Check(banner, commit, p.Key);
         string release = pin.Name;
 
-        // The organism's spectral library, resolved before the task files because it decides two of their values.
-        LibraryPlan? lib = p.SpectralLibrary && r.UseLibrary ? SpectralLibrary.Plan(m.SpectralLibraryRoot, r.Organism) : null;
+        // v0.4.34 (PLAN_tmt-dda-2 stage 5): an isobaric search's kit is the one QC read from every searched file's spectra
+        // (stage 4), never a text's word; files that disagree, or a file with none, refuse the search. MetaMorpheus reads its
+        // channel design from TmtDesign.txt beside the first spectra file; until it is made from an SDRF (stage 6), a
+        // curated one must be there.
+        string? kit = null;
+        if (p.QuantMethod == "reporter_ion")
+        {
+            var kits = files.Select(f => qc[Path.GetFileName(f)]?["isobaric_kit"]?.GetValue<string>()).Distinct().ToList();
+            if (kits.Count != 1 || kits[0] is null)
+                throw new SearchSetupException($"an isobaric search needs one kit read from every file's spectra; QC read {string.Join(", ", kits.Select(k => k ?? "none"))}");
+            kit = kits[0];
+            if (!File.Exists(Path.Combine(r.SpectraDir, "TmtDesign.txt")))
+                throw new SearchSetupException($"an isobaric search needs its channel design: no TmtDesign.txt in {r.SpectraDir}");
+            prov.Set("isobaric", new JsonObject
+            {
+                ["kit"] = kit, ["sps_ms3"] = files.All(f => qc[Path.GetFileName(f)]?["sps_ms3"]?.GetValue<bool>() == true),
+                ["design"] = Path.Combine(r.SpectraDir, "TmtDesign.txt"), ["design_sha256"] = Sha(Path.Combine(r.SpectraDir, "TmtDesign.txt")),
+            });
+        }
+
+        // The organism's spectral library, resolved before the task files because it decides two of their values. An
+        // isobaric kit has a chain of its own, which starts blank (the user, 2026-10-29).
+        LibraryPlan? lib = p.SpectralLibrary && r.UseLibrary ? SpectralLibrary.Plan(m.SpectralLibraryRoot, r.Organism, kit) : null;
         if (p.SpectralLibrary && !r.UseLibrary)
             prov.Note("spectral library switched OFF for this search by the batch (a previous update-mode search failed)");
         if (lib is not null)
@@ -245,7 +275,7 @@ public static class SearchStage
             VariableCysMods: chem?.CysMods.Where(c => !c.Fixed).Select(c => c.MetaMorpheusId!).ToList(),
             WriteSdrf: p.WriteSdrf, ProteomeXchangeAccession: p.WriteSdrf ? r.Accession : null,
             PrecursorMassTolerance: window is { } w ? $"±{w}.0000 PPM" : null, QuantifyPpmTol: window,
-            GptmdFilters: p.GptmdFilters);
+            GptmdFilters: p.GptmdFilters, MultiplexKit: kit);
         if (chem is not null)
         {
             prov.Set("chemistry", Chemistry(chem));
@@ -255,6 +285,34 @@ public static class SearchStage
         if (fragmentation is not null)
             prov.Set("fragmentation", new JsonObject(fragmentation.Select(kv => KeyValuePair.Create(kv.Key, (JsonNode?)new JsonObject
                 { ["dissociation_type"] = kv.Value.DissociationType, ["low_res"] = kv.Value.LowRes, ["evidence"] = kv.Value.Evidence }))));
+        // v0.4.34 (TMT stage 5, results/tmt-trial_2026-10-29): a Calibration task writes each calibrated file's own settings
+        // file, and the search reads that one, without our per-file DissociationType; Calibration itself scored the ion-trap
+        // MS2 as HCD (57 MS1 and 0 MS2 calibration points a file), and the search found 0 PSMs. So under a calibrating
+        // profile the one call every file shares goes into every task; files that disagree cannot be calibrated as one.
+        // v0.4.34: a search with low-resolution MS2 writes and reads no spectral library. MetaMorpheus's library mode matches
+        // every fragment charge (ClassicSearchEngine matchAllCharges, fragmentsCanHaveDifferentCharges), and at the ion trap's
+        // ±0.5 Da decoys then score as targets do: the TMT trial's PXD034564 found 0 PSMs at 1% with it, 59,028 without.
+        // The lowres profiles never had one ("ion-trap spectra must never enter the Orbitrap-HCD libraries").
+        if (lib is not null && fragmentation?.Values.Any(c => c.LowRes) == true)
+        {
+            prov.Note($"spectral library OFF for this search: {fragmentation.Values.Count(c => c.LowRes)} file(s) have low-resolution MS2, and MetaMorpheus's library mode matches every fragment charge, which at the low-res tolerance scores decoys as targets (TMT trial, PXD034564: 0 PSMs with it)");
+            prov.Set("spectral_library", null);
+            lib = null;
+            settings = settings with { SpectralLibraryMode = null };
+        }
+        if (fragmentation is { Count: > 0 } && p.Tasks.Contains("Calibration"))
+        {
+            var calls = fragmentation.Values.Select(c => (c.DissociationType, c.LowRes)).Distinct().ToList();
+            if (calls.Count > 1)
+                throw new SearchSetupException($"the files' fragmentation differs ({string.Join(", ", calls.Select(c => c.DissociationType + (c.LowRes ? " low-res" : "")))}), and {p.Key} calibrates: Calibration keeps no per-file fragmentation");
+            settings = settings with
+            {
+                DissociationType = calls[0].DissociationType,
+                ProductMassTolerance = calls[0].LowRes ? p.LowResProductTolerance : settings.ProductMassTolerance,
+            };
+            prov.Note($"fragmentation for every task (a calibrating profile): {calls[0].DissociationType}{(calls[0].LowRes ? $" at {p.LowResProductTolerance}" : "")}, from {fragmentation.Count} file(s)' MS2 headers");
+            fragmentation = null;
+        }
         WritePerFileSettings(files, chem?.ProteasePerFile, fragmentation, p.LowResProductTolerance, prov);
         var tomls = new List<string>();
         var mmApplied = new HashSet<Config.MetaMorpheusSetting>();
@@ -349,8 +407,11 @@ public static class SearchStage
         // 3. success checks
         string mm = Path.Combine(outDir, "mm");
         string? sd = Directory.Exists(mm) ? Directory.EnumerateDirectories(mm, "Task*SearchTask").OrderBy(d => d).LastOrDefault() : null;
-        var key = new[] { "AllPSMs.psmtsv", "AllPeptides.psmtsv", "AllQuantifiedProteinGroups.tsv", "AllQuantifiedPeptides.tsv" }
-            .ToDictionary(n => n, n => sd is not null && File.Exists(Path.Combine(sd, n)) ? Path.Combine(sd, n) : null);
+        // An isobaric search writes reporter tables instead of FlashLFQ's (the TMT trial's Task2SearchTask).
+        var keyNames = kit is null
+            ? new[] { "AllPSMs.psmtsv", "AllPeptides.psmtsv", "AllQuantifiedProteinGroups.tsv", "AllQuantifiedPeptides.tsv" }
+            : new[] { "AllPSMs.psmtsv", "AllPeptides.psmtsv", "ProteinGroupQuantification.tsv", "PeptideQuantification.tsv" };
+        var key = keyNames.ToDictionary(n => n, n => sd is not null && File.Exists(Path.Combine(sd, n)) ? Path.Combine(sd, n) : null);
         bool ok = run.ExitCode == 0 && key.Values.All(v => v is not null);
         string log = File.ReadAllText(Path.Combine(outDir, "metamorpheus.log"));
         bool hasDesign = File.Exists(Path.Combine(r.SpectraDir, "ExperimentalDesign.tsv"));
@@ -370,10 +431,18 @@ public static class SearchStage
         // QuantProject U15: an ExperimentalDesign.tsv that fails MetaMorpheus's validation costs one Warn, and the search
         // quantifies design-less with no marker. The table must carry one sample column per design sample.
         string designFile = Path.Combine(r.SpectraDir, "ExperimentalDesign.tsv");
-        if (ok && hasDesign && key["AllQuantifiedProteinGroups.tsv"] is { } pgFile && QuantMissesDesign(designFile, pgFile) is { } why)
+        if (ok && hasDesign && key.GetValueOrDefault("AllQuantifiedProteinGroups.tsv") is { } pgFile && QuantMissesDesign(designFile, pgFile) is { } why)
         {
             ok = false;
             prov.Note($"FAILED (QuantProject U15): the run carries ExperimentalDesign.tsv but quantification did not use it: {why}");
+        }
+        // v0.4.34: the same for an isobaric search. A TmtDesign.txt MetaMorpheus cannot use only warns (CLAUDE.md), so every
+        // sample the design names must head a reporter column.
+        if (ok && kit is not null && key.GetValueOrDefault("ProteinGroupQuantification.tsv") is { } tmtPg
+            && TmtDesignMissing(Path.Combine(r.SpectraDir, "TmtDesign.txt"), tmtPg) is { } tmtWhy)
+        {
+            ok = false;
+            prov.Note($"FAILED: the run carries TmtDesign.txt but its reporter quantification did not use it: {tmtWhy}");
         }
         // v0.4.34 (reader fixes R3, R4): what MetaMorpheus 1.1.13 states about its own run. R4: every database a task loaded,
         // and every GPTMD database's parents, must be the bytes this search was given (MetaMorpheus #2898; logs PXR-O11).
@@ -415,7 +484,7 @@ public static class SearchStage
             if (gaps.Count > 0) prov.Set("design_gaps", new JsonArray(gaps.Select(g => (JsonNode?)g).ToArray()));
         }
         prov.Set("success", (JsonNode)ok);
-        if (run.ExitCode == 0 && key["AllQuantifiedProteinGroups.tsv"] is null)
+        if (run.ExitCode == 0 && kit is null && key.GetValueOrDefault("AllQuantifiedProteinGroups.tsv") is null)
             prov.Note("exit 0 but no AllQuantifiedProteinGroups.tsv: FlashLFQ failed silently (pyMM 003 Q4)");
         foreach (string? v in key.Values) if (v is not null) prov.Output(v);
         // Every database GPTMD wrote, each with its sha256 (G33): the search task loads these, not the inputs. Taking only
@@ -494,7 +563,7 @@ public static class SearchStage
         if (key["AllPSMs.psmtsv"] is { } allPsms)
         {
             var (shared, sha) = SearchMetrics.SharedAccessions(contaminants, new[] { proteome }.Concat(extras));
-            var c = SearchMetrics.Contamination(allPsms, key["AllQuantifiedProteinGroups.tsv"], shared, sha);
+            var c = SearchMetrics.Contamination(allPsms, key.GetValueOrDefault("AllQuantifiedProteinGroups.tsv"), shared, sha);
             prov.Set("contamination", new JsonObject
             {
                 ["psm_share"] = c.PsmShare, ["psm_share_definition"] = Contamination.PsmShareDefinition,
@@ -546,6 +615,21 @@ public static class SearchStage
         });
         string provFile = prov.Write(outDir);
         return new SearchOutcome(ok, run.ExitCode, run.TimedOut, psms, flags, provFile);
+    }
+
+    /// <summary>
+    /// The samples a TmtDesign.txt names that head no column of MetaMorpheus's ProteinGroupQuantification.tsv (its columns
+    /// are "&lt;sample&gt;_&lt;file&gt;_&lt;channel&gt;"), or null when every one does.
+    /// </summary>
+    internal static string? TmtDesignMissing(string design, string proteinGroupQuant)
+    {
+        var rows = File.ReadAllLines(design).Select(l => l.TrimEnd('\r').Split('\t')).ToList();
+        int col = Array.FindIndex(rows[0], h => h.Trim().Equals("Sample Name", StringComparison.OrdinalIgnoreCase));
+        if (col < 0) return "TmtDesign.txt has no Sample Name column";
+        var samples = rows.Skip(1).Where(r => r.Length > col && r[col].Trim().Length > 0).Select(r => r[col].Trim()).Distinct().ToList();
+        string[] header = (File.ReadLines(proteinGroupQuant).FirstOrDefault() ?? "").TrimEnd('\r').Split('\t');
+        var missing = samples.Where(s => !header.Any(h => h.StartsWith(s + "_", StringComparison.Ordinal))).ToList();
+        return missing.Count == 0 ? null : $"{missing.Count} of {samples.Count} design samples have no reporter column ({string.Join(", ", missing.Take(5))})";
     }
 
     /// <summary>A released MetaMorpheus older than 1.1.13, which refuses a design with a numbering gap. A commit pin is not.</summary>

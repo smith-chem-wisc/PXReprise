@@ -1,0 +1,78 @@
+# tmt-dda/2 (v0.4.34, 2026-10-30; design/PLAN_tmt-dda-2.md): isobaric-labelled DDA on MetaMorpheus 1.1.13, built from the
+# TMT trial (results/tmt-trial_2026-10-29: PXD034564, SPS-MS3 TMT10, 60,528 PSMs and 6,508 protein groups, every channel
+# quantified). The TMT gate of /1 is met: 1.1.13 carries MetaMorpheus #2904 and #2903, and its mzLib 1.0.596 carries #1463.
+#   - The kit is read from each file's spectra by QC (isobaric_kit): MS2 reporters, or MS3 for SPS-MS3, whose ion-trap MS2
+#     is accepted and searched as LowCID at the low-res product tolerance (Fragmentation, per file). The search names it
+#     (MultiplexModId) and fixes it on K and the peptide N-terminus in every task.
+#   - Calibration -> Search, never GPTMD (the user, 2026-10-19). Reporter-ion quantification, no FlashLFQ, no MBR.
+#   - precursor_window = "wide": ±20 ppm in every task. The label-free probe scores no labelled peptide, so it cannot
+#     measure the offset; the trial's -10 ppm files that Calibration could not fit found nothing at ±5 ppm.
+#   - A spectral library chain per kit (mouse_tmt10), starting blank (the user, 2026-10-29: "tmt will have to start with a
+#     blank spectrum library ... tmt modified peptides are all shifted"), for Orbitrap MS2 only. A search with low-res MS2
+#     (SPS-MS3's ion-trap MS2) writes none: MetaMorpheus's library mode matches every fragment charge, and at ±0.5 Da the
+#     trial found 0 PSMs with it, 59,028 without.
+#   - The channel design is TmtDesign.txt beside the spectra; the search refuses to start without one, and fails when the
+#     reporter table lacks a design sample. Making it from an SDRF is stage 6.
+# PENDING until delivery is settled (stage 7): QuantProject 078 (roll-up of fractions per sample; deposits without a
+# channel design) and dataRepo (does 1.4.0 ingest the reporter tables?). A pending profile routes nothing: deposits wait.
+id = "tmt-dda"
+version = 2
+status = "pending"
+description = "Isobaric-labelled DDA (TMT, iTRAQ), MS2 or SPS-MS3 reporters; the kit read from the spectra; MetaMorpheus 1.1.13 Calibrate/Search (no GPTMD) with cleavage-blocking modifications respected, reporter-ion quantification on a TmtDesign.txt, ±20 ppm precursors, LowCID for ion-trap MS2; a spectral library per kit; UniProt canonical proteomes with agingPTM-v6 sites"
+
+[accepts]
+acquisition = ["dda"]
+labelling = ["isobaric"]
+instrument = ["orbitrap_hcd_only", "orbitrap_hybrid"]
+file_types = [".raw"]
+
+[engine]
+chemistry = "deposit"
+metamorpheus = "1.1.13"   # released 2026-10-29 at 315e02b5e
+tasks = ["Calibration", "Search"]
+spectral_library = true   # the kit's own chain (SpectralLibrary.Plan label); off for low-res MS2 (SearchStage)
+write_sdrf = true
+fragmentation = "per_file"
+low_res_product_tolerance = "±0.5000 Absolute"
+precursor_window = "wide"
+timeout_h = 8
+
+[databases.human]
+proteome = "UP000005640_all_genecentric_2026_03_agingPTM-v6.xml"
+taxon = 9606
+
+[databases.mouse]
+proteome = "UP000000589_all_genecentric_2026_03_agingPTM-v6.xml"
+taxon = 10090
+
+[databases.rat]
+proteome = "UP000002494_all_genecentric_2026_03_agingPTM-v6.xml"
+taxon = 10116
+
+[contaminants]
+file = "MetaMorpheusContaminants_NoUPS.xml"
+
+[quant]
+method = "reporter_ion"
+mbr = false
+
+[deposit]
+whole = true
+max_files = 120
+probe = "probe_spread"
+max_est_ms2 = 3_000_000
+max_file_mb = 5000
+defer_if_median_file_mb = 2200
+
+[qc]
+ms2_analyzer = "orbitrap"
+min_fraction_orbitrap_hcd = 0.9   # waived for a file whose MS3 carries the kit's reporters (SPS-MS3)
+min_ms2 = 5000
+excludable = ["too_few_ms2"]
+max_excluded_frac = 0.10
+
+[metamorpheus_settings.all]
+RespectCleavageBlockingModifications = true
+
+[metamorpheus_settings.search]
+WriteIndividualFiles = true

@@ -62,6 +62,27 @@ public class SearchStageTests
         Assert.That(SearchStage.RefusesDesignGaps("master@315e02b5e"), Is.False, "a commit pin is taken at its word");
     }
 
+    // v0.4.34 (PLAN_tmt-dda-2 stage 5): a TmtDesign.txt MetaMorpheus cannot use only warns, so every design sample must head
+    // a reporter column ("<sample>_<file>_<channel>", as the TMT trial's ProteinGroupQuantification.tsv); and "wide"
+    // holds ±20 ppm in every task, since the label-free probe cannot measure an isobaric deposit's offset.
+    [Test]
+    public void AnIsobaricSearchChecksItsDesignWasUsedAndHoldsAWideWindow()
+    {
+        string dir = TestSupport.TempDir();
+        string design = TestSupport.WriteFile(dir, "TmtDesign.txt",
+            "File\tPlex\tSample Name\tTMT Channel\tCondition\tBiological Replicate\tFraction\tTechnical Replicate\tSample Type\n"
+            + "a.raw\tPlex1\tS126\t126\tx\t1\t1\t1\tstudy sample\na.raw\tPlex1\tS127N\t127N\tx\t2\t1\t1\tstudy sample\n");
+        string used = TestSupport.WriteFile(dir, "pg.tsv", "Protein Group\tS126_a_126\tS127N_a_127N\nP1\t1\t2\n");
+        string unused = TestSupport.WriteFile(dir, "pg2.tsv", "Protein Group\t126\t127N\nP1\t1\t2\n");
+        Assert.That(SearchStage.TmtDesignMissing(design, used), Is.Null);
+        Assert.That(SearchStage.TmtDesignMissing(design, unused), Is.EqualTo("2 of 2 design samples have no reporter column (S126, S127N)"));
+
+        var tmt = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir)["tmt-dda@2"];
+        Assert.That((tmt.PrecursorWindow, tmt.QuantMethod, tmt.Status), Is.EqualTo(("wide", "reporter_ion", ProfileStatus.Pending)));
+        Assert.That(tmt.Tasks, Is.EqualTo(new[] { "Calibration", "Search" }), "TMT runs no GPTMD (the user, 2026-10-19)");
+        Assert.That(SearchStage.PrecursorWindow(tmt, null, null), Is.EqualTo(20));
+    }
+
     private static string FakeBin
     {
         get

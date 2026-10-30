@@ -227,6 +227,10 @@ public class TaskFilesTests
         var (c, _) = TaskFiles.Edit(Chemistry, TaskKind.Calibration, new TaskSettings(8, false, Array.Empty<string>(), MultiplexKit: "TMT10"), known);
         Assert.That(c, Does.Contain(@"Multiplex Label\tTMT10 on K\t\tMultiplex Label\tTMT10 on X"""));
         Assert.That(c, Does.Not.Contain("MultiplexModId"));
+        // A calibrating profile's one fragmentation call goes into every task (Calibration drops per-file DissociationType).
+        var (lc, _) = TaskFiles.Edit("[CommonParameters]\nDissociationType = \"HCD\"\nMS2ChildScanDissociationType = \"Unknown\"\nProductMassTolerance = \"±20.0000 PPM\"\n",
+            TaskKind.Calibration, new TaskSettings(8, false, Array.Empty<string>(), DissociationType: "LowCID", ProductMassTolerance: "±0.5000 Absolute"), known);
+        Assert.That(lc, Does.Contain("\nDissociationType = \"LowCID\"").And.Contain("MS2ChildScanDissociationType = \"Unknown\"").And.Contain("ProductMassTolerance = \"±0.5000 Absolute\""));
         // A kit the pinned MetaMorpheus does not define is refused, never dropped.
         Assert.Throws<SearchSetupException>(() => TaskFiles.Edit(search, TaskKind.Search, new TaskSettings(8, false, Array.Empty<string>(), MultiplexKit: "TMT99"), known));
     }

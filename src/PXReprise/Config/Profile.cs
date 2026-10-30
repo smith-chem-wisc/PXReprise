@@ -124,8 +124,11 @@ public sealed record Profile(
         { "ImprovedScoreFilter", "DualDirectionalIonCoverageFilter", "UniDirectionalIonCoverageFilter", "FlankingIonCoverageFilter" };
 
     /// <summary>The values of <c>[engine] precursor_window</c>: MetaMorpheus's own windows, or windows wide enough for the
-    /// precursor offset the probe search measured (a profile without calibration; PXD045821, 2026-10-17).</summary>
-    public static readonly string[] PrecursorWindows = { "default", "probe" };
+    /// precursor offset the probe search measured (a profile without calibration; PXD045821, 2026-10-17), or (v0.4.34,
+    /// "wide") the probe rule's ceiling in every task, for a profile whose probe cannot measure the offset: the label-free
+    /// probe scores no isobaric-labelled peptide. The TMT trial (PXD034564) sat at -10 ppm, and its files Calibration
+    /// could not fit found nothing at MetaMorpheus's ±5 ppm.</summary>
+    public static readonly string[] PrecursorWindows = { "default", "probe", "wide" };
 
     /// <summary>The values of <c>[engine] fragmentation</c>.</summary>
     public static readonly string[] Fragmentations = { "fixed", "per_file" };

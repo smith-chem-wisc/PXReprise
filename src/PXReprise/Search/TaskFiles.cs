@@ -29,7 +29,8 @@ public sealed record TaskSettings(
     string? ProteomeXchangeAccession = null,              //   stamped into it; only with WriteSdrf
     double? QuantifyPpmTol = null,                        // the Search task's FlashLFQ tolerance; null keeps the default
     IReadOnlyList<string>? GptmdFilters = null,           // v0.4.31: GPTMD's filters by class name; null keeps the default (none)
-    string? MultiplexKit = null);                         // v0.4.34: an isobaric kit's modification id (IsobaricReporters.ModificationId)
+    string? MultiplexKit = null,                          // v0.4.34: an isobaric kit's modification id (IsobaricReporters.ModificationId)
+    string? DissociationType = null);                     // v0.4.34: every task's, when one call holds for every file (SearchStage)
 
 public static class TaskFiles
 {
@@ -140,6 +141,9 @@ public static class TaskFiles
                     : Regex.Replace(text, @"^DoMultiplexQuantification = true$", "DoMultiplexQuantification = true\n" + id, RegexOptions.Multiline);
             }
         }
+
+        if (s.DissociationType is { } dt)
+            text = Replace(text, "^DissociationType = \".*\"$", $"DissociationType = \"{dt}\"", "DissociationType", exactlyOne: true);
 
         // Tolerance overrides apply to EVERY task. The "= " in the pattern keeps them off ProductMassTolerance_LowRes.
         if (s.ProductMassTolerance is { } pmt)
