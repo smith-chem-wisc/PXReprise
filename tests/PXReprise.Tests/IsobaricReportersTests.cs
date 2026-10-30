@@ -61,4 +61,32 @@ public class IsobaricReportersTests
         Assert.That(qc.FailReasons, Does.Contain(SpectraQc.IsobaricLabelled));
         Assert.That(SpectraQc.Evaluate(scans, Gates).FailReasons, Does.Not.Contain(SpectraQc.IsobaricLabelled), "only a profile that refuses isobaric labels looks");
     }
+    // v0.4.34 (TMT trial, PXD034564): the KIT, for MetaMorpheus's MultiplexModId. A kit's extra channel seen in only a few
+    // spectra (an impurity or isotope peak; 131C beside TMT10's 131N there) does not make it the larger kit.
+    private static double[] Reporters(Omics.Modifications.IsobaricMassTagType kit) =>
+        Omics.Modifications.IsobaricMassTag.TryGetIsobaricMassTag(kit, out var tag) ? tag!.ReporterIonMzs : throw new InvalidOperationException();
+
+    [Test]
+    public void TheKitIsTheLargestWhoseEveryChannelIsSeenAsOftenAsTheOthers()
+    {
+        double[] tmt10 = Reporters(Omics.Modifications.IsobaricMassTagType.TMT10);
+        double[] tmt11 = Reporters(Omics.Modifications.IsobaricMassTagType.TMT11);
+        double c131 = tmt11.Except(tmt10).Single();
+        // 100 spectra with TMT10's ten channels; 20 of them also carry 131C (a fifth: the trial's tail of 131N).
+        var spectra = Enumerable.Range(0, 100).Select(i => Scan(i, 3, i < 20 ? tmt10.Append(c131).ToArray() : tmt10).MassSpectrum).ToList();
+        var kit = IsobaricReporters.Kit(spectra, "TMT");
+        Assert.That(kit?.Kit, Is.EqualTo(Omics.Modifications.IsobaricMassTagType.TMT10));
+        Assert.That(IsobaricReporters.ModificationId(kit!.Value.Kit), Is.EqualTo("TMT10"));
+        // When 131C is as common as the rest, it is TMT11.
+        var eleven = Enumerable.Range(0, 100).Select(i => Scan(i, 3, tmt11).MassSpectrum).ToList();
+        Assert.That(IsobaricReporters.Kit(eleven, "TMT")?.Kit, Is.EqualTo(Omics.Modifications.IsobaricMassTagType.TMT11));
+        // TMTpro 18 (all eighteen) is searched under TMT18; TMT16 too.
+        var pro = Enumerable.Range(0, 100).Select(i => Scan(i, 2, Reporters(Omics.Modifications.IsobaricMassTagType.TMT18)).MassSpectrum).ToList();
+        Assert.That(IsobaricReporters.Kit(pro, "TMT")?.Kit, Is.EqualTo(Omics.Modifications.IsobaricMassTagType.TMT18));
+        Assert.That(IsobaricReporters.ModificationId(Omics.Modifications.IsobaricMassTagType.TMT16), Is.EqualTo("TMT18"));
+        // TMT6's six channels only.
+        var six = Enumerable.Range(0, 100).Select(i => Scan(i, 2, Reporters(Omics.Modifications.IsobaricMassTagType.TMT6)).MassSpectrum).ToList();
+        Assert.That(IsobaricReporters.Kit(six, "TMT")?.Kit, Is.EqualTo(Omics.Modifications.IsobaricMassTagType.TMT6));
+        Assert.That(IsobaricReporters.Kit(spectra, "unknown family"), Is.Null);
+    }
 }
