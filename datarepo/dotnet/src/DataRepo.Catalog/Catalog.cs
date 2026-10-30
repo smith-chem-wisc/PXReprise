@@ -469,6 +469,11 @@ public static partial class CatalogBuilder
                 ["n_psms_all"] = "Every PSM row the dataset's bundle holds, decoys and above-threshold matches included "
                     + "(`bundle.json`'s `psms` count).",
                 ["n_protein_groups_1pct"] = "Protein groups at 1% group-level FDR, contaminants included.",
+                ["unique_peptides_scope"] = "What `protein_groups.unique_peptides` and `shared_peptides` count in this dataset, "
+                    + "decided by the MetaMorpheus release that searched it: `database` before 1.1.13 (a peptide no other "
+                    + "protein in the searched databases has), `protein_group` from 1.1.13 (no other protein GROUP has it; "
+                    + "QuantProject DEF-PROT-UNIQUE). Group-level counts are never lower. Never compare, pool or threshold "
+                    + "the two across datasets of different scope. NULL: another engine, or a version that does not parse.",
                 ["n_ptm_sites"] = "Rows in `ptm_sites`, at any ambiguity level, contaminants included.",
                 ["n_quant_values"] = "Rows in `quant_values` for this dataset: per-run values and, from 1.4.0, design "
                     + "samples' pooled values (`assays.assay_kind`), every definition together. A size, not a measure: "
@@ -2198,6 +2203,24 @@ public static partial class CatalogBuilder
     // catalog folder over one deposit at a time (DepositDerived). Every join and group is within a dataset, so the rows
     // are the same either way.
 
+    /// <summary>What <c>protein_groups.unique_peptides</c> / <c>shared_peptides</c> count in a dataset, from the release of
+    /// MetaMorpheus that searched it (AGING-R1, QuantProject 064): <c>database</c> before 1.1.13 (a peptide no other protein
+    /// in the searched databases has), <c>protein_group</c> from 1.1.13 (MetaMorpheus #2899/#2916: no other protein GROUP
+    /// has it; DEF-PROT-UNIQUE). NULL for another engine, or a version that is not three dot-separated numbers: unknown,
+    /// never a guess. Compared part by part as integers (a list or text comparison put 1.1.9 after 1.1.13).
+    /// Python 0.32.0's overview had no such column, so a parity build writes none.</summary>
+    internal static string UniquePeptidesScopeColumn => SchemaContract.IsPython0320 ? "" : @"CASE
+                WHEN lower(d.search_engine) <> 'metamorpheus'
+                  OR NOT regexp_full_match(coalesce(d.search_engine_version, ''), '[0-9]+\.[0-9]+\.[0-9]+') THEN NULL
+                WHEN CAST(split_part(d.search_engine_version, '.', 1) AS INTEGER) > 1
+                  OR (CAST(split_part(d.search_engine_version, '.', 1) AS INTEGER) = 1
+                      AND (CAST(split_part(d.search_engine_version, '.', 2) AS INTEGER) > 1
+                           OR (CAST(split_part(d.search_engine_version, '.', 2) AS INTEGER) = 1
+                               AND CAST(split_part(d.search_engine_version, '.', 3) AS INTEGER) >= 13)))
+                    THEN 'protein_group'
+                ELSE 'database' END AS unique_peptides_scope,
+            ";
+
     /// <summary><c>dataset_overview</c>: one row per dataset. <paramref name="psmCounts"/> names the table of each bundle's
     /// own PSM counts when the catalog holds no PSMs (<see cref="PsmCountsFromBundles"/>).</summary>
     private static string OverviewSelect(string? psmCounts) => $@"        SELECT
@@ -2213,7 +2236,7 @@ public static partial class CatalogBuilder
             d.instrument_vendor,
             d.search_engine,
             d.search_engine_version,
-            (SELECT count(*) FROM runs r WHERE r.dataset_id = d.dataset_id) AS n_runs,
+            {UniquePeptidesScopeColumn}            (SELECT count(*) FROM runs r WHERE r.dataset_id = d.dataset_id) AS n_runs,
             (SELECT count(*) FROM samples s WHERE s.dataset_id = d.dataset_id) AS n_samples,
             {(psmCounts is null
                 ? "(SELECT count(*) FROM psms_1pct p WHERE p.dataset_id = d.dataset_id)"

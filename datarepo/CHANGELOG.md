@@ -8,6 +8,15 @@ each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 **No re-ingest: the ingest path stays `cs-1.2.0`.** The catalog format is 15.
 
+### Added (build)
+- **`dataset_overview.unique_peptides_scope`** (aging AGING-R1, QuantProject 064): what `protein_groups.unique_peptides`
+  and `shared_peptides` count in that dataset. `database` for a search by MetaMorpheus before 1.1.13 (no other protein
+  in the searched databases has the peptide), `protein_group` from 1.1.13 (no other protein group has it; MetaMorpheus
+  #2899/#2916, QuantProject DEF-PROT-UNIQUE). NULL for another engine or an unreadable version. Derived from
+  `datasets.search_engine_version`, so no re-ingest. The two columns' descriptions say so. **Never compare, pool or
+  threshold the counts across datasets of different scope.** aging's store has served `protein_group` datasets since
+  2026-10-29 (PXD045861 first, then PXD061654), beside `database` ones.
+
 ### Changed (build)
 - **Reconciliation is judged at build** (aging DATAREPO-86, option a). Each check of each bundle is compared with the
   bound the producer's own file format leaves, computed from the bundle's stored rows. A difference inside the bound
