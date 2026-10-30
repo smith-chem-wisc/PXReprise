@@ -89,4 +89,25 @@ public class IsobaricReportersTests
         Assert.That(IsobaricReporters.Kit(six, "TMT")?.Kit, Is.EqualTo(Omics.Modifications.IsobaricMassTagType.TMT6));
         Assert.That(IsobaricReporters.Kit(spectra, "unknown family"), Is.Null);
     }
+
+    // v0.4.34 (PLAN_tmt-dda-2 stage 4): SPS-MS3, as PXD034564: MS2 in the ion trap (CID) carries no reporters, MS3 in the
+    // Orbitrap carries them. Under an isobaric profile the low-res MS2 gate is waived and the kit is read from MS3.
+    [Test]
+    public void AnIsobaricProfileReadsTheKitAndAcceptsSpsMs3()
+    {
+        double[] tmt10 = Reporters(Omics.Modifications.IsobaricMassTagType.TMT10);
+        MsDataScan IonTrapMs2(int n) => new(new MzSpectrum(new[] { 300.0, 500.0, 700.0 }, new[] { 1e4, 1e4, 1e4 }, false), n, 2, true, Polarity.Positive,
+            n / 10.0, new MzRange(100, 2000), "", MZAnalyzerType.IonTrap2D, 1e6, 10, null, $"scan={n}", selectedIonMz: 500, dissociationType: DissociationType.CID);
+        var scans = Enumerable.Range(0, 60).SelectMany(i => new[] { IonTrapMs2(2 * i), Scan(2 * i + 1, 3, tmt10) }).ToList();
+
+        var tmt = SpectraQc.Evaluate(scans, Gates, isobaric: true);
+        Assert.That(tmt.FailReasons, Does.Not.Contain(SpectraQc.LowResMs2), "SPS-MS3: the ion-trap MS2 is expected");
+        Assert.That((tmt.IsobaricKit, tmt.SpsMs3), Is.EqualTo(("TMT10", (bool?)true)));
+        Assert.That(SpectraQc.Evaluate(scans, Gates).FailReasons, Does.Contain(SpectraQc.LowResMs2), "a label-free profile keeps the gate");
+
+        var unlabelled = Enumerable.Range(0, 60).Select(i => Scan(i, 2, 300, 500, 700)).ToList();
+        var none = SpectraQc.Evaluate(unlabelled, Gates, isobaric: true);
+        Assert.That(none.FailReasons, Does.Contain(SpectraQc.NoReporters));
+        Assert.That((none.IsobaricKit, none.SpsMs3), Is.EqualTo(((string?)null, (bool?)false)));
+    }
 }
