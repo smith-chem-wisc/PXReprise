@@ -11,8 +11,10 @@
 #     blank spectrum library ... tmt modified peptides are all shifted"), for Orbitrap MS2 only. A search with low-res MS2
 #     (SPS-MS3's ion-trap MS2) writes none: MetaMorpheus's library mode matches every fragment charge, and at ±0.5 Da the
 #     trial found 0 PSMs with it, 59,028 without.
-#   - The channel design is TmtDesign.txt beside the spectra; the search refuses to start without one, and fails when the
-#     reporter table lacks a design sample. Making it from an SDRF is stage 6.
+#   - The channel design is TmtDesign.txt, written by the search from the question's curated SDRF, else the deposit's
+#     (mzLib SdrfIsobaricDesign, stage 6). The plex is a column the SDRF states, else one plex if every file has the same
+#     channels. With no such SDRF the deposit parks waiting_tmt_design after the probe, with a decisions row. The search
+#     fails when the reporter table lacks a design sample.
 # PENDING until delivery is settled (stage 7): QuantProject 078 (roll-up of fractions per sample; deposits without a
 # channel design) and dataRepo (does 1.4.0 ingest the reporter tables?). A pending profile routes nothing: deposits wait.
 id = "tmt-dda"

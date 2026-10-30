@@ -134,8 +134,20 @@ public static class SearchStage
         if (files.Count == 0) throw new UsageException("every file is excluded");
         var failed = files.Where(f => qc[Path.GetFileName(f)]?["pass"]?.GetValue<bool>() != true).Select(Path.GetFileName).ToList();
         if (failed.Count > 0) throw new SearchSetupException($"QC failed or is missing for {string.Join(", ", failed)}");
-        // MetaMorpheus reads ExperimentalDesign.tsv from beside the first spectra file; written here, before any task runs.
-        var design = p.Design == "sdrf" ? DesignStage.Prepare(r.SpectraDir, files, r.CuratedDesign, r.DesignConditionColumns, r.Organism, r.Accession) : null;
+        // v0.4.34 (PLAN_tmt-dda-2 stage 5): an isobaric search's kit is the one QC read from every searched file's spectra
+        // (stage 4), never a text's word; files that disagree, or a file with none, refuse the search.
+        string? kit = null;
+        if (p.QuantMethod == "reporter_ion")
+        {
+            var kits = files.Select(f => qc[Path.GetFileName(f)]?["isobaric_kit"]?.GetValue<string>()).Distinct().ToList();
+            if (kits.Count != 1 || kits[0] is null)
+                throw new SearchSetupException($"an isobaric search needs one kit read from every file's spectra; QC read {string.Join(", ", kits.Select(k => k ?? "none"))}");
+            kit = kits[0];
+        }
+        // MetaMorpheus reads ExperimentalDesign.tsv (label-free) or TmtDesign.txt (isobaric, stage 6: from an SDRF, always)
+        // from beside the first spectra file; written here, before any task runs.
+        var design = kit is not null ? DesignStage.PrepareIsobaric(r.SpectraDir, files, r.CuratedDesign, r.DesignConditionColumns, kit)
+            : p.Design == "sdrf" ? DesignStage.Prepare(r.SpectraDir, files, r.CuratedDesign, r.DesignConditionColumns, r.Organism, r.Accession) : null;
         // v0.4.27 (dataRepo 052, PXR-R28): the SDRF the design came from is kept in the search's own output, and the record
         // names that copy. A question's SDRF can be edited after its search (seven of aging's were), and the record must
         // still name the bytes the search used. `sdrf_sha256` is the copy's too: the bytes are the same.
@@ -227,25 +239,13 @@ public static class SearchStage
         pin.Check(banner, commit, p.Key);
         string release = pin.Name;
 
-        // v0.4.34 (PLAN_tmt-dda-2 stage 5): an isobaric search's kit is the one QC read from every searched file's spectra
-        // (stage 4), never a text's word; files that disagree, or a file with none, refuse the search. MetaMorpheus reads its
-        // channel design from TmtDesign.txt beside the first spectra file; until it is made from an SDRF (stage 6), a
-        // curated one must be there.
-        string? kit = null;
-        if (p.QuantMethod == "reporter_ion")
-        {
-            var kits = files.Select(f => qc[Path.GetFileName(f)]?["isobaric_kit"]?.GetValue<string>()).Distinct().ToList();
-            if (kits.Count != 1 || kits[0] is null)
-                throw new SearchSetupException($"an isobaric search needs one kit read from every file's spectra; QC read {string.Join(", ", kits.Select(k => k ?? "none"))}");
-            kit = kits[0];
-            if (!File.Exists(Path.Combine(r.SpectraDir, "TmtDesign.txt")))
-                throw new SearchSetupException($"an isobaric search needs its channel design: no TmtDesign.txt in {r.SpectraDir}");
+        // The isobaric record: the kit, and the channel design written above (stage 6).
+        if (kit is not null)
             prov.Set("isobaric", new JsonObject
             {
                 ["kit"] = kit, ["sps_ms3"] = files.All(f => qc[Path.GetFileName(f)]?["sps_ms3"]?.GetValue<bool>() == true),
-                ["design"] = Path.Combine(r.SpectraDir, "TmtDesign.txt"), ["design_sha256"] = Sha(Path.Combine(r.SpectraDir, "TmtDesign.txt")),
+                ["design"] = design!["design"]!.GetValue<string>(), ["design_sha256"] = design["design_sha256"]!.GetValue<string>(),
             });
-        }
 
         // The organism's spectral library, resolved before the task files because it decides two of their values. An
         // isobaric kit has a chain of its own, which starts blank (the user, 2026-10-29).

@@ -20,14 +20,19 @@ the pin as usual.
   - **Search:** the kit is fixed on K and the N-terminus in every task, and named (`MultiplexModId`). Reporter-ion
     quantification; Calibration -> Search; a new `precursor_window = "wide"` (±20 ppm in every task).
   - **Library:** a chain of its own per kit (`mouse_tmt10`), starting blank, for Orbitrap MS2 only.
+  - **Design:** the search writes TmtDesign.txt from the question's curated SDRF, else the deposit's (mzLib
+    `SdrfIsobaricDesign`, against the kit QC read). The plex is a column the SDRF states, else one plex, which mzLib
+    accepts only if every file carries the same channels. With no such SDRF the deposit parks `waiting_tmt_design`
+    after the probe, before the full download, with a decisions row; a curated SDRF added later gives it one more look.
+    The search fails when the reporter table lacks a design sample. A TmtDesign.txt PXReprise wrote is marked
+    (`TmtDesign.txt.pxreprise`) and removed on the next attempt; one put there by hand still stops the search.
+    MetaMorpheus's own TMT SDRF from the trial reads back to the trial's design, row for row.
+  - **Pending:** no deposit routes to it until delivery is settled (QuantProject 078, dataRepo).
 - **A search with low-resolution MS2 writes and reads no spectral library**, whatever the profile says. MetaMorpheus's
   library mode matches every fragment charge, and at the ion trap's ±0.5 Da decoys score as targets do: the TMT trial
   found 0 PSMs with it and 59,028 without. The lowres profiles never had one.
 - **A calibrating profile puts its one fragmentation call into every task.** Calibration's per-file settings files
   drop a per-file `DissociationType`. A deposit whose files disagree is refused under such a profile.
-  - **Design:** the search refuses to start without a TmtDesign.txt, and fails when the reporter table lacks a design
-    sample.
-  - **Pending:** no deposit routes to it until delivery is settled (QuantProject 078, dataRepo).
 - **A stalled Aspera transfer is given up.** An `ascp` session whose download receives no data for
   `fetch_stall_minutes` (default 5) is killed and the file retried, as an HTTPS download already was. On 2026-10-29 one
   session received nothing for 9.3 h without exiting, and a draining driver waited on it the whole time.
