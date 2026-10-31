@@ -38,7 +38,7 @@ public static partial class Definitions
     [
         Psm1pct, NotchAmbiguous, PsmFdrEngine, IdRate, Mbr, PeptideIntensity, ProteinIntensity,
         ProteinSpectralCount, Occupancy, PeptideCount1pct, ProteinGroupCount1pct, Ms2Count, RunMinutes,
-        PrecursorCount, ContamPsmShare, ContamIntensityShare,
+        PrecursorCount, ContamPsmShare, ContamIntensityShare, TmtPeptide, TmtProtein,
         .. PxrepriseTwins.Values,
     ]);
 

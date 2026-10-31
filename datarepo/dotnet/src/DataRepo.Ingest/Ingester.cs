@@ -391,12 +391,45 @@ public static class Ingester
                     unnamed.Select(r => Path.GetFileNameWithoutExtension((string)r["file_name"]!)).ToList()));
             }
         }
+        var runNames = new RunNameMap(runRows.Select(r => Path.GetFileNameWithoutExtension((string)r["file_name"]!)).ToList());
+
+        // --- an isobaric search: one assay per (file, channel) of its design (G105, QuantProject DEF-TMT-*) -------
+        // The design the search read places every column, so it gives the assays; each sits on the SDRF sample its
+        // (run, channel) names, or else on the design's own sample. Its own id component moves isobaric bundles alone.
+        Isobaric.Design? isobaric = null;
+        if (rules == IngestRules.Current && Isobaric.Wrote(resultsDir))
+        {
+            var reagent = DatasetEntry.Text(entry.Labelling) ?? "";
+            if (!Isobaric.Reagents.Contains(reagent))
+                throw new IngestException(
+                    $"{datasetId}: the search wrote isobaric quantification tables, and the manifest's labelling is '{reagent}'. "
+                    + $"Name the reagent ({string.Join(" or ", Isobaric.Reagents)}) and its plex (labelling_plex) in the entry: the channels are named by it.");
+            var designPath = Join(resultsDir, Isobaric.DesignFileName);
+            if (!File.Exists(designPath))
+                throw new IngestException(
+                    $"{datasetId}: the search wrote isobaric quantification tables and there is no {Isobaric.DesignFileName} in {resultsDir}, "
+                    + "so no column can be placed on its file and channel.");
+            writer.AddDeclaration("isobaric_reader", Isobaric.ReaderVersion);
+            writer.AddSource(designPath, "isobaric_design", Isobaric.DesignFileName);
+            isobaric = Isobaric.ReadDesign(designPath, datasetId, reagent, runNames, log);
+            int fromSdrf;
+            (assays, samples, characteristics, fromSdrf) = Isobaric.PlaceAssays(isobaric, datasetId, assays, samples, characteristics, DatasetEntry.Text(entry.Organism));
+            findings.AddRange(IsobaricDesignFindings(isobaric, fromSdrf, sdrfPath is not null, entry.LabellingPlex, datasetId));
+        }
+
         if (samples.Count == 0) Synthetic(runRows);
         findings.AddRange(SdrfConflictFindings(sdrf.Conflicts, samples, datasetId));
         static bool Annotated(List<Row> samples) => samples.Any(s =>
             new[] { "organism_part", "cell_type", "disease", "individual_id" }.Any(c => s.TryGetValue(c, out var v) && !IsFalsy(v)));
         string uncoded;
-        if (sdrfPath is null)
+        if (sdrfPath is null && isobaric is not null)
+        {
+            findings.Add(Finding(datasetId, "no_sdrf", "warning",
+                "No SDRF was found for this dataset, so each channel's sample is the sample its search's "
+                + $"{Isobaric.DesignFileName} names (its `Sample Name`), with nothing else known about it. There is no sample "
+                + "metadata: treat every sample as unannotated."));
+        }
+        else if (sdrfPath is null)
         {
             findings.Add(Finding(datasetId, "no_sdrf", "warning",
                 "No SDRF was found for this dataset, so each run was given a synthetic sample "
@@ -419,8 +452,6 @@ public static class Ingester
                 + "type, disease and individual are all absent. Sample-level questions cannot "
                 + "be answered for this dataset until it is curated."));
         }
-
-        var runNames = new RunNameMap(runRows.Select(r => Path.GetFileNameWithoutExtension((string)r["file_name"]!)).ToList());
 
         // --- identifications ------------------------------------------------------------------------------
         var allPsmsPath = Join(resultsDir, "AllPSMs.psmtsv");
@@ -454,6 +485,14 @@ public static class Ingester
                 writer.AddSource(sampleColumns.DesignPath!, "experimental_design", SampleColumns.DesignFileName);
                 findings.AddRange(SampleColumnFindings(sampleColumns, datasetId));
             }
+        }
+        else if (isobaric is not null && File.Exists(Join(resultsDir, "AllProteinGroups.tsv")))
+        {
+            // An isobaric search writes no quantified-groups file: its groups are the ones AllProteinGroups.tsv writes,
+            // each with its q-value and label, which DEF-TMT-PROT's rows join to (QuantProject 066, rule 1).
+            var allGroupsPath = Join(resultsDir, "AllProteinGroups.tsv");
+            writer.AddSource(allGroupsPath, "protein_groups");
+            (proteinGroups, proteinGroupCount) = Quant.GroupRows(allGroupsPath, datasetId, log, rules);
         }
 
         var searches = SearchParams.TaskNames(searchProvenance).Select(t => t.ToLowerInvariant()).ToList();
@@ -550,6 +589,42 @@ public static class Ingester
                     + $"{ambiguous.Values.Sum()} value(s) are not stored, since storing them under one of the sequences would place "
                     + "them on a site the search never decided. The PSMs behind them are in `psms`. E.g. "
                     + string.Join(", ", ambiguous.Keys.Order(StringComparer.Ordinal).Take(3).Select(k => $"`{k}`")) + "."));
+        }
+        var isobaricNote = new OrderedDictionary<string, object?>(StringComparer.Ordinal);
+        if (isobaric is not null)
+        {
+            var peptideTable = Join(resultsDir, Isobaric.PeptideFileName);
+            if (File.Exists(peptideTable))
+            {
+                writer.AddSource(peptideTable, "isobaric_peptide_quant");
+                var (rows, report) = Isobaric.PeptideRows(peptideTable, isobaric, datasetId, s => proforma.Get(s).Proforma, log);
+                quantValues.AddRange(rows);
+                var known = peptidoforms.Select(p => (string)p["peptidoform_id"]!).ToHashSet(StringComparer.Ordinal);
+                var unmatched = rows.Where(r => !known.Contains((string)r["feature_id"]!)).Select(r => (string)r["feature_id"]!).Distinct().Count();
+                findings.AddRange(IsobaricTableFindings(Isobaric.PeptideFileName, report, datasetId, unmatched));
+                isobaricNote[Isobaric.PeptideFileName] = IsobaricTableNote(report);
+            }
+            var proteinTable = Join(resultsDir, Isobaric.ProteinFileName);
+            if (File.Exists(proteinTable))
+            {
+                writer.AddSource(proteinTable, "isobaric_protein_quant");
+                var (rows, report) = Isobaric.ProteinRows(proteinTable, isobaric, datasetId,
+                    proteinGroups.Select(g => (string)g["protein_group_id"]!).ToHashSet(StringComparer.Ordinal), log);
+                quantValues.AddRange(rows);
+                findings.AddRange(IsobaricTableFindings(Isobaric.ProteinFileName, report, datasetId, 0));
+                isobaricNote[Isobaric.ProteinFileName] = IsobaricTableNote(report);
+            }
+            // DEF-TMT-RAW: kept as MetaMorpheus wrote it, with no rows (QuantProject 068, DATAREPO-D9).
+            var rawTable = Join(resultsDir, Isobaric.RawFileName);
+            if (File.Exists(rawTable)) writer.AddSource(rawTable, "isobaric_raw_quant", Isobaric.RawFileName);
+            isobaricNote["design"] = Isobaric.DesignFileName;
+            isobaricNote["reader"] = Isobaric.ReaderVersion;
+            isobaricNote["plexes"] = (long)isobaric.Channels.Select(c => c.Plex).Distinct().Count();
+            isobaricNote["files"] = (long)isobaric.Channels.Select(c => c.File).Distinct().Count();
+            isobaricNote["files_recalibrated"] = (long)isobaric.Channels.Where(c => c.Recalibrated).Select(c => c.File).Distinct().Count();
+            isobaricNote["assays"] = (long)isobaric.Channels.Count;
+            isobaricNote["raw_quant"] = File.Exists(rawTable) ? $"sources/{Isobaric.RawFileName}" : null;
+            writer.Notes["isobaric"] = isobaricNote;
         }
 
         // --- search parameters and reported totals --------------------------------------------------------
@@ -673,7 +748,7 @@ public static class Ingester
             };
             findings.AddRange(OccupancyFindings(occ, datasetId));
         }
-        else if (File.Exists(pgPath))
+        else if (File.Exists(pgPath) || isobaric is not null)
         {
             occupancyNote = new OrderedDictionary<string, object?> { ["read"] = false, ["reason"] = $"quant_method {S(entry.QuantMethod)}" };
             findings.Add(new Row
@@ -857,6 +932,94 @@ public static class Ingester
         ["status"] = "open",
         ["message"] = message,
         ["source"] = source,
+    };
+
+    private static string Examples(IEnumerable<string> keys, int n = 3)
+    {
+        var list = keys.Order(StringComparer.Ordinal).ToList();
+        return string.Join(", ", list.Take(n).Select(k => $"`{k}`")) + (list.Count > n ? $" and {list.Count - n} more" : "");
+    }
+
+    /// <summary>What a reader of an isobaric bundle's assays needs to know about the design that placed them.</summary>
+    private static List<Row> IsobaricDesignFindings(Isobaric.Design design, int fromSdrf, bool hasSdrf, object? labellingPlex, string datasetId)
+    {
+        var rows = new List<Row>();
+        var n = design.Channels.Count;
+        if (hasSdrf && fromSdrf < n)
+            rows.Add(Finding(datasetId, "isobaric_channels_not_in_sdrf", "warning",
+                $"{n - fromSdrf} of the {n} channels of the search's {Isobaric.DesignFileName} have no row of the SDRF naming their "
+                + "file and label, so their assays sit on the design's own sample (its `Sample Name`), with nothing known about it. E.g. "
+                + Examples(design.Channels.Select(c => c.AssayId(datasetId))) + "."));
+        var uncalibrated = design.Channels.Where(c => !c.Recalibrated).Select(c => c.File).Distinct().ToList();
+        if (uncalibrated.Count > 0)
+            rows.Add(Finding(datasetId, "isobaric_files_uncalibrated", "info",
+                $"{uncalibrated.Count} of the {design.Channels.Select(c => c.File).Distinct().Count()} files were searched as acquired, not "
+                + "calibrated (their names in the search carry no `-calib`): " + Examples(uncalibrated, 10) + ". Their reporter values "
+                + "are the same kind of number; their identifications rest on uncalibrated precursor masses (QuantProject 066, rule 3)."));
+        var references = design.Channels.Where(c => c.SampleType is { } t && !t.Equals("study sample", StringComparison.OrdinalIgnoreCase)).ToList();
+        if (references.Count > 0)
+            rows.Add(Finding(datasetId, "isobaric_reference_channels", "info",
+                $"{references.Count} channel(s) of the search's {Isobaric.DesignFileName} are not study samples: "
+                + string.Join("; ", references.GroupBy(c => c.SampleType!, StringComparer.Ordinal)
+                    .Select(g => $"`Sample Type` {g.Key}: {Examples(g.Select(c => c.AssayId(datasetId)), 5)}"))
+                + ". Their values measure that reference, not a sample of the question. The design is copied in `sources/`."));
+        if (labellingPlex is not null && long.TryParse(PyFormat.Str(labellingPlex), out var plex))
+        {
+            var wider = design.Channels.GroupBy(c => (c.Plex, c.File)).Where(g => g.Count() > plex).Select(g => g.Key.File).ToList();
+            if (wider.Count > 0)
+                rows.Add(Finding(datasetId, "isobaric_plex_exceeded", "warning",
+                    $"The manifest's labelling_plex is {plex}, and the search's {Isobaric.DesignFileName} gives {wider.Count} file(s) more "
+                    + $"channels than that: {Examples(wider)}. The design was read as written."));
+        }
+        return rows;
+    }
+
+    /// <summary>What reading one isobaric table left out, counted, never guessed at.</summary>
+    private static List<Row> IsobaricTableFindings(string table, Isobaric.TableReport report, string datasetId, int unknownPeptidoforms)
+    {
+        var rows = new List<Row>();
+        var stem = table == Isobaric.PeptideFileName ? "peptides" : "protein_groups";
+        if (report.Ambiguous.Count > 0)
+            rows.Add(Finding(datasetId, $"isobaric_rows_ambiguous_{stem}", "warning",
+                $"{report.Ambiguous.Count} row(s) of {table} name several features, joined by `|`, with {report.Ambiguous.Values.Sum()} "
+                + "value(s). They are not stored: storing them under one would place them on a site the search never decided. E.g. "
+                + Examples(report.Ambiguous.Keys) + "."));
+        if (report.Repeated.Count > 0)
+            rows.Add(Finding(datasetId, $"isobaric_rows_repeated_{stem}", "warning",
+                $"{report.Repeated.Count} key(s) of {table} are written on more than one row (one per protein copy, before mzLib #1463), "
+                + $"with {report.Repeated.Values.Sum()} value(s). None is stored: which copy a value belongs to is not ours to choose. E.g. "
+                + Examples(report.Repeated.Keys) + "."));
+        if (report.Unplaced.Count > 0)
+            rows.Add(Finding(datasetId, $"isobaric_rows_unplaced_{stem}", "warning",
+                $"{report.Unplaced.Count} row(s) of {table} name no feature of this bundle (no peptidoform could be keyed, or no group "
+                + $"of AllProteinGroups.tsv is that group), with {report.Unplaced.Values.Sum()} value(s), not stored. E.g. "
+                + Examples(report.Unplaced.Keys) + "."));
+        if (report.Unlabelled.Count > 0)
+            rows.Add(Finding(datasetId, "isobaric_unlabelled_peptides", "warning",
+                $"{report.Unlabelled.Count} row(s) of {table} carry no multiplex label, with {report.Unlabelled.Values.Sum()} value(s), "
+                + "stored as written. A peptide with no label gives no reporter ions of its own, so these values are co-isolated "
+                + "interference (QuantProject 066, rule 4); a protein group's value can include them. Leave them out of peptide-level "
+                + "statistics. MetaMorpheus is to stop quantifying them (QuantProject 068, ruling 1). E.g. " + Examples(report.Unlabelled.Keys) + "."));
+        if (report.MissingColumns.Count > 0)
+            rows.Add(Finding(datasetId, $"isobaric_columns_missing_{stem}", "warning",
+                $"{report.MissingColumns.Count} channel(s) of the search's {Isobaric.DesignFileName} have no column in {table}, so no value "
+                + "is stored for them there: " + Examples(report.MissingColumns) + "."));
+        if (unknownPeptidoforms > 0)
+            rows.Add(Finding(datasetId, $"isobaric_values_without_peptidoform_{stem}", "info",
+                $"{unknownPeptidoforms} peptidoform(s) carry {table} values and have no `peptidoforms` row, because AllPeptides.psmtsv "
+                + "does not write them. Their values are stored; join on `feature_id`."));
+        return rows;
+    }
+
+    private static OrderedDictionary<string, object?> IsobaricTableNote(Isobaric.TableReport report) => new(StringComparer.Ordinal)
+    {
+        ["rows"] = report.Rows,
+        ["values"] = report.Values,
+        ["ambiguous_rows"] = (long)report.Ambiguous.Count,
+        ["repeated_keys"] = (long)report.Repeated.Count,
+        ["unplaced_rows"] = (long)report.Unplaced.Count,
+        ["unlabelled_rows"] = (long)report.Unlabelled.Count,
+        ["missing_columns"] = (long)report.MissingColumns.Count,
     };
 
     /// <summary>Metric rows for every total MetaMorpheus's results.txt reports.</summary>

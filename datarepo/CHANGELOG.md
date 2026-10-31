@@ -4,6 +4,30 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [Unreleased] (isobaric ingest, the release after 1.4.1)
+
+**No re-ingest: only isobaric bundles are new.** The ingest path stays `cs-1.2.0`, the schema 0.0.16 and the catalog
+format 15. A label-free bundle's id does not move.
+
+### Added (ingest)
+- **TMT and iTRAQ searches ingest** (G105; QuantProject DATAREPO-D8, `DEF-TMT-*`; PXReprise PXR-R42). For a search that
+  wrote MetaMorpheus 1.1.13's `PeptideQuantification.tsv` / `ProteinGroupQuantification.tsv`:
+  - one assay per (file, channel) of the search's `TmtDesign.txt`, `<run_id>:TMT126`, on the SDRF sample that names that
+    file and label, or else on the design's own sample (PRIDE's `TMT131` is TMT10's `131N`; QuantProject 068, D11);
+  - `quant_values` under `QuantProject:DEF-TMT-PEP` and `DEF-TMT-PROT` (v3.10, copied), each column placed by its
+    `{sample name}_{file}_{channel}` label and never by position, `-calib`/`-averaged` stripped to reach the run, a 0
+    stored as no row;
+  - protein groups from `AllProteinGroups.tsv`, with their q-values, so `protein_groups_1pct` is the 1% view;
+  - `RawQuantification.tsv` copied verbatim into `sources/`, with no rows (DATAREPO-D9);
+  - findings for unlabelled peptides (QuantProject 066 rule 4), files searched uncalibrated, reference channels, and
+    every row left out; `bundle.json` gains an `isobaric` block.
+  - The entry must say `labelling: TMT` (or `iTRAQ`) and `labelling_plex`; otherwise the ingest is refused.
+  - An isobaric bundle declares the isobaric reader's version into its id (`isobaric_reader`), so a later change to it
+    moves isobaric bundles alone.
+  - Measured on PXReprise's trial of PXD034564 (TMT10, 32 files, `tmt-dda@2`): 320 assays, 7,327 groups (6,466 at 1%,
+    equal to `results.txt`), every non-zero cell stored (528,137 peptide and 374,320 protein values; 8,000 cells checked
+    against the file, none differ). Its peptidoform count at 1% is still 923 above `results.txt` (DATAREPO-D10, open).
+
 ## [Unreleased] (1.4.1)
 
 **No re-ingest: the ingest path stays `cs-1.2.0`.** The catalog format is 15.

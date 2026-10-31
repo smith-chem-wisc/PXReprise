@@ -161,13 +161,14 @@ are part of the bundle id, so renaming the schema gives a new bundle id and noth
 | `provenance.json` (search + its declared upstream stages) | dataRepo | `ProvenanceRecord`, `Metric`, `Finding` |
 | `fetch_manifest.json` | dataRepo | `Run` (file names, SHA-256, archive checksum) |
 | `qc_report.json` | dataRepo | `Run` (MS2 count, length, dissociation, QC verdict), `Metric` |
-| `*.sdrf.tsv` | **mzLib** (`SdrfDocument`) | `Sample`, `SampleCharacteristic`, `Assay` |
+| one `*.sdrf.tsv`, chosen as below | **mzLib** (`SdrfDocument`) | `Sample`, `SampleCharacteristic`, `Assay` |
 | `AllPSMs.psmtsv`, `AllPeptides.psmtsv` | **mzLib** | `Psm`, `Peptidoform`, `Protein`, `PtmSite` |
 | `AllQuantifiedPeptides.tsv`, `AllQuantifiedProteinGroups.tsv`, `AllQuantifiedPeaks.tsv` | dataRepo | `QuantValue`, `ProteinGroup` |
+| an isobaric search's `TmtDesign.txt`, `PeptideQuantification.tsv`, `ProteinGroupQuantification.tsv` and `AllProteinGroups.tsv` | dataRepo | `Assay` per (file, channel), `QuantValue` (`DEF-TMT-PEP`, `DEF-TMT-PROT`), `ProteinGroup`; `RawQuantification.tsv` is copied, never read |
 | `ExperimentalDesign.tsv` beside the protein-group table, only when that table is labelled by sample | dataRepo | which run each protein-group `QuantValue` and `PtmStoichiometry` row belongs to |
 | the executed task `.toml` files | dataRepo | `SearchModification` |
 | `results.txt` | dataRepo | `Metric`, and the numbers the ingest reconciles against |
-| the searching MetaMorpheus install's `Mods/`, `Data/ptmlist.txt` | dataRepo | UNIMOD accessions for ProForma |
+| the searching MetaMorpheus install's `Mods/`, `Data/ptmlist.txt`, `Data/PSI-MOD.obo.xml`, `Data/unimod.xml` | **mzLib**'s loaders, in MetaMorpheus's order (G26) | UNIMOD accessions and masses for ProForma |
 | every protein database in the search provenance's `inputs` (UniProt `.xml`, `.fasta`) | dataRepo; **mzLib**'s loader for specificity | `PtmSite.position` and `site_type`; `Peptidoform.is_unique` and `is_isoform_specific` |
 
 **PTM site positions come from the searched sequences, not from the psmtsv's spans** (0.15.0,
@@ -180,7 +181,28 @@ mismatch stops the ingest. The databases are hashed into the bundle id but never
 A single-accession PSM whose protein cannot be found still uses its own spans, since no pairing is
 involved. Anything else that cannot be placed is counted in the `unplaced_ptm_sites` finding.
 
-mzLib owns producer file formats. The program calls mzLib's own readers in-process (mzLib 1.0.593),
+**Which SDRF describes the samples** (from ingest path `cs-1.2.0`; G107, PXR-R22). The first of these
+that applies:
+
+1. **The manifest entry's `operator_sdrf`**: the instance owner's curation, for any search. Its
+   characteristics are read and its factor values left out. Every searched file must have exactly one
+   row, and its source names must group the searched files exactly as the search's
+   `ExperimentalDesign.tsv` does (one source name per design sample, and the reverse). Otherwise the
+   ingest is refused, naming the files and samples, because the stored protein values belong to the
+   search's samples. The path is not part of the bundle id, but the file's bytes are.
+2. **The SDRF the search's design came from**, when its provenance's `experimental_design.source` is
+   `question` or `deposit`. It is read only if its sha256 is the recorded `sdrf_sha256`. A file edited
+   after the search is not that search's record, so the ingest is refused by name; restore the recorded
+   version, or name the corrected file as `operator_sdrf`. A question's SDRF gives its characteristics
+   only. Its factor values are that question's grouping, which reaches the catalog through the study
+   layer. A deposit's SDRF gives everything.
+3. **Otherwise the first `*/metadata/*.sdrf.tsv` under the run folder**, as before. That is the
+   deposit's own SDRF, for a search whose design was `pxreprise_default` or that recorded none.
+
+`bundle.json` says which was read under `sdrf` (`read`, `chosen_by`, `factor_values`, and the
+provenance's `sdrf_origin`, recorded but never read).
+
+mzLib owns producer file formats. The program calls mzLib's own readers in-process (mzLib 1.0.595),
 the same types the Python release reached through pyMzLib's bridge, and reproduces that bridge's
 projection, so the rows are the same. Where dataRepo reads a file itself it is because mzLib has no
 reader for it, and `bundle.json`'s `readers` block records which backend read every file, so the
@@ -211,16 +233,50 @@ technical replicates. The peptide and peak tables stay per file. The ingest make
   not opened.
 - **Otherwise:** the search's own `ExperimentalDesign.tsv` places each label. A label is the design's `Condition` and
   `Biorep` joined by `_`, never an SDRF `source name`, which MetaMorpheus writes with a space.
-  - A sample of **one file** goes to that run's assay. Its values are exactly what a per-file table would have
-    written.
-  - A sample of **several files** belongs to no run, and a stored quantity belongs to one assay. Its protein-group
-    values and its occupancy are therefore **not stored**, and are never split onto runs. The
-    `sample_quant_not_stored` finding names each such sample.
+  - A sample of **one file** goes to that run's assay, and the assay's `design_label` says so (from ingest path
+    `cs-1.2.0`). Its values are that search's sample values: they come out of one median polish over the design's
+    samples, so a search of the same files without a design could give another number (QuantProject 048).
+  - A sample of **several files** belongs to no run. From ingest path `cs-1.2.0` (schema 0.0.16, PXR-R23), when its
+    files are exactly one SDRF sample's searched files, it becomes a **pooled assay**:
+    - its id is `<dataset_id>:design:<label>`, its `assay_kind` is `design_sample`, its `run_id` is NULL, and its
+      `sample_id` is that SDRF sample;
+    - `assay_runs` lists the files it pools, with the design's `Fraction` and `Techrep`;
+    - its protein-group values (`DEF-PROT-INT`, `DEF-PROT-SPC`) and its occupancy (`denominator_grouping =
+      sample_group`) are stored against it;
+    - peptide and PSM values stay per file, so no row of theirs names a pooled assay.
+    Otherwise its protein-group values and occupancy are **not stored**, and they are never split onto runs. That
+    happens when its files are several SDRF samples', or its SDRF sample also holds other files. The
+    `sample_quant_not_stored` finding names each such sample and says which rule failed. Count runs with
+    `assay_kind = 'run'`.
   - The design is then an input: it is hashed into the bundle id and copied into `sources/`.
 - **A label that names neither a run nor a design sample** refuses the ingest, by name. So does a sample-labelled
   table with no design beside it.
 
 Up to 1.3.0 the ingest read every label as a run name, and refused every search that had a design.
+
+**An isobaric (TMT, iTRAQ) search** (G105; QuantProject `DEF-TMT-*`, their 066 and 068). MetaMorpheus 1.1.13 writes
+`PeptideQuantification.tsv`, `ProteinGroupQuantification.tsv` and `RawQuantification.tsv` instead of FlashLFQ's
+tables, one column per file and channel. When the search wrote them:
+
+- **The manifest entry must name the reagent:** `labelling: TMT` (or `iTRAQ`) and `labelling_plex`. Anything else is
+  refused, because the reagent names the channels.
+- **Assays come from the search's own `TmtDesign.txt`**, one per (file, channel): `<run_id>:TMT126`, with `-calib` and
+  `-averaged` stripped from the file to reach the run. Each sits on the SDRF sample whose row names that file and
+  label (PRIDE's `TMT131` is TMT10's `131N` where the plex has no `131C`), or else on the design's own sample, its
+  `Sample Name`. The design is hashed and copied into `sources/`.
+- **A column is placed by its label**, `{sample name}_{file}_{channel}`, on the design row that gives it, never by
+  position. A column that no design row labels refuses the ingest, by name.
+- **A 0 is no value: no row.** Nothing is summed, normalized or combined; a plex's fractions stay separate assays.
+- **Protein groups come from `AllProteinGroups.tsv`** with their q-values and labels, and each `DEF-TMT-PROT` value hangs
+  on one, so `protein_groups_1pct` is the 1% view, as for label-free. The table is stored unfiltered, as written.
+  `AllProteinGroups.tsv`'s own per-channel `Intensity_` columns are the same numbers and are not read again.
+- **`PeptideQuantification.tsv` is filtered at PSM level, not peptide level** (QuantProject 068): its rows are the full
+  sequences of 1% PSMs, so some are peptides above 1% at peptide level. Join to `peptidoforms_1pct` for a 1% view.
+- **`RawQuantification.tsv` is copied verbatim** into `sources/` and gives no rows (QuantProject 068, DATAREPO-D9).
+- **Occupancy is not read** (`occupancy_not_ingested`): MetaMorpheus's TMT count cell is per file, repeated on every
+  channel.
+- The isobaric reader's version is declared into each isobaric bundle's id (`isobaric_reader`), so a change to it moves
+  isobaric bundles alone. `bundle.json`'s `isobaric` block counts what each table gave and left out.
 
 ## What it writes
 
@@ -343,8 +399,23 @@ that fails to resolve, and the dataset gets an `unmatched_runs` finding.
 
 The schema stores peptidoforms as ProForma 2 with UNIMOD accessions. MetaMorpheus writes its own
 notation (`C[Common Fixed:Carbamidomethyl on C]`), so the ingester translates. The accession mapping
-is **not invented**: it is read from the modification files shipped with the MetaMorpheus build that
-did the search (`Mods/*.txt`, `Data/ptmlist.txt`), which pins it to the version in the manifest.
+is **not invented**: it comes from the modification files shipped with the MetaMorpheus build that
+did the search, which pins it to the version in the manifest. From ingest path `cs-1.2.0` (G26) they
+are loaded by **mzLib's own loaders, as MetaMorpheus loads them**: every `Mods/*.txt` but
+`glyco.txt` and the RNA files, then `Data/ptmlist.txt` with the formal charges of
+`Data/PSI-MOD.obo.xml`, then `Data/unimod.xml`, keeping the first modification loaded under each
+name. A token resolves only to the entry with exactly its category and name
+(`Common Fixed:Carbamidomethyl on C`). Nothing is matched by stem or by residue.
+
+**Masses.** A mass is mzLib's: an `MM` line, else the mass of the `CF` formula. For a `ptmlist.txt`
+entry with an `MM` line, mzLib also subtracts one proton per unit of its PSI-MOD formal charge.
+UniProt writes a fixed-charge group as the cation (N6,N6,N6-trimethyllysine `MM 43.054227`, `C3 H7`),
+and the search used the neutral 42.046951 (C3H6, as Unimod:37). mzLib read a negative formal charge as
+positive until 1.0.592 (#1299). So for an install whose own mzLib is older (MetaMorpheus 1.1.11
+ships 1.0.591), a negatively charged modification's mass is withheld rather than written as a mass
+that install never searched. Such a modification keeps any accession, and `bundle.json` lists it
+under `modification_registry.masses_withheld`. None occurs in aging's installs. `bundle.json` also
+records the loading mzLib (`modification_registry.loader`).
 
 | Registry says | ProForma |
 |---|---|
@@ -356,17 +427,18 @@ This translation is a stop-gap. pyMzLib's `psmtsv` records have a `pro_forma` fi
 for MetaMorpheus files in 0.1.x (DATAREPO-12) and is filled from 0.4.0. Reading it from mzLib
 directly is the step that lets this code go.
 
-**The registry reads mzLib's resource files, and mzLib's own loader is the authority over them.**
-Reading `Mods/*.txt` and `Data/ptmlist.txt` is not the same as asking the loader: the loader also
-carries `Data/unimod.xml`, and it resolves a name by `Unimod` first, then `UniProt`, then
-MetaMorpheus's own list. Ours does not read `unimod.xml` at all. Measured against mzLib 1.0.591's
-loader output (`QuantProject/design/reference/IdWithMotif-to-Unimod.1.0.591.tsv`, 3,139 names): the
-two agree on every one of the 100 names that has actually reached `ptm_sites` in the three ingested
-datasets, and on 635 names overall; 57 more the loader resolves and this registry returns null for;
-2,445 it has no entry for at all. Two names resolve to a **different** accession -- `Decarboxylation
-on D` and `on E`, where `Mods.txt` cross-references `UNIMOD:914` (methylmalonylation on serine) and
-the loader gives `1915` -- and neither has fired in any dataset. Replacing this registry with the
-loader's own table is gap G26.
+**What moving to the loaders changed (G26).** Ingest paths before `cs-1.2.0` read `Mods/*.txt` and
+`Data/ptmlist.txt` with an in-house parser. It never read `unimod.xml`, took no mass from a formula, and
+took UniProt's `MM` without the charge correction. Over every modification token in aging's store
+(420 tokens across MetaMorpheus 1.1.11 and 1.1.12, 2026-10-19), no accession is lost and ten tokens
+change their ProForma:
+- `Unimod:Nethylmaleimide on C` gains `UNIMOD:108`; on later searches `NEM:2H(5)` and
+  `Nethylmaleimide+water` gain `UNIMOD:776` and `UNIMOD:320`;
+- Hydroxybutyrylation on K, GG on K under 1.1.11's install, S-(2,3-dicarboxypropyl)cysteine and
+  PXReprise's NBF go from `[Info:...]` to the formula's mass;
+- O-(2-cholinephosphoryl)serine and N,N,N-trimethylserine, which have no accession, lose UniProt's extra
+  proton (166.062756 to 165.055480, 43.054227 to 42.046951).
+The rest differ only in a mass where an accession is already written, and no row carries that mass.
 
 ## Sites, and why the key is not the accession
 
@@ -457,7 +529,18 @@ result is not the same bundle:
 - the missing database is absent from `sources`, so **the bundle id differs** -- which is
   correct, because the rows do.
 
-A database that is present but **differs** from the searched one (wrong sha256) stops the ingest.
+A database that is present but **differs** from the searched one (wrong sha256) stops the ingest, and so does one
+that reads as having **no entries**. A UniProt XML is read in any namespace (UniProt's `http://` or `https://`, or
+none), matched on element names as mzLib's loader matches them.
+
+**One accession, several sequences.** MetaMorpheus searches one protein per accession. When an accession is in a
+target database and the contaminant panel, the search's `TCAmbiguity` decides which copy it kept: `RemoveContaminant`
+(the default) keeps the target's, `RemoveTarget` the panel's. Sites and occupancy are placed against that copy only.
+The panel carries older versions of two human keratins (O76011, P19013), whose sites were otherwise written twice at
+different positions. Where nothing says which copy was searched (no setting read, `RenameProtein`, or two copies from
+databases of one kind), no site is placed against either. Those (PSM, protein) pairs are counted as
+`ambiguous_sequence` in `unplaced_ptm_sites`. `bundle.json` lists both cases under
+`protein_databases.searched_sequence`.
 
 **Verifying positions.** Every ingest checks each site's residue against its sequence and records
 the result in `bundle.json` under `protein_databases.site_residue_check`; any wrong residue or
@@ -481,15 +564,24 @@ It exits 1 on any failure. Against aging's 0.9.0 bundles it fails (PXD036557: 29
 | `no_design_file` | warning | No experimental design, so between-group comparisons are unavailable. |
 | `no_output_sdrf` | info | The search wrote no SDRF back out. |
 | `sdrf_skeleton` | warning | The deposited SDRF has no biological annotation at all. |
+| `sdrf_conflicting_rows` | warning | The SDRF's rows for one source name write different values in a sample-level column (a characteristic, a factor value, material type or their source comments). That sample gets no value there: no `sample_characteristics` row, and the `samples` column read from it is NULL. No row's value is taken over another's. The message names each column, its values and the runs of the rows that wrote them. |
 | `no_sdrf` | warning | No SDRF; each run was given a synthetic, unannotated sample. |
 | `count_mismatch` | warning | A count disagrees with the producer's summary. |
+| `peptide_rows_localization_ambiguous` | warning | Rows of `AllQuantifiedPeptides.tsv` name several full sequences joined by `|`: peptides whose modification site the search did not settle (MetaMorpheus #2917). Their values are not stored, since storing them under one sequence would place them on a site the search never decided. The message gives the number of rows and values, and examples. |
 | `unresolved_modifications` | warning | A modification has neither a UNIMOD accession nor a mass. Its `ptm_sites` rows exist and carry `modification_name`, with `modification` null. |
 | `unmatched_runs` | warning | A run the search reported is not a deposited file. |
 | `ptm_site_residue_mismatch` | warning | A written site names a residue that is not at its position in the searched sequence, or lies beyond the protein. Should never fire; it is the self-check for DATAREPO-32. |
 | `unplaced_ptm_sites` | warning | Some (PSM, protein) pairs got no `ptm_sites` row because the stored peptide is not in that protein's sequence (typically a level 4/5 PSM whose protein carries a different candidate peptide), the protein has no sequence in the searched databases, or a database was missing. Counts are in `bundle.json` under `protein_databases`. |
 | `collapsed_duplicate_rows` | info | The producer wrote a row more than once, identical in every column; the copies were dropped. |
 | `metric_conflict` | warning | One metric reached the bundle from two sources under one definition, and they disagree. |
-| `sample_quant_not_stored` | warning | A protein-group column is a design sample with no single run (several files, a file that is not a run, or a run another sample also names). Its protein-group quantities and occupancy are not stored, so a missing value there means "not stored", not "not measured". |
+| `isobaric_channels_not_in_sdrf` | warning | Channels of the search's `TmtDesign.txt` that no SDRF row names by file and label; their assays sit on the design's own sample. |
+| `isobaric_files_uncalibrated` | info | Files an isobaric search read as acquired, not calibrated (no `-calib` in their searched name). |
+| `isobaric_reference_channels` | info | Channels whose design `Sample Type` is not `study sample`: their values measure that reference. |
+| `isobaric_plex_exceeded` | warning | A file of the design has more channels than the manifest's `labelling_plex`. |
+| `isobaric_unlabelled_peptides` | warning | Rows of `PeptideQuantification.tsv` with no multiplex label, stored as written: co-isolated interference (QuantProject 066, rule 4). |
+| `isobaric_rows_ambiguous_*`, `isobaric_rows_repeated_*`, `isobaric_rows_unplaced_*`, `isobaric_columns_missing_*` | warning | Rows of an isobaric table (`_peptides`, `_protein_groups`) not stored: a `|`-joined key, a key on several rows, a key naming no feature of the bundle; or design channels with no column. |
+| `isobaric_values_without_peptidoform_peptides` | info | Peptidoforms with `DEF-TMT-PEP` values and no `peptidoforms` row. |
+| `sample_quant_not_stored` | warning | A protein-group column is a design sample that belongs to no assay: not one run (several files, a file that is not a run, or a run another sample also names), and not one SDRF sample's files, which would have made it a pooled assay. Its protein-group quantities and occupancy are not stored, so a missing value there means "not stored", not "not measured". |
 
 The producer's own flags arrive as findings too, keeping their original text.
 

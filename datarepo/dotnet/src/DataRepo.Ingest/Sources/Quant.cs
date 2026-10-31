@@ -114,10 +114,17 @@ public static class Quant
     /// <summary>Melts <c>AllQuantifiedPeptides.tsv</c> into QuantValue rows for peptidoforms.</summary>
     /// <param name="toProforma">The dataset's ProForma cache, so feature ids match the Peptidoform table;
     /// returns the peptidoform's ProForma, or null/empty when it has none.</param>
+    /// <param name="ambiguous">Under <see cref="IngestRules.Current"/>, the rows left out because their <c>Sequence</c>
+    /// names several full sequences, by that cell, with their number of values.</param>
+    /// <remarks>A <c>|</c>-joined <c>Sequence</c> is a peptide whose modification site MetaMorpheus did not settle
+    /// (MetaMorpheus #2917; QuantProject's naming ruling, their 055). 0.32.0 stored it under its first full sequence,
+    /// which places the value on a site the search never decided. Under <see cref="IngestRules.Current"/> it is left out
+    /// and counted instead (QuantProject DATAREPO-D7). No search ingested to date writes one: 0 of 5,605,461 peptide rows
+    /// in aging's 172 searches (2026-10-20).</remarks>
     public static List<Row> PeptideQuantRows(
         string path, string datasetId, RunNameMap runNames, Func<string, string?> toProforma,
         Dictionary<(string Run, string Sequence), (double? PipQValue, bool? MbrKept)>? peakQualityIndex = null,
-        ReaderLog? log = null, IngestRules rules = IngestRules.Current)
+        ReaderLog? log = null, IngestRules rules = IngestRules.Current, Dictionary<string, long>? ambiguous = null)
     {
         var (header, rows) = Readers.ReadTsv(path, log, NoReader, rules);
         var intensityCols = WideColumns(header, "Intensity");
@@ -129,6 +136,12 @@ public static class Quant
         {
             var sequence = Cell(row, "Sequence");
             if (sequence.Length == 0) sequence = Cell(row, "Base Sequence");
+            if (rules == IngestRules.Current && sequence.Contains('|'))
+            {
+                if (ambiguous is not null)
+                    ambiguous[sequence] = ambiguous.GetValueOrDefault(sequence) + intensityCols.Count(c => Intensity(Cell(row, c.Column)) is not null);
+                continue;
+            }
             var first = sequence.Split('|', 2)[0].Trim();
             var proforma = toProforma(first);
             if (string.IsNullOrEmpty(proforma)) continue;
@@ -165,15 +178,57 @@ public static class Quant
             !Equals(g.GetValueOrDefault("target_decoy"), "decoy")
             && g.GetValueOrDefault("q_value") is double q && q <= 0.01);
 
+    /// <summary>The ProteinGroup row of one protein-group table row whose accessions are <paramref name="accessions"/>.</summary>
+    private static Row GroupRow(Dictionary<string, string> row, List<string> accessions, string datasetId)
+    {
+        var sorted = accessions.Order(StringComparer.Ordinal).ToList();
+        var nPeptides = Int(Cell(row, "Number of Peptides"));
+        var nUnique = Int(Cell(row, "Number of Unique Peptides"));
+        var coverage = Cell(row, "Sequence Coverage Fraction");
+        return new Row
+        {
+            ["protein_group_id"] = $"{datasetId}:{string.Join(";", sorted)}",
+            ["dataset_id"] = datasetId,
+            ["protein_accessions"] = sorted.Cast<object?>().ToList(),
+            ["genes"] = Split(Cell(row, "Gene")),
+            ["target_decoy"] = TargetDecoy(Cell(row, "Protein Decoy/Contaminant/Target")),
+            ["q_value"] = Number(Cell(row, "Protein QValue")),
+            ["sequence_coverage"] = Number(coverage.Split('|')[0]),
+            ["unique_peptides"] = nUnique,
+            ["shared_peptides"] = nPeptides is not null && nUnique is not null ? nPeptides - nUnique : null,
+        };
+    }
+
+    /// <summary>Reads the groups alone of <c>AllProteinGroups.tsv</c>, for a search that writes no
+    /// <c>AllQuantifiedProteinGroups.tsv</c>: an isobaric search, whose values come from its own tables.</summary>
+    /// <remarks>Its <c>Intensity_</c>, <c>SpectralCount_</c> and occupancy columns are per file and channel there; the
+    /// intensities are <c>DEF-TMT-PROT</c>'s values written back (QuantProject DEF-TMT-*), read from
+    /// <c>ProteinGroupQuantification.tsv</c> instead, so none of them is read here.</remarks>
+    /// <returns>The groups and the producer-style group count at 1% FDR, for reconciling.</returns>
+    public static (List<Row> Groups, long ProducerCount) GroupRows(string path, string datasetId, ReaderLog? log = null, IngestRules rules = IngestRules.Current)
+    {
+        var (header, rows) = Readers.ReadTsv(path, log, NoReader, rules);
+        var groups = new List<Row>();
+        foreach (var row in Readers.IterDicts(header, rows))
+        {
+            var accessions = Split(Cell(row, "Protein Accession")).Cast<string>().ToList();
+            if (accessions.Count > 0) groups.Add(GroupRow(row, accessions, datasetId));
+        }
+        return (groups, AcceptedGroupCount(groups));
+    }
+
     /// <summary>Reads <c>AllQuantifiedProteinGroups.tsv</c> into ProteinGroup rows and their QuantValues.</summary>
     /// <remarks>With an experimental design MetaMorpheus labels these columns by sample, not by run; where each
     /// one goes is <see cref="SampleColumns"/>'s decision (PXR-R9).</remarks>
     /// <returns>The groups, their quantities (intensity and spectral count as separate rows told apart by
     /// definition), the producer-style group count at 1% FDR, for reconciling, and how the columns were placed.</returns>
+    /// <param name="sampleOfRun">Each searched run's SDRF sample, so a design sample of several files that is one SDRF
+    /// sample's files is stored against its pooled assay (PXR-R23); null leaves such values out.</param>
     /// <exception cref="IngestException">A column holding a value can be placed on no run (see
     /// <see cref="SampleColumns.ForTable"/>).</exception>
     public static (List<Row> Groups, List<Row> Quants, long ProducerCount, SampleColumns Columns) ProteinGroupRows(
-        string path, string datasetId, RunNameMap runNames, ReaderLog? log = null, IngestRules rules = IngestRules.Current)
+        string path, string datasetId, RunNameMap runNames, ReaderLog? log = null, IngestRules rules = IngestRules.Current,
+        IReadOnlyDictionary<string, string>? sampleOfRun = null)
     {
         var (header, rows) = Readers.ReadTsv(path, log, NoReader, rules);
         var intensityCols = WideColumns(header, "Intensity");
@@ -190,7 +245,7 @@ public static class Quant
             foreach (var (reported, column) in countCols)
                 if (Number(Cell(row, column)) is not null) holding.Add(reported);
         }
-        var placement = SampleColumns.ForTable(path, datasetId, holding, runNames, log, rules);
+        var placement = SampleColumns.ForTable(path, datasetId, holding, runNames, log, rules, sampleOfRun);
 
         var groups = new List<Row>();
         var quants = new List<Row>();
@@ -198,23 +253,9 @@ public static class Quant
         {
             var accessions = Split(Cell(row, "Protein Accession")).Cast<string>().ToList();
             if (accessions.Count == 0) continue;
-            var sorted = accessions.Order(StringComparer.Ordinal).ToList();
-            var groupId = $"{datasetId}:{string.Join(";", sorted)}";
-            var nPeptides = Int(Cell(row, "Number of Peptides"));
-            var nUnique = Int(Cell(row, "Number of Unique Peptides"));
-            var coverage = Cell(row, "Sequence Coverage Fraction");
-            groups.Add(new Row
-            {
-                ["protein_group_id"] = groupId,
-                ["dataset_id"] = datasetId,
-                ["protein_accessions"] = sorted.Cast<object?>().ToList(),
-                ["genes"] = Split(Cell(row, "Gene")),
-                ["target_decoy"] = TargetDecoy(Cell(row, "Protein Decoy/Contaminant/Target")),
-                ["q_value"] = Number(Cell(row, "Protein QValue")),
-                ["sequence_coverage"] = Number(coverage.Split('|')[0]),
-                ["unique_peptides"] = nUnique,
-                ["shared_peptides"] = nPeptides is not null && nUnique is not null ? nPeptides - nUnique : null,
-            });
+            var group = GroupRow(row, accessions, datasetId);
+            var groupId = (string)group["protein_group_id"]!;
+            groups.Add(group);
             // The two columns of a block encode "nothing" differently: an intensity of 0 (or blank) means NOT
             // measured and is no row, but a spectral count of 0 IS a measurement, no qualifying PSM in that
             // sample group (QuantProject:DEF-PROT-SPC, "0 is a real zero here"). Dropping it was a defect
@@ -229,14 +270,19 @@ public static class Quant
                 {
                     var value = parse(Cell(row, column));
                     if (value is null) continue;
-                    string run;
+                    string assayId;
                     if (!placement.BySample)
                     {
-                        run = runNames.Resolve(reported) ?? reported;
+                        assayId = $"{datasetId}:{runNames.Resolve(reported) ?? reported}:label_free";
                     }
-                    else if (placement.SampleOf(reported)?.Run is { } sampleRun)
+                    else if (placement.SampleOf(reported) is { Run: { } sampleRun })
                     {
-                        run = sampleRun;
+                        assayId = $"{datasetId}:{sampleRun}:label_free";
+                    }
+                    else if (placement.SampleOf(reported) is { PooledAssay: { } pooled })
+                    {
+                        // A sample of several files, one SDRF sample's: its value, against its pooled assay (PXR-R23).
+                        assayId = pooled;
                     }
                     else
                     {
@@ -245,7 +291,7 @@ public static class Quant
                     }
                     quants.Add(new Row
                     {
-                        ["assay_id"] = $"{datasetId}:{run}:label_free",
+                        ["assay_id"] = assayId,
                         ["feature_type"] = "protein_group",
                         ["feature_id"] = groupId,
                         ["value"] = value,
