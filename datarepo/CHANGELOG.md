@@ -4,10 +4,12 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
-## [Unreleased] (isobaric ingest, the release after 1.4.1)
+## [1.4.1] - 2026-11-01
 
-**No re-ingest: only isobaric bundles are new.** The ingest path stays `cs-1.2.0`, the schema 0.0.16 and the catalog
-format 15. A label-free bundle's id does not move.
+**No whole-store re-ingest.** The ingest path stays `cs-1.2.0` and the schema 0.0.16; the catalog format is 15. Two
+kinds of bundle are new: those written from a search folder moved after it ran (eleven of aging's, under Fixed below),
+and TMT and iTRAQ searches, which ingest as isobaric for the first time. Every other bundle keeps its id. The first
+folder publish recomputes each deposit's derived rows once.
 
 ### Added (ingest)
 - **TMT and iTRAQ searches ingest** (G105; QuantProject DATAREPO-D8, `DEF-TMT-*`; PXReprise PXR-R42). For a search that
@@ -27,10 +29,6 @@ format 15. A label-free bundle's id does not move.
   - Measured on PXReprise's trial of PXD034564 (TMT10, 32 files, `tmt-dda@2`): 320 assays, 7,327 groups (6,466 at 1%,
     equal to `results.txt`), every non-zero cell stored (528,137 peptide and 374,320 protein values; 8,000 cells checked
     against the file, none differ). Its peptidoform count at 1% is still 923 above `results.txt` (DATAREPO-D10, open).
-
-## [Unreleased] (1.4.1)
-
-**No re-ingest: the ingest path stays `cs-1.2.0`.** The catalog format is 15.
 
 ### Added (build)
 - **`dataset_overview.unique_peptides_scope`** (aging AGING-R1, QuantProject 064): what `protein_groups.unique_peptides`

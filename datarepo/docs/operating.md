@@ -43,10 +43,10 @@ installed, and no .NET or Python is needed.
 | macOS, Intel | `datarepo-<version>-osx-x64.tar.gz` |
 
 ```bash
-mkdir -p /opt/datarepo-1.3.6 && cd /opt/datarepo-1.3.6
-curl -LO https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.3.6/datarepo-1.3.6-linux-x64.tar.gz
-tar -xzf datarepo-1.3.6-linux-x64.tar.gz          # tar keeps the executable bit; a zip would lose it
-/opt/datarepo-1.3.6/datarepo/datarepo doctor
+mkdir -p /opt/datarepo-1.4.1 && cd /opt/datarepo-1.4.1
+curl -LO https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.4.1/datarepo-1.4.1-linux-x64.tar.gz
+tar -xzf datarepo-1.4.1-linux-x64.tar.gz          # tar keeps the executable bit; a zip would lose it
+/opt/datarepo-1.4.1/datarepo/datarepo doctor
 ```
 
 Call the program by its path, put its folder on `PATH`, or point a tool at it (PXReprise's machine
@@ -56,7 +56,7 @@ unpacked folder. The commands, arguments and outputs are the ones in [cli.md](cl
 
 Three things depend on running a release:
 
-- **A bundle id hashes the ingest path's version** (`cs-1.1.0` in 1.1.0 to 1.3.6). A bundle written by code
+- **A bundle id hashes the ingest path's version** (`cs-1.1.0` in 1.1.0 to 1.3.6, `cs-1.2.0` from 1.4.0). A bundle written by code
   nobody released cannot be reproduced by anyone, so its id means nothing.
 - **`datarepo run` refuses a development build.** It records the exact build behind every engine
   output: the version and the commit the release was built from. A build that reports `0.0.0-dev`,
@@ -75,6 +75,11 @@ one gene in the searched sequences: see [limitations.md](limitations.md#6--uniqu
 Its first ingest path (`cs-1.0.0`) and schema 0.0.14 give every dataset a new bundle id, so
 re-ingest each dataset once with 1.0.0. 1.1.0 moves the schema to 0.0.15 (each run's start time and instrument), so a store written by 1.0.0 is re-ingested once more; an instance still on the Python package should go straight to 1.3.6. 1.2.0, 1.3.0, 1.3.1, 1.3.2, 1.3.3, 1.3.4, 1.3.5 and 1.3.6 keep the ingest path `cs-1.1.0` and schema 0.0.15, so a store written by 1.1.0 needs no re-ingest: install 1.3.6, run the go engine (1.2.0) and register the orthology snapshot (1.3.0), and rebuild. 1.3.1 ingests the searches with an experimental design that 1.3.0 refused. 1.3.2 lets a reader of the catalog (an MCP server, a script) stay open while `build` replaces it on Windows. 1.3.3 ingests the searches 1.3.2 refused over a modification name holding `:` (Unimod's isotope labels, such as `NEM:2H(5)`), and a build removes the staged catalogs that killed builds left beside the output. 1.3.4 serves a dataset's `restrictions` from the manifest and moves the aging study layer to 0.6.0 (its design tables), so an aging study bundle written before 1.3.4 is refused by the build until `datarepo study` writes it again. 1.3.5 builds a catalog folder (`--out <folder>`: views over the store, versioned files, a `latest.json` pointer) in minutes where the one-file catalog took hours; `--out <name>.duckdb` still builds the one file. 1.3.6 leaves PSMs in the bundles (no `psms` in a catalog; each dataset's PSM counts stay in `dataset_overview`) and has a folder compute each deposit's derived rows once, so a rebuild of aging's 170 deposits takes about a minute. `build` refuses a bundle written against schema 0.0.13 and
 names it. A Python install is no longer needed for anything.
+
+1.4.0 moves the ingest path to `cs-1.2.0` and the schema to 0.0.16, so every bundle is re-ingested once, and a catalog
+that mixes 0.0.15 and 0.0.16 bundles is refused. 1.4.1 keeps both: re-ingest only the bundles written from a search
+folder that was moved after it ran (they lacked their task files; see the CHANGELOG), and ingest TMT and iTRAQ searches,
+which 1.4.0 read as label-free. Rebuild once; the first folder publish recomputes every deposit's derived rows.
 
 ### Building from source
 
@@ -184,6 +189,20 @@ because a misspelt key would sit where no filter on the real one finds it. The d
 table. The next `build` writes the restrictions to `dataset_restrictions` and onto the dataset's
 `dataset_overview.restrictions`, and moves the catalog id, with no re-ingest. `datarepo manifest` lists
 them as `restricted <use>: <reason>`.
+
+An SDRF you **curated** for a search goes in the dataset's `operator_sdrf`, absolute or relative to the
+manifest's folder (G107):
+
+```yaml
+    operator_sdrf: ../designs/PXD012307.operator.sdrf.tsv
+```
+
+It is read in place of any other SDRF, for its characteristics only: its factor values are left out.
+Write one row per searched file, and give the files the source names that group them exactly as the
+search's `ExperimentalDesign.tsv` does. `ingest` refuses any other grouping by name. The file's bytes
+are in the bundle id and its path is not, so editing the file needs a re-ingest and moving it does not.
+Use it when the search's own design SDRF was edited after the search: `ingest` refuses that one (its
+sha256 is not the one the search recorded).
 
 The **discovery census** (every accession you screened, with its verdict) goes in a tab-separated file
 that the manifest names at the top level, relative to the manifest's folder or absolute:
