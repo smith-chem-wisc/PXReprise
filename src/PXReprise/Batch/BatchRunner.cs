@@ -739,11 +739,13 @@ public sealed class BatchRunner
 
     /// <summary>
     /// The first queued deposit not yet done, preferring one whose species no running search has. A deposit downloaded
-    /// already goes first, then (v0.4.29) one the probe worker passed.
+    /// already goes first, then (v0.4.34) one a person asked for with <c>batch retry</c> or <c>batch research</c>, then
+    /// (v0.4.29) one the probe worker passed.
     /// </summary>
     private QueueEntry? PickNext(IReadOnlyList<QueueEntry> queue, HashSet<string> consumed, IReadOnlySet<string> busy)
     {
         if (DownloadedFirst(queue, consumed, busy) is { } ready) return ready;
+        if (RequestedFirst(queue, consumed, busy) is { } asked) return asked;
         if (_m.Workers is not null && WorkerPassFirst(queue, consumed, busy) is { } pass) return pass;
         QueueEntry? first = null;
         foreach (var x in queue)
@@ -781,6 +783,30 @@ public sealed class BatchRunner
             first ??= x;
         }
         return first;
+    }
+
+    /// <summary>
+    /// v0.4.34: a deposit a person put back with <c>batch retry</c> or <c>batch research</c> (status <c>requeued_user</c>)
+    /// goes ahead of the queue order, oldest request first (another species first, as in <see cref="PickNext"/>). Both
+    /// verbs used to leave it at its place in the queue: PXD024633's @12 re-search, asked for 2026-10-29, waited three
+    /// days as entry 235 of 295 behind every new deposit. Read from the state, so a deposit the queue does not list is
+    /// found too. Null when there is none.
+    /// </summary>
+    internal QueueEntry? RequestedFirst(IReadOnlyList<QueueEntry> queue, ISet<string> consumed, IReadOnlySet<string> busy)
+    {
+        var picks = new List<(QueueEntry E, string When)>();
+        foreach (var (acc, node) in State()["datasets"]!.AsObject())
+        {
+            if (consumed.Contains(acc) || node is not JsonObject o || o["status"]?.GetValue<string>() != "requeued_user") continue;
+            if (File.Exists(Path.Combine(Run(acc), "04_search", "provenance.json"))) continue;
+            var qe = queue.FirstOrDefault(x => x.Accession == acc)
+                     ?? (o["organism"]?.GetValue<string>() is { } org ? WithQuestionSpecies(new QueueEntry(acc, o["title"]?.GetValue<string>() ?? "", org)) : null);
+            if (qe is not null) picks.Add((qe, o["updated_utc"]?.GetValue<string>() ?? ""));
+        }
+        var pick = picks.OrderBy(p => busy.Contains(p.E.Organism) ? 1 : 0).ThenBy(p => p.When, StringComparer.Ordinal)
+            .Select(p => p.E).FirstOrDefault();
+        if (pick is not null) Log($"{pick.Accession} taken next: a person asked for it (batch retry or research), so it goes ahead of the queue order");
+        return pick;
     }
 
     /// <summary>

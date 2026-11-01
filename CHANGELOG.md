@@ -33,6 +33,10 @@ the pin as usual.
     directly, an SDRF an earlier search wrote was refused for each calibrated file (`X-calib.mzML` in `comment[searched
     data file]`). What the scope could not join is recorded under `scope`.
   - **Pending:** no deposit routes to it until delivery is settled (QuantProject 078, dataRepo).
+- **A deposit you put back with `batch retry` or `batch research` goes ahead of the queue order**, oldest request
+  first (a deposit downloaded already still goes before it). Both used to leave the deposit at its place in the queue:
+  a re-search asked for on 2026-10-29 waited three days as entry 235 of 295, behind every new deposit. batch.log says
+  `<PXD> taken next: a person asked for it`.
 - **A search with low-resolution MS2 writes and reads no spectral library**, whatever the profile says. MetaMorpheus's
   library mode matches every fragment charge, and at the ion trap's ±0.5 Da decoys score as targets do: the TMT trial
   found 0 PSMs with it and 59,028 without. The lowres profiles never had one.
