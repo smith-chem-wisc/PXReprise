@@ -15,8 +15,10 @@ namespace DataRepo.Ingest;
 /// <c>DR   Unimod; &lt;n&gt;.</c> lines of <c>Mods/*.txt</c> and <c>Data/ptmlist.txt</c>.
 /// <para>So the registry is <i>read from the search's own MetaMorpheus install</i>, which pins it to the version
 /// recorded in the manifest. A modification that no file resolves is reported, never guessed.</para>
-/// <para>Reading these files here rather than asking mzLib's loader is known debt (G26): this reader never
-/// reads <c>Data/unimod.xml</c> and prefers <c>Mods.txt</c> where the loader prefers Unimod. Ported as it is.</para>
+/// <para>This file reader is <see cref="IngestRules.Python0320"/>'s. Under <see cref="IngestRules.Current"/> the
+/// registry comes from mzLib's own loaders over the same install, as MetaMorpheus builds it
+/// (<see cref="ModRegistry.FromMzLib"/>, G26), because this reader never reads <c>Data/unimod.xml</c>, reads no
+/// mass from a chemical formula, and takes UniProt's <c>MM</c> line without mzLib's formal-charge correction.</para>
 /// Ported from <c>modlist.py</c>.
 /// </remarks>
 public static class ModList
@@ -173,17 +175,91 @@ public static class ModList
         s.Length >= 2 && char.IsSurrogatePair(s[0], s[1]) ? s[..2] : s[..1];
 
     // Python's case mappings and isalpha are those of ITS Unicode database (Python 3.13: Unicode 15.1), with
-    // full (multi-character) mappings; .NET's Rune mappings are simple ones from a newer Unicode. The tables below
-    // are every code point where the two differ, found by comparing all 1,112,064 code points against Python
-    // (the test fixture pycase.json), so these four functions agree with Python 3.13 on every single code point.
+    // full (multi-character) mappings; .NET's Rune mappings are simple ones from a newer Unicode, which on Linux is
+    // the machine's ICU and moves with it (Unicode 17 reached CI's runner on 2026-11-01). The case tables below are
+    // every code point where the two differ, found by comparing all 1,112,064 code points against Python (the test
+    // fixture pycase.json); the unassigned table is all of 15.1's, so a later Unicode cannot leak in. These four
+    // functions agree with Python 3.13 on every single code point.
     // Not reproduced: Python's context-dependent Final_Sigma rule in lower() (a capital sigma ending a word);
     // it cannot change a match against the ASCII residue names, the only place lower() decides anything here.
 
-    /// <summary>Code point ranges unassigned in Python 3.13's Unicode 15.1 but letters in .NET's newer Unicode.</summary>
+    /// <summary>Every code point range unassigned (<c>Cn</c>) in Python 3.13's Unicode 15.1, from <c>unicodedata</c>. Python
+    /// leaves these unchanged and not alphabetic whatever Unicode the machine's .NET or ICU knows.</summary>
     private const string PyUnassignedTable =
-        "1C89-1C8A;A7CB-A7CD;A7DA-A7DC;105C0-105F3;10D4A-10D65;10D6F-10D85;10EC2-10EC4;11380-11389;1138B-1138"
-        + "B;1138E-1138E;11390-113B5;113B7-113B7;113D1-113D1;113D3-113D3;11BC0-11BE0;13460-143FA;16100-1611D;16"
-        + "D40-16D6C;18CFF-18CFF;1E5D0-1E5ED;1E5F0-1E5F0";
+        "378-379;380-383;38B-38B;38D-38D;3A2-3A2;530-530;557-558;58B-58C;590-590;5C8-5CF;5EB-5EE;5F5-5FF;70E-70"
+        + "E;74B-74C;7B2-7BF;7FB-7FC;82E-82F;83F-83F;85C-85D;85F-85F;86B-86F;88F-88F;892-897;984-984;98D-98E;991-"
+        + "992;9A9-9A9;9B1-9B1;9B3-9B5;9BA-9BB;9C5-9C6;9C9-9CA;9CF-9D6;9D8-9DB;9DE-9DE;9E4-9E5;9FF-A00;A04-A04;A0"
+        + "B-A0E;A11-A12;A29-A29;A31-A31;A34-A34;A37-A37;A3A-A3B;A3D-A3D;A43-A46;A49-A4A;A4E-A50;A52-A58;A5D-A5D;"
+        + "A5F-A65;A77-A80;A84-A84;A8E-A8E;A92-A92;AA9-AA9;AB1-AB1;AB4-AB4;ABA-ABB;AC6-AC6;ACA-ACA;ACE-ACF;AD1-AD"
+        + "F;AE4-AE5;AF2-AF8;B00-B00;B04-B04;B0D-B0E;B11-B12;B29-B29;B31-B31;B34-B34;B3A-B3B;B45-B46;B49-B4A;B4E-"
+        + "B54;B58-B5B;B5E-B5E;B64-B65;B78-B81;B84-B84;B8B-B8D;B91-B91;B96-B98;B9B-B9B;B9D-B9D;BA0-BA2;BA5-BA7;BA"
+        + "B-BAD;BBA-BBD;BC3-BC5;BC9-BC9;BCE-BCF;BD1-BD6;BD8-BE5;BFB-BFF;C0D-C0D;C11-C11;C29-C29;C3A-C3B;C45-C45;"
+        + "C49-C49;C4E-C54;C57-C57;C5B-C5C;C5E-C5F;C64-C65;C70-C76;C8D-C8D;C91-C91;CA9-CA9;CB4-CB4;CBA-CBB;CC5-CC"
+        + "5;CC9-CC9;CCE-CD4;CD7-CDC;CDF-CDF;CE4-CE5;CF0-CF0;CF4-CFF;D0D-D0D;D11-D11;D45-D45;D49-D49;D50-D53;D64-"
+        + "D65;D80-D80;D84-D84;D97-D99;DB2-DB2;DBC-DBC;DBE-DBF;DC7-DC9;DCB-DCE;DD5-DD5;DD7-DD7;DE0-DE5;DF0-DF1;DF"
+        + "5-E00;E3B-E3E;E5C-E80;E83-E83;E85-E85;E8B-E8B;EA4-EA4;EA6-EA6;EBE-EBF;EC5-EC5;EC7-EC7;ECF-ECF;EDA-EDB;"
+        + "EE0-EFF;F48-F48;F6D-F70;F98-F98;FBD-FBD;FCD-FCD;FDB-FFF;10C6-10C6;10C8-10CC;10CE-10CF;1249-1249;124E-1"
+        + "24F;1257-1257;1259-1259;125E-125F;1289-1289;128E-128F;12B1-12B1;12B6-12B7;12BF-12BF;12C1-12C1;12C6-12C"
+        + "7;12D7-12D7;1311-1311;1316-1317;135B-135C;137D-137F;139A-139F;13F6-13F7;13FE-13FF;169D-169F;16F9-16FF;"
+        + "1716-171E;1737-173F;1754-175F;176D-176D;1771-1771;1774-177F;17DE-17DF;17EA-17EF;17FA-17FF;181A-181F;18"
+        + "79-187F;18AB-18AF;18F6-18FF;191F-191F;192C-192F;193C-193F;1941-1943;196E-196F;1975-197F;19AC-19AF;19CA"
+        + "-19CF;19DB-19DD;1A1C-1A1D;1A5F-1A5F;1A7D-1A7E;1A8A-1A8F;1A9A-1A9F;1AAE-1AAF;1ACF-1AFF;1B4D-1B4F;1B7F-1"
+        + "B7F;1BF4-1BFB;1C38-1C3A;1C4A-1C4C;1C89-1C8F;1CBB-1CBC;1CC8-1CCF;1CFB-1CFF;1F16-1F17;1F1E-1F1F;1F46-1F4"
+        + "7;1F4E-1F4F;1F58-1F58;1F5A-1F5A;1F5C-1F5C;1F5E-1F5E;1F7E-1F7F;1FB5-1FB5;1FC5-1FC5;1FD4-1FD5;1FDC-1FDC;"
+        + "1FF0-1FF1;1FF5-1FF5;1FFF-1FFF;2065-2065;2072-2073;208F-208F;209D-209F;20C1-20CF;20F1-20FF;218C-218F;24"
+        + "27-243F;244B-245F;2B74-2B75;2B96-2B96;2CF4-2CF8;2D26-2D26;2D28-2D2C;2D2E-2D2F;2D68-2D6E;2D71-2D7E;2D97"
+        + "-2D9F;2DA7-2DA7;2DAF-2DAF;2DB7-2DB7;2DBF-2DBF;2DC7-2DC7;2DCF-2DCF;2DD7-2DD7;2DDF-2DDF;2E5E-2E7F;2E9A-2"
+        + "E9A;2EF4-2EFF;2FD6-2FEF;3040-3040;3097-3098;3100-3104;3130-3130;318F-318F;31E4-31EE;321F-321F;A48D-A48"
+        + "F;A4C7-A4CF;A62C-A63F;A6F8-A6FF;A7CB-A7CF;A7D2-A7D2;A7D4-A7D4;A7DA-A7F1;A82D-A82F;A83A-A83F;A878-A87F;"
+        + "A8C6-A8CD;A8DA-A8DF;A954-A95E;A97D-A97F;A9CE-A9CE;A9DA-A9DD;A9FF-A9FF;AA37-AA3F;AA4E-AA4F;AA5A-AA5B;AA"
+        + "C3-AADA;AAF7-AB00;AB07-AB08;AB0F-AB10;AB17-AB1F;AB27-AB27;AB2F-AB2F;AB6C-AB6F;ABEE-ABEF;ABFA-ABFF;D7A4"
+        + "-D7AF;D7C7-D7CA;D7FC-D7FF;FA6E-FA6F;FADA-FAFF;FB07-FB12;FB18-FB1C;FB37-FB37;FB3D-FB3D;FB3F-FB3F;FB42-F"
+        + "B42;FB45-FB45;FBC3-FBD2;FD90-FD91;FDC8-FDCE;FDD0-FDEF;FE1A-FE1F;FE53-FE53;FE67-FE67;FE6C-FE6F;FE75-FE7"
+        + "5;FEFD-FEFE;FF00-FF00;FFBF-FFC1;FFC8-FFC9;FFD0-FFD1;FFD8-FFD9;FFDD-FFDF;FFE7-FFE7;FFEF-FFF8;FFFE-FFFF;"
+        + "1000C-1000C;10027-10027;1003B-1003B;1003E-1003E;1004E-1004F;1005E-1007F;100FB-100FF;10103-10106;10134-"
+        + "10136;1018F-1018F;1019D-1019F;101A1-101CF;101FE-1027F;1029D-1029F;102D1-102DF;102FC-102FF;10324-1032C;"
+        + "1034B-1034F;1037B-1037F;1039E-1039E;103C4-103C7;103D6-103FF;1049E-1049F;104AA-104AF;104D4-104D7;104FC-"
+        + "104FF;10528-1052F;10564-1056E;1057B-1057B;1058B-1058B;10593-10593;10596-10596;105A2-105A2;105B2-105B2;"
+        + "105BA-105BA;105BD-105FF;10737-1073F;10756-1075F;10768-1077F;10786-10786;107B1-107B1;107BB-107FF;10806-"
+        + "10807;10809-10809;10836-10836;10839-1083B;1083D-1083E;10856-10856;1089F-108A6;108B0-108DF;108F3-108F3;"
+        + "108F6-108FA;1091C-1091E;1093A-1093E;10940-1097F;109B8-109BB;109D0-109D1;10A04-10A04;10A07-10A0B;10A14-"
+        + "10A14;10A18-10A18;10A36-10A37;10A3B-10A3E;10A49-10A4F;10A59-10A5F;10AA0-10ABF;10AE7-10AEA;10AF7-10AFF;"
+        + "10B36-10B38;10B56-10B57;10B73-10B77;10B92-10B98;10B9D-10BA8;10BB0-10BFF;10C49-10C7F;10CB3-10CBF;10CF3-"
+        + "10CF9;10D28-10D2F;10D3A-10E5F;10E7F-10E7F;10EAA-10EAA;10EAE-10EAF;10EB2-10EFC;10F28-10F2F;10F5A-10F6F;"
+        + "10F8A-10FAF;10FCC-10FDF;10FF7-10FFF;1104E-11051;11076-1107E;110C3-110CC;110CE-110CF;110E9-110EF;110FA-"
+        + "110FF;11135-11135;11148-1114F;11177-1117F;111E0-111E0;111F5-111FF;11212-11212;11242-1127F;11287-11287;"
+        + "11289-11289;1128E-1128E;1129E-1129E;112AA-112AF;112EB-112EF;112FA-112FF;11304-11304;1130D-1130E;11311-"
+        + "11312;11329-11329;11331-11331;11334-11334;1133A-1133A;11345-11346;11349-1134A;1134E-1134F;11351-11356;"
+        + "11358-1135C;11364-11365;1136D-1136F;11375-113FF;1145C-1145C;11462-1147F;114C8-114CF;114DA-1157F;115B6-"
+        + "115B7;115DE-115FF;11645-1164F;1165A-1165F;1166D-1167F;116BA-116BF;116CA-116FF;1171B-1171C;1172C-1172F;"
+        + "11747-117FF;1183C-1189F;118F3-118FE;11907-11908;1190A-1190B;11914-11914;11917-11917;11936-11936;11939-"
+        + "1193A;11947-1194F;1195A-1199F;119A8-119A9;119D8-119D9;119E5-119FF;11A48-11A4F;11AA3-11AAF;11AF9-11AFF;"
+        + "11B0A-11BFF;11C09-11C09;11C37-11C37;11C46-11C4F;11C6D-11C6F;11C90-11C91;11CA8-11CA8;11CB7-11CFF;11D07-"
+        + "11D07;11D0A-11D0A;11D37-11D39;11D3B-11D3B;11D3E-11D3E;11D48-11D4F;11D5A-11D5F;11D66-11D66;11D69-11D69;"
+        + "11D8F-11D8F;11D92-11D92;11D99-11D9F;11DAA-11EDF;11EF9-11EFF;11F11-11F11;11F3B-11F3D;11F5A-11FAF;11FB1-"
+        + "11FBF;11FF2-11FFE;1239A-123FF;1246F-1246F;12475-1247F;12544-12F8F;12FF3-12FFF;13456-143FF;14647-167FF;"
+        + "16A39-16A3F;16A5F-16A5F;16A6A-16A6D;16ABF-16ABF;16ACA-16ACF;16AEE-16AEF;16AF6-16AFF;16B46-16B4F;16B5A-"
+        + "16B5A;16B62-16B62;16B78-16B7C;16B90-16E3F;16E9B-16EFF;16F4B-16F4E;16F88-16F8E;16FA0-16FDF;16FE5-16FEF;"
+        + "16FF2-16FFF;187F8-187FF;18CD6-18CFF;18D09-1AFEF;1AFF4-1AFF4;1AFFC-1AFFC;1AFFF-1AFFF;1B123-1B131;1B133-"
+        + "1B14F;1B153-1B154;1B156-1B163;1B168-1B16F;1B2FC-1BBFF;1BC6B-1BC6F;1BC7D-1BC7F;1BC89-1BC8F;1BC9A-1BC9B;"
+        + "1BCA4-1CEFF;1CF2E-1CF2F;1CF47-1CF4F;1CFC4-1CFFF;1D0F6-1D0FF;1D127-1D128;1D1EB-1D1FF;1D246-1D2BF;1D2D4-"
+        + "1D2DF;1D2F4-1D2FF;1D357-1D35F;1D379-1D3FF;1D455-1D455;1D49D-1D49D;1D4A0-1D4A1;1D4A3-1D4A4;1D4A7-1D4A8;"
+        + "1D4AD-1D4AD;1D4BA-1D4BA;1D4BC-1D4BC;1D4C4-1D4C4;1D506-1D506;1D50B-1D50C;1D515-1D515;1D51D-1D51D;1D53A-"
+        + "1D53A;1D53F-1D53F;1D545-1D545;1D547-1D549;1D551-1D551;1D6A6-1D6A7;1D7CC-1D7CD;1DA8C-1DA9A;1DAA0-1DAA0;"
+        + "1DAB0-1DEFF;1DF1F-1DF24;1DF2B-1DFFF;1E007-1E007;1E019-1E01A;1E022-1E022;1E025-1E025;1E02B-1E02F;1E06E-"
+        + "1E08E;1E090-1E0FF;1E12D-1E12F;1E13E-1E13F;1E14A-1E14D;1E150-1E28F;1E2AF-1E2BF;1E2FA-1E2FE;1E300-1E4CF;"
+        + "1E4FA-1E7DF;1E7E7-1E7E7;1E7EC-1E7EC;1E7EF-1E7EF;1E7FF-1E7FF;1E8C5-1E8C6;1E8D7-1E8FF;1E94C-1E94F;1E95A-"
+        + "1E95D;1E960-1EC70;1ECB5-1ED00;1ED3E-1EDFF;1EE04-1EE04;1EE20-1EE20;1EE23-1EE23;1EE25-1EE26;1EE28-1EE28;"
+        + "1EE33-1EE33;1EE38-1EE38;1EE3A-1EE3A;1EE3C-1EE41;1EE43-1EE46;1EE48-1EE48;1EE4A-1EE4A;1EE4C-1EE4C;1EE50-"
+        + "1EE50;1EE53-1EE53;1EE55-1EE56;1EE58-1EE58;1EE5A-1EE5A;1EE5C-1EE5C;1EE5E-1EE5E;1EE60-1EE60;1EE63-1EE63;"
+        + "1EE65-1EE66;1EE6B-1EE6B;1EE73-1EE73;1EE78-1EE78;1EE7D-1EE7D;1EE7F-1EE7F;1EE8A-1EE8A;1EE9C-1EEA0;1EEA4-"
+        + "1EEA4;1EEAA-1EEAA;1EEBC-1EEEF;1EEF2-1EFFF;1F02C-1F02F;1F094-1F09F;1F0AF-1F0B0;1F0C0-1F0C0;1F0D0-1F0D0;"
+        + "1F0F6-1F0FF;1F1AE-1F1E5;1F203-1F20F;1F23C-1F23F;1F249-1F24F;1F252-1F25F;1F266-1F2FF;1F6D8-1F6DB;1F6ED-"
+        + "1F6EF;1F6FD-1F6FF;1F777-1F77A;1F7DA-1F7DF;1F7EC-1F7EF;1F7F1-1F7FF;1F80C-1F80F;1F848-1F84F;1F85A-1F85F;"
+        + "1F888-1F88F;1F8AE-1F8AF;1F8B2-1F8FF;1FA54-1FA5F;1FA6E-1FA6F;1FA7D-1FA7F;1FA89-1FA8F;1FABE-1FABE;1FAC6-"
+        + "1FACD;1FADC-1FADF;1FAE9-1FAEF;1FAF9-1FAFF;1FB93-1FB93;1FBCB-1FBEF;1FBFA-1FFFF;2A6E0-2A6FF;2B73A-2B73F;"
+        + "2B81E-2B81F;2CEA2-2CEAF;2EBE1-2EBEF;2EE5E-2F7FF;2FA1E-2FFFF;3134B-3134F;323B0-E0000;E0002-E001F;E0080-"
+        + "E00FF;E01F0-EFFFF;FFFFE-FFFFF;10FFFE-10FFFF";
 
     /// <summary><c>cp:mapping</c> where Python's <c>upper()</c> differs from .NET's <see cref="Rune.ToUpperInvariant"/>.</summary>
     private const string PyUpperTable =
@@ -265,8 +341,14 @@ public static class ModList
 
     private static bool PyUnassignedCodePoint(int cp)
     {
-        foreach (var (first, last) in PyUnassigned)
-            if (cp >= first && cp <= last) return true;
+        int lo = 0, hi = PyUnassigned.Length - 1;
+        while (lo <= hi)
+        {
+            var mid = (lo + hi) / 2;
+            if (cp < PyUnassigned[mid].First) hi = mid - 1;
+            else if (cp > PyUnassigned[mid].Last) lo = mid + 1;
+            else return true;
+        }
         return false;
     }
 
@@ -278,7 +360,12 @@ public static class ModList
             if (rune.IsAscii) sb.Append(simple(rune).ToString());
             else if (exceptions.TryGetValue(rune.Value, out var mapped)) sb.Append(mapped);
             else if (PyUnassignedCodePoint(rune.Value)) sb.Append(rune.ToString());
-            else sb.Append(simple(rune).ToString());
+            else
+            {
+                // A newer Unicode can give an old letter a case partner Python's does not have (U+019B -> U+A7DC).
+                var simpleMapped = simple(rune);
+                sb.Append((PyUnassignedCodePoint(simpleMapped.Value) ? rune : simpleMapped).ToString());
+            }
         }
         return sb.ToString();
     }
@@ -385,6 +472,10 @@ public static class ModList
 /// <remarks>Equality is by value, the target set compared as a set, as Python's frozen dataclass compares.</remarks>
 public sealed record ModEntry(string Name, IReadOnlySet<string> Targets, long? Unimod, double? MonoisotopicMass, string Source)
 {
+    /// <summary>mzLib's <c>ModificationType</c> (MetaMorpheus's category, e.g. <c>Common Fixed</c>), for an entry
+    /// <see cref="ModRegistry.FromMzLib"/> made; null for one read from a file by this module.</summary>
+    public string? Category { get; init; }
+
     /// <summary><c>UNIMOD:&lt;n&gt;</c>, or null when no file gave an accession.</summary>
     public string? UnimodCurie => Unimod is null ? null : "UNIMOD:" + Unimod.Value.ToString(CultureInfo.InvariantCulture);
 
@@ -406,6 +497,19 @@ public sealed class ModRegistry
     private readonly Dictionary<string, List<ModEntry>> _byName = new(StringComparer.Ordinal);
     private readonly List<string> _keyOrder = [];
     private readonly List<string> _sources = [];
+
+    /// <summary><c>Category:IdWithMotif</c> -> entry, for a registry <see cref="FromMzLib"/> built.</summary>
+    private readonly Dictionary<string, ModEntry> _byToken = new(StringComparer.Ordinal);
+
+    /// <summary>True when the registry came from mzLib's loaders, and so answers by the exact token (G26).</summary>
+    public bool ByToken { get; private set; }
+
+    /// <summary>What built the registry, for <c>bundle.json</c>: the mzLib that loaded it, or null for the file reader.</summary>
+    public string? Loader { get; private set; }
+
+    /// <summary>Tokens whose mass <see cref="FromMzLib"/> left out, each with why: this build's mzLib would give a mass
+    /// the search did not use.</summary>
+    public SortedDictionary<string, string> MassesWithheld { get; } = new(StringComparer.Ordinal);
 
     public ModRegistry(IEnumerable<ModEntry>? entries = null)
     {
@@ -445,21 +549,7 @@ public sealed class ModRegistry
     public static ModRegistry FromMetaMorpheus(string installDir, IngestRules rules = IngestRules.Current)
     {
         var registry = new ModRegistry();
-        const bool windows = true;
-        var comparison = StringComparison.OrdinalIgnoreCase;
-        var paths = new List<string>();
-        var mods = Path.Combine(installDir, "Mods");
-        if (Directory.Exists(mods))
-        {
-            var names = Directory.EnumerateFiles(mods)
-                .Where(p => Path.GetFileName(p).EndsWith(".txt", comparison))
-                .ToList();
-            // pathlib orders Windows paths by their lower-cased text, POSIX paths by their text.
-            names.Sort((a, b) => windows
-                ? string.CompareOrdinal(ModList.PyLower(Path.GetFileName(a)), ModList.PyLower(Path.GetFileName(b)))
-                : string.CompareOrdinal(Path.GetFileName(a), Path.GetFileName(b)));
-            paths.AddRange(names);
-        }
+        var paths = ModFiles(installDir);
         paths.Add(Path.Combine(installDir, "Data", "ptmlist.txt"));
         var utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: false);
         foreach (var path in paths)
@@ -474,6 +564,130 @@ public sealed class ModRegistry
         return registry;
     }
 
+    /// <summary>An install's <c>Mods/*.txt</c>, in the order every stored bundle read them (see
+    /// <see cref="FromMetaMorpheus"/>).</summary>
+    private static List<string> ModFiles(string installDir)
+    {
+        var mods = Path.Combine(installDir, "Mods");
+        if (!Directory.Exists(mods)) return [];
+        var names = Directory.EnumerateFiles(mods)
+            .Where(p => Path.GetFileName(p).EndsWith(".txt", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        // pathlib orders Windows paths by their lower-cased text, and every stored bundle was written on Windows.
+        names.Sort((a, b) => string.CompareOrdinal(ModList.PyLower(Path.GetFileName(a)), ModList.PyLower(Path.GetFileName(b))));
+        return names;
+    }
+
+    /// <summary>The modifications an install's MetaMorpheus knew, loaded by mzLib as MetaMorpheus loads them (G26).</summary>
+    /// <remarks>
+    /// <para>MetaMorpheus <c>GlobalVariables.LoadModifications</c> (at <c>6e152da70</c>), with this build's mzLib:
+    /// every <c>Mods/*.txt</c> but <c>glyco.txt</c> and the RNA files (<c>ModificationLoader.ReadModsFromFile</c>), then
+    /// <c>Data/ptmlist.txt</c> (<c>Loaders.LoadUniprot</c>, with the formal charges of <c>Data/PSI-MOD.obo.xml</c>),
+    /// then <c>Data/unimod.xml</c> (<c>Loaders.LoadUnimod</c>). As <c>AddMods</c> keeps it, one modification per
+    /// <c>IdWithMotif</c>: the first loaded. MetaMorpheus writes a modification into a full sequence as
+    /// <c>[ModificationType:IdWithMotif]</c> of the one it kept, so <see cref="Lookup"/> answers that exact token and
+    /// nothing else.</para>
+    /// <para>The accession is the entry's <c>Unimod</c> database reference (a <c>DR   Unimod;</c> line, or the Unimod
+    /// record itself), and the mass is mzLib's (<c>ModificationLoader.ReadMod</c>): an <c>MM</c> line if there is one,
+    /// else the <c>CF</c> formula's mass, and for a <c>ptmlist.txt</c> entry with an <c>MM</c> line, less one proton per
+    /// unit of its PSI-MOD formal charge. The file reader took UniProt's <c>MM</c> as written, so a fixed charge counted
+    /// one proton (N6,N6,N6-trimethyllysine 43.0542 against the 42.0470 searched, which is Unimod:37's C3H6). The
+    /// <c>Mods</c> files are read with no charges, as MetaMorpheus reads them.</para>
+    /// <para><b>A mass the search did not use is withheld.</b> mzLib read a NEGATIVE PSI-MOD formal charge as positive
+    /// until 1.0.592 (#1299, 2026-09-17), so an install whose own mzLib is older (MetaMorpheus 1.1.11 ships 1.0.591)
+    /// searched such a modification two protons per charge away from the mass this build computes. Its entry keeps any
+    /// accession and has no mass, so a token without an accession stays an <c>[Info:...]</c> tag rather than a mass
+    /// tag that would describe some other search (<see cref="MassesWithheld"/>). An install whose mzLib version cannot
+    /// be read is treated as older. Measured 2026-10-19: no entry of aging's 1.1.11 or 1.1.12 installs carries a
+    /// negative charge, and every charged one that reaches the store is +1, so no stored token is affected.</para>
+    /// <para>Two differences from MetaMorpheus, both deliberate: the <c>Mods</c> files are read in the order every
+    /// stored bundle used (<see cref="ModFiles"/>), not the file system's; and <c>glyco.txt</c> and the RNA files are
+    /// recognised by file name, where MetaMorpheus tests the whole path. A file the install lacks is skipped, so a
+    /// missing install gives an empty registry, as <see cref="FromMetaMorpheus"/> does.</para>
+    /// </remarks>
+    public static ModRegistry FromMzLib(string installDir)
+    {
+        var registry = new ModRegistry { ByToken = true, Loader = $"mzLib {MzLibVersion}" };
+        var kept = new HashSet<string>(StringComparer.Ordinal);
+        void AddAll(IEnumerable<Omics.Modifications.Modification> mods, string source, Func<Omics.Modifications.Modification, string?>? withhold = null)
+        {
+            foreach (var mod in mods)
+            {
+                if (string.IsNullOrEmpty(mod.ModificationType) || string.IsNullOrEmpty(mod.IdWithMotif)) continue;
+                if (!kept.Add(mod.IdWithMotif)) continue;  // every duplicate branch of MetaMorpheus's AddMods skips it
+                long? unimod = mod.DatabaseReference is not null && mod.DatabaseReference.TryGetValue("Unimod", out var ids)
+                    && ids.Count > 0 && long.TryParse(ids[0], NumberStyles.None, CultureInfo.InvariantCulture, out var id) ? id : null;
+                var token = $"{mod.ModificationType}:{mod.IdWithMotif}";
+                var why = withhold?.Invoke(mod);
+                if (why is not null) registry.MassesWithheld[token] = why;
+                var entry = new ModEntry(mod.IdWithMotif, ModList.Targets(mod.Target?.ToString() ?? ""), unimod,
+                    why is null ? mod.MonoisotopicMass : null, source)
+                {
+                    Category = mod.ModificationType,
+                };
+                registry.Add(entry);
+                registry._byToken[token] = entry;
+            }
+        }
+        foreach (var path in ModFiles(installDir))
+        {
+            var name = Path.GetFileName(path);
+            if (name.Contains("glyco.txt", StringComparison.Ordinal) || name.Contains("Rna", StringComparison.Ordinal)) continue;
+            AddAll(Omics.Modifications.IO.ModificationLoader.ReadModsFromFile(path, out _), name);
+        }
+        var data = Path.Combine(installDir, "Data");
+        var ptmlist = Path.Combine(data, "ptmlist.txt");
+        var psimod = Path.Combine(data, "PSI-MOD.obo.xml");
+        if (File.Exists(ptmlist))
+        {
+            // MetaMorpheus always ships PSI-MOD; an install without it cannot say which UniProt masses carry a formal
+            // charge, so any entry citing a PSI-MOD term keeps its accession and loses its mass.
+            var hasPsiMod = File.Exists(psimod);
+            var charges = hasPsiMod
+                ? UsefulProteomicsDatabases.Loaders.GetFormalChargesDictionary(UsefulProteomicsDatabases.Loaders.LoadPsiMod(psimod))
+                : new Dictionary<string, int>();
+            var installMzLib = InstallMzLib(installDir);
+            var signRead = installMzLib is not null && installMzLib >= FormalChargeSignFixed;
+            string? Withhold(Omics.Modifications.Modification mod)
+            {
+                if (mod.DatabaseReference is null) return null;
+                if (!hasPsiMod)
+                    return mod.DatabaseReference.TryGetValue("PSI-MOD", out var terms) && terms.Count > 0
+                        ? $"PSI-MOD; {terms[0]} may carry a formal charge, and the install has no Data/PSI-MOD.obo.xml to read it from"
+                        : null;
+                if (signRead) return null;
+                var negative = mod.DatabaseReference.SelectMany(b => b.Value.Select(c => b.Key + "; " + c))
+                    .FirstOrDefault(key => charges.TryGetValue(key, out var charge) && charge < 0);
+                return negative is null ? null
+                    : $"{negative} has formal charge {charges[negative]}, which the install's mzLib "
+                      + $"{installMzLib?.ToString() ?? "(version unreadable)"} read as positive (mzLib #1299, fixed in {FormalChargeSignFixed})";
+            }
+            AddAll(UsefulProteomicsDatabases.Loaders.LoadUniprot(ptmlist, charges).ToList(), "ptmlist.txt", Withhold);
+        }
+        var unimodXml = Path.Combine(data, "unimod.xml");
+        if (File.Exists(unimodXml))
+            AddAll(UsefulProteomicsDatabases.Loaders.LoadUnimod(unimodXml).ToList(), "unimod.xml");
+        return registry;
+    }
+
+    /// <summary>The first mzLib that keeps the sign of a PSI-MOD formal charge (#1299).</summary>
+    private static readonly Version FormalChargeSignFixed = new(1, 0, 592);
+
+    /// <summary>The mzLib an install's MetaMorpheus was built with, from its own <c>UsefulProteomicsDatabases.dll</c>,
+    /// or null when that cannot be read.</summary>
+    private static Version? InstallMzLib(string installDir)
+    {
+        var dll = Path.Combine(installDir, "UsefulProteomicsDatabases.dll");
+        if (!File.Exists(dll)) return null;
+        var text = System.Diagnostics.FileVersionInfo.GetVersionInfo(dll).ProductVersion?.Split('+')[0];
+        return Version.TryParse(text, out var version) ? version : null;
+    }
+
+    /// <summary>The mzLib this build loads modifications with.</summary>
+    private static string MzLibVersion =>
+        (System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(
+            typeof(UsefulProteomicsDatabases.Loaders).Assembly)?.InformationalVersion ?? "unknown").Split('+')[0];
+
     /// <summary>Find the entry for a MetaMorpheus modification name.</summary>
     /// <remarks><paramref name="name"/> is the part inside the bracket after the category, e.g.
     /// <c>Hydroxylation on K</c> or <c>N6-acetyllysine on K</c>. Some files spell the target into the ID and some
@@ -485,8 +699,12 @@ public sealed class ModRegistry
     /// mzLib motif reads it). With no residue at all, the candidates must agree on accession and mass. Anything
     /// else is null, so the caller reports the name unresolved. Python 0.32.0 fell back to the first candidate
     /// carrying a UNIMOD accession, so <c>N6-acetyllysine on S</c> resolved to <c>UNIMOD:1</c>.</para></remarks>
-    public ModEntry? Lookup(string name, string? residue = null, IngestRules rules = IngestRules.Current)
+    /// <param name="category">The token's category (<c>Common Fixed</c>). A registry <see cref="FromMzLib"/> built answers
+    /// <c>category:name</c> exactly, and nothing without a category; a file-read one ignores it.</param>
+    public ModEntry? Lookup(string name, string? residue = null, IngestRules rules = IngestRules.Current, string? category = null)
     {
+        if (ByToken && rules == IngestRules.Current)
+            return string.IsNullOrEmpty(category) ? null : _byToken.GetValueOrDefault($"{category}:{name}");
         if (rules == IngestRules.Current) return StrictLookup(name, residue);
         _byName.TryGetValue(ModList.PyCaseFold(name), out var candidates);
         if (candidates is null && name.Contains(" on ", StringComparison.Ordinal))
