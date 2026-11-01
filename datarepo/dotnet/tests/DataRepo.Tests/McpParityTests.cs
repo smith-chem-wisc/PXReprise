@@ -288,6 +288,10 @@ public class McpParityTests
         // Python answer has nothing to mask it to: it is removed, from the column line and from the detailed answer.
         (new Regex(@" -- Rows in `quant_values` for this dataset: (?:(?! \[\d)[^""\\]|\\.)*", RegexOptions.CultureInvariant), ""),
         (new Regex(@",\s*""means"": ""Rows in `quant_values` for this dataset: (?:[^""\\]|\\.)*""", RegexOptions.CultureInvariant), ""),
+        // 1.4.2 (QuantProject 071, MetaMorpheus #2941) appends one sentence to each of peptidoforms' two q-value
+        // descriptions. Only the appended sentences are removed, so the text both answers share is still compared.
+        (new Regex(@" For a multiplex \(TMT, iTRAQ\) search by MetaMorpheus up to 1\.1\.13 it is the best PSM's PSM-level q-value(?:[^""\\]|\\.)*?finding says so\.", RegexOptions.CultureInvariant), ""),
+        (new Regex(@" PSM-level for a multiplex search by MetaMorpheus up to 1\.1\.13, as `best_q_value` says\.", RegexOptions.CultureInvariant), ""),
     ];
 
     public static string Normalise(string text, string catalogPath)

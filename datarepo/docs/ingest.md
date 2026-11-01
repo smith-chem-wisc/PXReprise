@@ -271,7 +271,13 @@ tables, one column per file and channel. When the search wrote them:
   on one, so `protein_groups_1pct` is the 1% view, as for label-free. The table is stored unfiltered, as written.
   `AllProteinGroups.tsv`'s own per-channel `Intensity_` columns are the same numbers and are not read again.
 - **`PeptideQuantification.tsv` is filtered at PSM level, not peptide level** (QuantProject 068): its rows are the full
-  sequences of 1% PSMs, so some are peptides above 1% at peptide level. Join to `peptidoforms_1pct` for a 1% view.
+  sequences of 1% PSMs, so some are peptides above 1% at peptide level.
+- **Up to MetaMorpheus 1.1.13, the search's `AllPeptides.psmtsv` carries PSM-level q-values** (MetaMorpheus #2941,
+  QuantProject 071): each peptide's best PSM's, not a peptide-level one. So `peptidoforms.best_q_value` and
+  `best_q_value_notch` are PSM-level here, `peptidoforms_1pct` is a PSM-level filter (on PXD034564 it passes 44,037
+  against `results.txt`'s 43,114), and the `isobaric_peptide_q_psm_level` finding says so. No file of such a search
+  gives a peptide-level q-value per peptide; `results.txt`'s count is the peptide-level one. The build marks that
+  count check `explained` by #2941, with no bound.
 - **`RawQuantification.tsv` is copied verbatim** into `sources/` and gives no rows (QuantProject 068, DATAREPO-D9).
 - **Occupancy is not read** (`occupancy_not_ingested`): MetaMorpheus's TMT count cell is per file, repeated on every
   channel.
@@ -578,6 +584,7 @@ It exits 1 on any failure. Against aging's 0.9.0 bundles it fails (PXD036557: 29
 | `isobaric_files_uncalibrated` | info | Files an isobaric search read as acquired, not calibrated (no `-calib` in their searched name). |
 | `isobaric_reference_channels` | info | Channels whose design `Sample Type` is not `study sample`: their values measure that reference. |
 | `isobaric_plex_exceeded` | warning | A file of the design has more channels than the manifest's `labelling_plex`. |
+| `isobaric_peptide_q_psm_level` | warning | A multiplex search by MetaMorpheus up to 1.1.13 (or of unknown release): `peptidoforms.best_q_value` is PSM-level, so `peptidoforms_1pct` is a PSM-level filter (MetaMorpheus #2941). |
 | `isobaric_unlabelled_peptides` | warning | Rows of `PeptideQuantification.tsv` with no multiplex label, stored as written: co-isolated interference (QuantProject 066, rule 4). |
 | `isobaric_rows_ambiguous_*`, `isobaric_rows_repeated_*`, `isobaric_rows_unplaced_*`, `isobaric_columns_missing_*` | warning | Rows of an isobaric table (`_peptides`, `_protein_groups`) not stored: a `|`-joined key, a key on several rows, a key naming no feature of the bundle; or design channels with no column. |
 | `isobaric_values_without_peptidoform_peptides` | info | Peptidoforms with `DEF-TMT-PEP` values and no `peptidoforms` row. |

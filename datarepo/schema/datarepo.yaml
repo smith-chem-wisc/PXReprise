@@ -519,8 +519,8 @@ classes:
       dataset_id: {range: Dataset, required: true, description: "Dataset this row belongs to (ProteomeXchange accession)."}
       peptidoform: {required: true, description: "ProForma 2 string with UNIMOD accessions."}
       base_sequence: {required: true, description: "Unmodified amino-acid sequence."}
-      best_q_value: {range: float, minimum_value: 0, maximum_value: 1, description: "Lowest q-value among the supporting PSMs."}
-      best_q_value_notch: {range: float, minimum_value: 0, maximum_value: 1, description: "Lowest notch q-value among the supporting PSMs."}
+      best_q_value: {range: float, minimum_value: 0, maximum_value: 1, description: "Lowest q-value among the supporting PSMs. For a multiplex (TMT, iTRAQ) search by MetaMorpheus up to 1.1.13 it is the best PSM's PSM-level q-value, not a peptide-level one, as that search's AllPeptides.psmtsv writes it (MetaMorpheus #2941, QuantProject 071), so `peptidoforms_1pct` is a PSM-level filter there; the bundle's `isobaric_peptide_q_psm_level` finding says so."}
+      best_q_value_notch: {range: float, minimum_value: 0, maximum_value: 1, description: "Lowest notch q-value among the supporting PSMs. PSM-level for a multiplex search by MetaMorpheus up to 1.1.13, as `best_q_value` says."}
       best_pep: {range: float, minimum_value: 0, maximum_value: 1, description: "Lowest `pep` among the supporting PSMs. RUN-RELATIVE, like `Psm.pep`: rank or threshold within the dataset, never compare values across datasets or releases (definition pep:DEF-PEP)."}
       target_decoy: {range: TargetDecoy, required: true, description: "Target, decoy or contaminant. Decoy peptidoforms are kept so a caller can recompute FDR."}
       n_psms: {range: integer, description: "Number of PSMs supporting this row."}

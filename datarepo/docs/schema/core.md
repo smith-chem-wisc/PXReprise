@@ -312,8 +312,8 @@ QPX view: `feature` (table-level; column mapping not yet verified).
 | `dataset_id` | [Dataset](#dataset) | yes | Dataset this row belongs to (ProteomeXchange accession). |
 | `peptidoform` | `string` | yes | ProForma 2 string with UNIMOD accessions. |
 | `base_sequence` | `string` | yes | Unmodified amino-acid sequence. |
-| `best_q_value` | `float` |  | Lowest q-value among the supporting PSMs. (range 0..1) |
-| `best_q_value_notch` | `float` |  | Lowest notch q-value among the supporting PSMs. (range 0..1) |
+| `best_q_value` | `float` |  | Lowest q-value among the supporting PSMs. For a multiplex (TMT, iTRAQ) search by MetaMorpheus up to 1.1.13 it is the best PSM's PSM-level q-value, not a peptide-level one, as that search's AllPeptides.psmtsv writes it (MetaMorpheus #2941, QuantProject 071), so `peptidoforms_1pct` is a PSM-level filter there; the bundle's `isobaric_peptide_q_psm_level` finding says so. (range 0..1) |
+| `best_q_value_notch` | `float` |  | Lowest notch q-value among the supporting PSMs. PSM-level for a multiplex search by MetaMorpheus up to 1.1.13, as `best_q_value` says. (range 0..1) |
 | `best_pep` | `float` |  | Lowest `pep` among the supporting PSMs. RUN-RELATIVE, like `Psm.pep`: rank or threshold within the dataset, never compare values across datasets or releases (definition pep:DEF-PEP). (range 0..1) |
 | `target_decoy` | [TargetDecoy](#targetdecoy) | yes | Target, decoy or contaminant. Decoy peptidoforms are kept so a caller can recompute FDR. |
 | `n_psms` | `integer` |  | Number of PSMs supporting this row. |

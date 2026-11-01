@@ -31,8 +31,19 @@ public static class Isobaric
     public const string RawFileName = "RawQuantification.tsv";
 
     /// <summary>The isobaric reader's version, declared into every isobaric bundle's id and no other bundle's. Bump it in
-    /// the same commit as any change to what this reader reads or writes.</summary>
-    public const string ReaderVersion = "1";
+    /// the same commit as any change to what this reader reads or writes. "2" (1.4.2): <c>DEF-TMT-*</c> at QuantProject's
+    /// v3.19, and the <c>isobaric_peptide_q_psm_level</c> finding.</summary>
+    public const string ReaderVersion = "2";
+
+    /// <summary>The last MetaMorpheus release known to write a multiplex search's <c>AllPeptides.psmtsv</c> with each
+    /// peptide's best PSM's PSM-level q-values instead of peptide-level ones (MetaMorpheus #2941, QuantProject 071).</summary>
+    public static readonly Version LastPsmLevelPeptideQ = new(1, 1, 13);
+
+    /// <summary>Whether a multiplex search by <paramref name="metamorpheus"/> wrote PSM-level q-values into its peptide
+    /// file: up to <see cref="LastPsmLevelPeptideQ"/>, or when the release is unknown (no release that carries #2941 is
+    /// named yet, so an unreadable one is not assumed fixed).</summary>
+    public static bool PeptideQIsPsmLevel(string? metamorpheus) =>
+        !Version.TryParse(metamorpheus, out var v) || v <= LastPsmLevelPeptideQ;
 
     /// <summary>The reagents whose channels this reader names, as the schema's <c>Labelling</c> spells them.</summary>
     public static readonly IReadOnlyList<string> Reagents = ["TMT", "iTRAQ"];

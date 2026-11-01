@@ -4,6 +4,31 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [Unreleased] (1.4.2)
+
+**Only isobaric bundles move.** The ingest path stays `cs-1.2.0`, the schema 0.0.16 and the catalog format 15. The
+isobaric reader goes to version 2, which is declared into isobaric bundles alone, so every label-free bundle keeps its
+id (measured: the tutorial's `004f8de1881cec43`, PXD017944's `3cd52dd1b39472d8`). From QuantProject 071 (their answers
+to DATAREPO-D12 and D13).
+
+### Changed (ingest, isobaric only)
+- **`DEF-TMT-PEP` and `DEF-TMT-PROT` are copied at QuantProject's v3.19** (DATA-DEFINITIONS.md at `b2e37b0`): v3.10's
+  text, with v3.19's "which spectral matches enter" (the TMT-only rule of MetaMorpheus #2940; #1463's one peptide per
+  sequence, settled) and v3.14's `DEF-TMT-*` amendment (#1463, #2929, #1504, and reading a multiplex
+  `AllPeptides.psmtsv`).
+- **New finding `isobaric_peptide_q_psm_level`** on a multiplex search by MetaMorpheus up to 1.1.13 (or of unknown
+  release). Such a search writes `AllPeptides.psmtsv` with each peptide's best PSM's PSM-level q-values (MetaMorpheus
+  #2941, open), so `peptidoforms.best_q_value` and `best_q_value_notch` are PSM-level there and `peptidoforms_1pct` is
+  a PSM-level filter. The values are stored as written; the two columns' descriptions say so.
+- On PXReprise's trial of PXD034564 the bundle moves from `6953203f8f2e506a` to `55d39d1895e98784`. Every table is
+  equal but `definitions` (the two texts) and `findings` (the new one).
+
+### Changed (build)
+- **The isobaric peptide count check is explained by MetaMorpheus #2941** (QuantProject 071, DATAREPO-D12). For an
+  isobaric search by MetaMorpheus up to 1.1.13, `peptidoforms_target_1pct` compares a PSM-level count with
+  `results.txt`'s peptide-level one, so a difference is `explained` with no bound, and `basis` names #2941. A later
+  release is judged as before. This holds for isobaric bundles written by 1.4.1 too, with no re-ingest.
+
 ## [1.4.1] - 2026-11-01
 
 **No whole-store re-ingest.** The ingest path stays `cs-1.2.0` and the schema 0.0.16; the catalog format is 15. Two

@@ -194,6 +194,49 @@ public class IsobaricIngestTests
     }
 
     [Test]
+    public void APeptideFilesQValuesAreSaidToBePsmLevelForAMultiplexSearchUpTo1113()
+    {
+        // MetaMorpheus #2941 (QuantProject 071). The fixture's search is MetaMorpheus 1.1.11.
+        var result = Ingest();
+        var finding = Table(result, "findings").Single(r => (string)r["code"]! == "isobaric_peptide_q_psm_level");
+        var definitions = Table(result, "definitions").ToDictionary(d => (string)d["definition_id"]!);
+        Assert.Multiple(() =>
+        {
+            Assert.That((string)finding["message"]!, Does.Contain("MetaMorpheus 1.1.11").And.Contain("`peptidoforms_1pct` is a PSM-level filter"));
+            Assert.That(Isobaric.PeptideQIsPsmLevel("1.1.13"), Is.True);
+            Assert.That(Isobaric.PeptideQIsPsmLevel("1.1.9"), Is.True);
+            Assert.That(Isobaric.PeptideQIsPsmLevel(null), Is.True, "an unknown release is not assumed to carry the fix");
+            Assert.That(Isobaric.PeptideQIsPsmLevel("1.1.14"), Is.False);
+            Assert.That(Isobaric.PeptideQIsPsmLevel("1.2.0"), Is.False);
+            // QuantProject's text as v3.19 amends it, with v3.14's DEF-TMT amendment, from DATA-DEFINITIONS.md at b2e37b0.
+            Assert.That((string)definitions[Definitions.TmtPeptide.DefinitionId]["version"]!, Is.EqualTo("v3.19"));
+            Assert.That((string)definitions[Definitions.TmtProtein.DefinitionId]["text"]!,
+                Does.Contain("MetaMorpheus #2940").And.Contain("#2941").And.Contain("at b2e37b0"));
+        });
+    }
+
+    [Test]
+    public void AnUnlabelledSearchHasNoPsmLevelFinding()
+    {
+        // The label-free fixture, unchanged: the finding belongs to multiplex searches alone.
+        var root = Path.Combine(Path.GetTempPath(), "datarepo-labelfree-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var from = Path.Combine(RepoRoot(), "tests", "data");
+            foreach (var dir in Directory.EnumerateDirectories(from, "*", SearchOption.AllDirectories))
+                Directory.CreateDirectory(Path.Combine(root, Path.GetRelativePath(from, dir)));
+            foreach (var file in Directory.EnumerateFiles(from, "*", SearchOption.AllDirectories))
+                File.Copy(file, Path.Combine(root, Path.GetRelativePath(from, file)));
+            var result = Ingester.Ingest(Path.Combine(root, "manifest.yaml"), Accession, Path.Combine(root, "store"), overwrite: true);
+            Assert.That(Codes(result), Has.No.Member("isobaric_peptide_q_psm_level"));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Test]
     public void TheIsobaricReaderIsInTheIdOfAnIsobaricBundleOnly()
     {
         var result = Ingest();
