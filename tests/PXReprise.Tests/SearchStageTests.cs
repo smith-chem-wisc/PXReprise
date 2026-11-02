@@ -331,6 +331,62 @@ public class SearchStageTests
     }
 
     [Test]
+    public async Task ARawIsDeletedOnceItsCalibrationIsFinishedAndOneWithoutIsKept()
+    {
+        var rig = Setup();
+        Environment.SetEnvironmentVariable("FAKE_MM_CALIBRATE", "a");
+        try
+        {
+            var o = await SearchStage.RunAsync(Req(rig, "04_search"), CancellationToken.None);
+            Assert.That(o.Success, Is.True);
+            var p = JsonNode.Parse(File.ReadAllText(o.ProvenanceFile))!;
+            Assert.Multiple(() =>
+            {
+                Assert.That(File.Exists(Path.Combine(rig.Spectra, "a.raw")), Is.False, "a was calibrated");
+                Assert.That(File.Exists(Path.Combine(rig.Spectra, "b.raw")), Is.True, "b's calibration did not finish");
+                Assert.That(p["raw_deleted_after_calibration"]!.AsArray().Select(n => n!.GetValue<string>()), Is.EqualTo(new[] { "a.raw" }));
+                Assert.That(p["inputs"]!.AsArray().Select(n => n!["path"]!.GetValue<string>()), Has.Some.EndsWith("a.raw"), "hashed before the run");
+            });
+        }
+        finally { Environment.SetEnvironmentVariable("FAKE_MM_CALIBRATE", null); }
+    }
+
+    [Test]
+    public async Task TheMachineCanKeepCalibratedRaws()
+    {
+        var rig = Setup(machineExtra: "delete_raw_after_calibration = false\n");
+        Environment.SetEnvironmentVariable("FAKE_MM_CALIBRATE", "all");
+        try
+        {
+            var o = await SearchStage.RunAsync(Req(rig, "04_search"), CancellationToken.None);
+            Assert.That(o.Success, Is.True);
+            Assert.That(Directory.EnumerateFiles(rig.Spectra, "*.raw").Count(), Is.EqualTo(2));
+            Assert.That(JsonNode.Parse(File.ReadAllText(o.ProvenanceFile))!["raw_deleted_after_calibration"], Is.Null);
+        }
+        finally { Environment.SetEnvironmentVariable("FAKE_MM_CALIBRATE", null); }
+    }
+
+    [Test]
+    public void ASweepNeedsBothTheCalibratedFileAndItsSettingsFile()
+    {
+        string root = TestSupport.TempDir();
+        string cal = Directory.CreateDirectory(Path.Combine(root, "mm", "Task1CalibrationTask")).FullName;
+        string spectra = Directory.CreateDirectory(Path.Combine(root, "spectra")).FullName;
+        var raws = new[] { "done", "notoml", "empty", "none" }.Select(n => TestSupport.WriteFile(spectra, n + ".raw", "r")).ToList();
+        TestSupport.WriteFile(cal, "done-calib.mzML", "<mzML/>");
+        TestSupport.WriteFile(cal, "done-calib.toml", "");
+        TestSupport.WriteFile(cal, "notoml-calib.mzML", "<mzML/>");
+        File.WriteAllText(Path.Combine(cal, "empty-calib.mzML"), "");
+        TestSupport.WriteFile(cal, "empty-calib.toml", "");
+
+        var gone = CalibratedRaws.Sweep(Path.Combine(root, "mm"), raws);
+
+        Assert.That(gone.Select(Path.GetFileName), Is.EqualTo(new[] { "done.raw" }));
+        Assert.That(Directory.EnumerateFiles(spectra).Select(Path.GetFileName).Order(), Is.EqualTo(new[] { "empty.raw", "none.raw", "notoml.raw" }));
+        Assert.That(CalibratedRaws.Sweep(Path.Combine(root, "nothing"), raws), Is.Empty, "no output folder yet");
+    }
+
+    [Test]
     public async Task FlashLfqFailingSilentlyIsNotSuccessAndTheLibraryIsNotAdvanced()
     {
         var rig = Setup();

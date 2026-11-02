@@ -40,6 +40,10 @@ min_free_gb = 50
 # search_timeout_h = 48
 # search_stall_minutes = 90
 
+# OPTIONAL (0.4.35). Delete each raw file as soon as MetaMorpheus has calibrated it, while the search runs (GPTMD and
+# the search read only the calibrated copy). A search that must be redone then fetches its raws again. Default true.
+# delete_raw_after_calibration = true
+
 # OPTIONAL (0.4.21). How long the short probe search before the whole download may run, over the profile's own value
 # (60 for label-free-dda@7). Larger files take longer.
 # probe_search_minutes = 90

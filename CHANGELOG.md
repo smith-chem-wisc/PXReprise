@@ -7,6 +7,20 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.35 (unreleased)
+
+**MetaMorpheus** unchanged. **Machine file:** no change needed; a new optional key `delete_raw_after_calibration`
+(default true). **Safe mid-batch?** Yes: swap the pin as usual.
+
+- **A raw file is deleted as soon as MetaMorpheus has calibrated it**, while the search runs, not hours later at cleanup.
+  Calibration is per file, and GPTMD and the search read only the calibrated `-calib.mzML`. The search checks each
+  minute and once at its end; a file counts as calibrated when its `<name>-calib.mzML` is non-empty AND its
+  `<name>-calib.toml` exists (MetaMorpheus writes the toml after the file). A file whose calibration failed keeps its
+  raw. The search's `provenance.json` lists the deleted files (`raw_deleted_after_calibration`). A profile without a
+  Calibration task deletes nothing early. The cost: a search that must be redone fetches its raws again (as after
+  cleanup today). On PXD048877 (30 files) the calibrated files were 0.70x the raws' size, so a search's peak disk use
+  drops by about the raws' size. `delete_raw_after_calibration = false` keeps them.
+
 ## 0.4.34 (2026-11-01)
 
 **MetaMorpheus** unchanged (1.1.13 for `@12` and `lowres@6`). **Machine file:** no change. **Safe mid-batch?** Yes: swap
