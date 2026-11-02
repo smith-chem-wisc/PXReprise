@@ -15,11 +15,12 @@
 #     (mzLib SdrfIsobaricDesign, stage 6). The plex is a column the SDRF states, else one plex if every file has the same
 #     channels. With no such SDRF, PXReprise's default (each file its own plex, each channel its own sample), flagged
 #     no_channel_design (QuantProject 079). The search fails when the reporter table lacks a design sample.
-# PENDING until delivery is settled (stage 7): QuantProject 078 (roll-up of fractions per sample; deposits without a
-# channel design) and dataRepo (does 1.4.0 ingest the reporter tables?). A pending profile routes nothing: deposits wait.
+# AVAILABLE since v0.4.35 (2026-11-02, the user: "let's go with your plan"). Stage 7 is settled: datarepo 1.4.1 ingests
+# isobaric searches (dataRepo 078, PXR-R42), and QuantProject 079 answered the design questions (fractions roll up at
+# read time; a deposit without a channel design is delivered flagged no_channel_design). Ingest it with datarepo 1.4.1 or
+# newer: 1.4.0 refuses the reporter tables.
 id = "tmt-dda"
 version = 2
-status = "pending"
 description = "Isobaric-labelled DDA (TMT, iTRAQ), MS2 or SPS-MS3 reporters; the kit read from the spectra; MetaMorpheus 1.1.13 Calibrate/Search (no GPTMD) with cleavage-blocking modifications respected, reporter-ion quantification on a TmtDesign.txt, ±20 ppm precursors, LowCID for ion-trap MS2; a spectral library per kit; UniProt canonical proteomes with agingPTM-v6 sites"
 
 [accepts]

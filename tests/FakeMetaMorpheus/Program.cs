@@ -7,7 +7,8 @@
 // Environment: FAKE_MM_EXIT=<n> exits with n after writing outputs; FAKE_MM_NO_PROTEIN_GROUPS=1 omits the protein-group
 // table (FlashLFQ failing silently); FAKE_MM_SKIP_QUANT=1 prints the design warning; FAKE_MM_HANG=1 sleeps forever, using
 // no CPU (a hung search); FAKE_MM_BUSY_SECONDS=<n> works silently for n seconds first (MetaMorpheus's long PEP step);
-// FAKE_MM_WARN=<text> prints that line during the first task (MetaMorpheus's warnings, e.g. "Unrecognized mod ...").
+// FAKE_MM_WARN=<text> prints that line during the first task (MetaMorpheus's warnings, e.g. "Unrecognized mod ...");
+// FAKE_MM_CALIBRATE=all|<name>,<name> writes <name>-calib.mzML and -calib.toml in the Calibration task's folder.
 using System.Text;
 
 string Release = Environment.GetEnvironmentVariable("FAKE_MM_RELEASE") ?? "1.1.11";
@@ -52,6 +53,12 @@ foreach (var (task, i) in new[] { "CalibrationTask", "GptmdTask", "SearchTask" }
     Console.WriteLine($"Starting task: Task{i}{task}");
     if (i == 1 && Environment.GetEnvironmentVariable("FAKE_MM_WARN") is { Length: > 0 } warn) Console.WriteLine(warn);
     Directory.CreateDirectory(Path.Combine(outDir, $"Task{i}{task}"));
+    if (task == "CalibrationTask" && Environment.GetEnvironmentVariable("FAKE_MM_CALIBRATE") is { Length: > 0 } calibrate)
+        foreach (string s in spectra.Where(s => calibrate == "all" || calibrate.Split(',').Contains(s)))
+        {
+            File.WriteAllText(Path.Combine(outDir, $"Task{i}{task}", s + "-calib.mzML"), "<mzML/>");
+            File.WriteAllText(Path.Combine(outDir, $"Task{i}{task}", s + "-calib.toml"), "");
+        }
     if (task == "SearchTask" && Environment.GetEnvironmentVariable("FAKE_MM_SKIP_QUANT") == "1")
         Console.WriteLine("Error reading experimental design file: Condition \"x\" biorep 2 is missing. Skipping quantification");
     Console.WriteLine($"Finished task: Task{i}{task}");

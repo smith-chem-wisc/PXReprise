@@ -78,7 +78,7 @@ public class SearchStageTests
         Assert.That(SearchStage.TmtDesignMissing(design, unused), Is.EqualTo("2 of 2 design samples have no reporter column (S126, S127N)"));
 
         var tmt = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir)["tmt-dda@2"];
-        Assert.That((tmt.PrecursorWindow, tmt.QuantMethod, tmt.Status), Is.EqualTo(("wide", "reporter_ion", ProfileStatus.Pending)));
+        Assert.That((tmt.PrecursorWindow, tmt.QuantMethod, tmt.Status), Is.EqualTo(("wide", "reporter_ion", ProfileStatus.Available)), "available since v0.4.35 (datarepo 1.4.1 ingests it)");
         Assert.That(tmt.Tasks, Is.EqualTo(new[] { "Calibration", "Search" }), "TMT runs no GPTMD (the user, 2026-10-19)");
         Assert.That(SearchStage.PrecursorWindow(tmt, null, null), Is.EqualTo(20));
     }
@@ -328,6 +328,62 @@ public class SearchStageTests
                 Has.Some.Contains("FAILED (G19/D27)"));
         }
         finally { Environment.SetEnvironmentVariable("FAKE_MM_WARN", null); }
+    }
+
+    [Test]
+    public async Task ARawIsDeletedOnceItsCalibrationIsFinishedAndOneWithoutIsKept()
+    {
+        var rig = Setup();
+        Environment.SetEnvironmentVariable("FAKE_MM_CALIBRATE", "a");
+        try
+        {
+            var o = await SearchStage.RunAsync(Req(rig, "04_search"), CancellationToken.None);
+            Assert.That(o.Success, Is.True);
+            var p = JsonNode.Parse(File.ReadAllText(o.ProvenanceFile))!;
+            Assert.Multiple(() =>
+            {
+                Assert.That(File.Exists(Path.Combine(rig.Spectra, "a.raw")), Is.False, "a was calibrated");
+                Assert.That(File.Exists(Path.Combine(rig.Spectra, "b.raw")), Is.True, "b's calibration did not finish");
+                Assert.That(p["raw_deleted_after_calibration"]!.AsArray().Select(n => n!.GetValue<string>()), Is.EqualTo(new[] { "a.raw" }));
+                Assert.That(p["inputs"]!.AsArray().Select(n => n!["path"]!.GetValue<string>()), Has.Some.EndsWith("a.raw"), "hashed before the run");
+            });
+        }
+        finally { Environment.SetEnvironmentVariable("FAKE_MM_CALIBRATE", null); }
+    }
+
+    [Test]
+    public async Task TheMachineCanKeepCalibratedRaws()
+    {
+        var rig = Setup(machineExtra: "delete_raw_after_calibration = false\n");
+        Environment.SetEnvironmentVariable("FAKE_MM_CALIBRATE", "all");
+        try
+        {
+            var o = await SearchStage.RunAsync(Req(rig, "04_search"), CancellationToken.None);
+            Assert.That(o.Success, Is.True);
+            Assert.That(Directory.EnumerateFiles(rig.Spectra, "*.raw").Count(), Is.EqualTo(2));
+            Assert.That(JsonNode.Parse(File.ReadAllText(o.ProvenanceFile))!["raw_deleted_after_calibration"], Is.Null);
+        }
+        finally { Environment.SetEnvironmentVariable("FAKE_MM_CALIBRATE", null); }
+    }
+
+    [Test]
+    public void ASweepNeedsBothTheCalibratedFileAndItsSettingsFile()
+    {
+        string root = TestSupport.TempDir();
+        string cal = Directory.CreateDirectory(Path.Combine(root, "mm", "Task1CalibrationTask")).FullName;
+        string spectra = Directory.CreateDirectory(Path.Combine(root, "spectra")).FullName;
+        var raws = new[] { "done", "notoml", "empty", "none" }.Select(n => TestSupport.WriteFile(spectra, n + ".raw", "r")).ToList();
+        TestSupport.WriteFile(cal, "done-calib.mzML", "<mzML/>");
+        TestSupport.WriteFile(cal, "done-calib.toml", "");
+        TestSupport.WriteFile(cal, "notoml-calib.mzML", "<mzML/>");
+        File.WriteAllText(Path.Combine(cal, "empty-calib.mzML"), "");
+        TestSupport.WriteFile(cal, "empty-calib.toml", "");
+
+        var gone = CalibratedRaws.Sweep(Path.Combine(root, "mm"), raws);
+
+        Assert.That(gone.Select(Path.GetFileName), Is.EqualTo(new[] { "done.raw" }));
+        Assert.That(Directory.EnumerateFiles(spectra).Select(Path.GetFileName).Order(), Is.EqualTo(new[] { "empty.raw", "none.raw", "notoml.raw" }));
+        Assert.That(CalibratedRaws.Sweep(Path.Combine(root, "nothing"), raws), Is.Empty, "no output folder yet");
     }
 
     [Test]

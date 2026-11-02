@@ -385,8 +385,31 @@ public static class SearchStage
             prov.Note("Thermo RawFileReader licence accepted via the machine configuration (operator's recorded choice).");
         }
         prov.Command(runner.Launch.Concat(args));
-        var run = await runner.RunAsync(args, Path.Combine(outDir, "metamorpheus.log"), TimeSpan.FromHours(m.SearchTimeoutHours), ct,
-            TimeSpan.FromMinutes(m.SearchStallMinutes)).ConfigureAwait(false);
+        // v0.4.35 (the user, 2026-11-02): each raw is deleted once its calibration is finished, while the search runs.
+        bool sweep = m.DeleteRawAfterCalibration && p.Tasks.Contains("Calibration");
+        var calibratedGone = new List<string>();
+        using var stopSweep = new CancellationTokenSource();
+        var watch = sweep
+            ? CalibratedRaws.WatchAsync(Path.Combine(outDir, "mm"), files, calibratedGone, TimeSpan.FromMinutes(1), stopSweep.Token)
+            : Task.CompletedTask;
+        RunResult run;
+        try
+        {
+            run = await runner.RunAsync(args, Path.Combine(outDir, "metamorpheus.log"), TimeSpan.FromHours(m.SearchTimeoutHours), ct,
+                TimeSpan.FromMinutes(m.SearchStallMinutes)).ConfigureAwait(false);
+        }
+        finally
+        {
+            stopSweep.Cancel();
+            await watch.ConfigureAwait(false);
+        }
+        if (sweep)
+        {
+            try { calibratedGone.AddRange(CalibratedRaws.Sweep(Path.Combine(outDir, "mm"), files)); }
+            catch (IOException) { }
+            prov.Set("raw_deleted_after_calibration", (JsonNode)new JsonArray(calibratedGone.Select(f => (JsonNode?)Path.GetFileName(f)).ToArray()));
+            prov.Note($"{calibratedGone.Count} of {files.Count} raw files were deleted once MetaMorpheus had calibrated them (machine delete_raw_after_calibration; the user, 2026-11-02); the later tasks read the -calib.mzML. A re-search fetches them again.");
+        }
         prov.Set("exit_code", (JsonNode)run.ExitCode);
         if (run.Stalled)
         {
