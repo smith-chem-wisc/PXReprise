@@ -47,6 +47,15 @@ public static class SearchStage
     /// </summary>
     internal static int? PrecursorWindow(Profile p, IReadOnlyDictionary<string, double>? offsets, AgingProvenance? prov)
     {
+        if (p.PrecursorWindow == "wide")
+        {
+            prov?.Set("precursor_window", new JsonObject
+            {
+                ["rule"] = $"wide: ±{ProbeMeasures.MaxWindowPpm} ppm in every task (the probe cannot measure an isobaric deposit's offset); Calibration narrows the files it fits",
+                ["window_ppm"] = ProbeMeasures.MaxWindowPpm,
+            });
+            return ProbeMeasures.MaxWindowPpm;
+        }
         if (p.PrecursorWindow != "probe") return null;
         int? window = ProbeMeasures.WindowPpm(offsets?.Values);
         prov?.Set("precursor_window", new JsonObject
@@ -125,8 +134,20 @@ public static class SearchStage
         if (files.Count == 0) throw new UsageException("every file is excluded");
         var failed = files.Where(f => qc[Path.GetFileName(f)]?["pass"]?.GetValue<bool>() != true).Select(Path.GetFileName).ToList();
         if (failed.Count > 0) throw new SearchSetupException($"QC failed or is missing for {string.Join(", ", failed)}");
-        // MetaMorpheus reads ExperimentalDesign.tsv from beside the first spectra file; written here, before any task runs.
-        var design = p.Design == "sdrf" ? DesignStage.Prepare(r.SpectraDir, files, r.CuratedDesign, r.DesignConditionColumns, r.Organism, r.Accession) : null;
+        // v0.4.34 (PLAN_tmt-dda-2 stage 5): an isobaric search's kit is the one QC read from every searched file's spectra
+        // (stage 4), never a text's word; files that disagree, or a file with none, refuse the search.
+        string? kit = null;
+        if (p.QuantMethod == "reporter_ion")
+        {
+            var kits = files.Select(f => qc[Path.GetFileName(f)]?["isobaric_kit"]?.GetValue<string>()).Distinct().ToList();
+            if (kits.Count != 1 || kits[0] is null)
+                throw new SearchSetupException($"an isobaric search needs one kit read from every file's spectra; QC read {string.Join(", ", kits.Select(k => k ?? "none"))}");
+            kit = kits[0];
+        }
+        // MetaMorpheus reads ExperimentalDesign.tsv (label-free) or TmtDesign.txt (isobaric, stage 6: from an SDRF, always)
+        // from beside the first spectra file; written here, before any task runs.
+        var design = kit is not null ? DesignStage.PrepareIsobaric(r.SpectraDir, files, r.CuratedDesign, r.DesignConditionColumns, kit, r.Organism, r.Accession)
+            : p.Design == "sdrf" ? DesignStage.Prepare(r.SpectraDir, files, r.CuratedDesign, r.DesignConditionColumns, r.Organism, r.Accession) : null;
         // v0.4.27 (dataRepo 052, PXR-R28): the SDRF the design came from is kept in the search's own output, and the record
         // names that copy. A question's SDRF can be edited after its search (seven of aging's were), and the record must
         // still name the bytes the search used. `sdrf_sha256` is the copy's too: the bytes are the same.
@@ -138,6 +159,13 @@ public static class SearchStage
             design["sdrf_origin"] = used;
             design["sdrf"] = kept;
         }
+        // v0.4.34 (reader fix R5): since mzLib 1.0.596 (#1426) a design keeps the SDRF's own numbers, gaps included.
+        // MetaMorpheus 1.1.13 quantifies a gap with a warning (#2928); 1.1.12 and older refuse the design and quantify without
+        // it, which U15 only caught after the whole search. Refused here, before it starts.
+        string designTsv = Path.Combine(r.SpectraDir, "ExperimentalDesign.tsv");
+        if (design is not null && design["written"]?.GetValue<bool>() == true && RefusesDesignGaps(p.MetaMorpheus) && File.Exists(designTsv)
+            && DesignStage.Gaps(designTsv) is { Count: > 0 } numberingGaps)
+            throw new SearchSetupException($"the design has numbering gaps ({string.Join("; ", numberingGaps)}), which MetaMorpheus {p.MetaMorpheus} refuses; search it under a profile on MetaMorpheus 1.1.13 or later");
 
         // The effective parameters, in the aging pipeline's shape, so provenance's params_file is a real file.
         var runner = new MetaMorpheusRunner(m.CmdFor(p.MetaMorpheus), m.Dotnet, m.DotnetRoot);
@@ -147,6 +175,9 @@ public static class SearchStage
         {
             ["metamorpheus_cmd"] = m.CmdFor(p.MetaMorpheus),
             ["metamorpheus_version"] = p.MetaMorpheus,
+            // v0.4.34 (reader fix R6; QuantProject 075, ptmQtl 033, go 015): the mzLib MetaMorpheus itself runs on, which
+            // need not be the engine's own (provenance's `mzlib`).
+            ["metamorpheus_mzlib_version"] = MetaMorpheusMzLib(m.CmdFor(p.MetaMorpheus)),
             ["accept_thermo_licence"] = m.AcceptThermoLicence,
             ["tasks"] = new JsonArray(p.Tasks.Select(t => (JsonNode?)t).ToArray()),
             ["max_threads"] = m.MaxThreads,
@@ -208,8 +239,17 @@ public static class SearchStage
         pin.Check(banner, commit, p.Key);
         string release = pin.Name;
 
-        // The organism's spectral library, resolved before the task files because it decides two of their values.
-        LibraryPlan? lib = p.SpectralLibrary && r.UseLibrary ? SpectralLibrary.Plan(m.SpectralLibraryRoot, r.Organism) : null;
+        // The isobaric record: the kit, and the channel design written above (stage 6).
+        if (kit is not null)
+            prov.Set("isobaric", new JsonObject
+            {
+                ["kit"] = kit, ["sps_ms3"] = files.All(f => qc[Path.GetFileName(f)]?["sps_ms3"]?.GetValue<bool>() == true),
+                ["design"] = design!["design"]!.GetValue<string>(), ["design_sha256"] = design["design_sha256"]!.GetValue<string>(),
+            });
+
+        // The organism's spectral library, resolved before the task files because it decides two of their values. An
+        // isobaric kit has a chain of its own, which starts blank (the user, 2026-10-29).
+        LibraryPlan? lib = p.SpectralLibrary && r.UseLibrary ? SpectralLibrary.Plan(m.SpectralLibraryRoot, r.Organism, kit) : null;
         if (p.SpectralLibrary && !r.UseLibrary)
             prov.Note("spectral library switched OFF for this search by the batch (a previous update-mode search failed)");
         if (lib is not null)
@@ -235,7 +275,7 @@ public static class SearchStage
             VariableCysMods: chem?.CysMods.Where(c => !c.Fixed).Select(c => c.MetaMorpheusId!).ToList(),
             WriteSdrf: p.WriteSdrf, ProteomeXchangeAccession: p.WriteSdrf ? r.Accession : null,
             PrecursorMassTolerance: window is { } w ? $"±{w}.0000 PPM" : null, QuantifyPpmTol: window,
-            GptmdFilters: p.GptmdFilters);
+            GptmdFilters: p.GptmdFilters, MultiplexKit: kit);
         if (chem is not null)
         {
             prov.Set("chemistry", Chemistry(chem));
@@ -245,6 +285,34 @@ public static class SearchStage
         if (fragmentation is not null)
             prov.Set("fragmentation", new JsonObject(fragmentation.Select(kv => KeyValuePair.Create(kv.Key, (JsonNode?)new JsonObject
                 { ["dissociation_type"] = kv.Value.DissociationType, ["low_res"] = kv.Value.LowRes, ["evidence"] = kv.Value.Evidence }))));
+        // v0.4.34 (TMT stage 5, results/tmt-trial_2026-10-29): a Calibration task writes each calibrated file's own settings
+        // file, and the search reads that one, without our per-file DissociationType; Calibration itself scored the ion-trap
+        // MS2 as HCD (57 MS1 and 0 MS2 calibration points a file), and the search found 0 PSMs. So under a calibrating
+        // profile the one call every file shares goes into every task; files that disagree cannot be calibrated as one.
+        // v0.4.34: a search with low-resolution MS2 writes and reads no spectral library. MetaMorpheus's library mode matches
+        // every fragment charge (ClassicSearchEngine matchAllCharges, fragmentsCanHaveDifferentCharges), and at the ion trap's
+        // ±0.5 Da decoys then score as targets do: the TMT trial's PXD034564 found 0 PSMs at 1% with it, 59,028 without.
+        // The lowres profiles never had one ("ion-trap spectra must never enter the Orbitrap-HCD libraries").
+        if (lib is not null && fragmentation?.Values.Any(c => c.LowRes) == true)
+        {
+            prov.Note($"spectral library OFF for this search: {fragmentation.Values.Count(c => c.LowRes)} file(s) have low-resolution MS2, and MetaMorpheus's library mode matches every fragment charge, which at the low-res tolerance scores decoys as targets (TMT trial, PXD034564: 0 PSMs with it)");
+            prov.Set("spectral_library", null);
+            lib = null;
+            settings = settings with { SpectralLibraryMode = null };
+        }
+        if (fragmentation is { Count: > 0 } && p.Tasks.Contains("Calibration"))
+        {
+            var calls = fragmentation.Values.Select(c => (c.DissociationType, c.LowRes)).Distinct().ToList();
+            if (calls.Count > 1)
+                throw new SearchSetupException($"the files' fragmentation differs ({string.Join(", ", calls.Select(c => c.DissociationType + (c.LowRes ? " low-res" : "")))}), and {p.Key} calibrates: Calibration keeps no per-file fragmentation");
+            settings = settings with
+            {
+                DissociationType = calls[0].DissociationType,
+                ProductMassTolerance = calls[0].LowRes ? p.LowResProductTolerance : settings.ProductMassTolerance,
+            };
+            prov.Note($"fragmentation for every task (a calibrating profile): {calls[0].DissociationType}{(calls[0].LowRes ? $" at {p.LowResProductTolerance}" : "")}, from {fragmentation.Count} file(s)' MS2 headers");
+            fragmentation = null;
+        }
         WritePerFileSettings(files, chem?.ProteasePerFile, fragmentation, p.LowResProductTolerance, prov);
         var tomls = new List<string>();
         var mmApplied = new HashSet<Config.MetaMorpheusSetting>();
@@ -339,8 +407,11 @@ public static class SearchStage
         // 3. success checks
         string mm = Path.Combine(outDir, "mm");
         string? sd = Directory.Exists(mm) ? Directory.EnumerateDirectories(mm, "Task*SearchTask").OrderBy(d => d).LastOrDefault() : null;
-        var key = new[] { "AllPSMs.psmtsv", "AllPeptides.psmtsv", "AllQuantifiedProteinGroups.tsv", "AllQuantifiedPeptides.tsv" }
-            .ToDictionary(n => n, n => sd is not null && File.Exists(Path.Combine(sd, n)) ? Path.Combine(sd, n) : null);
+        // An isobaric search writes reporter tables instead of FlashLFQ's (the TMT trial's Task2SearchTask).
+        var keyNames = kit is null
+            ? new[] { "AllPSMs.psmtsv", "AllPeptides.psmtsv", "AllQuantifiedProteinGroups.tsv", "AllQuantifiedPeptides.tsv" }
+            : new[] { "AllPSMs.psmtsv", "AllPeptides.psmtsv", "ProteinGroupQuantification.tsv", "PeptideQuantification.tsv" };
+        var key = keyNames.ToDictionary(n => n, n => sd is not null && File.Exists(Path.Combine(sd, n)) ? Path.Combine(sd, n) : null);
         bool ok = run.ExitCode == 0 && key.Values.All(v => v is not null);
         string log = File.ReadAllText(Path.Combine(outDir, "metamorpheus.log"));
         bool hasDesign = File.Exists(Path.Combine(r.SpectraDir, "ExperimentalDesign.tsv"));
@@ -360,13 +431,60 @@ public static class SearchStage
         // QuantProject U15: an ExperimentalDesign.tsv that fails MetaMorpheus's validation costs one Warn, and the search
         // quantifies design-less with no marker. The table must carry one sample column per design sample.
         string designFile = Path.Combine(r.SpectraDir, "ExperimentalDesign.tsv");
-        if (ok && hasDesign && key["AllQuantifiedProteinGroups.tsv"] is { } pgFile && QuantMissesDesign(designFile, pgFile) is { } why)
+        if (ok && hasDesign && key.GetValueOrDefault("AllQuantifiedProteinGroups.tsv") is { } pgFile && QuantMissesDesign(designFile, pgFile) is { } why)
         {
             ok = false;
             prov.Note($"FAILED (QuantProject U15): the run carries ExperimentalDesign.tsv but quantification did not use it: {why}");
         }
+        // v0.4.34: the same for an isobaric search. A TmtDesign.txt MetaMorpheus cannot use only warns (CLAUDE.md), so every
+        // sample the design names must head a reporter column.
+        if (ok && kit is not null && key.GetValueOrDefault("ProteinGroupQuantification.tsv") is { } tmtPg
+            && TmtDesignMissing(Path.Combine(r.SpectraDir, "TmtDesign.txt"), tmtPg) is { } tmtWhy)
+        {
+            ok = false;
+            prov.Note($"FAILED: the run carries TmtDesign.txt but its reporter quantification did not use it: {tmtWhy}");
+        }
+        // v0.4.34 (reader fixes R3, R4): what MetaMorpheus 1.1.13 states about its own run. R4: every database a task loaded,
+        // and every GPTMD database's parents, must be the bytes this search was given (MetaMorpheus #2898; logs PXR-O11).
+        // R3: the identification filter its count lines state, any PEP-not-done sentence (#2919), and the design gaps it
+        // quantified with a warning (#2928). Releases before 1.1.13 write none of these lines; nothing is then recorded.
+        if (Directory.Exists(mm))
+        {
+            var loaded = Directory.EnumerateFiles(mm, "results.txt", SearchOption.AllDirectories).Order(StringComparer.Ordinal)
+                .SelectMany(f => MetaMorpheusResults.Databases(Path.GetFileName(Path.GetDirectoryName(f))!, File.ReadLines(f))).ToList();
+            if (loaded.Count > 0)
+            {
+                prov.Set("metamorpheus_databases", new JsonArray(loaded.Select(d => (JsonNode?)new JsonObject
+                {
+                    ["task"] = d.Task, ["file"] = d.File, ["path"] = d.Path, ["sha256"] = d.Sha256, ["bytes"] = d.Bytes,
+                    ["derived_from"] = new JsonArray(d.DerivedFrom.Select(x => (JsonNode?)new JsonObject { ["file"] = x.File, ["sha256"] = x.Sha256 }).ToArray()),
+                }).ToArray()));
+                // Only the files MetaMorpheus names are hashed (a spectral library is a -d too, and large).
+                var named = loaded.Select(d => MetaMorpheusResults.FileName(d.Path ?? d.File)).Concat(loaded.SelectMany(d => d.DerivedFrom.Select(x => x.File)))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var ours = dbs.Where(d => named.Contains(MetaMorpheusResults.FileName(d)) && File.Exists(d)).Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(d => d, Sha, StringComparer.OrdinalIgnoreCase);
+                if (MetaMorpheusResults.Mismatch(loaded, ours) is { } bad)
+                {
+                    ok = false;
+                    prov.Note($"FAILED (R4): MetaMorpheus searched other bytes than it was given: {bad}");
+                }
+            }
+            if (sd is not null && File.Exists(Path.Combine(sd, "results.txt")))
+            {
+                var (counts, notes) = MetaMorpheusResults.Filter(File.ReadLines(Path.Combine(sd, "results.txt")));
+                if (counts.Count > 0 || notes.Count > 0)
+                    prov.Set("identification_filter", new JsonObject
+                    {
+                        ["counts"] = new JsonArray(counts.Select(c => (JsonNode?)new JsonObject { ["of"] = c.What, ["filter"] = c.Filter, ["threshold"] = c.Threshold }).ToArray()),
+                        ["notes"] = new JsonArray(notes.Select(n => (JsonNode?)n).ToArray()),
+                    });
+            }
+            var gaps = MetaMorpheusResults.DesignGaps(log.Split('\n'));
+            if (gaps.Count > 0) prov.Set("design_gaps", new JsonArray(gaps.Select(g => (JsonNode?)g).ToArray()));
+        }
         prov.Set("success", (JsonNode)ok);
-        if (run.ExitCode == 0 && key["AllQuantifiedProteinGroups.tsv"] is null)
+        if (run.ExitCode == 0 && kit is null && key.GetValueOrDefault("AllQuantifiedProteinGroups.tsv") is null)
             prov.Note("exit 0 but no AllQuantifiedProteinGroups.tsv: FlashLFQ failed silently (pyMM 003 Q4)");
         foreach (string? v in key.Values) if (v is not null) prov.Output(v);
         // Every database GPTMD wrote, each with its sha256 (G33): the search task loads these, not the inputs. Taking only
@@ -389,11 +507,13 @@ public static class SearchStage
                 try
                 {
                     // v0.4.32 (the user, 2026-10-27; cleavageRules PXR-V8): every new version is cleaned, judged against
-                    // this search's own target databases and the modifications it could name.
+                    // this search's own target databases and the modifications it could name. v0.4.34 (cleavageRules 009):
+                    // the blocked-C-terminus rule is off for a search that respected cleavage-blocking modifications.
                     var cleaning = LibraryCleaning.For(
                         Directory.EnumerateFiles(Path.Combine(Path.GetDirectoryName(cmd)!, "Mods"), "*.txt")
                             .Concat(p.CustomModifications is { } custom ? new[] { p.ListPath(custom) } : Array.Empty<string>()),
-                        new[] { proteome }.Concat(extras));
+                        new[] { proteome }.Concat(extras),
+                        blockedCTerm: !p.SearchRespectsCleavageBlocking);
                     var written = SpectralLibrary.Register(lib, sd, $"{r.RunDate}/{r.Accession}".Trim('/'), r.Accession ?? "", release, cleaning);
                     // A copy: the registry's own node already has a parent there.
                     libRec["written"] = written.DeepClone();
@@ -445,7 +565,7 @@ public static class SearchStage
         if (key["AllPSMs.psmtsv"] is { } allPsms)
         {
             var (shared, sha) = SearchMetrics.SharedAccessions(contaminants, new[] { proteome }.Concat(extras));
-            var c = SearchMetrics.Contamination(allPsms, key["AllQuantifiedProteinGroups.tsv"], shared, sha);
+            var c = SearchMetrics.Contamination(allPsms, key.GetValueOrDefault("AllQuantifiedProteinGroups.tsv"), shared, sha);
             prov.Set("contamination", new JsonObject
             {
                 ["psm_share"] = c.PsmShare, ["psm_share_definition"] = Contamination.PsmShareDefinition,
@@ -460,7 +580,14 @@ public static class SearchStage
             if (c.IntensityShareMax > FlagMaxContaminantIntensityShare)
                 flags.Add($"high_contamination: {Pct(c.IntensityShareMax)} of protein intensity in the worst file, {Pct(c.IntensityShareMedian)} median across {c.IntensitySharePerFile.Count} files (DEF-QC-9 v3.5)");
         }
-        if (!hasDesign)
+        // An isobaric search's design is TmtDesign.txt, always written (stage 6); without a channel design in any SDRF it is
+        // PXReprise's default, and the values compare nothing until one is curated (QuantProject 079).
+        if (kit is not null)
+        {
+            if (design?["flag"]?.GetValue<string>() == DesignStage.NoChannelDesign)
+                flags.Add($"{DesignStage.NoChannelDesign}: no SDRF says which sample is in which channel ({design["reason"]}); PXReprise's default design makes each file its own plex and each channel its own sample; the reporter values compare nothing until a design is curated (QuantProject 079)");
+        }
+        else if (!hasDesign)
             flags.Add("no_design_file: FlashLFQ treated each file as its own biorep under one blank condition; no normalization; not usable for condition comparisons (owner: QuantProject projection)");
         // MetaMorpheus #2816: a failed SDRF write never fails the search; it leaves SdrfWriter_crash.txt (sdrf PXR-E1).
         string? sdrfCrash = Directory.Exists(mm) ? Directory.EnumerateFiles(mm, "SdrfWriter_crash.txt", SearchOption.AllDirectories).FirstOrDefault() : null;
@@ -497,6 +624,44 @@ public static class SearchStage
         });
         string provFile = prov.Write(outDir);
         return new SearchOutcome(ok, run.ExitCode, run.TimedOut, psms, flags, provFile);
+    }
+
+    /// <summary>
+    /// The samples a TmtDesign.txt names that head no column of MetaMorpheus's ProteinGroupQuantification.tsv (its columns
+    /// are "&lt;sample&gt;_&lt;file&gt;_&lt;channel&gt;"), or null when every one does.
+    /// </summary>
+    internal static string? TmtDesignMissing(string design, string proteinGroupQuant)
+    {
+        var rows = File.ReadAllLines(design).Select(l => l.TrimEnd('\r').Split('\t')).ToList();
+        int col = Array.FindIndex(rows[0], h => h.Trim().Equals("Sample Name", StringComparison.OrdinalIgnoreCase));
+        if (col < 0) return "TmtDesign.txt has no Sample Name column";
+        var samples = rows.Skip(1).Where(r => r.Length > col && r[col].Trim().Length > 0).Select(r => r[col].Trim()).Distinct().ToList();
+        string[] header = (File.ReadLines(proteinGroupQuant).FirstOrDefault() ?? "").TrimEnd('\r').Split('\t');
+        var missing = samples.Where(s => !header.Any(h => h.StartsWith(s + "_", StringComparison.Ordinal))).ToList();
+        return missing.Count == 0 ? null : $"{missing.Count} of {samples.Count} design samples have no reporter column ({string.Join(", ", missing.Take(5))})";
+    }
+
+    /// <summary>A released MetaMorpheus older than 1.1.13, which refuses a design with a numbering gap. A commit pin is not.</summary>
+    internal static bool RefusesDesignGaps(string metamorpheus) =>
+        Version.TryParse(metamorpheus, out var v) && v < new Version(1, 1, 13);
+
+    /// <summary>
+    /// The mzLib version the MetaMorpheus at <paramref name="cmd"/> was built against, from the <c>.deps.json</c> beside it
+    /// (<c>"mzLib/1.0.596"</c>); null when that file is missing or names no mzLib.
+    /// </summary>
+    internal static string? MetaMorpheusMzLib(string cmd)
+    {
+        string deps = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(cmd))!, Path.GetFileNameWithoutExtension(cmd) + ".deps.json");
+        if (!File.Exists(deps)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(deps));
+            if (!doc.RootElement.TryGetProperty("libraries", out var libs)) return null;
+            foreach (var lib in libs.EnumerateObject())
+                if (lib.Name.StartsWith("mzLib/", StringComparison.Ordinal)) return lib.Name["mzLib/".Length..];
+            return null;
+        }
+        catch (JsonException) { return null; }
     }
 
     /// <summary>

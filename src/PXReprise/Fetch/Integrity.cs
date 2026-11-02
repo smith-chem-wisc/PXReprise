@@ -61,14 +61,22 @@ public static class Integrity
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(2) };
 
     /// <summary>
-    /// PRIDE's checksum for each file of a project: the SHA-1 in the v3 <c>files/all</c> list (older deposits; the list
-    /// mzLib reads leaves it empty, pride 007), else the MD5 from <c>files/checksum/{accession}</c> (newer deposits; the
-    /// route mzLib #1427 adds). Empty when PRIDE cannot be reached or gives neither: the error-marker scan still runs.
-    /// Calls for mzLib's PrideArchiveClient to own.
+    /// PRIDE's checksum for each file of a project: the MD5 from <c>files/checksum/{accession}</c>, read through mzLib
+    /// (#1427), so the download can be checked by mzLib's checksum overload (v0.4.34, pride PXR-W6; pride measured an MD5
+    /// for 2,707 of 2,707 files); else the SHA-1 in the v3 <c>files/all</c> list (the list mzLib reads leaves it empty,
+    /// pride 007), which this engine checks itself. Empty when PRIDE cannot be reached or gives neither: the error-marker
+    /// scan still runs.
     /// </summary>
     public static async Task<IReadOnlyDictionary<string, string>> PrideChecksumsAsync(string accession, CancellationToken ct)
     {
         var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        try
+        {
+            using var client = new UsefulProteomicsDatabases.PrideArchiveClient();
+            foreach (var (name, row) in await client.GetFileChecksumsAsync(accession, ct).ConfigureAwait(false))
+                if (row.Md5 is { Length: 32 } m5) map[name] = m5.ToLowerInvariant();
+        }
+        catch (Exception e) when (e is HttpRequestException or MzLibUtil.MzLibException || (e is TaskCanceledException && !ct.IsCancellationRequested)) { }
         string acc = Uri.EscapeDataString(accession);
         try
         {
@@ -78,20 +86,11 @@ public static class Integrity
                 using var doc = await JsonDocument.ParseAsync(await r.Content.ReadAsStreamAsync(ct).ConfigureAwait(false), cancellationToken: ct).ConfigureAwait(false);
                 foreach (var f in doc.RootElement.EnumerateArray())
                     if (f.TryGetProperty("fileName", out var name) && f.TryGetProperty("checksum", out var c)
-                        && c.ValueKind == JsonValueKind.String && c.GetString() is { Length: 40 } sha)
+                        && c.ValueKind == JsonValueKind.String && c.GetString() is { Length: 40 } sha && !map.ContainsKey(name.GetString()!))
                         map[name.GetString()!] = sha;
             }
         }
         catch (Exception e) when (e is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException) { }
-        try
-        {
-            using var r = await Http.GetAsync($"https://www.ebi.ac.uk/pride/ws/archive/v3/files/checksum/{acc}", ct).ConfigureAwait(false);
-            if (r.IsSuccessStatusCode)
-                foreach (string line in (await r.Content.ReadAsStringAsync(ct).ConfigureAwait(false)).Split('\n').Skip(1))
-                    if (line.Split('\t') is { Length: >= 2 } p && p[1].Trim() is { Length: 32 } m5 && !map.ContainsKey(p[0].Trim()))
-                        map[p[0].Trim()] = m5;
-        }
-        catch (Exception e) when (e is HttpRequestException or TaskCanceledException) { }
         return map;
     }
 }

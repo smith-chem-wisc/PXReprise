@@ -739,11 +739,13 @@ public sealed class BatchRunner
 
     /// <summary>
     /// The first queued deposit not yet done, preferring one whose species no running search has. A deposit downloaded
-    /// already goes first, then (v0.4.29) one the probe worker passed.
+    /// already goes first, then (v0.4.34) one a person asked for with <c>batch retry</c> or <c>batch research</c>, then
+    /// (v0.4.29) one the probe worker passed.
     /// </summary>
     private QueueEntry? PickNext(IReadOnlyList<QueueEntry> queue, HashSet<string> consumed, IReadOnlySet<string> busy)
     {
         if (DownloadedFirst(queue, consumed, busy) is { } ready) return ready;
+        if (RequestedFirst(queue, consumed, busy) is { } asked) return asked;
         if (_m.Workers is not null && WorkerPassFirst(queue, consumed, busy) is { } pass) return pass;
         QueueEntry? first = null;
         foreach (var x in queue)
@@ -781,6 +783,30 @@ public sealed class BatchRunner
             first ??= x;
         }
         return first;
+    }
+
+    /// <summary>
+    /// v0.4.34: a deposit a person put back with <c>batch retry</c> or <c>batch research</c> (status <c>requeued_user</c>)
+    /// goes ahead of the queue order, oldest request first (another species first, as in <see cref="PickNext"/>). Both
+    /// verbs used to leave it at its place in the queue: PXD024633's @12 re-search, asked for 2026-10-29, waited three
+    /// days as entry 235 of 295 behind every new deposit. Read from the state, so a deposit the queue does not list is
+    /// found too. Null when there is none.
+    /// </summary>
+    internal QueueEntry? RequestedFirst(IReadOnlyList<QueueEntry> queue, ISet<string> consumed, IReadOnlySet<string> busy)
+    {
+        var picks = new List<(QueueEntry E, string When)>();
+        foreach (var (acc, node) in State()["datasets"]!.AsObject())
+        {
+            if (consumed.Contains(acc) || node is not JsonObject o || o["status"]?.GetValue<string>() != "requeued_user") continue;
+            if (File.Exists(Path.Combine(Run(acc), "04_search", "provenance.json"))) continue;
+            var qe = queue.FirstOrDefault(x => x.Accession == acc)
+                     ?? (o["organism"]?.GetValue<string>() is { } org ? WithQuestionSpecies(new QueueEntry(acc, o["title"]?.GetValue<string>() ?? "", org)) : null);
+            if (qe is not null) picks.Add((qe, o["updated_utc"]?.GetValue<string>() ?? ""));
+        }
+        var pick = picks.OrderBy(p => busy.Contains(p.E.Organism) ? 1 : 0).ThenBy(p => p.When, StringComparer.Ordinal)
+            .Select(p => p.E).FirstOrDefault();
+        if (pick is not null) Log($"{pick.Accession} taken next: a person asked for it (batch retry or research), so it goes ahead of the queue order");
+        return pick;
     }
 
     /// <summary>
@@ -1080,6 +1106,7 @@ public sealed class BatchRunner
         }
         if (profile.ProbeSearch && !await ProbeSearchAsync(e, profile, acq, chemistry, report, xr, ct).ConfigureAwait(false))
             return null;
+        if (profile.QuantMethod == "reporter_ion") LogIsobaricDesign(acc, report, listing.Select(f => f.FileName).ToList());
         Experiment(acc, xr, "probed", $"to be searched under {profile.Key}");
         return profile;
     }
@@ -1220,6 +1247,26 @@ public sealed class BatchRunner
     /// (<see cref="DecisionsNeeded"/>; <paramref name="park"/> overrides <paramref name="outcome"/> as the park's name).
     /// Never fails the batch: a record that cannot be written is logged.
     /// </summary>
+    /// <summary>
+    /// v0.4.34 (PLAN_tmt-dda-2 stage 6): says, before the full download, which channel design an isobaric deposit will be
+    /// searched with (<see cref="Search.DesignStage.FindIsobaric"/> against the selection). With no SDRF that gives one, it
+    /// is searched on PXReprise's default design and delivered flagged <see cref="Search.DesignStage.NoChannelDesign"/>
+    /// (QuantProject 079), never parked: the identifications are as good as any deposit's, and the values become usable
+    /// when a design is curated and the deposit re-searched.
+    /// </summary>
+    private void LogIsobaricDesign(string acc, JsonObject probeQc, IReadOnlyList<string> selection)
+    {
+        var kits = probeQc.Select(kv => kv.Value?["isobaric_kit"]?.GetValue<string>()).Distinct().ToList();
+        if (kits.Count != 1 || kits[0] is not { } kit) return;   // the search refuses it, with its own reason
+        string? curated = _q.Designs?.For(acc);
+        var columns = _q.Designs is { ConditionColumns.Count: > 0 } ds ? ds.ConditionColumns : null;
+        if (Search.DesignStage.FindIsobaric(Path.Combine(Run(acc), "02_fetch", "metadata"), selection, curated, columns, kit, out var rec) is not null)
+            Log($"{acc} PROBE isobaric design: {kit}, the {rec["source"]} SDRF ({rec["plex_rule"]}; {rec["files"]} files)");
+        else
+            Log($"{acc} PROBE isobaric design: {kit}, none in any SDRF ({rec["reason"]}): searched on PXReprise's default design, "
+                + $"delivered flagged {Search.DesignStage.NoChannelDesign}");
+    }
+
     private void Experiment(string acc, ExperimentRecord xr, string outcome, string? detail, string? park = null)
     {
         try
@@ -1904,7 +1951,8 @@ public sealed class BatchRunner
             TimeSpan.FromMinutes(_m.FetchStallMinutes),
             _q.ExceptionFor(acc) is { SelectsFiles: true } ex ? new FileSelection(ex.Keeps, ex.Describe()) : null,
             Sha1Source ?? Integrity.PrideChecksumsAsync,
-            _m.AsperaAscp is { } ascp ? new AsperaClient(ascp, _m.AsperaKey!, _m.AsperaAttempts, StartGap: TimeSpan.FromSeconds(10)) : null,
+            _m.AsperaAscp is { } ascp ? new AsperaClient(ascp, _m.AsperaKey!, _m.AsperaAttempts, StartGap: TimeSpan.FromSeconds(10),
+                Stall: TimeSpan.FromMinutes(_m.FetchStallMinutes)) : null,
             PrideHosts.Parse(_m.PrideHttps), FloorForTest ?? new DiskFloor(FreeGb, _m.MinFreeGb));
 
     /// <summary>Tests only: the disk floor a fetch checks (null in production means the run root's drive and <c>min_free_gb</c>).</summary>

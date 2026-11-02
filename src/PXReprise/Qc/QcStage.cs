@@ -33,6 +33,8 @@ public static class QcStage
 
         // A profile that does not take isobaric labels refuses files whose spectra carry reporter ions (G4).
         bool refuseIsobaric = profile.Accepts.Labellings.Count > 0 && !profile.Accepts.Labellings.Contains(Discovery.Labelling.Isobaric);
+        // v0.4.34 (PLAN_tmt-dda-2 stage 4): a profile that takes them reads each file's kit, and accepts SPS-MS3.
+        bool isobaric = profile.Accepts.Labellings.Contains(Discovery.Labelling.Isobaric);
         var report = new JsonObject();
         bool lowCid = IonTrapHcdAsLowCid(profile, probe);
         if (lowCid && !profile.IonTrapHcdLowCid)
@@ -41,7 +43,7 @@ public static class QcStage
                      .OrderBy(f => Path.GetFileName(f), StringComparer.Ordinal))
         {
             prov.Command(new[] { "mzLib.MsDataFileReader.GetDataFile", Path.GetFileName(f), "LoadAllStaticData" });
-            var r = SpectraQc.Check(f, profile.Qc, refuseIsobaric);
+            var r = SpectraQc.Check(f, profile.Qc, refuseIsobaric, isobaric);
             report[Path.GetFileName(f)] = r.FailReasons.Contains(SpectraQc.Unreadable)
                 ? new JsonObject
                 {
@@ -74,9 +76,17 @@ public static class QcStage
                 }
             }
             // Only when found: such a deposit is never ingested, so dataRepo's qc_report.json shape is unchanged.
-            if (r.Reporters?.Tag is { } tag)
+            // Not under an isobaric profile: there the key would route the deposit away from the very profile that takes it
+            // (BatchRunner.RoutedByReporters), and isobaric_kit says what it carries.
+            if (!isobaric && r.Reporters?.Tag is { } tag)
                 report[Path.GetFileName(f)]!["isobaric_reporters"] = new JsonObject
                     { ["tag"] = tag, ["fraction"] = r.Reporters.Fraction, ["spectra_checked"] = r.Reporters.SpectraChecked };
+            if (r.SpsMs3 is { } sps)
+            {
+                var entry = report[Path.GetFileName(f)]!.AsObject();
+                entry["isobaric_kit"] = r.IsobaricKit;
+                entry["sps_ms3"] = sps;
+            }
             // DATAREPO-72: a key only for a value the reader gave; a missing key means "not read".
             if (r.Run is { } run)
             {

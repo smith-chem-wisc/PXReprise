@@ -653,6 +653,32 @@ public class BatchRunnerTests
         Assert.That(searched, Is.EqualTo(new[] { "PXD000972", "PXD000973", "PXD000971", "PXD000974" }));
     }
 
+    // v0.4.34: PXD024633's @12 re-search (batch research, 2026-10-29) waited three days as entry 235 of 295 in the queue.
+    // A deposit a person put back goes ahead of the queue order, oldest request first; one the queue does not list too.
+    [Test]
+    public async Task ADepositAPersonAskedForIsSearchedBeforeTheQueueOrder()
+    {
+        var (runner, _, _, dir) = Runner();
+        // Record stamps updated_utc, so the earlier Record is the older request.
+        runner.Record("PXD000995", ("status", "requeued_user"), ("organism", "mouse"), ("title", "re-searched, not in the queue"));
+        runner.Record("PXD000993", ("status", "requeued_user"));
+        runner.Record("PXD000992", ("status", "waiting_species"));
+        var searched = new List<string>();
+        runner.PrepareForTest = (e, ct) => { runner.Record(e.Accession, ("status", "fetched")); return Task.FromResult<Profile?>(Profiles["label-free-dda@1"]); };
+        runner.SearchForTest = async (e, p, ct) => { lock (searched) searched.Add(e.Accession); await Task.Delay(20, ct); };
+
+        await runner.RunAsync(new[]
+        {
+            new QueueEntry("PXD000991", "a", "mouse"), new QueueEntry("PXD000992", "b", "mouse"),
+            new QueueEntry("PXD000993", "c", "mouse"), new QueueEntry("PXD000994", "d", "mouse"),
+        }, CancellationToken.None);
+
+        Assert.That(searched, Is.EqualTo(new[] { "PXD000995", "PXD000993", "PXD000991", "PXD000994" }),
+            "the two requests, oldest first, then the queue order; the parked deposit stays parked");
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")),
+            Does.Contain("PXD000993 taken next: a person asked for it (batch retry or research), so it goes ahead of the queue order"));
+    }
+
     // v0.4.12: PXD026335 (2026-10-13) had all 20 files on disk when v0.4.11 probed it, and the probe QC'd and searched them
     // all until its 60-minute limit. The probe reads the files its own fetch chose, whatever else is in the folder.
     [Test]

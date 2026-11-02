@@ -40,6 +40,27 @@ public class LibraryCleaningTests
     }
 
     [Test]
+    public void WithTheBlockedRuleOffOnlyTheDoubtfulClassGoes()
+    {
+        // v0.4.34 (cleavageRules 009): a search that respected cleavage-blocking modifications wrote no blocked ending.
+        var c = LibraryCleaning.For(Array.Empty<string>(), new[] { Database(TestSupport.TempDir()) }, blockedCTerm: false);
+        var v = c.Judge(new[] { "PEPTIDEK" + Acetyl, "AAP[Common Biological:Hydroxylation on P]GEK" });
+        Assert.That(v.Keys, Is.EquivalentTo(new[] { "AAP[Common Biological:Hydroxylation on P]GEK" }));
+        Assert.That(c.Describe()["blocked_cterm_rule"]!.GetValue<string>(), Does.StartWith("off:"));
+        Assert.That(Cleaning(TestSupport.TempDir()).Describe()["blocked_cterm_rule"]!.GetValue<string>(), Is.EqualTo("applied"));
+    }
+
+    [TestCase("label-free-dda-12", true)]
+    [TestCase("label-free-dda-11", false)]
+    [TestCase("label-free-dda-lowres-6", true)]
+    [TestCase("tmt-dda-2", true)]
+    public void AProfileSaysWhetherItsSearchRespectsBlocking(string profile, bool respects)
+    {
+        var p = PXReprise.Config.ProfileLoader.Load(Path.Combine(TestSupport.ProfilesDir, profile + ".toml"));
+        Assert.That(p.SearchRespectsCleavageBlocking, Is.EqualTo(respects));
+    }
+
+    [Test]
     public void AGptmdHydroxylationGoesAndUniProtsOwnStays()
     {
         var v = Cleaning(TestSupport.TempDir()).Judge(new[]

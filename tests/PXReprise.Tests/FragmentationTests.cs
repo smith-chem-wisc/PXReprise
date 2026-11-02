@@ -211,7 +211,7 @@ public class FragmentationTests
         Assert.That(Assert.Throws<Config.ConfigException>(() => Config.ProfileLoader.Load(TestSupport.WriteFile(dir, "k.toml",
             probing.Replace("ion_trap_hcd = true", "ion_trap_hcd = true\nion_trap_hcd_lowcid = true\nion_trap_hcd_probe_lowcid = true"))))!.Message, Does.Contain("together"));
         var shipped = Config.ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
-        string[] ionTrap = { "label-free-dda-lowres@1", "label-free-dda-lowres@2", "label-free-dda-lowres@3", "label-free-dda-lowres@4", "label-free-dda-lowres@5", "label-free-dda-lowres@6" };
+        string[] ionTrap = { "label-free-dda-lowres@1", "label-free-dda-lowres@2", "label-free-dda-lowres@3", "label-free-dda-lowres@4", "label-free-dda-lowres@5", "label-free-dda-lowres@6", "tmt-dda@2" };
         Assert.That(shipped.Where(kv => !ionTrap.Contains(kv.Key)).Select(kv => kv.Value.Fragmentation), Has.All.EqualTo("fixed"),
             "no shipped profile changes behaviour (D26): per_file arrives with a new profile");
         Assert.That(ionTrap.Select(k => shipped[k].Fragmentation), Has.All.EqualTo("per_file"), "the ion-trap profiles are the ones that write it");
@@ -295,6 +295,6 @@ public class FragmentationTests
 
         var shipped = Config.ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
         Assert.That(shipped.Where(kv => kv.Value.PrecursorWindow != "default").Select(kv => kv.Key),
-            Is.EquivalentTo(new[] { "label-free-dda-lowres@3", "label-free-dda-lowres@4", "label-free-dda-lowres@5", "label-free-dda-lowres@6" }), "no shipped profile changes behaviour (D26): the window arrives with a new profile");
+            Is.EquivalentTo(new[] { "label-free-dda-lowres@3", "label-free-dda-lowres@4", "label-free-dda-lowres@5", "label-free-dda-lowres@6", "tmt-dda@2" }), "no shipped profile changes behaviour (D26): the window arrives with a new profile");
     }
 }

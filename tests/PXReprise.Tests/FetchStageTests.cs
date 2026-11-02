@@ -227,6 +227,40 @@ public class FetchStageTests
             "no Aspera staging folder is left behind");
     }
 
+    // v0.4.34: 2026-10-29, an ascp session sat 9.3 h on PXD045861 with 0 bytes and never exited; nothing timed it out.
+    [Test]
+    public async Task AnAsperaSessionThatReceivesNothingForTheStallTimeIsGivenUp()
+    {
+        var never = new TaskCompletionSource();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        bool exited = await Aspera.WatchAsync(never.Task, () => 0, TimeSpan.FromMilliseconds(300), TimeSpan.FromMilliseconds(20), CancellationToken.None);
+        Assert.That(exited, Is.False, "no bytes for the stall time: the caller kills ascp");
+        Assert.That(sw.Elapsed, Is.GreaterThanOrEqualTo(TimeSpan.FromMilliseconds(300)));
+    }
+
+    [Test]
+    public async Task AnAsperaSessionThatKeepsReceivingIsWaitedForUntilItExits()
+    {
+        var done = new TaskCompletionSource();
+        long bytes = 0;
+        var watch = Aspera.WatchAsync(done.Task, () => bytes += 1000, TimeSpan.FromMilliseconds(200), TimeSpan.FromMilliseconds(20), CancellationToken.None);
+        await Task.Delay(600);
+        Assert.That(watch.IsCompleted, Is.False, "growing past three stall times: still waited for");
+        done.SetResult();
+        Assert.That(await watch, Is.True);
+    }
+
+    [Test]
+    public async Task AZeroAsperaStallWaitsForTheExitAlone()
+    {
+        var done = new TaskCompletionSource();
+        var watch = Aspera.WatchAsync(done.Task, () => 0, TimeSpan.Zero, TimeSpan.FromMilliseconds(10), CancellationToken.None);
+        await Task.Delay(100);
+        Assert.That(watch.IsCompleted, Is.False);
+        done.SetResult();
+        Assert.That(await watch, Is.True);
+    }
+
     // v0.4.18: 2026-10-15, PXD039172's 95 GB began downloading with 125 GB free, and F: reached 0 bytes.
     [Test]
     public void TheDiskFloorCountsWhatAFetchStillAdds()
@@ -303,6 +337,44 @@ public class FetchStageTests
         Assert.That((new FileInfo(path).Length, attempts), Is.EqualTo((100L, 1)));
         Assert.That(lines[0], Does.Contain("on disk is 40 bytes, PRIDE lists 100"));
         Assert.That(lines.Skip(1), Is.EqualTo(new[] { "a.raw arrived over ftp.pride HTTPS (attempt 1): 0 MB in 0 s" }));
+    }
+
+    // v0.4.34 (pride PXR-W6): a file PRIDE lists an MD5 for is fetched through mzLib's checksum overload, which checks it
+    // as it arrives; a copy that fails is a damaged copy, retried like one, and the engine does not read it again.
+    [Test]
+    public async Task AFileWithPridesMd5IsCheckedByMzLibAndADamagedCopyIsFetchedAgain()
+    {
+        string dir = TestSupport.TempDir();
+        string md5 = Convert.ToHexStringLower(System.Security.Cryptography.MD5.HashData(new byte[100]));
+        var lines = new List<string>();
+        var (path, _, attempts) = await FetchStage.DownloadWithRetry(new FlakyPride { CorruptFirst = 1 }, F("a.raw", 100), dir, 3, TimeSpan.Zero,
+            CancellationToken.None, log: lines.Add, expectedChecksum: md5, verify: true);
+        Assert.That((new FileInfo(path).Length, attempts), Is.EqualTo((100L, 2)));
+        Assert.That(lines[0], Does.StartWith("a.raw failed mzLib's size/MD5 check"));
+        Assert.That(lines, Has.Some.EqualTo("a.raw arrived over ftp.pride HTTPS (attempt 2): 0 MB in 0 s, MD5 checked by mzLib"));
+    }
+
+    // v0.4.34: the MD5 comes first, through mzLib's GetFileChecksumsAsync, so the overload above is the usual route.
+    [Test, Category("ExternalService")]
+    public async Task LivePridesChecksumsAreMd5sFirst() =>
+        await ExternalServiceTestHelper.RunAsync("PRIDE", async () =>
+        {
+            var map = await Integrity.PrideChecksumsAsync("PXD034564", CancellationToken.None);
+            Assert.That(map.Keys, Has.Some.EndsWith(".raw"));
+            Assert.That(map.Where(kv => kv.Key.EndsWith(".raw")).All(kv => kv.Value.Length == 32), "every raw file has PRIDE's MD5");
+        });
+
+    [Test]
+    public async Task AFileWithOnlyASha1KeepsTheEnginesOwnCheck()
+    {
+        string dir = TestSupport.TempDir();
+        string sha1 = Convert.ToHexStringLower(System.Security.Cryptography.SHA1.HashData(new byte[100]));
+        var lines = new List<string>();
+        var (_, _, attempts) = await FetchStage.DownloadWithRetry(new FlakyPride { CorruptFirst = 1 }, F("a.raw", 100), dir, 3, TimeSpan.Zero,
+            CancellationToken.None, log: lines.Add, expectedChecksum: sha1, verify: true);
+        Assert.That(attempts, Is.EqualTo(2));
+        Assert.That(lines, Has.Some.Contains("is not PRIDE's file (EBI error response inside the file"));
+        Assert.That(lines, Has.None.Contains("mzLib"));
     }
 
     // pride 014 (PXR-W4): on the same files in the same minutes, ftp.pride's HTTPS copies came back damaged 2 of 5 times

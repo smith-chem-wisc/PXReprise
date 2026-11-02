@@ -19,7 +19,9 @@ public sealed record QcFileResult(
     IReadOnlyDictionary<string, int>? ChargeStates,
     string? Error = null,
     ReporterEvidence? Reporters = null,
-    RunMetadata? Run = null);
+    RunMetadata? Run = null,
+    string? IsobaricKit = null,   // v0.4.34: under an isobaric profile, the kit's modification id (IsobaricReporters.ModificationId)
+    bool? SpsMs3 = null);         //   and whether its reporters are read in MS3 (null: not an isobaric profile)
 
 /// <summary>
 /// What the raw file says about its own acquisition (DATAREPO-72), recorded while the file still exists: the search's
@@ -42,10 +44,13 @@ public static class SpectraQc
     /// <summary>The spectra carry isobaric reporter ions, under a profile that does not take isobaric labels (G4).</summary>
     public const string IsobaricLabelled = "isobaric_reporters";
 
+    /// <summary>v0.4.34: under a profile that takes isobaric labels, no kit's reporters are in the file's spectra.</summary>
+    public const string NoReporters = "no_isobaric_reporters";
+
     /// <summary>D32: the file's MS2 fragmentation cannot be told to MetaMorpheus per file (see <see cref="Fragmentation"/>).</summary>
     public const string UnsupportedFragmentation = "unsupported_fragmentation";
 
-    public static QcFileResult Check(string path, QcGates gates, bool refuseIsobaric = false)
+    public static QcFileResult Check(string path, QcGates gates, bool refuseIsobaric = false, bool isobaric = false)
     {
         List<MsDataScan> scans;
         SourceFile? source;
@@ -62,7 +67,7 @@ public static class SpectraQc
             string msg = e.Message.Length > 500 ? e.Message[..500] : e.Message;
             return new QcFileResult(false, new[] { Unreadable }, null, 0, null, null, null, null, msg);
         }
-        return Evaluate(scans, gates, refuseIsobaric) with { Run = Metadata(source) };
+        return Evaluate(scans, gates, refuseIsobaric, isobaric) with { Run = Metadata(source) };
     }
 
     /// <summary>The source file's acquisition facts; never empty strings, and never a reason to fail QC.</summary>
@@ -78,7 +83,7 @@ public static class SpectraQc
     }
 
     /// <summary>The verdict from a file's scans; separated from reading so it can be tested without a raw file.</summary>
-    public static QcFileResult Evaluate(IReadOnlyList<MsDataScan> scans, QcGates gates, bool refuseIsobaric = false)
+    public static QcFileResult Evaluate(IReadOnlyList<MsDataScan> scans, QcGates gates, bool refuseIsobaric = false, bool isobaric = false)
     {
         var ms2 = scans.Where(s => s.MsnOrder == 2).ToList();
         var pairs = MostCommon(ms2.Select(s => $"{s.MzAnalyzer}/{(s.DissociationType?.ToString() ?? "None")}"));
@@ -91,8 +96,24 @@ public static class SpectraQc
         var charges = MostCommon(ms2.Select(s => s.SelectedIonChargeStateGuess?.ToString() ?? "None"), top: 6);
         var reporters = refuseIsobaric ? IsobaricReporters.Detect(scans) : null;
         if (reporters?.Tag is not null) reasons.Add(IsobaricLabelled);
+        string? kit = null;
+        bool? spsMs3 = null;
+        if (isobaric)
+        {
+            // v0.4.34 (PLAN_tmt-dda-2 stage 4; TMT trial): under a profile that takes isobaric labels, the KIT is read from
+            // the spectra. SPS-MS3 identifies in MS2 (the ion trap, on a Lumos: PXD034564) and reads reporters in MS3: the
+            // low-res MS2 gate is waived for it, and its MS2 is searched under the low-res rules (Fragmentation, LowCID).
+            reporters = IsobaricReporters.Detect(scans);
+            var ms3 = scans.Where(s => s.MsnOrder == 3).ToList();
+            spsMs3 = ms3.Count > 0 && IsobaricReporters.Detect(ms3).Tag is not null;
+            if (reporters.Tag is { } family
+                && IsobaricReporters.Kit((spsMs3 == true ? ms3 : ms2).Where(s => s.MassSpectrum is { Size: > 0 }).Select(s => s.MassSpectrum), family) is { } k)
+                kit = IsobaricReporters.ModificationId(k.Kit);
+            else reasons.Add(NoReporters);
+            if (spsMs3 == true) reasons.Remove(LowResMs2);
+        }
         return new QcFileResult(reasons.Count == 0, reasons, scans.Count, ms2.Count, Search.SearchMetrics.PyRound(frac, 4), pairs,
-            Search.SearchMetrics.PyRound(runMinutes, 2), charges, Reporters: reporters);
+            Search.SearchMetrics.PyRound(runMinutes, 2), charges, Reporters: reporters, IsobaricKit: kit, SpsMs3: spsMs3);
     }
 
     /// <summary>Counts by value, most common first; ties keep first-seen order (Python's Counter.most_common).</summary>

@@ -15,6 +15,20 @@ public interface IPrideFiles
     Task<List<PrideArchiveFile>> ListFilesAsync(string accession, CancellationToken ct);
     Task<List<string>> ListFtpNamesAsync(string accession, CancellationToken ct);
     Task<string> DownloadAsync(PrideArchiveFile file, string dir, CancellationToken ct);
+
+    /// <summary>
+    /// The download, checked against PRIDE's MD5 and size as the bytes arrive (mzLib #1427, #1449; pride PXR-W6): a copy
+    /// that fails never reaches the file's name, and after mzLib's own retries it throws <see cref="MzLibUtil.MzLibException"/>.
+    /// This default (for the offline fakes) downloads, then checks the whole file the same way.
+    /// </summary>
+    async Task<string> DownloadCheckedAsync(PrideArchiveFile file, string dir, string md5, long sizeBytes, CancellationToken ct)
+    {
+        string path = await DownloadAsync(file, dir, ct).ConfigureAwait(false);
+        string? bad = new FileInfo(path).Length != sizeBytes ? $"{new FileInfo(path).Length:N0} bytes, PRIDE lists {sizeBytes:N0}" : Integrity.Problem(path, md5);
+        if (bad is null) return path;
+        File.Delete(path);
+        throw new MzLibUtil.MzLibException($"{file.FileName}: {bad}");
+    }
 }
 
 public sealed class PrideFiles(PrideArchiveClient client) : IPrideFiles
@@ -45,6 +59,10 @@ public sealed class PrideFiles(PrideArchiveClient client) : IPrideFiles
     /// <summary>overwrite=false: a complete file is skipped, so re-running a fetch is cheap.</summary>
     public Task<string> DownloadAsync(PrideArchiveFile file, string dir, CancellationToken ct) =>
         client.DownloadFileAsync(file, dir, overwrite: false, cancellationToken: ct);
+
+    /// <summary>overwrite=false keeps a file already present only if it passes the size and MD5 check (mzLib reads it).</summary>
+    public Task<string> DownloadCheckedAsync(PrideArchiveFile file, string dir, string md5, long sizeBytes, CancellationToken ct) =>
+        client.DownloadFileAsync(file, dir, new PrideFileChecksum(file.FileName, md5, sizeBytes), overwrite: false, verifyMd5: true, cancellationToken: ct);
 }
 
 public enum Pick { All, ProbeSpread, MedianSize, FirstByName }
@@ -326,15 +344,32 @@ public static class FetchStage
             string route = overAspera ? "Aspera" : viaGlobus is not null ? "Globus HTTPS" : "ftp.pride HTTPS";
             skipGlobus = false;
             bool damaged = false;
+            // v0.4.34 (pride PXR-W6): over HTTPS, a file PRIDE lists an MD5 for is checked by mzLib as it arrives (and a
+            // copy already on disk is checked before it is kept), so it is not read again here. Aspera copies and files
+            // with only a SHA-1 keep this engine's own check (Integrity).
+            bool mzLibChecks = !overAspera && expectedChecksum is { Length: 32 } && f.FileSizeBytes > 0;
+            var https1 = viaGlobus ?? f;
+            Func<CancellationToken, Task<string>> httpsDownload = mzLibChecks
+                ? async t =>
+                {
+                    try { return await pride.DownloadCheckedAsync(https1, dir, expectedChecksum!, f.FileSizeBytes, t).ConfigureAwait(false); }
+                    catch (MzLibUtil.MzLibException e)
+                    {
+                        damaged = true;
+                        log?.Invoke($"{f.FileName} failed mzLib's size/MD5 check on every one of its tries ({e.Message})");
+                        throw new HttpIOException(HttpRequestError.InvalidResponse, $"{f.FileName}: {e.Message}");
+                    }
+                }
+                : t => pride.DownloadAsync(https1, dir, t);
             var transfer = Stopwatch.StartNew();
             try
             {
                 string path = overAspera
                     ? await (asperaDownload ?? Aspera.DownloadAsync)(aspera!, f, dir, ct).ConfigureAwait(false)
-                    : await Watched(pride, viaGlobus ?? f, dir, stallAfter, poll ?? TimeSpan.FromSeconds(15), abandonGrace ?? TimeSpan.FromSeconds(30), ct).ConfigureAwait(false);
+                    : await Watched(httpsDownload, https1.FileName, dir, stallAfter, poll ?? TimeSpan.FromSeconds(15), abandonGrace ?? TimeSpan.FromSeconds(30), ct).ConfigureAwait(false);
                 long got = new FileInfo(path).Length;
                 if (!onDisk)
-                    log?.Invoke($"{f.FileName} arrived over {route} (attempt {a}): {got / 1048576.0:F0} MB in {transfer.Elapsed.TotalSeconds:F0} s");
+                    log?.Invoke($"{f.FileName} arrived over {route} (attempt {a}): {got / 1048576.0:F0} MB in {transfer.Elapsed.TotalSeconds:F0} s{(mzLibChecks ? ", MD5 checked by mzLib" : "")}");
                 if (f.FileSizeBytes > 0 && got != f.FileSizeBytes)
                 {
                     File.Delete(path);
@@ -342,7 +377,7 @@ public static class FetchStage
                 }
                 // The right size is not the right file: EBI can write its own error response into the data (Integrity).
                 // A file already on disk from an earlier fetch is checked the same way.
-                if (verify && Integrity.Problem(path, expectedChecksum) is { } bad)
+                if (verify && !mzLibChecks && Integrity.Problem(path, expectedChecksum) is { } bad)
                 {
                     damaged = true;
                     log?.Invoke($"{f.FileName} is not PRIDE's file ({bad}): deleted, downloading again");
@@ -372,13 +407,13 @@ public static class FetchStage
     /// cancelled first; if it does not end within <paramref name="grace"/> it is left behind, so a read that ignores
     /// cancellation can no longer hang the batch. Either way it is a <see cref="TimeoutException"/>: unavailability.
     /// </summary>
-    private static async Task<string> Watched(IPrideFiles pride, PrideArchiveFile f, string dir, TimeSpan stall, TimeSpan poll,
+    private static async Task<string> Watched(Func<CancellationToken, Task<string>> start, string fileName, string dir, TimeSpan stall, TimeSpan poll,
         TimeSpan grace, CancellationToken ct)
     {
-        if (stall <= TimeSpan.Zero) return await pride.DownloadAsync(f, dir, ct).ConfigureAwait(false);
+        if (stall <= TimeSpan.Zero) return await start(ct).ConfigureAwait(false);
         using var attempt = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var download = pride.DownloadAsync(f, dir, attempt.Token);
-        string partial = Path.Combine(dir, f.FileName + ".partial");
+        var download = start(attempt.Token);
+        string partial = Path.Combine(dir, fileName + ".partial");
         long seen = -1;
         var quiet = Stopwatch.StartNew();
         while (true)
@@ -394,7 +429,7 @@ public static class FetchStage
                 _ = download.ContinueWith(t => _ = t.Exception, TaskScheduler.Default);   // left behind; observe its fault
             else if (download.IsCompletedSuccessfully)
                 return download.Result;   // it finished as we cancelled
-            throw new TimeoutException($"{f.FileName}: no data for {stall.TotalMinutes:0.#} min ({Math.Max(seen, 0):N0} bytes received)");
+            throw new TimeoutException($"{fileName}: no data for {stall.TotalMinutes:0.#} min ({Math.Max(seen, 0):N0} bytes received)");
         }
     }
 

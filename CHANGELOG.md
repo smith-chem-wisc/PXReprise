@@ -7,6 +7,68 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.34 (2026-11-01)
+
+**MetaMorpheus** unchanged (1.1.13 for `@12` and `lowres@6`). **Machine file:** no change. **Safe mid-batch?** Yes: swap
+the pin as usual.
+
+- **New profile `tmt-dda@2` (pending): isobaric searches on MetaMorpheus 1.1.13** (design/PLAN_tmt-dda-2.md), built from
+  a TMT trial (results/tmt-trial_2026-10-29: PXD034564, SPS-MS3 TMT10, 60,528 PSMs and 6,508 protein groups, every
+  channel quantified).
+  - **Kit:** QC reads each file's kit from its spectra (`isobaric_kit`: TMT6/10/11/16/18, iTRAQ). It accepts SPS-MS3
+    (`sps_ms3`: ion-trap MS2, reporters in MS3), searched as LowCID at the low-res product tolerance.
+  - **Search:** the kit is fixed on K and the N-terminus in every task, and named (`MultiplexModId`). Reporter-ion
+    quantification; Calibration -> Search; a new `precursor_window = "wide"` (±20 ppm in every task).
+  - **Library:** a chain of its own per kit (`mouse_tmt10`), starting blank, for Orbitrap MS2 only.
+  - **Design:** the search writes TmtDesign.txt from the question's curated SDRF, else the deposit's (mzLib
+    `SdrfIsobaricDesign`, against the kit QC read). The plex is a column the SDRF states, else one plex, which mzLib
+    accepts only if every file carries the same channels. With no such SDRF the search runs on PXReprise's own default
+    design and is flagged `no_channel_design` (QuantProject 079's recommendation, as D31 for label-free): each file
+    its own plex, each channel its own sample, so nothing is claimed that the deposit did not say. The probe logs which
+    design a deposit will get. A curated SDRF that is refused stops the search. The search fails when the reporter
+    table lacks a design sample. A TmtDesign.txt PXReprise wrote is marked (`TmtDesign.txt.pxreprise`) and removed on
+    the next attempt; one put there by hand still stops the search. MetaMorpheus's own TMT SDRF from the trial reads
+    back to the trial's design, row for row. An isobaric search no longer carries the label-free `no_design_file` flag.
+    Every SDRF is first restricted to the search's files by mzLib's `SdrfSearchScope.Restrict` (QuantProject 085). Read
+    directly, an SDRF an earlier search wrote was refused for each calibrated file (`X-calib.mzML` in `comment[searched
+    data file]`). What the scope could not join is recorded under `scope`.
+  - **Pending:** no deposit routes to it until delivery is settled (QuantProject 078, dataRepo).
+- **A deposit you put back with `batch retry` or `batch research` goes ahead of the queue order**, oldest request
+  first (a deposit downloaded already still goes before it). Both used to leave the deposit at its place in the queue:
+  a re-search asked for on 2026-10-29 waited three days as entry 235 of 295, behind every new deposit. batch.log says
+  `<PXD> taken next: a person asked for it`.
+- **A search with low-resolution MS2 writes and reads no spectral library**, whatever the profile says. MetaMorpheus's
+  library mode matches every fragment charge, and at the ion trap's ±0.5 Da decoys score as targets do: the TMT trial
+  found 0 PSMs with it and 59,028 without. The lowres profiles never had one.
+- **A search that respects cleavage-blocking modifications no longer has its library checked for them** (cleavageRules
+  009). Since v0.4.32 every new library version drops a spectrum whose last residue carries a modification that blocks
+  trypsin at every place it occurs (PXR-V8). A search run with `RespectCleavageBlockingModifications = true` (`@12`,
+  `lowres@6`, `tmt-dda@2`) writes no such spectrum, and its parent version is already clean: PXD061654's `@12` library
+  (mouse v113, 1,225,187 spectra) had 0. The rule still applies to a search under any other profile. Dropping
+  GPTMD hydroxy-P/K sites is unchanged (750 on that same library). The library record says which rules were applied
+  (`blocked_cterm_rule`).
+- **A calibrating profile puts its one fragmentation call into every task.** Calibration's per-file settings files
+  drop a per-file `DissociationType`. A deposit whose files disagree is refused under such a profile.
+- **A stalled Aspera transfer is given up.** An `ascp` session whose download receives no data for
+  `fetch_stall_minutes` (default 5) is killed and the file retried, as an HTTPS download already was. On 2026-10-29 one
+  session received nothing for 9.3 h without exiting, and a draining driver waited on it the whole time.
+- **HTTPS downloads are checked by mzLib as they arrive** (pride PXR-W6). A file PRIDE lists an MD5 for is fetched
+  through mzLib's checksum overload (#1427, #1449), which checks its size and MD5 while writing. A copy that fails
+  never reaches the file's name and is fetched again, and a stopped transfer resumes (#1481, mzLib 1.0.596). The
+  engine no longer reads such a file a second time. PRIDE's MD5 is now taken first, and its SHA-1 only where no MD5 is
+  listed. Aspera copies and SHA-1-only files keep the engine's own check.
+- **A design with a numbering gap is refused up front under MetaMorpheus 1.1.12 or older.** Since mzLib 1.0.596 a design
+  keeps the SDRF's own replicate and fraction numbers, gaps included. 1.1.13 quantifies a gap with a warning; older
+  releases refuse the design, and that was caught only after the whole search. The search set-up now names the gaps.
+- **Search provenance records the mzLib MetaMorpheus runs on** (`metamorpheus_mzlib_version`, read from the release's
+  `CMD.deps.json`), beside the engine's own `mzlib`. The two can differ.
+- **A search fails if MetaMorpheus searched other bytes than it was given.** MetaMorpheus 1.1.13 states each loaded
+  database's path and SHA-256, and a GPTMD database's parents. Each is checked against the files the search passed, and
+  recorded as `metamorpheus_databases`. Releases before 1.1.13 state none of this, and nothing is checked.
+- **Search provenance records the identification filter MetaMorpheus states** (`identification_filter`: the filter and
+  threshold of each count line, plus any "PEP filtering was requested, but ..." sentence), and the design-numbering gaps
+  it quantified with a warning (`design_gaps`).
+
 ## 0.4.33 (2026-10-29)
 
 **MetaMorpheus 1.1.13** (released 2026-10-29) for the new profiles. **Machine file:** add `"1.1.13" = "<folder>\CMD.exe"`

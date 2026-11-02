@@ -28,7 +28,9 @@ public sealed record TaskSettings(
     bool WriteSdrf = false,                               // MetaMorpheus 1.1.12+: experiment.sdrf.tsv beside the results
     string? ProteomeXchangeAccession = null,              //   stamped into it; only with WriteSdrf
     double? QuantifyPpmTol = null,                        // the Search task's FlashLFQ tolerance; null keeps the default
-    IReadOnlyList<string>? GptmdFilters = null);          // v0.4.31: GPTMD's filters by class name; null keeps the default (none)
+    IReadOnlyList<string>? GptmdFilters = null,           // v0.4.31: GPTMD's filters by class name; null keeps the default (none)
+    string? MultiplexKit = null,                          // v0.4.34: an isobaric kit's modification id (IsobaricReporters.ModificationId)
+    string? DissociationType = null);                     // v0.4.34: every task's, when one call holds for every file (SearchStage)
 
 public static class TaskFiles
 {
@@ -117,6 +119,32 @@ public static class TaskFiles
             text = EditModList(text, "ListOfModsVariable", remove: e => e.EndsWith(" on C", StringComparison.Ordinal), add: s.VariableCysMods ?? Array.Empty<string>());
         }
 
+        // v0.4.34 (TMT trial, results/tmt-trial_2026-10-29): an isobaric kit is fixed on K and the peptide N-terminus in
+        // EVERY task (every peptide carries it), and the search quantifies its reporters instead of running FlashLFQ.
+        // MultiplexModId names the kit: null in MetaMorpheus's defaults, so absent from CMD -g's file, and without it the
+        // search fails with "Could not find isobaric mass tag with the name ". It is inserted after the switch, as
+        // ProteomeXchangeAccession is after WriteSdrf.
+        if (s.MultiplexKit is { } kit)
+        {
+            var label = new[] { $"{MultiplexCategory}\t{kit} on K", $"{MultiplexCategory}\t{kit} on X" };
+            foreach (string mod in label)
+                if (mod.Split('\t') is [var cat, var name] && !knownMods.Contains((cat, name)))
+                    throw new SearchSetupException($"MetaMorpheus does not define the isobaric label '{name}' ({cat})");
+            text = EditModList(text, "ListOfModsFixed", remove: _ => false, add: label);
+            if (kind == TaskKind.Search)
+            {
+                text = Replace(text, @"^DoMultiplexQuantification = \w+$", "DoMultiplexQuantification = true", "DoMultiplexQuantification", exactlyOne: true);
+                text = Replace(text, @"^DoLabelFreeQuantification = \w+$", "DoLabelFreeQuantification = false", "DoLabelFreeQuantification", exactlyOne: true);
+                string id = $"MultiplexModId = \"{kit}\"";
+                text = Regex.IsMatch(text, "^MultiplexModId = .*$", RegexOptions.Multiline)
+                    ? Replace(text, "^MultiplexModId = .*$", id, "MultiplexModId", exactlyOne: true)
+                    : Regex.Replace(text, @"^DoMultiplexQuantification = true$", "DoMultiplexQuantification = true\n" + id, RegexOptions.Multiline);
+            }
+        }
+
+        if (s.DissociationType is { } dt)
+            text = Replace(text, "^DissociationType = \".*\"$", $"DissociationType = \"{dt}\"", "DissociationType", exactlyOne: true);
+
         // Tolerance overrides apply to EVERY task. The "= " in the pattern keeps them off ProductMassTolerance_LowRes.
         if (s.ProductMassTolerance is { } pmt)
             text = Replace(text, "^ProductMassTolerance = \".*\"$", $"ProductMassTolerance = \"{pmt}\"", "ProductMassTolerance", exactlyOne: true);
@@ -199,6 +227,9 @@ public static class TaskFiles
         string list = string.Join(@"\t\t", entries);
         return text[..m.Groups[1].Index] + list + text[(m.Groups[1].Index + m.Groups[1].Length)..];
     }
+
+    /// <summary>The modification type MetaMorpheus files every isobaric label under (Mods/TMT.txt "MT   Multiplex Label").</summary>
+    public const string MultiplexCategory = "Multiplex Label";
 
     private static readonly Regex PxAccession = new(@"^R?PXD\d{6,}$", RegexOptions.CultureInvariant);
 

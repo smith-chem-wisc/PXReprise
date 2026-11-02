@@ -26,6 +26,63 @@ public class SearchStageTests
         Assert.That(SearchStage.ExcludedFilesRecord(new[] { "c.raw" }, qc)["reason"]!.GetValue<string>(), Is.EqualTo("excluded from the search by --exclude"));
     }
 
+    // v0.4.34 (reader fix R6; QuantProject 075, ptmQtl 033, go 015): the mzLib MetaMorpheus runs on is recorded, read
+    // from the deps file the release ships beside CMD (MetaMorpheus 1.1.13: "mzLib/1.0.596").
+    [Test]
+    public void MetaMorpheusOwnMzLibVersionIsReadFromItsDepsFile()
+    {
+        string dir = TestSupport.TempDir();
+        string cmd = Path.Combine(dir, "CMD.exe");
+        File.WriteAllText(cmd, "");
+        Assert.That(SearchStage.MetaMorpheusMzLib(cmd), Is.Null, "no deps file: nothing recorded");
+        File.WriteAllText(Path.Combine(dir, "CMD.deps.json"),
+            """{"targets":{".NETCoreApp,Version=v10.0":{"mzLib/1.0.596":{}}},"libraries":{"CMD/1.0.0":{"type":"project"},"mzLib/1.0.596":{"type":"package"}}}""");
+        Assert.That(SearchStage.MetaMorpheusMzLib(cmd), Is.EqualTo("1.0.596"));
+        Assert.That(SearchStage.MetaMorpheusMzLib(Path.Combine(dir, "CMD.dll")), Is.EqualTo("1.0.596"), "the dll form reads the same file");
+    }
+
+    // v0.4.34 (reader fix R5): mzLib 1.0.596 keeps an SDRF's numbering gaps; MetaMorpheus 1.1.12 refuses such a design and
+    // quantifies without it, which U15 caught only after the search. Now refused before it starts.
+    [Test]
+    public void DesignNumberingGapsAreFoundAndOnlyOlderReleasesRefuseThem()
+    {
+        string dir = TestSupport.TempDir();
+        string tsv = Path.Combine(dir, "ExperimentalDesign.tsv");
+        File.WriteAllText(tsv, "FileName\tCondition\tBiorep\tFraction\tTechrep\r\na.raw\taged\t1\t1\t1\r\nb.raw\taged\t3\t1\t1\r\nc.raw\tyoung\t1\t1\t1\r\nd.raw\tyoung\t2\t2\t1\r\n");
+        Assert.That(DesignStage.Gaps(tsv), Is.EqualTo(new[]
+        {
+            "Condition \"aged\": biological replicates 1, 3; missing 2",
+            "Condition \"young\" biorep 2: fractions 2; missing 1",
+        }));
+        File.WriteAllText(tsv, "FileName\tCondition\tBiorep\tFraction\tTechrep\na.raw\taged\t1\t1\t1\nb.raw\taged\t2\t1\t1\n");
+        Assert.That(DesignStage.Gaps(tsv), Is.Empty);
+        Assert.That(SearchStage.RefusesDesignGaps("1.1.12"), Is.True);
+        Assert.That(SearchStage.RefusesDesignGaps("1.1.11"), Is.True);
+        Assert.That(SearchStage.RefusesDesignGaps("1.1.13"), Is.False);
+        Assert.That(SearchStage.RefusesDesignGaps("master@315e02b5e"), Is.False, "a commit pin is taken at its word");
+    }
+
+    // v0.4.34 (PLAN_tmt-dda-2 stage 5): a TmtDesign.txt MetaMorpheus cannot use only warns, so every design sample must head
+    // a reporter column ("<sample>_<file>_<channel>", as the TMT trial's ProteinGroupQuantification.tsv); and "wide"
+    // holds ±20 ppm in every task, since the label-free probe cannot measure an isobaric deposit's offset.
+    [Test]
+    public void AnIsobaricSearchChecksItsDesignWasUsedAndHoldsAWideWindow()
+    {
+        string dir = TestSupport.TempDir();
+        string design = TestSupport.WriteFile(dir, "TmtDesign.txt",
+            "File\tPlex\tSample Name\tTMT Channel\tCondition\tBiological Replicate\tFraction\tTechnical Replicate\tSample Type\n"
+            + "a.raw\tPlex1\tS126\t126\tx\t1\t1\t1\tstudy sample\na.raw\tPlex1\tS127N\t127N\tx\t2\t1\t1\tstudy sample\n");
+        string used = TestSupport.WriteFile(dir, "pg.tsv", "Protein Group\tS126_a_126\tS127N_a_127N\nP1\t1\t2\n");
+        string unused = TestSupport.WriteFile(dir, "pg2.tsv", "Protein Group\t126\t127N\nP1\t1\t2\n");
+        Assert.That(SearchStage.TmtDesignMissing(design, used), Is.Null);
+        Assert.That(SearchStage.TmtDesignMissing(design, unused), Is.EqualTo("2 of 2 design samples have no reporter column (S126, S127N)"));
+
+        var tmt = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir)["tmt-dda@2"];
+        Assert.That((tmt.PrecursorWindow, tmt.QuantMethod, tmt.Status), Is.EqualTo(("wide", "reporter_ion", ProfileStatus.Pending)));
+        Assert.That(tmt.Tasks, Is.EqualTo(new[] { "Calibration", "Search" }), "TMT runs no GPTMD (the user, 2026-10-19)");
+        Assert.That(SearchStage.PrecursorWindow(tmt, null, null), Is.EqualTo(20));
+    }
+
     private static string FakeBin
     {
         get

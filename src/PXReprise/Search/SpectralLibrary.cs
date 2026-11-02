@@ -58,10 +58,15 @@ public static class SpectralLibrary
     /// whose current library is missing on disk is refused, never silently restarted: that would start a second chain
     /// and discard every spectrum the first had accumulated.
     /// </summary>
-    public static LibraryPlan Plan(string root, string organism)
+    /// <param name="label">v0.4.34: an isobaric kit's modification id (e.g. "TMT10"). Its peptides weigh more and fragment
+    /// differently, so its spectra get a chain of their own (<c>mouse_tmt10</c>), which starts blank and never reads or
+    /// extends the label-free one (the user, 2026-10-29: "tmt will have to start with a blank spectrum library ... tmt
+    /// modified peptides are all shifted"). Null is label-free: the organism's own chain.</param>
+    public static LibraryPlan Plan(string root, string organism, string? label = null)
     {
         string key = organism.Trim().ToLowerInvariant().Replace(' ', '_');
         if (key.Length == 0) throw new UsageException("a spectral library needs an organism");
+        if (label is { Length: > 0 }) key += "_" + new string(label.ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray());
         var entry = ReadRegistry(root)["organisms"]![key]?.AsObject();
         string? current = entry?["current"]?.GetValue<string>();
         if (current is null) return new LibraryPlan(key, "write", null, null, root);

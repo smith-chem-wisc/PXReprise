@@ -52,6 +52,84 @@ public static class IsobaricReporters
             : new(null, Search.SearchMetrics.PyRound(bestFraction, 4), spectra.Count);
     }
 
+    /// <summary>The kits a family's reporters can come from, smallest first: each kit's channels contain the one before's.</summary>
+    private static readonly IReadOnlyDictionary<string, IsobaricMassTagType[]> FamilyKits = new Dictionary<string, IsobaricMassTagType[]>
+    {
+        ["TMT"] = new[] { IsobaricMassTagType.TMT6, IsobaricMassTagType.TMT10, IsobaricMassTagType.TMT11, IsobaricMassTagType.TMT16, IsobaricMassTagType.TMT18 },
+        ["iTRAQ"] = new[] { IsobaricMassTagType.iTRAQ4, IsobaricMassTagType.iTRAQ8 },
+        ["DiLeu"] = new[] { IsobaricMassTagType.diLeu4, IsobaricMassTagType.diLeu12 },
+    };
+
+    /// <summary>
+    /// The modification MetaMorpheus searches a kit with, as its <c>MultiplexModId</c> and as "&lt;id&gt; on K" / "on X"
+    /// fixed mods. mzLib's IsobaricMassTag.SourceModificationId (private in 1.0.596), copied: TMTpro 16 is searched under
+    /// TMT18's label, whose first sixteen channels it is.
+    /// </summary>
+    public static string ModificationId(IsobaricMassTagType kit) => kit switch
+    {
+        IsobaricMassTagType.TMT6 => "TMT6-plex",
+        IsobaricMassTagType.TMT10 => "TMT10",
+        IsobaricMassTagType.TMT11 => "TMT11",
+        IsobaricMassTagType.TMT16 or IsobaricMassTagType.TMT18 => "TMT18",
+        IsobaricMassTagType.iTRAQ4 => "iTRAQ-4plex",
+        IsobaricMassTagType.iTRAQ8 => "iTRAQ-8plex",
+        IsobaricMassTagType.diLeu4 => "DiLeu-4plex",
+        IsobaricMassTagType.diLeu12 => "DiLeu-12plex",
+        _ => throw new ArgumentOutOfRangeException(nameof(kit), kit, null),
+    };
+
+    /// <summary>A channel counts as the kit's when it is seen in at least this share of the typical channel's spectra.</summary>
+    public const double MinChannelShare = 0.5;
+
+    /// <summary>
+    /// v0.4.34 (TMT trial, results/tmt-trial_2026-10-29): the KIT, not just the family, for the search's
+    /// <c>MultiplexModId</c>. Within <paramref name="family"/>, the largest kit whose every channel is present (mzLib's own
+    /// reporter lookup, 3 mDa) in at least <see cref="MinChannelShare"/> of the spectra the typical channel is present in.
+    /// Impurity and isotope peaks put a few hits on a missing channel; the share rule leaves them out. PXD034564's MS3:
+    /// TMT10's channels in 2,500-5,000 of 3,000 spectra each, 131C (TMT11's extra) in a fifth as many: TMT10.
+    /// Null when the family is unknown or no kit's base channels are seen.
+    /// </summary>
+    public static (IsobaricMassTagType Kit, IReadOnlyDictionary<string, double> ChannelShares)? Kit(IEnumerable<MzSpectrum> spectra, string family)
+    {
+        if (!FamilyKits.TryGetValue(family, out var kits)) return null;
+        var largest = kits[^1];
+        if (!IsobaricMassTag.TryGetIsobaricMassTag(largest, out var tag) || tag is null) return null;
+        // Presence of every channel of the family's largest kit, over spectra carrying at least MinChannels of them.
+        var present = new int[tag.ReporterIonMzs.Length];
+        int counted = 0;
+        foreach (var sp in spectra)
+        {
+            var inten = tag.GetReporterIonIntensities(sp);
+            if (inten is null || inten.Count(x => x > 0) < MinChannels) continue;
+            counted++;
+            for (int i = 0; i < inten.Length; i++) if (inten[i] > 0) present[i]++;
+        }
+        if (counted == 0) return null;
+        var shares = tag.ChannelLabels.Select((label, i) => (label, share: (double)present[i] / counted)).ToDictionary(x => x.label, x => x.share);
+        foreach (var kit in kits.Reverse())
+        {
+            var labels = IsobaricMassTag.GetReporterIonLabels(kit);
+            // A kit's labels are a subset of the largest kit's, except TMT6's plain "127".."131", which are 127N, 128C,
+            // 129N, 130C and 131N by mass.
+            var mapped = labels.Select(l => shares.ContainsKey(l) ? l : Tmt6Alias.GetValueOrDefault(l, l)).ToList();
+            if (mapped.Any(l => !shares.ContainsKey(l))) continue;
+            double typical = Median(mapped.Select(l => shares[l]));
+            if (typical > 0 && mapped.All(l => shares[l] >= MinChannelShare * typical)) return (kit, shares);
+        }
+        return null;
+    }
+
+    private static readonly IReadOnlyDictionary<string, string> Tmt6Alias = new Dictionary<string, string>
+    {
+        ["127"] = "127N", ["128"] = "128C", ["129"] = "129N", ["130"] = "130C", ["131"] = "131N",
+    };
+
+    private static double Median(IEnumerable<double> xs)
+    {
+        var s = xs.Order().ToList();
+        return s.Count == 0 ? 0 : s.Count % 2 == 1 ? s[s.Count / 2] : (s[s.Count / 2 - 1] + s[s.Count / 2]) / 2;
+    }
+
     /// <summary>A kit's family from mzLib's id: TMT6-plex, TMT10, TMT11, TMT18 are TMT; iTRAQ-4plex is iTRAQ.</summary>
     public static string Family(string kit) =>
         kit.StartsWith("TMT", StringComparison.Ordinal) ? "TMT"

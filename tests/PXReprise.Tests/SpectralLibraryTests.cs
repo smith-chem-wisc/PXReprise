@@ -9,6 +9,23 @@ public class SpectralLibraryTests
     private static string Msp(string dir, string name, int spectra) =>
         TestSupport.WriteFile(dir, name, string.Concat(Enumerable.Range(0, spectra).Select(i => $"Name: PEP{i}/2\nMW: 1\n\n")));
 
+    // v0.4.34 (the user, 2026-10-29: "tmt will have to start with a blank spectrum library"): a labelled search has its own
+    // chain per kit, which starts blank beside a label-free chain that already exists, and never touches it.
+    [Test]
+    public void AnIsobaricKitHasItsOwnChainThatStartsBlank()
+    {
+        string root = TestSupport.TempDir(), run1 = TestSupport.TempDir(), run2 = TestSupport.TempDir();
+        Msp(run1, "SpectralLibrary_2026-10-29-10-00-00.msp", 4);
+        SpectralLibrary.Register(SpectralLibrary.Plan(root, "mouse"), run1, "run1", "PXD000001", "1.1.13");
+        var tmt = SpectralLibrary.Plan(root, "mouse", "TMT10");
+        Assert.That(tmt, Is.EqualTo(new LibraryPlan("mouse_tmt10", "write", null, null, root)), "blank, though mouse has a library");
+        Msp(run2, "SpectralLibrary_2026-10-29-11-00-00.msp", 2);
+        SpectralLibrary.Register(tmt, run2, "run2", "PXD034564", "1.1.13");
+        Assert.That(SpectralLibrary.Plan(root, "mouse", "TMT10").LibraryIn, Is.EqualTo(Path.Combine(root, "mouse_tmt10/mouse_tmt10.v001.msp")));
+        Assert.That(SpectralLibrary.Plan(root, "mouse").LibraryIn, Is.EqualTo(Path.Combine(root, "mouse/mouse.v001.msp")), "the label-free chain is untouched");
+        Assert.That(SpectralLibrary.Plan(root, "mouse", "TMT6-plex").Organism, Is.EqualTo("mouse_tmt6plex"));
+    }
+
     [Test]
     public void TheFirstSearchWritesEveryLaterOneUpdatesAndTheChainIsAppendOnly()
     {

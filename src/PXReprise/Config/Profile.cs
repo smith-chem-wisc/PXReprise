@@ -106,6 +106,12 @@ public sealed record Profile(
     /// <summary>The scopes of <c>[metamorpheus_settings]</c>: every task, or one task kind.</summary>
     public static readonly string[] MetaMorpheusSettingScopes = { "all", "calibration", "gptmd", "search" };
 
+    /// <summary>The search task runs with <c>RespectCleavageBlockingModifications = true</c> (scope <c>all</c> or
+    /// <c>search</c>), so it writes no peptide ending at a cut in a blocking modification (cleavageRules PXR-V9).</summary>
+    public bool SearchRespectsCleavageBlocking => MetaMorpheusSettings?.Any(s =>
+        s.Key == "RespectCleavageBlockingModifications" && (s.Scope is "all" or "search")
+        && s.TomlValue.Trim().Equals("true", StringComparison.OrdinalIgnoreCase)) == true;
+
     /// <summary>
     /// Task-file keys the engine writes itself, from the profile's other keys, the deposit or the machine. A
     /// <c>[metamorpheus_settings]</c> entry may not name them: two writers of one line would make provenance ambiguous.
@@ -124,8 +130,11 @@ public sealed record Profile(
         { "ImprovedScoreFilter", "DualDirectionalIonCoverageFilter", "UniDirectionalIonCoverageFilter", "FlankingIonCoverageFilter" };
 
     /// <summary>The values of <c>[engine] precursor_window</c>: MetaMorpheus's own windows, or windows wide enough for the
-    /// precursor offset the probe search measured (a profile without calibration; PXD045821, 2026-10-17).</summary>
-    public static readonly string[] PrecursorWindows = { "default", "probe" };
+    /// precursor offset the probe search measured (a profile without calibration; PXD045821, 2026-10-17), or (v0.4.34,
+    /// "wide") the probe rule's ceiling in every task, for a profile whose probe cannot measure the offset: the label-free
+    /// probe scores no isobaric-labelled peptide. The TMT trial (PXD034564) sat at -10 ppm, and its files Calibration
+    /// could not fit found nothing at MetaMorpheus's ±5 ppm.</summary>
+    public static readonly string[] PrecursorWindows = { "default", "probe", "wide" };
 
     /// <summary>The values of <c>[engine] fragmentation</c>.</summary>
     public static readonly string[] Fragmentations = { "fixed", "per_file" };

@@ -1,5 +1,7 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json.Nodes;
+using Omics.Modifications;
 using Readers;
 
 namespace PXReprise.Search;
@@ -17,8 +19,14 @@ public static class DesignStage
 {
     public const string FileName = "ExperimentalDesign.tsv";
 
-    /// <summary>MetaMorpheus's TMT design file, read from the same place as <see cref="FileName"/>. PXReprise writes none.</summary>
+    /// <summary>MetaMorpheus's TMT design file, read from the same place as <see cref="FileName"/>.</summary>
     public const string TmtFileName = "TmtDesign.txt";
+
+    /// <summary>
+    /// v0.4.34 (PLAN_tmt-dda-2 stage 6): written beside a <see cref="TmtFileName"/> PXReprise wrote, holding its sha256, so
+    /// <see cref="RemoveStale"/> can tell ours (removed) from one put there by hand (refused).
+    /// </summary>
+    public const string TmtMarkerName = TmtFileName + ".pxreprise";
 
     /// <summary>
     /// v0.4.17: removes an <see cref="FileName"/> left beside the spectra, before the probe search (which brings no design)
@@ -26,21 +34,203 @@ public static class DesignStage
     /// before (D48, QuantProject U15 check it was used). MetaMorpheus 1.1.12's CMD reads a design beside the first spectra
     /// file on every run, quantifying or not, and stops with exit 5 when it does not fit the files given: on 2026-10-14 an
     /// interrupted full search's 61-file design failed PXD044227's 3-file re-probe (<c>Condition "all" biorep 2 is
-    /// missing!</c>). A <see cref="TmtFileName"/> is refused, never removed: PXReprise writes none, so one there was put by
-    /// hand, and MetaMorpheus would read it.
+    /// missing!</c>). A <see cref="TmtFileName"/> PXReprise wrote (<see cref="TmtMarkerName"/> holds its sha256) is removed
+    /// too; any other is refused, never removed: it was put there by hand, and MetaMorpheus would read it.
     /// </summary>
     /// <returns>True when a stale design was removed.</returns>
-    /// <exception cref="SearchSetupException">A TMT design beside the spectra.</exception>
+    /// <exception cref="SearchSetupException">A TMT design beside the spectra that PXReprise did not write.</exception>
     public static bool RemoveStale(string spectraDir)
     {
-        string tmt = Path.Combine(spectraDir, TmtFileName);
+        string tmt = Path.Combine(spectraDir, TmtFileName), marker = Path.Combine(spectraDir, TmtMarkerName);
+        bool removed = false;
         if (File.Exists(tmt))
-            throw new SearchSetupException($"{tmt} exists and was not written by PXReprise: MetaMorpheus would read it as this search's design");
+        {
+            if (!File.Exists(marker) || File.ReadAllText(marker).Trim() != Sha(tmt))
+                throw new SearchSetupException($"{tmt} exists and was not written by PXReprise: MetaMorpheus would read it as this search's design");
+            File.Delete(tmt);
+            removed = true;
+        }
+        if (File.Exists(marker)) File.Delete(marker);
         string target = Path.Combine(spectraDir, FileName);
-        if (!File.Exists(target)) return false;
+        if (!File.Exists(target)) return removed;
         File.Delete(target);
         return true;
     }
+
+    /// <summary>
+    /// The flag of an isobaric search run on PXReprise's default channel design: no SDRF said which sample is in which
+    /// channel, so its reporter values compare nothing until a design is curated (QuantProject 079).
+    /// </summary>
+    public const string NoChannelDesign = "no_channel_design";
+
+    /// <summary>
+    /// v0.4.34 (PLAN_tmt-dda-2 stage 6): the channel design of an isobaric search, from the question's curated SDRF, else
+    /// the deposit's own (<c>metadata/*sdrf*.tsv</c>), read by mzLib's <see cref="SdrfIsobaricDesign"/> against
+    /// <paramref name="kit"/> (the kit QC read from the spectra; never guessed from the labels). The plex is what the SDRF
+    /// states in a column mzLib's audit recognises (<see cref="SdrfQuantAuditor"/>), else one plex for the whole deposit,
+    /// which mzLib refuses unless every file carries the same channel-to-sample map. Nothing else infers a plex: mzLib
+    /// measured partitioning files by their samples right in 3 of 9 SDRFs (SdrfQuantAudit.ReadPlex). Null, with every
+    /// SDRF's refusals in <paramref name="record"/>, when none gives a design (<see cref="PrepareIsobaric"/> then writes
+    /// PXReprise's default).
+    /// </summary>
+    /// <param name="searchedFiles">The files the search reads (paths or names); rows naming other files are dropped.</param>
+    public static SdrfIsobaricDesign? FindIsobaric(string metadataDir, IReadOnlyList<string> searchedFiles, string? curated,
+        IReadOnlyList<string>? conditionColumns, string kit, out JsonObject record)
+    {
+        if (!IsobaricMassTag.TryGetIsobaricMassTag(kit, out var tag) || tag is null)
+            throw new SearchSetupException($"the kit {kit} is not one mzLib defines");
+        var refused = new JsonArray();
+        var candidates = new List<(string Source, string Sdrf, IReadOnlyList<string>? Columns)>();
+        if (curated is not null && File.Exists(curated)) candidates.Add(("question", curated, conditionColumns));
+        if (Directory.Exists(metadataDir))
+            candidates.AddRange(Directory.EnumerateFiles(metadataDir, "*.tsv").Where(f => Path.GetFileName(f).Contains("sdrf", StringComparison.OrdinalIgnoreCase))
+                .Order(StringComparer.Ordinal).Select(f => ("deposit", f, (IReadOnlyList<string>?)null)));
+        foreach (var (source, sdrf, columns) in candidates)
+        {
+            var d = ReadIsobaric(sdrf, searchedFiles, columns, tag, out string plexRule, out var scope, out string? error);
+            if (d is { IsValid: true })
+            {
+                record = IsobaricRecord(source, sdrf, d, plexRule, kit);
+                record["scope"] = scope;
+                if (refused.Count > 0) record["sdrfs_refused"] = refused;
+                return d;
+            }
+            refused.Add(new JsonObject
+            {
+                ["source"] = source, ["sdrf"] = Path.GetFileName(sdrf), ["plex_rule"] = plexRule,
+                ["refusals"] = new JsonArray((error is null ? d!.Refusals.Take(5) : new[] { error }).Select(x => (JsonNode?)x).ToArray()),
+                ["scope"] = scope,
+            });
+        }
+        record = new JsonObject
+        {
+            ["source"] = null, ["written"] = false, ["kit"] = kit,
+            ["reason"] = candidates.Count == 0 ? "no curated design and no deposited SDRF" : "every SDRF was refused",
+            ["sdrfs_refused"] = refused,
+        };
+        return null;
+    }
+
+    /// <summary>
+    /// <see cref="FindIsobaric"/>, then writes <see cref="TmtFileName"/> beside the spectra (and its
+    /// <see cref="TmtMarkerName"/>), after removing any stale design. Returns its provenance record. With no SDRF that
+    /// gives a design, the design comes from PXReprise's own default SDRF (<see cref="WriteDefaultIsobaricSdrf"/>), and
+    /// the record carries <see cref="NoChannelDesign"/>: QuantProject 079 recommends delivering the identifications and
+    /// the per-channel values flagged rather than refusing the deposit, as D31 already does for label-free.
+    /// </summary>
+    /// <param name="organism">The profile's organism key, written into a default SDRF.</param>
+    /// <param name="accession">The deposit's accession, naming a default SDRF.</param>
+    /// <exception cref="SearchSetupException">A curated design MetaMorpheus would not accept (fixed, not searched
+    /// around); a TMT design put there by hand.</exception>
+    public static JsonObject PrepareIsobaric(string spectraDir, IReadOnlyList<string> searchedFiles, string? curated,
+        IReadOnlyList<string>? conditionColumns, string kit, string? organism = null, string? accession = null)
+    {
+        RemoveStale(spectraDir);
+        string metadata = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(spectraDir))!, "metadata");
+        var d = FindIsobaric(metadata, searchedFiles, curated, conditionColumns, kit, out var record);
+        if (curated is not null && File.Exists(curated) && record["source"]?.GetValue<string>() != "question")
+            throw new SearchSetupException($"the question's design {curated} is refused: "
+                + string.Join(" | ", record["sdrfs_refused"]!.AsArray().First(x => x!["source"]!.GetValue<string>() == "question")!["refusals"]!.AsArray().Select(r => r!.GetValue<string>())));
+        if (d is null)
+        {
+            string why = record["reason"]!.GetValue<string>();
+            var refused = record["sdrfs_refused"]!.DeepClone();
+            string fallback = WriteDefaultIsobaricSdrf(spectraDir, searchedFiles, kit, organism, accession);
+            d = FindIsobaric(Path.Combine(Path.GetDirectoryName(fallback)!, "none"), searchedFiles, fallback, null, kit, out record)
+                ?? throw new SearchSetupException($"PXReprise's default isobaric SDRF {fallback} is refused: {record["sdrfs_refused"]!.ToJsonString()}");
+            record["source"] = DefaultSource;
+            record["reason"] = why;
+            record["flag"] = NoChannelDesign;
+            if (refused.AsArray().Count > 0) record["sdrfs_refused"] = refused;
+        }
+        string target = Path.Combine(spectraDir, TmtFileName);
+        d.WriteTmtDesign(target);
+        File.WriteAllText(Path.Combine(spectraDir, TmtMarkerName), Sha(target));
+        record["written"] = true;
+        record["design"] = target;
+        record["design_sha256"] = Sha(target);
+        return record;
+    }
+
+    private static JsonObject IsobaricRecord(string source, string sdrf, SdrfIsobaricDesign d, string plexRule, string kit) => new()
+    {
+        ["source"] = source, ["written"] = false, ["sdrf"] = sdrf, ["sdrf_sha256"] = Sha(sdrf), ["kit"] = kit,
+        ["plex_rule"] = plexRule, ["plexes"] = new JsonArray(d.PlexIds.Keys.Order(StringComparer.Ordinal).Select(x => (JsonNode?)x).ToArray()),
+        ["file_key_column"] = d.FileKeyColumn,
+        ["condition_columns"] = new JsonArray(d.ConditionColumns.Select(c => (JsonNode?)c).ToArray()),
+        ["conditions"] = new JsonArray(d.Files.SelectMany(f => f.Channels).Select(c => c.Condition).Distinct().Order(StringComparer.Ordinal).Select(c => (JsonNode?)c).ToArray()),
+        ["files"] = d.Files.Count,
+        ["notes"] = new JsonArray(d.Notes.Select(n => (JsonNode?)n).ToArray()),
+        ["report"] = d.Report(),
+    };
+
+    /// <summary>
+    /// PXReprise's own isobaric SDRF for the searched files, as <see cref="WriteDefaultSdrf"/> is for label-free (D31): it
+    /// claims nothing the deposit did not say. Each file is its own plex (named by the file), every channel of the kit is
+    /// its own sample (<c>&lt;file&gt; &lt;channel&gt;</c>, biological replicate = the channel's place), all in
+    /// <see cref="DefaultCondition"/>, fraction 1, technical replicate 1. So no two files are taken to share a sample, and
+    /// fractions of one plex stay apart until a curated SDRF joins them.
+    /// </summary>
+    private static string WriteDefaultIsobaricSdrf(string spectraDir, IReadOnlyList<string> searchedFiles, string kit, string? organism, string? accession)
+    {
+        if (!IsobaricMassTag.TryGetIsobaricMassTag(kit, out var tag) || tag is null)
+            throw new SearchSetupException($"the kit {kit} is not one mzLib defines");
+        string dir = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(spectraDir))!, "pxreprise_sdrf");
+        Directory.CreateDirectory(dir);
+        string path = Path.Combine(dir, $"{(string.IsNullOrEmpty(accession) ? "deposit" : accession)}.{DefaultSource}.isobaric.sdrf.tsv");
+        var lines = new List<string>
+        {
+            "source name\tcharacteristics[organism]\tcharacteristics[biological replicate]\tassay name\tcomment[label]\t"
+            + "comment[data file]\tcomment[technical replicate]\tcomment[fraction identifier]\tcharacteristics[plex]\tfactor value[group]",
+        };
+        foreach (string f in searchedFiles.Select(Path.GetFileName).Order(StringComparer.Ordinal))
+        {
+            string stem = Path.GetFileNameWithoutExtension(f)!;
+            for (int c = 0; c < tag.ChannelLabels.Count; c++)
+                lines.Add($"{stem} {tag.ChannelLabels[c]}\t{OrganismName(organism)}\t{c + 1}\trun {stem}\t"
+                          + $"{SdrfIsobaricLabels.GetSdrfLabel(tag.TagType, tag.ChannelLabels[c])}\t{f}\t1\t1\t{stem}\t{DefaultCondition}");
+        }
+        File.WriteAllLines(path, lines);
+        return path;
+    }
+
+    /// <remarks>
+    /// The SDRF is first restricted to this search's files by mzLib's <see cref="SdrfSearchScope"/> (QuantProject 085): an
+    /// SDRF an earlier search wrote names that search's files (<c>X-calib.mzML</c>) in <c>comment[searched data file]</c>,
+    /// the column the reader keys on, and only the scope replaces them with this search's names. What the scope could not
+    /// join goes in <paramref name="scope"/>.
+    /// </remarks>
+    private static SdrfIsobaricDesign? ReadIsobaric(string sdrf, IReadOnlyList<string> searchedFiles, IReadOnlyList<string>? conditionColumns,
+        IsobaricMassTag tag, out string plexRule, out JsonObject? scope, out string? error)
+    {
+        error = null;
+        scope = null;
+        plexRule = "none";
+        try
+        {
+            var audit = SdrfQuantAuditor.Audit(sdrf);
+            string? column = audit.PlexSource == SdrfPlexSource.Column ? audit.PlexEvidence : null;
+            plexRule = column is null ? "single: no plex column, so one plex, which mzLib accepts only if every file has the same channels" : $"column: {column}";
+            var scoped = SdrfSearchScope.Restrict(new SdrfDocument(sdrf), searchedFiles);
+            scope = new JsonObject
+            {
+                ["searched_without_row"] = Names(scoped.SearchedWithoutRow), ["dropped_data_files"] = Names(scoped.DroppedDataFiles),
+                ["ambiguous"] = Names(scoped.Ambiguous), ["shared_stem"] = Names(scoped.SharedStem),
+            };
+            return SdrfIsobaricDesign.Read(scoped.Document, new SdrfIsobaricDesignOptions
+            {
+                Tag = tag, PlexColumn = column, SinglePlex = column is null ? "1" : null,
+                ConditionColumns = conditionColumns, SearchedFiles = searchedFiles.ToList(),
+            });
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            error = $"{e.GetType().Name}: {e.Message}";
+            return null;
+        }
+    }
+
+    private static JsonArray Names(IEnumerable<string> names) => new(names.Select(n => (JsonNode?)n).ToArray());
 
     /// <summary>
     /// Writes the design, or removes any stale one, and returns its provenance record (<c>written</c> says which).
@@ -170,6 +360,36 @@ public static class DesignStage
         // 1.1.12 refuses it, so this engine must not search a 1.1.12 profile with a gapped SDRF.
         ["report"] = d.Report(),
     };
+
+    /// <summary>
+    /// The numbering gaps in an ExperimentalDesign.tsv, in MetaMorpheus 1.1.13's own wording (#2928,
+    /// ExperimentalDesign.AddGapWarning): a condition's biological replicates, a replicate's fractions, a fraction's
+    /// technical replicates. Empty when every numbering runs 1..n. MetaMorpheus 1.1.12 refuses a design with any gap.
+    /// </summary>
+    public static List<string> Gaps(string designFile)
+    {
+        var rows = File.ReadAllLines(designFile).Skip(1).Select(l => l.TrimEnd('\r').Split('\t')).Where(c => c.Length >= 5)
+            .Select(c => (Condition: c[1], Bio: int.Parse(c[2], CultureInfo.InvariantCulture), Fraction: int.Parse(c[3], CultureInfo.InvariantCulture), Tech: int.Parse(c[4], CultureInfo.InvariantCulture)))
+            .ToList();
+        var gaps = new List<string>();
+        void Add(string owner, string level, IEnumerable<int> numbers)
+        {
+            var present = numbers.Distinct().Order().ToList();
+            var missing = Enumerable.Range(1, Math.Max(0, present.LastOrDefault())).Except(present).ToList();
+            if (missing.Count > 0) gaps.Add($"{owner}: {level}s {string.Join(", ", present)}; missing {string.Join(", ", missing)}");
+        }
+        foreach (var c in rows.GroupBy(r => r.Condition).OrderBy(g => g.Key, StringComparer.Ordinal))
+        {
+            Add($"Condition \"{c.Key}\"", "biological replicate", c.Select(r => r.Bio));
+            foreach (var b in c.GroupBy(r => r.Bio).OrderBy(g => g.Key))
+            {
+                Add($"Condition \"{c.Key}\" biorep {b.Key}", "fraction", b.Select(r => r.Fraction));
+                foreach (var f in b.GroupBy(r => r.Fraction).OrderBy(g => g.Key))
+                    Add($"Condition \"{c.Key}\" biorep {b.Key} fraction {f.Key}", "technical replicate", f.Select(r => r.Tech));
+            }
+        }
+        return gaps;
+    }
 
     private static string Sha(string path)
     {

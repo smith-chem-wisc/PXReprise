@@ -12,7 +12,10 @@ namespace PXReprise.Fetch;
 /// <param name="Key">EBI's public Aspera key (KB0011565; the same key pridepy ships as aspera_tokenauth_id_rsa).</param>
 /// <param name="Attempts">How many of a file's attempts go to Aspera before HTTPS takes over.</param>
 /// <param name="StartGap">Time between two sessions' starts: EBI is not asked for four sessions in one instant.</param>
-public sealed record AsperaClient(string Ascp, string Key, int Attempts = 3, string MaxRate = "300m", TimeSpan StartGap = default);
+/// <param name="Stall">A session whose staging folder gains no bytes for this long is killed (zero: never). 2026-10-29: one
+/// ascp sat 9.3 h on PXD045861 with 0 bytes and never exited, and the draining driver waited on it the whole time.</param>
+public sealed record AsperaClient(string Ascp, string Key, int Attempts = 3, string MaxRate = "300m", TimeSpan StartGap = default,
+    TimeSpan Stall = default);
 
 public static class Aspera
 {
@@ -39,6 +42,7 @@ public static class Aspera
     /// Never resumes: a resume after a killed session gave corrupted files (2026-10-08). The caller verifies the file.
     /// </summary>
     /// <exception cref="HttpIOException">ascp failed or did not run; treated as unavailability, like a dropped transfer.</exception>
+    /// <exception cref="TimeoutException">no data arrived for <see cref="AsperaClient.Stall"/>; ascp was killed. Also unavailability.</exception>
     public static async Task<string> DownloadAsync(AsperaClient a, PrideArchiveFile f, string dir, CancellationToken ct)
     {
         string source = Source(f) ?? throw new HttpIOException(HttpRequestError.Unknown, $"{f.FileName}: PRIDE lists no Aspera location");
@@ -70,8 +74,17 @@ public static class Aspera
             {
                 var stdout = p.StandardOutput.ReadToEndAsync(CancellationToken.None);
                 var stderr = p.StandardError.ReadToEndAsync(CancellationToken.None);
-                try { await p.WaitForExitAsync(ct).ConfigureAwait(false); }
+                bool exited;
+                try { exited = await WatchAsync(p.WaitForExitAsync(ct), () => StagedBytes(staging), a.Stall, Poll, ct).ConfigureAwait(false); }
                 catch (OperationCanceledException) { try { p.Kill(entireProcessTree: true); } catch (InvalidOperationException) { } throw; }
+                if (!exited)
+                {
+                    long had = StagedBytes(staging);
+                    try { p.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
+                    try { await p.WaitForExitAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(30), ct).ConfigureAwait(false); }
+                    catch (TimeoutException) { }
+                    throw new TimeoutException($"{f.FileName}: ascp received no data for {a.Stall.TotalMinutes:0.#} min ({had:N0} bytes); killed");
+                }
                 string got = Path.Combine(staging, f.FileName);
                 if (p.ExitCode != 0 || !File.Exists(got))
                 {
@@ -88,5 +101,38 @@ public static class Aspera
         {
             try { Directory.Delete(staging, recursive: true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
         }
+    }
+
+    private static readonly TimeSpan Poll = TimeSpan.FromSeconds(15);
+
+    /// <summary>
+    /// Waits for <paramref name="exited"/>: true when it completes, false once <paramref name="progress"/> has not changed
+    /// for <paramref name="stall"/> (the caller kills the session). A zero stall waits for the exit alone, as before.
+    /// </summary>
+    internal static async Task<bool> WatchAsync(Task exited, Func<long> progress, TimeSpan stall, TimeSpan poll, CancellationToken ct)
+    {
+        if (stall <= TimeSpan.Zero) { await exited.ConfigureAwait(false); return true; }
+        long seen = progress();
+        var quiet = Stopwatch.StartNew();
+        while (true)
+        {
+            if (await Task.WhenAny(exited, Task.Delay(poll, ct)).ConfigureAwait(false) == exited)
+            {
+                await exited.ConfigureAwait(false);
+                return true;
+            }
+            ct.ThrowIfCancellationRequested();
+            long now = progress();
+            if (now != seen) { seen = now; quiet.Restart(); continue; }
+            if (quiet.Elapsed >= stall) return false;
+        }
+    }
+
+    /// <summary>Bytes under the session's staging folder (ascp names its partial file itself).</summary>
+    private static long StagedBytes(string staging)
+    {
+        try { return Directory.EnumerateFiles(staging, "*", SearchOption.AllDirectories).Sum(x => new FileInfo(x).Length); }
+        catch (IOException) { return -1; }
+        catch (UnauthorizedAccessException) { return -1; }
     }
 }
