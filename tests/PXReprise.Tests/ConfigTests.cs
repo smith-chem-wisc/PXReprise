@@ -156,6 +156,8 @@ public class ConfigTests
             Assert.That(lf.Accepts.Instruments, Does.Not.Contain(InstrumentClass.Astral));
         });
         Assert.That(profiles["tmt-dda@1"].Status, Is.EqualTo(ProfileStatus.Pending));
+        // v0.4.35: datarepo 1.4.1 ingests isobaric searches (dataRepo 078), so tmt-dda@2 routes.
+        Assert.That(profiles["tmt-dda@2"].Status, Is.EqualTo(ProfileStatus.Available));
     }
 
     [Test]

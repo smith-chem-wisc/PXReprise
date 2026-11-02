@@ -9,8 +9,19 @@ A new version of the engine never changes a finished result. Methods live in ver
 
 ## 0.4.35 (unreleased)
 
-**MetaMorpheus** unchanged. **Machine file:** no change needed; a new optional key `delete_raw_after_calibration`
-(default true). **Safe mid-batch?** Yes: swap the pin as usual.
+**MetaMorpheus** unchanged (1.1.13 for `@12`, `lowres@6` and `tmt-dda@2`). **Machine file:** `datarepo` must name
+datarepo 1.4.1 or newer before a question names `tmt-dda@2` (1.4.0 refuses isobaric searches); a new optional key
+`delete_raw_after_calibration` (default true). **Safe mid-batch?** Yes: swap the pin as usual.
+
+- **`tmt-dda@2` is available.** It was `pending` in 0.4.34 while delivery was open; datarepo 1.4.1 now ingests isobaric
+  searches (one assay per file and channel). A question that names it routes TMT and iTRAQ deposits to it. Deposits
+  an earlier version parked as labelled are not looked at again by themselves: `batch retry` each.
+- **A TMT or iTRAQ deposit the screen's words missed still reaches the isobaric profile.** Before, under a profile that
+  reads the deposit's chemistry, a label named only in PRIDE's quantification methods or the SDRF parked the deposit
+  (`waiting_tmt_labelling`), and reporter ions in every probe file parked it (`waiting_tmt_dda_2`), even when the
+  question named an isobaric profile. Now, when the question names an available isobaric profile that takes the deposit,
+  the deposit is routed there (`routed_isobaric`: `chemistry` or `spectra` in the state entry) and probed under it. A
+  question with no such profile parks as before.
 
 - **A raw file is deleted as soon as MetaMorpheus has calibrated it**, while the search runs, not hours later at cleanup.
   Calibration is per file, and GPTMD and the search read only the calibrated `-calib.mzML`. The search checks each

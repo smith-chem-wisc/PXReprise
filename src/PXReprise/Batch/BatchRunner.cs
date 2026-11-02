@@ -1006,9 +1006,22 @@ public sealed class BatchRunner
             DepositChemistry chem;
             try { chem = await ChemistryAsync(acc, all, listing.Select(f => f.FileName).ToList(), profile, ct).ConfigureAwait(false); }
             catch (Exception ex) when (Envelope.IsUnavailable(ex) || FetchStage.IsTransient(ex)) { Log($"{acc} chemistry: PRIDE unavailable ({ex.Message}); retry next pass"); return null; }
+            // v0.4.35: an isobaric label (PRIDE's quantification methods, the SDRF) that the screen's words missed goes to the
+            // question's isobaric profile, when it names an available one that takes the deposit, instead of waiting for it.
+            if (chem.Park is null && IsIsobaricLabel(chem.Label.Value) && !profile.Accepts.Labellings.Contains(Labelling.Isobaric)
+                && IsobaricTaker(acq) is { } taker && taker.Databases.ContainsKey(e.Organism))
+            {
+                Log($"{acc} chemistry: label {chem.Label.Value} ({chem.Label.Source}); routing to {taker.Key}");
+                profile = taker;
+                Record(acc, ("profile", profile.Key), ("routed_isobaric", "chemistry"));
+                try { chem = await ChemistryAsync(acc, all, listing.Select(f => f.FileName).ToList(), profile, ct).ConfigureAwait(false); }
+                catch (Exception ex) when (Envelope.IsUnavailable(ex) || FetchStage.IsTransient(ex)) { Log($"{acc} chemistry: PRIDE unavailable ({ex.Message}); retry next pass"); return null; }
+            }
             xr.Chemistry(chem);
             chemistry = chem;
-            string? wait = chem.Park ?? (chem.Label.Value == "label_free" ? null : $"waiting_{Slug(chem.Label.Value)}_labelling");
+            bool searchable = chem.Label.Value == "label_free"
+                || (IsIsobaricLabel(chem.Label.Value) && profile.Accepts.Labellings.Contains(Labelling.Isobaric));
+            string? wait = chem.Park ?? (searchable ? null : $"waiting_{Slug(chem.Label.Value)}_labelling");
             if (wait is not null)
             {
                 Log($"{acc} SCREENED OUT ({wait}): chemistry {Describe(chem)}");
@@ -1061,6 +1074,19 @@ public sealed class BatchRunner
             Log($"{acc} PROBE reads its {probeFiles.Count} probe files only; {onDisk} raw files are on disk (downloaded ahead)");
         var (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles, probe: true);
         xr.Probe(report);
+        // v0.4.35: reporter ions in every probe file, under a profile that refuses them: the question's isobaric profile takes
+        // the deposit when it names an available one, and its QC reads the kit from the same files. The chemistry read above
+        // stands (protease and cysteine are the deposit's, whichever profile searches it).
+        if (!profile.Accepts.Labellings.Contains(Labelling.Isobaric) && report.Count > 0
+            && report.All(kv => kv.Value!["isobaric_reporters"] is not null)
+            && IsobaricTaker(acq) is { } isoTaker && isoTaker.Databases.ContainsKey(e.Organism))
+        {
+            Log($"{acc} PROBE qc: isobaric reporter ions in all {report.Count} probe file(s); routing to {isoTaker.Key}");
+            profile = isoTaker;
+            Record(acc, ("profile", profile.Key), ("routed_isobaric", "spectra"));
+            (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles, probe: true);
+            xr.Probe(report);
+        }
         if (RoutedByReporters(acc, report, "PROBE"))
         {
             string status = Entry(acc)?["status"]?.GetValue<string>() ?? "isobaric";
@@ -1914,6 +1940,13 @@ public sealed class BatchRunner
         for (int k = 2; Directory.Exists(aside) || File.Exists(aside); k++) aside = $"{stamp}-{k}";
         return aside;
     }
+
+    private static bool IsIsobaricLabel(string label) => label is "tmt" or "itraq";
+
+    /// <summary>The first profile the question names, in its order, that is available and takes this deposit as isobaric.</summary>
+    internal Profile? IsobaricTaker(Acquisition acq) =>
+        _q.Profiles.Select(k => _profiles[k]).FirstOrDefault(p => p.Status == ProfileStatus.Available
+            && p.Accepts.Labellings.Contains(Labelling.Isobaric) && p.Accepts.Refusal(acq with { Labelling = Labelling.Isobaric }) is null);
 
     internal bool RoutedByReporters(string acc, JsonObject report, string where)
     {

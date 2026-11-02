@@ -78,7 +78,7 @@ public class SearchStageTests
         Assert.That(SearchStage.TmtDesignMissing(design, unused), Is.EqualTo("2 of 2 design samples have no reporter column (S126, S127N)"));
 
         var tmt = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir)["tmt-dda@2"];
-        Assert.That((tmt.PrecursorWindow, tmt.QuantMethod, tmt.Status), Is.EqualTo(("wide", "reporter_ion", ProfileStatus.Pending)));
+        Assert.That((tmt.PrecursorWindow, tmt.QuantMethod, tmt.Status), Is.EqualTo(("wide", "reporter_ion", ProfileStatus.Available)), "available since v0.4.35 (datarepo 1.4.1 ingests it)");
         Assert.That(tmt.Tasks, Is.EqualTo(new[] { "Calibration", "Search" }), "TMT runs no GPTMD (the user, 2026-10-19)");
         Assert.That(SearchStage.PrecursorWindow(tmt, null, null), Is.EqualTo(20));
     }

@@ -821,10 +821,10 @@ public class BatchRunnerTests
         Assert.That(() => Machine.Load(M("aspera_attempts = -1\n")), Throws.InstanceOf<ConfigException>());
     }
 
-    private static (BatchRunner Runner, FakeSearch Search, FakeFiles Files, string Dir) DepositChemistryRunner()
+    private static (BatchRunner Runner, FakeSearch Search, FakeFiles Files, string Dir) DepositChemistryRunner(string profiles = "\"label-free-dda@3\"")
     {
         string dir = TestSupport.TempDir();
-        string q = TestSupport.MinimalQuestion.Replace("profiles = [\"label-free-dda@1\", \"tmt-dda@1\"]", "profiles = [\"label-free-dda@3\"]")
+        string q = TestSupport.MinimalQuestion.Replace("profiles = [\"label-free-dda@1\", \"tmt-dda@1\"]", $"profiles = [{profiles}]")
             + "\n[batch]\nrun_root = \"runs\"\nstate_dir = \"state\"\nqueue = \"queue.json\"\n";
         var question = QuestionLoader.Load(TestSupport.WriteFile(dir, "question.toml", q));
         var machine = Machine.Load(TestSupport.WriteFile(dir, "machine.toml",
@@ -883,6 +883,30 @@ public class BatchRunnerTests
         Assert.That(tmt["facts"]!["label"]!["source"]!.GetValue<string>(), Is.EqualTo(ChemistrySource.PrideQuant));
         await runner.ProbeAsync(new QueueEntry("PXD000403", "t", "human"), CancellationToken.None);
         Assert.That(File.ReadAllLines(Path.Combine(dir, "runs", DecisionsNeeded.FileName)), Has.Length.EqualTo(2), "announced once, not once per pass");
+    }
+
+    // v0.4.35: with tmt-dda@2 available, a TMT label in PRIDE's quantification methods (words the screen missed) is searched
+    // under it, not parked as waiting_tmt_labelling; a pending isobaric profile takes nothing.
+    [Test]
+    public async Task ATmtLabelGoesToTheQuestionsAvailableIsobaricProfile()
+    {
+        var (runner, search, files, _) = DepositChemistryRunner("\"label-free-dda@3\", \"tmt-dda@2\"");
+        search.Results["PXD000411"] = new() { TestSupport.Record("PXD000411", "Type 2 diabetes muscle", "digested with trypsin", instruments: new[] { "Q Exactive HF" }, files: new[] { "run1.raw" }) };
+        search.Projects["PXD000411"] = new PrideProject
+        {
+            Accession = "PXD000411", Title = "Type 2 diabetes muscle", SampleProcessingProtocol = "digested with trypsin",
+            QuantificationMethods = new List<MzLibUtil.CvParam> { new() { Name = "TMT" } },
+        };
+        await runner.ProbeAsync(new QueueEntry("PXD000411", "t", "human"), CancellationToken.None);
+        var entry = runner.State()["datasets"]!["PXD000411"]!;
+        Assert.That(runner.Settled("PXD000411"), Does.Not.StartWith("waiting_"));
+        Assert.That(files.Downloads, Is.GreaterThan(0), "past the chemistry: on to the probe download");
+        Assert.That((entry["profile"]!.GetValue<string>(), entry["routed_isobaric"]!.GetValue<string>()), Is.EqualTo(("tmt-dda@2", "chemistry")));
+
+        var acq = new Acquisition(AcquisitionMode.Dda, Labelling.LabelFree, InstrumentClass.OrbitrapHcdOnly, "none", new Dictionary<string, int> { [".raw"] = 6 }, null);
+        Assert.That(runner.IsobaricTaker(acq)?.Key, Is.EqualTo("tmt-dda@2"));
+        var (pendingOnly, _, _, _) = DepositChemistryRunner("\"label-free-dda@3\", \"tmt-dda@1\"");
+        Assert.That(pendingOnly.IsobaricTaker(acq), Is.Null, "tmt-dda@1 is pending");
     }
 
     // G18: a reboot mid-search left the deposit at "searching" with a half-written 04_search/mm, which MetaMorpheus refuses
