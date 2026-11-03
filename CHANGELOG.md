@@ -7,6 +7,16 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.38 (unreleased)
+
+**MetaMorpheus** unchanged (1.1.13). **Machine file:** unchanged. **Safe mid-batch?** Yes: swap the pin as usual.
+
+- **A profile can take modifications out of GPTMD's list** (`engine.gptmd_drop_mods`, the mirror of
+  `gptmd_extra_mods`). MetaMorpheus's default list is every Common Biological, Common Artifact and Metal entry of its
+  Mods.txt, so until now a class the data refuse could not leave it. An entry the list does not hold is refused when the
+  task is written, never skipped. No shipped profile uses it yet (results/acyl-gptmd_2026-11-03: Malonylation on K is
+  the first candidate, at 10% decoys per target under `label-free-dda@12`).
+
 ## 0.4.37 (2026-11-03)
 
 **MetaMorpheus** unchanged (1.1.13). **Machine file:** unchanged. **Safe mid-batch?** Yes: swap the pin as usual.

@@ -189,6 +189,7 @@ public static class SearchStage
         if (m.DepositLimits?.Describe() is { Length: > 0 } limits) search["deposit_limits"] = limits;
         if (p.GptmdExtraMods.Count > 0) search["gptmd_extra_mods"] = new JsonArray(p.GptmdExtraMods.Select(x => (JsonNode?)x).ToArray());
         if (p.GptmdFilters is { Count: > 0 } gf) search["gptmd_filters"] = new JsonArray(gf.Select(x => (JsonNode?)x).ToArray());
+        if (p.GptmdDropMods is { Count: > 0 } gd) search["gptmd_drop_mods"] = new JsonArray(gd.Select(x => (JsonNode?)x).ToArray());
         if (r.ExcludeFiles.Count > 0) search["exclude_files"] = new JsonArray(r.ExcludeFiles.Select(x => (JsonNode?)x).ToArray());
         string paramsFile = Path.Combine(outDir, "params.json");
         File.WriteAllText(paramsFile, new JsonObject
@@ -274,7 +275,7 @@ public static class SearchStage
             VariableCysMods: chem?.CysMods.Where(c => !c.Fixed).Select(c => c.MetaMorpheusId!).ToList(),
             WriteSdrf: p.WriteSdrf, ProteomeXchangeAccession: p.WriteSdrf ? r.Accession : null,
             PrecursorMassTolerance: window is { } w ? $"±{w}.0000 PPM" : null, QuantifyPpmTol: window,
-            GptmdFilters: p.GptmdFilters, MultiplexKit: kit);
+            GptmdFilters: p.GptmdFilters, MultiplexKit: kit, GptmdDropMods: p.GptmdDropMods);
         if (chem is not null)
         {
             prov.Set("chemistry", Chemistry(chem));
@@ -337,6 +338,7 @@ public static class SearchStage
         }
         if (p.GptmdExtraMods.Count > 0) prov.Set("gptmd_extra_mods", new JsonArray(p.GptmdExtraMods.Select(x => (JsonNode?)x).ToArray()));
         if (p.GptmdFilters is { Count: > 0 }) prov.Set("gptmd_filters", new JsonArray(p.GptmdFilters.Select(x => (JsonNode?)x).ToArray()));
+        if (p.GptmdDropMods is { Count: > 0 }) prov.Set("gptmd_drop_mods", new JsonArray(p.GptmdDropMods.Select(x => (JsonNode?)x).ToArray()));
         if (artifacts.Count > 0)
         {
             prov.Set("chemistry_artifacts", new JsonArray(artifacts.Select(a => (JsonNode?)new JsonObject

@@ -37,6 +37,19 @@ public static class ProfileLoader
         // "<category>\t<IdWithMotif>" as MetaMorpheus's ListOfModsGptmd holds them; checked against the pinned
         // MetaMorpheus's Mods files when a search is prepared, not here.
         var extraMods = eng.StringList("gptmd_extra_mods");
+        // v0.4.38 (results/acyl-gptmd_2026-11-03): entries taken OUT of MetaMorpheus's default GPTMD list, written the same
+        // way. The default list is every Common Biological, Common Artifact and Metal entry of the pinned Mods.txt, so a
+        // class the data refuse can only leave it here. An entry the list lacks is refused when the task is written.
+        var dropMods = eng.StringList("gptmd_drop_mods");
+        if (dropMods.Count > 0 && !tasks.Contains("Gptmd"))
+            throw new ConfigException(file, "engine.gptmd_drop_mods needs a Gptmd task");
+        foreach (string d in dropMods)
+        {
+            if (!d.Contains('\t'))
+                throw new ConfigException(file, $"engine.gptmd_drop_mods entry '{d}' is not \"<category>\\t<IdWithMotif>\"");
+            if (extraMods.Contains(d))
+                throw new ConfigException(file, $"engine.gptmd_drop_mods and engine.gptmd_extra_mods both name '{d}'");
+        }
         // v0.4.31 (results/gptmd-entrapment_2026-10-25; the user, 2026-10-27): GPTMD's own filters, by class name, written
         // into the GPTMD task's GptmdFilters. A name MetaMorpheus does not know would be dropped silently, so it is refused here.
         var gptmdFilters = eng.StringList("gptmd_filters");
@@ -243,7 +256,8 @@ public static class ProfileLoader
             panel ?? Path.GetFileName(shipped!), exclude,
             method, mbr, deposit, gates, Path.GetDirectoryName(Path.GetFullPath(file))!, design, chemistry, writeSdrf, shipped, fragmentation, lowResTolerance, probeSearch, probeMinutes, ionTrapHcd,
             customMods, thiolReagents, precursorWindow, ionTrapHcdLowCid, ionTrapHcdProbeLowCid, artifacts,
-            gptmdFilters.Count > 0 ? gptmdFilters : null, mmSettings.Count > 0 ? mmSettings : null);
+            gptmdFilters.Count > 0 ? gptmdFilters : null, mmSettings.Count > 0 ? mmSettings : null,
+            dropMods.Count > 0 ? dropMods : null);
     }
 
     /// <summary>
