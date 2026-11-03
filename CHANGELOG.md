@@ -7,6 +7,16 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.36 (unreleased)
+
+**MetaMorpheus** unchanged (1.1.13). **Machine file:** unchanged. **Safe mid-batch?** Yes: swap the pin as usual.
+
+- **A TMT deposit that left a channel unused is no longer refused as unlabelled.** QC under an isobaric profile reads
+  the kit from the spectra. It wanted every channel of a kit seen as often as the others, so a TMT10 experiment with
+  one channel nearly empty matched no kit (TMT6 holds the same channels) and failed `no_isobaric_reporters`. Now the
+  kit is the smallest one holding every channel seen; how often each channel is seen is still recorded. Found on
+  PXD027548: every file of its TMT10 proteome and phosphoproteome failed QC under 0.4.35 and is TMT10 now.
+
 ## 0.4.35 (2026-11-02)
 
 **MetaMorpheus** unchanged (1.1.13 for `@12`, `lowres@6` and `tmt-dda@2`). **Machine file:** `datarepo` must name

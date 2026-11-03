@@ -78,16 +78,19 @@ public static class IsobaricReporters
         _ => throw new ArgumentOutOfRangeException(nameof(kit), kit, null),
     };
 
-    /// <summary>A channel counts as the kit's when it is seen in at least this share of the typical channel's spectra.</summary>
+    /// <summary>A channel counts as seen when it is present in at least this share of the typical channel's spectra.</summary>
     public const double MinChannelShare = 0.5;
 
     /// <summary>
     /// v0.4.34 (TMT trial, results/tmt-trial_2026-10-29): the KIT, not just the family, for the search's
-    /// <c>MultiplexModId</c>. Within <paramref name="family"/>, the largest kit whose every channel is present (mzLib's own
-    /// reporter lookup, 3 mDa) in at least <see cref="MinChannelShare"/> of the spectra the typical channel is present in.
-    /// Impurity and isotope peaks put a few hits on a missing channel; the share rule leaves them out. PXD034564's MS3:
-    /// TMT10's channels in 2,500-5,000 of 3,000 spectra each, 131C (TMT11's extra) in a fifth as many: TMT10.
-    /// Null when the family is unknown or no kit's base channels are seen.
+    /// <c>MultiplexModId</c>. A channel is SEEN when it is present (mzLib's own reporter lookup, 3 mDa) in at least
+    /// <see cref="MinChannelShare"/> of the spectra the typical channel is present in. Impurity and isotope peaks put a few
+    /// hits on a missing channel; the share rule leaves them out. PXD034564's MS3: TMT10's channels in 2,500-5,000 of 3,000
+    /// spectra each, 131C (TMT11's extra) in a fifth as many: TMT10.
+    /// v0.4.36: the kit is the SMALLEST of <paramref name="family"/> holding every channel seen. v0.4.34 wanted every
+    /// channel of the kit seen, so a deposit that left one channel unused had no kit (PXD027548: 130C in 42% of 1.raw's
+    /// reporter spectra, 131N in 34% of Z9423TPSTB2_1.raw's; TMT6 holds both) and failed QC as no_isobaric_reporters.
+    /// Null when the family is unknown or no channel is seen.
     /// </summary>
     public static (IsobaricMassTagType Kit, IReadOnlyDictionary<string, double> ChannelShares)? Kit(IEnumerable<MzSpectrum> spectra, string family)
     {
@@ -106,15 +109,16 @@ public static class IsobaricReporters
         }
         if (counted == 0) return null;
         var shares = tag.ChannelLabels.Select((label, i) => (label, share: (double)present[i] / counted)).ToDictionary(x => x.label, x => x.share);
-        foreach (var kit in kits.Reverse())
+        // The typical channel: the median of the channels present at all (the largest kit's unused ones are zeros).
+        double typical = Median(shares.Values.Where(s => s > 0));
+        var seen = shares.Where(kv => kv.Value >= MinChannelShare * typical).Select(kv => kv.Key).ToHashSet(StringComparer.Ordinal);
+        foreach (var kit in kits)
         {
-            var labels = IsobaricMassTag.GetReporterIonLabels(kit);
             // A kit's labels are a subset of the largest kit's, except TMT6's plain "127".."131", which are 127N, 128C,
             // 129N, 130C and 131N by mass.
-            var mapped = labels.Select(l => shares.ContainsKey(l) ? l : Tmt6Alias.GetValueOrDefault(l, l)).ToList();
-            if (mapped.Any(l => !shares.ContainsKey(l))) continue;
-            double typical = Median(mapped.Select(l => shares[l]));
-            if (typical > 0 && mapped.All(l => shares[l] >= MinChannelShare * typical)) return (kit, shares);
+            var mapped = IsobaricMassTag.GetReporterIonLabels(kit).Select(l => shares.ContainsKey(l) ? l : Tmt6Alias.GetValueOrDefault(l, l))
+                .ToHashSet(StringComparer.Ordinal);
+            if (seen.IsSubsetOf(mapped)) return (kit, shares);
         }
         return null;
     }
