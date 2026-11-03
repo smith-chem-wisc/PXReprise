@@ -7,6 +7,19 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.37 (2026-11-03)
+
+**MetaMorpheus** unchanged (1.1.13). **Machine file:** unchanged. **Safe mid-batch?** Yes: swap the pin as usual.
+
+- **An isobaric search's manifest entry names the reagent and its plex.** datarepo 1.4.1 names reporter channels by
+  them and refuses an isobaric search whose entry says `labelling: none`, as the first two `tmt-dda@2` deliveries were.
+  The entry now says `quant_method: TMT`, `labelling: TMT` and `labelling_plex: <n>` (or `iTRAQ`), from the kit the
+  search used. An entry written by 0.4.35 or 0.4.36 needs the two keys added by hand before its ingest is retried.
+- **Files of one TMT reagent that read different kits are searched together.** A channel weak in some files is not
+  seen there, so one TMT10/TMT11 experiment can read TMT10 in some files and TMT11 in others, and the search refused
+  it. TMT6, TMT10 and TMT11 are one reagent: the deposit is now searched with the largest kit read, which holds every
+  file's channels. Different reagents (TMT11 and TMTpro, or the two iTRAQ kits), or a file with no kit, still refuse.
+
 ## 0.4.36 (2026-11-03)
 
 **MetaMorpheus** unchanged (1.1.13). **Machine file:** unchanged. **Safe mid-batch?** Yes: swap the pin as usual.

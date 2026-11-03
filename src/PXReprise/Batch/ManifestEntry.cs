@@ -181,6 +181,18 @@ public static class ManifestEntry
             }
         }
 
+        // v0.4.37 (dataRepo 076/078, our 074 promised it): an isobaric search's entry names the reagent and its plex, which
+        // name the channels; datarepo 1.4.1 refuses reporter tables under `labelling: none` (PXD043296, PXD034564 were).
+        string quant = profile.QuantMethod == "flashlfq" ? "label-free" : profile.QuantMethod;
+        if (profile.QuantMethod == "reporter_ion")
+        {
+            string kit = search["isobaric"]?["kit"]?.GetValue<string>()
+                         ?? throw new InvalidOperationException($"{e.Accession}: an isobaric search's provenance names no kit");
+            var (labelling, plex) = Qc.IsobaricReporters.Labelling(kit)
+                                    ?? throw new InvalidOperationException($"{e.Accession}: no kit is searched as '{kit}'");
+            quant = $"{labelling}\n    labelling: {labelling}\n    labelling_plex: {plex}";
+        }
+
         string run = Path.GetRelativePath(workRoot, runDir).Replace('\\', '/');
         string entry = $"""
 
@@ -195,7 +207,7 @@ public static class ManifestEntry
     files: {nfiles}
     organism: NCBITaxon:{taxon}
     acquisition: DDA
-    quant_method: {(profile.QuantMethod == "flashlfq" ? "label-free" : profile.QuantMethod)}
+    quant_method: {quant}
     metamorpheus: "{mm}"
     provenance_schema: aging-provenance/3
     enrichment: [{enrichment}]
@@ -260,7 +272,7 @@ public static class ManifestEntry
     private static readonly HashSet<string> Owned = new(StringComparer.Ordinal)
     {
         "accession", "status", "title", "run", "stages", "search_results", "files", "organism", "acquisition", "quant_method",
-        "metamorpheus", "provenance_schema", "enrichment", "flags", "notes",
+        "metamorpheus", "provenance_schema", "enrichment", "flags", "notes", "labelling", "labelling_plex",
     };
 
     /// <summary>Every key of the entry this writer does not own, with its nested lines, as written (LF line ends).</summary>
