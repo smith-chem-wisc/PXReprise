@@ -90,6 +90,34 @@ public class IsobaricReportersTests
         Assert.That(IsobaricReporters.Kit(spectra, "unknown family"), Is.Null);
     }
 
+    // v0.4.36 (TMT phospho trial, PXD027548, 2026-11-02): a deposit that leaves a channel unused is still its kit. Measured
+    // on its Q Exactive MS2: 1.raw (TMT10 proteome) 130C in 42% of reporter spectra and every other channel in 98-100%;
+    // Z9423TPSTB2_1.raw (TMT10 phospho) 131N in 34%, 131C in 20%. v0.4.35 wanted EVERY channel of a kit and found none
+    // (TMT6 holds 130C and 131N too), so both files failed QC as no_isobaric_reporters.
+    [Test]
+    public void AKitWithAnUnusedChannelIsTheSmallestKitHoldingEveryChannelSeen()
+    {
+        double[] tmt10 = Reporters(Omics.Modifications.IsobaricMassTagType.TMT10);
+        double[] tmt11 = Reporters(Omics.Modifications.IsobaricMassTagType.TMT11);
+        double c130 = tmt10[8], n131 = tmt10[9], c131 = tmt11.Except(tmt10).Single();
+        Assert.That((c130, n131), Is.EqualTo((130.141145, 131.13818)).Within(0.001), "TMT10's 130C and 131N");
+
+        // 1.raw: 130C in 42 of 100 spectra.
+        var proteome = Enumerable.Range(0, 100).Select(i => Scan(i, 2, tmt10.Where(x => x != c130 || i < 42).ToArray()).MassSpectrum).ToList();
+        Assert.That(IsobaricReporters.Kit(proteome, "TMT")?.Kit, Is.EqualTo(Omics.Modifications.IsobaricMassTagType.TMT10));
+
+        // Z9423TPSTB2_1.raw: 131N in 34, 131C in 20.
+        var phospho = Enumerable.Range(0, 100).Select(i => Scan(i, 2,
+            tmt10.Where(x => x != n131 || i < 34).Concat(i >= 80 ? new[] { c131 } : Array.Empty<double>()).ToArray()).MassSpectrum).ToList();
+        var kit = IsobaricReporters.Kit(phospho, "TMT");
+        Assert.That(kit?.Kit, Is.EqualTo(Omics.Modifications.IsobaricMassTagType.TMT10));
+        Assert.That(kit!.Value.ChannelShares["131N"], Is.EqualTo(0.34).Within(1e-9), "the shares still say which channel is weak");
+
+        // TMT11 with 131N unused: 131C is seen, so only TMT11 holds every channel seen.
+        var eleven = Enumerable.Range(0, 100).Select(i => Scan(i, 2, tmt11.Where(x => x != n131).ToArray()).MassSpectrum).ToList();
+        Assert.That(IsobaricReporters.Kit(eleven, "TMT")?.Kit, Is.EqualTo(Omics.Modifications.IsobaricMassTagType.TMT11));
+    }
+
     // v0.4.34 (PLAN_tmt-dda-2 stage 4): SPS-MS3, as PXD034564: MS2 in the ion trap (CID) carries no reporters, MS3 in the
     // Orbitrap carries them. Under an isobaric profile the low-res MS2 gate is waived and the kit is read from MS3.
     [Test]
