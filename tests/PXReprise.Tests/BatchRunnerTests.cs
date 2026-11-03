@@ -1171,10 +1171,36 @@ public class BatchRunnerTests
         Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
         Directory.CreateDirectory(Path.Combine(run, "04_search"));
         File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(("a.raw", true, Array.Empty<string>())).ToJsonString());
-        File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), """{"tools":{"MetaMorpheus":{"release":"1.1.12"}}}""");
+        File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), """{"tools":{"MetaMorpheus":{"release":"1.1.12"}},"isobaric":{"kit":"TMT10"}}""");
         string manifest = TestSupport.WriteFile(dir, "manifest.yaml", "manifest_version: 1\ndatasets:\n");
         ManifestEntry.Append(manifest, new QueueEntry("PXD059520", "Retina", "rat"), Profiles[profile], run, null, dir);
         Assert.That(File.ReadAllText(manifest), Does.Contain($"    search_results: 04_search/mm/{folder}\n"));
+    }
+
+    // v0.4.37 (dataRepo 076/078): datarepo 1.4.1 refused PXD043296 and PXD034564, the first tmt-dda@2 deliveries, because
+    // their entries said nothing of the reagent: an isobaric entry names it and its plex, from the kit the search used.
+    [TestCase("TMT11", "TMT", 11)]
+    [TestCase("TMT10", "TMT", 10)]
+    [TestCase("TMT6-plex", "TMT", 6)]
+    [TestCase("TMT18", "TMT", 18)]
+    [TestCase("iTRAQ-8plex", "iTRAQ", 8)]
+    public void AnIsobaricEntryNamesTheReagentAndItsPlex(string kit, string labelling, int plex)
+    {
+        string dir = TestSupport.TempDir(), run = Path.Combine(dir, "runs", "PXD043296");
+        Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
+        Directory.CreateDirectory(Path.Combine(run, "04_search"));
+        File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(("a.raw", true, Array.Empty<string>())).ToJsonString());
+        File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"),
+            $$$"""{"tools":{"MetaMorpheus":{"release":"1.1.13"}},"isobaric":{"kit":"{{{kit}}}"}}""");
+        string manifest = TestSupport.WriteFile(dir, "manifest.yaml", "manifest_version: 1\ndatasets:\n");
+        ManifestEntry.Append(manifest, new QueueEntry("PXD043296", "t", "mouse"), Profiles["tmt-dda@2"], run, null, dir);
+        Assert.That(File.ReadAllText(manifest).ReplaceLineEndings("\n"),
+            Does.Contain($"    quant_method: {labelling}\n    labelling: {labelling}\n    labelling_plex: {plex}\n    metamorpheus:"));
+
+        // A label-free entry is as before.
+        string lf = TestSupport.WriteFile(dir, "lf.yaml", "manifest_version: 1\ndatasets:\n");
+        ManifestEntry.Append(lf, new QueueEntry("PXD043296", "t", "mouse"), Profiles["label-free-dda@12"], run, null, dir);
+        Assert.That(File.ReadAllText(lf), Does.Contain("    quant_method: label-free\n").And.Not.Contain("labelling"));
     }
 
     [Test]

@@ -140,9 +140,8 @@ public static class SearchStage
         if (p.QuantMethod == "reporter_ion")
         {
             var kits = files.Select(f => qc[Path.GetFileName(f)]?["isobaric_kit"]?.GetValue<string>()).Distinct().ToList();
-            if (kits.Count != 1 || kits[0] is null)
-                throw new SearchSetupException($"an isobaric search needs one kit read from every file's spectra; QC read {string.Join(", ", kits.Select(k => k ?? "none"))}");
-            kit = kits[0];
+            kit = Qc.IsobaricReporters.DepositKit(kits)
+                  ?? throw new SearchSetupException($"an isobaric search needs one kit read from every file's spectra; QC read {string.Join(", ", kits.Select(k => k ?? "none"))}");
         }
         // MetaMorpheus reads ExperimentalDesign.tsv (label-free) or TmtDesign.txt (isobaric, stage 6: from an SDRF, always)
         // from beside the first spectra file; written here, before any task runs.

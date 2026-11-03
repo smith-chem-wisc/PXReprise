@@ -118,6 +118,21 @@ public class IsobaricReportersTests
         Assert.That(IsobaricReporters.Kit(eleven, "TMT")?.Kit, Is.EqualTo(Omics.Modifications.IsobaricMassTagType.TMT11));
     }
 
+    // v0.4.37: PXD051031's search was refused because QC read TMT10 in some files and TMT11 in others (131C weak in a few
+    // files). One reagent: the deposit is the largest kit. Different reagents, or a file with none, have no deposit kit.
+    [Test]
+    public void FilesOfOneReagentReadingDifferentKitsAreSearchedWithTheLargest()
+    {
+        Assert.That(IsobaricReporters.DepositKit(new[] { "TMT10", "TMT11", "TMT10" }), Is.EqualTo("TMT11"));
+        Assert.That(IsobaricReporters.DepositKit(new[] { "TMT6-plex", "TMT10" }), Is.EqualTo("TMT10"));
+        Assert.That(IsobaricReporters.DepositKit(new[] { "TMT18", "TMT18" }), Is.EqualTo("TMT18"));
+        Assert.That(IsobaricReporters.DepositKit(new[] { "TMT11", "TMT18" }), Is.Null, "TMTpro is another reagent");
+        Assert.That(IsobaricReporters.DepositKit(new[] { "iTRAQ-4plex", "iTRAQ-8plex" }), Is.Null, "so are the two iTRAQ kits");
+        Assert.That(IsobaricReporters.DepositKit(new[] { "TMT10", null }), Is.Null);
+        Assert.That(IsobaricReporters.DepositKit(new string?[] { null }), Is.Null);
+        Assert.That(IsobaricReporters.DepositKit(Array.Empty<string?>()), Is.Null);
+    }
+
     // v0.4.34 (PLAN_tmt-dda-2 stage 4): SPS-MS3, as PXD034564: MS2 in the ion trap (CID) carries no reporters, MS3 in the
     // Orbitrap carries them. Under an isobaric profile the low-res MS2 gate is waived and the kit is read from MS3.
     [Test]

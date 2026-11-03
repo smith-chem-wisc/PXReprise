@@ -1282,8 +1282,8 @@ public sealed class BatchRunner
     /// </summary>
     private void LogIsobaricDesign(string acc, JsonObject probeQc, IReadOnlyList<string> selection)
     {
-        var kits = probeQc.Select(kv => kv.Value?["isobaric_kit"]?.GetValue<string>()).Distinct().ToList();
-        if (kits.Count != 1 || kits[0] is not { } kit) return;   // the search refuses it, with its own reason
+        if (Qc.IsobaricReporters.DepositKit(probeQc.Select(kv => kv.Value?["isobaric_kit"]?.GetValue<string>())) is not { } kit)
+            return;   // the search refuses it, with its own reason
         string? curated = _q.Designs?.For(acc);
         var columns = _q.Designs is { ConditionColumns.Count: > 0 } ds ? ds.ConditionColumns : null;
         if (Search.DesignStage.FindIsobaric(Path.Combine(Run(acc), "02_fetch", "metadata"), selection, curated, columns, kit, out var rec) is not null)

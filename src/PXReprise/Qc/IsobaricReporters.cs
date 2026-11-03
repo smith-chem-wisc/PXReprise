@@ -123,6 +123,36 @@ public static class IsobaricReporters
         return null;
     }
 
+    /// <summary>TMT6, TMT10 and TMT11 are one reagent (229.163 Da), smallest first: each kit's channels contain the one before's.</summary>
+    private static readonly string[] OneReagentTmt = { "TMT6-plex", "TMT10", "TMT11" };
+
+    /// <summary>
+    /// v0.4.37: the one kit a deposit is searched with, from the kit QC read in each of its files. A channel weak in one
+    /// file is not seen there, so files of one TMT10/TMT11 experiment can read different kits (PXD051031: TMT10 and TMT11;
+    /// v0.4.35 refused the search). Kits of one reagent give the largest of them, which holds every file's channels. Any
+    /// other mix, or a file with no kit, gives null: the search refuses it.
+    /// </summary>
+    public static string? DepositKit(IEnumerable<string?> fileKits)
+    {
+        var kits = fileKits.Distinct(StringComparer.Ordinal).ToList();
+        if (kits.Count == 1) return kits[0];
+        if (kits.Count == 0 || kits.Any(k => k is null || Array.IndexOf(OneReagentTmt, k) < 0)) return null;
+        return kits.MaxBy(k => Array.IndexOf(OneReagentTmt, k));
+    }
+
+    /// <summary>
+    /// v0.4.37 (dataRepo 076/078): the manifest's <c>labelling</c> and <c>labelling_plex</c> for a kit's modification id
+    /// (<see cref="ModificationId"/>): the family and the number of channels its <c>TmtDesign.txt</c> names. TMT18 is 18
+    /// (a TMTpro 16 deposit is searched under TMT18's label). Null for an id no kit has.
+    /// </summary>
+    public static (string Labelling, int Plex)? Labelling(string modificationId)
+    {
+        foreach (var kit in FamilyKits.Values.SelectMany(k => k).Reverse())
+            if (ModificationId(kit) == modificationId)
+                return (Family(modificationId), IsobaricMassTag.GetReporterIonLabels(kit).Count);
+        return null;
+    }
+
     private static readonly IReadOnlyDictionary<string, string> Tmt6Alias = new Dictionary<string, string>
     {
         ["127"] = "127N", ["128"] = "128C", ["129"] = "129N", ["130"] = "130C", ["131"] = "131N",
