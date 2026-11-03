@@ -190,8 +190,8 @@ public static partial class SchemaDocs
             new ColumnDoc("nonspecific_termini", "Termini not matching the protease (L3 truncation).", "integer", Enum: null, Identifier: false, Multivalued: false, Unit: null),
             new ColumnDoc("start_residue", "First residue of the peptide in the protein (1-based).", "integer", Enum: null, Identifier: false, Multivalued: false, Unit: null),
             new ColumnDoc("end_residue", "Last residue of the peptide in the protein (1-based).", "integer", Enum: null, Identifier: false, Multivalued: false, Unit: null),
-            new ColumnDoc("matched_ion_series", "Producer's annotated fragment list, verbatim (F7; full evidence is R14).", "string", Enum: null, Identifier: false, Multivalued: false, Unit: null),
-            new ColumnDoc("matched_ion_count", "Number of matched fragment ions.", "integer", Enum: null, Identifier: false, Multivalued: false, Unit: null),
+            new ColumnDoc("matched_ion_series", "Reserved for the producer's annotated fragment list (F7; full evidence is R14). NOT FILLED: no ingest has ever written it, so it is null in every row of every bundle; null here never means that no fragment ion matched (PXReprise 082, PXR-R44).", "string", Enum: null, Identifier: false, Multivalued: false, Unit: null),
+            new ColumnDoc("matched_ion_count", "Reserved for the number of matched fragment ions. NOT FILLED: null in every row of every bundle, as `matched_ion_series` says; never read a null as zero matched ions.", "integer", Enum: null, Identifier: false, Multivalued: false, Unit: null),
         ]),
         ["peptidoforms"] = new TableDoc("Peptidoform", "One peptidoform in one dataset (best evidence across runs).",
         [

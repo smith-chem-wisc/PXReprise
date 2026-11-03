@@ -5,9 +5,9 @@ ingested, a catalog built, a public site written, and an agent able to ask it qu
 small example instance that ships in this repository (`tests/data/`), so you need no real data and
 no search run of your own.
 
-Every command and every line of output below was run on this example with datarepo 1.4.1. Long
+Every command and every line of output below was run on this example with datarepo 1.4.2. Long
 paths are shortened to `…`, and long lines are wrapped. On Windows the paths print with `\`. The ids
-are content hashes, so on 1.4.1 you should get the same ones; on another version they will differ (a
+are content hashes, so on 1.4.2 you should get the same ones; on another version they will differ (a
 later section says why).
 
 **Words used here.**
@@ -32,20 +32,20 @@ Work in a new, empty folder. First fetch the repository at the release's tag. It
 those two names are the same folder:
 
 ```bash
-git clone --depth 1 --branch v1.4.1 https://github.com/smith-chem-wisc/dataRepo.git dataRepo-src
+git clone --depth 1 --branch v1.4.2 https://github.com/smith-chem-wisc/dataRepo.git dataRepo-src
 ```
 
 Then download the program for your machine from the
-[v1.4.1 release](https://github.com/smith-chem-wisc/dataRepo/releases/tag/v1.4.1), unpack it, and
+[v1.4.2 release](https://github.com/smith-chem-wisc/dataRepo/releases/tag/v1.4.2), unpack it, and
 put its folder on your `PATH` for this session:
 
 | Machine | Commands |
 |---|---|
-| Linux x64 | `curl -LO https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.4.1/datarepo-1.4.1-linux-x64.tar.gz`<br>`tar -xzf datarepo-1.4.1-linux-x64.tar.gz`<br>`export PATH="$PWD/datarepo:$PATH"` |
-| macOS, Apple silicon | as Linux, with `datarepo-1.4.1-osx-arm64.tar.gz` |
-| macOS, Intel | as Linux, with `datarepo-1.4.1-osx-x64.tar.gz` |
-| Windows, PowerShell | `Invoke-WebRequest https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.4.1/datarepo-1.4.1-win-x64.zip -OutFile datarepo-1.4.1-win-x64.zip`<br>`Expand-Archive datarepo-1.4.1-win-x64.zip -DestinationPath .`<br>`$env:Path = "$PWD\datarepo;" + $env:Path` |
-| Windows, Git Bash | `curl -LO` the `win-x64.zip` as above, `unzip datarepo-1.4.1-win-x64.zip`, then `export PATH="$PWD/datarepo:$PATH"` |
+| Linux x64 | `curl -LO https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.4.2/datarepo-1.4.2-linux-x64.tar.gz`<br>`tar -xzf datarepo-1.4.2-linux-x64.tar.gz`<br>`export PATH="$PWD/datarepo:$PATH"` |
+| macOS, Apple silicon | as Linux, with `datarepo-1.4.2-osx-arm64.tar.gz` |
+| macOS, Intel | as Linux, with `datarepo-1.4.2-osx-x64.tar.gz` |
+| Windows, PowerShell | `Invoke-WebRequest https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.4.2/datarepo-1.4.2-win-x64.zip -OutFile datarepo-1.4.2-win-x64.zip`<br>`Expand-Archive datarepo-1.4.2-win-x64.zip -DestinationPath .`<br>`$env:Path = "$PWD\datarepo;" + $env:Path` |
+| Windows, Git Bash | `curl -LO` the `win-x64.zip` as above, `unzip datarepo-1.4.2-win-x64.zip`, then `export PATH="$PWD/datarepo:$PATH"` |
 
 Unpack a `.tar.gz` with `tar`, which keeps the program's executable bit. On macOS, an archive
 downloaded with a browser is quarantined and the program is refused as unverified; `curl` does not
@@ -60,7 +60,7 @@ datarepo doctor
 ```
 
 ```
-datarepo 1.4.1  schema 0.0.16
+datarepo 1.4.2  schema 0.0.16
   runtime          .NET 10.0.10
   mzLib            1.0.595.0
   parquet          ParquetSharp 24.0.0.0
@@ -70,7 +70,7 @@ datarepo 1.4.1  schema 0.0.16
 ready
 ```
 
-Check that the first line says `datarepo 1.4.1`. If it names another version, another `datarepo`
+Check that the first line says `datarepo 1.4.2`. If it names another version, another `datarepo`
 (an older install, such as the Python package) is earlier on your `PATH` and answering instead, and
 every id below will differ; repeat the `PATH` step, or call the program by its path.
 
@@ -173,7 +173,7 @@ datarepo publish manifest.yaml --site site --title "Example repository" --purpos
 
 ```
 catalog  …/example-instance/catalog.duckdb
-  id       6ec9594bcd5c04ce
+  id       17a70f4c8baf3c04
   dataset  PXD999999    bundle 004f8de1881cec43
   note     logs.resolve_genes coverage (databases with an artefact): 0 of 1; no artefact for 89fb8c7a1140 (PXD999999)
   note     go.annotate_groups coverage (bundles with an artefact): 0 of 1; no artefact for PXD999999 (004f8de1881cec43)
@@ -184,7 +184,7 @@ catalog  …/example-instance/catalog.duckdb
   checks   60 run, all passed
   timing   tables 0.2 s, derived: sample names 0.0 s, …
 site     site
-  catalog  6ec9594bcd5c04ce
+  catalog  17a70f4c8baf3c04
   wrote    36 files, 1 dataset page
   skipped  croissant.json: no --data-url: a Croissant file describes downloadable files, …
   skipped  robots.txt: no --base-url: both need the site's absolute address
@@ -267,8 +267,8 @@ datarepo mcp --catalog catalog.duckdb --check
 
 ```
 catalog  catalog.duckdb
-  id       6ec9594bcd5c04ce
-  built    … by datarepo 1.4.1
+  id       17a70f4c8baf3c04
+  built    … by datarepo 1.4.2
   dataset  PXD999999           58 PSMs at 1%
   tools    datarepo_describe, datarepo_search, datarepo_sql
   empty    31 table(s) present with no rows

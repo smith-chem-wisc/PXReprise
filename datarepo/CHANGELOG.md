@@ -4,24 +4,31 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
-## [Unreleased] (1.4.2)
+## [1.4.2] - 2026-11-03
 
 **Only isobaric bundles move.** The ingest path stays `cs-1.2.0`, the schema 0.0.16 and the catalog format 15. The
-isobaric reader goes to version 2, which is declared into isobaric bundles alone, so every label-free bundle keeps its
+isobaric reader goes to version 3, which is declared into isobaric bundles alone, so every label-free bundle keeps its
 id (measured: the tutorial's `004f8de1881cec43`, PXD017944's `3cd52dd1b39472d8`). From QuantProject 071 (their answers
-to DATAREPO-D12 and D13).
+to DATAREPO-D12 and D13) and 073 (v3.22's correction). Version 2 was pushed on this branch and never released.
 
 ### Changed (ingest, isobaric only)
-- **`DEF-TMT-PEP` and `DEF-TMT-PROT` are copied at QuantProject's v3.19** (DATA-DEFINITIONS.md at `b2e37b0`): v3.10's
+- **`DEF-TMT-PEP` and `DEF-TMT-PROT` are copied at QuantProject's v3.22** (DATA-DEFINITIONS.md at `9478315`): v3.10's
   text, with v3.19's "which spectral matches enter" (the TMT-only rule of MetaMorpheus #2940; #1463's one peptide per
-  sequence, settled) and v3.14's `DEF-TMT-*` amendment (#1463, #2929, #1504, and reading a multiplex
-  `AllPeptides.psmtsv`).
+  sequence, settled) and v3.14's `DEF-TMT-*` amendment (#1463, #2929, #1504), whose last bullet is replaced by v3.22's:
+  only the combined `AllPeptides.psmtsv` is PSM-level; each per-file `_Peptides.psmtsv` is peptide-level, per file.
 - **New finding `isobaric_peptide_q_psm_level`** on a multiplex search by MetaMorpheus up to 1.1.13 (or of unknown
-  release). Such a search writes `AllPeptides.psmtsv` with each peptide's best PSM's PSM-level q-values (MetaMorpheus
-  #2941, open), so `peptidoforms.best_q_value` and `best_q_value_notch` are PSM-level there and `peptidoforms_1pct` is
-  a PSM-level filter. The values are stored as written; the two columns' descriptions say so.
-- On PXReprise's trial of PXD034564 the bundle moves from `6953203f8f2e506a` to `55d39d1895e98784`. Every table is
-  equal but `definitions` (the two texts) and `findings` (the new one).
+  release). Such a search writes its combined `AllPeptides.psmtsv` with each peptide's best PSM's PSM-level q-values
+  (MetaMorpheus #2941, open), so `peptidoforms.best_q_value` and `best_q_value_notch` are PSM-level there and
+  `peptidoforms_1pct` is a PSM-level filter. The values are stored as written; the two columns' descriptions say so.
+- Measured on the three isobaric deposits aging serves (re-ingested into a scratch store from aging's search folders):
+  PXD034564 `b0cab7e13c179b64` -> `ff841cc55ccccb31`, PXD043296 `85d48996d238fe25` -> `eb5e98c7e6ccd75c`, PXD051031
+  `8804bb3780600f01` -> `fccf50e5513f38f7`. Only the `isobaric_reader` declaration differs among the sources, and every
+  table is equal but `definitions` (the two texts) and `findings` (the new one).
+
+### Fixed (schema descriptions; no row moves)
+- **`psms.matched_ion_series` and `matched_ion_count` say they are not filled.** Their descriptions claimed the
+  producer's fragment list, verbatim, and every bundle has them null (630,113,342 PSMs in aging's 513 bundles; PXReprise
+  082, PXR-R44). Storing fragment ions is planned separately.
 
 ### Changed (build)
 - **The isobaric peptide count check is explained by MetaMorpheus #2941** (QuantProject 071, DATAREPO-D12). For an

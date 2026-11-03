@@ -208,10 +208,14 @@ public class IsobaricIngestTests
             Assert.That(Isobaric.PeptideQIsPsmLevel(null), Is.True, "an unknown release is not assumed to carry the fix");
             Assert.That(Isobaric.PeptideQIsPsmLevel("1.1.14"), Is.False);
             Assert.That(Isobaric.PeptideQIsPsmLevel("1.2.0"), Is.False);
-            // QuantProject's text as v3.19 amends it, with v3.14's DEF-TMT amendment, from DATA-DEFINITIONS.md at b2e37b0.
-            Assert.That((string)definitions[Definitions.TmtPeptide.DefinitionId]["version"]!, Is.EqualTo("v3.19"));
+            // QuantProject's text as v3.19 and v3.22 amend it, with v3.14's DEF-TMT amendment, from DATA-DEFINITIONS.md at
+            // 9478315. v3.22 retracts v3.14's per-file claim (QuantProject 073): only the combined file is PSM-level.
+            Assert.That((string)definitions[Definitions.TmtPeptide.DefinitionId]["version"]!, Is.EqualTo("v3.22"));
             Assert.That((string)definitions[Definitions.TmtProtein.DefinitionId]["text"]!,
-                Does.Contain("MetaMorpheus #2940").And.Contain("#2941").And.Contain("at b2e37b0"));
+                Does.Contain("MetaMorpheus #2940").And.Contain("#2941").And.Contain("at 9478315")
+                    .And.Contain("Each per-file `_Peptides.psmtsv` is peptide-level")
+                    .And.Not.Contain("and each per-file `_Peptides.psmtsv`, with the best PSM's PSM-level FDR columns"));
+            Assert.That((string)finding["message"]!, Does.Not.Contain("No file of this search gives a peptide-level q-value"));
         });
     }
 

@@ -508,8 +508,8 @@ classes:
       nonspecific_termini: {range: integer, minimum_value: 0, maximum_value: 2, description: "Termini not matching the protease (L3 truncation)."}
       start_residue: {range: integer, description: "First residue of the peptide in the protein (1-based)."}
       end_residue: {range: integer, description: "Last residue of the peptide in the protein (1-based)."}
-      matched_ion_series: {description: "Producer's annotated fragment list, verbatim (F7; full evidence is R14)."}
-      matched_ion_count: {range: integer, description: "Number of matched fragment ions."}
+      matched_ion_series: {description: "Reserved for the producer's annotated fragment list (F7; full evidence is R14). NOT FILLED: no ingest has ever written it, so it is null in every row of every bundle; null here never means that no fragment ion matched (PXReprise 082, PXR-R44)."}
+      matched_ion_count: {range: integer, description: "Reserved for the number of matched fragment ions. NOT FILLED: null in every row of every bundle, as `matched_ion_series` says; never read a null as zero matched ions."}
 
   Peptidoform:
     description: One peptidoform in one dataset (best evidence across runs).

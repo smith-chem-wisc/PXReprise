@@ -43,10 +43,10 @@ installed, and no .NET or Python is needed.
 | macOS, Intel | `datarepo-<version>-osx-x64.tar.gz` |
 
 ```bash
-mkdir -p /opt/datarepo-1.4.1 && cd /opt/datarepo-1.4.1
-curl -LO https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.4.1/datarepo-1.4.1-linux-x64.tar.gz
-tar -xzf datarepo-1.4.1-linux-x64.tar.gz          # tar keeps the executable bit; a zip would lose it
-/opt/datarepo-1.4.1/datarepo/datarepo doctor
+mkdir -p /opt/datarepo-1.4.2 && cd /opt/datarepo-1.4.2
+curl -LO https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.4.2/datarepo-1.4.2-linux-x64.tar.gz
+tar -xzf datarepo-1.4.2-linux-x64.tar.gz          # tar keeps the executable bit; a zip would lose it
+/opt/datarepo-1.4.2/datarepo/datarepo doctor
 ```
 
 Call the program by its path, put its folder on `PATH`, or point a tool at it (PXReprise's machine
@@ -79,7 +79,9 @@ names it. A Python install is no longer needed for anything.
 1.4.0 moves the ingest path to `cs-1.2.0` and the schema to 0.0.16, so every bundle is re-ingested once, and a catalog
 that mixes 0.0.15 and 0.0.16 bundles is refused. 1.4.1 keeps both: re-ingest only the bundles written from a search
 folder that was moved after it ran (they lacked their task files; see the CHANGELOG), and ingest TMT and iTRAQ searches,
-which 1.4.0 read as label-free. Rebuild once; the first folder publish recomputes every deposit's derived rows.
+which 1.4.0 read as label-free. Rebuild once; the first folder publish recomputes every deposit's derived rows. 1.4.2
+keeps both too and moves only isobaric bundles (QuantProject's `DEF-TMT-*` at v3.22 and one new finding): re-ingest
+each TMT or iTRAQ bundle once; label-free bundles keep their ids.
 
 ### Building from source
 

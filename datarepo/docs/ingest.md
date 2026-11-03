@@ -30,7 +30,7 @@ datarepo doctor                # what this build is, and whether an MCP server i
 `doctor` is the first thing to run on a new machine:
 
 ```
-datarepo 1.4.1  schema 0.0.16
+datarepo 1.4.2  schema 0.0.16
   runtime          .NET 10.0.10
   mzLib            1.0.595.0
   parquet          ParquetSharp 24.0.0.0
@@ -272,12 +272,13 @@ tables, one column per file and channel. When the search wrote them:
   `AllProteinGroups.tsv`'s own per-channel `Intensity_` columns are the same numbers and are not read again.
 - **`PeptideQuantification.tsv` is filtered at PSM level, not peptide level** (QuantProject 068): its rows are the full
   sequences of 1% PSMs, so some are peptides above 1% at peptide level.
-- **Up to MetaMorpheus 1.1.13, the search's `AllPeptides.psmtsv` carries PSM-level q-values** (MetaMorpheus #2941,
-  QuantProject 071): each peptide's best PSM's, not a peptide-level one. So `peptidoforms.best_q_value` and
-  `best_q_value_notch` are PSM-level here, `peptidoforms_1pct` is a PSM-level filter (on PXD034564 it passes 44,037
-  against `results.txt`'s 43,114), and the `isobaric_peptide_q_psm_level` finding says so. No file of such a search
-  gives a peptide-level q-value per peptide; `results.txt`'s count is the peptide-level one. The build marks that
-  count check `explained` by #2941, with no bound.
+- **Up to MetaMorpheus 1.1.13, the search's combined `AllPeptides.psmtsv` carries PSM-level q-values** (MetaMorpheus
+  #2941; QuantProject 071, corrected by their v3.22): each peptide's best PSM's, not a peptide-level one. So
+  `peptidoforms.best_q_value` and `best_q_value_notch` are PSM-level here, `peptidoforms_1pct` is a PSM-level filter
+  (on PXD034564 it passes 44,037 against `results.txt`'s 43,114), and the `isobaric_peptide_q_psm_level` finding says
+  so. The per-file `_Peptides.psmtsv` tables are peptide-level, but per file, and the ingest does not read them. No
+  file written before #2941 gives a search-wide peptide-level q-value per peptide; `results.txt`'s count is the
+  peptide-level one. The build marks that count check `explained` by #2941, with no bound.
 - **`RawQuantification.tsv` is copied verbatim** into `sources/` and gives no rows (QuantProject 068, DATAREPO-D9).
 - **Occupancy is not read** (`occupancy_not_ingested`): MetaMorpheus's TMT count cell is per file, repeated on every
   channel.

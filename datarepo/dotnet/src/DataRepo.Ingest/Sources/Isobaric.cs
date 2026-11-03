@@ -31,9 +31,10 @@ public static class Isobaric
     public const string RawFileName = "RawQuantification.tsv";
 
     /// <summary>The isobaric reader's version, declared into every isobaric bundle's id and no other bundle's. Bump it in
-    /// the same commit as any change to what this reader reads or writes. "2" (1.4.2): <c>DEF-TMT-*</c> at QuantProject's
-    /// v3.19, and the <c>isobaric_peptide_q_psm_level</c> finding.</summary>
-    public const string ReaderVersion = "2";
+    /// the same commit as any change to what this reader reads or writes. "2" (feat/1.4.2 at <c>c834cce</c>, pushed, never
+    /// released): <c>DEF-TMT-*</c> at QuantProject's v3.19, and the <c>isobaric_peptide_q_psm_level</c> finding. "3"
+    /// (1.4.2): the same at v3.22, which retracts v3.14's per-file claim (QuantProject 073), in the texts and the finding.</summary>
+    public const string ReaderVersion = "3";
 
     /// <summary>The last MetaMorpheus release known to write a multiplex search's <c>AllPeptides.psmtsv</c> with each
     /// peptide's best PSM's PSM-level q-values instead of peptide-level ones (MetaMorpheus #2941, QuantProject 071).</summary>

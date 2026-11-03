@@ -663,10 +663,12 @@ public static class Ingester
         if (isobaric is not null && Isobaric.PeptideQIsPsmLevel(engineVersion))
             findings.Add(Finding(datasetId, "isobaric_peptide_q_psm_level", "warning",
                 $"This multiplex search (MetaMorpheus {(string.IsNullOrEmpty(engineVersion) ? "of unknown release" : engineVersion)}) "
-                + "wrote AllPeptides.psmtsv with each peptide's best PSM's PSM-level q-values, not peptide-level ones "
-                + "(MetaMorpheus #2941, QuantProject 071). So `peptidoforms.best_q_value` and `best_q_value_notch` are PSM-level "
-                + "here, stored as written, and `peptidoforms_1pct` is a PSM-level filter: it passes more peptidoforms than "
-                + "results.txt's peptide-level count. No file of this search gives a peptide-level q-value per peptide. "
+                + "wrote its combined AllPeptides.psmtsv with each peptide's best PSM's PSM-level q-values, not peptide-level ones "
+                + "(MetaMorpheus #2941; QuantProject 071, corrected by v3.22). So `peptidoforms.best_q_value` and "
+                + "`best_q_value_notch` are PSM-level here, stored as written, and `peptidoforms_1pct` is a PSM-level filter: it "
+                + "passes more peptidoforms than results.txt's peptide-level count. The search's per-file _Peptides.psmtsv "
+                + "tables carry each file's own peptide-level q-values, which this bundle does not read; no file of this search "
+                + "gives a search-wide peptide-level q-value per peptide. "
                 + "`PeptideQuantification.tsv`'s values (DEF-TMT-PEP) are unaffected."));
         var pipeline = Map(Get(searchProvenance, "pipeline"));
         var quantMethod = DatasetEntry.Text(entry.QuantMethod);

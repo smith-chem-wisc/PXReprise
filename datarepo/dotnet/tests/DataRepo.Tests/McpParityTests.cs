@@ -292,6 +292,16 @@ public class McpParityTests
         // descriptions. Only the appended sentences are removed, so the text both answers share is still compared.
         (new Regex(@" For a multiplex \(TMT, iTRAQ\) search by MetaMorpheus up to 1\.1\.13 it is the best PSM's PSM-level q-value(?:[^""\\]|\\.)*?finding says so\.", RegexOptions.CultureInvariant), ""),
         (new Regex(@" PSM-level for a multiplex search by MetaMorpheus up to 1\.1\.13, as `best_q_value` says\.", RegexOptions.CultureInvariant), ""),
+        // 1.4.2 (PXReprise 082, PXR-R44) rewrites psms' two matched-ion descriptions: the columns were never filled, and
+        // the old text claimed a verbatim fragment list. Each exact text, old and new, masks to one placeholder per column;
+        // nothing around them is consumed, so the rest of each line (the NULL notice) is still compared.
+        .. new[]
+        {
+            ("matched_ion_series", "Producer's annotated fragment list, verbatim (F7; full evidence is R14)."),
+            ("matched_ion_series", "Reserved for the producer's annotated fragment list (F7; full evidence is R14). NOT FILLED: no ingest has ever written it, so it is null in every row of every bundle; null here never means that no fragment ion matched (PXReprise 082, PXR-R44)."),
+            ("matched_ion_count", "Number of matched fragment ions."),
+            ("matched_ion_count", "Reserved for the number of matched fragment ions. NOT FILLED: null in every row of every bundle, as `matched_ion_series` says; never read a null as zero matched ions."),
+        }.Select(d => (new Regex(Regex.Escape(d.Item2), RegexOptions.CultureInvariant), $"<{d.Item1}: rewritten for PXR-R44>")),
     ];
 
     public static string Normalise(string text, string catalogPath)
