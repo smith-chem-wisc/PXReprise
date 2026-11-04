@@ -77,7 +77,9 @@ public sealed record FetchRequest(string Accession, string OutDir, Pick Pick, in
     TimeSpan StallAfter = default, FileSelection? Select = null,
     [property: System.Text.Json.Serialization.JsonIgnore] Func<string, CancellationToken, Task<IReadOnlyDictionary<string, string>>>? Sha1Source = null,
     AsperaClient? Aspera = null, PrideHttps Https = PrideHttps.Globus,
-    [property: System.Text.Json.Serialization.JsonIgnore] DiskFloor? Floor = null);
+    [property: System.Text.Json.Serialization.JsonIgnore] DiskFloor? Floor = null,
+    IReadOnlyDictionary<string, PXReprise.Config.FileReplacement>? Replace = null,
+    [property: System.Text.Json.Serialization.JsonIgnore] Func<string, CancellationToken, Task<IReadOnlyDictionary<string, string>>>? PrideSha1Source = null);
 
 /// <summary>Which raw files of a deposit a question searches, and why (<c>[exceptions]</c>, PXReprise D28).</summary>
 public sealed record FileSelection([property: System.Text.Json.Serialization.JsonIgnore] Func<string, bool> Keeps, string Reason);
@@ -150,6 +152,42 @@ public static class FetchStage
     }
 
     /// <summary>What a file still adds to the disk: all of it, less a copy already there (that one is checked, not fetched again).</summary>
+    /// <summary>
+    /// v0.4.39 (aging 197, PXR-A158): puts a question's replacement in place of a raw file, instead of downloading it.
+    /// PRIDE must still list the SHA-1 the replacement was made for: if it lists another (PRIDE replaced the file) or none,
+    /// the repair is not known to stand for what PRIDE serves, and the fetch stops (InvalidDataException settles the
+    /// deposit; a person decides). The copy must have the question's SHA-256. A file already in place with that SHA-256 is
+    /// kept, so a later pass never copies it again or, worse, downloads PRIDE's damaged file over it.
+    /// </summary>
+    internal static (string Path, double Seconds, int Attempts) PlaceReplacement(PrideArchiveFile f, PXReprise.Config.FileReplacement rep,
+        string spectraDir, string? prideSha1, Action<string>? log)
+    {
+        var sw = Stopwatch.StartNew();
+        if (prideSha1 is null)
+            throw new InvalidDataException($"{f.FileName}: PRIDE lists no SHA-1 for it, so the question's replacement (made for SHA-1 {rep.PrideSha1}) cannot be matched to the file PRIDE serves");
+        if (!string.Equals(prideSha1, rep.PrideSha1, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException($"{f.FileName}: PRIDE now lists SHA-1 {prideSha1}, and the question's replacement was made for {rep.PrideSha1}: PRIDE's file has changed, so check the replacement again");
+        string dst = Path.Combine(spectraDir, f.FileName);
+        if (File.Exists(dst) && Sha(dst) == rep.Sha256)
+        {
+            log?.Invoke($"{f.FileName}: the question's replacement is already in place (SHA-256 {rep.Sha256[..12]})");
+            return (dst, Math.Round(sw.Elapsed.TotalSeconds, 1), 1);
+        }
+        if (!File.Exists(rep.Path))
+            throw new InvalidDataException($"{f.FileName}: the question's replacement {rep.Path} does not exist");
+        string tmp = dst + ".replacing";
+        File.Copy(rep.Path, tmp, overwrite: true);
+        string got = Sha(tmp);
+        if (got != rep.Sha256)
+        {
+            File.Delete(tmp);
+            throw new InvalidDataException($"{f.FileName}: the question's replacement {rep.Path} has SHA-256 {got}, and the question names {rep.Sha256}");
+        }
+        File.Move(tmp, dst, overwrite: true);
+        log?.Invoke($"{f.FileName} replaced by the question's copy {rep.Path} (SHA-256 {rep.Sha256[..12]}): {rep.Note}");
+        return (dst, Math.Round(sw.Elapsed.TotalSeconds, 1), 1);
+    }
+
     internal static long StillToFetch(PrideArchiveFile f, string spectraDir)
     {
         string p = Path.Combine(spectraDir, f.FileName);
@@ -221,6 +259,11 @@ public static class FetchStage
         // response written into the data (Integrity); a file that fails is deleted and fetched again.
         var sha1 = r.Sha1Source is null ? new Dictionary<string, string>() : await r.Sha1Source(r.Accession, ct).ConfigureAwait(false);
         prov.Set("pride_sha1_known", (JsonNode)chosen.Count(f => sha1.ContainsKey(f.FileName)));
+        // v0.4.39 (aging PXR-A158): a file the question replaces is not downloaded. PRIDE's own SHA-1 for it is read first
+        // (an outage throws and the deposit waits for a later pass), so the replacement is known to stand for PRIDE's file.
+        var replace = chosen.Where(f => r.Replace?.ContainsKey(f.FileName) == true).ToDictionary(f => f.FileName, f => r.Replace![f.FileName], StringComparer.Ordinal);
+        var prideSha1 = replace.Count == 0 ? new Dictionary<string, string>()
+            : await (r.PrideSha1Source ?? Integrity.PrideSha1sAsync)(r.Accession, ct).ConfigureAwait(false);
         using (var gate = new SemaphoreSlim(Math.Max(1, r.ParallelDownloads)))
         {
             await Task.WhenAll(chosen.Select(async (f, i) =>
@@ -229,6 +272,12 @@ public static class FetchStage
                 try
                 {
                     r.Floor?.Check(StillToFetch(f, spectraDir), f.FileName);
+                    if (replace.TryGetValue(f.FileName, out var rep))
+                    {
+                        results[i] = PlaceReplacement(f, rep, spectraDir, prideSha1.GetValueOrDefault(f.FileName), log);
+                        log?.Invoke($"{Interlocked.Increment(ref done)} of {chosen.Count} done: {f.FileName} is the question's replacement (not downloaded)");
+                        return;
+                    }
                     results[i] = await DownloadWithRetry(pride, f, spectraDir, r.MaxAttempts, r.Backoff, ct, r.StallAfter, log,
                         expectedChecksum: sha1.GetValueOrDefault(f.FileName), verify: true, aspera: r.Aspera, https: r.Https).ConfigureAwait(false);
                     var (_, s, a) = results[i];
@@ -267,7 +316,20 @@ public static class FetchStage
                 ["local_size_bytes"] = new FileInfo(results[i].Path).Length,
                 ["pride_checksum"] = string.IsNullOrEmpty(f.Checksum) ? null : f.Checksum,
                 ["sha256"] = Sha(results[i].Path), ["category"] = f.FileCategory?.Value ?? f.FileCategory?.Name,
+                ["replaced"] = replace.TryGetValue(f.FileName, out var rp) ? new JsonObject
+                {
+                    ["source"] = rp.Path, ["pride_sha1"] = rp.PrideSha1, ["sha256"] = rp.Sha256, ["note"] = rp.Note,
+                } : null,
             });
+        }
+        if (replace.Count > 0)
+        {
+            prov.Set("replaced_files", new JsonArray(replace.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => (JsonNode?)new JsonObject
+            {
+                ["name"] = kv.Key, ["source"] = kv.Value.Path, ["pride_sha1"] = kv.Value.PrideSha1, ["sha256"] = kv.Value.Sha256, ["note"] = kv.Value.Note,
+            }).ToArray()));
+            flags.Add($"replaced_by_question: {replace.Count} of {chosen.Count} raw files are the question's replacements, not PRIDE's bytes ("
+                      + string.Join(", ", replace.Keys.Order(StringComparer.Ordinal)) + ")");
         }
         var manifest = new JsonObject
         {

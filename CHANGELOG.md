@@ -11,6 +11,21 @@ A new version of the engine never changes a finished result. Methods live in ver
 
 **MetaMorpheus** unchanged (1.1.13). **Machine file:** unchanged. **Safe mid-batch?** Yes: swap the pin as usual.
 
+- **A question can replace a deposit's raw file with a local copy** (`[exceptions.PXD...replace_files."<file>"]`:
+  `path`, `pride_sha1`, `sha256`, `note`). This is for a file damaged at the source and repaired by hand, such as
+  PXD025315's six files with one range written twice.
+  - The file is never downloaded.
+  - PRIDE must still list the SHA-1 the copy was made for. If PRIDE has changed the file or lists none, the fetch
+    stops for a person.
+  - The copy must have the SHA-256 the question gives.
+  - A later pass keeps a replacement already in place.
+  - The fetch provenance (`replaced_files`, flag `replaced_by_question`) and the delivery's manifest note (`REPLACED RAW
+    FILES`) name each replaced file, with both checksums and the reason.
+- **An enriched deposit is not searched under an isobaric (TMT) profile.** It waits as `waiting_isobaric_enriched`.
+  No isobaric profile yet searches the enriched PTM class as a variable modification, so its phospho sites would reach
+  the catalog forced onto the database's annotated positions. The enriched classes are the library routing's: the
+  curated manifest enrichment over the screen's, plus the probe's measurement. A TMT phospho trial gave 39% more PSMs
+  with phospho searched as variable.
 - **A stop at the disk floor is announced.** When a deposit's download would take the disk below `min_free_gb`, the
   batch stops starting new deposits, as before, and now also writes a row to `decisions_needed.tsv` and a `DECISION
   NEEDED` line to batch.log. The choices: free space, lower the floor, or set the deposit aside. Unannounced, this stop

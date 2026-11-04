@@ -92,7 +92,8 @@ public sealed record DepositException(
     long? MaxEstimatedMs2 = null,
     int? DeferIfMedianFileMb = null,
     string? Alkylation = null,
-    string? Species = null)
+    string? Species = null,
+    IReadOnlyDictionary<string, FileReplacement>? ReplaceFiles = null)
 {
     public const string NoAlkylation = "none";
 
@@ -122,9 +123,20 @@ public sealed record DepositException(
         if (DeferIfMedianFileMb is { } dm) parts.Add($"defer_if_median_file_mb {dm}");
         if (Alkylation is { } alk) parts.Add($"alkylation {alk}");
         if (Species is { } sp) parts.Add($"species {sp}");
+        if (ReplaceFiles is { Count: > 0 } rf) parts.Add($"replace_files {rf.Count} ({string.Join(", ", rf.Keys.Order(StringComparer.Ordinal))})");
         return $"{string.Join(", ", parts)} ({Reason})";
     }
 }
+
+/// <summary>
+/// v0.4.39 (aging 197, PXR-A158; the user, 2026-11-04): a deposit raw file the question replaces with a local copy, such as a
+/// byte-level repair of a file damaged at PRIDE (PXD025315: six files with one range written twice). The fetch does not
+/// download the file: it checks that PRIDE still lists <paramref name="PrideSha1"/> for it (so the replacement is for the
+/// file PRIDE serves), copies <paramref name="Path"/> into the deposit, checks <paramref name="Sha256"/>, and records the
+/// replacement in the fetch's provenance and the delivery's manifest note: a reader can see which inputs are not PRIDE's
+/// bytes, and why (<paramref name="Note"/>).
+/// </summary>
+public sealed record FileReplacement(string Path, string PrideSha1, string Sha256, string Note);
 
 /// <summary>Where a question's batch keeps its run folders and its own state (queue, state.json, log, STOP).</summary>
 public sealed record BatchSettings(string RunRoot, string StateDir, string Queue);
