@@ -30,7 +30,8 @@ public sealed record TaskSettings(
     double? QuantifyPpmTol = null,                        // the Search task's FlashLFQ tolerance; null keeps the default
     IReadOnlyList<string>? GptmdFilters = null,           // v0.4.31: GPTMD's filters by class name; null keeps the default (none)
     string? MultiplexKit = null,                          // v0.4.34: an isobaric kit's modification id (IsobaricReporters.ModificationId)
-    string? DissociationType = null);                     // v0.4.34: every task's, when one call holds for every file (SearchStage)
+    string? DissociationType = null,                      // v0.4.34: every task's, when one call holds for every file (SearchStage)
+    IReadOnlyList<string>? GptmdDropMods = null);         // v0.4.38: "Type\tIdWithMotif" (a real TAB) removed from ListOfModsGptmd
 
 public static class TaskFiles
 {
@@ -67,6 +68,9 @@ public static class TaskFiles
         text = Replace(text, @"^MaxThreadsToUsePerFile = \d+$", $"MaxThreadsToUsePerFile = {s.MaxThreads}", "MaxThreadsToUsePerFile",
             exactlyOne: false);
 
+        // Drop before adding: a drop names the default list's own entries, and is refused if the list lacks one.
+        if (kind == TaskKind.Gptmd && s.GptmdDropMods is { Count: > 0 } drop)
+            text = DropGptmdMods(text, drop);
         if (kind == TaskKind.Gptmd && s.GptmdExtraMods.Count > 0)
             (text, added) = AddGptmdMods(text, s.GptmdExtraMods, knownMods);
         // MetaMorpheus writes the list as one TOML string of class names joined by an escaped tab ("A\tB").
@@ -181,6 +185,26 @@ public static class TaskFiles
         }
         string list = string.Join(@"\t\t", entries);
         return (text[..m.Groups[1].Index] + list + text[(m.Groups[1].Index + m.Groups[1].Length)..], added);
+    }
+
+    /// <summary>
+    /// Removes <c>category&lt;TAB&gt;name</c> entries from <c>ListOfModsGptmd</c> (v0.4.38). An entry the list does not
+    /// hold is refused, not skipped: a misspelt drop would otherwise leave the class searched while the profile says it
+    /// is not.
+    /// </summary>
+    public static string DropGptmdMods(string text, IReadOnlyList<string> drop)
+    {
+        var m = Regex.Match(text, "^ListOfModsGptmd = \"(.*)\"$", RegexOptions.Multiline);
+        if (!m.Success) throw new SearchSetupException("no ListOfModsGptmd line in the GPTMD task");
+        var entries = m.Groups[1].Value.Split(@"\t\t").Where(e => e.Length > 0).ToList();
+        foreach (string item in drop)
+        {
+            string entry = item.Replace("\t", @"\t");
+            if (entries.RemoveAll(e => e == entry) == 0)
+                throw new SearchSetupException($"GPTMD modification '{item.Replace('\t', '/')}' is not in the GPTMD task's list, so it cannot be dropped");
+        }
+        string list = string.Join(@"\t\t", entries);
+        return text[..m.Groups[1].Index] + list + text[(m.Groups[1].Index + m.Groups[1].Length)..];
     }
 
     /// <summary>

@@ -238,6 +238,35 @@ public static class ManifestEntry
     }
 
     /// <summary>The span of <paramref name="acc"/>'s entry: from its <c>- accession:</c> line to the next entry or the end.</summary>
+    /// <summary>
+    /// v0.4.38: the enrichment names an entry holds, curated or written: its <c>enrichment</c> list and the keys of its
+    /// <c>run_enrichment</c> map (PXD030939's <c>phospho</c> and <c>none</c>). Null when the manifest has no entry for
+    /// <paramref name="acc"/>. <paramref name="manifestLf"/> is <see cref="ReadLf"/>'s text.
+    /// </summary>
+    public static IReadOnlyList<string>? EnrichmentsOf(string manifestLf, string acc)
+    {
+        if (!System.Text.RegularExpressions.Regex.IsMatch(manifestLf, $@"(?m)^[ \t]*- accession: {acc}$")) return null;
+        var (start, end) = Block(manifestLf, acc);
+        string block = manifestLf[start..end];
+        var names = (Field(block, "enrichment") ?? "").Trim('[', ']')
+            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).ToList();
+        var lines = block.Split('\n');
+        int at = Array.FindIndex(lines, l => System.Text.RegularExpressions.Regex.IsMatch(l, @"^[ \t]+run_enrichment:[ \t]*$"));
+        if (at >= 0)
+        {
+            int indent = lines[at].Length - lines[at].TrimStart().Length;
+            for (int i = at + 1; i < lines.Length; i++)
+            {
+                string l = lines[i];
+                if (l.Trim().Length == 0) continue;
+                if (l.Length - l.TrimStart().Length <= indent) break;
+                var m = System.Text.RegularExpressions.Regex.Match(l, @"^[ \t]+([A-Za-z_][\w-]*):");
+                if (m.Success) names.Add(m.Groups[1].Value);
+            }
+        }
+        return names;
+    }
+
     internal static (int Start, int End) Block(string text, string acc)
     {
         var m = System.Text.RegularExpressions.Regex.Match(text, $@"(?m)^[ \t]*- accession: {acc}\r?$");

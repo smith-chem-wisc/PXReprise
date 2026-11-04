@@ -7,6 +7,45 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.38 (2026-11-04)
+
+**MetaMorpheus** unchanged (1.1.13). **Machine file:** unchanged. **Safe mid-batch?** Yes: swap the pin as usual.
+A question names `label-free-dda@13` only once this release runs its batch: an older engine refuses the profile.
+
+- **New profile `label-free-dda@13`: `@12` on regular databases, with two GPTMD list changes.**
+  - **Regular databases (agingPTM-v7).** UniProt's own PTM sites are kept only where a deposit not enriched for the
+    site's class identifies them: human 14,683 of 56,212, mouse 17,029 of 50,544, rat 4,987 of 27,325. UniProt's
+    annotations include sites found only by enrichment studies, and a database's PTMs should mimic the sample's.
+    Measured against entrapment on three deposits (results/regular-db-trial_2026-11-04): peptides -0.6% to +0.9%,
+    FDP equal or lower, 1-3% of the peptides on UniProt sites lost.
+  - **GPTMD offers Formylation on S and on T, and no longer Malonylation on K.** Formic acid formylates S and T. Without
+    S and T on offer the mass was placed as formyl on K, often at a trypsin cut (results/acyl-gptmd_2026-11-03).
+    Malonylation on K had 10% of its GPTMD sites on entrapment partners.
+  - Every other setting is `@12`'s. Deposits searched under `@12` are not re-searched.
+- **`tools/ptm-db/BuildPtmDb.cs --uniprot-sites regular`** writes such a database. Each UniProt site and its verdict
+  (the deposits that vouch for it) go to `uniprot_sites_<organism>.tsv`.
+- **A profile can take modifications out of GPTMD's list** (`engine.gptmd_drop_mods`, the mirror of
+  `gptmd_extra_mods`). MetaMorpheus's default list is every Common Biological, Common Artifact and Metal entry of its
+  Mods.txt, so until now a class the data refuse could not leave it. An entry the list does not hold is refused when the
+  task is written, never skipped. `label-free-dda@13` is the first to use it (Malonylation on K).
+- **An enriched deposit no longer adds its enriched-for PTM class to the organism's spectral library.** Such spectra
+  now go to a chain of that class's own (`mouse_phospho`, `mouse_acetylk`, `mouse_succinylk`, `mouse_gg`), and every
+  other spectrum registers as before.
+  - **Per class:** a ubiquitin enrichment's phospho stays in the regular library. A protein pulldown (affinity
+    purification, IP, proximity labelling) enriches no PTM class.
+  - **Already in the regular library:** where the regular library already holds a spectrum's name, the regular
+    library's own spectrum is kept, so an enriched run cannot replace it either.
+  - **How classes are judged:** by the modification's mass and residue. UniProt's and GPTMD's names for the same
+    chemistry count as one, and N-terminal acetylation is not acetyl-K.
+  - **Which classes a deposit enriches:** its manifest entry's own `enrichment` and `run_enrichment` keys (else the
+    screen's call), plus the probe's measurement. The rule is per deposit, because a library entry does not say
+    which run it came from.
+  - **Why:** these libraries are meant for label-free library-based DIA, where every library entry is a candidate.
+    71-79% of the regular libraries' phospho spectra had been seen only in phospho-enriched deposits
+    (results/enrichment-split_2026-11-04).
+  - **Not yet:** searches read the regular chain only, and the spectra already in the regular libraries stay until
+    they are cleaned.
+
 ## 0.4.37 (2026-11-03)
 
 **MetaMorpheus** unchanged (1.1.13). **Machine file:** unchanged. **Safe mid-batch?** Yes: swap the pin as usual.

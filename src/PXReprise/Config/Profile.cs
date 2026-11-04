@@ -101,7 +101,8 @@ public sealed record Profile(
     bool IonTrapHcdProbeLowCid = false,   // v0.4.29: as LowCID in the probe search only; the full search keeps HCD at the low-res tolerance
     IReadOnlyDictionary<string, string>? ChemistryArtifacts = null,   // v0.4.29 (ptmQtl PXR-P18/P19): a side reaction -> "Type\tIdWithMotif", added to GPTMD
     IReadOnlyList<string>? GptmdFilters = null,   // v0.4.31: MetaMorpheus's GPTMD filters by class name; null or empty keeps the task's own (none)
-    IReadOnlyList<MetaMorpheusSetting>? MetaMorpheusSettings = null)   // v0.4.33: [metamorpheus_settings.<scope>] Key = value
+    IReadOnlyList<MetaMorpheusSetting>? MetaMorpheusSettings = null,   // v0.4.33: [metamorpheus_settings.<scope>] Key = value
+    IReadOnlyList<string>? GptmdDropMods = null)   // v0.4.38: "Type\tIdWithMotif" entries removed from the GPTMD task's default list
 {
     /// <summary>The scopes of <c>[metamorpheus_settings]</c>: every task, or one task kind.</summary>
     public static readonly string[] MetaMorpheusSettingScopes = { "all", "calibration", "gptmd", "search" };

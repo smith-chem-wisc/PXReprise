@@ -129,6 +129,22 @@ public sealed class LibraryCleaning
         return verdicts;
     }
 
+    private readonly Dictionary<string, string?> _classOfName = new(StringComparer.Ordinal);
+
+    /// <summary>v0.4.38: the <see cref="LibraryRouting"/> classes a full sequence carries, resolving each modification
+    /// name as <see cref="Judge"/> does. A name that does not resolve is in no class.</summary>
+    public IReadOnlySet<string> ClassesOf(string fullSequence)
+    {
+        var set = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string name in LibraryRouting.ModificationNames(fullSequence))
+        {
+            if (!_classOfName.TryGetValue(name, out string? key))
+                _classOfName[name] = key = _mods.TryGetValue(name, out var mod) ? LibraryRouting.ClassOf(mod) : null;
+            if (key is not null) set.Add(key);
+        }
+        return set;
+    }
+
     /// <summary>The full sequence of a library "Name:" line ("Name: PEPT[Type:Id]IDE/2" gives "PEPT[Type:Id]IDE").</summary>
     public static string? FullSequenceOf(string nameLine)
     {

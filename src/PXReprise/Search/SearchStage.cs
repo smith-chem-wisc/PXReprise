@@ -24,7 +24,8 @@ public sealed record SearchRequest(
     string? CuratedDesign = null,
     IReadOnlyList<string>? DesignConditionColumns = null,
     Discovery.DepositChemistry? Chemistry = null,   // G19: required by a profile with [engine] chemistry = "deposit"
-    IReadOnlyDictionary<string, double>? ProbePrecursorOffsets = null);   // [engine] precursor_window = "probe": each probe run's offset, ppm
+    IReadOnlyDictionary<string, double>? ProbePrecursorOffsets = null,   // [engine] precursor_window = "probe": each probe run's offset, ppm
+    IReadOnlyList<string>? LibraryRouteClasses = null);   // v0.4.38: PTM classes the deposit enriches; their spectra go to class chains (LibraryRouting)
 
 public sealed record SearchOutcome(bool Success, int ExitCode, bool TimedOut, int? Psms1Pct, IReadOnlyList<string> Flags, string ProvenanceFile);
 
@@ -189,6 +190,7 @@ public static class SearchStage
         if (m.DepositLimits?.Describe() is { Length: > 0 } limits) search["deposit_limits"] = limits;
         if (p.GptmdExtraMods.Count > 0) search["gptmd_extra_mods"] = new JsonArray(p.GptmdExtraMods.Select(x => (JsonNode?)x).ToArray());
         if (p.GptmdFilters is { Count: > 0 } gf) search["gptmd_filters"] = new JsonArray(gf.Select(x => (JsonNode?)x).ToArray());
+        if (p.GptmdDropMods is { Count: > 0 } gd) search["gptmd_drop_mods"] = new JsonArray(gd.Select(x => (JsonNode?)x).ToArray());
         if (r.ExcludeFiles.Count > 0) search["exclude_files"] = new JsonArray(r.ExcludeFiles.Select(x => (JsonNode?)x).ToArray());
         string paramsFile = Path.Combine(outDir, "params.json");
         File.WriteAllText(paramsFile, new JsonObject
@@ -256,6 +258,7 @@ public static class SearchStage
             {
                 ["organism"] = lib.Organism, ["mode"] = lib.Mode, ["library_in"] = lib.LibraryIn,
                 ["parent_version"] = lib.ParentVersion, ["registry"] = SpectralLibrary.RegistryPath(lib.Root),
+                ["route_classes"] = new JsonArray((r.LibraryRouteClasses ?? Array.Empty<string>()).Select(c => (JsonNode)c).ToArray()),
             });
 
         // The pinned MetaMorpheus's Mods folder, plus the profile's own file: it is installed into the settings folder's Mods
@@ -274,7 +277,7 @@ public static class SearchStage
             VariableCysMods: chem?.CysMods.Where(c => !c.Fixed).Select(c => c.MetaMorpheusId!).ToList(),
             WriteSdrf: p.WriteSdrf, ProteomeXchangeAccession: p.WriteSdrf ? r.Accession : null,
             PrecursorMassTolerance: window is { } w ? $"±{w}.0000 PPM" : null, QuantifyPpmTol: window,
-            GptmdFilters: p.GptmdFilters, MultiplexKit: kit);
+            GptmdFilters: p.GptmdFilters, MultiplexKit: kit, GptmdDropMods: p.GptmdDropMods);
         if (chem is not null)
         {
             prov.Set("chemistry", Chemistry(chem));
@@ -337,6 +340,7 @@ public static class SearchStage
         }
         if (p.GptmdExtraMods.Count > 0) prov.Set("gptmd_extra_mods", new JsonArray(p.GptmdExtraMods.Select(x => (JsonNode?)x).ToArray()));
         if (p.GptmdFilters is { Count: > 0 }) prov.Set("gptmd_filters", new JsonArray(p.GptmdFilters.Select(x => (JsonNode?)x).ToArray()));
+        if (p.GptmdDropMods is { Count: > 0 }) prov.Set("gptmd_drop_mods", new JsonArray(p.GptmdDropMods.Select(x => (JsonNode?)x).ToArray()));
         if (artifacts.Count > 0)
         {
             prov.Set("chemistry_artifacts", new JsonArray(artifacts.Select(a => (JsonNode?)new JsonObject
@@ -536,11 +540,20 @@ public static class SearchStage
                             .Concat(p.CustomModifications is { } custom ? new[] { p.ListPath(custom) } : Array.Empty<string>()),
                         new[] { proteome }.Concat(extras),
                         blockedCTerm: !p.SearchRespectsCleavageBlocking);
-                    var written = SpectralLibrary.Register(lib, sd, $"{r.RunDate}/{r.Accession}".Trim('/'), r.Accession ?? "", release, cleaning);
+                    var route = r.LibraryRouteClasses is { Count: > 0 } rc ? rc : null;
+                    var written = SpectralLibrary.Register(lib, sd, $"{r.RunDate}/{r.Accession}".Trim('/'), r.Accession ?? "", release, cleaning, route);
                     // A copy: the registry's own node already has a parent there.
                     libRec["written"] = written.DeepClone();
                     prov.Output(Path.Combine(lib.Root, written["path"]!.GetValue<string>()));
                     prov.Note($"spectral library {lib.Organism} v{(int)written["version"]!:000}: {(int)written["n_spectra"]!:N0} spectra, {written["path"]}");
+                    if (route is not null && written["routing"] is JsonObject routing)
+                    {
+                        // v0.4.38: the classes this deposit enriches went to their own chains (LibraryRouting).
+                        var to = routing["routed"]!.AsObject().Select(kv => $"{(int)kv.Value!:N0} to {kv.Key}");
+                        prov.Note($"spectral library: routed by enrichment ({string.Join(", ", route)}): {string.Join(", ", to)}; {(int)routing["kept_parent_spectrum"]!:N0} kept the regular chain's own spectrum");
+                        foreach (var v in written["routed_versions"]!.AsArray())
+                            prov.Output(Path.Combine(lib.Root, v!["path"]!.GetValue<string>()));
+                    }
                     if (written["dropped_unreadable"] is { } dropped)
                         prov.Note($"spectral library: {(int)dropped:N0} spectra left out of v{(int)written["version"]!:000}: their modification names hold a count in parentheses, such as NEM:2H(5), which mzLib's reader takes for a crosslink; MetaMorpheus's whole file stays in this run's folder");
                     if (written["cleaning"] is JsonObject cleaned && ((int)cleaned["dropped_blocked_cterm"]! + (int)cleaned["dropped_doubtful_class"]!) > 0)
