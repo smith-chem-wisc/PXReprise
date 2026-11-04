@@ -127,7 +127,9 @@ pxreprise library repair mouse --machine my-machine.toml --reason "why"
 ```
 
 - `list` shows each organism's current spectral library: its version, how many spectra it holds, and how many versions
-  its chain has.
+  its chain has. Since 0.4.38 it also lists the class chains (`mouse_phospho`, ...). An enriched deposit's spectra of
+  the PTM class it enriches go there, not into the organism's library; a search still reads only the organism's
+  library.
 - `repair` writes a new current version without the spectra mzLib cannot read back, and changes nothing when there
   are none. Those are spectra whose modification name holds a count in parentheses, such as Unimod's `NEM:2H(5)`:
   mzLib's reader takes them for crosslinks, and a search using that library then fails. Since 0.4.20 they are left

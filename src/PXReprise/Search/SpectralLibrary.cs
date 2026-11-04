@@ -83,9 +83,16 @@ public static class SpectralLibrary
     /// <paramref name="cleaning"/>, the new version also leaves out what <see cref="LibraryCleaning"/> judges (v0.4.32), so
     /// a library cleaned once stays clean.
     /// </summary>
+    /// <param name="routeClasses">v0.4.38: the <see cref="LibraryRouting"/> classes this deposit enriches. A spectrum
+    /// carrying one of them goes to that class's chain (<see cref="LibraryRouting.ChainOf"/>) instead of this one, unless
+    /// the parent version already holds its name ("PEPT[...]IDE/2"): then the parent's spectrum is kept, so an enriched
+    /// deposit neither adds to nor replaces the regular chain's spectra of the class it enriches. Every other spectrum is
+    /// registered here as before. Needs <paramref name="cleaning"/>, which resolves the modification names.</param>
     public static JsonObject Register(LibraryPlan plan, string searchTaskDir, string runLabel, string accession, string metamorpheus,
-        LibraryCleaning? cleaning = null)
+        LibraryCleaning? cleaning = null, IReadOnlyCollection<string>? routeClasses = null)
     {
+        if (routeClasses is { Count: > 0 } && cleaning is null)
+            throw new ArgumentException("routing a library by class needs the cleaning rules, which resolve modification names", nameof(cleaning));
         var produced = Directory.EnumerateFiles(searchTaskDir, plan.OutputPattern).Select(Path.GetFileName)
             .Where(n => plan.Mode != "write" || !n!.StartsWith("update", StringComparison.Ordinal))
             .OrderBy(n => n, StringComparer.Ordinal).ToList();
@@ -94,13 +101,13 @@ public static class SpectralLibrary
         string src = Path.Combine(searchTaskDir, produced[^1]!);
         // Two searches can finish together (search_slots > 1): one registers at a time, and the second then sees the
         // first's version and is refused below rather than overwriting it.
-        lock (RegistryGate) return RegisterLocked(plan, src, runLabel, accession, metamorpheus, cleaning);
+        lock (RegistryGate) return RegisterLocked(plan, src, runLabel, accession, metamorpheus, cleaning, routeClasses);
     }
 
     private static readonly object RegistryGate = new();
 
     private static JsonObject RegisterLocked(LibraryPlan plan, string src, string runLabel, string accession, string metamorpheus,
-        LibraryCleaning? cleaning)
+        LibraryCleaning? cleaning, IReadOnlyCollection<string>? routeClasses)
     {
         var reg = ReadRegistry(plan.Root);
         var organisms = reg["organisms"]!.AsObject();
@@ -115,19 +122,171 @@ public static class SpectralLibrary
         }
 
         var (version, rel, dest) = NextVersion(plan.Root, plan.Organism, entry);
-        // COPY, not move: a search that is not delivered keeps what MetaMorpheus wrote. After delivery the run folder's copy
-        // is deleted when its bytes still match this version's sha256 (PruneStage, v0.4.18); a copy that lost unreadable
-        // entries never matches, so MetaMorpheus's whole file stays in the run folder.
-        var dropped = CopyClean(src, dest, cleaning);
-        var rec = VersionRecord(version, rel, plan.Mode, plan.ParentVersion, dest, dropped, cleaning, new JsonObject
+        JsonObject ProducedBy() => new()
         {
             ["run"] = runLabel, ["accession"] = accession, ["metamorpheus"] = metamorpheus,
             ["metamorpheus_path"] = src, ["metamorpheus_filename"] = Path.GetFileName(src),
-        });
-        entry["versions"]!.AsArray().Add(rec);
+        };
+        // COPY, not move: a search that is not delivered keeps what MetaMorpheus wrote. After delivery the run folder's copy
+        // is deleted when its bytes still match this version's sha256 (PruneStage, v0.4.18); a copy that lost unreadable
+        // entries never matches, so MetaMorpheus's whole file stays in the run folder.
+        if (routeClasses is not { Count: > 0 })
+        {
+            var dropped = CopyClean(src, dest, cleaning);
+            var rec = VersionRecord(version, rel, plan.Mode, plan.ParentVersion, dest, dropped, cleaning, ProducedBy());
+            entry["versions"]!.AsArray().Add(rec);
+            entry["current"] = rel;
+            WriteRegistry(plan.Root, reg);
+            return rec;
+        }
+
+        // v0.4.38: route the enriched-for classes. The regular version first, then one new version per class chain that
+        // received spectra, all in one registry write.
+        var routed = CopyRouted(src, dest, cleaning!, routeClasses, plan.LibraryIn);
+        var regular = VersionRecord(version, rel, plan.Mode, plan.ParentVersion, dest, routed.Dropped, cleaning, ProducedBy());
+        var routing = new JsonObject
+        {
+            ["rule"] = "pxreprise-library-routing/1: a spectrum carrying a PTM class the deposit enriches goes to that class's chain, unless the parent version holds its name (then the parent's spectrum stays); classes by modification mass and residue",
+            ["classes"] = new JsonArray(routeClasses.Select(c => (JsonNode)c).ToArray()),
+            ["kept_parent_spectrum"] = routed.KeptParent,
+        };
+        var to = new JsonObject();
+        foreach (var (cls, blocks) in routed.ByClass) to[LibraryRouting.ChainOf(plan.Organism, cls)] = blocks.Count;
+        routing["routed"] = to;
+        regular["routing"] = routing;
+        entry["versions"]!.AsArray().Add(regular);
         entry["current"] = rel;
+        var chains = new JsonArray();
+        foreach (var (cls, blocks) in routed.ByClass)
+        {
+            if (blocks.Count == 0) continue;
+            string chain = LibraryRouting.ChainOf(plan.Organism, cls);
+            if (organisms[chain] is not JsonObject ce)
+                organisms[chain] = ce = new JsonObject { ["current"] = null, ["versions"] = new JsonArray() };
+            string? parentRel = ce["current"]?.GetValue<string>();
+            string? parentPath = parentRel is null ? null : Path.Combine(plan.Root, parentRel);
+            if (parentPath is not null && !File.Exists(parentPath))
+                throw new SearchSetupException($"spectral_library: the registry says {chain}'s current library is {parentRel}, but {parentPath} does not exist. Nothing was registered.");
+            var (cv, crel, cdest) = NextVersion(plan.Root, chain, ce);
+            AppendBlocks(parentPath, blocks, cdest, NewLineOf(src));
+            var produced = ProducedBy();
+            produced["routed_from"] = new JsonObject { ["chain"] = plan.Organism, ["version"] = version, ["class"] = cls, ["spectra"] = blocks.Count };
+            var crec = VersionRecord(cv, crel, parentRel is null ? "write" : "update", parentRel is null ? null : VersionOf(ce, parentRel),
+                cdest, Dropped.None, null, produced);
+            ce["versions"]!.AsArray().Add(crec);
+            ce["current"] = crel;
+            chains.Add(new JsonObject { ["chain"] = chain, ["version"] = cv, ["path"] = crel, ["n_spectra"] = crec["n_spectra"]!.DeepClone() });
+        }
         WriteRegistry(plan.Root, reg);
-        return rec;
+        var result = (JsonObject)regular.DeepClone();
+        result["routed_versions"] = chains;
+        return result;
+    }
+
+    /// <summary>What <see cref="CopyRouted"/> did: the regular copy's drops, how many class spectra kept the parent's
+    /// version, and the entries (each its lines, "Name:" first) for each class chain.</summary>
+    public sealed record Routed(Dropped Dropped, int KeptParent, IReadOnlyDictionary<string, List<List<string>>> ByClass);
+
+    /// <summary>
+    /// v0.4.38: <see cref="CopyClean"/>, plus routing. An entry the cleaning keeps that carries a class in
+    /// <paramref name="routeClasses"/> is not written to <paramref name="dest"/>: when <paramref name="parent"/> holds its
+    /// name, the parent's entry is written in its place (the same bytes when MetaMorpheus kept it); otherwise it is
+    /// returned for that class's chain (the first class in <see cref="LibraryRouting.Classes"/> order it carries).
+    /// </summary>
+    public static Routed CopyRouted(string src, string dest, LibraryCleaning cleaning, IReadOnlyCollection<string> routeClasses, string? parent)
+    {
+        string nl = NewLineOf(src);
+        var verdicts = cleaning.Judge(File.ReadLines(src).Select(LibraryCleaning.FullSequenceOf).OfType<string>());
+        var order = LibraryRouting.Classes.Select(c => c.Key).Where(routeClasses.Contains).ToList();
+        // pass 1: the routed candidates (a kept entry carrying a routed class), by name, each with its entry's hash. An
+        // update's output holds every parent entry too, so on a large chain these are many (mouse v119: ~106,000 phospho).
+        var classOf = new Dictionary<string, (string Class, string Hash)>(StringComparer.Ordinal);
+        foreach (var block in Entries(src))
+        {
+            if (UnreadableName(block[0])) continue;
+            string full = LibraryCleaning.FullSequenceOf(block[0])!;
+            if (verdicts.ContainsKey(full)) continue;
+            var carried = cleaning.ClassesOf(full);
+            if (order.FirstOrDefault(carried.Contains) is { } cls) classOf[NameOf(block[0])] = (cls, HashOf(block));
+        }
+        // pass 2: which names the parent holds, and the parent's entry wherever MetaMorpheus replaced it (only those are
+        // kept in memory: an unchanged entry is written from the output, byte for byte the same)
+        var inParent = new HashSet<string>(StringComparer.Ordinal);
+        var replaced = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        if (parent is not null && classOf.Count > 0)
+            foreach (var block in Entries(parent))
+            {
+                string name = NameOf(block[0]);
+                if (!classOf.TryGetValue(name, out var c)) continue;
+                inParent.Add(name);
+                if (HashOf(block) != c.Hash) replaced[name] = block;
+            }
+        // pass 3: write
+        int unreadable = 0, blocked = 0, doubtful = 0, keptParent = 0;
+        var byMod = new SortedDictionary<string, int>(StringComparer.Ordinal);
+        var byClass = order.ToDictionary(c => c, _ => new List<List<string>>(), StringComparer.Ordinal);
+        using var w = new StreamWriter(new FileStream(dest, FileMode.CreateNew), new UTF8Encoding(false)) { NewLine = nl };
+        foreach (var block in Entries(src, keepPreamble: true))
+        {
+            if (!block[0].StartsWith("Name:", StringComparison.Ordinal)) { foreach (string l in block) w.WriteLine(l); continue; }
+            if (UnreadableName(block[0])) { unreadable++; continue; }
+            if (verdicts.TryGetValue(LibraryCleaning.FullSequenceOf(block[0])!, out var v))
+            {
+                if (v.Reason == "blocked_cterm") blocked++; else doubtful++;
+                byMod[v.Modification] = byMod.GetValueOrDefault(v.Modification) + 1;
+                continue;
+            }
+            string name = NameOf(block[0]);
+            if (classOf.TryGetValue(name, out var c))
+            {
+                if (inParent.Contains(name))
+                {
+                    foreach (string l in replaced.TryGetValue(name, out var kept) ? kept : block) w.WriteLine(l);
+                    keptParent++;
+                }
+                else byClass[c.Class].Add(block);
+                continue;
+            }
+            foreach (string l in block) w.WriteLine(l);
+        }
+        return new Routed(new Dropped(unreadable, blocked, doubtful, byMod), keptParent, byClass);
+    }
+
+    private static string HashOf(List<string> block) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', block))));
+
+    /// <summary>A class chain's next version: its current library's entries (if any) without the names
+    /// <paramref name="blocks"/> carry, then <paramref name="blocks"/>; a later spectrum replaces an earlier one.</summary>
+    private static void AppendBlocks(string? parent, List<List<string>> blocks, string dest, string nl)
+    {
+        var names = blocks.Select(b => NameOf(b[0])).ToHashSet(StringComparer.Ordinal);
+        using var w = new StreamWriter(new FileStream(dest, FileMode.CreateNew), new UTF8Encoding(false)) { NewLine = nl };
+        if (parent is not null)
+            foreach (var block in Entries(parent, keepPreamble: true))
+                if (!block[0].StartsWith("Name:", StringComparison.Ordinal) || !names.Contains(NameOf(block[0])))
+                    foreach (string l in block) w.WriteLine(l);
+        foreach (var block in blocks)
+            foreach (string l in block) w.WriteLine(l);
+    }
+
+    /// <summary>A library entry's name: its "Name:" line's text, charge included ("PEPT[...]IDE/2").</summary>
+    private static string NameOf(string nameLine) => nameLine[5..].Trim();
+
+    /// <summary>A library's entries, each from its "Name:" line to the next; with <paramref name="keepPreamble"/>, any lines
+    /// before the first entry come first as a block of their own.</summary>
+    private static IEnumerable<List<string>> Entries(string path, bool keepPreamble = false)
+    {
+        List<string>? current = null;
+        foreach (string line in File.ReadLines(path))
+        {
+            if (line.StartsWith("Name:", StringComparison.Ordinal))
+            {
+                if (current is { Count: > 0 } && (keepPreamble || current[0].StartsWith("Name:", StringComparison.Ordinal))) yield return current;
+                current = new List<string> { line };
+            }
+            else (current ??= new List<string>()).Add(line);
+        }
+        if (current is { Count: > 0 } && (keepPreamble || current[0].StartsWith("Name:", StringComparison.Ordinal))) yield return current;
     }
 
     /// <summary>

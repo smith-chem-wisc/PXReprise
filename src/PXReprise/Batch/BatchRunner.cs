@@ -167,6 +167,25 @@ public sealed class BatchRunner
     private JsonObject? Entry(string acc) => State()["datasets"]![acc] as JsonObject;
 
     /// <summary>
+    /// v0.4.38: the PTM classes a deposit enriches, whose library spectra go to chains of their own (LibraryRouting; the
+    /// user, 2026-11-03). Read as the manifest writer reads enrichment: the entry's own <c>enrichment</c> (with its
+    /// <c>run_enrichment</c> keys) wins over the screen's, because the owner curates it (PXD026335: screened phospho,
+    /// curated none). The probe's measurement is added either way: three probe runs that measured an enrichment are
+    /// evidence the library must not ignore. Per deposit, not per run: an entry does not say which run a library
+    /// spectrum came from, so a mixed deposit's whole-proteome runs route that class too.
+    /// </summary>
+    private IReadOnlyList<string> LibraryRouteClasses(string acc)
+    {
+        var state = Entry(acc);
+        var names = new List<string>();
+        var curated = _q.Publish?.Manifest is { } mf && File.Exists(mf) ? ManifestEntry.EnrichmentsOf(ManifestEntry.ReadLf(mf), acc) : null;
+        if (curated is { Count: > 0 }) names.AddRange(curated);
+        else if (state?["enrichment"]?.GetValue<string>() is { } screened) names.Add(screened);
+        if (state?["enrichment_measured"]?.GetValue<string>() is { } measured) names.Add(measured);
+        return LibraryRouting.ClassesEnrichedBy(names);
+    }
+
+    /// <summary>
     /// One driver at a time. Without this guard, clearing STOP and relaunching once left two drivers fetching into the same
     /// folders and both writing state.json.
     /// </summary>
@@ -1413,7 +1432,8 @@ public sealed class BatchRunner
             Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "04_search"),
             Path.Combine(d, "02b_qc"), overlays, excl, _runDate, acc, UseLibrary: library,
             CuratedDesign: curated, DesignConditionColumns: _q.Designs is { ConditionColumns.Count: > 0 } ds ? ds.ConditionColumns : null, Chemistry: chemistry,
-            ProbePrecursorOffsets: profile.PrecursorWindow == "probe" ? ProbeOffsets(acc) : null);
+            ProbePrecursorOffsets: profile.PrecursorWindow == "probe" ? ProbeOffsets(acc) : null,
+            LibraryRouteClasses: LibraryRouteClasses(acc));
         string runtimeRoot = Search.DotnetRuntimes.Root(_m.DotnetRoot);
         var runtimesBefore = Search.DotnetRuntimes.Snapshot(runtimeRoot);
         SearchOutcome outcome;

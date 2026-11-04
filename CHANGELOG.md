@@ -16,6 +16,23 @@ A new version of the engine never changes a finished result. Methods live in ver
   Mods.txt, so until now a class the data refuse could not leave it. An entry the list does not hold is refused when the
   task is written, never skipped. No shipped profile uses it yet (results/acyl-gptmd_2026-11-03: Malonylation on K is
   the first candidate, at 10% decoys per target under `label-free-dda@12`).
+- **An enriched deposit no longer adds its enriched-for PTM class to the organism's spectral library.** Such spectra
+  now go to a chain of that class's own (`mouse_phospho`, `mouse_acetylk`, `mouse_succinylk`, `mouse_gg`), and every
+  other spectrum registers as before.
+  - **Per class:** a ubiquitin enrichment's phospho stays in the regular library. A protein pulldown (affinity
+    purification, IP, proximity labelling) enriches no PTM class.
+  - **Already in the regular library:** where the regular library already holds a spectrum's name, the regular
+    library's own spectrum is kept, so an enriched run cannot replace it either.
+  - **How classes are judged:** by the modification's mass and residue. UniProt's and GPTMD's names for the same
+    chemistry count as one, and N-terminal acetylation is not acetyl-K.
+  - **Which classes a deposit enriches:** its manifest entry's own `enrichment` and `run_enrichment` keys (else the
+    screen's call), plus the probe's measurement. The rule is per deposit, because a library entry does not say
+    which run it came from.
+  - **Why:** these libraries are meant for label-free library-based DIA, where every library entry is a candidate.
+    71-79% of the regular libraries' phospho spectra had been seen only in phospho-enriched deposits
+    (results/enrichment-split_2026-11-04).
+  - **Not yet:** searches read the regular chain only, and the spectra already in the regular libraries stay until
+    they are cleaned.
 
 ## 0.4.37 (2026-11-03)
 
