@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    PXReprise evidence: read what a deposit's paper says about its samples, and draft its SDRF from it (the user,
+    2026-11-04: "use those [API credits] to boost the quality of all the sdrfs"; the design is sdrf's G36/G38, D42/D43).
+    Runs on the probe worker (PXRworker), which holds the API key; MOZZLE grades the drafts.
+
+    The drafting pipeline (evidence records, the rule extractor, the supplement reader, the drafter, the model reader) is
+    internal to mzLib. As in sdrf's results/benchmark, its SHIPPED source is compiled in here, from a worktree of the
+    mzLib release the engine runs (code/_wt_mzlib_1.0.596, detached at tag 1.0.596), instead of being made public or
+    reached by reflection. Everything else comes from the same mzLib NuGet package as the engine.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>pxr-evidence</AssemblyName>
+    <RootNamespace>PXRevidence</RootNamespace>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <!-- CS0436: a compiled-in mzLib type shadows the package's internal copy, by design. -->
+    <NoWarn>$(NoWarn);CS1591;CS0436;NU1605;NU1608</NoWarn>
+    <MzLibSource>..\..\code\_wt_mzlib_1.0.596\mzLib</MzLibSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(MzLibSource)\Readers\Sdrf\SdrfFileNamePattern.cs" Link="Shipped\SdrfFileNamePattern.cs" />
+    <Compile Include="$(MzLibSource)\Readers\Sdrf\SdrfRecordAnchors.cs" Link="Shipped\SdrfRecordAnchors.cs" />
+    <Compile Include="$(MzLibSource)\Readers\Sdrf\SdrfReplicateResolver.cs" Link="Shipped\SdrfReplicateResolver.cs" />
+    <Compile Include="$(MzLibSource)\Readers\Sdrf\SdrfDrafter.cs" Link="Shipped\SdrfDrafter.cs" />
+    <Compile Include="$(MzLibSource)\Readers\Sdrf\SdrfEvidence.cs" Link="Shipped\SdrfEvidence.cs" />
+    <Compile Include="$(MzLibSource)\Readers\Sdrf\SdrfCell.cs" Link="Shipped\SdrfCell.cs" />
+    <Compile Include="$(MzLibSource)\Readers\Sdrf\SdrfDepositRecord.cs" Link="Shipped\SdrfDepositRecord.cs" />
+    <Compile Include="$(MzLibSource)\Readers\SampleEvidence\SupplementTableReader.cs" Link="Shipped\SupplementTableReader.cs" />
+    <Compile Include="$(MzLibSource)\Readers\SampleEvidence\SupplementTableReader.Pdf.cs" Link="Shipped\SupplementTableReader.Pdf.cs" />
+    <Compile Include="$(MzLibSource)\Readers\SampleEvidence\SampleEvidenceExtractor.cs" Link="Shipped\SampleEvidenceExtractor.cs" />
+    <Compile Include="$(MzLibSource)\SampleEvidenceModel\PublicationText.cs" Link="Shipped\PublicationText.cs" />
+    <Compile Include="$(MzLibSource)\SampleEvidenceModel\ModelEvidenceReader.cs" Link="Shipped\ModelEvidenceReader.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="mzLib" Version="1.0.596" />
+    <PackageReference Include="Anthropic" Version="12.50.0" />
+    <PackageReference Include="PdfPig" Version="0.1.16" />
+  </ItemGroup>
+</Project>
