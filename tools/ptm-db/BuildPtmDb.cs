@@ -8,13 +8,27 @@
 // Selection (aging, 2026-09-27):
 //   - catalog ptm_sites: target, best_q_value <= 0.01, best_ambiguity_level = '1';
 //   - biological classes only (Bio below); deamidation, citrullination, Gla, sulfo-Y, ADP-ribosyl excluded, and since
-//     agingPTM-v5 hydroxy-P and hydroxy-K;
+//     agingPTM-v5 hydroxy-P and hydroxy-K, since agingPTM-v7 malonyl-K;
 //   - n_psms >= --min-psms (5), summed over the organism's datasets;
 //   - dropped when the accession is not in the proteome (isoforms), the residue or position disagrees, or UniProt
 //     already has a 'modified residue' of the same chemistry there. mzLib loads only 'modified residue' and 'lipid
 //     moiety-binding region' features, so GG and O-GlcNAc sites UniProt lists as cross-link/glycosylation are kept.
 // Sites are written as mzLib's ProteinDbWriter writes GPTMD sites: <feature type="modified residue"
 // description="<IdWithMotif>">, inserted before the entry's top-level <sequence length=...> line.
+//
+// --uniprot-sites regular (D61, D62; the user, 2026-11-04: "let's stick with my principle"; agingPTM-v7 on): UniProt's
+// own 'modified residue' features are kept only where a deposit NOT enriched for the site's class identifies the site
+// (catalog ptm_sites: target, best_q_value <= 0.01, any ambiguity; the same accession and position, and either mzLib's
+// name for the UniProt feature, "<description up to ';'> on <residue>", or the same Unimod id, so a GPTMD
+// "Phosphorylation on S" at a UniProt "Phosphoserine" position counts). Enriched-for is --exclude-enriched's rows
+// (declared plus measured), by class (Rules: phospho, acetylK, ...). Every other UniProt modified residue is left out of
+// the written XML; no other line changes. UniProt is "already contaminated with enrichment data" (the user, 11-03), and
+// a database's PTMs should mimic the sample's. Tested against entrapment, leave-one-out
+// (results/regular-db-trial_2026-11-04): peptides -0.6% to +0.9%, FDP equal or lower, 1-3% of UniProt-site peptides
+// lost. Each UniProt site and its verdict go to --sites-out as uniprot_sites_<organism>.tsv. The default, "all", keeps
+// every UniProt feature (agingPTM-v6 and earlier).
+//   [--leave-out PXD...]   (repeatable) a deposit's sites do not count (the trial's leave-one-out)
+//   With --from-sites, the verdicts are read back from DIR/uniprot_sites_<organism>.tsv.
 //
 //   dotnet run BuildPtmDb.cs -- --catalog C.duckdb --out DIR --tag agingPTM-v2 --xml mouse=P.xml [--xml human=P.xml ...]
 //                               [--min-psms 5] [--sites-out DIR] [--exclude-enriched data/ptm-db/enriched_ptm_exclusions_<date>.tsv]
@@ -70,6 +84,13 @@ var excluded = ModSet(exclRows);
 JsonNode? exclProv = exclFile is null ? null : WriteExclusions(exclFile, catalog is not null, phPct, ggPct, sitesOut, exclRows);
 var proteomes = (opt.GetValueOrDefault("proteome") ?? new()).Select(s => s.Split('=', 2)).ToDictionary(p => p[0], p => p[1]);
 var only = opt.GetValueOrDefault("accessions")?[0].Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
+string uniprotSites = opt.GetValueOrDefault("uniprot-sites")?[0] ?? "all";
+var leaveOut = (opt.GetValueOrDefault("leave-out") ?? new()).ToHashSet(StringComparer.Ordinal);
+if (uniprotSites is not ("all" or "regular")) return Usage("--uniprot-sites is all (the default) or regular");
+if (uniprotSites == "regular" && mode != "proteome") return Usage("--uniprot-sites regular is for --mode proteome");
+if (uniprotSites == "regular" && catalog is not null && exclFile is null) return Usage("--uniprot-sites regular needs --exclude-enriched");
+if (leaveOut.Count > 0 && uniprotSites != "regular") return Usage("--leave-out needs --uniprot-sites regular");
+var enrichedFor = exclRows.Select(e => (e.Dataset, e.Class)).ToHashSet();
 if (mode == "isoforms") return RunIsoforms(catalog, fromSites, outDir, sitesOut, tag, minPsms, xmls, proteomes, only, excluded, exclProv);
 if (mode != "proteome") return Usage("--mode is proteome (the default) or isoforms");
 
@@ -90,6 +111,13 @@ var prov = new JsonObject
         ["uniprot_overlap_ignored_for"] = new JsonArray(NotLoadedByMzLib.Order(StringComparer.Ordinal).Select(k => (JsonNode)k).ToArray()),
         ["enriched_for_excluded"] = exclProv,
     },
+    ["uniprot_sites"] = uniprotSites == "all" ? "all: every UniProt modified residue kept" : new JsonObject
+    {
+        ["mode"] = "regular",
+        ["rule"] = "a UniProt modified residue is kept only where a deposit not enriched for its class identifies the site (ptm_sites target, best q <= 0.01; same accession and position; mzLib name or Unimod id) (D61, D62)",
+        ["enriched_for"] = "the enriched_for_excluded rows, by class",
+        ["leave_out"] = new JsonArray(leaveOut.Order(StringComparer.Ordinal).Select(a => (JsonNode)a).ToArray()),
+    },
     ["note"] = "The sites come from searches of the corpus these databases then search; the PSM floor limits that feedback.",
     ["dotnet"] = Environment.Version.ToString(),
     ["organisms"] = new JsonObject(),
@@ -97,7 +125,31 @@ var prov = new JsonObject
 foreach (var (org, src) in xmls.OrderBy(kv => kv.Key, StringComparer.Ordinal))
 {
     var t0 = Stopwatch.StartNew();
-    var (ann, seq) = LoadUniprot(src);
+    var (ann, seq, uni) = LoadUniprot(src);
+    Dictionary<(string, int), (int Pos, bool Keep)>? uniKeep = null;
+    JsonObject? uniProv = null;
+    if (uniprotSites == "regular")
+    {
+        var verdicts = fromSites is null ? UniprotVerdicts(catalog!, uni, enrichedFor, leaveOut) : VerdictsFromSites(fromSites, org, uni);
+        uniKeep = verdicts.ToDictionary(v => (v.Site.Acc, v.Site.Index), v => (v.Site.Pos, v.Datasets.Length > 0));
+        // Only the UniProt sites the written XML keeps count as "already in UniProt" for the GPTMD sites below.
+        ann = new();
+        foreach (var (s, ds) in verdicts.Where(v => v.Datasets.Length > 0 && v.Site.Pos > 0))
+            (ann.TryGetValue((s.Acc, s.Pos), out var set) ? set : ann[(s.Acc, s.Pos)] = new()).Add(s.Class);
+        string utsv = Path.Combine(sitesOut, $"uniprot_sites_{org}.tsv");
+        var ub = new StringBuilder("accession\tfeature_index\tposition\tresidue\tdescription\tclass\tkept\tdatasets\r\n");
+        foreach (var (s, ds) in verdicts)
+            ub.Append($"{s.Acc}\t{s.Index}\t{s.Pos}\t{s.Res}\t{s.Desc}\t{s.Class}\t{(ds.Length > 0 ? "yes" : "no")}\t{ds}\r\n");
+        File.WriteAllText(utsv, ub.ToString());
+        uniProv = new JsonObject
+        {
+            ["features"] = verdicts.Count, ["kept"] = verdicts.Count(v => v.Datasets.Length > 0),
+            ["by_class_kept_of"] = new JsonObject(verdicts.GroupBy(v => v.Site.Class).OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.Ordinal)
+                .Select(g => KeyValuePair.Create(g.Key, (JsonNode?)$"{g.Count(v => v.Datasets.Length > 0)}/{g.Count()}"))),
+            ["tsv"] = utsv, ["tsv_sha256"] = Sha(utsv),
+        };
+        Console.WriteLine($"{org}: UniProt modified residues kept {uniProv["kept"]} of {verdicts.Count}");
+    }
     var keep = new Dictionary<string, List<Site>>(StringComparer.Ordinal);
     var drop = new SortedDictionary<string, int>(StringComparer.Ordinal);
     var kept = new List<Site>();
@@ -123,7 +175,7 @@ foreach (var (org, src) in xmls.OrderBy(kv => kv.Key, StringComparer.Ordinal))
         return 1;
     }
     string dst = Path.Combine(outDir, Path.GetFileName(src).Replace(".xml", $"_{tag}.xml"));
-    int written = Annotate(src, dst, keep);
+    int written = Annotate(src, dst, keep, uniKeep);
     string tsv = Path.Combine(sitesOut, $"sites_{org}.tsv");
     var sb = new StringBuilder("accession\tposition\tresidue\tmodification\tsite_type\tn_datasets\tn_psms\tdatasets\r\n");
     foreach (var s in kept.OrderBy(s => s.Accession, StringComparer.Ordinal).ThenBy(s => s.Position).ThenBy(s => s.Modification, StringComparer.Ordinal))
@@ -136,7 +188,7 @@ foreach (var (org, src) in xmls.OrderBy(kv => kv.Key, StringComparer.Ordinal))
         ["sites_written"] = written, ["proteins_touched"] = kept.Select(s => s.Accession).Distinct().Count(),
         ["sites_by_modification"] = new JsonObject(perMod.Select(g => KeyValuePair.Create(g.Key, (JsonNode?)g.Count()))),
         ["dropped"] = new JsonObject(drop.Select(kv => KeyValuePair.Create(kv.Key, (JsonNode?)kv.Value))),
-        ["sites_tsv"] = tsv, ["wall_s"] = Math.Round(t0.Elapsed.TotalSeconds, 1),
+        ["sites_tsv"] = tsv, ["uniprot_sites"] = uniProv, ["wall_s"] = Math.Round(t0.Elapsed.TotalSeconds, 1),
     };
     Console.WriteLine($"{org}: {written} sites written to {dst}; dropped {JsonSerializer.Serialize(drop)}");
 }
@@ -269,7 +321,7 @@ static int RunIsoforms(string? catalog, string? fromSites, string outDir, string
     };
     foreach (var (org, src) in xmls.OrderBy(kv => kv.Key, StringComparer.Ordinal))
     {
-        var (_, seq) = LoadUniprot(src);
+        var (_, seq, _) = LoadUniprot(src);
         var keep = new Dictionary<string, List<Site>>(StringComparer.Ordinal);
         var elsewhere = new SortedSet<string>(StringComparer.Ordinal);
         foreach (var (k, v) in selected.Where(kv => kv.Key.Org == org))
@@ -482,11 +534,13 @@ static List<Site> FromSites(string dir, IEnumerable<string> orgs) =>
     orgs.SelectMany(o => File.ReadLines(Path.Combine(dir, $"sites_{o}.tsv")).Skip(1).Where(l => l.Length > 0).Select(l => l.Split('\t'))
         .Select(p => new Site(o, p[0], int.Parse(p[1]), p[3], p[4], int.Parse(p[5]), long.Parse(p[6]), p[7]))).ToList();
 
-/// <summary>(accession, position) -> chemistry classes of UniProt 'modified residue' features; accession -> sequence.</summary>
-static (Dictionary<(string, int), HashSet<string>> Ann, Dictionary<string, string> Seq) LoadUniprot(string xml)
+/// <summary>(accession, position) -> chemistry classes of UniProt 'modified residue' features; accession -> sequence;
+/// and every such feature in document order (its index among the entry's modified residues; position 0 when it has none).</summary>
+static (Dictionary<(string, int), HashSet<string>> Ann, Dictionary<string, string> Seq, List<UniSite> Sites) LoadUniprot(string xml)
 {
     var ann = new Dictionary<(string, int), HashSet<string>>();
     var seq = new Dictionary<string, string>(StringComparer.Ordinal);
+    var sites = new List<UniSite>();
     using var reader = XmlReader.Create(xml, new XmlReaderSettings { DtdProcessing = DtdProcessing.Ignore, IgnoreWhitespace = true });
     reader.MoveToContent();
     // The document's own namespace: UniProt's REST files declare http://uniprot.org/uniprot, its FTP reference proteomes
@@ -499,20 +553,74 @@ static (Dictionary<(string, int), HashSet<string>> Ann, Dictionary<string, strin
         if (reader.NodeType != XmlNodeType.Element || reader.LocalName != "entry" || reader.NamespaceURI != ns.NamespaceName) { reader.Read(); continue; }
         var e = (XElement)XNode.ReadFrom(reader);
         string acc = e.Element(ns + "accession")!.Value;
-        seq[acc] = string.Concat(e.Element(ns + "sequence")!.Value.Where(c => !char.IsWhiteSpace(c)));
+        string sq = seq[acc] = string.Concat(e.Element(ns + "sequence")!.Value.Where(c => !char.IsWhiteSpace(c)));
+        int index = 0;
         foreach (var f in e.Elements(ns + "feature").Where(f => (string?)f.Attribute("type") == "modified residue"))
         {
-            string d = ((string?)f.Attribute("description") ?? "").ToLowerInvariant();
+            string desc = (string?)f.Attribute("description") ?? "";
+            string d = desc.ToLowerInvariant();
             string cls = Rules.FirstOrDefault(r => d.Contains(r.Key)).Value ?? "other";
+            int pos = 0;
             if (f.Element(ns + "location")?.Element(ns + "position")?.Attribute("position")?.Value is { Length: > 0 } p)
             {
-                var key = (acc, int.Parse(p));
+                pos = int.Parse(p);
+                var key = (acc, pos);
                 (ann.TryGetValue(key, out var set) ? set : ann[key] = new()).Add(cls);
             }
+            sites.Add(new UniSite(acc, index++, pos, pos >= 1 && pos <= sq.Length ? sq[pos - 1] : '?', desc, cls));
         }
     }
-    return (ann, seq);
+    return (ann, seq, sites);
 }
+
+/// <summary>--uniprot-sites regular: each UniProt modified residue with the deposits that vouch for it (comma-joined;
+/// empty = not kept). A deposit vouches when its ptm_sites has the site (target, best q &lt;= 0.01) under mzLib's name for
+/// the feature or the same Unimod id, it does not enrich the site's class, and it is not left out.</summary>
+static List<(UniSite Site, string Datasets)> UniprotVerdicts(string catalog, List<UniSite> uni, HashSet<(string, string)> enrichedFor, HashSet<string> leaveOut)
+{
+    var at = new Dictionary<(string, int), List<UniSite>>();
+    foreach (var s in uni.Where(s => s.Pos > 0))
+        (at.TryGetValue((s.Acc, s.Pos), out var l) ? l : at[(s.Acc, s.Pos)] = new()).Add(s);
+    var vouch = new Dictionary<UniSite, SortedSet<string>>();
+    using var con = new DuckDBConnection($"Data Source={catalog};ACCESS_MODE=READ_ONLY");
+    con.Open();
+    using var c = con.CreateCommand();
+    c.CommandText = @"SELECT DISTINCT protein_accession, position, modification_name, modification, dataset_id FROM ptm_sites
+                      WHERE target_decoy = 'target' AND best_q_value <= 0.01";
+    using var r = c.ExecuteReader();
+    while (r.Read())
+    {
+        if (r.IsDBNull(0) || r.IsDBNull(1) || !at.TryGetValue((r.GetString(0), Convert.ToInt32(r.GetValue(1))), out var here)) continue;
+        string name = r.IsDBNull(2) ? "" : r.GetString(2), ds = r.GetString(4);
+        string? unimod = r.IsDBNull(3) ? null : r.GetString(3);
+        if (leaveOut.Contains(ds)) continue;
+        foreach (var s in here)
+        {
+            bool same = name == MzLibName(s) || (unimod is { Length: > 0 } && UniprotUnimod(s.Desc) == unimod);
+            if (!same || enrichedFor.Contains((ds, s.Class))) continue;
+            (vouch.TryGetValue(s, out var set) ? set : vouch[s] = new(StringComparer.Ordinal)).Add(ds);
+        }
+    }
+    return uni.Select(s => (s, vouch.TryGetValue(s, out var set) ? string.Join(",", set) : "")).ToList();
+}
+
+/// <summary>--from-sites with --uniprot-sites regular: the verdicts of an earlier build, checked against this XML.</summary>
+static List<(UniSite Site, string Datasets)> VerdictsFromSites(string dir, string org, List<UniSite> uni)
+{
+    var rows = File.ReadLines(Path.Combine(dir, $"uniprot_sites_{org}.tsv")).Skip(1).Where(l => l.Length > 0).Select(l => l.Split('\t'))
+        .ToDictionary(p => (p[0], int.Parse(p[1])), p => (Pos: int.Parse(p[2]), Desc: p[4], Kept: p[6] == "yes", Datasets: p.Length > 7 ? p[7] : ""));
+    if (rows.Count != uni.Count) throw new InvalidDataException($"{dir}: uniprot_sites_{org}.tsv has {rows.Count} features, the XML {uni.Count}");
+    return uni.Select(s => rows.TryGetValue((s.Acc, s.Index), out var v) && v.Pos == s.Pos && v.Desc == s.Desc
+        ? (s, v.Kept ? (v.Datasets.Length > 0 ? v.Datasets : "from-sites") : "")
+        : throw new InvalidDataException($"{dir}: uniprot_sites_{org}.tsv does not match the XML at {s.Acc} feature {s.Index}")).ToList();
+}
+
+/// <summary>mzLib's id for a UniProt modified residue: the description up to its first ';', then " on " and the residue.</summary>
+static string MzLibName(UniSite s) => s.Desc.Split(';')[0].Trim() + " on " + s.Res;
+
+/// <summary>The Unimod id the catalog gives the same chemistry (results/enrichment-split_2026-11-04 uniprot_sites.cs);
+/// null for a class outside the map, which then matches by name only.</summary>
+static string? UniprotUnimod(string desc) => UnimodByPrefix.FirstOrDefault(p => desc.StartsWith(p.Prefix, StringComparison.Ordinal)).Id;
 
 /// <summary>The isoform XML's Ensembl-only entries (aging D128): accession, primary gene name, Ensembl gene ID (unversioned).</summary>
 static List<EnsemblEntry> EnsemblEntries(string xml) =>
@@ -555,12 +663,15 @@ static IEnumerable<XElement> UniprotEntries(string xml)
 }
 
 /// <summary>Streams the XML line by line (LF out, as v1 wrote), inserting each accession's sites before the entry's
-/// top-level &lt;sequence length=...&gt;. Every accession must reach an insertion point, or nothing is written.</summary>
-static int Annotate(string src, string dst, Dictionary<string, List<Site>> keep)
+/// top-level &lt;sequence length=...&gt;. Every accession must reach an insertion point, or nothing is written.
+/// With <paramref name="uniKeep"/> (--uniprot-sites regular), each of the source's UniProt modified-residue feature blocks
+/// is copied only when its (accession, index) is kept; its position must agree with the verdict's, and every feature must
+/// have a verdict, or nothing is written.</summary>
+static int Annotate(string src, string dst, Dictionary<string, List<Site>> keep, Dictionary<(string, int), (int Pos, bool Keep)>? uniKeep = null)
 {
     var left = keep.ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
     string tmp = dst + ".partial";
-    int written = 0;
+    int written = 0, featIndex = 0, seenFeatures = 0;
     string? acc = null;
     bool inEntry = false;
     using (var fi = new StreamReader(src, new UTF8Encoding(false)))
@@ -572,7 +683,29 @@ static int Annotate(string src, string dst, Dictionary<string, List<Site>> keep)
         {
             string next = fi.ReadLine()!;
             string st = line.TrimStart();
-            if (st.StartsWith("<entry ", StringComparison.Ordinal)) { inEntry = true; acc = null; }
+            if (uniKeep is not null && inEntry && acc is not null && st.StartsWith("<feature type=\"modified residue\"", StringComparison.Ordinal))
+            {
+                var block = new List<string> { line };
+                bool closed = st.TrimEnd().EndsWith("/>", StringComparison.Ordinal);
+                while (!closed)
+                {
+                    line = next ?? throw new InvalidDataException($"{src}: {acc}: a modified residue feature never ends");
+                    next = fi.ReadLine()!;
+                    block.Add(line);
+                    closed = line.TrimStart().StartsWith("</feature>", StringComparison.Ordinal);
+                }
+                if (!uniKeep.TryGetValue((acc, featIndex), out var v))
+                    throw new InvalidDataException($"{src}: {acc} modified residue {featIndex} has no verdict");
+                string? p = block.Select(b => System.Text.RegularExpressions.Regex.Match(b, "<position position=\"(\\d+)\"")).FirstOrDefault(m => m.Success)?.Groups[1].Value;
+                if ((p is null ? 0 : int.Parse(p)) != v.Pos)
+                    throw new InvalidDataException($"{src}: {acc} modified residue {featIndex} is at {p ?? "no position"}, its verdict at {v.Pos}");
+                if (v.Keep) foreach (var b in block) fo.Write(b + "\n");
+                featIndex++;
+                seenFeatures++;
+                line = next;
+                continue;
+            }
+            if (st.StartsWith("<entry ", StringComparison.Ordinal)) { inEntry = true; acc = null; featIndex = 0; }
             else if (inEntry && acc is null && st.StartsWith("<accession>", StringComparison.Ordinal))
                 acc = st["<accession>".Length..st.IndexOf("</accession>", StringComparison.Ordinal)];
             else if (inEntry && st.StartsWith("<sequence length=", StringComparison.Ordinal) && acc is not null && left.TryGetValue(acc, out var sites))
@@ -596,6 +729,11 @@ static int Annotate(string src, string dst, Dictionary<string, List<Site>> keep)
     {
         File.Delete(tmp);
         throw new InvalidDataException($"{src}: {left.Count} accessions never reached an insertion point");
+    }
+    if (uniKeep is not null && seenFeatures != uniKeep.Count)
+    {
+        File.Delete(tmp);
+        throw new InvalidDataException($"{src}: {seenFeatures} modified residue features streamed, {uniKeep.Count} read by the XML reader");
     }
     File.Move(tmp, dst, overwrite: true);
     return written;
@@ -634,6 +772,8 @@ record Site(string Organism, string Accession, int Position, string Modification
 
 record Exclusion(string Dataset, string Class, string Source);
 
+record UniSite(string Acc, int Index, int Pos, char Res, string Desc, string Class);
+
 record EnsemblEntry(string Acc, string? Gene, string? GeneId);
 
 record SpGene(string Acc, string? Gene, HashSet<string> GeneIds);
@@ -656,10 +796,28 @@ static partial class Program
         // agingPTM-v5 (the user, 2026-10-26/27: "clean the databases and keep them clean until other PRs produce clean
         // databases"): Hydroxylation on P and K are not selected. GPTMD's sites of both carry the misplaced Met/Trp
         // oxidation fingerprint (results/gptmd-census_2026-10-25). Put them back once GPTMD's own filters make them clean.
-        ["Succinylation on K"] = ("succinyl", 'K'), ["Glutarylation on K"] = ("glutaryl", 'K'), ["Malonylation on K"] = ("malonyl", 'K'),
+        // agingPTM-v7: Malonylation on K is not selected either. Its GPTMD sites run 10.1% on entrapment partners under
+        // label-free-dda@12 (results/acyl-gptmd_2026-11-03), and @13 takes it out of GPTMD's list.
+        ["Succinylation on K"] = ("succinyl", 'K'), ["Glutarylation on K"] = ("glutaryl", 'K'),
         ["Crotonylation on K"] = ("crotonyl", 'K'), ["Butyrylation on K"] = ("butyryl", 'K'), ["Hydroxybutyrylation on K"] = ("hydroxybutyryl", 'K'),
         ["HexNAc on S"] = ("oglcnac", 'S'), ["HexNAc on T"] = ("oglcnac", 'T'),
         ["GG (Ubiquitination Site) on K"] = ("GG", 'K'),
+    };
+
+    /// <summary>UniProt 'modified residue' description prefix -> the Unimod id the catalog's ptm_sites gives the same
+    /// chemistry (from results/enrichment-split_2026-11-04 uniprot_sites.cs); the first match wins.</summary>
+    static readonly (string Prefix, string Id)[] UnimodByPrefix =
+    {
+        ("Phosphoserine", "UNIMOD:21"), ("Phosphothreonine", "UNIMOD:21"), ("Phosphotyrosine", "UNIMOD:21"),
+        ("N6-acetyllysine", "UNIMOD:1"), ("N-acetyl", "UNIMOD:1"), ("O-acetyl", "UNIMOD:1"),
+        ("N6-succinyllysine", "UNIMOD:64"), ("N6-malonyllysine", "UNIMOD:747"), ("N6-glutaryllysine", "UNIMOD:1848"),
+        ("N6-crotonyllysine", "UNIMOD:1363"), ("N6-butyryllysine", "UNIMOD:1289"), ("N6-(2-hydroxyisobutyryl)lysine", "UNIMOD:1849"),
+        ("N6-methyllysine", "UNIMOD:34"), ("Omega-N-methylarginine", "UNIMOD:34"), ("N6,N6-dimethyllysine", "UNIMOD:36"),
+        ("Asymmetric dimethylarginine", "UNIMOD:36"), ("Symmetric dimethylarginine", "UNIMOD:36"), ("Dimethylated arginine", "UNIMOD:36"),
+        ("N6,N6,N6-trimethyllysine", "UNIMOD:37"), ("Citrulline", "UNIMOD:7"), ("Hydroxyproline", "UNIMOD:35"),
+        ("4-hydroxyproline", "UNIMOD:35"), ("3-hydroxyproline", "UNIMOD:35"), ("5-hydroxylysine", "UNIMOD:35"),
+        ("Pyrrolidone carboxylic acid", "UNIMOD:28"), ("Cysteine sulfenic acid", "UNIMOD:35"), ("Sulfotyrosine", "UNIMOD:40"),
+        ("S-nitrosocysteine", "UNIMOD:275"), ("Nitrated tyrosine", "UNIMOD:354"), ("N6-lactoyllysine", "UNIMOD:2114"),
     };
 
     /// <summary>UniProt 'modified residue' description (lower case) -> chemistry class; the first match wins, in this order.</summary>

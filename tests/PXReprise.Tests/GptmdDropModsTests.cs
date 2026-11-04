@@ -74,8 +74,8 @@ public class GptmdDropModsTests
         var p = ProfileLoader.Load(ProfileWith(t => t.Replace(FiltersLine,
             FiltersLine + "\ngptmd_drop_mods = [\"Common Biological\\tMalonylation on K\"]")));
         Assert.That(p.GptmdDropMods, Is.EqualTo(new[] { "Common Biological\tMalonylation on K" }));
-        Assert.That(ProfileLoader.LoadDirectory(TestSupport.ProfilesDir).Values.Select(x => x.GptmdDropMods), Has.All.Null,
-            "no shipped profile drops anything yet");
+        Assert.That(ProfileLoader.LoadDirectory(TestSupport.ProfilesDir).Where(kv => kv.Value.GptmdDropMods is not null).Select(kv => kv.Key),
+            Is.EquivalentTo(new[] { "label-free-dda@13" }), "only @13 drops anything (a profile never changes)");
     }
 
     [TestCase("gptmd_drop_mods = [\"Malonylation on K\"]", "is not")]

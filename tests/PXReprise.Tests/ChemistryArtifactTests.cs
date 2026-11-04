@@ -82,7 +82,7 @@ public class ChemistryArtifactTests
         var p10 = all["label-free-dda@10"];
         var p9 = all["label-free-dda@9"];
         Assert.That(p10.GptmdFilters, Is.EqualTo(new[] { "ImprovedScoreFilter" }));
-        Assert.That(all.Where(kv => kv.Value.GptmdFilters is not null).Select(kv => kv.Key), Is.EquivalentTo(new[] { "label-free-dda@10", "label-free-dda@11", "label-free-dda@12" }),
+        Assert.That(all.Where(kv => kv.Value.GptmdFilters is not null).Select(kv => kv.Key), Is.EquivalentTo(new[] { "label-free-dda@10", "label-free-dda@11", "label-free-dda@12", "label-free-dda@13" }),
             "no earlier profile changes");
         Assert.That(p10 with { Version = 9, Description = p9.Description, GptmdFilters = null, Databases = p9.Databases, Accepts = p9.Accepts,
             Tasks = p9.Tasks, GptmdExtraMods = p9.GptmdExtraMods, Deposit = p9.Deposit, Qc = p9.Qc, ThiolReagents = p9.ThiolReagents,
@@ -93,6 +93,29 @@ public class ChemistryArtifactTests
         Assert.That(p10.Databases.Select(kv => (kv.Key, kv.Value.Proteome)), Is.EquivalentTo(p9.Databases.Select(kv => (kv.Key, kv.Value.Proteome))));
         Assert.That(p10.ThiolReagents, Is.EquivalentTo(p9.ThiolReagents!));
         Assert.That(p10.ChemistryArtifacts, Is.EquivalentTo(p9.ChemistryArtifacts!));
+    }
+
+    [Test]
+    public void LabelFreeDda13IsAt12OnAgingPtmV7WithFormylOnSTAndNoMalonyl()
+    {
+        // v0.4.38 (D62, the user, 2026-11-04: "let's stick with my principle"): @12 on the regular databases agingPTM-v7,
+        // with Malonylation on K out of GPTMD's list and Formylation on S and T in (results/acyl-gptmd_2026-11-03).
+        var all = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
+        var p13 = all["label-free-dda@13"];
+        var p12 = all["label-free-dda@12"];
+        Assert.That(p13.Databases.Select(kv => (kv.Key, kv.Value.Proteome)),
+            Is.EquivalentTo(p12.Databases.Select(kv => (kv.Key, kv.Value.Proteome.Replace("_agingPTM-v6.xml", "_agingPTM-v7.xml")))));
+        Assert.That(p13.GptmdExtraMods, Is.EqualTo(p12.GptmdExtraMods.Concat(new[] { "Less Common\tFormylation on S", "Less Common\tFormylation on T" })));
+        Assert.That(p13.GptmdDropMods, Is.EqualTo(new[] { "Common Biological\tMalonylation on K" }));
+        Assert.That(p13.GptmdExtraMods, Has.None.Contains("Formylation on X"), "the peptide N-terminus stays out");
+        Assert.That(p13 with { Version = 12, Description = p12.Description, Databases = p12.Databases, Accepts = p12.Accepts,
+            MetaMorpheusSettings = p12.MetaMorpheusSettings, Tasks = p12.Tasks, GptmdExtraMods = p12.GptmdExtraMods, GptmdDropMods = null,
+            GptmdFilters = p12.GptmdFilters, Deposit = p12.Deposit, Qc = p12.Qc, ThiolReagents = p12.ThiolReagents,
+            ChemistryArtifacts = p12.ChemistryArtifacts }, Is.EqualTo(p12), "every other scalar setting of @13 equals @12's");
+        Assert.That((p13.Tasks, p13.GptmdFilters, p13.Deposit, p13.MetaMorpheus), Is.EqualTo((p12.Tasks, p12.GptmdFilters, p12.Deposit, p12.MetaMorpheus)));
+        Assert.That(p13.MetaMorpheusSettings, Is.EqualTo(p12.MetaMorpheusSettings));
+        Assert.That(p13.ThiolReagents, Is.EquivalentTo(p12.ThiolReagents!));
+        Assert.That(p13.ChemistryArtifacts, Is.EquivalentTo(p12.ChemistryArtifacts!));
     }
 
     [Test]
@@ -111,7 +134,7 @@ public class ChemistryArtifactTests
             new MetaMorpheusSetting("all", "RespectCleavageBlockingModifications", "true"),
             new MetaMorpheusSetting("search", "WriteIndividualFiles", "true"),
         }));
-        Assert.That(all.Where(kv => kv.Value.MetaMorpheusSettings is not null).Select(kv => kv.Key), Is.EquivalentTo(new[] { "label-free-dda@12", "label-free-dda-lowres@6", "tmt-dda@2" }));
+        Assert.That(all.Where(kv => kv.Value.MetaMorpheusSettings is not null).Select(kv => kv.Key), Is.EquivalentTo(new[] { "label-free-dda@12", "label-free-dda@13", "label-free-dda-lowres@6", "tmt-dda@2" }));
         Assert.That(p12 with { Version = 11, Description = p11.Description, Databases = p11.Databases, Accepts = p11.Accepts,
             MetaMorpheus = p11.MetaMorpheus, MetaMorpheusSettings = null,
             Tasks = p11.Tasks, GptmdExtraMods = p11.GptmdExtraMods, GptmdFilters = p11.GptmdFilters, Deposit = p11.Deposit, Qc = p11.Qc,

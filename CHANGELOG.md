@@ -10,12 +10,24 @@ A new version of the engine never changes a finished result. Methods live in ver
 ## 0.4.38 (unreleased)
 
 **MetaMorpheus** unchanged (1.1.13). **Machine file:** unchanged. **Safe mid-batch?** Yes: swap the pin as usual.
+A question names `label-free-dda@13` only once this release runs its batch: an older engine refuses the profile.
 
+- **New profile `label-free-dda@13`: `@12` on regular databases, with two GPTMD list changes.**
+  - **Regular databases (agingPTM-v7).** UniProt's own PTM sites are kept only where a deposit not enriched for the
+    site's class identifies them: human 14,683 of 56,212, mouse 17,029 of 50,544, rat 4,987 of 27,325. UniProt's
+    annotations include sites found only by enrichment studies, and a database's PTMs should mimic the sample's.
+    Measured against entrapment on three deposits (results/regular-db-trial_2026-11-04): peptides -0.6% to +0.9%,
+    FDP equal or lower, 1-3% of the peptides on UniProt sites lost.
+  - **GPTMD offers Formylation on S and on T, and no longer Malonylation on K.** Formic acid formylates S and T. Without
+    S and T on offer the mass was placed as formyl on K, often at a trypsin cut (results/acyl-gptmd_2026-11-03).
+    Malonylation on K had 10% of its GPTMD sites on entrapment partners.
+  - Every other setting is `@12`'s. Deposits searched under `@12` are not re-searched.
+- **`tools/ptm-db/BuildPtmDb.cs --uniprot-sites regular`** writes such a database. Each UniProt site and its verdict
+  (the deposits that vouch for it) go to `uniprot_sites_<organism>.tsv`.
 - **A profile can take modifications out of GPTMD's list** (`engine.gptmd_drop_mods`, the mirror of
   `gptmd_extra_mods`). MetaMorpheus's default list is every Common Biological, Common Artifact and Metal entry of its
   Mods.txt, so until now a class the data refuse could not leave it. An entry the list does not hold is refused when the
-  task is written, never skipped. No shipped profile uses it yet (results/acyl-gptmd_2026-11-03: Malonylation on K is
-  the first candidate, at 10% decoys per target under `label-free-dda@12`).
+  task is written, never skipped. `label-free-dda@13` is the first to use it (Malonylation on K).
 - **An enriched deposit no longer adds its enriched-for PTM class to the organism's spectral library.** Such spectra
   now go to a chain of that class's own (`mouse_phospho`, `mouse_acetylk`, `mouse_succinylk`, `mouse_gg`), and every
   other spectrum registers as before.
