@@ -203,6 +203,23 @@ public class WorkerTests
         Assert.Throws<PXReprise.Cli.UsageException>(() => share.Release(build, "0.4.26+abc1234", null, null, "no-such-set", "x"));
     }
 
+    // v0.4.40 (PXRworker 037, PXR-M13): metamorpheus-1.1.13 reached the share without SHA256SUMS, and the worker, which
+    // never runs a folder it cannot check, stopped on generation 7. A release now refuses such a folder.
+    [Test]
+    public void AReleaseRefusesASoftwareFolderTheWorkerCannotCheck()
+    {
+        var share = new WorkerShare(TestSupport.TempDir());
+        string build = TestSupport.TempDir();
+        File.WriteAllText(Path.Combine(build, "pxreprise.dll"), "build");
+        string mm = Path.Combine(share.Software, "metamorpheus-1.1.13");
+        Directory.CreateDirectory(mm);
+        File.WriteAllText(Path.Combine(mm, "CMD.dll"), "mm");
+        var e = Assert.Throws<PXReprise.Cli.UsageException>(() => share.Release(build, "0.4.40+abc1234", "metamorpheus-1.1.13", null, null, "x"));
+        Assert.That(e!.Message, Does.Contain("SHA256SUMS does not exist").And.Contain("worker sums"));
+        Sha256Sums.Write(mm);
+        Assert.That(share.Release(build, "0.4.40+abc1234", "metamorpheus-1.1.13", null, null, "x").MetaMorpheus, Is.EqualTo("metamorpheus-1.1.13"));
+    }
+
     [Test]
     public void TheControllersLimitsTravelToTheWorkersProbes()
     {

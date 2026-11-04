@@ -7,6 +7,14 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.40 (unreleased)
+
+**MetaMorpheus** unchanged (1.1.13). **Machine file:** unchanged. **Safe mid-batch?** Yes: swap the pin as usual.
+
+- **`pxreprise worker release` refuses a MetaMorpheus or .NET folder on the share that has no `SHA256SUMS`.** The worker
+  never runs software it cannot check. A MetaMorpheus folder copied to the share without its sums once stopped a
+  worker generation at install. `pxreprise worker sums <dir>` writes the file.
+
 ## 0.4.39 (2026-11-04)
 
 **MetaMorpheus** unchanged (1.1.13). **Machine file:** unchanged. **Safe mid-batch?** Yes: swap the pin as usual.
