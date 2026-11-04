@@ -1,0 +1,47 @@
+dataset	excluded_class	source
+PXD005035	acetylK	acetylK: probe measured: acetyl
+PXD007035	GG	GG: manifest enrichment: ubiquitin_GG; manifest text names a polyubiquitin capture ('Ubiquitin Remnant'); GG: manifest enrichment: ubiquitin_GG; manifest text names a polyubiquitin capture ('Ubiquitin Remnant'); GG: manifest enrichment: ubiquitin_GG; manifest text names a polyubiquitin capture ('Ubiquitin Remnant')
+PXD007999	phospho	measured: 1/30 runs with phospho >= 5% of 1% target PSMs, max 6.1%
+PXD011314	phospho	phospho: probe measured: phospho; phospho: probe measured: phospho; measured: 10/17 runs with phospho >= 5% of 1% target PSMs, max 24.3%
+PXD013398	acetylK	acetylK: probe measured: acetyl; acetylK: probe measured: acetyl
+PXD014097	phospho	phospho: manifest enrichment: phospho; probe measured: phospho; phospho: manifest enrichment: phospho; probe measured: phospho; phospho: manifest enrichment: phospho; declared: phosphopeptides (aging results/enrichment_targets_2026-10-07.tsv); measured: 12/12 runs with phospho >= 5% of 1% target PSMs, max 81.8%
+PXD017475	phospho	measured: 1/19 runs with phospho >= 5% of 1% target PSMs, max 8.9%
+PXD018097	phospho	phospho: manifest enrichment: phospho; probe measured: phospho; phospho: manifest enrichment: phospho; probe measured: phospho; phospho: manifest enrichment: phospho; measured: 6/12 runs with phospho >= 5% of 1% target PSMs, max 89.2%
+PXD020462	phospho	phospho: probe measured: phospho; measured: 10/15 runs with phospho >= 5% of 1% target PSMs, max 23.1%
+PXD026608	phospho	phospho: manifest enrichment: phospho; phospho: manifest enrichment: phospho; phospho: manifest enrichment: phospho; declared: phosphopeptides (aging results/enrichment_targets_2026-10-07.tsv); measured: 12/12 runs with phospho >= 5% of 1% target PSMs, max 90.6%
+PXD027971	phospho	phospho: manifest enrichment: phospho; phospho: manifest enrichment: phospho; phospho: manifest enrichment: phospho; measured: 15/15 runs with phospho >= 5% of 1% target PSMs, max 71.5%
+PXD029116	phospho	phospho: probe measured: phospho; phospho: probe measured: phospho; measured: 4/30 runs with phospho >= 5% of 1% target PSMs, max 7.0%
+PXD030939	phospho	phospho: manifest enrichment: phospho; probe measured: phospho; phospho: manifest enrichment: phospho; probe measured: phospho; phospho: manifest enrichment: phospho; probe measured: phospho; measured: 10/20 runs with phospho >= 5% of 1% target PSMs, max 78.4%
+PXD031223	phospho	phospho: phospho: probe measured: phospho; measured: 4/8 runs with phospho >= 5% of 1% target PSMs, max 9.8%
+PXD032044	GG	measured: 1/44 runs with GG >= 2% of 1% target PSMs, max 2.0%
+PXD033430	acetylK	acetylK: manifest enrichment: acetyl; acetylK: manifest enrichment: acetyl; acetylK: manifest enrichment: acetyl
+PXD034590	phospho	phospho: probe measured: phospho; phospho: probe measured: phospho; measured: 4/81 runs with phospho >= 5% of 1% target PSMs, max 12.7%
+PXD035107	phospho	phospho: manifest enrichment: phospho; probe measured: phospho; phospho: manifest enrichment: phospho; probe measured: phospho; phospho: manifest enrichment: phospho; declared: phosphopeptides (aging results/enrichment_targets_2026-10-07.tsv); measured: 8/8 runs with phospho >= 5% of 1% target PSMs, max 85.7%
+PXD035171	phospho	phospho: manifest enrichment: phospho; probe measured: phospho; phospho: manifest enrichment: phospho; probe measured: phospho; phospho: manifest enrichment: phospho; declared: phosphopeptides (aging results/enrichment_targets_2026-10-07.tsv); measured: 14/14 runs with phospho >= 5% of 1% target PSMs, max 70.6%
+PXD035412	phospho	phospho: manifest enrichment: phospho; probe measured: phospho; phospho: manifest enrichment: phospho; probe measured: phospho; measured: 15/30 runs with phospho >= 5% of 1% target PSMs, max 74.0%
+PXD038328	acetylK	acetylK: manifest enrichment: acetyl; acetylK: manifest enrichment: acetyl; acetylK: manifest enrichment: acetyl
+PXD039172	phospho	phospho: probe measured: phospho; phospho: probe measured: phospho; phospho: probe measured: phospho; measured: 39/97 runs with phospho >= 5% of 1% target PSMs, max 100.0%
+PXD041660	phospho	phospho: probe measured: phospho; phospho: probe measured: phospho; measured: 4/8 runs with phospho >= 5% of 1% target PSMs, max 10.1%
+PXD042428	phospho	phospho: probe measured: phospho
+PXD044227	phospho	phospho: manifest enrichment: phospho; probe measured: phospho; phospho: manifest enrichment: phospho; probe measured: phospho; phospho: manifest enrichment: phospho; probe measured: phospho; measured: 61/61 runs with phospho >= 5% of 1% target PSMs, max 81.4%
+PXD047288	GG	GG: manifest text names a polyubiquitin capture ('TUBE'); GG: manifest text names a polyubiquitin capture ('TUBE'); GG: manifest text names a polyubiquitin capture ('TUBE'); declared: K48 polyubiquitin (TUBE) (aging results/enrichment_targets_2026-10-07.tsv); measured: 1/36 runs with GG >= 2% of 1% target PSMs, max 2.5%
+PXD047289	GG	GG: manifest text names a polyubiquitin capture ('TUBE'); GG: manifest text names a polyubiquitin capture ('TUBE'); GG: manifest text names a polyubiquitin capture ('TUBE'); declared: K48 polyubiquitin (TUBE) (aging results/enrichment_targets_2026-10-07.tsv)
+PXD047292	GG	GG: manifest text names a polyubiquitin capture ('TUBE'); GG: manifest text names a polyubiquitin capture ('TUBE'); GG: manifest text names a polyubiquitin capture ('TUBE'); declared: K48 polyubiquitin (TUBE) (aging results/enrichment_targets_2026-10-07.tsv)
+PXD047293	GG	GG: manifest text names a polyubiquitin capture ('TUBE'); GG: manifest text names a polyubiquitin capture ('TUBE'); GG: manifest text names a polyubiquitin capture ('TUBE'); declared: K48 polyubiquitin (TUBE) (aging results/enrichment_targets_2026-10-07.tsv)
+PXD049957	phospho	phospho: manifest enrichment: phospho; probe measured: phospho; phospho: manifest enrichment: phospho; probe measured: phospho; phospho: manifest enrichment: phospho; probe measured: phospho; measured: 22/34 runs with phospho >= 5% of 1% target PSMs, max 78.5%
+PXD051203	GG	GG: manifest text names a polyubiquitin capture ('TUBE'); GG: manifest text names a polyubiquitin capture ('TUBE'); GG: manifest text names a polyubiquitin capture ('TUBE'); declared: K48 polyubiquitin (TUBE) (aging results/enrichment_targets_2026-10-07.tsv); measured: 8/39 runs with GG >= 2% of 1% target PSMs, max 2.9%
+PXD051644	GG	GG: manifest text names a polyubiquitin capture ('TUBE'); GG: manifest text names a polyubiquitin capture ('TUBE'); GG: manifest text names a polyubiquitin capture ('TUBE'); declared: K48 polyubiquitin (TUBE) (aging results/enrichment_targets_2026-10-07.tsv); measured: 1/23 runs with GG >= 2% of 1% target PSMs, max 3.1%
+PXD056276	phospho	phospho: probe measured: phospho; phospho: probe measured: phospho
+PXD056433	GG	GG: manifest text names a polyubiquitin capture ('polyubiquitin'); GG: manifest text names a polyubiquitin capture ('polyubiquitin'); GG: manifest text names a polyubiquitin capture ('polyubiquitin'); declared: M1 polyubiquitin (TUBE) (aging results/enrichment_targets_2026-10-07.tsv)
+PXD056458	GG	GG: manifest text names a polyubiquitin capture ('polyubiquitin'); GG: manifest text names a polyubiquitin capture ('polyubiquitin'); GG: manifest text names a polyubiquitin capture ('polyubiquitin'); declared: M1 polyubiquitin (TUBE) (aging results/enrichment_targets_2026-10-07.tsv)
+PXD057490	phospho	phospho: manifest enrichment: phospho; phospho: manifest enrichment: phospho; phospho: manifest enrichment: phospho; measured: 8/8 runs with phospho >= 5% of 1% target PSMs, max 92.0%
+PXD057502	phospho	phospho: manifest enrichment: phospho; phospho: manifest enrichment: phospho; phospho: manifest enrichment: phospho; measured: 9/9 runs with phospho >= 5% of 1% target PSMs, max 82.6%
+PXD057544	acetylK	acetylK: manifest enrichment: acetyl; acetylK: manifest enrichment: acetyl; acetylK: manifest enrichment: acetyl
+PXD057554	acetylK	acetylK: acetylK: acetylK: manifest enrichment: acetyl
+PXD058248	GG	GG: manifest text names a polyubiquitin capture ('polyubiquitin'); GG: manifest text names a polyubiquitin capture ('polyubiquitin'); GG: manifest text names a polyubiquitin capture ('polyubiquitin'); declared: K63 polyubiquitin (TUBE) (aging results/enrichment_targets_2026-10-07.tsv)
+PXD058253	GG	GG: manifest text names a polyubiquitin capture ('polyubiquitin'); GG: manifest text names a polyubiquitin capture ('polyubiquitin'); GG: manifest text names a polyubiquitin capture ('polyubiquitin'); declared: K63 polyubiquitin (TUBE) (aging results/enrichment_targets_2026-10-07.tsv); measured: 8/38 runs with GG >= 2% of 1% target PSMs, max 3.6%
+PXD060982	phospho	phospho: manifest enrichment: phospho; probe measured: phospho; phospho: manifest enrichment: phospho; probe measured: phospho; phospho: manifest enrichment: phospho; declared: phosphopeptides (aging results/enrichment_targets_2026-10-07.tsv); measured: 8/8 runs with phospho >= 5% of 1% target PSMs, max 95.2%
+PXD061654	acetylK	acetylK: manifest enrichment: acetyl; probe measured: acetyl; acetylK: manifest enrichment: acetyl; acetylK: manifest enrichment: acetyl
+PXD071171	phospho	phospho: manifest enrichment: phospho; probe measured: phospho; phospho: manifest enrichment: phospho; probe measured: phospho; measured: 10/20 runs with phospho >= 5% of 1% target PSMs, max 93.2%
+PXD073999	GG	measured: 2/12 runs with GG >= 2% of 1% target PSMs, max 3.2%
+PXD077298	GG	measured: 1/22 runs with GG >= 2% of 1% target PSMs, max 2.5%

@@ -1,0 +1,34 @@
+15:42:14 proteomes
+enrichment measured on the PSMs of 193 bundles in F:\aging_data\repo\store (the catalog has no psms_1pct)
+human: UniProt modified residues kept 14683 of 56212
+human: 7919 sites written to F:/pxreprise_ptmdb_v7/out\UP000005640_all_genecentric_2026_03_agingPTM-v7.xml; dropped {"already_in_uniprot":46,"not_in_canonical_xml":222}
+mouse: UniProt modified residues kept 17029 of 50544
+mouse: 12063 sites written to F:/pxreprise_ptmdb_v7/out\UP000000589_all_genecentric_2026_03_agingPTM-v7.xml; dropped {"already_in_uniprot":27,"not_in_canonical_xml":154,"nterm_acetyl_not_at_1_or_2":1}
+rat: UniProt modified residues kept 4987 of 27325
+rat: 2154 sites written to F:/pxreprise_ptmdb_v7/out\UP000002494_all_genecentric_2026_03_agingPTM-v7.xml; dropped {"already_in_uniprot":8,"not_in_canonical_xml":59}
+provenance: F:/pxreprise_ptmdb_v7/out\provenance_agingPTM-v7.json
+15:43:12 isoforms
+enrichment measured on the PSMs of 193 bundles in F:\aging_data\repo\store (the catalog has no psms_1pct)
+human ENSP00000572008 (SORBS1, ENSG00000095637): canonical Q9BX66 by ensembl_gene_id
+mouse ENSMUSP00000133389 (Nrxn1, ENSMUSG00000024109): canonical Q9CS84 by ensembl_gene_id
+mouse ENSMUSP00000141730 (Ncam1, ENSMUSG00000039542): canonical P13595 by gene_name
+mouse ENSMUSP00000292642 (Atp2a1, ENSMUSG00000030730): canonical Q8R429 by ensembl_gene_id
+mouse ENSMUSP00000314297 (Clstn1, ENSMUSG00000039953): canonical Q9EPL2 by ensembl_gene_id
+  human ambiguous_group: 33
+  human isoform_by_parsimony: 161
+  human isoform_group_but_canonical_also_identified: 467
+  human no_1pct_group: 37
+  mouse ambiguous_group: 30
+  mouse isoform_by_parsimony: 35
+  mouse isoform_group_but_canonical_also_identified: 551
+  mouse no_1pct_group: 41
+  rat ambiguous_group: 8
+  rat isoform_group_but_canonical_also_identified: 109
+  rat no_1pct_group: 9
+sites >= 5 PSMs: rule only (loose) 410; with the canonical-absent guard (strict) 73
+human: 215 isoform sites written to F:/pxreprise_ptmdb_v7/out_iso\aging_isoforms_union_human_agingPTM-v7.xml
+mouse: 141 isoform sites written to F:/pxreprise_ptmdb_v7/out_iso\aging_isoforms_union_mouse_agingPTM-v7.xml
+rat: 54 isoform sites written to F:/pxreprise_ptmdb_v7/out_iso\aging_isoforms_union_rat_agingPTM-v7.xml
+provenance: F:/pxreprise_ptmdb_v7/out_iso\isoform_provenance_agingPTM-v7.json
+15:43:41 done
+rc=0
