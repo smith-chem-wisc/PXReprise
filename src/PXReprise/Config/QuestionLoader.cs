@@ -122,12 +122,29 @@ public static class QuestionLoader
                 string? species = t.OptionalString("species");
                 if (species is not null && !Regex.IsMatch(species, "^[a-z]+(_[a-z]+)*$"))
                     throw new ConfigException(file, $"exceptions.{acc}.species must be a profile database key such as \"rat\" (got '{species}')");
+                // v0.4.39 (aging PXR-A158): [exceptions.PXD.replace_files."<raw file name>"] path, pride_sha1, sha256, note.
+                Dictionary<string, FileReplacement>? replace = null;
+                if (t.OptionalTable("replace_files") is { } rt)
+                {
+                    replace = new Dictionary<string, FileReplacement>(StringComparer.Ordinal);
+                    foreach (string rawName in rt.Keys.ToList())
+                    {
+                        if (rawName.Length == 0 || rawName.IndexOfAny(new[] { '/', '\\', ':' }) >= 0)
+                            throw new ConfigException(file, $"exceptions.{acc}.replace_files key '{rawName}' must be a raw file name as PRIDE lists it, not a path");
+                        var f = rt.RequiredTable(rawName);
+                        string Hex(string key, int length) => f.RequiredString(key).ToLowerInvariant() is var h && h.Length == length && h.All(Uri.IsHexDigit)
+                            ? h : throw new ConfigException(file, $"exceptions.{acc}.replace_files.\"{rawName}\".{key} must be {length} hex digits");
+                        replace[rawName] = new FileReplacement(Abs(dir, f.RequiredString("path")), Hex("pride_sha1", 40), Hex("sha256", 64), f.RequiredString("note"));
+                        f.RefuseUnknownKeys();
+                    }
+                    if (replace.Count == 0) throw new ConfigException(file, $"exceptions.{acc}.replace_files names no file");
+                }
                 var e = new DepositException(acc, t.RequiredString("reason"), Rx("include_files"), Rx("exclude_files"),
-                    Int("max_files"), Int("max_file_mb"), t.OptionalInteger("max_est_ms2"), Int("defer_if_median_file_mb"), alkylation, species);
+                    Int("max_files"), Int("max_file_mb"), t.OptionalInteger("max_est_ms2"), Int("defer_if_median_file_mb"), alkylation, species, replace);
                 t.RefuseUnknownKeys();
                 if (!e.SelectsFiles && e.MaxFiles is null && e.MaxFileMb is null && e.MaxEstimatedMs2 is null && e.DeferIfMedianFileMb is null
-                    && e.Alkylation is null && e.Species is null)
-                    throw new ConfigException(file, $"exceptions.{acc} changes nothing: give a cap, include_files / exclude_files, alkylation or species");
+                    && e.Alkylation is null && e.Species is null && e.ReplaceFiles is null)
+                    throw new ConfigException(file, $"exceptions.{acc} changes nothing: give a cap, include_files / exclude_files, alkylation, species or replace_files");
                 exceptions[acc] = e;
             }
             ex.RefuseUnknownKeys();

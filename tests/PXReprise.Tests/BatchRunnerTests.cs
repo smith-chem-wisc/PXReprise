@@ -269,6 +269,46 @@ public class BatchRunnerTests
         Assert.That(ex.Apply(Profiles["label-free-dda@4"].Deposit).MaxEstimatedMs2, Is.Zero);
     }
 
+    // v0.4.39 (aging 197, PXR-A158): a question names a local replacement for a raw file damaged at PRIDE, keyed by PRIDE's
+    // file name, with PRIDE's SHA-1, the replacement's SHA-256 and why; a path relative to the question resolves beside it.
+    [Test]
+    public void AReplaceFilesExceptionNamesEachFileWithBothChecksumsAndItsReason()
+    {
+        string dir = TestSupport.TempDir();
+        string Block(string sha1, string sha256, string key = "P17_WT513_SCX1.raw") =>
+            TestSupport.MinimalQuestion + $"\n[exceptions.PXD025315]\nreason = \"aging's user: all 126, six repaired\"\nmax_est_ms2 = 0\n"
+            + $"[exceptions.PXD025315.replace_files.\"{key}\"]\npath = \"repairs/{key}\"\npride_sha1 = \"{sha1}\"\nsha256 = \"{sha256}\"\nnote = \"a doubled range removed (aging 197)\"\n";
+        string sha1 = "C848C70197602F38FD9AADFC44BB99B0E5F30686", sha256 = new string('4', 64);
+        var q = QuestionLoader.Load(TestSupport.WriteFile(dir, "q.toml", Block(sha1, sha256)));
+        var rep = q.ExceptionFor("PXD025315")!.ReplaceFiles!["P17_WT513_SCX1.raw"];
+        Assert.That((rep.PrideSha1, rep.Sha256, rep.Note), Is.EqualTo((sha1.ToLowerInvariant(), sha256, "a doubled range removed (aging 197)")));
+        Assert.That(rep.Path, Is.EqualTo(Path.GetFullPath(Path.Combine(dir, "repairs", "P17_WT513_SCX1.raw"))));
+        Assert.That(q.ExceptionFor("PXD025315")!.Describe(), Does.Contain("replace_files 1 (P17_WT513_SCX1.raw)"));
+
+        Assert.Throws<ConfigException>(() => QuestionLoader.Load(TestSupport.WriteFile(dir, "a.toml", Block(sha1[..39], sha256))), "a SHA-1 has 40 digits");
+        Assert.Throws<ConfigException>(() => QuestionLoader.Load(TestSupport.WriteFile(dir, "b.toml", Block(sha1, sha256.Replace('4', 'g')))), "hex only");
+        Assert.Throws<ConfigException>(() => QuestionLoader.Load(TestSupport.WriteFile(dir, "c.toml", Block(sha1, sha256, "sub/x.raw"))), "a file name, not a path");
+        var onlyReplace = QuestionLoader.Load(TestSupport.WriteFile(dir, "d.toml", Block(sha1, sha256).Replace("max_est_ms2 = 0\n", "")));
+        Assert.That(onlyReplace.ExceptionFor("PXD025315")!.ReplaceFiles, Has.Count.EqualTo(1), "a replacement alone is a change");
+    }
+
+    // v0.4.39 (aging 195, PXR-A157): an isobaric profile searches no enriched class as a variable modification, so an
+    // enriched deposit waits for one (tmt-dda@3) instead of reaching the catalog with its sites forced onto UniProt's.
+    [Test]
+    public void AnEnrichedDepositIsHeldFromAnIsobaricProfile()
+    {
+        var (runner, _, _, _) = DepositChemistryRunner("\"label-free-dda@3\", \"tmt-dda@2\"");
+        runner.Record("PXD000421", ("enrichment", "phospho"));
+        Assert.That(runner.IsobaricEnrichedHold("PXD000421", Profiles["tmt-dda@2"]), Does.Contain("enriched for phospho").And.Contain("tmt-dda@3"));
+        Assert.That(runner.IsobaricEnrichedHold("PXD000421", Profiles["label-free-dda@3"]), Is.Null, "a label-free profile is not held");
+        runner.Record("PXD000422", ("enrichment", "none"));
+        Assert.That(runner.IsobaricEnrichedHold("PXD000422", Profiles["tmt-dda@2"]), Is.Null);
+        runner.Record("PXD000423", ("enrichment", "affinity_purification"));
+        Assert.That(runner.IsobaricEnrichedHold("PXD000423", Profiles["tmt-dda@2"]), Is.Null, "a protein pulldown enriches no PTM class");
+        runner.Record("PXD000424", ("enrichment", "none"), ("enrichment_measured", "phospho"));
+        Assert.That(runner.IsobaricEnrichedHold("PXD000424", Profiles["tmt-dda@2"]), Does.Contain("phospho"), "the probe's measurement counts");
+    }
+
     // v0.4.19 (aging PXR-A109): PXD068498 is rat, filed as mouse in PRIDE. The exception names a profile database key, and
     // the deposit is searched (database, probe judge, library, manifest taxon) as that organism.
     [Test]
@@ -1203,6 +1243,27 @@ public class BatchRunnerTests
         Assert.That(File.ReadAllText(lf), Does.Contain("    quant_method: label-free\n").And.Not.Contain("labelling"));
     }
 
+    // v0.4.39 (aging 197, PXR-A158): a delivery whose fetch used a question's replacements says which raw files are not
+    // PRIDE's bytes, with both checksums and why, so dataRepo carries it.
+    [Test]
+    public void AnEntryNamesTheRawFilesTheQuestionReplaced()
+    {
+        string dir = TestSupport.TempDir(), run = Path.Combine(dir, "runs", "PXD025315");
+        Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
+        Directory.CreateDirectory(Path.Combine(run, "02_fetch"));
+        Directory.CreateDirectory(Path.Combine(run, "04_search"));
+        File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(("a.raw", true, Array.Empty<string>()), ("b.raw", true, Array.Empty<string>())).ToJsonString());
+        File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), """{"tools":{"MetaMorpheus":{"release":"1.1.13"}}}""");
+        File.WriteAllText(Path.Combine(run, "02_fetch", "fetch_manifest.json"), """
+            {"files":[{"name":"a.raw","replaced":null},
+                      {"name":"b.raw","replaced":{"source":"F:/r/b.raw","pride_sha1":"c848c701","sha256":"4eb0b349","note":"a doubled range removed (aging 197)"}}]}
+            """);
+        string manifest = TestSupport.WriteFile(dir, "manifest.yaml", "manifest_version: 1\ndatasets:\n");
+        ManifestEntry.Append(manifest, new QueueEntry("PXD025315", "t", "mouse"), Profiles["label-free-dda@12"], run, null, dir);
+        Assert.That(File.ReadAllText(manifest), Does.Contain("REPLACED RAW FILES: 1 of 2 raw files searched are the question's replacements, not PRIDE's bytes: "
+            + "b.raw (PRIDE SHA-1 c848c701, replacement SHA-256 4eb0b349: a doubled range removed (aging 197))."));
+    }
+
     [Test]
     public void ANewQuestionGetsAManifestWhoseRunsAreRelativeToItsOwnWorkRoot()
     {
@@ -1471,6 +1532,12 @@ public class BatchRunnerTests
         string log = File.ReadAllText(Path.Combine(dir, "state", "batch.log"));
         Assert.That(log, Does.Contain("PXD000208 PROBE fetch paused at the disk floor").And.Contain("a fetch reached the disk floor"));
         Assert.That(log, Does.Not.Contain("pass 1 done").And.Not.Contain("queue done"));
+
+        // v0.4.39: the stop needs a person (D34). Unannounced, it once left the batch idle for 13 hours (PXD005035).
+        Assert.That(log, Does.Contain("PXD000208 DECISION NEEDED (fetch_paused_disk)"));
+        var rows = File.ReadAllLines(Path.Combine(dir, "runs", DecisionsNeeded.FileName)).Skip(1).Select(l => l.Split('\t')).ToList();
+        Assert.That(rows.Select(c => (c[1], c[2])), Is.EqualTo(new[] { ("PXD000208", "fetch_paused_disk") }));
+        Assert.That(rows[0][4], Does.Contain("below the"), "the evidence says how much disk it needs");
     }
 
     [Test]

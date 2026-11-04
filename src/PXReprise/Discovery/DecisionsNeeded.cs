@@ -44,6 +44,10 @@ public static class DecisionsNeeded
             "say what the deposit is (a curated SDRF naming its label or chemistry, or a profile that takes it); or exclude the deposit"),
         ["unsupported_fragmentation"] =new("Some files' MS2 fragmentation cannot be searched per file (an unsupported type, no header, or ion-trap and Orbitrap MS2 mixed).",
             "exclude those files ([exceptions]); or exclude the deposit until a profile supports them"),
+        // v0.4.39 (the user, 2026-11-04): the disk-floor stop is the machine's call, not the question's, and it stops the whole
+        // batch. Unannounced, it left the batch idle for about 13 hours (PXD005035, 2026-11-03/04) until someone asked.
+        ["fetch_paused_disk"] = new("The deposit's download needs more free disk than the machine has above its floor (min_free_gb), so the batch starts no new deposit until space is freed. This is the machine operator's call, not the question's.",
+            "free disk space (the next driver start takes the deposit up again); lower the machine's min_free_gb; or set the deposit aside ([exceptions] select fewer files, or exclude it)"),
     };
 
     /// <summary>The decision a park needs, or null when the park only waits on a capability.</summary>

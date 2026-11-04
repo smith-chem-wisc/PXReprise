@@ -113,6 +113,16 @@ public static class ManifestEntry
             notes.Add($"QUESTION EXCEPTION: {exception}.");
             flags.Add("question_exception");
         }
+        // v0.4.39 (aging 197, PXR-A158): raw files the question replaced are not PRIDE's bytes; each is named with PRIDE's
+        // SHA-1, the replacement's SHA-256 and why, from the fetch's own record.
+        string fetchManifest = Path.Combine(runDir, "02_fetch", "fetch_manifest.json");
+        if (File.Exists(fetchManifest) && JsonNode.Parse(File.ReadAllText(fetchManifest))?["files"] is JsonArray fetched)
+        {
+            var replaced = fetched.Where(f => f?["replaced"] is JsonObject).Select(f => f!).OrderBy(f => f["name"]!.GetValue<string>(), StringComparer.Ordinal).ToList();
+            if (replaced.Count > 0)
+                notes.Add($"REPLACED RAW FILES: {replaced.Count} of {fetched.Count} raw files searched are the question's replacements, not PRIDE's bytes: "
+                    + string.Join("; ", replaced.Select(f => $"{f["name"]} (PRIDE SHA-1 {f["replaced"]!["pride_sha1"]}, replacement SHA-256 {f["replaced"]!["sha256"]}: {f["replaced"]!["note"]})")) + ".");
+        }
         // aging 043 (PXR-A37): too few cysteine peptides for a whole proteome points to an alkylant the search did not use.
         if (enrichment == "none" && searchFlags.FirstOrDefault(f => f.StartsWith("cysteine_poor:", StringComparison.Ordinal)) is { } cysPoor)
         {

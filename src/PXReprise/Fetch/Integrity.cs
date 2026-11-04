@@ -77,20 +77,31 @@ public static class Integrity
                 if (row.Md5 is { Length: 32 } m5) map[name] = m5.ToLowerInvariant();
         }
         catch (Exception e) when (e is HttpRequestException or MzLibUtil.MzLibException || (e is TaskCanceledException && !ct.IsCancellationRequested)) { }
-        string acc = Uri.EscapeDataString(accession);
         try
         {
-            using var r = await Http.GetAsync($"https://www.ebi.ac.uk/pride/ws/archive/v3/projects/{acc}/files/all", ct).ConfigureAwait(false);
-            if (r.IsSuccessStatusCode)
-            {
-                using var doc = await JsonDocument.ParseAsync(await r.Content.ReadAsStreamAsync(ct).ConfigureAwait(false), cancellationToken: ct).ConfigureAwait(false);
-                foreach (var f in doc.RootElement.EnumerateArray())
-                    if (f.TryGetProperty("fileName", out var name) && f.TryGetProperty("checksum", out var c)
-                        && c.ValueKind == JsonValueKind.String && c.GetString() is { Length: 40 } sha && !map.ContainsKey(name.GetString()!))
-                        map[name.GetString()!] = sha;
-            }
+            foreach (var (name, sha) in await PrideSha1sAsync(accession, ct).ConfigureAwait(false))
+                map.TryAdd(name, sha);
         }
         catch (Exception e) when (e is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException) { }
+        return map;
+    }
+
+    /// <summary>
+    /// The SHA-1 PRIDE's v3 <c>files/all</c> list gives each file (40 hex digits, lower case; a file it gives none for is
+    /// absent). Throws <see cref="HttpRequestException"/> when PRIDE does not answer with the list, so a caller that needs
+    /// the SHA-1 (a question's file replacement, v0.4.39) can tell an outage from a missing checksum.
+    /// </summary>
+    public static async Task<IReadOnlyDictionary<string, string>> PrideSha1sAsync(string accession, CancellationToken ct)
+    {
+        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        string acc = Uri.EscapeDataString(accession);
+        using var r = await Http.GetAsync($"https://www.ebi.ac.uk/pride/ws/archive/v3/projects/{acc}/files/all", ct).ConfigureAwait(false);
+        r.EnsureSuccessStatusCode();
+        using var doc = await JsonDocument.ParseAsync(await r.Content.ReadAsStreamAsync(ct).ConfigureAwait(false), cancellationToken: ct).ConfigureAwait(false);
+        foreach (var f in doc.RootElement.EnumerateArray())
+            if (f.TryGetProperty("fileName", out var name) && f.TryGetProperty("checksum", out var c)
+                && c.ValueKind == JsonValueKind.String && c.GetString() is { Length: 40 } sha)
+                map.TryAdd(name.GetString()!, sha.ToLowerInvariant());
         return map;
     }
 }

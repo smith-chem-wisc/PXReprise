@@ -125,6 +125,81 @@ public class FetchStageTests
         Assert.That(prov, Does.Contain("subset_by_question: 2 of 3 raw files").And.Contain("rat files only (aging 044)"));
     }
 
+    // v0.4.39 (aging 197, PXR-A158): PXD025315's six files damaged at PRIDE are replaced by aging's repairs. A replacement is
+    // copied in, never downloaded; PRIDE must still list the SHA-1 it was made for and the copy must have its SHA-256; it is
+    // recorded per file; and a later pass keeps it rather than putting PRIDE's damaged file back.
+    private static (string Dir, string Source, PXReprise.Config.FileReplacement Rep, byte[] Bytes) Repair(string sha1)
+    {
+        string dir = TestSupport.TempDir();
+        var bytes = Enumerable.Range(0, 90).Select(i => (byte)i).ToArray();
+        string src = Path.Combine(dir, "repairs", "b.raw");
+        Directory.CreateDirectory(Path.GetDirectoryName(src)!);
+        File.WriteAllBytes(src, bytes);
+        string sha256 = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes));
+        return (dir, src, new PXReprise.Config.FileReplacement(src, sha1, sha256, "a doubled range removed (aging 197)"), bytes);
+    }
+
+    private static FetchRequest WithReplacement(string dir, PXReprise.Config.FileReplacement rep, IReadOnlyDictionary<string, string> prideSha1) =>
+        new("PXD025315", Path.Combine(dir, "02_fetch"), Pick.All, 60, 5000, ".raw", 2, 3, TimeSpan.Zero, TimeSpan.Zero, dir,
+            Replace: new Dictionary<string, PXReprise.Config.FileReplacement> { ["b.raw"] = rep },
+            PrideSha1Source: (a, ct) => Task.FromResult(prideSha1));
+
+    [Test]
+    public async Task AQuestionsReplacementIsCopiedInCheckedAndRecordedNeverDownloaded()
+    {
+        string sha1 = new string('a', 40);
+        var (dir, src, rep, bytes) = Repair(sha1);
+        string spectra = Path.Combine(dir, "02_fetch", "spectra");
+        Directory.CreateDirectory(spectra);
+        File.WriteAllBytes(Path.Combine(spectra, "b.raw"), new byte[100]);   // PRIDE's damaged copy, from an earlier fetch
+        var pride = new FlakyPride { Files = { F("a.raw", 100), F("b.raw", 100) }, Ftp = { "a.raw", "b.raw" } };
+        var r = WithReplacement(dir, rep, new Dictionary<string, string> { ["b.raw"] = sha1 });
+        var lines = new List<string>();
+        var manifest = await FetchStage.RunAsync(r, pride, CancellationToken.None, lines.Add);
+
+        Assert.That(pride.Locations, Has.Count.EqualTo(1), "only a.raw was downloaded");
+        Assert.That(File.ReadAllBytes(Path.Combine(spectra, "b.raw")), Is.EqualTo(bytes));
+        var files = manifest["files"]!.AsArray().ToDictionary(f => f!["name"]!.GetValue<string>(), f => f!);
+        Assert.That(files["b.raw"]["replaced"]!["sha256"]!.GetValue<string>(), Is.EqualTo(rep.Sha256));
+        Assert.That(files["b.raw"]["replaced"]!["pride_sha1"]!.GetValue<string>(), Is.EqualTo(sha1));
+        Assert.That(files["b.raw"]["sha256"]!.GetValue<string>(), Is.EqualTo(rep.Sha256), "the local file is the replacement");
+        Assert.That(files["a.raw"]["replaced"], Is.Null);
+        string prov = File.ReadAllText(Path.Combine(dir, "02_fetch", "provenance.json"));
+        Assert.That(prov, Does.Contain("replaced_by_question: 1 of 2 raw files").And.Contain("a doubled range removed (aging 197)"));
+        Assert.That(lines, Has.Some.Contains("b.raw replaced by the question's copy"));
+
+        // A later pass (a retry, a re-search) keeps the replacement in place, even with the source gone.
+        File.Delete(src);
+        lines.Clear();
+        await FetchStage.RunAsync(r, pride, CancellationToken.None, lines.Add);
+        Assert.That(File.ReadAllBytes(Path.Combine(spectra, "b.raw")), Is.EqualTo(bytes));
+        Assert.That(lines, Has.Some.Contains("already in place"));
+    }
+
+    [Test]
+    public void AReplacementIsRefusedWhenPrideOrItsOwnChecksumDisagrees()
+    {
+        string sha1 = new string('a', 40);
+        var pride = new FlakyPride { Files = { F("b.raw", 100) }, Ftp = { "b.raw" } };
+
+        var (d1, _, rep1, _) = Repair(sha1);
+        var changed = Assert.ThrowsAsync<InvalidDataException>(() => FetchStage.RunAsync(
+            WithReplacement(d1, rep1, new Dictionary<string, string> { ["b.raw"] = new string('b', 40) }), pride, CancellationToken.None));
+        Assert.That(changed!.Message, Does.Contain("PRIDE now lists SHA-1 bbbb").And.Contain("check the replacement again"));
+
+        var (d2, _, rep2, _) = Repair(sha1);
+        var none = Assert.ThrowsAsync<InvalidDataException>(() => FetchStage.RunAsync(
+            WithReplacement(d2, rep2, new Dictionary<string, string>()), pride, CancellationToken.None));
+        Assert.That(none!.Message, Does.Contain("PRIDE lists no SHA-1"));
+
+        var (d3, _, rep3, _) = Repair(sha1);
+        var wrongCopy = Assert.ThrowsAsync<InvalidDataException>(() => FetchStage.RunAsync(
+            WithReplacement(d3, rep3 with { Sha256 = new string('0', 64) }, new Dictionary<string, string> { ["b.raw"] = sha1 }), pride, CancellationToken.None));
+        Assert.That(wrongCopy!.Message, Does.Contain("has SHA-256"));
+        Assert.That(Directory.GetFiles(Path.Combine(d3, "02_fetch", "spectra")), Is.Empty, "nothing left behind");
+        Assert.That(pride.Locations, Is.Empty, "a replaced file is never downloaded, even when the replacement is refused");
+    }
+
     // 2026-10-08: EBI wrote "<Error><Code>ConnectionClosedException..." into 8 of ~25 PXD012307 files, at PRIDE's size.
     [Test]
     public void TheIntegrityCheckFindsEbisErrorTextAnywhereAndHashesTheWholeFile()

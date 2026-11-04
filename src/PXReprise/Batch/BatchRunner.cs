@@ -174,6 +174,12 @@ public sealed class BatchRunner
     /// evidence the library must not ignore. Per deposit, not per run: an entry does not say which run a library
     /// spectrum came from, so a mixed deposit's whole-proteome runs route that class too.
     /// </summary>
+    /// <summary>v0.4.39 (aging PXR-A157): why an enriched deposit must not be searched under this isobaric profile, or null.</summary>
+    internal string? IsobaricEnrichedHold(string acc, Profile profile) =>
+        profile.QuantMethod == "reporter_ion" && LibraryRouteClasses(acc) is { Count: > 0 } enriched
+            ? $"enriched for {string.Join(", ", enriched)}, and {profile.Key} searches no enriched PTM class as a variable modification (waits for tmt-dda@3, G66)"
+            : null;
+
     private IReadOnlyList<string> LibraryRouteClasses(string acc)
     {
         var state = Entry(acc);
@@ -605,6 +611,9 @@ public sealed class BatchRunner
             _diskShort = true;
             Log($"{acc} {what} paused at the disk floor: {ex.Message}. Left for the next driver; no new deposit starts");
             Record(acc, ("status", "fetch_paused_disk"), ("detail", ex.Message));
+            // v0.4.39: the stop needs a person (D34), so it is announced like a park.
+            if (DecisionsNeeded.Announce(_runRoot, acc, "fetch_paused_disk", ex.Message) is { } d)
+                Log($"{acc} DECISION NEEDED (fetch_paused_disk): {d.Question} Listed in {DecisionsNeeded.FileName}.");
             return;
         }
         string settled = probe ? "probe_fetch_failed" : "fetch_failed";
@@ -1151,6 +1160,18 @@ public sealed class BatchRunner
         }
         if (profile.ProbeSearch && !await ProbeSearchAsync(e, profile, acq, chemistry, report, xr, ct).ConfigureAwait(false))
             return null;
+        // v0.4.39 (aging 195, PXR-A157; the user, 2026-11-04): an isobaric profile searches no enriched PTM class as a
+        // variable modification yet, so phospho is found only at the database's annotated sites and an enriched deposit's
+        // sites would reach the catalog forced onto them (results/tmtphospho-trial_2026-11-02: +39% PSMs and +61% phospho
+        // peptidoforms with phospho variable). Such a deposit waits for tmt-dda@3 (G66). A capability wait, not a decision.
+        // The classes are the library routing's (the curated manifest enrichment over the screen's, plus the probe's).
+        if (IsobaricEnrichedHold(acc, profile) is { } held)
+        {
+            Log($"{acc} WAITING (waiting_isobaric_enriched): {held}");
+            Record(acc, ("status", "waiting_isobaric_enriched"), ("detail", held));
+            Experiment(acc, xr, "waiting_isobaric_enriched", held);
+            return null;
+        }
         if (profile.QuantMethod == "reporter_ion") LogIsobaricDesign(acc, report, listing.Select(f => f.FileName).ToList());
         Experiment(acc, xr, "probed", $"to be searched under {profile.Key}");
         return profile;
@@ -2006,7 +2027,12 @@ public sealed class BatchRunner
             Sha1Source ?? Integrity.PrideChecksumsAsync,
             _m.AsperaAscp is { } ascp ? new AsperaClient(ascp, _m.AsperaKey!, _m.AsperaAttempts, StartGap: TimeSpan.FromSeconds(10),
                 Stall: TimeSpan.FromMinutes(_m.FetchStallMinutes)) : null,
-            PrideHosts.Parse(_m.PrideHttps), FloorForTest ?? new DiskFloor(FreeGb, _m.MinFreeGb));
+            PrideHosts.Parse(_m.PrideHttps), FloorForTest ?? new DiskFloor(FreeGb, _m.MinFreeGb),
+            _q.ExceptionFor(acc)?.ReplaceFiles, PrideSha1Source);
+
+    /// <summary>Where a fetch gets PRIDE's SHA-1s for a question's file replacements; tests replace it (null in production
+    /// means PRIDE's v3 file list, read strictly).</summary>
+    internal Func<string, CancellationToken, Task<IReadOnlyDictionary<string, string>>>? PrideSha1Source { get; set; }
 
     /// <summary>Tests only: the disk floor a fetch checks (null in production means the run root's drive and <c>min_free_gb</c>).</summary>
     internal DiskFloor? FloorForTest { get; set; }
