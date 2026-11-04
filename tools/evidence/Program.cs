@@ -63,9 +63,18 @@ double priceIn = double.Parse(opt.GetValueOrDefault("price-in", "4"), inv), pric
 AnthropicClient? claude = null;
 if (model is not null)
 {
-    if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")))
+    string? key = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY");
+    if (string.IsNullOrEmpty(key))
     {
         Console.Error.WriteLine("ANTHROPIC_API_KEY is not set for this user: set it, or run with --no-model");
+        return 1;
+    }
+    // 2026-11-04: a key pasted with a line break in it failed every request at the HTTP header ("New-line or NUL
+    // characters are not allowed in header values"), after the fetching had run. A key holds no whitespace: say so first.
+    if (key.Any(char.IsWhiteSpace))
+    {
+        Console.Error.WriteLine($"ANTHROPIC_API_KEY contains {key.Count(char.IsWhiteSpace)} whitespace character(s), such as a line break from a paste: "
+                                + "store it again without them (the run file's first line does this)");
         return 1;
     }
     claude = new AnthropicClient();
