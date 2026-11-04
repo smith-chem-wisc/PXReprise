@@ -4,7 +4,9 @@
 // SAMPLE-EVIDENCE.md, G36/G38, D42/D43).
 //
 //   pxr-evidence read  --out DIR [--model claude-opus-5-5 | --no-model] [--refresh] [--list FILE] PXD...
-//       [--max-images 20] [--max-pdf-pages 40] [--max-deposit-file-mb 25]
+//       [--max-images 20] [--max-pdf-pages 40] [--max-deposit-file-mb 25] [--max-usd N] [--curator DIR]
+//       --max-usd: start no new deposit once the estimated spend reaches N. --curator: DIR\<acc>.evidence.tsv holds what a
+//       curator confirmed (rows copied from review.tsv with confidence certain), applied like any certain claim.
 //       Per deposit, into DIR\<acc>\:
 //         project.json, files.json   the PRIDE record and file list;
 //         paper\                     the paper's JATS (Europe PMC, else a TDM author manuscript from the PMC Article
@@ -16,6 +18,7 @@
 //         evidence.model.tsv, model.json, transcripts.tsv   the model's claims (each quoted), its reading, its
 //                                    transcripts of figures and PDF pages (sdrf G38);
 //         facts.tsv                  the deposit-wide facts (strain, sex, age, treatment, ...), each with its source;
+//         review.tsv                 the guesses (never applied), in the evidence file's format, for a curator;
 //         draft.noevidence.sdrf.tsv, draft.sdrf.tsv, evidence.notes.tsv   the two drafts.
 //       A model reading is paid once: it is reused on a rerun unless --refresh. One line per deposit goes to
 //       DIR\summary.tsv, and the deposit-wide facts to DIR\facts.tsv. The key is ANTHROPIC_API_KEY.
@@ -110,22 +113,28 @@ if (model is not null)
 
 string summary = Path.Combine(outRoot, "summary.tsv");
 if (!File.Exists(summary)) File.WriteAllText(summary, string.Join('\t', Deposit.Columns) + "\n");
-string factsAll = Path.Combine(outRoot, "facts.tsv");
-if (!File.Exists(factsAll)) File.WriteAllText(factsAll, "accession\t" + Deposit.FactsHeader + "\n");
+string? curatorDir = opt.GetValueOrDefault("curator");
 using var pride = new PrideArchiveClient();
 using var pmc = new EuropePmcClient();
 using var aws = new PmcOpenData();
 double total = 0;
+// A spending cap for a large run: no new deposit is started once the estimated spend reaches it (0: no cap). A deposit
+// costs at most about $2 under the budget above, so the run ends within about $2 of the cap.
+double maxUsd = double.Parse(opt.GetValueOrDefault("max-usd", "0"), inv);
 foreach (string acc in accs)
 {
+    if (model is not null && maxUsd > 0 && total >= maxUsd)
+    {
+        Console.WriteLine($"stopped before {acc}: the estimated spend ${total:0.00} reached --max-usd {maxUsd:0.##}; a rerun with the same list reuses every reading already paid for");
+        break;
+    }
     var notes = new List<string>();
     try
     {
-        var (row, facts) = await Deposit.ReadAsync(acc, Path.Combine(outRoot, acc), model, flags.Contains("--refresh"), pride, pmc, aws, claude,
-            (priceIn, priceOut, priceCache), budget, notes, Console.WriteLine);
+        var row = await Deposit.ReadAsync(acc, Path.Combine(outRoot, acc), model, flags.Contains("--refresh"), pride, pmc, aws, claude,
+            (priceIn, priceOut, priceCache), budget, curatorDir, notes, Console.WriteLine);
         total += double.TryParse(row[Array.IndexOf(Deposit.Columns, "est_cost_usd")], NumberStyles.Float, inv, out double c) ? c : 0;
         File.AppendAllText(summary, string.Join('\t', row.Select(Clean)) + "\n");
-        File.AppendAllLines(factsAll, facts.Select(f => acc + "\t" + f));
         Console.WriteLine($"{acc}: " + string.Join(" | ", Deposit.Columns.Zip(row).Skip(2).Where(x => x.First != "notes" && x.Second.Length > 0).Select(x => $"{x.First} {x.Second}")));
     }
     catch (Exception e) when (e is not OperationCanceledException)
@@ -140,6 +149,20 @@ foreach (string acc in accs)
     }
 }
 Console.WriteLine($"estimated model cost this run: ${total:0.00} ({accs.Count} deposits)");
+// The run's facts and guesses, rebuilt from every deposit folder (a rerun replaces them, never appends).
+foreach (string name in new[] { "facts.tsv", "review.tsv" })
+{
+    var lines = new List<string>();
+    foreach (string d in Directory.GetDirectories(outRoot, "PXD*").Order(StringComparer.Ordinal))
+    {
+        string f = Path.Combine(d, name);
+        if (!File.Exists(f)) continue;
+        var rows = File.ReadAllLines(f);
+        if (lines.Count == 0 && rows.Length > 0) lines.Add("accession\t" + rows[0]);
+        lines.AddRange(rows.Skip(1).Where(l => l.Length > 0).Select(l => Path.GetFileName(d) + "\t" + l));
+    }
+    File.WriteAllLines(Path.Combine(outRoot, name), lines);
+}
 return 0;
 
 static string Clean(string s) => s.Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' ');
@@ -155,14 +178,14 @@ internal static class Deposit
         "utc", "accession", "raw_files", "pubmed", "pmcid", "paper_source", "figures", "supplement_files", "deposit_files", "tables",
         "prose_chars", "images_sent", "pdf_pages_sent", "est_input_tokens", "rule_claims", "model", "model_claims", "figure_claims",
         "transcripts", "rejected", "stop", "attempts", "input_tokens", "output_tokens", "cache_read_tokens", "est_cost_usd",
-        "predicted_runs", "deposit_facts", "draft_rows", "validator_errors", "validator_warnings", "notes",
+        "predicted_runs", "deposit_facts", "guesses", "curator_claims", "draft_rows", "validator_errors", "validator_warnings", "notes",
     };
 
     internal const string FactsHeader = "column\tvalue\tsource\tmethod\tconfidence\tlocator";
 
-    internal static async Task<(string[] Row, List<string> Facts)> ReadAsync(string acc, string dir, string? model, bool refresh,
+    internal static async Task<string[]> ReadAsync(string acc, string dir, string? model, bool refresh,
         PrideArchiveClient pride, EuropePmcClient pmc, PmcOpenData aws, AnthropicClient? claude, (double In, double Out, double Cache) price,
-        Budget budget, List<string> notes, Action<string> log)
+        Budget budget, string? curatorDir, List<string> notes, Action<string> log)
     {
         Directory.CreateDirectory(dir);
         var inputs = new List<InputRow>();
@@ -448,20 +471,23 @@ internal static class Deposit
         string modelTsv = Path.Combine(dir, "evidence.model.tsv"), modelJson = Path.Combine(dir, "model.json");
         IReadOnlyList<SdrfEvidence> modelEvidence = Array.Empty<SdrfEvidence>();
         string stop = "", rejected = "", inTok = "", outTok = "", cacheTok = "", cost = "", predicted = "", figureClaims = "", transcripts = "", attempts = "";
-        if (claude is not null && model is not null)
+        string modelUsed = model ?? "none";
         {
+            // A reading already paid for is reused, with or without --no-model (which only forbids new calls).
             if (File.Exists(modelTsv) && File.Exists(modelJson) && !refresh)
             {
                 modelEvidence = SdrfEvidenceFile.Read(modelTsv);
                 var j = JObject.Parse(File.ReadAllText(modelJson));
+                modelUsed = (string?)j["model"] ?? modelUsed;
                 stop = $"{j["stop"]} (reused)";
                 rejected = j["rejected"] is JArray rj ? rj.Count.ToString(Inv) : "";
-                predicted = (string?)j["design"]?["predicted_runs"] ?? "";
+                // "design": null is a JValue, not a C# null: indexing it throws (a reading with no stated design).
+                predicted = j["design"] is JObject jd ? (string?)jd["predicted_runs"] ?? "" : "";
                 figureClaims = (string?)j["figure_claims"] ?? "";
                 transcripts = (string?)j["transcripts"] ?? "";
                 cost = "0";
             }
-            else
+            else if (claude is not null && model is not null)
             {
                 var rr = await RichReader.ReadAsync(claude, model, input, prompt, attachments, log);
                 var r = rr.Result;
@@ -514,8 +540,17 @@ internal static class Deposit
             return doc;
         }
         Draft(null, "draft.noevidence.sdrf.tsv", out _, out _);
-        var all = rules.Concat(modelEvidence).ToList();
+        // What a curator confirmed (the question's own data, e.g. aging's evidence\<acc>.evidence.tsv): rows copied from
+        // review.tsv with confidence certain, which the drafter applies like any certain claim.
+        IReadOnlyList<SdrfEvidence> curated = Array.Empty<SdrfEvidence>();
+        if (curatorDir is not null && File.Exists(Path.Combine(curatorDir, $"{acc}.evidence.tsv")))
+            curated = SdrfEvidenceFile.Read(Path.Combine(curatorDir, $"{acc}.evidence.tsv"));
+        var all = rules.Concat(modelEvidence).Concat(curated).ToList();
         var withEvidence = Draft(all, "draft.sdrf.tsv", out int err, out int warn);
+
+        // 5b. The guesses, for a curator to confirm or not (the drafter never applies one): the evidence file's own format.
+        var guesses = rules.Concat(modelEvidence).Where(e => e.Confidence == SdrfEvidenceConfidence.Guess).ToList();
+        SdrfEvidenceFile.Write(Path.Combine(dir, "review.tsv"), guesses);
 
         // 6. The deposit-wide facts (the user: "deposit wide facts are important"): every claim about the whole deposit.
         var facts = all.Where(e => e.DataFile.Length == 0 && e.DataFilePattern.Length == 0 && e.Label.Length == 0)
@@ -530,13 +565,14 @@ internal static class Deposit
             ["figures"] = $"{figureFiles.Count}/{figures.Count}", ["supplement_files"] = suppFiles.ToString(Inv), ["deposit_files"] = depFiles.ToString(Inv),
             ["tables"] = tables.Count.ToString(Inv), ["prose_chars"] = prose.Length.ToString(Inv), ["images_sent"] = imagesSent.ToString(Inv),
             ["pdf_pages_sent"] = pagesSent.ToString(Inv), ["est_input_tokens"] = estTokens.ToString(Inv), ["rule_claims"] = rules.Count.ToString(Inv),
-            ["model"] = model ?? "none", ["model_claims"] = modelEvidence.Count.ToString(Inv), ["figure_claims"] = figureClaims, ["transcripts"] = transcripts,
+            ["model"] = modelUsed, ["model_claims"] = modelEvidence.Count.ToString(Inv), ["guesses"] = guesses.Count.ToString(Inv),
+            ["curator_claims"] = curated.Count.ToString(Inv), ["figure_claims"] = figureClaims, ["transcripts"] = transcripts,
             ["rejected"] = rejected, ["stop"] = stop, ["attempts"] = attempts, ["input_tokens"] = inTok, ["output_tokens"] = outTok,
             ["cache_read_tokens"] = cacheTok, ["est_cost_usd"] = cost, ["predicted_runs"] = predicted, ["deposit_facts"] = facts.Count.ToString(Inv),
             ["draft_rows"] = withEvidence.Results.Count.ToString(Inv), ["validator_errors"] = err.ToString(Inv), ["validator_warnings"] = warn.ToString(Inv),
             ["notes"] = string.Join("; ", notes),
         };
-        return (Columns.Select(c => row[c]).ToArray(), facts);
+        return Columns.Select(c => row[c]).ToArray();
     }
 
     private static string Clean(string s) => s.Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' ');
