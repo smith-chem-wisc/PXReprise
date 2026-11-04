@@ -85,6 +85,13 @@ AnthropicClient? claude = null;
 if (model is not null)
 {
     string? key = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY");
+    // A key stored for the Windows user after the calling shell started (a long-lived session) is not in the inherited
+    // environment: take it from the user's own store, for this process only. It is never printed.
+    if (string.IsNullOrEmpty(key) && OperatingSystem.IsWindows())
+    {
+        key = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY", EnvironmentVariableTarget.User);
+        if (!string.IsNullOrEmpty(key)) Environment.SetEnvironmentVariable("ANTHROPIC_API_KEY", key);
+    }
     if (string.IsNullOrEmpty(key))
     {
         Console.Error.WriteLine("ANTHROPIC_API_KEY is not set for this user: set it, or run with --no-model");
