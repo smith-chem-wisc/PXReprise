@@ -7,6 +7,15 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.39 (unreleased)
+
+**MetaMorpheus** unchanged (1.1.13). **Machine file:** unchanged. **Safe mid-batch?** Yes: swap the pin as usual.
+
+- **A stop at the disk floor is announced.** When a deposit's download would take the disk below `min_free_gb`, the
+  batch stops starting new deposits, as before, and now also writes a row to `decisions_needed.tsv` and a `DECISION
+  NEEDED` line to batch.log. The choices: free space, lower the floor, or set the deposit aside. Unannounced, this stop
+  once left a batch idle for about 13 hours.
+
 ## 0.4.38 (2026-11-04)
 
 **MetaMorpheus** unchanged (1.1.13). **Machine file:** unchanged. **Safe mid-batch?** Yes: swap the pin as usual.

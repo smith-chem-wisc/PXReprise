@@ -1471,6 +1471,12 @@ public class BatchRunnerTests
         string log = File.ReadAllText(Path.Combine(dir, "state", "batch.log"));
         Assert.That(log, Does.Contain("PXD000208 PROBE fetch paused at the disk floor").And.Contain("a fetch reached the disk floor"));
         Assert.That(log, Does.Not.Contain("pass 1 done").And.Not.Contain("queue done"));
+
+        // v0.4.39: the stop needs a person (D34). Unannounced, it once left the batch idle for 13 hours (PXD005035).
+        Assert.That(log, Does.Contain("PXD000208 DECISION NEEDED (fetch_paused_disk)"));
+        var rows = File.ReadAllLines(Path.Combine(dir, "runs", DecisionsNeeded.FileName)).Skip(1).Select(l => l.Split('\t')).ToList();
+        Assert.That(rows.Select(c => (c[1], c[2])), Is.EqualTo(new[] { ("PXD000208", "fetch_paused_disk") }));
+        Assert.That(rows[0][4], Does.Contain("below the"), "the evidence says how much disk it needs");
     }
 
     [Test]

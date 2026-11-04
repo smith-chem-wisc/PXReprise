@@ -605,6 +605,9 @@ public sealed class BatchRunner
             _diskShort = true;
             Log($"{acc} {what} paused at the disk floor: {ex.Message}. Left for the next driver; no new deposit starts");
             Record(acc, ("status", "fetch_paused_disk"), ("detail", ex.Message));
+            // v0.4.39: the stop needs a person (D34), so it is announced like a park.
+            if (DecisionsNeeded.Announce(_runRoot, acc, "fetch_paused_disk", ex.Message) is { } d)
+                Log($"{acc} DECISION NEEDED (fetch_paused_disk): {d.Question} Listed in {DecisionsNeeded.FileName}.");
             return;
         }
         string settled = probe ? "probe_fetch_failed" : "fetch_failed";
