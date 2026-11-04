@@ -40,5 +40,7 @@
     <PackageReference Include="mzLib" Version="1.0.596" />
     <PackageReference Include="Anthropic" Version="12.50.0" />
     <PackageReference Include="PdfPig" Version="0.1.16" />
+    <!-- TIFF/BMP figures and EMF/WMF drawings in Word supplements, converted to PNG for the model (Windows only). -->
+    <PackageReference Include="System.Drawing.Common" Version="9.0.0" />
   </ItemGroup>
 </Project>
