@@ -1,7 +1,9 @@
 // PXRworker supervisor (2026-10-19; the user: "it would good if that restart was autonomous"). A scheduled task runs it
 // every 5 minutes on the probe machine, as the user that holds the share's cmdkey credential. It starts the probe batch
 // when the batch should run and does not, and never when a person stopped it:
-//   - a live driver (driver.pid, checked against driver.last.json's start time): nothing to do;
+//   - a live driver (driver.pid, checked against driver.last.json's start time): nothing to do, except to remember the
+//     release it runs when that is the current one (a person started it by hand, as the README says for a release that
+//     changes MetaMorpheus, .NET or the database set), so a later reboot restarts it instead of asking again;
 //   - STOP in the state folder, control\STOP on the share, or a heartbeat saying "stopped: STOP", "stopped: disk floor"
 //     or "not started: ..." (other than one that says to start again): left to a person;
 //   - "stopped: question changed": started again on the same build;
@@ -69,6 +71,17 @@ bool DriverAlive()
     catch (ArgumentException) { return false; }
 }
 
+// The engine version the live driver recorded when it started (driver.last.json "engine"), or null.
+string? RunningEngine()
+{
+    try
+    {
+        string last = Path.Combine(stateDir, "driver.last.json");
+        return File.Exists(last) ? JsonNode.Parse(File.ReadAllText(last))?["engine"]?.GetValue<string>() : null;
+    }
+    catch (Exception e) when (e is IOException or JsonException or InvalidOperationException) { return null; }
+}
+
 // control\current.toml: plain `key = value` lines.
 Dictionary<string, string> Current()
 {
@@ -93,17 +106,27 @@ try
 {
     if (DriverAlive())
     {
+        var now = Current();
         // First run beside a batch started by hand: that batch runs the current release, so remember it as the one in use.
-        if (record["generation"] is null)
+        // Later, a batch running the current release's own build that is not the one recorded was started by a person (the
+        // README's switch for a release that changes MetaMorpheus, .NET or the database set): remember it too. Without this,
+        // generation 8 (started by hand on 2026-11-04) was still recorded as generation 6's MetaMorpheus 1.1.12, and after a
+        // reboot the supervisor left the start to a person although the machine file already named 1.1.13.
+        bool first = record["generation"] is null;
+        bool byHand = !first && RunningEngine() is { } engine && engine == now.GetValueOrDefault("pxreprise")
+                      && record["generation"]?.GetValue<string>() != now.GetValueOrDefault("generation");
+        if (first || byHand)
         {
-            var now = Current();
             record["generation"] = now["generation"];
             // One node per key: a JsonNode has one parent, so `a = b = value` fails ("The node already has a parent").
             record["build"] = now["software"];
             record["checked"] = now["software"];
             foreach (string key in new[] { "metamorpheus", "dotnet", "database_set" }) record[key] = now.GetValueOrDefault(key);
+            record.Remove("note");
             Save();
-            Say($"supervisor installed beside the running batch (release generation {now["generation"]}, {now["software"]})");
+            Say(first
+                ? $"supervisor installed beside the running batch (release generation {now["generation"]}, {now["software"]})"
+                : $"recorded the batch started by hand on release generation {now["generation"]} ({now["software"]}, {now.GetValueOrDefault("metamorpheus")}, database set {now.GetValueOrDefault("database_set")})");
         }
         return 0;
     }
