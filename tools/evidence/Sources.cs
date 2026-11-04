@@ -230,14 +230,32 @@ internal static class SupplementContent
         return jpg.Length <= maxBytes ? (jpg.ToArray(), "image/jpeg", note + " (JPEG)") : null;
     }
 
-    /// <summary>A PDF's words, page by page ("[p.3] ..."), the way the table reader takes them.</summary>
+    /// <summary>
+    /// A PDF's words, page by page ("[p.3] ..."), the way the table reader takes them, without margin line numbers: a
+    /// manuscript-style supplement reads "derived from two 92 mice were performed for each sample set: young vehicle, ...
+    /// 93 old senolytic treated" (PXD031782), and a quote of that sentence, which has no "92", failed the quote check.
+    /// </summary>
     internal static string PdfText(string path)
     {
         using var doc = PdfDocument.Open(path);
         var sb = new StringBuilder();
         foreach (var page in doc.GetPages())
-            sb.Append($"[p.{page.Number}] ").Append(string.Join(" ", page.GetWords().Select(w => w.Text))).Append('\n');
+            sb.Append($"[p.{page.Number}] ").Append(string.Join(" ", WithoutMarginNumbers(page.GetWords().ToList()).Select(w => w.Text))).Append('\n');
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// The words less those that are only digits and lie wholly outside the text block: left of where 95% of the other
+    /// words start, or right of where 95% of them end. A number inside the text (a table's first column) stays.
+    /// </summary>
+    internal static IEnumerable<UglyToad.PdfPig.Content.Word> WithoutMarginNumbers(List<UglyToad.PdfPig.Content.Word> words)
+    {
+        static bool Digits(string s) => s.Length > 0 && s.All(char.IsAsciiDigit);
+        var lefts = words.Where(w => !Digits(w.Text)).Select(w => w.BoundingBox.Left).Order().ToList();
+        var rights = words.Where(w => !Digits(w.Text)).Select(w => w.BoundingBox.Right).Order().ToList();
+        if (lefts.Count < 20) return words;
+        double left = lefts[lefts.Count / 20], right = rights[rights.Count - 1 - rights.Count / 20];
+        return words.Where(w => !(Digits(w.Text) && (w.BoundingBox.Right < left - 1 || w.BoundingBox.Left > right + 1)));
     }
 
     private static readonly Regex FigureOrTablePage = new(@"\b(fig(ure)?|table)\s*\.?\s*S?\d", RegexOptions.IgnoreCase | RegexOptions.Compiled);

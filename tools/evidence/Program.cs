@@ -36,6 +36,8 @@ using SampleEvidenceModel;
 using UsefulProteomicsDatabases;
 
 if (args is ["selftest"]) return SelfTest.Run();
+// A PDF's text as the quote check sees it (margin line numbers left out), for a reviewer checking a rejected quote.
+if (args is ["pdftext", var pdfPath]) { Console.Write(SupplementContent.PdfText(pdfPath)); return 0; }
 var inv = CultureInfo.InvariantCulture;
 var opt = new Dictionary<string, string>(StringComparer.Ordinal);
 var flags = new HashSet<string>(StringComparer.Ordinal);
@@ -459,6 +461,8 @@ internal static class Deposit
                 modelEvidence = r.Evidence;
                 SdrfEvidenceFile.Write(modelTsv, r.Evidence);
                 File.WriteAllLines(Path.Combine(dir, "transcripts.tsv"), new[] { "label\ttext" }.Concat(rr.Transcripts.Select(t => $"{t.Label}\t{Clean(t.Text)}")));
+                // The model's own answer, so a rejected claim's quote can be read (the second run's rejections could not).
+                File.WriteAllText(Path.Combine(dir, "model.raw.json"), rr.Raw);
                 double usd = r.InputTokens / 1e6 * price.In + r.OutputTokens / 1e6 * price.Out + r.CacheReadTokens / 1e6 * price.Cache;
                 var design = r.Design is { } d ? new JObject
                 {
@@ -472,7 +476,7 @@ internal static class Deposit
                     ["utc"] = DateTime.UtcNow.ToString("o", Inv), ["model"] = model, ["stop"] = r.StopReason, ["attempts"] = rr.Attempts,
                     ["input_tokens"] = r.InputTokens, ["output_tokens"] = r.OutputTokens, ["cache_read_tokens"] = r.CacheReadTokens,
                     ["est_cost_usd"] = Math.Round(usd, 4), ["claims"] = r.Evidence.Count, ["figure_claims"] = rr.FigureClaims,
-                    ["transcripts"] = rr.Transcripts.Count, ["rejected"] = new JArray(r.Rejected), ["design"] = design,
+                    ["transcripts"] = rr.Transcripts.Count, ["repaired_quotes"] = rr.Repaired, ["rejected"] = new JArray(r.Rejected), ["design"] = design,
                     ["paper"] = paperXml is not null ? Path.GetFileName(paperXml) : null, ["paper_source"] = paperSource, ["tables"] = tables.Count,
                     ["images"] = imagesSent, ["pdf_pages"] = pagesSent,
                     ["attachments"] = new JArray(attachments.Select(a => $"{a.Label} {a.Kind} {a.Bytes.LongLength} bytes{(a.Pages > 0 ? $", {a.Pages} pages" : "")}")),

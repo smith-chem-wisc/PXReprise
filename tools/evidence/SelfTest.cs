@@ -7,7 +7,8 @@ internal static class SelfTest
     internal static int Run()
     {
         var input = new PublicationInput("PXD000001", "Hippocampus of young and aged mice.",
-            "## Methods\nProteins were digested with trypsin and analysed on an Orbitrap.", Array.Empty<SupplementTable>(),
+            "## Methods\nProteins were digested with trypsin and analysed on an Orbitrap.\nAnimals: male , Fischer F344 rats were housed in pairs.\n"
+            + "Sets: young vehicle\nold vehicle", Array.Empty<SupplementTable>(),
             new[] { "Y1.raw", "Y2.raw", "A1.raw", "A2.raw" }, Array.Empty<SdrfEvidence>());
         var shown = new[] { new Attachment("[fig:F1]", "image", "image/jpeg", new byte[] { 1 }, "is Figure 1 of the paper.") };
         const string json = """
@@ -21,7 +22,10 @@ internal static class SelfTest
             { "data_file": "", "data_file_pattern": "", "label": "", "column": "characteristics[sex]", "value": "male", "source": "figure", "quote": "[fig:F1] male C57BL/6J mice", "confidence": "likely" },
             { "data_file": "", "data_file_pattern": "", "label": "", "column": "characteristics[organism part]", "value": "dentate gyrus", "source": "figure", "quote": "[fig:F1] dentate gyrus slices", "confidence": "likely" },
             { "data_file": "", "data_file_pattern": "", "label": "", "column": "characteristics[strain]", "value": "Sprague Dawley", "source": "figure", "quote": "[fig:F9] female Sprague Dawley rats", "confidence": "likely" },
-            { "data_file": "", "data_file_pattern": "", "label": "", "column": "characteristics[organism part]", "value": "hippocampus", "source": "pride record", "quote": "Hippocampus of young and aged mice", "confidence": "likely" }
+            { "data_file": "", "data_file_pattern": "", "label": "", "column": "characteristics[organism part]", "value": "hippocampus", "source": "pride record", "quote": "Hippocampus of young and aged mice", "confidence": "likely" },
+            { "data_file": "", "data_file_pattern": "", "label": "", "column": "characteristics[strain]", "value": "Fischer F344", "source": "paper", "quote": "male, Fischer F344 rats were housed", "confidence": "likely" },
+            { "data_file": "", "data_file_pattern": "", "label": "", "column": "characteristics[strain]", "value": "Fischer F345", "source": "paper", "quote": "male, Fischer F345 rats were housed", "confidence": "likely" },
+            { "data_file": "", "data_file_pattern": "", "label": "", "column": "characteristics[treatment]", "value": "vehicle", "source": "paper", "quote": "young vehicle, old vehicle", "confidence": "likely" }
           ],
           "design": { "groups": [ { "name": "Young", "samples": 6, "quote": "[fig:F1] Young (3 mo) n = 6" } ],
                       "plexes": 0, "plexes_quote": "", "technical_replicates": 0, "technical_replicates_quote": "",
@@ -45,6 +49,38 @@ internal static class SelfTest
         Check(Find("characteristics[organism part]", "hippocampus") is { Source: "pride record" }, "a text claim is judged as before");
         Check(r.Result.Design is { } d && d.Groups.Any(g => g.Name == "Young" && g.Samples == 6), "a design number quoted from a transcript is kept");
         Check(r.FigureClaims == 2, $"two figure claims counted ({r.FigureClaims})");
+        Check(Find("characteristics[strain]", "Fischer F344") is { Source: "paper" } && r.Repaired == 1,
+            $"a quote off only by a space before a comma is repaired and kept ({r.Repaired} repaired)");
+        Check(Find("characteristics[strain]", "Fischer F345") is null, "a repaired-looking quote with a changed word is still rejected");
+        // mzLib's exact check reads a line break as a space; the repair never joins lines (two rows, two paragraphs).
+        Check(Find("characteristics[treatment]", "vehicle") is null, "a quote needing repair across two lines is not repaired");
+
+        // Margin line numbers leave a PDF's text; a number inside the text stays.
+        string pdf = Path.Combine(Path.GetTempPath(), $"pxr-evidence-selftest-{Environment.ProcessId}.pdf");
+        try
+        {
+            var builder = new UglyToad.PdfPig.Writer.PdfDocumentBuilder();
+            var font = builder.AddStandard14Font(UglyToad.PdfPig.Fonts.Standard14Fonts.Standard14Font.Helvetica);
+            var page = builder.AddPage(UglyToad.PdfPig.Content.PageSize.A4);
+            string[] lines =
+            {
+                "Cartilage pieces were digested with collagenase overnight at 37 degrees and protease inhibitor",
+                "cocktail was added. Biologically independent protein preparations derived from two",
+                "mice were performed for each sample set: young vehicle, young senolytic treated, old vehicle,",
+                "old senolytic treated. Initial protein preparations were then processed with salt.",
+            };
+            for (int k = 0; k < lines.Length; k++)
+            {
+                page.AddText((90 + k).ToString(System.Globalization.CultureInfo.InvariantCulture), 9, new UglyToad.PdfPig.Core.PdfPoint(30, 700 - 14 * k), font);
+                page.AddText(lines[k], 10, new UglyToad.PdfPig.Core.PdfPoint(72, 700 - 14 * k), font);
+            }
+            File.WriteAllBytes(pdf, builder.Build());
+            string text = SupplementContent.PdfText(pdf);
+            Check(text.Contains("derived from two mice were performed for each sample set", StringComparison.Ordinal) && !text.Contains(" 92 ", StringComparison.Ordinal),
+                "margin line numbers are left out of a PDF's text");
+            Check(text.Contains("at 37 degrees", StringComparison.Ordinal), "a number inside the text stays");
+        }
+        finally { File.Delete(pdf); }
         foreach (var x in r.Result.Rejected) Console.WriteLine($"     rejected: {x}");
         Console.WriteLine(failures == 0 ? "selftest passed" : $"selftest FAILED ({failures})");
         return failures == 0 ? 0 : 1;

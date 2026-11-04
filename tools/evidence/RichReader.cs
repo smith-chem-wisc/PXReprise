@@ -22,7 +22,8 @@ using Anthropic.Models.Beta.Messages;
 using Readers;
 using SampleEvidenceModel;
 
-internal sealed record RichResult(ModelEvidenceResult Result, IReadOnlyList<(string Label, string Text)> Transcripts, int FigureClaims, int Attempts);
+internal sealed record RichResult(ModelEvidenceResult Result, IReadOnlyList<(string Label, string Text)> Transcripts, int FigureClaims, int Attempts,
+    int Repaired = 0, string Raw = "");
 
 internal static class RichReader
 {
@@ -116,6 +117,7 @@ internal static class RichReader
             result = Interpret(text.ToString(), input, attachments, stop);
         return result with
         {
+            Raw = text.ToString(),
             Result = result.Result with
             {
                 InputTokens = response.Usage.InputTokens,
@@ -136,6 +138,7 @@ internal static class RichReader
         // A figure claim's key -> the label it cited (empty when it cited none).
         var figureKeys = new Dictionary<(string, string, string, string), string>();
         var extraRejected = new List<string>();
+        int repaired = 0;
         try
         {
             if (JsonNode.Parse(json) is JsonObject root)
@@ -159,11 +162,17 @@ internal static class RichReader
                             figureKeys[(Str(c, "data_file").Trim() + "|" + Str(c, "data_file_pattern").Trim(), Str(c, "label").Trim(),
                                 Str(c, "column").Trim().ToLowerInvariant(), Str(c, "value").Trim().ToLowerInvariant())] = label;
                     }
+                var designQuotes = new List<(JsonObject, string)>();
                 if (root["design"] is JsonObject d)
                 {
-                    foreach (var q in new[] { "plexes_quote", "technical_replicates_quote", "fractions_quote", "runs_quote" }) StripLabel(d, q, labels);
-                    if (d["groups"] is JsonArray gs) foreach (var g in gs.OfType<JsonObject>()) StripLabel(g, "quote", labels);
+                    foreach (var q in new[] { "plexes_quote", "technical_replicates_quote", "fractions_quote", "runs_quote" }) { StripLabel(d, q, labels); designQuotes.Add((d, q)); }
+                    if (d["groups"] is JsonArray gs) foreach (var g in gs.OfType<JsonObject>()) { StripLabel(g, "quote", labels); designQuotes.Add((g, "quote")); }
                 }
+                // Spacing and punctuation: a quote whose letters and digits are, in order, on one line of the text is that
+                // line's own words (PXD047289's export header writes "Sample, N , 4"; the model wrote "Sample, N, 4").
+                var checkedText = new QuoteRepair(CheckedText(input, transcripts));
+                foreach (var (o, field) in (root["claims"] as JsonArray ?? new JsonArray()).OfType<JsonObject>().Select(c => (c, "quote")).Concat(designQuotes))
+                    if (checkedText.TryRepair(Str(o, field)) is { } exact) { o[field] = exact; repaired++; }
                 json = root.ToJsonString();
             }
         }
@@ -171,7 +180,7 @@ internal static class RichReader
 
         var checkedInput = transcripts.Count == 0 ? input : input with
         {
-            PaperText = input.PaperText + "\n## Transcripts of figures and documents\n" + string.Join("\n", transcripts.Select(t => $"[{t.Item1}] {t.Item2}")),
+            PaperText = input.PaperText + TranscriptSection(transcripts),
         };
         var r = ModelEvidenceReader.Interpret(json, checkedInput, stop);
         int figureClaims = 0;
@@ -183,8 +192,68 @@ internal static class RichReader
             string locator = label.Length > 0 && e.Locator.StartsWith("figure: ", StringComparison.Ordinal) ? $"[{label}] {e.Locator["figure: ".Length..]}" : e.Locator;
             return e with { Source = "figure", Locator = locator };
         }).ToList();
-        return new RichResult(r with { Evidence = evidence, Rejected = r.Rejected.Concat(extraRejected).ToList() }, transcripts, figureClaims, 1);
+        return new RichResult(r with { Evidence = evidence, Rejected = r.Rejected.Concat(extraRejected).ToList() }, transcripts, figureClaims, 1, repaired);
     }
+
+    private static string TranscriptSection(List<(string, string)> transcripts) => transcripts.Count == 0 ? ""
+        : "\n## Transcripts of figures and documents\n" + string.Join("\n", transcripts.Select(t => $"[{t.Item1}] {t.Item2}"));
+
+    /// <summary>The text mzLib's Interpret checks quotes against (its corpus), before normalising.</summary>
+    private static string CheckedText(PublicationInput input, List<(string, string)> transcripts) =>
+        string.Join("\n", input.RecordText, input.PaperText + TranscriptSection(transcripts),
+            PublicationText.Tables(input.Tables, int.MaxValue, int.MaxValue, int.MaxValue, int.MaxValue));
+
+    /// <summary>
+    /// Finds a quote that mzLib's exact check would miss only for spacing or punctuation: its letters and digits (at least
+    /// <see cref="MinRepairChars"/>) occur in that order within ONE line of the checked text. The repaired quote is that
+    /// stretch of the text itself, so the check that follows is still exact. A row-cited quote is left alone (its own rule
+    /// wants whole cells), and so is a quote already found.
+    /// </summary>
+    internal sealed class QuoteRepair
+    {
+        private readonly string _norm;
+        private readonly string _squeezed;
+        private readonly int[] _at;
+
+        internal QuoteRepair(string text)
+        {
+            _norm = Norm(text);
+            var sb = new StringBuilder(_norm.Length);
+            var at = new List<int>(_norm.Length);
+            for (int i = 0; i < _norm.Length; i++)
+                if (char.IsLetterOrDigit(_norm[i])) { sb.Append(_norm[i]); at.Add(i); }
+            _squeezed = sb.ToString();
+            _at = at.ToArray();
+        }
+
+        internal string? TryRepair(string quote)
+        {
+            if (quote.Length == 0 || RowRef.IsMatch(quote)) return null;
+            string q = Norm(quote);
+            if (_norm.Contains(q, StringComparison.Ordinal)) return null;
+            string sq = string.Concat(q.Where(char.IsLetterOrDigit));
+            if (sq.Length < MinRepairChars) return null;
+            for (int k = _squeezed.IndexOf(sq, StringComparison.Ordinal); k >= 0; k = _squeezed.IndexOf(sq, k + 1, StringComparison.Ordinal))
+            {
+                int from = _at[k], to = _at[k + sq.Length - 1];
+                // One line only: a stretch across a newline joins two rows or paragraphs into words no line says.
+                if (_norm.IndexOf('\n', from, to - from + 1) < 0) return _norm[from..(to + 1)];
+            }
+            return null;
+        }
+
+        // mzLib's Norm (ModelEvidenceReader, private): the same normalisation, so a repaired quote is found exactly.
+        // Unlike mzLib's, newlines are kept (as '\n') so the one-line rule can see them.
+        private static string Norm(string s) => Regex.Replace(Regex.Replace(s.Normalize(System.Text.NormalizationForm.FormKC), "[­​‌‍﻿]", "")
+                .Replace('‐', '-').Replace('‑', '-').Replace('–', '-').Replace('—', '-')
+                .Replace('‘', '\'').Replace('’', '\'').Replace('“', '"').Replace('”', '"'),
+                @"[^\S\n]+", " ").Replace(" \n", "\n").Replace("\n ", "\n").Trim().ToLowerInvariant();
+
+        private static readonly Regex RowRef = new(@"\[([^\[\]]+![^\[\]]*R\d+)\]", RegexOptions.Compiled);
+    }
+
+    /// <summary>The fewest letters and digits a repaired quote may have: shorter strings recur by chance.</summary>
+    internal const int MinRepairChars = 12;
 
     private static readonly Regex LeadingLabel = new(@"^\s*\[((?:fig|supp|deposit):[^\]]+)\]\s*:?\s*", RegexOptions.Compiled);
 
