@@ -625,9 +625,11 @@ public static class QcPayloadBuilder
         var report = JsonNode.Parse(File.ReadAllText(qcReport, Encoding.UTF8))!.AsObject();
         var runMinutes = new Dictionary<string, double?>(StringComparer.Ordinal);
         var failReasons = new Dictionary<string, string>(StringComparer.Ordinal);
+        var qcMs2 = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var (k, v) in report)
         {
             runMinutes[Stem(k)] = v?["run_minutes"] is JsonValue jv && jv.TryGetValue<double>(out double rm) ? rm : null;
+            if (v?["ms2"] is JsonValue mv && mv.TryGetValue<int>(out int ms2Count)) qcMs2[Stem(k)] = ms2Count;
             if (v?["fail_reasons"] is JsonArray fr && fr.Select(x => x?.GetValue<string>()).OfType<string>().ToList() is { Count: > 0 } why)
                 failReasons[Stem(k)] = string.Join(", ", why);
         }
@@ -661,8 +663,12 @@ public static class QcPayloadBuilder
             }
             if (v2)
             {
-                // ms2_scans stays MetaMorpheus's per-file line (aging:DEF-MS2); the three counts are the whole search's.
+                // ms2_scans (aging:DEF-MS2): MetaMorpheus's per-file results.txt line when the search wrote one, else the
+                // spectra QC's MS2 count for a searched file. The same count, scans with MS order 2: equal on all 858 files
+                // of the 24 deposits searched 2026-10-29 to 11-05. A search without WriteIndividualFiles (label-free-dda@14)
+                // has no per-file line. The three counts are the whole search's.
                 if (counts.GetValueOrDefault(name)?["ms2_scans"] is { } ms2) m["ms2_scans"] = ms2.DeepClone();
+                else if (!excluded.Contains(name) && qcMs2.TryGetValue(name, out int qcCount)) m["ms2_scans"] = qcCount;
                 if (!excluded.Contains(name)) Merge(RunCounts(support.GetValueOrDefault(name), peptideSet, groups, groupsByPeptide));
             }
             else Merge(counts.GetValueOrDefault(name));
@@ -692,7 +698,8 @@ public static class QcPayloadBuilder
                   + "file: target PSMs with QValue <= 0.01 and QValue Notch <= 0.01 at whole-search q, unambiguous notch "
                   + "(pxreprise:DEF-PSM-1PCT-RUN v1), and the whole search's 1% peptides and protein groups those PSMs "
                   + "support (pxreprise:DEF-PEPTIDE-1PCT-RUN, DEF-PROTEINGROUP-1PCT-RUN v1). One cutoff for every run: "
-                  + "the PSM counts sum to the dataset's. ms2_scans is still MetaMorpheus's per-file line."
+                  + "the PSM counts sum to the dataset's. ms2_scans is the file's MS2 scan count: MetaMorpheus's per-file "
+                  + "line, else, when the search wrote none, the spectra QC's count of the same scans."
                 : "Two PSM populations appear per file, on purpose (qc 010 QC-Q12). The psms / peptides / "
                   + "protein_groups counts are MetaMorpheus's per-file lines, each from an FDR recomputed on that "
                   + "file alone (the -RUN definitions). The PSM-derived metrics and distributions describe the "

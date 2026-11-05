@@ -218,6 +218,33 @@ public class QcPayloadTests
         });
     }
 
+    /// <summary>
+    /// /2 without MetaMorpheus's per-file lines (WriteIndividualFiles off, label-free-dda@14, the user 2026-11-05):
+    /// a searched file's ms2_scans is the spectra QC's MS2 count, and an excluded file gets none. Where the search did
+    /// write a file's line, the line still wins (here it disagrees with the QC count on purpose, to show which is read).
+    /// </summary>
+    [Test]
+    public void SchemaTwoTakesMs2ScansFromTheSpectraQcWhenTheSearchWroteNoPerFileLine()
+    {
+        var (search, qc) = MiniRun(spectralCounts: true);
+        File.WriteAllText(Path.Combine(search, "mm", "Task3SearchTask", "results.txt"),
+            "All target PSMs with q-value <= 0.01: 3\r\nAll target peptides with q-value <= 0.01: 3\r\n" +
+            "All target protein groups with q-value <= 0.01 (1% FDR): 2\r\nAll MS2 Scans: 190\r\n\r\na - MS2 Scans: 100\r\n");
+        File.WriteAllText(Path.Combine(qc, "qc_report.json"),
+            "{\"a.raw\": {\"run_minutes\": 100.0, \"ms2\": 99}, \"b.raw\": {\"run_minutes\": 90.0, \"ms2\": 90}, " +
+            "\"c.raw\": {\"run_minutes\": 80.0, \"ms2\": 80, \"fail_reasons\": [\"too_few_ms2\"]}}");
+
+        var r = QcPayloadBuilder.Build(search, qc, "PXD000001", "x", "1.1.13", QcBins.Vendored(), excludedFiles: new[] { "c.raw" });
+        var files = r.Payload["files"]!.AsArray().ToDictionary(f => f!["file"]!.GetValue<string>(), f => f!.AsObject());
+        Assert.Multiple(() =>
+        {
+            Assert.That(files["a"]["metrics"]!["ms2_scans"]!.GetValue<int>(), Is.EqualTo(100), "a per-file line wins");
+            Assert.That(files["b"]["metrics"]!["ms2_scans"]!.GetValue<int>(), Is.EqualTo(90), "no line: the spectra QC's count");
+            Assert.That(files["c"]["excluded"]!.GetValue<string>(), Is.EqualTo("qc: too_few_ms2"));
+            Assert.That(files["c"]["metrics"]!.AsObject().ContainsKey("ms2_scans"), Is.False, "an excluded file gets no ms2_scans");
+        });
+    }
+
     /// <summary>/2 with no AllPeptides.psmtsv and no group peptide columns: those counts are absent (not measured), not 0.</summary>
     [Test]
     public void SchemaTwoLeavesOutACountItCannotMeasure()

@@ -76,4 +76,6 @@ max_excluded_frac = 0.10
 RespectCleavageBlockingModifications = true
 
 [metamorpheus_settings.search]
-WriteIndividualFiles = true
+# false since 2026-11-05, before this profile's release (the user: "yes turn it off"; as label-free-dda/14). The
+# 2026-11-05 trial (results/tmt3-trial_2026-11-05) ran with true; it changes no whole-search identification or count.
+WriteIndividualFiles = false

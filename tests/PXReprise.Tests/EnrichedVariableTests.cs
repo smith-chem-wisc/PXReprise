@@ -42,7 +42,9 @@ public class EnrichedVariableTests
             Accepts = p2.Accepts, Tasks = p2.Tasks, GptmdExtraMods = p2.GptmdExtraMods, Deposit = p2.Deposit, Qc = p2.Qc,
             MetaMorpheusSettings = p2.MetaMorpheusSettings }, Is.EqualTo(p2), "nothing else differs");
         Assert.That(System.Text.Json.JsonSerializer.Serialize(p3.Accepts), Is.EqualTo(System.Text.Json.JsonSerializer.Serialize(p2.Accepts)));
-        Assert.That(p3.MetaMorpheusSettings, Is.EqualTo(p2.MetaMorpheusSettings));
+        // One setting differs: @3 writes no individual-file tables (the user, 2026-11-05, before @3's release; D63).
+        Assert.That(p3.MetaMorpheusSettings, Is.EqualTo(p2.MetaMorpheusSettings!.Select(s =>
+            s.Key == "WriteIndividualFiles" ? s with { TomlValue = "false" } : s).ToList()));
     }
 
     [Test]
