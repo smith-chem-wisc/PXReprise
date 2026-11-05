@@ -307,6 +307,10 @@ public class BatchRunnerTests
         Assert.That(runner.IsobaricEnrichedHold("PXD000423", Profiles["tmt-dda@2"]), Is.Null, "a protein pulldown enriches no PTM class");
         runner.Record("PXD000424", ("enrichment", "none"), ("enrichment_measured", "phospho"));
         Assert.That(runner.IsobaricEnrichedHold("PXD000424", Profiles["tmt-dda@2"]), Does.Contain("phospho"), "the probe's measurement counts");
+
+        // v0.4.40 (G66): tmt-dda@3 searches the enriched classes as variable, so it holds none of them.
+        foreach (string acc in new[] { "PXD000421", "PXD000424" })
+            Assert.That(runner.IsobaricEnrichedHold(acc, Profiles["tmt-dda@3"]), Is.Null, acc);
     }
 
     // v0.4.19 (aging PXR-A109): PXD068498 is rat, filed as mouse in PRIDE. The exception names a profile database key, and

@@ -11,6 +11,21 @@ A new version of the engine never changes a finished result. Methods live in ver
 
 **MetaMorpheus** unchanged (1.1.13). **Machine file:** unchanged. **Safe mid-batch?** Yes: swap the pin as usual.
 
+- **New profile `tmt-dda@3`: an enriched TMT deposit is searched with its enriched PTM classes as variable
+  modifications.** It is `tmt-dda@2` with two changes:
+  - `engine.enriched_variable = true`;
+  - the agingPTM-v7 databases, as `label-free-dda@13` uses.
+  
+  The enriched classes are the ones the library routing uses: the curated manifest enrichment over the screen's, plus
+  the probe's measurement. Each class is variable in every task, Calibration and Search, with `MaxModsForPeptide = 3`:
+  phospho on S, T and Y; acetyl on K; succinyl on K; GG on K. Under `tmt-dda@2` a TMT phospho deposit is searched with
+  phospho only at the database's annotated sites. A trial on four TMT10 phospho files found 39% more PSMs with phospho
+  variable, at about 15 times the search time. `tmt-dda@3` holds no enriched deposit (`waiting_isobaric_enriched` is
+  `tmt-dda@2`'s); a deposit already held needs `batch retry` once the question names `tmt-dda@3`. Provenance records
+  `enriched_variable` (classes, mods, `max_mods_for_peptide`). `MaxModsForPeptide` joins the task-file keys the engine
+  owns, so `[metamorpheus_settings]` may not set it.
+- **`pxreprise search --enriched phospho,GG`** names the PTM classes a deposit enriches for a search run by hand. The
+  batch reads them itself: the library routing, and the variable mods of `tmt-dda@3`.
 - **`pxreprise worker release` refuses a MetaMorpheus or .NET folder on the share that has no `SHA256SUMS`.** The worker
   never runs software it cannot check. A MetaMorpheus folder copied to the share without its sums once stopped a
   worker generation at install. `pxreprise worker sums <dir>` writes the file.

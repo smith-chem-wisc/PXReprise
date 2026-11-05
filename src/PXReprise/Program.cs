@@ -229,13 +229,19 @@ public static class Program
             {
                 Positional(args, 0);
                 args.AllowOnly("spectra", "qc", "out", "organism", "profile", "profile-file", "profiles", "machine",
-                    "extra-db", "exclude", "run-date", "accession", "design", "condition-columns");
+                    "extra-db", "exclude", "run-date", "accession", "design", "condition-columns", "enriched");
                 var profile = ResolveProfile(args);
                 if (args.Option("design") is { } given && !File.Exists(given)) throw new UsageException($"--design {given} does not exist");
+                // v0.4.40 (G66): the PTM classes the deposit enriches, as the batch reads them (library routing, and the variable
+                // mods of a profile with engine.enriched_variable): --enriched phospho,GG.
+                var enriched = List(args.Option("enriched"));
+                if (enriched.FirstOrDefault(c => Search.LibraryRouting.Classes.All(k => k.Key != c)) is { } badClass)
+                    throw new UsageException($"--enriched {badClass}: the PTM classes are {string.Join(", ", Search.LibraryRouting.Classes.Select(k => k.Key))}");
                 var request = new Search.SearchRequest(profile, args.Required("organism"), Machine.Load(args.Required("machine")),
                     args.Required("spectra"), args.Required("out"), args.Required("qc"), List(args.Option("extra-db")),
                     List(args.Option("exclude")), args.Option("run-date"), args.Option("accession"),
-                    CuratedDesign: args.Option("design"), DesignConditionColumns: args.Option("condition-columns") is null ? null : List(args.Option("condition-columns")));
+                    CuratedDesign: args.Option("design"), DesignConditionColumns: args.Option("condition-columns") is null ? null : List(args.Option("condition-columns")),
+                    LibraryRouteClasses: enriched.Count > 0 ? enriched : null);
                 return await Search.SearchStage.RunAsync(request, ct).ConfigureAwait(false);
             }
 
