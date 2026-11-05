@@ -20,18 +20,31 @@ namespace PXReprise.Search;
 /// </summary>
 public static class LibraryRouting
 {
-    /// <summary>One routed class: its key (the chain suffix), the modification's monoisotopic mass and residues, and the
-    /// enrichment names (the screen's, the probe's, the manifest's) that mean a deposit enriches it.</summary>
-    public sealed record PtmClass(string Key, double Mass, string Residues, IReadOnlyList<string> Enrichments);
+    /// <summary>One routed class: its key (the chain suffix), the modification's monoisotopic mass and residues, the
+    /// enrichment names (the screen's, the probe's, the manifest's) that mean a deposit enriches it, and (v0.4.40, G66) the
+    /// modifications a profile with <c>engine.enriched_variable</c> searches as variable for it, as MetaMorpheus 1.1.13's
+    /// Mods.txt names them ("Type\tIdWithMotif").</summary>
+    public sealed record PtmClass(string Key, double Mass, string Residues, IReadOnlyList<string> Enrichments, IReadOnlyList<string> VariableMods);
 
     /// <summary>The classes, in the order a spectrum carrying two of them is routed (the first one its deposit enriches).</summary>
     public static readonly IReadOnlyList<PtmClass> Classes = new PtmClass[]
     {
-        new("phospho", 79.966331, "STY", new[] { "phospho" }),
-        new("acetylK", 42.010565, "K", new[] { "acetyl" }),
-        new("succinylK", 100.016044, "K", new[] { "succinyl" }),
-        new("GG", 114.042927, "K", new[] { "ubiquitin_GG", "GG" }),
+        new("phospho", 79.966331, "STY", new[] { "phospho" },
+            new[] { "Common Biological\tPhosphorylation on S", "Common Biological\tPhosphorylation on T", "Common Biological\tPhosphorylation on Y" }),
+        new("acetylK", 42.010565, "K", new[] { "acetyl" }, new[] { "Common Biological\tAcetylation on K" }),
+        new("succinylK", 100.016044, "K", new[] { "succinyl" }, new[] { "Common Biological\tSuccinylation on K" }),
+        new("GG", 114.042927, "K", new[] { "ubiquitin_GG", "GG" }, new[] { "Trypsin Digested\tGG (Ubiquitination Site) on K" }),
     };
+
+    /// <summary>v0.4.40 (G66): the variable modifications for the classes <paramref name="classKeys"/> names, in
+    /// <see cref="Classes"/> order. A key no class has is refused: it would leave an enriched class unsearched.</summary>
+    public static IReadOnlyList<string> VariableModsFor(IEnumerable<string> classKeys)
+    {
+        var keys = classKeys.ToHashSet(StringComparer.Ordinal);
+        if (keys.FirstOrDefault(k => Classes.All(c => c.Key != k)) is { } unknown)
+            throw new ArgumentException($"no PTM class '{unknown}'; the classes are {string.Join(", ", Classes.Select(c => c.Key))}", nameof(classKeys));
+        return Classes.Where(c => keys.Contains(c.Key)).SelectMany(c => c.VariableMods).ToList();
+    }
 
     /// <summary>Da. Narrow enough to keep sulfation (79.9568) out of phospho (79.9663), and trimethyl (42.0470) out of acetyl.</summary>
     public const double MassTolerance = 0.0005;

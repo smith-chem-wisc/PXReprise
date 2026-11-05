@@ -278,6 +278,19 @@ public static class SearchStage
             WriteSdrf: p.WriteSdrf, ProteomeXchangeAccession: p.WriteSdrf ? r.Accession : null,
             PrecursorMassTolerance: window is { } w ? $"±{w}.0000 PPM" : null, QuantifyPpmTol: window,
             GptmdFilters: p.GptmdFilters, MultiplexKit: kit, GptmdDropMods: p.GptmdDropMods);
+        // v0.4.40 (G66): the classes the deposit enriches, the ones its library spectra are routed by, variable in every task.
+        if (p.EnrichedVariable && r.LibraryRouteClasses is { Count: > 0 } enrichedClasses)
+        {
+            var enrichedMods = LibraryRouting.VariableModsFor(enrichedClasses);
+            settings = settings with { EnrichedVariableMods = enrichedMods, MaxModsForPeptide = Profile.EnrichedMaxModsForPeptide };
+            prov.Set("enriched_variable", new JsonObject
+            {
+                ["classes"] = new JsonArray(enrichedClasses.Select(c => (JsonNode)c).ToArray()),
+                ["variable_mods"] = new JsonArray(enrichedMods.Select(m => (JsonNode)m).ToArray()),
+                ["max_mods_for_peptide"] = Profile.EnrichedMaxModsForPeptide,
+            });
+            prov.Note($"enriched for {string.Join(", ", enrichedClasses)}: {string.Join("; ", enrichedMods.Select(x => x.Replace("\t", " / ")))} variable in every task, MaxModsForPeptide {Profile.EnrichedMaxModsForPeptide}");
+        }
         if (chem is not null)
         {
             prov.Set("chemistry", Chemistry(chem));

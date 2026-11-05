@@ -1,0 +1,81 @@
+# tmt-dda/3 (v0.4.40, 2026-11-05; G66, D32 slice 4): tmt-dda/2 with a deposit's enriched PTM classes searched as variable
+# modifications, on the agingPTM-v7 databases.
+#   - engine.enriched_variable: the classes the deposit enriches (the library routing's: the curated manifest enrichment
+#     over the screen's, plus the probe's measurement) are variable in EVERY task, Calibration and Search, with
+#     MaxModsForPeptide 3: phospho on S, T and Y; acetyl on K; succinyl on K; GG on K. A deposit enriching nothing is
+#     searched exactly as under /2 apart from the databases. A protein pulldown enriches no PTM class.
+#   - Why (results/tmtphospho-trial_2026-11-02, PXD027548's four mouse TMT10 phospho files): /2 searches phospho only at
+#     the database's annotated sites, so it mislocalizes some and misses peptides whose sites UniProt lacks. Variable
+#     phospho with MaxModsForPeptide 3 gave target PSMs +39% (21,747 to 30,318), phospho peptidoforms +61%, protein groups
+#     +30%, and 405 peptidoforms with three phospho sites, at about 15 times the search time (the user accepted the cost,
+#     2026-11-04: "let's go with your recommendations"). v0.4.39 holds such a deposit (waiting_isobaric_enriched) under /2;
+#     this profile holds none.
+#   - agingPTM-v7 (D62, as label-free-dda/13): UniProt's own modified residues kept only where a deposit not enriched for
+#     the site's class sees them; GPTMD-found sites as in v6. TMT runs no GPTMD (the user, 2026-10-19), so the database's
+#     sites and the variable classes are the only PTMs it searches.
+# Every other setting is /2's (kit from the spectra, Calibration -> Search, ±20 ppm, LowCID for ion-trap MS2, reporter-ion
+# quantification on a TmtDesign.txt, a spectral library chain per kit, with an enriched class's spectra routed to
+# <chain>_<class>). Needs PXReprise v0.4.40 (engine.enriched_variable) and datarepo 1.4.1 or newer.
+id = "tmt-dda"
+version = 3
+description = "Isobaric-labelled DDA (TMT, iTRAQ), MS2 or SPS-MS3 reporters; the kit read from the spectra; MetaMorpheus 1.1.13 Calibrate/Search (no GPTMD) with cleavage-blocking modifications respected and a deposit's enriched PTM classes (phospho, acetyl-K, succinyl-K, GG) variable in every task with up to 3 modifications a peptide, reporter-ion quantification on a TmtDesign.txt, ±20 ppm precursors, LowCID for ion-trap MS2; a spectral library per kit; UniProt canonical proteomes, their own PTM sites kept only where non-enriched data see them, with agingPTM-v7 sites"
+
+[accepts]
+acquisition = ["dda"]
+labelling = ["isobaric"]
+instrument = ["orbitrap_hcd_only", "orbitrap_hybrid"]
+file_types = [".raw"]
+
+[engine]
+chemistry = "deposit"
+metamorpheus = "1.1.13"   # released 2026-10-29 at 315e02b5e
+tasks = ["Calibration", "Search"]
+spectral_library = true   # the kit's own chain (SpectralLibrary.Plan label); off for low-res MS2 (SearchStage)
+write_sdrf = true
+fragmentation = "per_file"
+low_res_product_tolerance = "±0.5000 Absolute"
+precursor_window = "wide"
+enriched_variable = true
+timeout_h = 8
+
+[databases.human]
+proteome = "UP000005640_all_genecentric_2026_03_agingPTM-v7.xml"
+taxon = 9606
+
+[databases.mouse]
+proteome = "UP000000589_all_genecentric_2026_03_agingPTM-v7.xml"
+taxon = 10090
+
+[databases.rat]
+proteome = "UP000002494_all_genecentric_2026_03_agingPTM-v7.xml"
+taxon = 10116
+
+[contaminants]
+file = "MetaMorpheusContaminants_NoUPS.xml"
+
+[quant]
+method = "reporter_ion"
+mbr = false
+
+[deposit]
+whole = true
+max_files = 120
+probe = "probe_spread"
+max_est_ms2 = 3_000_000
+max_file_mb = 5000
+defer_if_median_file_mb = 2200
+
+[qc]
+ms2_analyzer = "orbitrap"
+min_fraction_orbitrap_hcd = 0.9   # waived for a file whose MS3 carries the kit's reporters (SPS-MS3)
+min_ms2 = 5000
+excludable = ["too_few_ms2"]
+max_excluded_frac = 0.10
+
+[metamorpheus_settings.all]
+RespectCleavageBlockingModifications = true
+
+[metamorpheus_settings.search]
+# false since 2026-11-05, before this profile's release (the user: "yes turn it off"; as label-free-dda/14). The
+# 2026-11-05 trial (results/tmt3-trial_2026-11-05) ran with true; it changes no whole-search identification or count.
+WriteIndividualFiles = false

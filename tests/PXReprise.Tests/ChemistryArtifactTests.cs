@@ -82,7 +82,7 @@ public class ChemistryArtifactTests
         var p10 = all["label-free-dda@10"];
         var p9 = all["label-free-dda@9"];
         Assert.That(p10.GptmdFilters, Is.EqualTo(new[] { "ImprovedScoreFilter" }));
-        Assert.That(all.Where(kv => kv.Value.GptmdFilters is not null).Select(kv => kv.Key), Is.EquivalentTo(new[] { "label-free-dda@10", "label-free-dda@11", "label-free-dda@12", "label-free-dda@13" }),
+        Assert.That(all.Where(kv => kv.Value.GptmdFilters is not null).Select(kv => kv.Key), Is.EquivalentTo(new[] { "label-free-dda@10", "label-free-dda@11", "label-free-dda@12", "label-free-dda@13", "label-free-dda@14" }),
             "no earlier profile changes");
         Assert.That(p10 with { Version = 9, Description = p9.Description, GptmdFilters = null, Databases = p9.Databases, Accepts = p9.Accepts,
             Tasks = p9.Tasks, GptmdExtraMods = p9.GptmdExtraMods, Deposit = p9.Deposit, Qc = p9.Qc, ThiolReagents = p9.ThiolReagents,
@@ -119,6 +119,39 @@ public class ChemistryArtifactTests
     }
 
     [Test]
+    public void LabelFreeDda14AndLowres7AreTheirPredecessorsWithoutIndividualFileTables()
+    {
+        // v0.4.40 (the user, 2026-11-05: "yes turn it off"): WriteIndividualFiles back to MetaMorpheus 1.1.13's default,
+        // false. The QC payload takes a file's MS2 count from the spectra QC instead. Nothing else changes.
+        var all = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
+        var off = new[]
+        {
+            new MetaMorpheusSetting("all", "RespectCleavageBlockingModifications", "true"),
+            new MetaMorpheusSetting("search", "WriteIndividualFiles", "false"),
+        };
+        foreach (var (next, previous) in new[] { ("label-free-dda@14", "label-free-dda@13"), ("label-free-dda-lowres@7", "label-free-dda-lowres@6") })
+        {
+            var n = all[next];
+            var p = all[previous];
+            Assert.That(p.MetaMorpheusSettings!.Single(s => s.Key == "WriteIndividualFiles").TomlValue, Is.EqualTo("true"), $"premise: {previous} writes them");
+            Assert.That(n.MetaMorpheusSettings, Is.EqualTo(off), next);
+            Assert.That(n with { Version = p.Version, Description = p.Description, MetaMorpheusSettings = p.MetaMorpheusSettings,
+                Accepts = p.Accepts, Tasks = p.Tasks, GptmdExtraMods = p.GptmdExtraMods, Databases = p.Databases, Deposit = p.Deposit, Qc = p.Qc,
+                ThiolReagents = p.ThiolReagents, ChemistryArtifacts = p.ChemistryArtifacts, GptmdFilters = p.GptmdFilters, GptmdDropMods = p.GptmdDropMods },
+                Is.EqualTo(p), $"every scalar setting of {next} equals {previous}'s");
+            Assert.That((n.Tasks, n.GptmdExtraMods, n.GptmdFilters, n.GptmdDropMods, n.Deposit, n.Qc with { Excludable = p.Qc.Excludable }),
+                Is.EqualTo((p.Tasks, p.GptmdExtraMods, p.GptmdFilters, p.GptmdDropMods, p.Deposit, p.Qc)), $"{next}: lists and policies");
+            Assert.That(n.Qc.Excludable, Is.EqualTo(p.Qc.Excludable));
+            Assert.That(n.Databases.Select(kv => (kv.Key, kv.Value.Proteome)), Is.EquivalentTo(p.Databases.Select(kv => (kv.Key, kv.Value.Proteome))));
+            Assert.That(n.Description, Does.StartWith(p.Description).And.EndWith("; no individual-file tables"));
+        }
+        Assert.That(all["tmt-dda@3"].MetaMorpheusSettings!.Single(s => s.Key == "WriteIndividualFiles").TomlValue, Is.EqualTo("false"),
+            "tmt-dda@3 changed before its release");
+        Assert.That(all["tmt-dda@2"].MetaMorpheusSettings!.Single(s => s.Key == "WriteIndividualFiles").TomlValue, Is.EqualTo("true"),
+            "a released profile never changes");
+    }
+
+    [Test]
     public void LabelFreeDda12IsAt11OnTheNewMetaMorpheusAndAgingPtmV6()
     {
         // v0.4.33 (the user, 2026-10-28): @11 on MetaMorpheus's release of 2026-10-29 and agingPTM-v6, cleavage-blocking
@@ -134,7 +167,7 @@ public class ChemistryArtifactTests
             new MetaMorpheusSetting("all", "RespectCleavageBlockingModifications", "true"),
             new MetaMorpheusSetting("search", "WriteIndividualFiles", "true"),
         }));
-        Assert.That(all.Where(kv => kv.Value.MetaMorpheusSettings is not null).Select(kv => kv.Key), Is.EquivalentTo(new[] { "label-free-dda@12", "label-free-dda@13", "label-free-dda-lowres@6", "tmt-dda@2" }));
+        Assert.That(all.Where(kv => kv.Value.MetaMorpheusSettings is not null).Select(kv => kv.Key), Is.EquivalentTo(new[] { "label-free-dda@12", "label-free-dda@13", "label-free-dda@14", "label-free-dda-lowres@6", "label-free-dda-lowres@7", "tmt-dda@2", "tmt-dda@3" }));
         Assert.That(p12 with { Version = 11, Description = p11.Description, Databases = p11.Databases, Accepts = p11.Accepts,
             MetaMorpheus = p11.MetaMorpheus, MetaMorpheusSettings = null,
             Tasks = p11.Tasks, GptmdExtraMods = p11.GptmdExtraMods, GptmdFilters = p11.GptmdFilters, Deposit = p11.Deposit, Qc = p11.Qc,

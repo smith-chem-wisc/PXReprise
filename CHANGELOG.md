@@ -7,6 +7,43 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.40 (2026-11-05)
+
+**MetaMorpheus** unchanged (1.1.13). **Machine file:** unchanged. **Safe mid-batch?** Yes: swap the pin as usual.
+
+- **New profile `tmt-dda@3`: an enriched TMT deposit is searched with its enriched PTM classes as variable
+  modifications.** It is `tmt-dda@2` with two changes:
+  - `engine.enriched_variable = true`;
+  - the agingPTM-v7 databases, as `label-free-dda@13` uses.
+  
+  The enriched classes are the ones the library routing uses: the curated manifest enrichment over the screen's, plus
+  the probe's measurement. Each class is variable in every task, Calibration and Search, with `MaxModsForPeptide = 3`:
+  phospho on S, T and Y; acetyl on K; succinyl on K; GG on K. Under `tmt-dda@2` a TMT phospho deposit is searched with
+  phospho only at the database's annotated sites. A trial on four TMT10 phospho files found 39% more PSMs with phospho
+  variable, at about 15 times the search time. `tmt-dda@3` holds no enriched deposit (`waiting_isobaric_enriched` is
+  `tmt-dda@2`'s); a deposit already held needs `batch retry` once the question names `tmt-dda@3`. Provenance records
+  `enriched_variable` (classes, mods, `max_mods_for_peptide`). `MaxModsForPeptide` joins the task-file keys the engine
+  owns, so `[metamorpheus_settings]` may not set it.
+- **New profiles `label-free-dda@14` and `label-free-dda-lowres@7`: no individual-file tables.** Each is its predecessor
+  (`@13`, `lowres@6`) with `WriteIndividualFiles = false`, MetaMorpheus 1.1.13's own default. `tmt-dda@3` changes the
+  same way before its release.
+  - The per-file PSM, peptide, protein-group and peak tables are no longer written, and FDR is no longer re-run file
+    by file for them. On PXD025315 the peak tables alone were 126 copies of a 1.49 GB file (MetaMorpheus #2954).
+  - Identifications, quantification and every whole-search count are unchanged.
+  - A question names `label-free-dda@14` just ahead of `@13`, and `lowres@7` ahead of `lowres@6`, keeping the old ones.
+- **The QC payload takes a file's `ms2_scans` from the spectra QC when `results.txt` has no per-file line.** It is the
+  same count, the scans with MS order 2: equal on all 858 files of the 24 deposits searched from 2026-10-29 to
+  2026-11-05. A per-file line, where a search wrote one, still wins.
+- **What the new profiles cost for now:** `results.txt` writes each file's `MS2 Scans` and `Precursors` lines only with
+  the tables, until a MetaMorpheus release writes them without (MetaMorpheus #2955).
+  dataRepo reads its per-run `ms2_scans` and `precursors` from those lines, so a deposit searched under the new
+  profiles before that release has neither per run. Dataset totals are unchanged.
+- **`pxreprise search --enriched phospho,GG`** names the PTM classes a deposit enriches for a search run by hand. The
+  batch reads them itself: the library routing, and the variable mods of `tmt-dda@3`.
+- **`pxreprise worker release` refuses a MetaMorpheus or .NET folder on the share that has no `SHA256SUMS`.** The worker
+  never runs software it cannot check. A MetaMorpheus folder copied to the share without its sums once stopped a
+  worker generation at install. `pxreprise worker sums <dir>` writes the file.
+
 ## 0.4.39 (2026-11-04)
 
 **MetaMorpheus** unchanged (1.1.13). **Machine file:** unchanged. **Safe mid-batch?** Yes: swap the pin as usual.

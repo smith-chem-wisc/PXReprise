@@ -69,6 +69,9 @@ public static class ProfileLoader
         // MetaMorpheus 1.1.12+ (#2816, #2870; sdrf PXR-E1/E2): each search writes experiment.sdrf.tsv, stamped with the
         // deposit's accession. A key the pinned MetaMorpheus lacks fails the task-file edit, never silently.
         bool writeSdrf = eng.OptionalBool("write_sdrf") ?? false;
+        // v0.4.40 (G66, D32 slice 4): the PTM classes a deposit enriches (LibraryRouting: the curated manifest enrichment over
+        // the screen's, plus the probe's measurement) are variable in every task, with MaxModsForPeptide 3.
+        bool enrichedVariable = eng.OptionalBool("enriched_variable") ?? false;
         // D32 (G24): "fixed" keeps the task's DissociationType for every file; "per_file" writes each file's type, read from
         // its MS2 headers at QC, into its <raw>.toml, with low_res_product_tolerance for CID read in an ion trap (LowCID).
         string fragmentation = eng.OptionalString("fragmentation") ?? "fixed";
@@ -257,7 +260,7 @@ public static class ProfileLoader
             method, mbr, deposit, gates, Path.GetDirectoryName(Path.GetFullPath(file))!, design, chemistry, writeSdrf, shipped, fragmentation, lowResTolerance, probeSearch, probeMinutes, ionTrapHcd,
             customMods, thiolReagents, precursorWindow, ionTrapHcdLowCid, ionTrapHcdProbeLowCid, artifacts,
             gptmdFilters.Count > 0 ? gptmdFilters : null, mmSettings.Count > 0 ? mmSettings : null,
-            dropMods.Count > 0 ? dropMods : null);
+            dropMods.Count > 0 ? dropMods : null, enrichedVariable);
     }
 
     /// <summary>

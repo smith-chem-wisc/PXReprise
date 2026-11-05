@@ -50,9 +50,11 @@ public class LibraryCleaningTests
         Assert.That(Cleaning(TestSupport.TempDir()).Describe()["blocked_cterm_rule"]!.GetValue<string>(), Is.EqualTo("applied"));
     }
 
+    [TestCase("label-free-dda-14", true)]
     [TestCase("label-free-dda-13", true)]
     [TestCase("label-free-dda-12", true)]
     [TestCase("label-free-dda-11", false)]
+    [TestCase("label-free-dda-lowres-7", true)]
     [TestCase("label-free-dda-lowres-6", true)]
     [TestCase("tmt-dda-2", true)]
     public void AProfileSaysWhetherItsSearchRespectsBlocking(string profile, bool respects)

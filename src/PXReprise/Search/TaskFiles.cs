@@ -31,7 +31,9 @@ public sealed record TaskSettings(
     IReadOnlyList<string>? GptmdFilters = null,           // v0.4.31: GPTMD's filters by class name; null keeps the default (none)
     string? MultiplexKit = null,                          // v0.4.34: an isobaric kit's modification id (IsobaricReporters.ModificationId)
     string? DissociationType = null,                      // v0.4.34: every task's, when one call holds for every file (SearchStage)
-    IReadOnlyList<string>? GptmdDropMods = null);         // v0.4.38: "Type\tIdWithMotif" (a real TAB) removed from ListOfModsGptmd
+    IReadOnlyList<string>? GptmdDropMods = null,          // v0.4.38: "Type\tIdWithMotif" (a real TAB) removed from ListOfModsGptmd
+    IReadOnlyList<string>? EnrichedVariableMods = null,   // v0.4.40 (G66): the deposit's enriched classes, variable in EVERY task
+    int? MaxModsForPeptide = null);                       //   with them; null keeps the task's own (MetaMorpheus's 2)
 
 public static class TaskFiles
 {
@@ -144,6 +146,22 @@ public static class TaskFiles
                     ? Replace(text, "^MultiplexModId = .*$", id, "MultiplexModId", exactlyOne: true)
                     : Regex.Replace(text, @"^DoMultiplexQuantification = true$", "DoMultiplexQuantification = true\n" + id, RegexOptions.Multiline);
             }
+        }
+
+        // v0.4.40 (G66, D32 slice 4; results/tmtphospho-trial_2026-11-02): the classes the deposit enriches are variable in
+        // EVERY task, with MaxModsForPeptide raised, so calibration finds the enriched peptides it is fitted on and the
+        // search places each site on any residue, not only where the database annotates one (the trial: +39% PSMs).
+        if (s.EnrichedVariableMods is { Count: > 0 } enriched)
+        {
+            foreach (string mod in enriched)
+                if (mod.Split('\t') is not [var cat, var name] || !knownMods.Contains((cat, name)))
+                    throw new SearchSetupException($"the pinned MetaMorpheus has no modification '{mod.Replace("\t", " / ")}'");
+            text = EditModList(text, "ListOfModsVariable", remove: _ => false, add: enriched);
+        }
+        if (s.MaxModsForPeptide is { } maxMods)
+        {
+            if (maxMods < 1) throw new SearchSetupException($"MaxModsForPeptide must be 1 or more, not {maxMods}");
+            text = Replace(text, @"^MaxModsForPeptide = \d+$", $"MaxModsForPeptide = {maxMods}", "MaxModsForPeptide", exactlyOne: true);
         }
 
         if (s.DissociationType is { } dt)

@@ -174,9 +174,11 @@ public sealed class BatchRunner
     /// evidence the library must not ignore. Per deposit, not per run: an entry does not say which run a library
     /// spectrum came from, so a mixed deposit's whole-proteome runs route that class too.
     /// </summary>
-    /// <summary>v0.4.39 (aging PXR-A157): why an enriched deposit must not be searched under this isobaric profile, or null.</summary>
+    /// <summary>v0.4.39 (aging PXR-A157): why an enriched deposit must not be searched under this isobaric profile, or null.
+    /// v0.4.40 (G66): a profile with <c>engine.enriched_variable</c> (tmt-dda@3) searches the enriched classes as variable,
+    /// so it holds nothing.</summary>
     internal string? IsobaricEnrichedHold(string acc, Profile profile) =>
-        profile.QuantMethod == "reporter_ion" && LibraryRouteClasses(acc) is { Count: > 0 } enriched
+        profile.QuantMethod == "reporter_ion" && !profile.EnrichedVariable && LibraryRouteClasses(acc) is { Count: > 0 } enriched
             ? $"enriched for {string.Join(", ", enriched)}, and {profile.Key} searches no enriched PTM class as a variable modification (waits for tmt-dda@3, G66)"
             : null;
 

@@ -102,8 +102,14 @@ public sealed record Profile(
     IReadOnlyDictionary<string, string>? ChemistryArtifacts = null,   // v0.4.29 (ptmQtl PXR-P18/P19): a side reaction -> "Type\tIdWithMotif", added to GPTMD
     IReadOnlyList<string>? GptmdFilters = null,   // v0.4.31: MetaMorpheus's GPTMD filters by class name; null or empty keeps the task's own (none)
     IReadOnlyList<MetaMorpheusSetting>? MetaMorpheusSettings = null,   // v0.4.33: [metamorpheus_settings.<scope>] Key = value
-    IReadOnlyList<string>? GptmdDropMods = null)   // v0.4.38: "Type\tIdWithMotif" entries removed from the GPTMD task's default list
+    IReadOnlyList<string>? GptmdDropMods = null,   // v0.4.38: "Type\tIdWithMotif" entries removed from the GPTMD task's default list
+    bool EnrichedVariable = false)   // v0.4.40 (G66): a deposit's enriched PTM classes are variable in every task, MaxModsForPeptide 3
 {
+    /// <summary>v0.4.40 (G66, D32 slice 4): <c>MaxModsForPeptide</c> in every task of a search under
+    /// <see cref="EnrichedVariable"/> whose deposit enriches a PTM class. The TMT phospho trial measured it
+    /// (results/tmtphospho-trial_2026-11-02): 405 peptidoforms with three phospho sites, none under MetaMorpheus's 2.</summary>
+    public const int EnrichedMaxModsForPeptide = 3;
+
     /// <summary>The scopes of <c>[metamorpheus_settings]</c>: every task, or one task kind.</summary>
     public static readonly string[] MetaMorpheusSettingScopes = { "all", "calibration", "gptmd", "search" };
 
@@ -122,7 +128,7 @@ public sealed record Profile(
         "MaxThreadsToUsePerFile", "MatchBetweenRuns", "SearchType", "WriteSpectralLibrary", "UpdateSpectralLibrary",
         "WriteSdrf", "ProteomeXchangeAccession", "QuantifyPpmTol", "Protease", "SpecificProtease", "ListOfModsFixed",
         "ListOfModsVariable", "ListOfModsGptmd", "GptmdFilters", "ProductMassTolerance", "PrecursorMassTolerance",
-        "DissociationType",
+        "DissociationType", "MaxModsForPeptide",
     };
 
     /// <summary>The GPTMD filters MetaMorpheus 1.1.12 has (EngineLayer/Gptmd/IGptmdFilter.cs). MetaMorpheus drops a name it
