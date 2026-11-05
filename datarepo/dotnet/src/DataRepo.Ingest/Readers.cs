@@ -33,6 +33,115 @@ public sealed class ReaderLog
         Entries.Select(e => (string)e["backend"]!).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
 }
 
+/// <summary>One forward pass over a tab-separated file, one row in memory at a time.</summary>
+/// <remarks>
+/// <para>Python's <c>csv.reader(delimiter='\t', quoting=QUOTE_NONE)</c> over the file opened <c>utf-8-sig</c> with
+/// <c>newline=""</c>: one leading BOM is dropped and invalid UTF-8 raises; a row ends at <c>\n</c>, <c>\r</c> or
+/// <c>\r\n</c>; quotes are ordinary characters; the first row is the header even when it is empty; later empty rows
+/// are dropped.</para>
+/// <para>A table has no size limit here. Decoding a whole file into one string stops at .NET's longest string, 1,073,741,791
+/// characters, and reading it into one array at 2 GiB: PXD025315's peak table is 1.49 GB (PXR-R48). A table of many
+/// columns costs only the cells asked for, since a row is split by position and a cell becomes a string when read.</para>
+/// </remarks>
+public sealed class TsvReader : IDisposable
+{
+    private const int BufferSize = 1 << 16;
+
+    // Python's csv refused a field over this many characters. The limit was the parser's, not the format's, and it
+    // refused the whole ingest, so only IngestRules.Python0320 keeps it (G83 item 7).
+    private const int CsvFieldSizeLimit = 131072;
+
+    private readonly StreamReader _text;
+    private readonly IngestRules _rules;
+    private string _line = "";
+    private int[] _starts = new int[64];  // where each cell of the line starts; one more holds the end of the last
+    private int _cells;
+
+    /// <summary>Reads the header of a table from <paramref name="stream"/>, which it then owns.</summary>
+    public TsvReader(Stream stream, IngestRules rules = IngestRules.Current)
+    {
+        // A preamble makes StreamReader drop one leading BOM, which is utf-8-sig's rule, and only with BOM detection off
+        // does it never decide the file is some other encoding.
+        _text = new StreamReader(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true, throwOnInvalidBytes: true),
+            detectEncodingFromByteOrderMarks: false, BufferSize);
+        _rules = rules;
+        if (_text.ReadLine() is { Length: > 0 } first)
+        {
+            Locate(first);
+            Header = Row();
+        }
+        else
+        {
+            Header = [];
+        }
+    }
+
+    /// <summary>Opens a table on disk.</summary>
+    public static TsvReader Open(string path, IngestRules rules = IngestRules.Current) =>
+        new(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 1, FileOptions.SequentialScan), rules);  // the reader buffers
+
+    /// <summary>The first row of the file.</summary>
+    public List<string> Header { get; }
+
+    /// <summary>Rows read so far, the header not counted.</summary>
+    public long Rows { get; private set; }
+
+    /// <summary>The position of a named column, or -1 when the header has none.</summary>
+    /// <remarks>A repeated name is its last position, as in <see cref="Readers.IterDicts"/>.</remarks>
+    public int Column(string name) => Header.LastIndexOf(name);
+
+    /// <summary>Moves to the next row that is not empty.</summary>
+    /// <returns>False at the end of the file.</returns>
+    public bool Read()
+    {
+        while (_text.ReadLine() is { } line)
+        {
+            if (line.Length == 0) continue;
+            Locate(line);
+            Rows++;
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>A cell of the current row, empty when the row is too short or <paramref name="column"/> is -1.</summary>
+    public ReadOnlySpan<char> Span(int column) =>
+        column >= 0 && column < _cells ? _line.AsSpan(_starts[column], _starts[column + 1] - _starts[column] - 1) : default;
+
+    /// <summary>A cell of the current row as a string: <see cref="Span"/>'s rule.</summary>
+    public string Cell(int column) => Span(column).ToString();
+
+    /// <summary>Every cell of the current row.</summary>
+    public List<string> Row()
+    {
+        var row = new List<string>(_cells);
+        for (int i = 0; i < _cells; i++) row.Add(Cell(i));
+        return row;
+    }
+
+    public void Dispose() => _text.Dispose();
+
+    private void Locate(string line)
+    {
+        _line = line;
+        _cells = 0;
+        var start = 0;
+        while (true)
+        {
+            if (_cells + 1 == _starts.Length) Array.Resize(ref _starts, _starts.Length * 2);
+            _starts[_cells++] = start;
+            var tab = line.AsSpan(start).IndexOf('\t');
+            if (tab < 0) break;
+            start += tab + 1;
+        }
+        _starts[_cells] = line.Length + 1;
+        if (_rules != IngestRules.Python0320) return;
+        for (int i = 0; i < _cells; i++)
+            if (_starts[i + 1] - _starts[i] - 1 > CsvFieldSizeLimit)
+                throw new InvalidDataException($"field larger than field limit ({CsvFieldSizeLimit})");
+    }
+}
+
 /// <summary>PTM site occupancy cells of a MetaMorpheus protein-group table, one record per site entry.</summary>
 /// <remarks>The C# counterpart of pyMzLib's <c>OccupancyRecords</c>, carrying the members the ingester reads.</remarks>
 public sealed class OccupancyRecords
@@ -371,45 +480,18 @@ public static class Readers
     // In-house TSV and results.txt
     // -------------------------------------------------------------------------------------------
 
-    /// <summary>Python's <c>csv</c> default <c>field_size_limit</c>: a longer field is an error there.</summary>
-    private const int CsvFieldSizeLimit = 131072;
-
-    /// <summary>Reads a tab-separated file as a header and a list of rows, with no interpretation.</summary>
-    /// <remarks>
-    /// Python's <c>csv.reader(delimiter='\t', quoting=QUOTE_NONE)</c> over the file opened <c>utf-8-sig</c>
-    /// with <c>newline=""</c>: a row ends at <c>\n</c>, <c>\r</c> or <c>\r\n</c>; quotes are ordinary
-    /// characters; the first row is the header even when it is empty; later empty rows are dropped.
-    /// <para>Python's <c>csv</c> also refused a field over 131,072 characters, which a protein group with
-    /// enough members reaches (the largest in aging's corpus is 60,129). That limit was the parser's, not the
-    /// format's, and it refused the whole ingest; under <see cref="IngestRules.Current"/> there is none (G83 item 7).</para>
-    /// </remarks>
+    /// <summary>Reads a whole tab-separated file as a header and a list of rows, with no interpretation.</summary>
+    /// <remarks>For a table small enough to hold; <see cref="TsvReader"/> states the rules, and reads one that is not.
+    /// Python's <c>csv</c> also refused a field over 131,072 characters, which a protein group with enough members
+    /// reaches (the largest in aging's corpus is 60,129); under <see cref="IngestRules.Current"/> there is no such limit.</remarks>
     public static (List<string> Header, List<List<string>> Rows) ReadTsv(string path, ReaderLog? log = null, string? note = null,
         IngestRules rules = IngestRules.Current)
     {
-        string text = PyText.DecodeUtf8Sig(File.ReadAllBytes(path), strict: true);
-        var header = new List<string>();
+        using var table = TsvReader.Open(path, rules);
         var rows = new List<List<string>>();
-        bool first = true;
-        foreach (string line in PyText.SplitCsvLines(text))
-        {
-            List<string> row = line.Length == 0 ? [] : line.Split('\t').ToList();
-            foreach (string field in row)
-            {
-                if (field.Length > CsvFieldSizeLimit && rules == IngestRules.Python0320)
-                    throw new InvalidDataException($"field larger than field limit ({CsvFieldSizeLimit})");
-            }
-            if (first)
-            {
-                header = row;
-                first = false;
-            }
-            else if (row.Count > 0)
-            {
-                rows.Add(row);
-            }
-        }
+        while (table.Read()) rows.Add(table.Row());
         log?.Record(path, "datarepo-tsv", rows.Count, note);
-        return (header, rows);
+        return (table.Header, rows);
     }
 
     /// <summary>Zips a header onto rows, tolerating short rows (trailing empty cells are dropped by writers).</summary>
@@ -851,25 +933,6 @@ internal static class PyText
         int offset = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF ? 3 : 0;
         var encoding = new UTF8Encoding(false, throwOnInvalidBytes: strict);
         return encoding.GetString(bytes, offset, bytes.Length - offset);
-    }
-
-    /// <summary>The lines a file opened with <c>newline=""</c> yields to <c>csv.reader</c>, terminators removed:
-    /// a line ends at <c>\n</c>, <c>\r</c> or <c>\r\n</c>.</summary>
-    public static IEnumerable<string> SplitCsvLines(string text)
-    {
-        int start = 0;
-        for (int i = 0; i < text.Length; i++)
-        {
-            char c = text[i];
-            if (c != '\n' && c != '\r')
-                continue;
-            yield return text[start..i];
-            if (c == '\r' && i + 1 < text.Length && text[i + 1] == '\n')
-                i++;
-            start = i + 1;
-        }
-        if (start < text.Length)
-            yield return text[start..];
     }
 
     /// <summary>Python's <c>str.splitlines()</c>.</summary>

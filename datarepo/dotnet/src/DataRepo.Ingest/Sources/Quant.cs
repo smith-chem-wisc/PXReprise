@@ -88,26 +88,38 @@ public static class Quant
     /// <summary>Best PIP q-value per (run, full sequence) from <c>AllQuantifiedPeaks.tsv</c>.</summary>
     /// <remarks>The peak table is per charge state and per peak, finer than the peptide table the quantities
     /// come from, so it is used only to attach peak-level quality the peptide table lacks: the PIP q-value
-    /// and whether the MBR transfer passes the producer's threshold (QuantProject DEF-QC-MBR).</remarks>
+    /// and whether the MBR transfer passes the producer's threshold (QuantProject DEF-QC-MBR).
+    /// <para>This can be a search's largest table (1.49 GB on PXD025315, PXR-R48) and three of its columns are read, so it
+    /// is never held whole. A run name that matched is remembered, since <see cref="RunNameMap.Resolve"/> changes nothing
+    /// on a match; one that did not goes back to it on every row, because it counts them.</para></remarks>
     public static Dictionary<(string Run, string Sequence), (double? PipQValue, bool? MbrKept)> PeakQuality(
         string path, string datasetId, RunNameMap runNames, double mbrQThreshold, ReaderLog? log = null, IngestRules rules = IngestRules.Current)
     {
         var output = new Dictionary<(string, string), (double?, bool?)>();
         if (!File.Exists(path)) return output;
-        var (header, rows) = Readers.ReadTsv(path, log, PeaksNote, rules);
-        foreach (var row in Readers.IterDicts(header, rows))
+        using var peaks = TsvReader.Open(path, rules);
+        int file = peaks.Column("File Name"), fullSequence = peaks.Column("Full Sequence"), pip = peaks.Column("PIP Q-Value");
+        var matched = new Dictionary<string, string>(StringComparer.Ordinal);
+        var matchedBySpan = matched.GetAlternateLookup<ReadOnlySpan<char>>();
+        while (peaks.Read())
         {
-            var reported = Cell(row, "File Name");
-            var run = runNames.Resolve(reported) ?? reported;
-            var sequence = Cell(row, "Full Sequence");
-            if (sequence.Length == 0) continue;
-            double? pipQ = PyFormat.TryParseFloat(Cell(row, "PIP Q-Value"), out var q) ? q : null;
+            if (!matchedBySpan.TryGetValue(peaks.Span(file), out var run))
+            {
+                var reported = peaks.Cell(file);
+                var resolved = runNames.Resolve(reported);
+                if (resolved is not null) matched[reported] = resolved;
+                run = resolved ?? reported;
+            }
+            if (peaks.Span(fullSequence).IsEmpty) continue;
+            var sequence = peaks.Cell(fullSequence);
+            double? pipQ = PyFormat.TryParseFloat(peaks.Cell(pip), out var q) ? q : null;
             var key = (run, sequence);
             // Python compares with `<`, which is false for NaN, and stores whatever float() returned.
             if (!output.TryGetValue(key, out var current)
                 || (pipQ is not null && (current.Item1 is null || pipQ < current.Item1)))
                 output[key] = (pipQ, pipQ is null ? null : pipQ <= mbrQThreshold);
         }
+        log?.Record(path, "datarepo-tsv", peaks.Rows, PeaksNote);
         return output;
     }
 

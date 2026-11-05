@@ -4,6 +4,22 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [1.4.3] - 2026-11-05
+
+**No row moves and no bundle id moves.** The ingest path stays `cs-1.2.0`, the schema 0.0.16 and the catalog format 15.
+Nothing needs re-ingesting: swap the binary, and a deposit that failed for this reason can now be delivered.
+
+### Fixed (ingest)
+- **A table of any size can be read** (PXReprise PXR-R48). `ReadTsv` read a whole file into one array and decoded it into
+  one string, so a table past .NET's longest string (1,073,741,791 characters) failed with `OutOfMemoryException` whatever
+  memory was free. PXD025315's 1.49 GB `AllQuantifiedPeaks.tsv` was the first to cross. `TsvReader` now reads one row at a
+  time; `ReadTsv` is built on it, so every table read that way loses the limit, and the peak table is never held whole.
+- Measured on real peak tables, the old reader against the new: PXD034590 (864 MB) 67 s and 7.5 GB against 10 s and 0.8 GB,
+  with the same index; PXD025315 (1.49 GB) out of memory against 13 s and 1.2 GB.
+- Proven identical, so no version moves (D26). PXD017944, PXD018999 and PXD034590, re-ingested into a scratch store, gave
+  their served bundle ids and byte-identical tables. A test holds the old reader as the oracle against the new one on every
+  kind of input, 5,000 random tables among them. PXD025315 ingests as `3d76e6ec83ecc5a1`.
+
 ## [1.4.2] - 2026-11-03
 
 **Only isobaric bundles move.** The ingest path stays `cs-1.2.0`, the schema 0.0.16 and the catalog format 15. The
