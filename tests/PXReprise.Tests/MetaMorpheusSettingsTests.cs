@@ -12,7 +12,9 @@ public class MetaMorpheusSettingsTests
 {
     private static string ProfileWith(string extra)
     {
-        string text = File.ReadAllText(Path.Combine(TestSupport.ProfilesDir, "label-free-dda-11.toml")) + "\n" + extra + "\n";
+        // The profile may be checked out with CRLF line endings (core.autocrlf=true), and the tests below edit
+        // its text with "\n"-terminated Replace calls, so normalise it to LF first.
+        string text = File.ReadAllText(Path.Combine(TestSupport.ProfilesDir, "label-free-dda-11.toml")).Replace("\r\n", "\n") + "\n" + extra + "\n";
         string dir = TestSupport.TempDir();
         Directory.CreateDirectory(Path.Combine(dir, "lists"));
         foreach (string f in Directory.GetFiles(Path.Combine(TestSupport.ProfilesDir, "lists")))
