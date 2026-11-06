@@ -69,6 +69,8 @@ public sealed class BatchRunner
     /// <summary>How often the controller looks for packages while every deposit left waits on the worker, and how often
     /// the worker looks for assignments while it has none.</summary>
     internal TimeSpan WorkerPoll { get; set; } = TimeSpan.FromMinutes(1);
+    /// <summary>The clock <see cref="WaitAsync"/> reads, so a test can make its deadline pass at an exact moment.</summary>
+    internal Func<DateTime> WaitClock { get; set; } = () => DateTime.UtcNow;
 
     /// <summary>How often the worker writes its heartbeat, during a probe too.</summary>
     internal TimeSpan HeartbeatEvery { get; set; } = TimeSpan.FromMinutes(5);
@@ -575,13 +577,16 @@ public sealed class BatchRunner
     internal Func<QueueEntry, Profile, CancellationToken, Task>? SearchForTest { get; set; }
 
     /// <summary>Waits between passes, watching for STOP each minute. False when STOP or cancellation ended the wait.</summary>
-    private async Task<bool> WaitAsync(TimeSpan wait, CancellationToken ct)
+    internal async Task<bool> WaitAsync(TimeSpan wait, CancellationToken ct)
     {
-        var until = DateTime.UtcNow + wait;
-        while (DateTime.UtcNow < until)
+        var until = WaitClock() + wait;
+        while (WaitClock() < until)
         {
             if (File.Exists(StopFile)) { Log("STOP file present: finishing"); return false; }
-            var left = until - DateTime.UtcNow;
+            var left = until - WaitClock();
+            // The deadline can pass after the check above. Task.Delay rounds toward zero, so a time left of -1 ms means
+            // "forever" and anything below it throws. Either would end or hang a driver at the end of an ordinary wait.
+            if (left <= TimeSpan.Zero) break;
             try { await Task.Delay(left < TimeSpan.FromMinutes(1) ? left : TimeSpan.FromMinutes(1), ct).ConfigureAwait(false); }
             catch (OperationCanceledException) { return false; }
         }

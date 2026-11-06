@@ -7,6 +7,16 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.41 (unreleased)
+
+**MetaMorpheus** unchanged so far (1.1.13). **Machine file:** unchanged. **Safe mid-batch?** Yes: swap the pin as usual.
+
+- **A batch's wait can no longer hang or crash at its very end.** `BatchRunner.WaitAsync` checked the clock, then worked out
+  the time left. If the deadline passed in between, the time left was negative, and `Task.Delay` rounds toward zero: 1 to 2 ms
+  late meant "wait forever", with no message and no STOP check, and 2 ms or more late threw `ArgumentOutOfRangeException` and
+  ended the driver. It affects the wait between download passes and a probe worker's polling. It was seen once, on CI, and
+  never in the aging batch's log, but a heavily loaded machine makes it likelier. The wait now ends when its deadline has passed.
+
 ## 0.4.40 (2026-11-05)
 
 **MetaMorpheus** unchanged (1.1.13). **Machine file:** unchanged. **Safe mid-batch?** Yes: swap the pin as usual.

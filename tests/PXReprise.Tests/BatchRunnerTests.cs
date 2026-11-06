@@ -99,6 +99,41 @@ public class BatchRunnerTests
         return (new BatchRunner(question, Profiles, machine, files, search, "2026-09-28") { Sha1Source = NoSha1 }, search, files, dir);
     }
 
+    // G79: the deadline can pass between WaitAsync's clock check and its sleep. Task.Delay rounds toward zero, so the time
+    // left then does one of three things: under 1 ms late it is 0 and harmless; 1 to 2 ms late it is -1, which Task.Delay
+    // reads as WAIT FOREVER; 2 ms or more late it throws ArgumentOutOfRangeException. Seen once, on public CI.
+    [TestCase(0.2, TestName = "A wait ends when its deadline passed under 1 ms before its sleep")]
+    [TestCase(1.5, TestName = "A wait ends when its deadline passed 1 to 2 ms before its sleep, which Task.Delay reads as forever")]
+    [TestCase(5.0, TestName = "A wait ends when its deadline passed 2 ms or more before its sleep, which Task.Delay refuses")]
+    public async Task AWaitWhoseDeadlinePassesBetweenItsClockCheckAndItsSleepEnds(double millisecondsLate)
+    {
+        var (runner, _, _, _) = Runner();
+        var start = new DateTime(2026, 11, 6, 12, 0, 0, DateTimeKind.Utc);
+        var wait = TimeSpan.FromMinutes(1);
+        int reads = 0;
+        // The first read sets the deadline and the second passes the loop's check. Every later read is past the deadline.
+        runner.WaitClock = () => ++reads <= 2 ? start : start + wait + TimeSpan.FromMilliseconds(millisecondsLate);
+
+        var waiting = runner.WaitAsync(wait, CancellationToken.None);
+        var first = await Task.WhenAny(waiting, Task.Delay(TimeSpan.FromSeconds(10)));
+
+        Assert.That(first, Is.SameAs(waiting), "the wait must end, not sleep forever");
+        Assert.That(await waiting, Is.True, "nothing asked it to stop");
+    }
+
+    [Test]
+    public async Task AWaitStillEndsOnStopAndStillWaitsOutItsTime()
+    {
+        var (runner, _, _, dir) = Runner();
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        Assert.That(await runner.WaitAsync(TimeSpan.FromMilliseconds(200), CancellationToken.None), Is.True);
+        Assert.That(watch.Elapsed, Is.GreaterThanOrEqualTo(TimeSpan.FromMilliseconds(150)), "a wait with time left sleeps it out");
+
+        Directory.CreateDirectory(Path.Combine(dir, "state"));
+        File.WriteAllText(Path.Combine(dir, "state", "STOP"), "test");
+        Assert.That(await runner.WaitAsync(TimeSpan.FromMinutes(5), CancellationToken.None), Is.False, "STOP ends the wait at once");
+    }
+
     [Test]
     public async Task TheScreenRoutesBeforeAnyDownload()
     {
