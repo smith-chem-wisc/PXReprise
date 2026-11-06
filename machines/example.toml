@@ -96,7 +96,8 @@ min_free_gb = 50
 # website. Leave it out and the batch stops after the search.
 # datarepo = "D:/tools/datarepo/datarepo.exe"
 
-# OPTIONAL. A Python with qc's qctemplates, to validate and render QC reports. The pipeline runs without it.
+# OPTIONAL. A Python with qc's qctemplates, to validate and render QC reports. The pipeline runs without it: 05_qc then holds
+# the data (qc_payload.json), with no report.html.
 # qc_python = "C:/path/to/python.exe"
 
 # OPTIONAL (0.4.26). Two machines on one batch: one runs probes, the other every full search and delivery. They share

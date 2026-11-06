@@ -94,7 +94,7 @@ pxreprise validate examples/first-run/question.toml
 pxreprise batch run examples/first-run/question.toml --machine machines/my-machine.toml
 ```
 
-It takes about an hour. Watch progress in `examples/first-run/work/state/batch.log`. The first time, it downloads
+It takes about an hour, longer on a busy machine. Watch progress in `examples/first-run/work/state/batch.log`. The first time, it downloads
 the mouse proteome from UniProt (a few minutes; kept for later runs). When it ends:
 
 ```
@@ -104,7 +104,8 @@ pxreprise batch status examples/first-run/question.toml
 should show `"searched": 1`. Then open, in a browser:
 
 - `examples/first-run/work/site/index.html`: the website dataRepo built from the results, one page per deposit;
-- `examples/first-run/work/runs/PXD058082/05_qc/report.html`: the quality report.
+- `examples/first-run/work/runs/PXD058082/05_qc/qc_payload.json`: the quality data. A readable `report.html` is written beside
+  it only with the optional `qc_python` setting.
 
 The repository itself is in `examples/first-run/work/store/`. [Reading the results](results.md) explains the rest.
 The log may show `MISMATCH psms_target_1pct` with two numbers a few PSMs apart. That is expected: dataRepo and
