@@ -112,7 +112,16 @@ if (model is not null)
 }
 
 string summary = Path.Combine(outRoot, "summary.tsv");
-if (!File.Exists(summary)) File.WriteAllText(summary, string.Join('\t', Deposit.Columns) + "\n");
+string summaryHeader = string.Join('\t', Deposit.Columns);
+// A summary written by an older version has fewer columns: appending to it shifts every later column under the wrong
+// name (the aging run of 2026-11-06 appended 34-field rows under a 32-field header). Set it aside and start afresh.
+if (File.Exists(summary) && File.ReadLines(summary).FirstOrDefault()?.TrimEnd('\r') != summaryHeader)
+{
+    string aside = Path.Combine(outRoot, $"summary.before-{DateTime.UtcNow:yyyyMMdd'T'HHmmss'Z'}.tsv");
+    File.Move(summary, aside);
+    Console.Error.WriteLine($"summary.tsv has another version's columns: moved to {Path.GetFileName(aside)}");
+}
+if (!File.Exists(summary)) File.WriteAllText(summary, summaryHeader + "\n");
 string? curatorDir = opt.GetValueOrDefault("curator");
 using var pride = new PrideArchiveClient();
 using var pmc = new EuropePmcClient();
