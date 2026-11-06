@@ -174,9 +174,9 @@ PXD030350	include	multi-organ ageing study (young-plasma vesicles in aged mice);
 The draft's 81 looked like more, but it counted *fold change* and *3 months old*. The final 73 are deposits you have
 read reasons for.
 
-Of the 73, 29 can be searched today. The rest are counted by what they wait on: 18 on TMT, 17 on DIA, and a few on
-timsTOF, metabolic labelling or other instruments. PXD030350, which you just included, is one of them: it is iTRAQ,
-and no available profile searches that yet. **Relevance is your call; whether it can be searched is the profile's.**
+Of the 73, 29 can be searched under this question's profiles. The rest are counted by what they wait on: 18 on TMT, 17 on
+DIA, and a few on timsTOF, metabolic labelling or other instruments. PXD030350, which you just included, is one of them:
+it is iTRAQ, which `tmt-dda@1` only counts. **Relevance is your call; whether it can be searched is the profile's.**
 
 Now write the queue and run it:
 

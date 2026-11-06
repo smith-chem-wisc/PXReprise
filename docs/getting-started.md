@@ -44,21 +44,25 @@ D:\tools\pxreprise\pxreprise.exe version
    [MetaMorpheus 1.1.11 release](https://github.com/smith-chem-wisc/MetaMorpheus/releases/tag/1.1.11).
 2. Unzip it to `D:\tools\MetaMorpheus-1.1.11`.
 
+**Why not the newest MetaMorpheus?** Each profile names the release it runs on, and `label-free-dda@2`, the profile a new
+installation uses, names 1.1.11. It is the one profile whose protein databases download by themselves. The newer profiles
+need databases that are not published: see [Profiles](concepts.md#profiles).
+
 ## 3b. Download dataRepo
 
 [dataRepo](https://github.com/smith-chem-wisc/dataRepo) turns the search results into a repository you can query, and
 a website. It is a ready-to-run download: no Python.
 
-1. From the [dataRepo 1.1.0 release](https://github.com/smith-chem-wisc/dataRepo/releases/tag/v1.1.0), download the
-   file for your computer: `datarepo-1.1.0-win-x64.zip`, `datarepo-1.1.0-linux-x64.tar.gz`,
-   `datarepo-1.1.0-osx-arm64.tar.gz` (Apple silicon) or `datarepo-1.1.0-osx-x64.tar.gz` (Intel).
+1. From the [dataRepo 1.4.3 release](https://github.com/smith-chem-wisc/dataRepo/releases/tag/v1.4.3), download the
+   file for your computer: `datarepo-1.4.3-win-x64.zip`, `datarepo-1.4.3-linux-x64.tar.gz`,
+   `datarepo-1.4.3-osx-arm64.tar.gz` (Apple silicon) or `datarepo-1.4.3-osx-x64.tar.gz` (Intel).
 2. Unpack it into `D:\tools`, which makes `D:\tools\datarepo`. On Linux and macOS use `tar -xzf`.
-3. Check it: `D:\tools\datarepo\datarepo.exe --version` should print `datarepo 1.1.0`, and
+3. Check it: `D:\tools\datarepo\datarepo.exe --version` should print `datarepo 1.4.3`, and
    `D:\tools\datarepo\datarepo.exe doctor` should end with `ready`. On macOS, if the program is blocked, run
    `xattr -dr com.apple.quarantine datarepo` once in the folder you unpacked.
 
-PXReprise asks dataRepo for its version when a batch starts. From dataRepo 1.0.0 on, it reads ingest's JSON result
-(`ingest --json`); an older dataRepo is judged by its exit code alone.
+Use one release for the whole repository: ingest, catalog and website. Its version is part of each bundle's and catalog's
+identity, and its release notes say when moving to a newer one means ingesting every deposit again.
 
 Without dataRepo, everything still runs; it stops after the search.
 
@@ -78,7 +82,8 @@ Set four things. Use forward slashes in paths, even on Windows.
 - `accept_thermo_licence`: Thermo `.raw` files are read with Thermo's RawFileReader, under
   [its licence](https://github.com/thermofisherlsms/RawFileReader). Read it; set `true` only if you accept it.
 
-Files named `machines/my-*.toml` are never committed, so your paths stay yours.
+Files named `machines/my-*.toml` are never committed, so your paths stay yours. The template explains every other
+setting; section 8 below says which ones matter for a long batch.
 
 ## 5. Run the first-run test
 
@@ -160,6 +165,31 @@ What an update keeps:
 **To keep the old version** (useful during a long batch), publish the new one to a new folder instead, e.g.
 `D:\tools\pxreprise-0.2.0`, and run it from there. Going back is then just running the old folder's program.
 
+## 8. Running a batch for weeks
+
+A question of any size runs for days to weeks. What has mattered on the machine that runs one:
+
+- **Run from a fixed folder.** Publish each version to a folder of its own, as above. A running batch then never changes
+  under itself, and moving to a new version is a deliberate step: stop, wait for the batch to exit, start the new folder.
+- **Stopping takes time.** `batch stop` lets the searches under way finish, and each raw file is hashed before a search
+  starts, so a stop can take hours. Don't kill a batch.
+- **Decisions wait for you.** A deposit the batch cannot settle by itself (the spectra disagree with the record, its
+  chemistry is unclear, it would not fit on the disk) waits, with a row in `decisions_needed.tsv` in the question's
+  `run_root`. Read that file regularly. The answer goes in the question file, and the batch reads the question only when it
+  starts, so a change takes effect at the next start.
+- **After a reboot,** run the same `batch run` again. It redoes what was cut off. `driver.last.json` in the state folder
+  records the exact command, so a scheduled task can do this for you. Set such a task to priority 4: Windows Task
+  Scheduler's default of 7 runs the batch and its searches at low memory and I/O priority, and a search can then crawl for
+  hours with no error.
+- **Machine file settings to look at** (`machines/example.toml` explains each):
+  - `search_slots` and `max_threads`: how much of the machine to use.
+  - `dotnet_root`: a private copy of .NET, so an automatic update cannot remove the runtime under a running search.
+  - `min_free_gb`: where the batch stops rather than fill the disk.
+  - `[deposit_limits]`: how big a deposit this machine takes whole. Raise it one step at a time; a running batch re-reads it.
+  - `aspera_ascp` and `aspera_key`: IBM Aspera for downloads, often much faster from EBI when EBI's side is healthy.
+    `aspera_attempts = 0` turns it off without removing the lines.
+- **Keep the search output.** A later dataRepo release can mean ingesting every deposit again, which reads `04_search`.
+
 ## When something goes wrong
 
 Every command prints one JSON object. `"ok": false` comes with an error `type` and a `message`.
@@ -172,6 +202,8 @@ Every command prints one JSON object. `"ok": false` comes with an error `type` a
 | `contaminant database missing` | The `[metamorpheus]` path is not inside the unzipped release folder. |
 | `batch.log` says `free space ... below ... floor: stopping` or `paused at the disk floor` | Free up disk, or lower `min_free_gb` in your machine file, then run the batch again. |
 | a deposit you expected was not searched | Find it in the census's `census.tsv`: the `route` and `route_reason` columns say why. |
+| a deposit's status starts `waiting_` | [Reading the results](results.md#what-each-status-means) says what it waits on. If it needs a person, it has a row in `decisions_needed.tsv`. |
+| `MISMATCH psms_target_1pct` in the log, with two numbers a few PSMs apart | Expected: dataRepo and MetaMorpheus count the 1% PSMs slightly differently. |
 
 To report a problem, open an issue at <https://github.com/smith-chem-wisc/PXReprise/issues> with the command, its JSON
 output, the last 50 lines of `batch.log`, and the output of `pxreprise version`.

@@ -104,6 +104,7 @@ pxreprise batch run    question.toml --machine my-machine.toml
 pxreprise batch status question.toml
 pxreprise batch stop   question.toml
 pxreprise batch retry  question.toml PXD000000 --reason "why"
+pxreprise batch research question.toml PXD000000 --reason "why" [--profile label-free-dda@14]
 ```
 
 - `run` works through the queue, one deposit at a time, until the queue is done, the disk is full, or it is stopped.
@@ -116,6 +117,19 @@ pxreprise batch retry  question.toml PXD000000 --reason "why"
 - `retry` puts one settled deposit (for example `fetch_failed`) back in the queue for the next `run`. The reason is
   required; it is kept in `state.json` with the old status, the time and the user, and logged. Refused while a batch is
   running and for a deposit whose search finished.
+- `research` searches a finished deposit again, for example under a newer profile. Its folder is moved aside whole
+  (`PXD000000.superseded-<time>`), never deleted, and the next `run` downloads and searches it like a new deposit, under
+  `--profile` when given (one of the question's own profiles), else as routing chooses. The delivery already in the
+  repository stays served until the new search is ingested. Refused while a batch is running, for a deposit with no
+  finished search (use `retry`), and for one the manifest does not `include`.
+
+A deposit put back with `retry` or `research` goes ahead of the queue order, oldest request first. A deposit already
+downloaded still goes before it.
+
+`run` takes `--run-date YYYY-MM-DD`, which stamps the batch's records with a fixed date instead of today's.
+
+The batch reads the question and the machine file when it starts. A change to either takes effect at the next `run`, except
+the machine's `[deposit_limits]` and `probe_search_minutes`, which a running batch reads again.
 
 Only one batch runs per question at a time; a second `run` is refused while the first is alive.
 
@@ -123,7 +137,7 @@ Only one batch runs per question at a time; a second `run` is refused while the 
 
 ```
 pxreprise library list   --machine my-machine.toml
-pxreprise library repair mouse --machine my-machine.toml --reason "why"
+pxreprise library repair mouse --machine my-machine.toml --reason "why" [--databases a.xml,b.xml]
 ```
 
 - `list` shows each organism's current spectral library: its version, how many spectra it holds, and how many versions
@@ -133,8 +147,9 @@ pxreprise library repair mouse --machine my-machine.toml --reason "why"
 - `repair` writes a new current version without the spectra mzLib cannot read back, and changes nothing when there
   are none. Those are spectra whose modification name holds a count in parentheses, such as Unimod's `NEM:2H(5)`:
   mzLib's reader takes them for crosslinks, and a search using that library then fails. Since 0.4.20 they are left
-  out whenever a search adds to a library, so only a library from an earlier version can need this. Run it while no
-  batch is running.
+  out whenever a search adds to a library, so only a library from an earlier version can need this. With `--databases`
+  (since 0.4.32) it also cleans the library against the organism's target databases, as every new version now is
+  ([Spectral libraries](concepts.md#profiles)). Run it while no batch is running.
 
 ### `worker`
 
@@ -197,7 +212,7 @@ For testing a stage by hand. The batch runs all of these for you.
 
 | Command | Does |
 |---|---|
-| `pxreprise fetch PXD012345 --out folder --machine m.toml` | Downloads one deposit's raw files, verified. `--max-files`, `--max-file-mb`, `--parallel` and `--attempts` adjust it. |
+| `pxreprise fetch PXD012345 --out folder --machine m.toml` | Downloads one deposit's raw files, verified. `--pick` (`all`, `probe_spread`, `median_size` or `first_by_name`), `--max-files`, `--max-file-mb`, `--parallel` and `--attempts` adjust it. |
 | `pxreprise qc --spectra folder --out folder --profile label-free-dda@2 --machine m.toml` | Checks raw files against the profile's quality gates. |
 | `pxreprise search --spectra folder --qc folder --out folder --organism human --profile label-free-dda@2 --machine m.toml` | Runs the MetaMorpheus search on checked files. With a profile that takes a design (`[quant] design = "sdrf"`), `--design PXD012345.sdrf.tsv` gives the SDRF to use, and `--condition-columns` the factor columns its condition is built from when it has several. `--enriched phospho,GG` names the PTM classes the deposit enriches (`phospho`, `acetylK`, `succinylK`, `GG`), as the batch reads them: their library spectra go to class chains, and a profile with `engine.enriched_variable` (`tmt-dda@3`) searches them as variable modifications. |
 | `pxreprise qc-payload <search folder> <qc folder> <out folder> --accession PXD012345` | Builds the QC report from a finished search. |
