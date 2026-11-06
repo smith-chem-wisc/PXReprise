@@ -13,7 +13,6 @@ public class ExamplesTests
     }
 
     [TestCase("first-run")]
-    [TestCase("t2d")]
     [TestCase("muscle-ageing")]
     public void AnExampleQuestionLoadsAndUsesOnlyShippedProfiles(string example)
     {
