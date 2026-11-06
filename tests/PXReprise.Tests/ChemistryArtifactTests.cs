@@ -82,7 +82,7 @@ public class ChemistryArtifactTests
         var p10 = all["label-free-dda@10"];
         var p9 = all["label-free-dda@9"];
         Assert.That(p10.GptmdFilters, Is.EqualTo(new[] { "ImprovedScoreFilter" }));
-        Assert.That(all.Where(kv => kv.Value.GptmdFilters is not null).Select(kv => kv.Key), Is.EquivalentTo(new[] { "label-free-dda@10", "label-free-dda@11", "label-free-dda@12", "label-free-dda@13", "label-free-dda@14" }),
+        Assert.That(all.Where(kv => kv.Value.GptmdFilters is not null).Select(kv => kv.Key), Is.EquivalentTo(new[] { "label-free-dda@10", "label-free-dda@11", "label-free-dda@12", "label-free-dda@13", "label-free-dda@14", "label-free-dda-uniprot@1" }),
             "no earlier profile changes");
         Assert.That(p10 with { Version = 9, Description = p9.Description, GptmdFilters = null, Databases = p9.Databases, Accepts = p9.Accepts,
             Tasks = p9.Tasks, GptmdExtraMods = p9.GptmdExtraMods, Deposit = p9.Deposit, Qc = p9.Qc, ThiolReagents = p9.ThiolReagents,
@@ -167,7 +167,7 @@ public class ChemistryArtifactTests
             new MetaMorpheusSetting("all", "RespectCleavageBlockingModifications", "true"),
             new MetaMorpheusSetting("search", "WriteIndividualFiles", "true"),
         }));
-        Assert.That(all.Where(kv => kv.Value.MetaMorpheusSettings is not null).Select(kv => kv.Key), Is.EquivalentTo(new[] { "label-free-dda@12", "label-free-dda@13", "label-free-dda@14", "label-free-dda-lowres@6", "label-free-dda-lowres@7", "tmt-dda@2", "tmt-dda@3" }));
+        Assert.That(all.Where(kv => kv.Value.MetaMorpheusSettings is not null).Select(kv => kv.Key), Is.EquivalentTo(new[] { "label-free-dda@12", "label-free-dda@13", "label-free-dda@14", "label-free-dda-uniprot@1", "label-free-dda-lowres@6", "label-free-dda-lowres@7", "tmt-dda@2", "tmt-dda@3" }));
         Assert.That(p12 with { Version = 11, Description = p11.Description, Databases = p11.Databases, Accepts = p11.Accepts,
             MetaMorpheus = p11.MetaMorpheus, MetaMorpheusSettings = null,
             Tasks = p11.Tasks, GptmdExtraMods = p11.GptmdExtraMods, GptmdFilters = p11.GptmdFilters, Deposit = p11.Deposit, Qc = p11.Qc,

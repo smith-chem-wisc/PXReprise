@@ -28,13 +28,19 @@ handled. Its name carries its version: `label-free-dda@2`. A profile never chang
 is a new version, so every result says exactly which method made it.
 
 **Which one you can run.**
-- **On a new installation: `label-free-dda@2`.** It is the one profile whose databases download by themselves, from
-  UniProt. It runs on MetaMorpheus 1.1.11, with no probe search, no reading of each deposit's chemistry and no experimental
-  design.
+- **On a new installation: `label-free-dda-uniprot@1`** (since 0.4.41). It is today's label-free method, the settings of
+  `label-free-dda@14` on MetaMorpheus 1.1.13, on UniProt proteomes the engine downloads itself the first time it needs them.
+  They are reviewed entries only: human 20,414, mouse 17,279, rat 8,235 on 2026-11-06, against 20,652, 21,872 and 21,416 in
+  the one-protein-per-gene sets the ageing project's databases start from, so rat loses the most.
+- **`label-free-dda@2`** also downloads its databases, but it is the older method, on MetaMorpheus 1.1.11: no probe search, no
+  reading of each deposit's chemistry and no experimental design.
+- **A downloaded database is identified by its checksum, not by the profile.** UniProt changes, so two machines that download
+  at different times can hold different proteins under one profile. Each search records the file's date and SHA-256, so compare
+  those before pooling results.
 - **Where the ageing project's databases exist:** the newest of each kind, which is what that project runs today:
-  `label-free-dda@14`, `label-free-dda-lowres@7` and `tmt-dda@3`, all on MetaMorpheus 1.1.13. Every profile but `@2` names
-  that project's PTM-annotated databases in the machine's `database_dir`. They are not published, so without them these
-  profiles cannot search.
+  `label-free-dda@14`, `label-free-dda-lowres@7` and `tmt-dda@3`, all on MetaMorpheus 1.1.13. Every other profile names that
+  project's PTM-annotated databases in the machine's `database_dir`. They are not published, so without them these profiles
+  cannot search.
 - **Older versions stay shipped** so that a question can keep naming them and the deposits searched under them are not
   searched again. Start no new search under a MetaMorpheus 1.1.12 profile (`@4` to `@11`, `lowres@1` to `lowres@5`): since
   0.4.33 the engine's mzLib keeps gaps in an SDRF's replicate numbers, and 1.1.12 refuses such a design.
@@ -43,7 +49,7 @@ is a new version, so every result says exactly which method made it.
 
 | Profile | Status | Accepts |
 |---|---|---|
-| `label-free-dda@2` | available | label-free DDA, Thermo Orbitrap with HCD, `.raw` files; human, mouse and rat. UniProt databases are downloaded automatically. **Use this one.** |
+| `label-free-dda@2` | available | label-free DDA, Thermo Orbitrap with HCD, `.raw` files; human, mouse and rat. UniProt databases are downloaded automatically. The older method: `label-free-dda-uniprot@1` runs today's |
 | `label-free-dda@1` | available | the same search, with the ageing project's own PTM-annotated databases; only runs where those databases exist |
 | `label-free-dda@3` | available | `@1`, searched with each deposit's own protease and cysteine chemistry (below) |
 | `label-free-dda@4` | available | `@3` on MetaMorpheus 1.1.12, with an experimental design (below), the ageing project's second database release, and MetaMorpheus's contaminant panel |
@@ -57,6 +63,7 @@ is a new version, so every result says exactly which method made it.
 | `label-free-dda@12` | available | `@11` on MetaMorpheus 1.1.13 and agingPTM-v6, with cleavage-blocking modifications respected in every task (below). Its deliveries need datarepo 1.4.0 or newer |
 | `label-free-dda@13` | available | `@12` on agingPTM-v7, the first regular databases: UniProt's own PTM sites stay only where a deposit not enriched for that class identifies them. GPTMD also offers formyl on S and T, and no longer malonyl on K |
 | `label-free-dda@14` | available (0.4.40) | `@13` without MetaMorpheus's individual-file tables. Identifications and quantification are unchanged. Until a MetaMorpheus release writes each file's `MS2 Scans` and `Precursors` lines without those tables (MetaMorpheus #2955), dataRepo has neither per run for these deposits; dataset totals are unchanged. **The ageing project's current label-free method** |
+| `label-free-dda-uniprot@1` | available (0.4.41) | `@14`'s settings, unchanged, on UniProt reviewed proteomes the engine downloads, with UniProt's own PTM sites and none added. **Use this one on a new installation.** Not the same search as `@14`, so its results are not pooled with it as one method. A question grows its own PTM sites from its own catalog later, under a new version of its own profile |
 | `label-free-dda-lowres@1` | available | label-free DDA whose MS2 is read in the ion trap (CID): MetaMorpheus's Search task alone, each file's fragmentation written from its own scans, no spectral library. A deposit is sent here only when its probe files fail the Orbitrap check and nothing else |
 | `label-free-dda-lowres@2` | available | `lowres@1`, plus MS2 fragmented by HCD and read in the ion trap (a Fusion, Lumos or Eclipse "HCD-IT" method) |
 | `label-free-dda-lowres@3` | available | `lowres@2`, plus the probe search, which measures each deposit's precursor mass offset. The search then accepts and quantifies precursors within a window wide enough for that offset (below). These profiles run no calibration, and an instrument whose masses are a few ppm off loses most of its identifications at MetaMorpheus's 5 ppm |

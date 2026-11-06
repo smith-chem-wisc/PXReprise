@@ -11,6 +11,16 @@ A new version of the engine never changes a finished result. Methods live in ver
 
 **MetaMorpheus** unchanged so far (1.1.13). **Machine file:** unchanged. **Safe mid-batch?** Yes: swap the pin as usual.
 
+- **New profile `label-free-dda-uniprot@1`: today's label-free method on databases the engine downloads.** It is
+  `label-free-dda@14` with only its databases changed, and a test holds it to that: `uniprot = "UP..."` for human, mouse and rat
+  in place of the ageing project's unpublished files. So a new installation or a new question can run the current method, on
+  MetaMorpheus 1.1.13, with nothing but a download.
+  - **Reviewed entries only:** human 20,414, mouse 17,279, rat 8,235 on 2026-11-06, against 20,652, 21,872 and 21,416 in the
+    one-protein-per-gene sets. mzLib's gene-centric download is broken until mzLib #1554 merges; a later version can move to it.
+  - **The probe searches all three species, so a first probe downloads all three,** into `<database_dir>/uniprot`.
+  - **Results are not pooled with `@14` as one method:** no ageing-project sites are added, and UniProt's own sites are all kept.
+  - **A downloaded database is identified by its checksum, not the profile key.** Two machines can hold different downloads under
+    this one profile. Each search records the file's date and SHA-256.
 - **A batch's wait can no longer hang or crash at its very end.** `BatchRunner.WaitAsync` checked the clock, then worked out
   the time left. If the deadline passed in between, the time left was negative, and `Task.Delay` rounds toward zero: 1 to 2 ms
   late meant "wait forever", with no message and no STOP check, and 2 ms or more late threw `ArgumentOutOfRangeException` and

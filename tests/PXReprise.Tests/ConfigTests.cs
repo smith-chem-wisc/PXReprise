@@ -6,12 +6,43 @@ namespace PXReprise.Tests;
 
 public class ConfigTests
 {
+    /// <summary>
+    /// Issue #4: label-free-dda-uniprot@1 is today's method on databases the engine downloads. The promise is that nothing else
+    /// differs from the profile it was made from, so a setting added to neither by hand can drift. Lines, not parsed fields,
+    /// so a key the Profile record does not carry is compared too.
+    /// </summary>
+    [Test]
+    public void TheUniProtProfileDiffersFromLabelFreeDda14OnlyInItsDatabases()
+    {
+        static List<string> Settings(string name) => File.ReadAllLines(Path.Combine(TestSupport.ProfilesDir, name))
+            .Select(l => System.Text.RegularExpressions.Regex.Replace(l, @"\s+#.*$", "").TrimEnd())
+            .Where(l => l.Length > 0 && !l.StartsWith('#'))
+            .Where(l => !System.Text.RegularExpressions.Regex.IsMatch(l, @"^(id|version|description|proteome|uniprot) = "))
+            .ToList();
+
+        Assert.That(Settings("label-free-dda-uniprot-1.toml"), Is.EqualTo(Settings("label-free-dda-14.toml")));
+
+        var all = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
+        var (current, uniprot) = (all["label-free-dda@14"], all["label-free-dda-uniprot@1"]);
+        Assert.Multiple(() =>
+        {
+            Assert.That(uniprot.Status, Is.EqualTo(current.Status));
+            Assert.That(uniprot.Databases.Keys, Is.EquivalentTo(current.Databases.Keys));
+            foreach (var (organism, proteome) in new[] { ("human", "UP000005640"), ("mouse", "UP000000589"), ("rat", "UP000002494") })
+            {
+                Assert.That(uniprot.Databases[organism].UniProt, Is.EqualTo(proteome), organism);
+                Assert.That(uniprot.Databases[organism].Proteome, Is.Null, $"{organism} must not name a file nobody else has");
+                Assert.That(uniprot.Databases[organism].Taxon, Is.EqualTo(current.Databases[organism].Taxon), organism);
+            }
+        });
+    }
+
     [Test]
     public void ShippedProfilesLoadWithTheAgingV1Settings()
     {
         var profiles = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
         Assert.That(profiles.Keys, Is.EquivalentTo(new[] { "label-free-dda@1", "label-free-dda@2", "label-free-dda@3", "label-free-dda@4",
-            "label-free-dda@5", "label-free-dda@6", "label-free-dda@7", "label-free-dda@8", "label-free-dda@9", "label-free-dda@10", "label-free-dda@11", "label-free-dda@12", "label-free-dda@13", "label-free-dda@14", "label-free-dda-lowres@1", "label-free-dda-lowres@2",
+            "label-free-dda@5", "label-free-dda@6", "label-free-dda@7", "label-free-dda@8", "label-free-dda@9", "label-free-dda@10", "label-free-dda@11", "label-free-dda@12", "label-free-dda@13", "label-free-dda@14", "label-free-dda-uniprot@1", "label-free-dda-lowres@1", "label-free-dda-lowres@2",
             "label-free-dda-lowres@3", "label-free-dda-lowres@4", "label-free-dda-lowres@5", "label-free-dda-lowres@6", "label-free-dda-lowres@7", "tmt-dda@1", "tmt-dda@2", "tmt-dda@3" }));
 
         // D44 (2026-10-17): @8 is @7 on agingPTM-v4; nothing else. No lowres version on v4: it cost an ion-trap run 4% of its PSMs.

@@ -1,0 +1,87 @@
+# label-free-dda-uniprot/1 (v0.4.41, 2026-11-06; trishorts/PXReprise#4): the settings of label-free-dda/14 on UniProt proteomes
+# the engine downloads itself, so a new installation or a new question can run today's method without the ageing project's
+# databases, which are not published (the user, 2026-11-06).
+#  - Only id, version, description and each [databases.*] line differ from label-free-dda/14. A test checks that.
+#  - Databases: each reference proteome's reviewed (Swiss-Prot) entries, UniProt xml, no isoforms, through mzLib's
+#    ProteinDbRetriever. Downloaded once on first use into <database_dir>/uniprot; the cached copy's date and sha256 go into
+#    each search's provenance, because UniProt changes and only the cached copy keeps one machine's searches comparable.
+#  - Reviewed only: human 20,414, mouse 17,279, rat 8,235 entries on 2026-11-06, against human 20,652, mouse 21,872, rat 21,416 in the one-protein-per-gene
+#    sets label-free-dda/5 onward start from. Rat loses the most. Peptides of a missing protein go unidentified. mzLib's
+#    gene-centric download is broken until mzLib #1554 merges; a later version can move to it.
+#  - Not the same search as label-free-dda/14, so results are not pooled with it as one method: no ageing-project sites are
+#    added, and UniProt's own sites are all kept, since the "regular" rule (label-free-dda/13) needs a catalog of the
+#    question's own non-enriched data. A question builds its own PTM database from its catalog later, under a new version.
+#  - The spectral library starts empty on a new installation: the first search of an organism writes version 1.
+#  - As label-free-dda/14, a search has no per-run ms2_scans or precursors in dataRepo until a profile runs MetaMorpheus 1.1.14
+#    (#2955).
+id = "label-free-dda-uniprot"
+version = 1
+status = "available"
+description = "Label-free DDA, high-resolution HCD with MS2 read in the Orbitrap; a short probe search first (species, cysteine share, enrichment); MetaMorpheus 1.1.13 Calibrate/GPTMD/Search with cleavage-blocking modifications respected, FlashLFQ with MBR and an SDRF design; protease and cysteine chemistry read from each deposit; UniProt reviewed proteomes the engine downloads, with UniProt's own PTM sites and none added; NBF-Cl modelled by a shipped modification (G40); ring-opened NEM and gel propionamide offered to GPTMD where the chemistry makes them likely; GPTMD adds a site only where it improves the match's score, offers formyl on S/T and not malonyl-K; no individual-file tables"
+
+[accepts]
+acquisition = ["dda"]
+labelling = ["label_free"]
+instrument = ["orbitrap_hcd_only", "orbitrap_hybrid"]
+file_types = [".raw"]
+
+[engine]
+chemistry = "deposit"
+custom_modifications = "PXReprise_custom_modifications_v2.txt"   # G40, under lists/; v2 adds the two artifacts (/9)
+metamorpheus = "1.1.13"   # released 2026-10-29 at 315e02b5e, the commit the trial ran (results/mm-release-switch_2026-10-28)
+probe_search = true       # /7: see label-free-dda-14.toml; probe_search_minutes stays at its default, 60
+tasks = ["Calibration", "Gptmd", "Search"]
+gptmd_extra_mods = ["Trypsin Digested\tGG (Ubiquitination Site) on K", "Less Common\tFormylation on S", "Less Common\tFormylation on T"]   # /13: formyl on S/T
+gptmd_drop_mods = ["Common Biological\tMalonylation on K"]   # /13: see label-free-dda-14.toml
+gptmd_filters = ["ImprovedScoreFilter"]   # /10: see label-free-dda-14.toml
+spectral_library = true   # per organism, written then updated (aging D33)
+write_sdrf = true
+timeout_h = 8
+
+[thiol_reagents]
+"NBF-Cl" = "PXReprise\tNBF on C"
+
+[chemistry_artifacts]
+ring_opened_nem = "Common Artifact\tNethylmaleimide+water on C"
+gel_propionamide = "Common Artifact\tPropionamide on C"
+
+[databases.human]
+uniprot = "UP000005640"
+taxon = 9606
+
+[databases.mouse]
+uniprot = "UP000000589"
+taxon = 10090
+
+[databases.rat]
+uniprot = "UP000002494"
+taxon = 10116
+
+[contaminants]
+file = "MetaMorpheusContaminants_NoUPS.xml"
+
+[quant]
+method = "flashlfq"
+mbr = true
+design = "sdrf"
+
+[deposit]
+whole = true              # every raw file or none (aging S43); more than max_files is deferred, never subsampled
+max_files = 120           # was 60 (/4); see the header
+probe = "probe_spread"    # median by size plus first and last by name, never the smallest (aging G38)
+max_est_ms2 = 3_000_000   # was 1,500,000 (/4); a deposit above it runs only by a question's [exceptions] (D28, D-2)
+max_file_mb = 5000
+defer_if_median_file_mb = 2200
+
+[qc]
+ms2_analyzer = "orbitrap"
+min_fraction_orbitrap_hcd = 0.9
+min_ms2 = 5000
+excludable = ["too_few_ms2"]   # a blank or failed injection may be excluded with a record (aging D52)
+max_excluded_frac = 0.10
+
+[metamorpheus_settings.all]
+RespectCleavageBlockingModifications = true
+
+[metamorpheus_settings.search]
+WriteIndividualFiles = false   # /14: see label-free-dda-14.toml (was true in /12 and /13)
