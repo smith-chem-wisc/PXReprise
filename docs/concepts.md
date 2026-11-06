@@ -197,7 +197,8 @@ one deposit at a time. It downloads the next deposit while the current one is be
    calibration, GPTMD (finding modifications), search, and label-free quantification with match-between-runs. A `lowres`
    profile runs the search alone. A `tmt-dda` profile runs calibration and search, with reporter-ion quantification. Since
    0.4.35 each raw file is deleted as soon as it has been calibrated.
-8. **QC report.** A readable report (`report.html`) and its data.
+8. **QC report.** The quality data (`qc_payload.json`), and a readable report (`report.html`) where the machine file names the
+   optional `qc_python`.
 9. **Clean up.** Delete any raw files left; keep the results and every record.
 10. **Deliver,** if the question has a `[publish]` table and the machine names `datarepo`: add the deposit to the manifest,
     run `datarepo ingest`, then delete the search outputs nothing reads. Only `INGEST rc=0` means delivered. The website or

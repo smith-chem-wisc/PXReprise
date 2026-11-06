@@ -122,8 +122,9 @@ pxreprise batch run examples/first-run/question.toml --machine machines/my-machi
 `batch run` runs until the queue is done, then prints `{"ok":true,"data":{"finished":true}}`. Progress goes to
 `examples/first-run/work/state/batch.log`; read it to report progress. In order you should see: `database: downloading UniProt UP000000589`
 (first run only; the mouse proteome takes a few minutes), `database: ...`, `PROBE qc ok`, `FETCH raw_files=15 of 15`, `SEARCH starting`, `SEARCH rc=0 success=True`,
-`QC-PAYLOAD`, `CLEANUP`, `MANIFEST entry appended`, `INGEST rc=0`, `PUBLISH rc=0`, then `queue exhausted`. The ingest
-and publish take about ten minutes more.
+`QC-PAYLOAD`, `CLEANUP`, `MANIFEST entry appended`, `INGEST rc=0`, `PRUNE`, `queue exhausted`, then `PUBLISH rc=0`. The
+ingest and publish take a few minutes more. On a busy machine or with few threads the search takes longer: nearly two hours
+on 8 threads beside other work.
 
 Then check the outcome:
 
@@ -262,7 +263,7 @@ Each deposit gets `<run_root>/<PXD accession>/`:
 | `02_fetch/` | the download record (`fetch_manifest.json`: every file, its size and SHA-256); the raw files themselves are deleted after the search |
 | `02b_qc/` | per-file quality checks (`qc_report.json`) |
 | `04_search/mm/Task3SearchTask/` | MetaMorpheus's results: `AllPSMs.psmtsv`, `AllPeptides.psmtsv`, `AllQuantifiedProteinGroups.tsv`, `AllQuantifiedPeptides.tsv`, `results.txt`. The number is the search task's place in the profile's tasks, so find the folder on disk rather than assume `Task3` |
-| `05_qc/` | a QC report for people (`report.html`) and its data (`qc_payload.json`) |
+| `05_qc/` | the QC data (`qc_payload.json`). A report for people (`report.html`) is written only where the machine file names the optional `qc_python` |
 | every folder | `provenance.json`: exact inputs, commands, tool versions and checksums |
 
 Per-deposit status lives in `<state_dir>/state.json`. The statuses a person will ask about:
