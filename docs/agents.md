@@ -23,10 +23,10 @@ That is all. The agent will:
 
 1. Check for .NET 10 and git, and tell you what to install if either is missing.
 2. Download and build PXReprise, and run its tests.
-3. Download MetaMorpheus.
+3. Download MetaMorpheus and dataRepo.
 4. Write a machine file for your computer, asking where the work should go.
 5. **Ask you** whether you accept Thermo's licence for reading `.raw` files.
-6. Run a one-hour test on a small public deposit, and report the result.
+6. Run a one-hour test on a small public deposit, and report the result, with the website it built.
 
 When that works, ask it for the next part:
 

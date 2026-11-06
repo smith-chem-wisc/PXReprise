@@ -16,10 +16,14 @@ relevant). PXReprise does the rest, deposit by deposit:
 
 1. **Finds** every PRIDE deposit that matches your keywords, and decides which are relevant.
 2. **Screens** each one: what kind of experiment is it, and can a method it knows search it?
-3. **Downloads** the raw files of every deposit it can search, all of them or none.
-4. **Checks** every file's quality (right instrument mode, enough spectra).
-5. **Searches** them with [MetaMorpheus](https://github.com/smith-chem-wisc/MetaMorpheus), with identical settings every time.
-6. **Records** everything: results, a quality report, and exactly how each result was made.
+3. **Probes** it: three files are downloaded and checked first, so a deposit that is not what its record says costs little.
+4. **Downloads** the raw files of every deposit it can search, all of them or none, and checks each against PRIDE's checksum.
+5. **Checks** every file's quality (right instrument mode, enough spectra).
+6. **Searches** them with [MetaMorpheus](https://github.com/smith-chem-wisc/MetaMorpheus) under one versioned method, a
+   *profile*, so a difference between two results is never a forgotten setting.
+7. **Records** everything: results, a quality report, and exactly how each result was made.
+8. **Delivers** the results, if you want, into a [dataRepo](https://github.com/smith-chem-wisc/dataRepo) repository you can
+   query, with a website.
 
 Nothing in the program is specific to one question. Ageing was the first; type 2 diabetes is next. A new question is
 a new text file, never a change to the program.
@@ -35,7 +39,9 @@ a new text file, never a change to the program.
 
 - A computer with room to work: 100 GB of free disk at least (raw files are deleted after each search).
 - [.NET 10](https://dotnet.microsoft.com/download/dotnet/10.0). **No Python.**
-- [MetaMorpheus 1.1.11](https://github.com/smith-chem-wisc/MetaMorpheus/releases/tag/1.1.11), the command-line zip.
+- [MetaMorpheus 1.1.11](https://github.com/smith-chem-wisc/MetaMorpheus/releases/tag/1.1.11), the command-line zip: the
+  release `label-free-dda@2` names, the profile a new installation runs ([why that one](concepts.md#profiles)).
+- Optional: [dataRepo 1.4.3](https://github.com/smith-chem-wisc/dataRepo/releases/tag/v1.4.3), for the repository and website.
 - Windows is tested. Linux and macOS should work but are untested.
 
 ## Learn more

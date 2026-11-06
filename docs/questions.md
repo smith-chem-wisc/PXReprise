@@ -49,7 +49,7 @@ The [tutorial](tutorial.md) explains why each rule is written the way it is.
 |---|---|---|
 | `question` | yes | Short name: lower-case words joined by `-`. |
 | `description` | no | One sentence, for people. |
-| `profiles` | yes | The search methods this question accepts, in order of preference: see [profiles](concepts.md#profiles). Use `["label-free-dda@2"]`. Adding `"tmt-dda@1"` counts TMT deposits without searching them. |
+| `profiles` | yes | The search methods this question accepts, in order of preference: see [profiles](concepts.md#profiles). On a new installation use `["label-free-dda@2"]`; adding `"tmt-dda@1"` counts TMT deposits without searching them. Where the ageing project's databases exist, name the newest of each kind first: `["label-free-dda@14", "label-free-dda-lowres@7", "tmt-dda@3"]`. When a newer version comes out, put it first and keep the old ones listed, or the deposits searched under them become due for a catch-up re-search (where the machine's `catch_up_every` is on). |
 
 ### `[discover]`: finding deposits
 
@@ -58,7 +58,7 @@ The [tutorial](tutorial.md) explains why each rule is written the way it is.
 | `keywords` | yes | PRIDE search terms. Each is searched separately and the results are merged. Be broad; the relevance rules narrow it. |
 | `disease_keywords` | no | More search terms, for diseases rather than the question's own subject (e.g. `["Alzheimer", "Parkinson"]`). A deposit found **only** by these is queued only if its PRIDE text names a reference group (control, healthy, untreated, vehicle, sham, wild type, placebo, age-matched, young, ...); otherwise it goes to the watch list as `no_reference_group_found`. The check is a guess from text: a cell-line control counts. A deposit also found by `keywords` keeps the normal screen. |
 | `watch_keywords` | no | Search terms whose deposits are found, screened and listed in the census's `watch.tsv`, but **never queued**: a place to look for a second dataset without searching it. |
-| `organisms` | no | Exact PRIDE spellings, e.g. `"Homo sapiens (human)"`. Leave out, or `[]`, for all organisms. `label-free-dda@2` has databases for human, mouse and rat; deposits of other organisms are counted but not searched. |
+| `organisms` | no | Exact PRIDE spellings, e.g. `"Homo sapiens (human)"`. PRIDE can spell one species several ways, so list each: `"Mus musculus (mouse)"` and `"Mus musculus"`, `"Rattus norvegicus (rat)"` and `"Rattus norvegicus"`. Leave out, or `[]`, for all organisms. The profiles have databases for human, mouse and rat; deposits of other organisms are counted but not searched. |
 
 A keyword may appear in only one of `keywords`, `disease_keywords` and `watch_keywords`.
 
@@ -66,7 +66,7 @@ A keyword may appear in only one of `keywords`, `disease_keywords` and `watch_ke
 
 Each rule is a list of [regular expressions](https://learn.microsoft.com/dotnet/standard/base-types/regular-expression-language-quick-reference),
 case-insensitive, matched against the deposit's title, description, sample and data processing protocols, keywords,
-experiment types and quantification methods. In TOML, a backslash is written twice: `"\\bt2d\\b"`.
+experiment types and quantification methods. In TOML, a backslash is written twice: `"\\bsarcopeni"`.
 
 | Setting | Meaning |
 |---|---|
@@ -79,8 +79,8 @@ A decisions file is tab-separated, with exactly this header, and a reason on eve
 
 ```
 accession	verdict	reason
-PXD012345	exclude	streptozotocin model of type 1, not type 2
-PXD067890	include	T2D cohort; the abstract never says "diabetes"
+PXD012345	exclude	liver study; sarcopenia named only as a downstream consequence
+PXD067890	include	multi-organ ageing study; skeletal muscle is one of the organs measured
 ```
 
 `verdict` is `include` or `exclude`. Lines starting with `#` are ignored.
@@ -91,7 +91,7 @@ Needed for `census --queue` and `batch run`. Relative paths are relative to the 
 
 | Setting | Meaning |
 |---|---|
-| `run_root` | One folder per deposit, holding its results. |
+| `run_root` | One folder per deposit, holding its results, and `decisions_needed.tsv`: the deposits waiting on a person. |
 | `state_dir` | The batch's log (`batch.log`), its per-deposit status (`state.json`) and its stop file. |
 | `queue` | The list of deposits to process, written by `pxreprise census --queue`. |
 
@@ -103,7 +103,8 @@ Needed for `census --queue` and `batch run`. Relative paths are relative to the 
 | `[exceptions.PXD012345]` | One deposit's own rules, recorded in its provenance and manifest note. `reason` is required, and at least one of these: `include_files` / `exclude_files` (case-insensitive regular expressions on raw file names; the files left out are never downloaded); `max_files`, `max_file_mb`, `max_est_ms2`, `defer_if_median_file_mb` (the profile's size caps for this deposit); `alkylation = "none"` (its cysteines were never alkylated, so no cysteine modification is searched); `species` (the organism it is searched as, a database key of the profile such as `"rat"`, when PRIDE's record names the wrong one); `replace_files`, one sub-table per raw file name (`[exceptions.PXD012345.replace_files."x.raw"]` with `path`, `pride_sha1`, `sha256` and `note`), a local copy used instead of PRIDE's file, such as a repair of a file damaged at the source: it is never downloaded, PRIDE must still list that SHA-1 for the file and the copy must have that SHA-256, and the delivery's note names each replaced file. A deposit deferred for its size, or waiting because its record names an organism outside the question, gets one more look when its exception is added or changed. |
 | `[overlays.<organism>]` | `extra_xml = ["file.xml", ...]`: extra protein databases searched alongside the profile's, for this question only. A plain file name is looked up in the machine's `database_dir`; an absolute path is used as is. |
 | `[designs]` | Your own experimental designs, for a profile with `[quant] design = "sdrf"`. `dir`: a folder holding one SDRF per deposit, named `PXD012345.sdrf.tsv`. `condition_columns`: the `factor value[...]` columns the condition is built from, when a design has more than one (e.g. `["factor value[age]"]`). It is used ahead of the deposit's own SDRF and checked the way MetaMorpheus reads it; a design that fails the check stops that deposit's search with the reasons, rather than searching without it. Deposited SDRFs rarely carry the experiment's factors (age, treatment), so for most deposits a design is written by hand. `pxreprise validate` refuses a `dir` that does not exist and lists the deposits it holds a design for. |
-| `[publish]` | Delivery into a [dataRepo](https://github.com/smith-chem-wisc/dataRepo) repository; needs `datarepo` in the machine file. `manifest`: the dataRepo manifest the batch appends each searched deposit to (created on first use). `command`: publishes what was ingested, e.g. `["{datarepo}", "publish", "{manifest}", "--site", "{manifest_dir}/site"]` to rebuild a website; `{datarepo}`, `{manifest}` and `{manifest_dir}` are filled in, so the question names no machine path. The batch runs it on a schedule, not after each ingest: at most every `every_h` hours (default 6; 0 = after each ingest), only when something was delivered since the last successful publish, and at once when the queue runs out. `timeout_h` (default 4) is how long it may run before it is killed. A driver stopped by STOP finishes a publish under way and leaves the rest to the next driver. See `examples/first-run`. Not needed to run a question. |
+| `[publish]` | Delivery into a [dataRepo](https://github.com/smith-chem-wisc/dataRepo) repository; needs `datarepo` in the machine file. `manifest`: the dataRepo manifest the batch appends each searched deposit to (created on first use). `command`: publishes what was ingested, e.g. `["{datarepo}", "publish", "{manifest}", "--site", "{manifest_dir}/site"]` to rebuild a website; `{datarepo}`, `{manifest}` and `{manifest_dir}` are filled in, so the question names no machine path. The batch runs it on a schedule, not after each ingest: at most every `every_h` hours (default 6; 0 = after each ingest), only when something was delivered since the last successful publish, and at once when the queue runs out. `timeout_h` (default 4) is how long it may run before it is killed. A driver stopped by STOP finishes a publish under way and leaves the rest to the next driver. `study_layer` names the dataRepo study layer your project delivers to, as a record; the batch does not act on it. See `examples/first-run`. Not needed to run a question. |
+| `[traits]` | The sample facts your analysis needs: `required` and `optional` lists, and `source`, the folder of your curated tables. A record for people and for your own analysis; no step of the batch reads it. |
 
 ## Tips
 
@@ -114,3 +115,5 @@ Needed for `census --queue` and `batch run`. Relative paths are relative to the 
   proximity windows about 150 characters.
 - Prefer rules that are too broad plus a few `exclude` decisions over rules too narrow to find what you need.
 - A question is data: put it under version control next to your analysis.
+- A running batch read the question when it started. An edit takes effect at its next start.
+- `census --queue` queues whatever the question says at that moment. Read every keyword list before you run it.

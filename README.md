@@ -30,9 +30,16 @@ dotnet publish src/PXReprise -c Release -o <tools>/pxreprise
 ```
 
 Then download [MetaMorpheus 1.1.11](https://github.com/smith-chem-wisc/MetaMorpheus/releases/tag/1.1.11)
-(`MetaMorpheus_CommandLine.zip`), copy `machines/example.toml` to `machines/my-machine.toml`, and fill in its paths.
-The full walk-through, including a one-hour test run, is in
+(`MetaMorpheus_CommandLine.zip`) and [dataRepo 1.4.3](https://github.com/smith-chem-wisc/dataRepo/releases/tag/v1.4.3)
+(optional: it turns the results into a repository you can query, and a website). Copy `machines/example.toml` to
+`machines/my-machine.toml`, and fill in its paths. The full walk-through, including a one-hour test run, is in
 [Getting started](https://smith-chem-wisc.github.io/PXReprise/getting-started.html).
+
+**Which method you get.** A new installation runs `label-free-dda@2`, the one profile whose protein databases download by
+themselves. The newer profiles, up to `label-free-dda@14` on MetaMorpheus 1.1.13, are the method the ageing project runs
+today. They read each deposit's chemistry and design and run a probe search first, but they also need that project's own
+PTM-annotated databases, which are not published. See
+[Profiles](https://smith-chem-wisc.github.io/PXReprise/concepts.html#profiles).
 
 ## Using it
 
@@ -43,7 +50,7 @@ pxreprise validate question.toml                                  # check a ques
 pxreprise census question.toml --queue                            # what would be searched, and why (no downloads)
 pxreprise batch run question.toml --machine machines/my-machine.toml   # do it all, deposit by deposit
 pxreprise batch status question.toml                              # progress
-pxreprise batch stop question.toml                                # finish the current deposit, then stop
+pxreprise batch stop question.toml                                # finish the searches under way, then stop
 ```
 
 See [Commands](https://smith-chem-wisc.github.io/PXReprise/commands.html) for the rest.
@@ -57,7 +64,8 @@ See [Commands](https://smith-chem-wisc.github.io/PXReprise/commands.html) for th
 | **Machine** | where things live on one computer | `machines/my-machine.toml` |
 
 PXReprise is orchestration, policy and provenance. File reading, chemistry and quantification come from
-[mzLib](https://github.com/smith-chem-wisc/mzLib); search is MetaMorpheus, run as its own process per dataset.
+[mzLib](https://github.com/smith-chem-wisc/mzLib); search is MetaMorpheus, run as its own process per dataset. Delivery
+into a queryable repository and website is [dataRepo](https://github.com/smith-chem-wisc/dataRepo), run as its own program.
 
 ## Developing
 
@@ -66,7 +74,7 @@ dotnet test --filter "Category!=ExternalService&Category!=LocalCorpus"   # offli
 dotnet test --filter "Category=ExternalService"                         # live PRIDE/UniProt canaries; skip when a service is down
 ```
 
-.NET 10; mzLib 1.0.593 from NuGet (MetaMorpheus 1.1.11, a separate process, uses 1.0.592). Every command prints one JSON envelope
+.NET 10; mzLib 1.0.596 from NuGet (MetaMorpheus, a separate process, uses the mzLib its own release was built with). Every command prints one JSON envelope
 (`{"ok":true,"data":...}` or `{"ok":false,"error":{...}}`) and exits 0 (ok), 1 (handled failure) or 2 (usage).
 
 ## Licence

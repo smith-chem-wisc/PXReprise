@@ -27,6 +27,20 @@ Orbitrap), the MetaMorpheus release and tasks, the protein databases, the qualit
 handled. Its name carries its version: `label-free-dda@2`. A profile never changes after release; a changed method
 is a new version, so every result says exactly which method made it.
 
+**Which one you can run.**
+- **On a new installation: `label-free-dda@2`.** It is the one profile whose databases download by themselves, from
+  UniProt. It runs on MetaMorpheus 1.1.11, with no probe search, no reading of each deposit's chemistry and no experimental
+  design.
+- **Where the ageing project's databases exist:** the newest of each kind, which is what that project runs today:
+  `label-free-dda@14`, `label-free-dda-lowres@7` and `tmt-dda@3`, all on MetaMorpheus 1.1.13. Every profile but `@2` names
+  that project's PTM-annotated databases in the machine's `database_dir`. They are not published, so without them these
+  profiles cannot search.
+- **Older versions stay shipped** so that a question can keep naming them and the deposits searched under them are not
+  searched again. Start no new search under a MetaMorpheus 1.1.12 profile (`@4` to `@11`, `lowres@1` to `lowres@5`): since
+  0.4.33 the engine's mzLib keeps gaps in an SDRF's replicate numbers, and 1.1.12 refuses such a design.
+
+`pxreprise profiles` lists what your installation ships.
+
 | Profile | Status | Accepts |
 |---|---|---|
 | `label-free-dda@2` | available | label-free DDA, Thermo Orbitrap with HCD, `.raw` files; human, mouse and rat. UniProt databases are downloaded automatically. **Use this one.** |
@@ -39,17 +53,20 @@ is a new version, so every result says exactly which method made it.
 | `label-free-dda@8` | available | `@7` on the ageing project's fourth database release (agingPTM-v4): the same proteomes, with the PTM sites rebuilt from the ageing catalog of 2026-10-17 |
 | `label-free-dda@9` | available | `@8`, plus two side reactions of a deposit's own chemistry offered to GPTMD, never searched as variable: ring-opened NEM where NEM blocks the cysteines, and propionamide where the protocol names a gel (below). A deposit with neither is searched exactly as under `@8` |
 | `label-free-dda@10` | available | `@9`, with GPTMD adding a site only where placing the modification improves the match's score (MetaMorpheus's `ImprovedScoreFilter`; below) |
+| `label-free-dda@11` | available | `@10` on agingPTM-v5: v4 without its GPTMD-added hydroxylation on P and K, which was often oxidised Met or Trp placed on the wrong residue. UniProt's own hydroxyproline and hydroxylysine stay |
+| `label-free-dda@12` | available | `@11` on MetaMorpheus 1.1.13 and agingPTM-v6, with cleavage-blocking modifications respected in every task (below). Its deliveries need datarepo 1.4.0 or newer |
+| `label-free-dda@13` | available | `@12` on agingPTM-v7, the first regular databases: UniProt's own PTM sites stay only where a deposit not enriched for that class identifies them. GPTMD also offers formyl on S and T, and no longer malonyl on K |
+| `label-free-dda@14` | available (0.4.40) | `@13` without MetaMorpheus's individual-file tables. Identifications and quantification are unchanged. Until a MetaMorpheus release writes each file's `MS2 Scans` and `Precursors` lines without those tables (MetaMorpheus #2955), dataRepo has neither per run for these deposits; dataset totals are unchanged. **The ageing project's current label-free method** |
 | `label-free-dda-lowres@1` | available | label-free DDA whose MS2 is read in the ion trap (CID): MetaMorpheus's Search task alone, each file's fragmentation written from its own scans, no spectral library. A deposit is sent here only when its probe files fail the Orbitrap check and nothing else |
 | `label-free-dda-lowres@2` | available | `lowres@1`, plus MS2 fragmented by HCD and read in the ion trap (a Fusion, Lumos or Eclipse "HCD-IT" method) |
 | `label-free-dda-lowres@3` | available | `lowres@2`, plus the probe search, which measures each deposit's precursor mass offset. The search then accepts and quantifies precursors within a window wide enough for that offset (below). These profiles run no calibration, and an instrument whose masses are a few ppm off loses most of its identifications at MetaMorpheus's 5 ppm |
 | `label-free-dda-lowres@4` | available | `lowres@3`, with MS2 fragmented by HCD and read in the ion trap searched as MetaMorpheus's LowCID, its low-resolution path, in the probe and the search. **Not recommended: use `lowres@5`.** Its evidence was measured under the probe's settings, where one test file gave 107 PSMs as HCD and 2,442 as LowCID. In the full search LowCID lost PSMs on every deposit searched both ways (1% to 16%) |
 | `label-free-dda-lowres@5` | available | `lowres@3`, with MS2 fragmented by HCD and read in the ion trap taken as LowCID in the probe search only. Under the probe's settings such a deposit can identify nothing as HCD and park; the full search keeps `lowres@3`'s HCD at the low-resolution tolerance. In full searches HCD found more than LowCID in three deposits, and about as much in the deposit the probe change was made for |
+| `label-free-dda-lowres@6` | available | `lowres@5` on MetaMorpheus 1.1.13, with cleavage-blocking modifications respected. Its databases stay agingPTM-v3: v4's added sites cost an ion-trap run 4% of its PSMs, and the later releases have not been measured on ion-trap data |
+| `label-free-dda-lowres@7` | available (0.4.40) | `lowres@6` without the individual-file tables, as `@14`. **The ageing project's current ion-trap method** |
 | `tmt-dda@1` | pending | TMT-labelled DDA. Not runnable: a question that lists it gets a count of the TMT deposits it would unlock. Use `tmt-dda@2` |
 | `tmt-dda@2` | available (0.4.35) | Isobaric-labelled DDA (TMT, iTRAQ) on MetaMorpheus 1.1.13: the kit read from each file's spectra, MS2 or SPS-MS3 reporters, Calibration then Search (no GPTMD), reporter-ion quantification on a channel design from the SDRF (else one plex per file, flagged `no_channel_design`), a spectral library per kit. Its deliveries need datarepo 1.4.1 or newer |
-| `tmt-dda@3` | available (0.4.40) | `tmt-dda@2` on the agingPTM-v7 databases, with a deposit's enriched PTM classes searched as variable modifications. Phospho (S, T, Y), acetyl-K, succinyl-K and GG-K are variable in every task when the deposit enriches them, with up to 3 modifications a peptide. Under `tmt-dda@2` an enriched deposit waits (`waiting_isobaric_enriched`), because its sites would be searched only where the database annotates one |
-
-Every profile but `@2` needs the ageing project's own databases in the machine's `database_dir`, and runs only where they
-exist.
+| `tmt-dda@3` | available (0.4.40) | `tmt-dda@2` on the agingPTM-v7 databases, with a deposit's enriched PTM classes searched as variable modifications. Phospho (S, T, Y), acetyl-K, succinyl-K and GG-K are variable in every task when the deposit enriches them, with up to 3 modifications a peptide. Under `tmt-dda@2` an enriched deposit waits (`waiting_isobaric_enriched`), because its sites would be searched only where the database annotates one. **The ageing project's current isobaric method** |
 
 **A deposit's own chemistry** (`[engine] chemistry = "deposit"`, `label-free-dda@3`). Before any download, PXReprise reads
 which protease made the deposit's peptides, how its cysteines were alkylated, and whether it carries a label.
@@ -85,6 +102,12 @@ which protease made the deposit's peptides, how its cysteines were alkylated, an
   because MetaMorpheus itself would ignore it without a warning.
   - On two files of each kind, GPTMD placed ring-opened NEM on 7% of the NEM-modified cysteine matches and propionamide
     on 0.25% of the cysteine matches. Before, those masses could be read as other modifications (methyl on K, for one).
+- **A profile can take modifications out of GPTMD's list** (`label-free-dda@13`, `[engine] gptmd_drop_mods`). MetaMorpheus's
+  default list is every Common Biological, Common Artifact and Metal entry of its modification file, so a class the data
+  refuse could not otherwise leave it.
+- **A profile can respect cleavage-blocking modifications** (`label-free-dda@12`,
+  `RespectCleavageBlockingModifications`). No peptide then ends at a cut on a modification that blocks the protease, such as
+  citrulline, acyl-K or GG-K after trypsin, and GPTMD no longer places one there.
 - **PXReprise's own proteases** (since 0.4.28, any profile). `profiles/lists/PXReprise_custom_proteases_v1.tsv` holds
   digestion agents mzLib's list lacks, in mzLib's own columns. Before a search that uses one, PXReprise adds it to
   the `proteases_custom.tsv` in the MetaMorpheus settings folder the search uses. Today the list holds one:
@@ -128,12 +151,23 @@ Each of these waits is listed for a person in `decisions_needed.tsv`. A deposit 
 
 A profile can also take an experimental design (`[quant] design = "sdrf"`, `label-free-dda@4` onward and every `lowres`
 profile): before the search, PXReprise writes MetaMorpheus's `ExperimentalDesign.tsv` from the question's own SDRF for that deposit, or else
-from the deposit's, so quantification knows the conditions and replicates. Without one, every file is quantified as its
-own sample.
+from the deposit's, so quantification knows the conditions and replicates. With no usable SDRF it writes a default design,
+one condition with each file its own replicate, and the search says so. An isobaric profile does the same with
+`TmtDesign.txt`, and a search on its default design is flagged `no_channel_design`.
 
-A deposit that no available profile accepts (DIA, timsTOF, TMT, metabolic labelling, ...) is not forced through an
-unsuitable method. It is recorded as *waiting on* that capability, so a census tells you what each missing capability
-would unlock.
+**Spectral libraries** (`[engine] spectral_library = true`). A search that has a library reads the organism's current
+version, and adds its own spectra as the next version. `pxreprise library list` shows them.
+- **Enriched data keep out of the regular library** (since 0.4.38). An enriched deposit's spectra of the PTM class it
+  enriches go to a chain of that class's own (`mouse_phospho`), and a search reads only the regular chain.
+- **Each version is cleaned as it is written** (since 0.4.32): spectra whose cut C-terminus carries a modification that
+  blocks trypsin, and GPTMD's hydroxylation on P or K, are left out.
+- **Isobaric data have a chain per kit** (`mouse_tmt10`), starting blank, because every labelled peptide's mass is shifted.
+- **Low-resolution MS2 writes and reads no library.** At the ion trap's tolerance, library matching scores decoys as it
+  does targets.
+
+A deposit that none of the question's profiles can take (DIA, timsTOF, metabolic labelling, or TMT when the question names
+only `tmt-dda@1`, ...) is not forced through an unsuitable method. It is recorded as *waiting on* that capability, so a
+census tells you what each missing capability would unlock.
 
 ## The machine file
 
@@ -153,14 +187,21 @@ one deposit at a time. It downloads the next deposit while the current one is be
 3. **Size gates.** Whole deposits only: a deposit with more raw files than the profile allows is *deferred*, never
    subsampled, because choosing which runs to keep is a scientific decision.
 4. **Probe.** Download three files (the median by size, and the first and last by name) and check them. This catches
-   deposits whose files are not what the record says, before downloading everything.
-5. **Fetch.** Download every raw file, with retries, and record each file's size and SHA-256.
+   deposits whose files are not what the record says, before downloading everything. A profile with a probe search also
+   searches them briefly (above).
+5. **Fetch.** Download every raw file, with retries, check each against PRIDE's checksum and for the error text EBI can
+   write into a file it serves, and record each file's size and SHA-256.
 6. **Quality check.** Every file must pass the profile's gates (for example, MS2 spectra read in the Orbitrap).
    A blank or failed injection can be excluded, with a record.
-7. **Search.** One MetaMorpheus run over the whole deposit: calibration, GPTMD (finding modifications), search, and
-   label-free quantification with match-between-runs.
+7. **Search.** One MetaMorpheus run over the whole deposit, with the profile's tasks. A `label-free-dda` profile runs
+   calibration, GPTMD (finding modifications), search, and label-free quantification with match-between-runs. A `lowres`
+   profile runs the search alone. A `tmt-dda` profile runs calibration and search, with reporter-ion quantification. Since
+   0.4.35 each raw file is deleted as soon as it has been calibrated.
 8. **QC report.** A readable report (`report.html`) and its data.
-9. **Clean up.** Delete the raw files; keep the results and every record.
+9. **Clean up.** Delete any raw files left; keep the results and every record.
+10. **Deliver,** if the question has a `[publish]` table and the machine names `datarepo`: add the deposit to the manifest,
+    run `datarepo ingest`, then delete the search outputs nothing reads. Only `INGEST rc=0` means delivered. The website or
+    other publish step runs on a schedule, not after each deposit.
 
 ## Provenance
 
@@ -171,4 +212,5 @@ how each number was produced.
 ## What PXReprise is built on
 
 PXReprise does orchestration, policy and record-keeping only. File reading, chemistry and quantification come from
-[mzLib](https://github.com/smith-chem-wisc/mzLib); searching is [MetaMorpheus](https://github.com/smith-chem-wisc/MetaMorpheus).
+[mzLib](https://github.com/smith-chem-wisc/mzLib); searching is [MetaMorpheus](https://github.com/smith-chem-wisc/MetaMorpheus);
+the repository and website are [dataRepo](https://github.com/smith-chem-wisc/dataRepo).

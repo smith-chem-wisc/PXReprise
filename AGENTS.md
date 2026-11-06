@@ -19,6 +19,9 @@ The question is a small text file (`question.toml`); nothing in the program is s
   was typed wrong. Read the JSON; do not scrape the text on stderr (that is a progress log for humans).
 - An error whose type is `ServiceUnavailable` means PRIDE or UniProt is down or slow: wait and retry. Any other error
   type is real: stop and report it.
+- Use `label-free-dda@2` unless the person says they hold the ageing project's databases. It is the one profile whose
+  databases download by themselves. Newer profiles exist, up to `label-free-dda@14`, but each names databases that are
+  not published, and it cannot search without them. Tell the person this if they ask for the newest method.
 
 ---
 
@@ -65,8 +68,8 @@ Success: `"ok": true` and a list of verbs.
 
 ## 3. Get MetaMorpheus
 
-The search engine is MetaMorpheus, a separate program. The profile says which release it needs (`1.1.11` for
-`label-free-dda@2`).
+The search engine is MetaMorpheus, a separate program. The profile says which release it needs: `1.1.11` for
+`label-free-dda@2`. Download that release even though newer ones exist.
 
 1. Download `MetaMorpheus_CommandLine.zip` from https://github.com/smith-chem-wisc/MetaMorpheus/releases/tag/1.1.11
 2. Unzip it to `<TOOLS>/MetaMorpheus-1.1.11/`.
@@ -77,12 +80,14 @@ The search engine is MetaMorpheus, a separate program. The profile says which re
 dataRepo turns search results into a queryable repository and a website. It is a separate program, downloaded ready
 to run: no Python.
 
-1. From https://github.com/smith-chem-wisc/dataRepo/releases/tag/v0.31.0 download the file for this computer:
-   `datarepo-0.31.0-windows-x64.zip`, `-linux-x64.tar.gz`, `-macos-arm64.tar.gz` (Apple silicon) or `-macos-x64.tar.gz`.
+1. From https://github.com/smith-chem-wisc/dataRepo/releases/tag/v1.4.3 download the file for this computer:
+   `datarepo-1.4.3-win-x64.zip`, `datarepo-1.4.3-linux-x64.tar.gz`, `datarepo-1.4.3-osx-arm64.tar.gz` (Apple silicon) or
+   `datarepo-1.4.3-osx-x64.tar.gz` (Intel).
 2. Unpack it into `<TOOLS>/`: `tar -xzf` on Linux and macOS (it keeps the executable bit), unzip on Windows. It makes
    `<TOOLS>/datarepo/`.
 3. On macOS only, if the program is blocked: `xattr -dr com.apple.quarantine <TOOLS>/datarepo`.
-4. Check: `<TOOLS>/datarepo/datarepo doctor` (`datarepo.exe` on Windows) ends with `ready`.
+4. Check: `<TOOLS>/datarepo/datarepo --version` (`datarepo.exe` on Windows) prints `datarepo 1.4.3`, and
+   `<TOOLS>/datarepo/datarepo doctor` ends with `ready`.
 
 ## 4. Write the machine file
 
@@ -149,15 +154,16 @@ https://smith-chem-wisc.github.io/PXReprise/tutorial.html. Read it first; its fi
    (These become `keywords`, and the basis of `require_any`.)
 3. Which organisms? (Human, mouse and rat can be searched; others are counted only.)
 4. Which tissues or sample types count, and which do not? (For example: skeletal muscle yes, heart muscle no.)
-5. What looks similar but should NOT count? (For example: type 1 diabetes in a type 2 question; cancer cachexia in an
-   ageing one.) (These become `exclude_if_any`.)
+5. What looks similar but should NOT count? (For example: heart muscle in a skeletal muscle question; cancer cachexia in
+   an ageing one.) (These become `exclude_if_any`.)
 6. Is there anything that should count even when it looks excluded? (These become `unless_any`, kept narrow.)
 7. Do you already know any datasets that must be in, or must be out? Accession numbers if they have them.
    (These become `decisions.tsv` entries, each with the person's reason, and a check that the rules agree.)
 
 **6b. Draft.** Write `question.toml` in a folder the person chooses, outside the PXReprise clone. Start broad.
 - `profiles = ["label-free-dda@2", "tmt-dda@1"]` (TMT deposits are then counted, not searched).
-- `[discover] organisms`: exact PRIDE spellings: `"Homo sapiens (human)"`, `"Mus musculus (mouse)"`, `"Rattus norvegicus (rat)"`.
+- `[discover] organisms`: exact PRIDE spellings, and PRIDE has more than one per species: `"Homo sapiens (human)"`,
+  `"Mus musculus (mouse)"`, `"Mus musculus"`, `"Rattus norvegicus (rat)"`, `"Rattus norvegicus"`.
 - Every rule: case-insensitive; `\b` around words (in TOML `\\b`) so `old` cannot match `fold`; match topic words,
   not incidental ones ("3 months old" is an age, not ageing); proximity windows of about 150 characters
   (`A.{0,150}B` and `B.{0,150}A`), not 60.
@@ -217,8 +223,14 @@ files and check their quality), fetch the whole deposit, check every file, searc
 downloads the next deposit while the current one is searching.
 
 - Progress: `<state_dir>/batch.log`, and `pxreprise batch status <question.toml>`.
-- Stop cleanly: `pxreprise batch stop <question.toml>` (the current search finishes first).
+- Decisions: read `decisions_needed.tsv` in the question's `run_root`. Each row is a deposit waiting on a person, with the
+  evidence and the choices. Show the person every new row. Their answer goes in the question file, and the batch reads
+  that file only when it starts.
+- Stop cleanly: `pxreprise batch stop <question.toml>` (the searches under way finish first, which can take hours). Never
+  kill a batch.
 - Restart: run `batch run` again. It skips everything already settled and resumes where it stopped.
+- Search a finished deposit again, when the person asks: stop the batch, then
+  `pxreprise batch research <question.toml> <PXD> --reason "..."`. Its old folder is moved aside, never deleted.
 
 ## Updating an existing installation
 
@@ -249,7 +261,7 @@ Each deposit gets `<run_root>/<PXD accession>/`:
 |---|---|
 | `02_fetch/` | the download record (`fetch_manifest.json`: every file, its size and SHA-256); the raw files themselves are deleted after the search |
 | `02b_qc/` | per-file quality checks (`qc_report.json`) |
-| `04_search/mm/Task3SearchTask/` | MetaMorpheus's results: `AllPSMs.psmtsv`, `AllPeptides.psmtsv`, `AllQuantifiedProteinGroups.tsv`, `AllQuantifiedPeptides.tsv`, `results.txt` |
+| `04_search/mm/Task3SearchTask/` | MetaMorpheus's results: `AllPSMs.psmtsv`, `AllPeptides.psmtsv`, `AllQuantifiedProteinGroups.tsv`, `AllQuantifiedPeptides.tsv`, `results.txt`. The number is the search task's place in the profile's tasks, so find the folder on disk rather than assume `Task3` |
 | `05_qc/` | a QC report for people (`report.html`) and its data (`qc_payload.json`) |
 | every folder | `provenance.json`: exact inputs, commands, tool versions and checksums |
 
@@ -261,10 +273,13 @@ Per-deposit status lives in `<state_dir>/state.json`. The statuses a person will
 | `deferred_needs_design_selection` | more than 60 raw files; not subsampled automatically, because choosing runs is a scientific decision |
 | `deferred_large_files`, `deferred_search_too_large` | too big for this profile's limits |
 | `skipped_acquisition` | the files are not what the profile accepts (e.g. MS2 read in the ion trap) |
-| `waiting_*` | the deposit needs a capability no available profile has (DIA, TMT, timsTOF, ...) |
+| `waiting_*` | the deposit needs a capability the question's profiles lack (DIA, TMT, timsTOF, ...), or a person's decision, in which case it has a row in `decisions_needed.tsv` |
 | `fetch_unavailable`, `probe_fetch_unavailable` | PRIDE dropped the downloads through every retry; tried again on a later pass (`fetch_passes`, default 3), not settled |
 | `fetch_failed`, `probe_fetch_failed` | downloads failed on every pass, or broke in a way a retry cannot fix (e.g. a checksum mismatch) |
 | `search_failed` | MetaMorpheus failed; see `04_search/metamorpheus.log` |
+
+Every status is explained in https://smith-chem-wisc.github.io/PXReprise/results.html. A manifest entry does not mean
+delivered: only `INGEST rc=0` in `batch.log` does.
 
 ## When something goes wrong
 
