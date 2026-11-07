@@ -90,6 +90,69 @@ public class IsobaricReportersTests
         Assert.That(IsobaricReporters.Kit(spectra, "unknown family"), Is.Null);
     }
 
+    // v0.4.41: every channel's m/z is the channel two below it plus one carbon-13, so a strong channel's isotope lands on the next
+    // kit's channel. Measured 2026-11-06, each channel's median height against that parent, on real files: isotopes 0.03 to 0.07,
+    // real channels 0.37 to 1.39 (isotopes up to 0.08 on all 39 files). These tests use the measured shares and heights.
+    private static MzSpectrum ReporterSpectrum(int i, int ofHundred, IReadOnlyDictionary<string, (int In, double Height)> extra, string[] plain)
+    {
+        var tag = Tmt18;
+        var points = new SortedDictionary<double, double>();
+        var labels = tag.ChannelLabels.ToArray();
+        for (int c = 0; c < labels.Length; c++)
+        {
+            if (plain.Contains(labels[c])) points[tag.ReporterIonMzs[c]] = 1000;
+            else if (extra.TryGetValue(labels[c], out var e) && i * 100 / ofHundred < e.In) points[tag.ReporterIonMzs[c]] = 1000 * e.Height;
+        }
+        return new MzSpectrum(points.Keys.ToArray(), points.Values.ToArray(), false);
+    }
+
+    private static Omics.Modifications.IsobaricMassTag Tmt18 =>
+        Omics.Modifications.IsobaricMassTag.TryGetIsobaricMassTag(Omics.Modifications.IsobaricMassTagType.TMT18, out var t) ? t! : throw new InvalidOperationException();
+
+    private static readonly string[] Tmt10Labels = { "126", "127N", "127C", "128N", "128C", "129N", "129C", "130N", "130C", "131N" };
+
+    [TestCase(60, 0.03, TestName = "A TMT10 file is TMT10 though 131N's isotope sits on 132N in 60 percent of its spectra (PXD034564 01_FS_50)")]
+    [TestCase(90, 0.09, TestName = "A TMT10 file is TMT10 however often a bright 131N's isotope is seen")]
+    public void AChannelsCarbon13IsotopeIsNotALargerKit(int inPercent, double height)
+    {
+        var extra = new Dictionary<string, (int, double)> { ["131C"] = (25, 0.07), ["132N"] = (inPercent, height) };
+        var spectra = Enumerable.Range(0, 200).Select(i => ReporterSpectrum(i, 200, extra, Tmt10Labels)).ToList();
+
+        Assert.That(IsobaricReporters.Kit(spectra, "TMT")?.Kit, Is.EqualTo(Omics.Modifications.IsobaricMassTagType.TMT10));
+    }
+
+    [Test]
+    public void ARealChannelStaysSeenAtItsOwnHeightEvenWhenItIsNotInEverySpectrum()
+    {
+        // 132N as tall as 131N is TMTpro's own channel, in however many spectra.
+        var extra = new Dictionary<string, (int, double)> { ["132N"] = (60, 0.99) };
+        var spectra = Enumerable.Range(0, 200).Select(i => ReporterSpectrum(i, 200, extra, Tmt10Labels)).ToList();
+
+        Assert.That(IsobaricReporters.Kit(spectra, "TMT")?.Kit, Is.EqualTo(Omics.Modifications.IsobaricMassTagType.TMT16));
+    }
+
+    [Test]
+    public void RealTmtproIsStillTmtproAndItsOwnIsotopesAreNotCounted()
+    {
+        // PXD043296 Frac1: 126 to 132N in every spectrum at equal height; 132C and 133N its isotopes at 0.03 in 44% and 56%.
+        var extra = new Dictionary<string, (int, double)> { ["132C"] = (44, 0.03), ["133N"] = (56, 0.03) };
+        var plain = Tmt10Labels.Concat(new[] { "131C", "132N" }).ToArray();
+        var spectra = Enumerable.Range(0, 200).Select(i => ReporterSpectrum(i, 200, extra, plain)).ToList();
+
+        var kit = IsobaricReporters.Kit(spectra, "TMT");
+        Assert.That(kit?.Kit, Is.EqualTo(Omics.Modifications.IsobaricMassTagType.TMT16));
+        Assert.That(IsobaricReporters.ModificationId(kit!.Value.Kit), Is.EqualTo("TMT18"), "the mod TMTpro is searched with");
+    }
+
+    [Test]
+    public void AReal131CIsStillTmt11()
+    {
+        var extra = new Dictionary<string, (int, double)> { ["131C"] = (90, 0.97) };
+        var spectra = Enumerable.Range(0, 200).Select(i => ReporterSpectrum(i, 200, extra, Tmt10Labels)).ToList();
+
+        Assert.That(IsobaricReporters.Kit(spectra, "TMT")?.Kit, Is.EqualTo(Omics.Modifications.IsobaricMassTagType.TMT11));
+    }
+
     // v0.4.36 (TMT phospho trial, PXD027548, 2026-11-02): a deposit that leaves a channel unused is still its kit. Measured
     // on its Q Exactive MS2: 1.raw (TMT10 proteome) 130C in 42% of reporter spectra and every other channel in 98-100%;
     // Z9423TPSTB2_1.raw (TMT10 phospho) 131N in 34%, 131C in 20%. v0.4.35 wanted EVERY channel of a kit and found none

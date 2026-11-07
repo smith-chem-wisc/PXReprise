@@ -99,6 +99,78 @@ public class BatchRunnerTests
         return (new BatchRunner(question, Profiles, machine, files, search, "2026-09-28") { Sha1Source = NoSha1 }, search, files, dir);
     }
 
+    // Issue #4: a probe search reads every species' database. Under `uniprot =` those must all be fetched in the step that retries,
+    // before any raw file: a stall inside the probe wastes its files and parks the deposit as probe_search_failed.
+    private static (BatchRunner Runner, FakeSearch Search, FakeFiles Files, string Dir, string Acc) UniProtRunner(string profile)
+    {
+        string dir = TestSupport.TempDir();
+        var question = QuestionLoader.Load(TestSupport.WriteFile(dir, "question.toml",
+            $"question = \"q\"\nprofiles = [\"{profile}\"]\n[discover]\nkeywords = [\"muscle\"]\n[batch]\nrun_root = \"runs\"\nstate_dir = \"state\"\nqueue = \"queue.json\"\n"));
+        var machine = Machine.Load(TestSupport.WriteFile(dir, "machine.toml",
+            $"work_root = '{dir}'\nmin_free_gb = 0\n[metamorpheus]\n\"1.1.11\" = 'C:/nowhere/CMD.exe'\n\"1.1.13\" = 'C:/nowhere/CMD.exe'\n"));
+        var (search, files) = (new FakeSearch(), new FakeFiles());
+        const string acc = "PXD000991";
+        search.Results[acc] = new() { TestSupport.Record(acc, "Muscle", "digested with trypsin", instruments: new[] { "Q Exactive HF" }, files: new[] { "run1.raw" }) };
+        search.Projects[acc] = new PrideProject { Accession = acc, Title = "Muscle", SampleProcessingProtocol = "digested with trypsin" };
+        files.Listing = new() { new PrideArchiveFile { FileName = "run1.raw", FileSizeBytes = 64 } };
+        return (new BatchRunner(question, Profiles, machine, files, search, "2026-11-06") { Sha1Source = NoSha1 }, search, files, dir, acc);
+    }
+
+    private static PXReprise.Search.ProteomeCache.Retrieve Writes(List<string> calls) => (id, directory) =>
+    {
+        lock (calls) calls.Add(id);
+        string p = Path.Combine(directory, $"{id}_reviewed.xml");
+        File.WriteAllText(p, "<uniprot/>");
+        return p;
+    };
+
+    [Test]
+    public async Task AProfileWithAProbeDownloadsEverySpeciesBeforeAnyRawFile()
+    {
+        var (runner, _, files, _, acc) = UniProtRunner("label-free-dda-uniprot@1");
+        var calls = new List<string>();
+        runner.ProteomeRetrieveForTest = Writes(calls);
+        files.Failure = () => new InvalidOperationException("stop here: the test is about what came before this download");
+
+        try { await runner.ProbeAsync(new QueueEntry(acc, "t", "human"), CancellationToken.None); }
+        catch (InvalidOperationException) { }
+
+        Assert.That(calls, Is.EquivalentTo(new[] { "UP000005640", "UP000000589", "UP000002494" }));
+        Assert.That(calls[0], Is.EqualTo("UP000005640"), "the deposit's own species first");
+    }
+
+    [Test]
+    public async Task AnotherSpeciesStallingDownloadsNoRawFileAndRetriesNextPass()
+    {
+        var (runner, _, files, dir, acc) = UniProtRunner("label-free-dda-uniprot@1");
+        var ok = Writes(new List<string>());
+        runner.ProteomeRetrieveForTest = (id, directory) => id == "UP000002494"
+            ? throw new HttpRequestException("The UniProt download failed while reading the response body", new TimeoutException())
+            : ok(id, directory);
+
+        var profile = await runner.ProbeAsync(new QueueEntry(acc, "t", "human"), CancellationToken.None);
+
+        Assert.That(profile, Is.Null);
+        Assert.That(files.Downloads, Is.Zero, "no raw file before the databases are all here");
+        string log = File.ReadAllText(Path.Combine(dir, "state", "batch.log"));
+        Assert.That(log, Does.Contain("UniProt UP000002494 unavailable").And.Contain("retry next pass"));
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "state.json")), Does.Not.Contain("probe_search_failed"));
+    }
+
+    [Test]
+    public async Task AProfileWithNoProbeStillDownloadsOnlyItsOwnSpecies()
+    {
+        var (runner, _, files, _, acc) = UniProtRunner("label-free-dda@2");
+        var calls = new List<string>();
+        runner.ProteomeRetrieveForTest = Writes(calls);
+        files.Failure = () => new InvalidOperationException("stop here");
+
+        try { await runner.ProbeAsync(new QueueEntry(acc, "t", "human"), CancellationToken.None); }
+        catch (InvalidOperationException) { }
+
+        Assert.That(calls, Is.EqualTo(new[] { "UP000005640" }));
+    }
+
     // G79: the deadline can pass between WaitAsync's clock check and its sleep. Task.Delay rounds toward zero, so the time
     // left then does one of three things: under 1 ms late it is 0 and harmless; 1 to 2 ms late it is -1, which Task.Delay
     // reads as WAIT FOREVER; 2 ms or more late it throws ArgumentOutOfRangeException. Seen once, on public CI.

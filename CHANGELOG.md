@@ -21,6 +21,16 @@ A new version of the engine never changes a finished result. Methods live in ver
   - **Results are not pooled with `@14` as one method:** no ageing-project sites are added, and UniProt's own sites are all kept.
   - **A downloaded database is identified by its checksum, not the profile key.** Two machines can hold different downloads under
     this one profile. Each search records the file's date and SHA-256.
+- **A TMT10 file is no longer read as TMTpro because of an isotope peak.** Every reporter's m/z is the channel two below it plus
+  one carbon-13, so a strong channel's isotope lands exactly on the next kit's channel, and the brighter the file the more spectra
+  show it. Under v0.4.36's rule, 131N's isotope on 132N made 9 of PXD034564's 32 TMT10 files read as TMTpro, and the search refused
+  the deposit for mixing kits. A deposit misread whole would have been searched with the wrong reagent. A channel now counts only
+  if it is at least 15% as tall as the channel one carbon-13 below it: on four deposits isotopes measured 0.03 to 0.08, and real
+  channels 0.37 to 1.39. One delivered deposit was misread this way: PXD051031 is TMT10, delivered as TMT11 because 130C's isotope
+  crossed the old threshold in one of its 24 files (131C is 0.045 of 130C in all of them). A re-search corrects it.
+- **A profile with a probe search downloads every species' UniProt database before any raw file.** The probe reads them all, so a
+  stall on another species used to happen inside it: its raw files were wasted and the deposit parked as `probe_search_failed`. It
+  now waits for its next pass, as a stall on the deposit's own species always has. Profiles naming prepared files are unaffected.
 - **A batch's wait can no longer hang or crash at its very end.** `BatchRunner.WaitAsync` checked the clock, then worked out
   the time left. If the deadline passed in between, the time left was negative, and `Task.Delay` rounds toward zero: 1 to 2 ms
   late meant "wait forever", with no message and no STOP check, and 2 ms or more late threw `ArgumentOutOfRangeException` and

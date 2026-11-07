@@ -69,6 +69,8 @@ public sealed class BatchRunner
     /// <summary>How often the controller looks for packages while every deposit left waits on the worker, and how often
     /// the worker looks for assignments while it has none.</summary>
     internal TimeSpan WorkerPoll { get; set; } = TimeSpan.FromMinutes(1);
+    /// <summary>What downloads a UniProt proteome, so a test can make one stall. Null is mzLib.</summary>
+    internal Search.ProteomeCache.Retrieve? ProteomeRetrieveForTest { get; set; }
     /// <summary>The clock <see cref="WaitAsync"/> reads, so a test can make its deadline pass at an exact moment.</summary>
     internal Func<DateTime> WaitClock { get; set; } = () => DateTime.UtcNow;
 
@@ -998,14 +1000,17 @@ public sealed class BatchRunner
                 return null;
             }
         }
-        // A UniProt database is downloaded (once) before any PRIDE download, so an outage costs nothing and is retried.
-        if (profile.Databases[e.Organism].UniProt is { } up)
+        // A UniProt database is downloaded (once) before any PRIDE download, so an outage costs nothing and is retried. A probe
+        // search reads every species' database (ProbeSearch.RunAsync), so a profile with one needs them all here: a download
+        // failing inside the probe would waste its raw files and park the deposit as probe_search_failed. The deposit's own first.
+        foreach (var (organism, db) in profile.Databases.Where(kv => profile.ProbeSearch || kv.Key == e.Organism).OrderBy(kv => kv.Key == e.Organism ? 0 : 1).ThenBy(kv => kv.Key, StringComparer.Ordinal))
         {
+            if (db.UniProt is not { } up) continue;
             try
             {
-                if (!Search.ProteomeCache.IsCached(profile.Databases[e.Organism], _m.DatabaseDir))
-                    Log($"{acc} database: downloading UniProt {up} (reviewed, xml) for {e.Organism}; first use on this machine, takes minutes");
-                var (dbPath, retrieval) = await Search.ProteomeCache.ResolveAsync(profile.Databases[e.Organism], _m.DatabaseDir, ct).ConfigureAwait(false);
+                if (!Search.ProteomeCache.IsCached(db, _m.DatabaseDir))
+                    Log($"{acc} database: downloading UniProt {up} (reviewed, xml) for {organism}; first use on this machine, takes minutes");
+                var (dbPath, retrieval) = await Search.ProteomeCache.ResolveAsync(db, _m.DatabaseDir, ct, ProteomeRetrieveForTest).ConfigureAwait(false);
                 Log($"{acc} database: {dbPath} (retrieved {retrieval?["retrieved_utc"]}, sha256 {retrieval?["sha256"]?.GetValue<string>()[..12]})");
             }
             catch (Exception ex) when (Envelope.IsUnavailable(ex)) { Log($"{acc} database: UniProt {up} unavailable ({ex.Message}); retry next pass"); return null; }
