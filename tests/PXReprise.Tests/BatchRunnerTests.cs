@@ -125,13 +125,13 @@ public class BatchRunnerTests
 
     // Issue #4: a probe search reads every species' database. Under `uniprot =` those must all be fetched in the step that retries,
     // before any raw file: a stall inside the probe wastes its files and parks the deposit as probe_search_failed.
-    private static (BatchRunner Runner, FakeSearch Search, FakeFiles Files, string Dir, string Acc) UniProtRunner(string profile)
+    private static (BatchRunner Runner, FakeSearch Search, FakeFiles Files, string Dir, string Acc) UniProtRunner(string profile, string extraMachine = "")
     {
         string dir = TestSupport.TempDir();
         var question = QuestionLoader.Load(TestSupport.WriteFile(dir, "question.toml",
             $"question = \"q\"\nprofiles = [\"{profile}\"]\n[discover]\nkeywords = [\"muscle\"]\n[batch]\nrun_root = \"runs\"\nstate_dir = \"state\"\nqueue = \"queue.json\"\n"));
         var machine = Machine.Load(TestSupport.WriteFile(dir, "machine.toml",
-            $"work_root = '{dir}'\nmin_free_gb = 0\n[metamorpheus]\n\"1.1.11\" = 'C:/nowhere/CMD.exe'\n\"1.1.13\" = 'C:/nowhere/CMD.exe'\n"));
+            $"work_root = '{dir}'\nmin_free_gb = 0\n{extraMachine}[metamorpheus]\n\"1.1.11\" = 'C:/nowhere/CMD.exe'\n\"1.1.13\" = 'C:/nowhere/CMD.exe'\n"));
         var (search, files) = (new FakeSearch(), new FakeFiles());
         const string acc = "PXD000991";
         search.Results[acc] = new() { TestSupport.Record(acc, "Muscle", "digested with trypsin", instruments: new[] { "Q Exactive HF" }, files: new[] { "run1.raw" }) };
@@ -179,6 +179,21 @@ public class BatchRunnerTests
         string log = File.ReadAllText(Path.Combine(dir, "state", "batch.log"));
         Assert.That(log, Does.Contain("UniProt UP000002494 unavailable").And.Contain("retry next pass"));
         Assert.That(File.ReadAllText(Path.Combine(dir, "state", "state.json")), Does.Not.Contain("probe_search_failed"));
+    }
+
+    // A new installation's reader sees this log first. An outage at UniProt must not send them to PRIDE, and "takes minutes" must
+    // not promise what a trickle will not keep (2026-11-07: UniProt's REST service at 3 kB/s, about four days for human's 1 GB).
+    [Test]
+    public async Task AQueueEndingOnAUniProtOutageNamesUniProtAndPromisesNoTime()
+    {
+        var (runner, _, _, dir, acc) = UniProtRunner("label-free-dda-uniprot@1", "fetch_passes = 1\n");
+        runner.ProteomeRetrieveForTest = (_, _) => throw new HttpRequestException("The UniProt download failed while reading the response body", new TimeoutException());
+
+        await runner.RunAsync(new[] { new QueueEntry(acc, "t", "human") }, CancellationToken.None);
+
+        string log = File.ReadAllText(Path.Combine(dir, "state", "batch.log"));
+        Assert.That(log, Does.Contain("still waiting on PRIDE or UniProt after 1 pass(es)"));
+        Assert.That(log, Does.Contain("far longer when UniProt is slow").And.Not.Contain("takes minutes"));
     }
 
     [Test]

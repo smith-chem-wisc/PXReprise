@@ -467,7 +467,7 @@ public sealed class BatchRunner
                 string which = string.Join(", ", walk.Take(10).Select(e => e.Accession)) + (walk.Count > 10 ? ", ..." : "");
                 if (pass >= _m.FetchPasses)
                 {
-                    Log($"queue exhausted; {walk.Count} deposit(s) still waiting on PRIDE after {pass} pass(es) ({which}): run the batch again later");
+                    Log($"queue exhausted; {walk.Count} deposit(s) still waiting on PRIDE or UniProt after {pass} pass(es) ({which}): run the batch again later");
                     ranOut = true;
                     return;
                 }
@@ -1009,7 +1009,7 @@ public sealed class BatchRunner
             try
             {
                 if (!Search.ProteomeCache.IsCached(db, _m.DatabaseDir))
-                    Log($"{acc} database: downloading UniProt {up} (reviewed, xml) for {organism}; first use on this machine, takes minutes");
+                    Log($"{acc} database: downloading UniProt {up} (reviewed, xml) for {organism}; first use on this machine: minutes when UniProt is well, far longer when UniProt is slow");
                 var (dbPath, retrieval) = await Search.ProteomeCache.ResolveAsync(db, _m.DatabaseDir, ct, ProteomeRetrieveForTest).ConfigureAwait(false);
                 Log($"{acc} database: {dbPath} (retrieved {retrieval?["retrieved_utc"]}, sha256 {retrieval?["sha256"]?.GetValue<string>()[..12]})");
             }

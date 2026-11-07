@@ -49,6 +49,10 @@ A new version of the engine never changes a finished result. Methods live in ver
   late meant "wait forever", with no message and no STOP check, and 2 ms or more late threw `ArgumentOutOfRangeException` and
   ended the driver. It affects the wait between download passes and a probe worker's polling. It was seen once, on CI, and
   never in the aging batch's log, but a heavily loaded machine makes it likelier. The wait now ends when its deadline has passed.
+- **The log no longer sends a reader to the wrong service when UniProt is what is down.** A queue ending on a UniProt outage said
+  "still waiting on PRIDE"; it now says "PRIDE or UniProt". And a database download no longer promises "takes minutes": on
+  2026-11-07 UniProt's REST service gave about 3 kB/s, while its file server gave this machine 9.6 MB/s. A slow transfer is not a
+  stall (mzLib gives up only after 2 minutes with no data at all), so it can run far longer than that.
 
 ## 0.4.40 (2026-11-05)
 
