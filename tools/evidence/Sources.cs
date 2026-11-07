@@ -16,6 +16,9 @@ using System.Xml.Linq;
 using Newtonsoft.Json.Linq;
 using Readers;
 using UglyToad.PdfPig;
+using UglyToad.PdfPig.DocumentLayoutAnalysis.PageSegmenter;
+using UglyToad.PdfPig.DocumentLayoutAnalysis.ReadingOrderDetector;
+using UglyToad.PdfPig.DocumentLayoutAnalysis.WordExtractor;
 using UglyToad.PdfPig.Writer;
 using UsefulProteomicsDatabases;
 
@@ -261,8 +264,23 @@ internal static class SupplementContent
         using var doc = PdfDocument.Open(path);
         var sb = new StringBuilder();
         foreach (var page in doc.GetPages())
-            sb.Append($"[p.{page.Number}] ").Append(string.Join(" ", WithoutMarginNumbers(page.GetWords().ToList()).Select(w => w.Text))).Append('\n');
+            sb.Append($"[p.{page.Number}] ")
+              .Append(ReadingOrder(WithoutMarginNumbers(page.GetWords(NearestNeighbourWordExtractor.Instance).ToList()).ToList()))
+              .Append('\n');
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// A page's words in reading order: PdfPig's Docstrum blocks, ordered by its reading-order detector, each block's lines
+    /// joined by spaces. A content stream's own order often interleaves a two-column paper line by line ("The 20-mo old
+    /// females were aged to 23-mo before tissue protein buildup is thought ...", PXD047292), and a quote spanning two lines
+    /// of one column was then "not in the given text": 147 of the 2026-11-07 re-read's rejected quotes.
+    /// </summary>
+    internal static string ReadingOrder(IReadOnlyList<UglyToad.PdfPig.Content.Word> words)
+    {
+        if (words.Count == 0) return "";
+        var blocks = DocstrumBoundingBoxes.Instance.GetBlocks(words);
+        return string.Join(" ", UnsupervisedReadingOrderDetector.Instance.Get(blocks).Select(b => b.Text.Replace('\n', ' ')));
     }
 
     /// <summary>

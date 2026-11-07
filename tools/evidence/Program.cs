@@ -27,6 +27,9 @@
 //         draft.noevidence.sdrf.tsv, draft.sdrf.tsv, evidence.notes.tsv   the two drafts.
 //       A model reading is paid once: it is reused on a rerun unless --refresh. One line per deposit goes to
 //       DIR\summary.tsv, and the deposit-wide facts to DIR\facts.tsv. The key is ANTHROPIC_API_KEY.
+//       --reverify: a reading already paid for is judged again, from the model's own answer (model.raw.json), against the
+//       inputs as they are now, with no call to the model; model.json records "reverified_utc". For a fix to the checked
+//       text (2026-11-07: PDFs read in reading order) without paying for the reading again.
 //   pxr-evidence compare --out DIR [--list FILE] [--runs DIR[;DIR]] [--model ID | --no-model] [--max-usd N] [--refresh] PXD...
 //       D65 step 3: each deposit's draft.independent.sdrf.tsv against its deposited and community SDRFs, differences resolved where
 //       the raw files (--runs: the engine's run roots, for each file's instrument) or the text allow, the rest for a person:
@@ -57,7 +60,7 @@ var flags = new HashSet<string>(StringComparer.Ordinal);
 var accs = new List<string>();
 for (int i = 1; i < args.Length; i++)
 {
-    if (args[i] is "--no-model" or "--refresh" or "--independent") flags.Add(args[i]);
+    if (args[i] is "--no-model" or "--refresh" or "--independent" or "--reverify") flags.Add(args[i]);
     else if (args[i].StartsWith("--", StringComparison.Ordinal) && i + 1 < args.Length) opt[args[i][2..]] = args[++i];
     else accs.Add(args[i]);
 }
@@ -66,7 +69,7 @@ if (opt.TryGetValue("list", out string? listFile))
 accs = accs.Select(a => a.ToUpperInvariant()).Distinct().ToList();
 if (args.Length == 0 || !opt.TryGetValue("out", out string? outRoot) || accs.Any(a => !System.Text.RegularExpressions.Regex.IsMatch(a, "^PXD\\d{6}$")))
 {
-    Console.Error.WriteLine("usage: pxr-evidence read --out DIR [--model ID | --no-model] [--refresh] [--independent] [--list FILE] PXD...\n" +
+    Console.Error.WriteLine("usage: pxr-evidence read --out DIR [--model ID | --no-model] [--refresh | --reverify] [--independent] [--list FILE] PXD...\n" +
                             "       pxr-evidence compare --out DIR [--runs DIR[;DIR]] [--model ID | --no-model] [--max-usd N] [--list FILE] PXD...\n" +
                             "       pxr-evidence grade --out DIR --curated DIR [--list FILE] [PXD...]");
     return 2;
@@ -160,7 +163,7 @@ foreach (string acc in accs)
     try
     {
         var row = await Deposit.ReadAsync(acc, Path.Combine(outRoot, acc), model, flags.Contains("--refresh"), pride, pmc, aws, claude,
-            (priceIn, priceOut, priceCache), budget, curatorDir, notes, Console.WriteLine, sfx);
+            (priceIn, priceOut, priceCache), budget, curatorDir, notes, Console.WriteLine, sfx, flags.Contains("--reverify"));
         total += double.TryParse(row[Array.IndexOf(Deposit.Columns, "est_cost_usd")], NumberStyles.Float, inv, out double c) ? c : 0;
         File.AppendAllText(summary, string.Join('\t', row.Select(Clean)) + "\n");
         Console.WriteLine($"{acc}: " + string.Join(" | ", Deposit.Columns.Zip(row).Skip(2).Where(x => x.First != "notes" && x.Second.Length > 0).Select(x => $"{x.First} {x.Second}")));
@@ -225,7 +228,7 @@ internal static class Deposit
 
     internal static async Task<string[]> ReadAsync(string acc, string dir, string? model, bool refresh,
         PrideArchiveClient pride, EuropePmcClient pmc, PmcOpenData aws, AnthropicClient? claude, (double In, double Out, double Cache) price,
-        Budget budget, string? curatorDir, List<string> notes, Action<string> log, string sfx = "")
+        Budget budget, string? curatorDir, List<string> notes, Action<string> log, string sfx = "", bool reverify = false)
     {
         bool independent = sfx.Length > 0;
         string N(string file) => Path.Combine(dir, Name(file, sfx));
@@ -522,6 +525,13 @@ internal static class Deposit
         // Rough: ~4 characters a token for text; up to ~4,800 a full-size image; ~3,000 a PDF page (its text and image).
         long estTokens = prompt.Length / 4 + imagesSent * 4_800L + pagesSent * 3_000L;
 
+        JObject? DesignJson(StatedDesign? d) => d is null ? null : new JObject
+        {
+            ["groups"] = new JArray(d.Groups.Select(g => new JObject { ["name"] = g.Name, ["samples"] = g.Samples })),
+            ["plexes"] = d.Plexes, ["technical_replicates"] = d.TechnicalReplicates, ["fractions_per_sample"] = d.FractionsPerSample,
+            ["runs_stated"] = d.RunsStated, ["predicted_runs"] = d.PredictedRuns, ["raw_files"] = raw.Count,
+            ["quotes"] = new JArray(d.Quotes),
+        };
         string modelTsv = N("evidence.model.tsv"), modelJson = N("model.json");
         IReadOnlyList<SdrfEvidence> modelEvidence = Array.Empty<SdrfEvidence>();
         string stop = "", rejected = "", inTok = "", outTok = "", cacheTok = "", cost = "", predicted = "", figureClaims = "", transcripts = "", attempts = "";
@@ -530,10 +540,30 @@ internal static class Deposit
             // A reading already paid for is reused, with or without --no-model (which only forbids new calls).
             if (File.Exists(modelTsv) && File.Exists(modelJson) && !refresh)
             {
-                modelEvidence = SdrfEvidenceFile.Read(modelTsv);
                 var j = JObject.Parse(File.ReadAllText(modelJson));
                 modelUsed = (string?)j["model"] ?? modelUsed;
-                stop = $"{j["stop"]} (reused)";
+                if (reverify && File.Exists(N("model.raw.json")))
+                {
+                    // The model's own answer, judged again against the inputs as they are now: no call, nothing paid.
+                    var rr = RichReader.Interpret(File.ReadAllText(N("model.raw.json")), input, attachments, (string?)j["stop"] ?? "");
+                    modelEvidence = rr.Result.Evidence;
+                    SdrfEvidenceFile.Write(modelTsv, rr.Result.Evidence);
+                    File.WriteAllLines(N("transcripts.tsv"), new[] { "label\ttext" }.Concat(rr.Transcripts.Select(t => $"{t.Label}\t{Clean(t.Text)}")));
+                    j["claims"] = rr.Result.Evidence.Count;
+                    j["figure_claims"] = rr.FigureClaims;
+                    j["transcripts"] = rr.Transcripts.Count;
+                    j["repaired_quotes"] = rr.Repaired;
+                    j["rejected"] = new JArray(rr.Result.Rejected);
+                    j["design"] = DesignJson(rr.Result.Design);
+                    j["reverified_utc"] = DateTime.UtcNow.ToString("o", Inv);
+                    File.WriteAllText(modelJson, j.ToString(Formatting.Indented));
+                    stop = $"{j["stop"]} (reverified)";
+                }
+                else
+                {
+                    modelEvidence = SdrfEvidenceFile.Read(modelTsv);
+                    stop = $"{j["stop"]} (reused)";
+                }
                 rejected = j["rejected"] is JArray rj ? rj.Count.ToString(Inv) : "";
                 // "design": null is a JValue, not a C# null: indexing it throws (a reading with no stated design).
                 predicted = j["design"] is JObject jd ? (string?)jd["predicted_runs"] ?? "" : "";
@@ -551,13 +581,7 @@ internal static class Deposit
                 // The model's own answer, so a rejected claim's quote can be read (the second run's rejections could not).
                 File.WriteAllText(N("model.raw.json"), rr.Raw);
                 double usd = r.InputTokens / 1e6 * price.In + r.OutputTokens / 1e6 * price.Out + r.CacheReadTokens / 1e6 * price.Cache;
-                var design = r.Design is { } d ? new JObject
-                {
-                    ["groups"] = new JArray(d.Groups.Select(g => new JObject { ["name"] = g.Name, ["samples"] = g.Samples })),
-                    ["plexes"] = d.Plexes, ["technical_replicates"] = d.TechnicalReplicates, ["fractions_per_sample"] = d.FractionsPerSample,
-                    ["runs_stated"] = d.RunsStated, ["predicted_runs"] = d.PredictedRuns, ["raw_files"] = raw.Count,
-                    ["quotes"] = new JArray(d.Quotes),
-                } : null;
+                var design = DesignJson(r.Design);
                 File.WriteAllText(modelJson, new JObject
                 {
                     ["utc"] = DateTime.UtcNow.ToString("o", Inv), ["model"] = model, ["independent"] = independent, ["stop"] = r.StopReason, ["attempts"] = rr.Attempts,

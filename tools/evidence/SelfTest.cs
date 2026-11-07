@@ -79,6 +79,37 @@ internal static class SelfTest
             Check(text.Contains("derived from two mice were performed for each sample set", StringComparison.Ordinal) && !text.Contains(" 92 ", StringComparison.Ordinal),
                 "margin line numbers are left out of a PDF's text");
             Check(text.Contains("at 37 degrees", StringComparison.Ordinal), "a number inside the text stays");
+
+            // A two-column page whose content stream interleaves the columns line by line, as published PDFs often do: the
+            // text must come back in reading order, or a quote spanning two lines of one column is "not in the given text"
+            // (2026-11-07: 147 of the re-read's rejected quotes, e.g. PXD047292's "young (3-mo), middle-aged (12-mo) and
+            // aged (23-mo) female rats").
+            var b2 = new UglyToad.PdfPig.Writer.PdfDocumentBuilder();
+            var f2 = b2.AddStandard14Font(UglyToad.PdfPig.Fonts.Standard14Fonts.Standard14Font.Helvetica);
+            var p2 = b2.AddPage(UglyToad.PdfPig.Content.PageSize.A4);
+            string[] left =
+            {
+                "Tissue containing the CA1 region of the", "dorsal hippocampus was collected from", "young (3-mo), middle-aged (12-mo) and",
+                "aged (23-mo) female rats, six per group.", "Proteins were digested with trypsin and", "each sample was analyzed twice, giving",
+                "technical duplicates for every animal.", "Samples were kept frozen until use.",
+            };
+            string[] right =
+            {
+                "Spectra were searched against the rat", "proteome with a precursor tolerance of", "ten parts per million and a fragment",
+                "tolerance of twenty parts per million.", "Peptides were filtered at one percent", "false discovery rate and quantified",
+                "by their summed intensities in each run.", "Statistics used a two sided test.",
+            };
+            for (int k = 0; k < left.Length; k++)
+            {
+                p2.AddText(left[k], 10, new UglyToad.PdfPig.Core.PdfPoint(50, 760 - 14 * k), f2);
+                p2.AddText(right[k], 10, new UglyToad.PdfPig.Core.PdfPoint(320, 760 - 14 * k), f2);
+            }
+            File.WriteAllBytes(pdf, b2.Build());
+            string two = System.Text.RegularExpressions.Regex.Replace(SupplementContent.PdfText(pdf), @"\s+", " ");
+            Check(two.Contains("dorsal hippocampus was collected from young (3-mo), middle-aged (12-mo) and aged (23-mo) female rats", StringComparison.Ordinal),
+                "a two-column PDF's left column reads in order, across its lines");
+            Check(two.Contains("proteome with a precursor tolerance of ten parts per million", StringComparison.Ordinal),
+                "and so does its right column");
         }
         finally { File.Delete(pdf); }
 
