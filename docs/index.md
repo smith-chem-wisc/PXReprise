@@ -39,8 +39,8 @@ a new text file, never a change to the program.
 
 - A computer with room to work: 100 GB of free disk at least (raw files are deleted after each search).
 - [.NET 10](https://dotnet.microsoft.com/download/dotnet/10.0). **No Python.**
-- [MetaMorpheus 1.1.11](https://github.com/smith-chem-wisc/MetaMorpheus/releases/tag/1.1.11), the command-line zip: the
-  release `label-free-dda@2` names, the profile a new installation runs ([why that one](concepts.md#profiles)).
+- [MetaMorpheus 1.1.13](https://github.com/smith-chem-wisc/MetaMorpheus/releases/tag/1.1.13), the command-line zip: the
+  release `label-free-dda-uniprot@1` names, the profile a new installation runs ([why that one](concepts.md#profiles)).
 - Optional: [dataRepo 1.4.3](https://github.com/smith-chem-wisc/dataRepo/releases/tag/v1.4.3), for the repository and website.
 - Windows is tested. Linux and macOS should work but are untested.
 

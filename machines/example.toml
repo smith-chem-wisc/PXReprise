@@ -122,11 +122,12 @@ min_free_gb = 50
 # state_dir = "E:/pxreprise/state"
 
 # REQUIRED. MetaMorpheus, by release. Download MetaMorpheus_CommandLine.zip for the release a profile names
-# (1.1.11 for label-free-dda@2, the profile whose databases download by themselves) from
-# https://github.com/smith-chem-wisc/MetaMorpheus/releases/tag/1.1.11, unzip it anywhere, and point at CMD.dll (run as
-# `dotnet CMD.dll`, any OS) or, on Windows, CMD.exe. Several releases can sit side by side. The profiles on 1.1.13 need the
-# ageing project's databases too (see "Profiles" in the documentation).
+# (1.1.13 for label-free-dda-uniprot@1, the profile a new installation runs: its databases download by themselves) from
+# https://github.com/smith-chem-wisc/MetaMorpheus/releases/tag/1.1.13, unzip it anywhere, and point at CMD.dll (run as
+# `dotnet CMD.dll`, any OS) or, on Windows, CMD.exe. Several releases can sit side by side: 1.1.11 for the older
+# label-free-dda@2, 1.1.14 for tmt-dda@4 (which needs the ageing project's databases, as every profile but those two does;
+# see "Profiles" in the documentation).
 # This table must come LAST in the file.
 [metamorpheus]
-"1.1.11" = "D:/tools/MetaMorpheus-1.1.11/CMD.dll"
-# "1.1.13" = "D:/tools/MetaMorpheus-1.1.13/CMD.dll"
+"1.1.13" = "D:/tools/MetaMorpheus-1.1.13/CMD.dll"
+# "1.1.11" = "D:/tools/MetaMorpheus-1.1.11/CMD.dll"

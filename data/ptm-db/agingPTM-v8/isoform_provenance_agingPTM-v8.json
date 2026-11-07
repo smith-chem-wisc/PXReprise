@@ -1,0 +1,177 @@
+{
+  "built_utc": "2026-11-07T13:22:55\u002B00:00",
+  "script": "PXReprise tools/ptm-db/BuildPtmDb.cs --mode isoforms (C# port of aging results/ptm_db_2026-09-27/isoform_sites.py)",
+  "tag": "agingPTM-v8",
+  "catalog": {
+    "id": "e56b5ac87dcf5187",
+    "datarepo": "1.4.3",
+    "built_utc": "2026-11-07T09:22:17\u002B00:00",
+    "path": "F:/aging_data/repo/catalogs/catalog-e56b5ac87dcf5187.duckdb"
+  },
+  "from_sites": null,
+  "enriched_for_excluded": {
+    "rule": "a site of a PTM class is not counted from a deposit that enriches that class (user, 2026-10-07)",
+    "declared_file": "E:/CodeReview/PXReprise/data/ptm-db/enriched_ptm_exclusions_2026-11-07.tsv",
+    "declared_sha256": "890841208f02ca8ede799bea1caff2ceb363fb9c3b5cd99f0b0c2236900eb156",
+    "measured": {
+      "phospho_pct_min": 5,
+      "gg_pct_min": 2,
+      "over": "1% target PSMs per run (the catalog\u0027s psms_1pct, else each served bundle\u0027s psms.parquet at q and notch q \u003C= 0.01)"
+    },
+    "used_file": "F:/pxreprise_ptmdb_v8/sites_iso\\enriched_exclusions_used.tsv",
+    "used_sha256": "124b91c90e9db66798ed8d025101626297b8423f40af8ed539155516a97d4d31",
+    "rows": 47
+  },
+  "rule": "site on an isoform accession, reported in a 1%-FDR target protein group that lists the isoform and not its canonical (MetaMorpheus parsimony); \u003E= 5 PSMs summed over those datasets",
+  "dotnet": "10.0.10",
+  "ensembl_only_canonicals": {
+    "ENSP00000572008": {
+      "organism": "human",
+      "gene": "SORBS1",
+      "gene_id": "ENSG00000095637",
+      "canonical": "Q9BX66",
+      "by": "ensembl_gene_id",
+      "matches_by_gene_id": [
+        "Q9BX66"
+      ],
+      "matches_by_gene_name": [
+        "Q9BX66"
+      ],
+      "proteome": "F:/aging_data/db/UP000005640_all_genecentric_2026_03.xml"
+    },
+    "ENSMUSP00000133389": {
+      "organism": "mouse",
+      "gene": "Nrxn1",
+      "gene_id": "ENSMUSG00000024109",
+      "canonical": "Q9CS84",
+      "by": "ensembl_gene_id",
+      "matches_by_gene_id": [
+        "Q9CS84"
+      ],
+      "matches_by_gene_name": [
+        "Q9CS84"
+      ],
+      "proteome": "F:/aging_data/db/UP000000589_all_genecentric_2026_03.xml"
+    },
+    "ENSMUSP00000141730": {
+      "organism": "mouse",
+      "gene": "Ncam1",
+      "gene_id": "ENSMUSG00000039542",
+      "canonical": "P13595",
+      "by": "gene_name",
+      "matches_by_gene_id": [],
+      "matches_by_gene_name": [
+        "P13595"
+      ],
+      "proteome": "F:/aging_data/db/UP000000589_all_genecentric_2026_03.xml"
+    },
+    "ENSMUSP00000292642": {
+      "organism": "mouse",
+      "gene": "Atp2a1",
+      "gene_id": "ENSMUSG00000030730",
+      "canonical": "Q8R429",
+      "by": "ensembl_gene_id",
+      "matches_by_gene_id": [
+        "Q8R429"
+      ],
+      "matches_by_gene_name": [
+        "Q8R429"
+      ],
+      "proteome": "F:/aging_data/db/UP000000589_all_genecentric_2026_03.xml"
+    },
+    "ENSMUSP00000314297": {
+      "organism": "mouse",
+      "gene": "Clstn1",
+      "gene_id": "ENSMUSG00000039953",
+      "canonical": "Q9EPL2",
+      "by": "ensembl_gene_id",
+      "matches_by_gene_id": [
+        "Q9EPL2"
+      ],
+      "matches_by_gene_name": [
+        "Q9EPL2"
+      ],
+      "proteome": "F:/aging_data/db/UP000000589_all_genecentric_2026_03.xml"
+    }
+  },
+  "only_accessions": null,
+  "organisms": {
+    "human": {
+      "source_xml": "F:/aging_data/db/isoform_db_staging/v6_union_2026-10-28/aging_isoforms_union_human.xml",
+      "source_sha256": "dad02b7f6609ecb8f424044e6b67ac8f5a7c2f3e632e65e4f428e45ba26d55f2",
+      "output_xml": "F:/pxreprise_ptmdb_v8/out_iso\\aging_isoforms_union_human_agingPTM-v8.xml",
+      "output_sha256": "934ab32f6fbc210b61b5ccb391ebdd9d897ebaac9f700e094da0c0130658c88b",
+      "sites_written": 215,
+      "sites_by_accession": {
+        "O00499-6": 3,
+        "O00499-7": 2,
+        "O00499-9": 1,
+        "P00387-2": 4,
+        "P02545-2": 16,
+        "P02545-6": 10,
+        "P02751-1": 67,
+        "P02751-13": 30,
+        "P02751-8": 20,
+        "P04637-4": 1,
+        "P06241-2": 1,
+        "P06396-2": 3,
+        "P07711-3": 2,
+        "P10636-2": 13,
+        "P10636-7": 13,
+        "P10636-8": 13,
+        "P20908-2": 1,
+        "P29590-5": 8,
+        "P33316-2": 1,
+        "Q01082-2": 3,
+        "Q8IXJ6-5": 2,
+        "Q9NR12-2": 1
+      },
+      "selected_accessions_not_in_this_xml": []
+    },
+    "mouse": {
+      "source_xml": "F:/aging_data/db/isoform_db_staging/v6_union_2026-10-28/aging_isoforms_union_mouse.xml",
+      "source_sha256": "dc9fb071404673e0cba3e5bc432e333752aee579e46a364cf178355db2b60e99",
+      "output_xml": "F:/pxreprise_ptmdb_v8/out_iso\\aging_isoforms_union_mouse_agingPTM-v8.xml",
+      "output_sha256": "b9d82848cb0af5025285243c7dd1168501ec773ef75c16a8b2fe5a58b90df823",
+      "sites_written": 151,
+      "sites_by_accession": {
+        "O88207-2": 10,
+        "P04370-4": 25,
+        "P10637-2": 20,
+        "P10637-4": 19,
+        "P10637-5": 20,
+        "P12023-2": 1,
+        "P13020-2": 13,
+        "P20917-2": 2,
+        "P48678-2": 6,
+        "P97807-2": 4,
+        "P99029-2": 1,
+        "Q3UTJ2-2": 2,
+        "Q62261-2": 12,
+        "Q6PHZ2-4": 1,
+        "Q922S4-2": 1,
+        "Q9DBG3-2": 1,
+        "Q9JKS4-3": 3,
+        "Q9JKS4-6": 1,
+        "Q9QYG0-2": 5,
+        "Q9R0H0-2": 4
+      },
+      "selected_accessions_not_in_this_xml": []
+    },
+    "rat": {
+      "source_xml": "F:/aging_data/db/isoform_db_staging/v6_union_2026-10-28/aging_isoforms_union_rat.xml",
+      "source_sha256": "9eaa070f6e395aad46a9704c3b00563fe9423bfc16c238929a4d8ce8c1c87358",
+      "output_xml": "F:/pxreprise_ptmdb_v8/out_iso\\aging_isoforms_union_rat_agingPTM-v8.xml",
+      "output_sha256": "bd6880566fa42fcb959a793949359efdec85367929993a138a81236d9d44c929",
+      "sites_written": 54,
+      "sites_by_accession": {
+        "P19332-5": 26,
+        "P19332-7": 24,
+        "P62944-2": 1,
+        "Q8VBU2-2": 3
+      },
+      "selected_accessions_not_in_this_xml": []
+    }
+  },
+  "wall_s": 24.3
+}

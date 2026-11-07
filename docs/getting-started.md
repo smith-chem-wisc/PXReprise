@@ -41,12 +41,13 @@ D:\tools\pxreprise\pxreprise.exe version
 ## 3. Download MetaMorpheus
 
 1. Download **MetaMorpheus_CommandLine.zip** from the
-   [MetaMorpheus 1.1.11 release](https://github.com/smith-chem-wisc/MetaMorpheus/releases/tag/1.1.11).
-2. Unzip it to `D:\tools\MetaMorpheus-1.1.11`.
+   [MetaMorpheus 1.1.13 release](https://github.com/smith-chem-wisc/MetaMorpheus/releases/tag/1.1.13).
+2. Unzip it to `D:\tools\MetaMorpheus-1.1.13`.
 
-**Why not the newest MetaMorpheus?** Each profile names the release it runs on, and `label-free-dda@2`, the profile a new
-installation uses, names 1.1.11. It is the one profile whose protein databases download by themselves. The newer profiles
-need databases that are not published: see [Profiles](concepts.md#profiles).
+**Why not the newest MetaMorpheus?** Each profile names the release it runs on, and `label-free-dda-uniprot@1`, the
+profile a new installation uses, names 1.1.13. Its protein databases download by themselves. A profile never changes
+after release, so a newer MetaMorpheus arrives with a new profile version, once it has been measured: see
+[Profiles](concepts.md#profiles).
 
 ## 3b. Download dataRepo
 
@@ -77,7 +78,7 @@ copy machines\example.toml machines\my-machine.toml
 Set four things. Use forward slashes in paths, even on Windows.
 
 - `work_root`: where the work goes, e.g. `"D:/pxreprise"`.
-- `"1.1.11"` under `[metamorpheus]`: `"D:/tools/MetaMorpheus-1.1.11/CMD.dll"`.
+- `"1.1.13"` under `[metamorpheus]`: `"D:/tools/MetaMorpheus-1.1.13/CMD.dll"`.
 - `datarepo`: `"D:/tools/datarepo/datarepo.exe"`.
 - `accept_thermo_licence`: Thermo `.raw` files are read with Thermo's RawFileReader, under
   [its licence](https://github.com/thermofisherlsms/RawFileReader). Read it; set `true` only if you accept it.
@@ -94,8 +95,12 @@ pxreprise validate examples/first-run/question.toml
 pxreprise batch run examples/first-run/question.toml --machine machines/my-machine.toml
 ```
 
-It takes about an hour, longer on a busy machine. Watch progress in `examples/first-run/work/state/batch.log`. The first time, it downloads
-the mouse proteome from UniProt (a few minutes; kept for later runs). When it ends:
+It takes about an hour, longer on a busy machine. Watch progress in `examples/first-run/work/state/batch.log`.
+
+The first time, it downloads three proteomes from UniProt before anything else: human, mouse and rat, about 1.7 GB, because
+the probe search checks each deposit's species against all three. They are kept for later runs. This takes minutes when
+UniProt is well and far longer when it is slow. A download that fails is tried again on the next pass, 30 minutes later,
+and the log says `still waiting on PRIDE or UniProt` if the batch gives up for now; run it again later. When it ends:
 
 ```
 pxreprise batch status examples/first-run/question.toml
@@ -199,7 +204,7 @@ Every command prints one JSON object. `"ok": false` comes with an error `type` a
 |---|---|
 | exit code 2, `"type": "usage"` | The command was typed wrong; the message says how to fix it. |
 | `"type": "ServiceUnavailable"` | PRIDE or UniProt is down or slow. Try again later; a running batch retries by itself. |
-| `names no MetaMorpheus 1.1.11` | Your machine file's `[metamorpheus]` entry is missing or misspelled. |
+| `names no MetaMorpheus 1.1.13` | Your machine file's `[metamorpheus]` entry is missing or misspelled. |
 | `contaminant database missing` | The `[metamorpheus]` path is not inside the unzipped release folder. |
 | `batch.log` says `free space ... below ... floor: stopping` or `paused at the disk floor` | Free up disk, or lower `min_free_gb` in your machine file, then run the batch again. |
 | a deposit you expected was not searched | Find it in the census's `census.tsv`: the `route` and `route_reason` columns say why. |

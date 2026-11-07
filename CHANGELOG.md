@@ -9,8 +9,24 @@ A new version of the engine never changes a finished result. Methods live in ver
 
 ## 0.4.41 (unreleased)
 
-**MetaMorpheus** unchanged so far (1.1.13). **Machine file:** unchanged. **Safe mid-batch?** Yes: swap the pin as usual.
+**MetaMorpheus** 1.1.14 for the new `tmt-dda@4`; every other profile unchanged (the label-free ones stay on 1.1.13). **Machine
+file:** add `"1.1.14"` under `[metamorpheus]` to run `tmt-dda@4`. A new installation now needs `"1.1.13"` in place of `"1.1.11"`
+(the guide installs `label-free-dda-uniprot@1`). **Safe mid-batch?** Yes: swap the pin as usual.
 
+- **New profile `tmt-dda@4`: the TMT method on MetaMorpheus 1.1.14.** It is `tmt-dda@3` on 1.1.14 and the agingPTM-v8 databases,
+  nothing else, and a test holds it to that. 1.1.14 fixes a calibration failure (MetaMorpheus #2939). On PXD034564 (TMT10,
+  SPS-MS3, 32 files, `tmt-dda@3`'s settings) 1.1.13 calibrated 16 files and 1.1.14 all 32: target PSMs at 1% 59,443 to 68,948
+  (+16.0%), peptides +15.5%, protein groups +4.8%, and 99.2% of 1.1.13's peptidoforms found again. datarepo 1.4.3 ingests the output.
+  The label-free profiles stay on 1.1.13: their identifications are identical under 1.1.14, but match-between-runs moves (mzLib
+  1.0.597 draws its decoys differently), and whether the refused transfers are right is not yet measured.
+- **agingPTM-v8**, the rebuild a new MetaMorpheus version calls for: v7's build on the catalog of 2026-11-07 (197 deposits), with
+  one more enriched deposit excluded (42). Human's proteome and the human and rat isoform files are byte-identical to v7's; mouse
+  gains 282 sites (12,063 to 12,345) and 10 isoform sites; rat keeps 76 more of UniProt's own sites. No GO id is missing from
+  go.obo. Checksums in `data/ptm-db/agingPTM-v8`.
+- **The guide now installs `label-free-dda-uniprot@1`.** Getting started, the README, the example questions and the machine
+  template name it and MetaMorpheus 1.1.13 in place of `label-free-dda@2` and 1.1.11, and a test holds every example to a profile
+  whose databases download and whose MetaMorpheus the template names. A first run now downloads three proteomes, about 1.7 GB,
+  in place of mouse's 0.5 GB. `pxreprise search` alone still takes only a profile with fixed chemistry, such as `@2`.
 - **New profile `label-free-dda-uniprot@1`: today's label-free method on databases the engine downloads.** It is
   `label-free-dda@14` with only its databases changed, and a test holds it to that: `uniprot = "UP..."` for human, mouse and rat
   in place of the ageing project's unpublished files. So a new installation or a new question can run the current method, on

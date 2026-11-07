@@ -1,0 +1,36 @@
+13:18:24 exclusions
+206 manifest entries; 42 deposits with an excluded class: GG 11, acetylK 7, phospho 24 -> E:/CodeReview/PXReprise/data/ptm-db/enriched_ptm_exclusions_2026-11-07.tsv
+13:18:26 proteomes
+enrichment measured on the PSMs of 197 bundles in F:\aging_data\repo\store (the catalog has no psms_1pct)
+human: UniProt modified residues kept 14683 of 56212
+human: 7919 sites written to F:/pxreprise_ptmdb_v8/out\UP000005640_all_genecentric_2026_03_agingPTM-v8.xml; dropped {"already_in_uniprot":46,"not_in_canonical_xml":222}
+mouse: UniProt modified residues kept 17444 of 50544
+mouse: 12345 sites written to F:/pxreprise_ptmdb_v8/out\UP000000589_all_genecentric_2026_03_agingPTM-v8.xml; dropped {"already_in_uniprot":35,"not_in_canonical_xml":164,"nterm_acetyl_not_at_1_or_2":1}
+rat: UniProt modified residues kept 5063 of 27325
+rat: 2154 sites written to F:/pxreprise_ptmdb_v8/out\UP000002494_all_genecentric_2026_03_agingPTM-v8.xml; dropped {"already_in_uniprot":8,"not_in_canonical_xml":59}
+provenance: F:/pxreprise_ptmdb_v8/out\provenance_agingPTM-v8.json
+13:22:25 isoforms
+enrichment measured on the PSMs of 197 bundles in F:\aging_data\repo\store (the catalog has no psms_1pct)
+human ENSP00000572008 (SORBS1, ENSG00000095637): canonical Q9BX66 by ensembl_gene_id
+mouse ENSMUSP00000133389 (Nrxn1, ENSMUSG00000024109): canonical Q9CS84 by ensembl_gene_id
+mouse ENSMUSP00000141730 (Ncam1, ENSMUSG00000039542): canonical P13595 by gene_name
+mouse ENSMUSP00000292642 (Atp2a1, ENSMUSG00000030730): canonical Q8R429 by ensembl_gene_id
+mouse ENSMUSP00000314297 (Clstn1, ENSMUSG00000039953): canonical Q9EPL2 by ensembl_gene_id
+  human ambiguous_group: 33
+  human isoform_by_parsimony: 161
+  human isoform_group_but_canonical_also_identified: 467
+  human no_1pct_group: 37
+  mouse ambiguous_group: 32
+  mouse isoform_by_parsimony: 40
+  mouse isoform_group_but_canonical_also_identified: 637
+  mouse no_1pct_group: 46
+  rat ambiguous_group: 8
+  rat isoform_group_but_canonical_also_identified: 109
+  rat no_1pct_group: 9
+sites >= 5 PSMs: rule only (loose) 420; with the canonical-absent guard (strict) 74
+human: 215 isoform sites written to F:/pxreprise_ptmdb_v8/out_iso\aging_isoforms_union_human_agingPTM-v8.xml
+mouse: 151 isoform sites written to F:/pxreprise_ptmdb_v8/out_iso\aging_isoforms_union_mouse_agingPTM-v8.xml
+rat: 54 isoform sites written to F:/pxreprise_ptmdb_v8/out_iso\aging_isoforms_union_rat_agingPTM-v8.xml
+provenance: F:/pxreprise_ptmdb_v8/out_iso\isoform_provenance_agingPTM-v8.json
+13:22:55 done
+rc=0

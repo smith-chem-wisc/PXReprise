@@ -17,7 +17,7 @@ unknown or misspelled settings rather than ignoring them.
 ```toml
 question = "muscle-ageing"
 description = "Skeletal muscle proteome across age"
-profiles = ["label-free-dda@2", "tmt-dda@1"]
+profiles = ["label-free-dda-uniprot@1", "tmt-dda@1"]
 
 [discover]
 keywords = ["sarcopenia", "muscle aging", "muscle ageing", "aged muscle", "skeletal muscle"]
@@ -49,7 +49,7 @@ The [tutorial](tutorial.md) explains why each rule is written the way it is.
 |---|---|---|
 | `question` | yes | Short name: lower-case words joined by `-`. |
 | `description` | no | One sentence, for people. |
-| `profiles` | yes | The search methods this question accepts, in order of preference: see [profiles](concepts.md#profiles). On a new installation use `["label-free-dda-uniprot@1"]` (since 0.4.41; `label-free-dda@2` is the older method); adding `"tmt-dda@1"` counts TMT deposits without searching them. Where the ageing project's databases exist, name the newest of each kind first: `["label-free-dda@14", "label-free-dda-lowres@7", "tmt-dda@3"]`. When a newer version comes out, put it first and keep the old ones listed, or the deposits searched under them become due for a catch-up re-search (where the machine's `catch_up_every` is on). |
+| `profiles` | yes | The search methods this question accepts, in order of preference: see [profiles](concepts.md#profiles). On a new installation use `["label-free-dda-uniprot@1"]` (since 0.4.41; `label-free-dda@2` is the older method); adding `"tmt-dda@1"` counts TMT deposits without searching them. Where the ageing project's databases exist, name the newest of each kind first: `["label-free-dda@14", "label-free-dda-lowres@7", "tmt-dda@4"]`. When a newer version comes out, put it first and keep the old ones listed, or the deposits searched under them become due for a catch-up re-search (where the machine's `catch_up_every` is on). |
 
 ### `[discover]`: finding deposits
 

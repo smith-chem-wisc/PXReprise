@@ -29,16 +29,16 @@ dotnet build -c Release
 dotnet publish src/PXReprise -c Release -o <tools>/pxreprise
 ```
 
-Then download [MetaMorpheus 1.1.11](https://github.com/smith-chem-wisc/MetaMorpheus/releases/tag/1.1.11)
+Then download [MetaMorpheus 1.1.13](https://github.com/smith-chem-wisc/MetaMorpheus/releases/tag/1.1.13)
 (`MetaMorpheus_CommandLine.zip`) and [dataRepo 1.4.3](https://github.com/smith-chem-wisc/dataRepo/releases/tag/v1.4.3)
 (optional: it turns the results into a repository you can query, and a website). Copy `machines/example.toml` to
 `machines/my-machine.toml`, and fill in its paths. The full walk-through, including a one-hour test run, is in
 [Getting started](https://smith-chem-wisc.github.io/PXReprise/getting-started.html).
 
-**Which method you get.** A new installation runs `label-free-dda@2`, the one profile whose protein databases download by
-themselves. The newer profiles, up to `label-free-dda@14` on MetaMorpheus 1.1.13, are the method the ageing project runs
-today. They read each deposit's chemistry and design and run a probe search first, but they also need that project's own
-PTM-annotated databases, which are not published. See
+**Which method you get.** A new installation runs `label-free-dda-uniprot@1`: the ageing project's current label-free
+method (`label-free-dda@14`'s settings, on MetaMorpheus 1.1.13), on UniProt's reviewed proteomes, which it downloads by
+itself the first time. It reads each deposit's chemistry and design and runs a probe search first. The ageing project's
+own profiles also need its PTM-annotated databases, which are not published. See
 [Profiles](https://smith-chem-wisc.github.io/PXReprise/concepts.html#profiles).
 
 ## Using it
