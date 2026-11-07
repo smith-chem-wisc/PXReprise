@@ -91,7 +91,7 @@ min_free_gb = 50
 # Without it, MetaMorpheus uses the machine's .NET, and a search the runtime changed under is searched again.
 # dotnet_root = "D:/tools/dotnet-10.0.10"
 
-# RECOMMENDED. dataRepo, the no-Python download (https://github.com/smith-chem-wisc/dataRepo/releases; use 1.4.3 or newer,
+# RECOMMENDED. dataRepo, the no-Python download (https://github.com/smith-chem-wisc/dataRepo/releases; use 1.4.4 or newer,
 # and the same release for the whole repository): each searched deposit is ingested into a repository and published as a
 # website. Leave it out and the batch stops after the search.
 # datarepo = "D:/tools/datarepo/datarepo.exe"

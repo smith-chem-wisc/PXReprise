@@ -27,6 +27,8 @@ file:** add `"1.1.14"` under `[metamorpheus]` to run `tmt-dda@4`. A new installa
   template name it and MetaMorpheus 1.1.13 in place of `label-free-dda@2` and 1.1.11, and a test holds every example to a profile
   whose databases download and whose MetaMorpheus the template names. A first run now downloads three proteomes, about 1.7 GB,
   in place of mouse's 0.5 GB. `pxreprise search` alone still takes only a profile with fixed chemistry, such as `@2`.
+- **The guide names dataRepo 1.4.4.** It fixes a security bug in `datarepo mcp`, which a client could use to write into a
+  repository's folder. Ingest, catalog and website are unchanged, and nothing needs ingesting again.
 - **New profile `label-free-dda-uniprot@1`: today's label-free method on databases the engine downloads.** It is
   `label-free-dda@14` with only its databases changed, and a test holds it to that: `uniprot = "UP..."` for human, mouse and rat
   in place of the ageing project's unpublished files. So a new installation or a new question can run the current method, on

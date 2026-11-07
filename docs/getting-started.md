@@ -54,11 +54,11 @@ after release, so a newer MetaMorpheus arrives with a new profile version, once 
 [dataRepo](https://github.com/smith-chem-wisc/dataRepo) turns the search results into a repository you can query, and
 a website. It is a ready-to-run download: no Python.
 
-1. From the [dataRepo 1.4.3 release](https://github.com/smith-chem-wisc/dataRepo/releases/tag/v1.4.3), download the
-   file for your computer: `datarepo-1.4.3-win-x64.zip`, `datarepo-1.4.3-linux-x64.tar.gz`,
-   `datarepo-1.4.3-osx-arm64.tar.gz` (Apple silicon) or `datarepo-1.4.3-osx-x64.tar.gz` (Intel).
+1. From the [dataRepo 1.4.4 release](https://github.com/smith-chem-wisc/dataRepo/releases/tag/v1.4.4), download the
+   file for your computer: `datarepo-1.4.4-win-x64.zip`, `datarepo-1.4.4-linux-x64.tar.gz`,
+   `datarepo-1.4.4-osx-arm64.tar.gz` (Apple silicon) or `datarepo-1.4.4-osx-x64.tar.gz` (Intel).
 2. Unpack it into `D:\tools`, which makes `D:\tools\datarepo`. On Linux and macOS use `tar -xzf`.
-3. Check it: `D:\tools\datarepo\datarepo.exe --version` should print `datarepo 1.4.3`, and
+3. Check it: `D:\tools\datarepo\datarepo.exe --version` should print `datarepo 1.4.4`, and
    `D:\tools\datarepo\datarepo.exe doctor` should end with `ready`. On macOS, if the program is blocked, run
    `xattr -dr com.apple.quarantine datarepo` once in the folder you unpacked.
 

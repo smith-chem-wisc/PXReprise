@@ -30,7 +30,7 @@ dotnet publish src/PXReprise -c Release -o <tools>/pxreprise
 ```
 
 Then download [MetaMorpheus 1.1.13](https://github.com/smith-chem-wisc/MetaMorpheus/releases/tag/1.1.13)
-(`MetaMorpheus_CommandLine.zip`) and [dataRepo 1.4.3](https://github.com/smith-chem-wisc/dataRepo/releases/tag/v1.4.3)
+(`MetaMorpheus_CommandLine.zip`) and [dataRepo 1.4.4](https://github.com/smith-chem-wisc/dataRepo/releases/tag/v1.4.4)
 (optional: it turns the results into a repository you can query, and a website). Copy `machines/example.toml` to
 `machines/my-machine.toml`, and fill in its paths. The full walk-through, including a one-hour test run, is in
 [Getting started](https://smith-chem-wisc.github.io/PXReprise/getting-started.html).
