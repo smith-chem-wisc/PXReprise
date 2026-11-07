@@ -27,6 +27,11 @@
 //         draft.noevidence.sdrf.tsv, draft.sdrf.tsv, evidence.notes.tsv   the two drafts.
 //       A model reading is paid once: it is reused on a rerun unless --refresh. One line per deposit goes to
 //       DIR\summary.tsv, and the deposit-wide facts to DIR\facts.tsv. The key is ANTHROPIC_API_KEY.
+//   pxr-evidence compare --out DIR [--list FILE] [--runs DIR[;DIR]] [--model ID | --no-model] [--max-usd N] [--refresh] PXD...
+//       D65 step 3: each deposit's draft.independent.sdrf.tsv against its deposited and community SDRFs, differences resolved where
+//       the raw files (--runs: the engine's run roots, for each file's instrument) or the text allow, the rest for a person:
+//       compare.independent.tsv and .md per deposit (the .md alone has PRIDE's depositor contacts), and run-wide
+//       compare.independent.summary.tsv and compare.independent.unresolved.tsv. See Compare.cs.
 //   pxr-evidence grade --out DIR --curated DIR [--list FILE] [PXD...]
 //       Each draft against the curated SDRF <curated>\<acc>.sdrf.tsv, row by row on (data file, label): organism, label,
 //       fraction, technical replicate and other characteristics by value; samples (source name) and every curated factor
@@ -62,6 +67,7 @@ accs = accs.Select(a => a.ToUpperInvariant()).Distinct().ToList();
 if (args.Length == 0 || !opt.TryGetValue("out", out string? outRoot) || accs.Any(a => !System.Text.RegularExpressions.Regex.IsMatch(a, "^PXD\\d{6}$")))
 {
     Console.Error.WriteLine("usage: pxr-evidence read --out DIR [--model ID | --no-model] [--refresh] [--independent] [--list FILE] PXD...\n" +
+                            "       pxr-evidence compare --out DIR [--runs DIR[;DIR]] [--model ID | --no-model] [--max-usd N] [--list FILE] PXD...\n" +
                             "       pxr-evidence grade --out DIR --curated DIR [--list FILE] [PXD...]");
     return 2;
 }
@@ -74,8 +80,8 @@ if (args[0] == "grade")
         accs = Directory.GetFiles(curatedDir, "PXD*.sdrf.tsv").Select(f => Path.GetFileName(f)[..9]).Order(StringComparer.Ordinal).ToList();
     return Grading.Run(outRoot, curatedDir, accs);
 }
-if (args[0] != "read") { Console.Error.WriteLine($"unknown command '{args[0]}'"); return 2; }
-if (accs.Count == 0) { Console.Error.WriteLine("read needs at least one PXD accession"); return 2; }
+if (args[0] is not ("read" or "compare")) { Console.Error.WriteLine($"unknown command '{args[0]}'"); return 2; }
+if (accs.Count == 0) { Console.Error.WriteLine($"{args[0]} needs at least one PXD accession"); return 2; }
 
 string? model = flags.Contains("--no-model") ? null : opt.GetValueOrDefault("model", "claude-opus-5-5");
 // Per million tokens, for the summary's estimate only (the Console bills the truth). Claude Opus 5.5: $4 in, $20 out, $0.20
@@ -116,6 +122,13 @@ if (model is not null)
     claude = new AnthropicClient();
 }
 
+// D65 step 3 (Compare.cs): before anything below, which writes the read command's summary.
+if (args[0] == "compare")
+{
+    var runRoots = opt.GetValueOrDefault("runs", "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    return await SdrfComparison.RunAsync(outRoot, accs, runRoots, model, claude, double.Parse(opt.GetValueOrDefault("max-usd", "0"), inv),
+        flags.Contains("--refresh"), (priceIn, priceOut, priceCache));
+}
 string sfx = flags.Contains("--independent") ? ".independent" : "";
 string summary = Path.Combine(outRoot, Deposit.Name("summary.tsv", sfx));
 string summaryHeader = string.Join('\t', Deposit.Columns);

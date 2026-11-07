@@ -92,7 +92,7 @@ internal static class Grading
     /// 0 is what chance gives. The plain Rand index is near 1 whenever both have many small groups (most pairs are "apart" in
     /// both), which says nothing; this one does not. Two trivial partitions (each all-one-group or all-singletons) score 1
     /// only when they are the same.</summary>
-    private static double RandValue(IReadOnlyList<string> a, IReadOnlyList<string> b)
+    internal static double RandValue(IReadOnlyList<string> a, IReadOnlyList<string> b)
     {
         int n = a.Count;
         if (n < 2) return 1;
@@ -105,7 +105,7 @@ internal static class Grading
         return (index - expected) / (max - expected);
     }
 
-    private static bool SamePartition(IReadOnlyList<string> a, IReadOnlyList<string> b) =>
+    internal static bool SamePartition(IReadOnlyList<string> a, IReadOnlyList<string> b) =>
         a.Zip(b).GroupBy(p => p.First).All(g => g.Select(p => p.Second).Distinct().Count() == 1)
         && a.Zip(b).GroupBy(p => p.Second).All(g => g.Select(p => p.First).Distinct().Count() == 1);
 
@@ -129,13 +129,13 @@ internal static class Grading
 
     private static string Get(Dictionary<string, string> row, Table t, string column) => row.GetValueOrDefault(column, "");
 
-    private sealed record Table(List<string> Columns, List<Dictionary<string, string>> Rows)
+    internal sealed record Table(List<string> Columns, List<Dictionary<string, string>> Rows)
     {
         public bool Has(string column) => Columns.Contains(column);
     }
 
     /// <summary>A TSV with a header; the first column of a repeated header wins (an SDRF may repeat comment columns).</summary>
-    private static Table Read(string path)
+    internal static Table Read(string path)
     {
         var lines = File.ReadAllText(path, Encoding.UTF8).ReplaceLineEndings("\n").Split('\n').Where(l => l.Length > 0).ToList();
         var header = lines[0].Split('\t').Select(h => h.Trim().ToLowerInvariant()).ToList();

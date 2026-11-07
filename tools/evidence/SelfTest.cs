@@ -105,6 +105,49 @@ internal static class SelfTest
         Check(Deposit.Name("draft.sdrf.tsv", ".independent") == "draft.independent.sdrf.tsv" && Deposit.Name("model.json", ".independent") == "model.independent.json"
               && Deposit.Name("evidence.model.tsv", ".independent") == "evidence.model.independent.tsv" && Deposit.Name("model.json", "") == "model.json",
             "independent outputs get their own names, so a reading paid for with the SDRF in view is never reused or overwritten");
+        // D65 step 3 (the user, 2026-11-07: "make an effort to resolve differences. unresolved differences get reported"): how a
+        // difference between our independent draft and a community SDRF is sorted before anything is asked.
+        Check(SdrfComparison.Classify("lung", "lungs") == DiffKind.Wording && SdrfComparison.Classify("Alzheimer's disease", "alzheimer disease") == DiffKind.Wording
+              && SdrfComparison.Classify("WT", "wild type") == DiffKind.Wording && SdrfComparison.Classify("label free sample", "label free") == DiffKind.Wording,
+            "plural, possessive, wild type and the label-free spelling are wording, not conflicts");
+        Check(SdrfComparison.Classify("heart", "heart left ventricle") == DiffKind.MoreSpecificTheirs && SdrfComparison.Classify("LTQ Orbitrap XL", "LTQ Orbitrap") == DiffKind.MoreSpecificOurs,
+            "one value inside the other is the more specific one, either way round");
+        Check(SdrfComparison.Classify("brain", "hippocampal formation") == DiffKind.Conflict && SdrfComparison.Classify("cardiovascular system disease", "normal") == DiffKind.Conflict,
+            "different words are a conflict (ontology parents wait for terms, G76)");
+        Check(SdrfComparison.Classify("not available", "liver") == DiffKind.OursMissing && SdrfComparison.Classify("liver", "") == DiffKind.TheirsMissing
+              && SdrfComparison.Classify("NT=homo sapiens;AC=NCBITaxon:9606", "Homo sapiens") == DiffKind.Agree,
+            "an empty or not-available side is an omission; an ontology-tagged value compares by its name");
+        Check(SdrfComparison.SameInstrument("Q Exactive HF-X", "Q Exactive HF-X Orbitrap") && SdrfComparison.SameInstrument("NT=Orbitrap Exploris 480;AC=MS:1003028", "Orbitrap Exploris 480")
+              && !SdrfComparison.SameInstrument("Q Exactive HF", "Q Exactive HF-X Orbitrap") && !SdrfComparison.SameInstrument("LTQ Orbitrap", "LTQ Orbitrap XL")
+              && !SdrfComparison.SameInstrument("Orbitrap Fusion Lumos", "Orbitrap Eclipse"),
+            "an SDRF instrument matches the raw header's model only when every distinguishing word does (HF is not HF-X, LTQ Orbitrap is not XL)");
+        Check(SdrfComparison.Grouping(new[] { "1", "2", "1", "2" }, new[] { "7", "8", "7", "8" }) == DiffKind.Numbering
+              && SdrfComparison.Grouping(new[] { "1", "1", "2", "2" }, new[] { "1", "2", "1", "2" }) == DiffKind.Grouping,
+            "replicate numbers that group the same files the same way are numbering; different groups are a grouping difference");
+        Check(SdrfComparison.Grouping(new[] { "1", "1", "1" }, new[] { "1", "2", "3" }) == DiffKind.OursMissing
+              && SdrfComparison.Grouping(new[] { "1", "2", "3" }, new[] { "1", "1", "1" }) == DiffKind.TheirsMissing,
+            "a side that gives every file the same number numbers nothing: an omission, not a grouping conflict");
+        Check(SdrfComparison.Compared("characteristics[disease]") && SdrfComparison.Compared("comment[instrument]") && SdrfComparison.Compared("source name")
+              && !new[] { "comment[organism part source]", "comment[characteristics source]", "comment[organism part source method]", "comment[organism part source reference]",
+                          "comment[sdrf template]", "comment[sdrf annotation tool]", "comment[data file]" }.Any(SdrfComparison.Compared),
+            "facts are compared; an SDRF's bookkeeping (our source columns, their template and tool) is not");
+        var asked = new[] { new SdrfComparison.Question(0, "characteristics[disease]", "cardiovascular system disease", "normal", new[] { "c1.raw" }) };
+        const string evidenceText = "Hearts were taken from control mice (normal) and from mice after TAC.";
+        var v1 = SdrfComparison.Verdicts("""{"answers":[{"id":0,"choice":"value 2","quote":"control mice (normal)","why":"c1 is a control"}]}""", asked, evidenceText, swapped: new[] { false });
+        Check(v1[0] is { Resolved: true, Side: "theirs" }, $"a choice quoted from the text resolves it, and the unlabelled value 2 maps back to theirs ({v1[0].Side})");
+        var v2 = SdrfComparison.Verdicts("""{"answers":[{"id":0,"choice":"value 1","quote":"control mice (normal)","why":""}]}""", asked, evidenceText, swapped: new[] { true });
+        Check(v2[0] is { Resolved: true, Side: "theirs" }, "with the two shown the other way round, value 1 is theirs");
+        var v3 = SdrfComparison.Verdicts("""{"answers":[{"id":0,"choice":"value 1","quote":"all mice had heart disease","why":""}]}""", asked, evidenceText, swapped: new[] { false });
+        Check(v3[0] is { Resolved: false } && v3[0].Note.Contains("not in the text"), "a quote not in the text resolves nothing");
+        var v4 = SdrfComparison.Verdicts("""{"answers":[{"id":0,"choice":"cannot tell","quote":"","why":"no group is named"}]}""", asked, evidenceText, swapped: new[] { false });
+        Check(v4[0] is { Resolved: false } && SdrfComparison.Verdicts("""{"answers":[]}""", asked, evidenceText, new[] { false })[0] is { Resolved: false },
+            "cannot tell, or no answer, stays unresolved for the user");
+        var contacts = SdrfComparison.Contacts(Newtonsoft.Json.Linq.JObject.Parse("""
+            {"Submitters":[{"FirstName":"Ada","LastName":"Lovelace","Email":"ada@example.org","Affiliation":"Analytical Engine Lab","Orcid":"0000-0001"}],
+             "LabPIs":[{"Name":"Prof. C. Babbage","Email":"cb@example.org","Affiliation":"","Orcid":""}]}
+            """));
+        Check(contacts.Count == 2 && contacts[0].Contains("submitter") && contacts[0].Contains("ada@example.org") && contacts[1].Contains("lab PI") && contacts[1].Contains("Prof. C. Babbage"),
+            "the depositors' contacts are read from PRIDE's record, submitter and lab PI");
         foreach (var x in r.Result.Rejected) Console.WriteLine($"     rejected: {x}");
         Console.WriteLine(failures == 0 ? "selftest passed" : $"selftest FAILED ({failures})");
         return failures == 0 ? 0 : 1;
