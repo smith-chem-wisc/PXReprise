@@ -102,9 +102,11 @@ public static class IsobaricReporters
     /// v0.4.41: a channel that is only its carbon-13 parent's isotope (<see cref="MaxIsotopeHeight"/>) is not seen. Under v0.4.36's
     /// rule 131N's isotope on 132N, in 42-60% of PXD034564's spectra around a threshold of 47%, made 9 of its 32 TMT10 files read
     /// as TMTpro, and the search refused the deposit for mixing kits.
+    /// <c>Seen</c> is those channels, in reporter m/z order and in the largest kit's labels: what a default design calls a sample
+    /// (<see cref="DepositChannels"/>).
     /// Null when the family is unknown or no channel is seen.
     /// </summary>
-    public static (IsobaricMassTagType Kit, IReadOnlyDictionary<string, double> ChannelShares)? Kit(IEnumerable<MzSpectrum> spectra, string family)
+    public static (IsobaricMassTagType Kit, IReadOnlyDictionary<string, double> ChannelShares, IReadOnlyList<string> Seen)? Kit(IEnumerable<MzSpectrum> spectra, string family)
     {
         if (!FamilyKits.TryGetValue(family, out var kits)) return null;
         var largest = kits[^1];
@@ -146,10 +148,31 @@ public static class IsobaricReporters
             // 129N, 130C and 131N by mass.
             var mapped = IsobaricMassTag.GetReporterIonLabels(kit).Select(l => shares.ContainsKey(l) ? l : Tmt6Alias.GetValueOrDefault(l, l))
                 .ToHashSet(StringComparer.Ordinal);
-            if (seen.IsSubsetOf(mapped)) return (kit, shares);
+            if (seen.IsSubsetOf(mapped)) return (kit, shares, labels.Where(seen.Contains).ToList());
         }
         return null;
     }
+
+    /// <summary>
+    /// v0.4.41: the channels of a deposit that hold a sample, from each file's <c>isobaric_channels</c>: those seen in ANY of its
+    /// files, because a real channel weak in one file still holds its sample in the others. Null when a file has no list (a QC
+    /// report from before v0.4.41) or there are no files: then nothing is left out.
+    /// </summary>
+    public static IReadOnlyCollection<string>? DepositChannels(IEnumerable<IReadOnlyList<string>?> fileChannels)
+    {
+        var channels = new HashSet<string>(StringComparer.Ordinal);
+        bool any = false;
+        foreach (var file in fileChannels)
+        {
+            if (file is null) return null;
+            channels.UnionWith(file);
+            any = true;
+        }
+        return any ? channels : null;
+    }
+
+    /// <summary>A kit's channel in the largest kit's labels, which <see cref="Kit"/> reports: TMT6's plain 127 is 127N by mass.</summary>
+    public static string LargestKitLabel(string channel) => Tmt6Alias.GetValueOrDefault(channel, channel);
 
     /// <summary>TMT6, TMT10 and TMT11 are one reagent (229.163 Da), smallest first: each kit's channels contain the one before's.</summary>
     private static readonly string[] OneReagentTmt = { "TMT6-plex", "TMT10", "TMT11" };
@@ -171,7 +194,7 @@ public static class IsobaricReporters
 
     /// <summary>
     /// v0.4.37 (dataRepo 076/078): the manifest's <c>labelling</c> and <c>labelling_plex</c> for a kit's modification id
-    /// (<see cref="ModificationId"/>): the family and the number of channels its <c>TmtDesign.txt</c> names. TMT18 is 18
+    /// (<see cref="ModificationId"/>): the family and the number of channels the kit has, used or not. TMT18 is 18
     /// (a TMTpro 16 deposit is searched under TMT18's label). Null for an id no kit has.
     /// </summary>
     public static (string Labelling, int Plex)? Labelling(string modificationId)

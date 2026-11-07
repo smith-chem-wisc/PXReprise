@@ -153,6 +153,41 @@ public class IsobaricReportersTests
         Assert.That(IsobaricReporters.Kit(spectra, "TMT")?.Kit, Is.EqualTo(Omics.Modifications.IsobaricMassTagType.TMT11));
     }
 
+    // v0.4.41: which channels hold a sample, for a default design. Each case is a delivered deposit at its measured shares and
+    // heights. The kit stays what it was; these channels were delivered as samples.
+    [Test]
+    public void TheKitSaysWhichChannelsHoldASample()
+    {
+        // PXD051031, h00445: 130C's isotope on 131C in 48% of the spectra, at 0.045.
+        var pxd051031 = Enumerable.Range(0, 200).Select(i => ReporterSpectrum(i, 200, new Dictionary<string, (int, double)> { ["131C"] = (48, 0.045) }, Tmt10Labels)).ToList();
+        Assert.That(IsobaricReporters.Kit(pxd051031, "TMT")!.Value.Seen, Is.EquivalentTo(Tmt10Labels));
+
+        // PXD027548: 130C unused, 129C's isotope on it at 0.047. The kit is still TMT10: 131N is TMT6's too, but 127C is not.
+        var nine = Tmt10Labels.Where(l => l != "130C").ToArray();
+        var pxd027548 = Enumerable.Range(0, 200).Select(i => ReporterSpectrum(i, 200, new Dictionary<string, (int, double)> { ["130C"] = (60, 0.047) }, nine)).ToList();
+        var k027548 = IsobaricReporters.Kit(pxd027548, "TMT")!.Value;
+        Assert.That(k027548.Kit, Is.EqualTo(Omics.Modifications.IsobaricMassTagType.TMT10));
+        Assert.That(k027548.Seen, Is.EquivalentTo(nine));
+
+        // PXD043296: twelve channels of TMTpro, 132C and 133N only isotopes, the rest of the kit empty.
+        var twelve = Tmt10Labels.Concat(new[] { "131C", "132N" }).ToArray();
+        var pxd043296 = Enumerable.Range(0, 200).Select(i => ReporterSpectrum(i, 200, new Dictionary<string, (int, double)> { ["132C"] = (44, 0.03), ["133N"] = (56, 0.03) }, twelve)).ToList();
+        var k043296 = IsobaricReporters.Kit(pxd043296, "TMT")!.Value;
+        Assert.That(k043296.Kit, Is.EqualTo(Omics.Modifications.IsobaricMassTagType.TMT16));
+        Assert.That(k043296.Seen, Is.EquivalentTo(twelve));
+    }
+
+    [Test]
+    public void ADepositsChannelsAreThoseSeenInAnyOfItsFiles()
+    {
+        // A real channel weak in one file still holds its sample in the others: the channel stays.
+        var channels = IsobaricReporters.DepositChannels(new IReadOnlyList<string>?[] { new[] { "126", "127N" }, new[] { "126", "127C" } });
+        Assert.That(channels, Is.EquivalentTo(new[] { "126", "127N", "127C" }));
+
+        Assert.That(IsobaricReporters.DepositChannels(new IReadOnlyList<string>?[] { new[] { "126" }, null }), Is.Null, "a QC report from before v0.4.41 has no list: nothing is left out");
+        Assert.That(IsobaricReporters.DepositChannels(Array.Empty<IReadOnlyList<string>?>()), Is.Null);
+    }
+
     // v0.4.36 (TMT phospho trial, PXD027548, 2026-11-02): a deposit that leaves a channel unused is still its kit. Measured
     // on its Q Exactive MS2: 1.raw (TMT10 proteome) 130C in 42% of reporter spectra and every other channel in 98-100%;
     // Z9423TPSTB2_1.raw (TMT10 phospho) 131N in 34%, 131C in 20%. v0.4.35 wanted EVERY channel of a kit and found none
@@ -209,11 +244,13 @@ public class IsobaricReportersTests
         var tmt = SpectraQc.Evaluate(scans, Gates, isobaric: true);
         Assert.That(tmt.FailReasons, Does.Not.Contain(SpectraQc.LowResMs2), "SPS-MS3: the ion-trap MS2 is expected");
         Assert.That((tmt.IsobaricKit, tmt.SpsMs3), Is.EqualTo(("TMT10", (bool?)true)));
+        Assert.That(tmt.IsobaricChannels, Is.EquivalentTo(Tmt10Labels));
         Assert.That(SpectraQc.Evaluate(scans, Gates).FailReasons, Does.Contain(SpectraQc.LowResMs2), "a label-free profile keeps the gate");
 
         var unlabelled = Enumerable.Range(0, 60).Select(i => Scan(i, 2, 300, 500, 700)).ToList();
         var none = SpectraQc.Evaluate(unlabelled, Gates, isobaric: true);
         Assert.That(none.FailReasons, Does.Contain(SpectraQc.NoReporters));
         Assert.That((none.IsobaricKit, none.SpsMs3), Is.EqualTo(((string?)null, (bool?)false)));
+        Assert.That(none.IsobaricChannels, Is.Null);
     }
 }

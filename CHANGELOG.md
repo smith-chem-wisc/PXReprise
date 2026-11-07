@@ -28,6 +28,13 @@ A new version of the engine never changes a finished result. Methods live in ver
   if it is at least 15% as tall as the channel one carbon-13 below it: on four deposits isotopes measured 0.03 to 0.08, and real
   channels 0.37 to 1.39. One delivered deposit was misread this way: PXD051031 is TMT10, delivered as TMT11 because 130C's isotope
   crossed the old threshold in one of its 24 files (131C is 0.045 of 130C in all of them). A re-search corrects it.
+- **A channel holding no sample is no longer delivered as one.** With no SDRF to say which sample is in which channel, the default
+  design called every channel of the kit a study sample, so a channel left unused went out holding only its neighbour's isotope, or
+  nothing. Three of the four TMT deposits delivered so far carry such channels: PXD051031 131C, PXD027548 130C, PXD043296 six of 18.
+  The default design now marks a channel QC saw no sample in, in any of the deposit's files, as `Sample Type` `empty`, and the
+  provenance lists them (`channels_without_sample`). The row stays because MetaMorpheus writes a column for every channel of the kit
+  and dataRepo refuses a column no row labels. An SDRF, curated or deposited, is left as it is. Those three deposits change only if
+  they are searched again.
 - **A profile with a probe search downloads every species' UniProt database before any raw file.** The probe reads them all, so a
   stall on another species used to happen inside it: its raw files were wasted and the deposit parked as `probe_search_failed`. It
   now waits for its next pass, as a stall on the deposit's own species always has. Profiles naming prepared files are unaffected.

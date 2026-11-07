@@ -138,15 +138,18 @@ public static class SearchStage
         // v0.4.34 (PLAN_tmt-dda-2 stage 5): an isobaric search's kit is the one QC read from every searched file's spectra
         // (stage 4), never a text's word; files that disagree, or a file with none, refuse the search.
         string? kit = null;
+        IReadOnlyCollection<string>? channelsWithSample = null;
         if (p.QuantMethod == "reporter_ion")
         {
             var kits = files.Select(f => qc[Path.GetFileName(f)]?["isobaric_kit"]?.GetValue<string>()).Distinct().ToList();
             kit = Qc.IsobaricReporters.DepositKit(kits)
                   ?? throw new SearchSetupException($"an isobaric search needs one kit read from every file's spectra; QC read {string.Join(", ", kits.Select(k => k ?? "none"))}");
+            channelsWithSample = Qc.IsobaricReporters.DepositChannels(files.Select(f =>
+                (IReadOnlyList<string>?)qc[Path.GetFileName(f)]?["isobaric_channels"]?.AsArray().Select(c => c!.GetValue<string>()).ToList()));
         }
         // MetaMorpheus reads ExperimentalDesign.tsv (label-free) or TmtDesign.txt (isobaric, stage 6: from an SDRF, always)
         // from beside the first spectra file; written here, before any task runs.
-        var design = kit is not null ? DesignStage.PrepareIsobaric(r.SpectraDir, files, r.CuratedDesign, r.DesignConditionColumns, kit, r.Organism, r.Accession)
+        var design = kit is not null ? DesignStage.PrepareIsobaric(r.SpectraDir, files, r.CuratedDesign, r.DesignConditionColumns, kit, r.Organism, r.Accession, channelsWithSample)
             : p.Design == "sdrf" ? DesignStage.Prepare(r.SpectraDir, files, r.CuratedDesign, r.DesignConditionColumns, r.Organism, r.Accession) : null;
         // v0.4.27 (dataRepo 052, PXR-R28): the SDRF the design came from is kept in the search's own output, and the record
         // names that copy. A question's SDRF can be edited after its search (seven of aging's were), and the record must
@@ -633,7 +636,7 @@ public static class SearchStage
         if (kit is not null)
         {
             if (design?["flag"]?.GetValue<string>() == DesignStage.NoChannelDesign)
-                flags.Add($"{DesignStage.NoChannelDesign}: no SDRF says which sample is in which channel ({design["reason"]}); PXReprise's default design makes each file its own plex and each channel its own sample; the reporter values compare nothing until a design is curated (QuantProject 079)");
+                flags.Add($"{DesignStage.NoChannelDesign}: no SDRF says which sample is in which channel ({design["reason"]}); PXReprise's default design makes each file its own plex and each channel that shows a sample its own sample{(design["channels_without_sample"] is JsonArray none ? $" (marked empty, holding none: {string.Join(", ", none.Select(c => c!.GetValue<string>()))})" : "")}; the reporter values compare nothing until a design is curated (QuantProject 079)");
         }
         else if (!hasDesign)
             flags.Add("no_design_file: FlashLFQ treated each file as its own biorep under one blank condition; no normalization; not usable for condition comparisons (owner: QuantProject projection)");
