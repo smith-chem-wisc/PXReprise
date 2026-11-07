@@ -4,7 +4,7 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
-## [1.4.4] - unreleased
+## [1.4.4] - 2026-11-07
 
 **No row moves and no bundle id moves.** The ingest path stays `cs-1.2.0`, the schema 0.0.16 and the catalog format 15.
 Nothing needs re-ingesting: swap the binary, and restart anything serving a catalog through `datarepo mcp`.

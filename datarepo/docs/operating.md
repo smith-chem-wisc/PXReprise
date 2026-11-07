@@ -43,10 +43,10 @@ installed, and no .NET or Python is needed.
 | macOS, Intel | `datarepo-<version>-osx-x64.tar.gz` |
 
 ```bash
-mkdir -p /opt/datarepo-1.4.3 && cd /opt/datarepo-1.4.3
-curl -LO https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.4.3/datarepo-1.4.3-linux-x64.tar.gz
-tar -xzf datarepo-1.4.3-linux-x64.tar.gz          # tar keeps the executable bit; a zip would lose it
-/opt/datarepo-1.4.3/datarepo/datarepo doctor
+mkdir -p /opt/datarepo-1.4.4 && cd /opt/datarepo-1.4.4
+curl -LO https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.4.4/datarepo-1.4.4-linux-x64.tar.gz
+tar -xzf datarepo-1.4.4-linux-x64.tar.gz          # tar keeps the executable bit; a zip would lose it
+/opt/datarepo-1.4.4/datarepo/datarepo doctor
 ```
 
 Call the program by its path, put its folder on `PATH`, or point a tool at it (PXReprise's machine
@@ -82,7 +82,8 @@ folder that was moved after it ran (they lacked their task files; see the CHANGE
 which 1.4.0 read as label-free. Rebuild once; the first folder publish recomputes every deposit's derived rows. 1.4.2
 keeps both too and moves only isobaric bundles (QuantProject's `DEF-TMT-*` at v3.22 and one new finding): re-ingest
 each TMT or iTRAQ bundle once; label-free bundles keep their ids. 1.4.3 moves nothing: it reads a table of any size, so
-swap the binary and retry any ingest that failed with `OutOfMemoryException` in `ReadTsv`.
+swap the binary and retry any ingest that failed with `OutOfMemoryException` in `ReadTsv`. 1.4.4 moves nothing either:
+it closes the MCP server's routes to writing (see the CHANGELOG), so swap the binary and restart every `datarepo mcp`.
 
 ### Building from source
 
