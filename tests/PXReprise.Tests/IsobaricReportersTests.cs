@@ -177,15 +177,17 @@ public class IsobaricReportersTests
         Assert.That(k043296.Seen, Is.EquivalentTo(twelve));
     }
 
+    // PXD035577: samples 1 to 8 in Ref_735_*, on 126 to 129N, 130N and 131N; samples 9 to 16 in Ref_735_9_16_*, on 127N to 130C. Seen across
+    // the deposit, every channel holds a sample, so a list per deposit would mark nothing. Each file's own list is what a default design wants.
     [Test]
-    public void ADepositsChannelsAreThoseSeenInAnyOfItsFiles()
+    public void EachFilesChannelsAreItsOwn()
     {
-        // A real channel weak in one file still holds its sample in the others: the channel stays.
-        var channels = IsobaricReporters.DepositChannels(new IReadOnlyList<string>?[] { new[] { "126", "127N" }, new[] { "126", "127C" } });
-        Assert.That(channels, Is.EquivalentTo(new[] { "126", "127N", "127C" }));
+        var channels = IsobaricReporters.ChannelsByFile(new (string, IReadOnlyList<string>?)[] { ("a.raw", new[] { "126", "127N" }), ("b.raw", new[] { "127N", "127C" }) });
+        Assert.That(channels!["a.raw"], Is.EqualTo(new[] { "126", "127N" }));
+        Assert.That(channels["b.raw"], Is.EqualTo(new[] { "127N", "127C" }));
 
-        Assert.That(IsobaricReporters.DepositChannels(new IReadOnlyList<string>?[] { new[] { "126" }, null }), Is.Null, "a QC report from before v0.4.41 has no list: nothing is left out");
-        Assert.That(IsobaricReporters.DepositChannels(Array.Empty<IReadOnlyList<string>?>()), Is.Null);
+        Assert.That(IsobaricReporters.ChannelsByFile(new (string, IReadOnlyList<string>?)[] { ("a.raw", new[] { "126" }), ("b.raw", null) }), Is.Null, "a QC report from before v0.4.41 has no list: nothing is marked");
+        Assert.That(IsobaricReporters.ChannelsByFile(Array.Empty<(string, IReadOnlyList<string>?)>()), Is.Null);
     }
 
     // v0.4.36 (TMT phospho trial, PXD027548, 2026-11-02): a deposit that leaves a channel unused is still its kit. Measured
@@ -229,6 +231,37 @@ public class IsobaricReportersTests
         Assert.That(IsobaricReporters.DepositKit(new[] { "TMT10", null }), Is.Null);
         Assert.That(IsobaricReporters.DepositKit(new string?[] { null }), Is.Null);
         Assert.That(IsobaricReporters.DepositKit(Array.Empty<string?>()), Is.Null);
+    }
+
+    // v0.4.41: reporters of an SPS-MS3 file are read in MS3, and its ion-trap MS2 cannot carry them. Counting both halves the share, so
+    // two of PXD035577's real fractions failed as no_isobaric_reporters: Ref_735_fr_11, 0.178 of MS2 + MS3 and 0.356 of MS3 alone;
+    // Ref_735_fr_12, 0.225 and 0.451. Ref_735_fr_10 is 0.084 and 0.167: too few by either count, and it stays a failure.
+    [TestCase(36, true, TestName = "An SPS-MS3 file whose MS3 clears the reporter gate passes, though its MS2 halve the share")]
+    [TestCase(16, false, TestName = "An SPS-MS3 file whose MS3 alone is under the reporter gate still fails")]
+    public void AnSpsMs3FilesReporterShareIsReadInMs3Alone(int percentOfMs3WithReporters, bool passes)
+    {
+        double[] tmt10 = Reporters(Omics.Modifications.IsobaricMassTagType.TMT10);
+        MsDataScan IonTrapMs2(int n) => new(new MzSpectrum(new[] { 300.0, 500.0, 700.0 }, new[] { 1e4, 1e4, 1e4 }, false), n, 2, true, Polarity.Positive,
+            n / 10.0, new MzRange(100, 2000), "", MZAnalyzerType.IonTrap2D, 1e6, 10, null, $"scan={n}", selectedIonMz: 500, dissociationType: DissociationType.CID);
+        var scans = Enumerable.Range(0, 100).SelectMany(i => new[]
+        {
+            IonTrapMs2(2 * i),
+            i < percentOfMs3WithReporters ? Scan(2 * i + 1, 3, tmt10) : Scan(2 * i + 1, 3, 300, 500, 700),
+        }).ToList();
+
+        var qc = SpectraQc.Evaluate(scans, Gates, isobaric: true);
+
+        if (passes)
+        {
+            Assert.That(qc.FailReasons, Does.Not.Contain(SpectraQc.NoReporters));
+            Assert.That(qc.FailReasons, Does.Not.Contain(SpectraQc.LowResMs2), "SPS-MS3: the ion-trap MS2 is expected");
+            Assert.That((qc.IsobaricKit, qc.SpsMs3), Is.EqualTo(("TMT10", (bool?)true)));
+        }
+        else
+        {
+            Assert.That(qc.FailReasons, Does.Contain(SpectraQc.NoReporters));
+            Assert.That(qc.IsobaricKit, Is.Null);
+        }
     }
 
     // v0.4.34 (PLAN_tmt-dda-2 stage 4): SPS-MS3, as PXD034564: MS2 in the ion trap (CID) carries no reporters, MS3 in the

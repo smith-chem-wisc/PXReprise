@@ -192,7 +192,7 @@ public class DesignStageTests
         var (spectra, _, files) = Run();
         var nine = Tmt10Channels.Where(c => c != "130C").ToList();
 
-        var rec = DesignStage.PrepareIsobaric(spectra, files, null, null, "TMT10", "mouse", "PXD000001", nine);
+        var rec = DesignStage.PrepareIsobaric(spectra, files, null, null, "TMT10", "mouse", "PXD000001", files.ToDictionary(Path.GetFileName, _ => (IReadOnlyList<string>)nine)!);
 
         var lines = File.ReadAllLines(Path.Combine(spectra, DesignStage.TmtFileName));
         var header = lines[0].Split('\t').ToList();
@@ -215,9 +215,35 @@ public class DesignStageTests
         Assert.That(samples.Select(r => int.Parse(r[biorep])), Is.EqualTo(Enumerable.Range(1, 9)), "the samples' biological replicates have no gap");
 
         Assert.That(rec["flag"]!.GetValue<string>(), Is.EqualTo(DesignStage.NoChannelDesign));
-        Assert.That(rec["channels_without_sample"]!.AsArray().Select(c => c!.GetValue<string>()), Is.EqualTo(new[] { "130C" }));
+        Assert.That(rec["channels_without_sample"]!["130C"]!.GetValue<int>(), Is.EqualTo(4), "the channel, and in how many files");
         Assert.That(rec["design_sha256"]!.GetValue<string>(), Is.EqualTo(File.ReadAllText(Path.Combine(spectra, DesignStage.TmtMarkerName))), "the record names the design as written");
         Assert.That(DesignStage.RemoveStale(spectra), Is.True, "still ours, so a later search removes it");
+    }
+
+    // PXD035577: two sets of eight samples on different channels of one kit. Each file is its own plex in a default design, so each is judged alone.
+    [Test]
+    public void TheDefaultDesignMarksEachFilesOwnEmptyChannels()
+    {
+        var (spectra, _, files) = Run();
+        var channels = new Dictionary<string, IReadOnlyList<string>>
+        {
+            ["a.raw"] = Tmt10Channels.Where(c => c is not ("129C" or "130C")).ToList(),
+            ["b.raw"] = Tmt10Channels.Where(c => c is not ("129C" or "130C")).ToList(),
+            ["c.raw"] = Tmt10Channels.Where(c => c is not ("126" or "131N")).ToList(),
+            ["d.raw"] = Tmt10Channels,
+        };
+
+        var rec = DesignStage.PrepareIsobaric(spectra, files, null, null, "TMT10", "mouse", "PXD000001", channels);
+
+        var rows = File.ReadAllLines(Path.Combine(spectra, DesignStage.TmtFileName)).Skip(1).Select(l => l.Split('\t')).ToList();
+        Assert.That(rows, Has.Count.EqualTo(4 * 10), "every channel of the kit, in every file");
+        string[] Empties(string plex) => rows.Where(r => r[1] == plex && r[8] == "empty").Select(r => r[3]).ToArray();
+        Assert.That(Empties("a"), Is.EqualTo(new[] { "129C", "130C" }));
+        Assert.That(Empties("b"), Is.EqualTo(new[] { "129C", "130C" }));
+        Assert.That(Empties("c"), Is.EqualTo(new[] { "126", "131N" }));
+        Assert.That(Empties("d"), Is.Empty);
+        var counts = rec["channels_without_sample"]!.AsObject().ToDictionary(kv => kv.Key, kv => kv.Value!.GetValue<int>());
+        Assert.That(counts, Is.EquivalentTo(new Dictionary<string, int> { ["126"] = 1, ["129C"] = 2, ["130C"] = 2, ["131N"] = 1 }));
     }
 
     [Test]
@@ -236,11 +262,11 @@ public class DesignStageTests
     public void TheDefaultDesignFindsTmt6sChannelsByMass()
     {
         var (spectra, _, files) = Run();
-        var rec = DesignStage.PrepareIsobaric(spectra, files, null, null, "TMT6-plex", "mouse", "PXD000001", new[] { "126", "127N", "128C", "129N", "130C" });
+        var rec = DesignStage.PrepareIsobaric(spectra, files, null, null, "TMT6-plex", "mouse", "PXD000001", files.ToDictionary(Path.GetFileName, _ => (IReadOnlyList<string>)new[] { "126", "127N", "128C", "129N", "130C" })!);
         var rows = File.ReadAllLines(Path.Combine(spectra, DesignStage.TmtFileName)).Skip(1).Select(l => l.Split('\t')).ToList();
         Assert.That(rows.Where(r => r[8] == "study sample").Select(r => r[3]).Distinct(), Is.EquivalentTo(new[] { "126", "127", "128", "129", "130" }));
         Assert.That(rows.Where(r => r[8] == "empty").Select(r => r[3]).Distinct(), Is.EqualTo(new[] { "131" }));
-        Assert.That(rec["channels_without_sample"]!.AsArray().Select(c => c!.GetValue<string>()), Is.EqualTo(new[] { "131" }));
+        Assert.That(rec["channels_without_sample"]!["131"]!.GetValue<int>(), Is.EqualTo(4));
     }
 
     // What a person curated is theirs: a channel they named stays, whatever the spectra looked like.
@@ -250,7 +276,7 @@ public class DesignStageTests
         var (spectra, _, files) = Run();
         string curated = TmtSdrf(TestSupport.TempDir(), "PXD000001.sdrf.tsv", plexColumn: "characteristics[plex]");
 
-        var rec = DesignStage.PrepareIsobaric(spectra, files, curated, null, "TMT10", "mouse", "PXD000001", Tmt10Channels.Where(c => c != "130C").ToList());
+        var rec = DesignStage.PrepareIsobaric(spectra, files, curated, null, "TMT10", "mouse", "PXD000001", files.ToDictionary(Path.GetFileName, _ => (IReadOnlyList<string>)Tmt10Channels.Where(c => c != "130C").ToList())!);
 
         Assert.That(rec["source"]!.GetValue<string>(), Is.EqualTo("question"));
         Assert.That(File.ReadAllLines(Path.Combine(spectra, DesignStage.TmtFileName)), Has.Length.EqualTo(1 + 4 * 10));

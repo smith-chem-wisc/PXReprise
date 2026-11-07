@@ -107,7 +107,11 @@ public static class SpectraQc
             // low-res MS2 gate is waived for it, and its MS2 is searched under the low-res rules (Fragmentation, LowCID).
             reporters = IsobaricReporters.Detect(scans);
             var ms3 = scans.Where(s => s.MsnOrder == 3).ToList();
-            spsMs3 = ms3.Count > 0 && IsobaricReporters.Detect(ms3).Tag is not null;
+            var ms3Reporters = IsobaricReporters.Detect(ms3);
+            spsMs3 = ms3.Count > 0 && ms3Reporters.Tag is not null;
+            // v0.4.41: an SPS-MS3 file's reporters are judged in MS3 alone. Its ion-trap MS2 cannot carry them, and counting them halved
+            // the share under the gate (PXD035577's Ref_735_fr_11: 0.178 of MS2 + MS3, 0.356 of MS3).
+            if (spsMs3 == true) reporters = ms3Reporters;
             if (reporters.Tag is { } family
                 && IsobaricReporters.Kit((spsMs3 == true ? ms3 : ms2).Where(s => s.MassSpectrum is { Size: > 0 }).Select(s => s.MassSpectrum), family) is { } k)
             {

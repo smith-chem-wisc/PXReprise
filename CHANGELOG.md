@@ -31,13 +31,16 @@ A new version of the engine never changes a finished result. Methods live in ver
 - **A channel holding no sample is no longer delivered as one.** With no SDRF to say which sample is in which channel, the default
   design called every channel of the kit a study sample, so a channel left unused went out holding only its neighbour's isotope, or
   nothing. Three of the four TMT deposits delivered so far carry such channels: PXD051031 131C, PXD027548 130C, PXD043296 six of 18.
-  The default design now marks a channel QC saw no sample in, in any of the deposit's files, as `Sample Type` `empty`, and the
-  provenance lists them (`channels_without_sample`). The row stays because MetaMorpheus writes a column for every channel of the kit
+  The default design now marks a channel QC saw no sample in, file by file, as `Sample Type` `empty`, and the provenance counts them
+  (`channels_without_sample`). File by file, because a default design makes each file its own plex: PXD035577 has samples 1 to 8 and
+  9 to 16 on different channels of one kit, and across the deposit every channel looks used. The row stays because MetaMorpheus writes a column for every channel of the kit
   and dataRepo refuses a column no row labels. An SDRF, curated or deposited, is left as it is. Those three deposits change only if
   they are searched again.
 - **A whole deposit set aside by QC now tells someone.** QC refusing a file of a fully downloaded deposit used to log one line and move on.
   It now writes a `decisions_needed.tsv` row with the file and the reader's own words. PXD005035's 142 files and 280 GB waited on one raw file
   flagged "still being acquired", and no row said so.
+- **An SPS-MS3 file's reporters are judged in its MS3 alone.** Its ion-trap MS2 cannot carry them, and counting them halved the share: two of
+  PXD035577's real fractions failed as `no_isobaric_reporters`.
 - **A profile with a probe search downloads every species' UniProt database before any raw file.** The probe reads them all, so a
   stall on another species used to happen inside it: its raw files were wasted and the deposit parked as `probe_search_failed`. It
   now waits for its next pass, as a stall on the deposit's own species always has. Profiles naming prepared files are unaffected.

@@ -154,21 +154,20 @@ public static class IsobaricReporters
     }
 
     /// <summary>
-    /// v0.4.41: the channels of a deposit that hold a sample, from each file's <c>isobaric_channels</c>: those seen in ANY of its
-    /// files, because a real channel weak in one file still holds its sample in the others. Null when a file has no list (a QC
-    /// report from before v0.4.41) or there are no files: then nothing is left out.
+    /// v0.4.41: the channels of each file that hold a sample, from its <c>isobaric_channels</c>, judged per file because a default
+    /// design makes each file its own plex. PXD035577 is why not per deposit: samples 1 to 8 and 9 to 16 sit on different channels
+    /// of one kit, and across the deposit every channel looks used. Null when a file has no list (a QC report from before v0.4.41)
+    /// or there are no files: then nothing is marked.
     /// </summary>
-    public static IReadOnlyCollection<string>? DepositChannels(IEnumerable<IReadOnlyList<string>?> fileChannels)
+    public static IReadOnlyDictionary<string, IReadOnlyList<string>>? ChannelsByFile(IEnumerable<(string File, IReadOnlyList<string>? Channels)> files)
     {
-        var channels = new HashSet<string>(StringComparer.Ordinal);
-        bool any = false;
-        foreach (var file in fileChannels)
+        var byFile = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+        foreach (var (file, channels) in files)
         {
-            if (file is null) return null;
-            channels.UnionWith(file);
-            any = true;
+            if (channels is null) return null;
+            byFile[file] = channels;
         }
-        return any ? channels : null;
+        return byFile.Count > 0 ? byFile : null;
     }
 
     /// <summary>A kit's channel in the largest kit's labels, which <see cref="Kit"/> reports: TMT6's plain 127 is 127N by mass.</summary>
