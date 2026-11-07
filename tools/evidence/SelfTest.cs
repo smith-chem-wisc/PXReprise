@@ -81,6 +81,30 @@ internal static class SelfTest
             Check(text.Contains("at 37 degrees", StringComparison.Ordinal), "a number inside the text stays");
         }
         finally { File.Delete(pdf); }
+
+        // D65 (8), the user 2026-11-07: "we create an independant sdrf and compare it to the community sdrf". With --independent no
+        // deposited or community SDRF reaches the rules or the model: one named so, or one whose table has SDRF's own columns.
+        Check(new[] { "PXD008344_community_annotated.sdrf.tsv", "BV2_Aldh1l1_Camk2a_SDRF.tsv", "sdrf.tsv" }.All(SupplementContent.NamedLikeSdrf),
+            "a community SDRF, a submitter's SDRF and a bare sdrf.tsv are recognised by name");
+        Check(!new[] { "Supplementary Table S1.xlsx", "s_study.txt", "README.txt" }.Any(SupplementContent.NamedLikeSdrf), "other supplements are not");
+        static SupplementTable Table(params string[] header) =>
+            new("t.tsv", "", "", header, new[] { (IReadOnlyList<string>)header.Select(_ => "x").ToArray() }, new[] { 2 }, false);
+        Check(SupplementContent.ShapedLikeSdrf(Table("source name", "characteristics[organism]", "assay name", "comment[data file]")),
+            "a table with SDRF's source name and comment[data file] columns is an SDRF, whatever the file is called");
+        Check(!SupplementContent.ShapedLikeSdrf(Table("Source Name", "Characteristics[Organism]", "Protocol REF", "Sample Name")),
+            "an ISA-Tab sample sheet (no comment[data file]) is the deposit's evidence, not an SDRF");
+        Check(!SupplementContent.ShapedLikeSdrf(Table("Sample", "Group", "Raw file")), "a plain sample sheet is not an SDRF");
+        static UsefulProteomicsDatabases.PrideArchiveFile File1(string name, string cat) =>
+            new() { FileName = name, FileSizeBytes = 1000, FileCategory = new() { Value = cat } };
+        var listed = new[] { File1("PXD000001_community_annotated.sdrf.tsv", "EXPERIMENTAL DESIGN"), File1("Table_S1.xlsx", "OTHER"), File1("a.raw", "RAW") };
+        var rowsOut = new List<InputRow>();
+        var kept = SupplementContent.DepositFiles(listed, 25_000_000, rowsOut, leaveOutSdrf: true);
+        Check(kept.Select(f => f.FileName).SequenceEqual(new[] { "Table_S1.xlsx" }) && rowsOut.Any(x => x.Name.EndsWith(".sdrf.tsv") && x.UsedAs.StartsWith("left out")),
+            "independent: the deposit's SDRF is not fetched, and inputs says it was left out");
+        Check(SupplementContent.DepositFiles(listed, 25_000_000, new List<InputRow>(), leaveOutSdrf: false).Count == 2, "without --independent it is read as before");
+        Check(Deposit.Name("draft.sdrf.tsv", ".independent") == "draft.independent.sdrf.tsv" && Deposit.Name("model.json", ".independent") == "model.independent.json"
+              && Deposit.Name("evidence.model.tsv", ".independent") == "evidence.model.independent.tsv" && Deposit.Name("model.json", "") == "model.json",
+            "independent outputs get their own names, so a reading paid for with the SDRF in view is never reused or overwritten");
         foreach (var x in r.Result.Rejected) Console.WriteLine($"     rejected: {x}");
         Console.WriteLine(failures == 0 ? "selftest passed" : $"selftest FAILED ({failures})");
         return failures == 0 ? 0 : 1;

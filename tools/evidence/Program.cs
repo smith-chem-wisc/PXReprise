@@ -3,8 +3,13 @@
 // "don't forget about supplements. they are often key"; "include information in figures too". Design: sdrf's
 // SAMPLE-EVIDENCE.md, G36/G38, D42/D43).
 //
-//   pxr-evidence read  --out DIR [--model claude-opus-5-5 | --no-model] [--refresh] [--list FILE] PXD...
+//   pxr-evidence read  --out DIR [--model claude-opus-5-5 | --no-model] [--refresh] [--independent] [--list FILE] PXD...
 //       [--max-images 20] [--max-pdf-pages 40] [--max-deposit-file-mb 25] [--max-usd N] [--curator DIR]
+//       --independent (D65 (8), the user 2026-11-07: "we create an independant sdrf and compare it to the community sdrf"): no
+//       deposited or community SDRF is fetched, read or shown to the model (one named so, or a table with SDRF's source name
+//       and comment[data file] columns); inputs.tsv says what was left out. Its outputs carry ".independent" in their names
+//       (draft.independent.sdrf.tsv, model.independent.json, summary.independent.tsv, ...), so a reading paid for with the
+//       SDRF in view is never reused or overwritten; the downloads in each deposit folder are shared.
 //       --max-usd: start no new deposit once the estimated spend reaches N. --curator: DIR\<acc>.evidence.tsv holds what a
 //       curator confirmed (rows copied from review.tsv with confidence certain), applied like any certain claim.
 //       Per deposit, into DIR\<acc>\:
@@ -47,7 +52,7 @@ var flags = new HashSet<string>(StringComparer.Ordinal);
 var accs = new List<string>();
 for (int i = 1; i < args.Length; i++)
 {
-    if (args[i] is "--no-model" or "--refresh") flags.Add(args[i]);
+    if (args[i] is "--no-model" or "--refresh" or "--independent") flags.Add(args[i]);
     else if (args[i].StartsWith("--", StringComparison.Ordinal) && i + 1 < args.Length) opt[args[i][2..]] = args[++i];
     else accs.Add(args[i]);
 }
@@ -56,7 +61,7 @@ if (opt.TryGetValue("list", out string? listFile))
 accs = accs.Select(a => a.ToUpperInvariant()).Distinct().ToList();
 if (args.Length == 0 || !opt.TryGetValue("out", out string? outRoot) || accs.Any(a => !System.Text.RegularExpressions.Regex.IsMatch(a, "^PXD\\d{6}$")))
 {
-    Console.Error.WriteLine("usage: pxr-evidence read --out DIR [--model ID | --no-model] [--refresh] [--list FILE] PXD...\n" +
+    Console.Error.WriteLine("usage: pxr-evidence read --out DIR [--model ID | --no-model] [--refresh] [--independent] [--list FILE] PXD...\n" +
                             "       pxr-evidence grade --out DIR --curated DIR [--list FILE] [PXD...]");
     return 2;
 }
@@ -111,13 +116,14 @@ if (model is not null)
     claude = new AnthropicClient();
 }
 
-string summary = Path.Combine(outRoot, "summary.tsv");
+string sfx = flags.Contains("--independent") ? ".independent" : "";
+string summary = Path.Combine(outRoot, Deposit.Name("summary.tsv", sfx));
 string summaryHeader = string.Join('\t', Deposit.Columns);
 // A summary written by an older version has fewer columns: appending to it shifts every later column under the wrong
 // name (the aging run of 2026-11-06 appended 34-field rows under a 32-field header). Set it aside and start afresh.
 if (File.Exists(summary) && File.ReadLines(summary).FirstOrDefault()?.TrimEnd('\r') != summaryHeader)
 {
-    string aside = Path.Combine(outRoot, $"summary.before-{DateTime.UtcNow:yyyyMMdd'T'HHmmss'Z'}.tsv");
+    string aside = Path.Combine(outRoot, $"summary{sfx}.before-{DateTime.UtcNow:yyyyMMdd'T'HHmmss'Z'}.tsv");
     File.Move(summary, aside);
     Console.Error.WriteLine($"summary.tsv has another version's columns: moved to {Path.GetFileName(aside)}");
 }
@@ -141,7 +147,7 @@ foreach (string acc in accs)
     try
     {
         var row = await Deposit.ReadAsync(acc, Path.Combine(outRoot, acc), model, flags.Contains("--refresh"), pride, pmc, aws, claude,
-            (priceIn, priceOut, priceCache), budget, curatorDir, notes, Console.WriteLine);
+            (priceIn, priceOut, priceCache), budget, curatorDir, notes, Console.WriteLine, sfx);
         total += double.TryParse(row[Array.IndexOf(Deposit.Columns, "est_cost_usd")], NumberStyles.Float, inv, out double c) ? c : 0;
         File.AppendAllText(summary, string.Join('\t', row.Select(Clean)) + "\n");
         Console.WriteLine($"{acc}: " + string.Join(" | ", Deposit.Columns.Zip(row).Skip(2).Where(x => x.First != "notes" && x.Second.Length > 0).Select(x => $"{x.First} {x.Second}")));
@@ -159,7 +165,7 @@ foreach (string acc in accs)
 }
 Console.WriteLine($"estimated model cost this run: ${total:0.00} ({accs.Count} deposits)");
 // The run's facts and guesses, rebuilt from every deposit folder (a rerun replaces them, never appends).
-foreach (string name in new[] { "facts.tsv", "review.tsv" })
+foreach (string name in new[] { Deposit.Name("facts.tsv", sfx), Deposit.Name("review.tsv", sfx) })
 {
     var lines = new List<string>();
     foreach (string d in Directory.GetDirectories(outRoot, "PXD*").Order(StringComparer.Ordinal))
@@ -184,7 +190,7 @@ internal static class Deposit
 
     internal static readonly string[] Columns =
     {
-        "utc", "accession", "raw_files", "pubmed", "pmcid", "paper_source", "figures", "supplement_files", "deposit_files", "tables",
+        "utc", "accession", "raw_files", "pubmed", "pmcid", "paper_source", "figures", "supplement_files", "deposit_files", "sdrf_left_out", "tables",
         "prose_chars", "images_sent", "pdf_pages_sent", "est_input_tokens", "rule_claims", "model", "model_claims", "figure_claims",
         "transcripts", "rejected", "stop", "attempts", "input_tokens", "output_tokens", "cache_read_tokens", "est_cost_usd",
         "predicted_runs", "deposit_facts", "guesses", "curator_claims", "draft_rows", "validator_errors", "validator_warnings", "notes",
@@ -192,10 +198,24 @@ internal static class Deposit
 
     internal const string FactsHeader = "column\tvalue\tsource\tmethod\tconfidence\tlocator";
 
+    /// <summary>
+    /// An output's name under a mode suffix (<c>.independent</c>, or none): <c>draft.sdrf.tsv</c> becomes
+    /// <c>draft.independent.sdrf.tsv</c>, <c>model.json</c> becomes <c>model.independent.json</c>.
+    /// </summary>
+    internal static string Name(string file, string sfx)
+    {
+        if (sfx.Length == 0) return file;
+        if (file.EndsWith(".sdrf.tsv", StringComparison.Ordinal)) return file[..^".sdrf.tsv".Length] + sfx + ".sdrf.tsv";
+        string ext = Path.GetExtension(file);
+        return file[..^ext.Length] + sfx + ext;
+    }
+
     internal static async Task<string[]> ReadAsync(string acc, string dir, string? model, bool refresh,
         PrideArchiveClient pride, EuropePmcClient pmc, PmcOpenData aws, AnthropicClient? claude, (double In, double Out, double Cache) price,
-        Budget budget, string? curatorDir, List<string> notes, Action<string> log)
+        Budget budget, string? curatorDir, List<string> notes, Action<string> log, string sfx = "")
     {
+        bool independent = sfx.Length > 0;
+        string N(string file) => Path.Combine(dir, Name(file, sfx));
         Directory.CreateDirectory(dir);
         var inputs = new List<InputRow>();
         // 1. The PRIDE record and file list, kept so a rerun reads the same inputs.
@@ -336,7 +356,7 @@ internal static class Deposit
         }
 
         // 2b. The deposit's own files in PRIDE (sample sheets, design templates, README, SDRF).
-        foreach (var f in SupplementContent.DepositFiles(files, budget.MaxDepositFileBytes, inputs))
+        foreach (var f in SupplementContent.DepositFiles(files, budget.MaxDepositFileBytes, inputs, leaveOutSdrf: independent))
         {
             try { await pride.DownloadFileAsync(f, depDir, overwrite: false); }
             catch (Exception e) when (e is HttpRequestException or NotSupportedException or IOException)
@@ -356,6 +376,14 @@ internal static class Deposit
             foreach (string f in Directory.GetFiles(folder, "*", SearchOption.AllDirectories).Where(f => !Path.GetFileName(f).StartsWith('_') && !f.EndsWith(".partial", StringComparison.Ordinal)).Order(StringComparer.Ordinal))
             {
                 string name = Path.GetFileName(f), ext = Path.GetExtension(f).ToLowerInvariant();
+                // --independent: an SDRF already in the folder (a supplement, or a deposit file fetched by an earlier run) is
+                // left out too, by its name here and by its columns below. Said once per file in inputs.tsv.
+                if (independent && SupplementContent.NamedLikeSdrf(name))
+                {
+                    if (!inputs.Any(i => i.Name == name && i.UsedAs == SupplementContent.LeftOut))
+                        inputs.Add(new InputRow(kind, name, new FileInfo(f).Length, SupplementContent.LeftOut));
+                    continue;
+                }
                 if (kind == "supplement") suppFiles++; else depFiles++;
                 var used = new List<string>();
                 int nTables = 0;
@@ -367,14 +395,18 @@ internal static class Deposit
                     else inputs.Add(new InputRow(kind, name, new FileInfo(f).Length, $"image not shown: {why}"));
                     continue;
                 }
-                try
+                IReadOnlyList<SupplementTable> t;
+                try { t = SupplementTableReader.Read(f); }
+                catch (Exception e) when (e is not OperationCanceledException) { t = Array.Empty<SupplementTable>(); used.Add($"no tables ({e.GetType().Name}: {e.Message})"); }
+                if (independent && t.Any(SupplementContent.ShapedLikeSdrf))
                 {
-                    var t = SupplementTableReader.Read(f);
-                    tables.AddRange(t);
-                    nTables = t.Count;
-                    if (nTables > 0) used.Add($"{nTables} table(s)");
+                    if (kind == "supplement") suppFiles--; else depFiles--;
+                    inputs.Add(new InputRow(kind, name, new FileInfo(f).Length, SupplementContent.LeftOut + "; known by its source name and comment[data file] columns"));
+                    continue;
                 }
-                catch (Exception e) when (e is not OperationCanceledException) { used.Add($"no tables ({e.GetType().Name}: {e.Message})"); }
+                tables.AddRange(t);
+                nTables = t.Count;
+                if (nTables > 0) used.Add($"{nTables} table(s)");
                 try
                 {
                     if (ext == ".docx")
@@ -407,7 +439,7 @@ internal static class Deposit
             }
         }
         var rules = SampleEvidenceExtractor.Extract(tables, raw);
-        SdrfEvidenceFile.Write(Path.Combine(dir, "evidence.rules.tsv"), rules);
+        SdrfEvidenceFile.Write(N("evidence.rules.tsv"), rules);
 
         // 3b. What the model is shown beyond text, within the budget: the paper's figures first, then supplement images, then
         //     PDF pages. A PDF that does not fit is given as text instead.
@@ -470,14 +502,14 @@ internal static class Deposit
         string paperText = methods + extras;
         var input = new PublicationInput(acc, record, paperText + "\n" + prose + "\n" + pdfText, tables, raw, rules);
         string prompt = RichReader.Prompt(input, paperText, prose.ToString(), attachments);
-        File.WriteAllText(Path.Combine(dir, "prompt.txt"), prompt);
-        File.WriteAllLines(Path.Combine(dir, "inputs.tsv"), new[] { "kind\tname\tbytes\tused_as" }
+        File.WriteAllText(N("prompt.txt"), prompt);
+        File.WriteAllLines(N("inputs.tsv"), new[] { "kind\tname\tbytes\tused_as" }
             .Concat(inputs.Select(i => string.Join('\t', i.Kind, i.Name, i.Bytes.ToString(Inv), i.UsedAs))));
         int imagesSent = attachments.Count(a => a.Kind == "image");
         // Rough: ~4 characters a token for text; up to ~4,800 a full-size image; ~3,000 a PDF page (its text and image).
         long estTokens = prompt.Length / 4 + imagesSent * 4_800L + pagesSent * 3_000L;
 
-        string modelTsv = Path.Combine(dir, "evidence.model.tsv"), modelJson = Path.Combine(dir, "model.json");
+        string modelTsv = N("evidence.model.tsv"), modelJson = N("model.json");
         IReadOnlyList<SdrfEvidence> modelEvidence = Array.Empty<SdrfEvidence>();
         string stop = "", rejected = "", inTok = "", outTok = "", cacheTok = "", cost = "", predicted = "", figureClaims = "", transcripts = "", attempts = "";
         string modelUsed = model ?? "none";
@@ -502,9 +534,9 @@ internal static class Deposit
                 var r = rr.Result;
                 modelEvidence = r.Evidence;
                 SdrfEvidenceFile.Write(modelTsv, r.Evidence);
-                File.WriteAllLines(Path.Combine(dir, "transcripts.tsv"), new[] { "label\ttext" }.Concat(rr.Transcripts.Select(t => $"{t.Label}\t{Clean(t.Text)}")));
+                File.WriteAllLines(N("transcripts.tsv"), new[] { "label\ttext" }.Concat(rr.Transcripts.Select(t => $"{t.Label}\t{Clean(t.Text)}")));
                 // The model's own answer, so a rejected claim's quote can be read (the second run's rejections could not).
-                File.WriteAllText(Path.Combine(dir, "model.raw.json"), rr.Raw);
+                File.WriteAllText(N("model.raw.json"), rr.Raw);
                 double usd = r.InputTokens / 1e6 * price.In + r.OutputTokens / 1e6 * price.Out + r.CacheReadTokens / 1e6 * price.Cache;
                 var design = r.Design is { } d ? new JObject
                 {
@@ -515,7 +547,7 @@ internal static class Deposit
                 } : null;
                 File.WriteAllText(modelJson, new JObject
                 {
-                    ["utc"] = DateTime.UtcNow.ToString("o", Inv), ["model"] = model, ["stop"] = r.StopReason, ["attempts"] = rr.Attempts,
+                    ["utc"] = DateTime.UtcNow.ToString("o", Inv), ["model"] = model, ["independent"] = independent, ["stop"] = r.StopReason, ["attempts"] = rr.Attempts,
                     ["input_tokens"] = r.InputTokens, ["output_tokens"] = r.OutputTokens, ["cache_read_tokens"] = r.CacheReadTokens,
                     ["est_cost_usd"] = Math.Round(usd, 4), ["claims"] = r.Evidence.Count, ["figure_claims"] = rr.FigureClaims,
                     ["transcripts"] = rr.Transcripts.Count, ["repaired_quotes"] = rr.Repaired, ["rejected"] = new JArray(r.Rejected), ["design"] = design,
@@ -541,7 +573,7 @@ internal static class Deposit
             var doc = SdrfDrafter.ToDocument(draft, acc);
             doc.WriteResults(Path.Combine(dir, file));
             if (evidence is not null && draft.EvidenceNotes.Count > 0)
-                File.WriteAllLines(Path.Combine(dir, "evidence.notes.tsv"), new[] { "data_file\tcolumn\tdraft_value\tevidence_value\twhy" }
+                File.WriteAllLines(N("evidence.notes.tsv"), new[] { "data_file\tcolumn\tdraft_value\tevidence_value\twhy" }
                     .Concat(draft.EvidenceNotes.Select(n => string.Join('\t', n.DataFile, n.Column, n.DraftValue, n.EvidenceValue, n.Why))));
             var v = SdrfValidator.Validate(doc);
             errors = v.Errors.Count();
@@ -555,23 +587,24 @@ internal static class Deposit
         if (curatorDir is not null && File.Exists(Path.Combine(curatorDir, $"{acc}.evidence.tsv")))
             curated = SdrfEvidenceFile.Read(Path.Combine(curatorDir, $"{acc}.evidence.tsv"));
         var all = rules.Concat(modelEvidence).Concat(curated).ToList();
-        var withEvidence = Draft(all, "draft.sdrf.tsv", out int err, out int warn);
+        var withEvidence = Draft(all, Name("draft.sdrf.tsv", sfx), out int err, out int warn);
 
         // 5b. The guesses, for a curator to confirm or not (the drafter never applies one): the evidence file's own format.
         var guesses = rules.Concat(modelEvidence).Where(e => e.Confidence == SdrfEvidenceConfidence.Guess).ToList();
-        SdrfEvidenceFile.Write(Path.Combine(dir, "review.tsv"), guesses);
+        SdrfEvidenceFile.Write(N("review.tsv"), guesses);
 
         // 6. The deposit-wide facts (the user: "deposit wide facts are important"): every claim about the whole deposit.
         var facts = all.Where(e => e.DataFile.Length == 0 && e.DataFilePattern.Length == 0 && e.Label.Length == 0)
             .OrderBy(e => e.Column, StringComparer.Ordinal).ThenBy(e => e.Confidence)
             .Select(e => string.Join('\t', new[] { e.Column, e.Value, e.Source, e.Method, e.Confidence.ToString(), e.Locator }.Select(Clean))).ToList();
-        File.WriteAllLines(Path.Combine(dir, "facts.tsv"), new[] { FactsHeader }.Concat(facts));
+        File.WriteAllLines(N("facts.tsv"), new[] { FactsHeader }.Concat(facts));
 
         var row = new Dictionary<string, string>
         {
             ["utc"] = DateTime.UtcNow.ToString("o", Inv), ["accession"] = acc, ["raw_files"] = raw.Count.ToString(Inv),
             ["pubmed"] = article?.PubMedId ?? "", ["pmcid"] = article?.PmcId ?? "", ["paper_source"] = paperSource,
             ["figures"] = $"{figureFiles.Count}/{figures.Count}", ["supplement_files"] = suppFiles.ToString(Inv), ["deposit_files"] = depFiles.ToString(Inv),
+            ["sdrf_left_out"] = inputs.Where(i => i.UsedAs.StartsWith(SupplementContent.LeftOut, StringComparison.Ordinal)).Select(i => i.Name).Distinct(StringComparer.Ordinal).Count().ToString(Inv),
             ["tables"] = tables.Count.ToString(Inv), ["prose_chars"] = prose.Length.ToString(Inv), ["images_sent"] = imagesSent.ToString(Inv),
             ["pdf_pages_sent"] = pagesSent.ToString(Inv), ["est_input_tokens"] = estTokens.ToString(Inv), ["rule_claims"] = rules.Count.ToString(Inv),
             ["model"] = modelUsed, ["model_claims"] = modelEvidence.Count.ToString(Inv), ["guesses"] = guesses.Count.ToString(Inv),

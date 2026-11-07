@@ -14,6 +14,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Newtonsoft.Json.Linq;
+using Readers;
 using UglyToad.PdfPig;
 using UglyToad.PdfPig.Writer;
 using UsefulProteomicsDatabases;
@@ -136,13 +137,14 @@ internal static class SupplementContent
     /// A deposit's sample sheet, design templates, README and SDRF live here (PXD002467: six MaxQuant design templates and a
     /// community SDRF; the Jarome deposits: a Proteome Discoverer export whose headers name each file's group and sample).
     /// </summary>
-    internal static List<PrideArchiveFile> DepositFiles(IEnumerable<PrideArchiveFile> files, long maxBytes, List<InputRow> inputs)
+    internal static List<PrideArchiveFile> DepositFiles(IEnumerable<PrideArchiveFile> files, long maxBytes, List<InputRow> inputs, bool leaveOutSdrf = false)
     {
         var keep = new List<PrideArchiveFile>();
         foreach (var f in files)
         {
             string cat = f.FileCategory?.Value ?? "";
             if (SkippedCategories.Contains(cat)) continue;
+            if (leaveOutSdrf && NamedLikeSdrf(f.FileName)) { inputs.Add(new InputRow("deposit file", f.FileName, f.FileSizeBytes, LeftOut)); continue; }
             string ext = f.FileName.EndsWith(".sdrf.tsv", StringComparison.OrdinalIgnoreCase) ? ".tsv" : Path.GetExtension(f.FileName);
             if (!Readable.Contains(ext))
             {
@@ -154,6 +156,25 @@ internal static class SupplementContent
         }
         return keep;
     }
+
+    /// <summary>
+    /// D65 (8), the user 2026-11-07: "we create an independant sdrf and compare it to the community sdrf". Under --independent a
+    /// deposited or community SDRF is left out of everything the rules and the model see, so the draft can be compared with it.
+    /// An SDRF is known by its name (<c>PXD..._community_annotated.sdrf.tsv</c>, a submitter's <c>..._SDRF.tsv</c>) or by its
+    /// columns (<see cref="ShapedLikeSdrf"/>).
+    /// </summary>
+    internal static bool NamedLikeSdrf(string name) => name.Contains("sdrf", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// A table with SDRF's own two columns, <c>source name</c> and <c>comment[data file]</c>. ISA-Tab sample sheets share
+    /// <c>Source Name</c> and <c>Characteristics[...]</c> but not <c>comment[data file]</c>: they are the deposit's evidence and stay.
+    /// </summary>
+    internal static bool ShapedLikeSdrf(SupplementTable t) =>
+        t.Header.Any(h => h.Trim().Equals("source name", StringComparison.OrdinalIgnoreCase))
+        && t.Header.Any(h => h.Trim().Equals("comment[data file]", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>What inputs.tsv says of a file left out under --independent.</summary>
+    internal const string LeftOut = "left out: an SDRF (--independent: ours is made without the deposit's own or the community SDRF, then compared with it)";
 
     /// <summary>A .docx's paragraphs outside its tables (the tables are read as tables), and its embedded images.</summary>
     internal static (string Prose, List<(string Name, byte[] Bytes)> Images) Docx(string path)
