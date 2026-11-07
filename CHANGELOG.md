@@ -7,7 +7,7 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
-## 0.4.41 (unreleased)
+## 0.4.41 (2026-11-07)
 
 **MetaMorpheus** 1.1.14 for the new `tmt-dda@4`; every other profile unchanged (the label-free ones stay on 1.1.13). **Machine
 file:** add `"1.1.14"` under `[metamorpheus]` to run `tmt-dda@4`. A new installation now needs `"1.1.13"` in place of `"1.1.11"`
