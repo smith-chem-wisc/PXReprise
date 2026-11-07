@@ -347,7 +347,9 @@ datarepo query catalog.duckdb "
   WHERE i.gene = 'LMNA'"
 ```
 
-The connection is opened read-only, so a statement that tries to write is refused by DuckDB itself.
+The connection is opened read-only, so a statement that tries to change the catalog is refused by DuckDB itself. It is
+not a sandbox: this is your own shell, and with `--limit 0` a `COPY ... TO` writes its file. The sandbox is
+[`datarepo mcp`](mcp.md)'s.
 `--limit` caps the rows (50 by default, `0` for none) and `--format` is `table`, `tsv` or `json`.
 
 Any DuckDB client works just as well — this is one ordinary `.duckdb` file. The MCP tools

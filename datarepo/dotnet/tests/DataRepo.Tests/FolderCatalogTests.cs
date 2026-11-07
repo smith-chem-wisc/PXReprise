@@ -257,6 +257,69 @@ public class FolderCatalogTests
         Assert.That(() => box.Query("SET enable_external_access = true"), Throws.InstanceOf<DataRepoException>());
     }
 
+    /// <summary>Every file under a folder, with its sha256, so a replaced file shows as well as a new one.</summary>
+    private static Dictionary<string, string> Files(string folder) =>
+        Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories).ToDictionary(
+            file => Path.GetRelativePath(folder, file),
+            file => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(file))));
+
+    /// <summary>The store has to be readable, and DuckDB's <c>allowed_directories</c> allows writing there too, so nothing a
+    /// client sends may reach a writer. Measured on released 1.4.3: this replaced a served table, the catalog id stayed, and
+    /// a rebuild passed every check.</summary>
+    [Test]
+    public void NothingSentToTheSandboxWritesIntoTheStore()
+    {
+        var built = Build(Folder);
+        var store = CatalogBuilder.AsPosix(Path.GetFullPath(Store));
+        var derived = Path.Combine(Folder, "derived");
+        var table = CatalogBuilder.AsPosix(Directory.EnumerateFiles(Store, "quant_values.parquet", SearchOption.AllDirectories).First());
+        var bundleJson = CatalogBuilder.AsPosix(Directory.EnumerateFiles(Store, "bundle.json", SearchOption.AllDirectories).First());
+        var inDerived = CatalogBuilder.AsPosix(Path.Combine(Directory.EnumerateDirectories(derived).First(), "probe.parquet"));
+        var storeBefore = Files(Store);
+        var derivedBefore = Files(derived);
+        using var box = new Sandbox(built.Path);
+        foreach (var target in new[] { $"{store}/probe.parquet", table, inDerived })
+        foreach (var statement in new[]
+        {
+            $"COPY (SELECT 1 AS a) TO '{target}' (FORMAT PARQUET)",
+            $"EXPLAIN COPY (SELECT 1 AS a) TO '{target}' (FORMAT PARQUET)",
+            $"EXPLAIN ANALYZE COPY (SELECT 1 AS a) TO '{target}' (FORMAT PARQUET)",
+            $"EXPLAIN ANALYSE COPY (SELECT 1 AS a) TO '{target}' (FORMAT PARQUET)",
+            $"explain analyze copy (select 1 as a) to '{target}' (format parquet)",
+            $"EXPLAIN (ANALYZE) COPY (SELECT 1 AS a) TO '{target}' (FORMAT PARQUET)",
+            $"EXPLAIN /* a */ ANALYZE /* b */ COPY (SELECT 1 AS a) TO '{target}' (FORMAT PARQUET)",
+        })
+            Assert.That(() => box.Query(statement), Throws.InstanceOf<QueryRefusedException>(), statement);
+        foreach (var statement in new[]
+        {
+            $"SELECT * FROM enable_profiling(format='json', save_location='{bundleJson}')",
+            $"SELECT * FROM enable_profiling(format='json', save_location='{store}/probe.json')",
+            $"SELECT * FROM enable_logging(storage='file', storage_path='{store}/logs')",
+            $"SELECT * FROM enable_logging(storage='file', storage_config={{'path': '{table}', 'normalize': false}})",
+            $"SELECT * FROM query('SELECT * FROM enable_logging(storage=''file'', storage_path=''{store}/logs'')')",
+            $"EXPLAIN ANALYZE SELECT * FROM enable_logging(storage='file', storage_path='{store}/logs')",
+        })
+            Assert.That(() => box.Query(statement), Throws.InstanceOf<QueryRefusedException>(), statement);
+        // Not refused by name, because it takes a table's name, and DuckDB quotes that name rather than parsing it.
+        Assert.That(() => box.Query($"SELECT * FROM query_table('enable_logging(storage=''file'', storage_path=''{store}/logs'')')"), Throws.InstanceOf<DataRepoException>());
+        box.Query("SELECT 1");  // a profile is written after the next statement
+        Assert.That(Files(Store), Is.EqualTo(storeBefore), "the store is as it was");
+        Assert.That(Files(derived), Is.EqualTo(derivedBefore), "the derived rows are as they were");
+        Assert.That(box.Query("SELECT count(*) FROM quant_values").Rows[0][0], Is.GreaterThan(0L), "and it still answers");
+    }
+
+    /// <summary>D20's class. A temp table named after a served one answered in its place, and <c>tables_touched</c> certified
+    /// the real table's row count beside the invented rows.</summary>
+    [Test]
+    public void NoTempTableCanStandInForAServedOne()
+    {
+        var built = Build(Folder);
+        using var box = new Sandbox(built.Path);
+        var real = box.Query("SELECT count(*) FROM quant_values").Rows[0][0];
+        Assert.That(() => box.Query("EXPLAIN ANALYZE CREATE TEMP TABLE quant_values AS SELECT 99999 AS n"), Throws.InstanceOf<QueryRefusedException>());
+        Assert.That(box.Query("SELECT count(*) FROM quant_values").Rows[0][0], Is.EqualTo(real));
+    }
+
     /// <summary>The site and <c>query</c> take the folder too, and read the catalog its pointer names.</summary>
     [Test]
     public void TheSiteAndQueryReadTheFolder()

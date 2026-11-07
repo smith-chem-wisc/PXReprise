@@ -228,13 +228,18 @@ bounded is an attacker.
 |---|---|
 | Connection | read-only (`ACCESS_MODE=READ_ONLY`) **and** `enable_external_access=false` |
 | Filesystem | `disabled_filesystems='LocalFileSystem'`, set immediately after connecting. **A catalog folder** (its tables are views over the store) gets instead: `allowed_directories` set to the store and the folder's own per-deposit derived rows (`catalog_meta.data_root` and `derived_root`), then `enable_external_access=false`, then `lock_configuration=true`, in that order, so those files read and nothing else does |
-| Statements | one per call; `SELECT`, `EXPLAIN`, `PRAGMA`, `SHOW` only — refused **by name, before running**, with a message saying what to send instead |
+| Statements | one per call; `SELECT`, `EXPLAIN`, `PRAGMA`, `SHOW` only — refused **by name, before running**, with a message saying what to send instead. An `EXPLAIN` takes one `SELECT`, written `EXPLAIN SELECT ...` or `EXPLAIN ANALYZE SELECT ...`, with no option list |
+| Calls | a table function, table macro or `PRAGMA` runs only if it is on an allow-list of those that read (`Sandbox.ReadingTableFunctions`, `ReadingPragmas`). `query()` takes its statement as one plain string, which is checked as a statement of its own |
 | Rows | 1,000, with a `truncated` flag and a sentence saying the answer is not whole |
 | Characters | 50,000, dropping **whole rows** — never half a peptidoform |
 | Time | 30 s, enforced by a watchdog timer that interrupts the connection |
 
-Three things there were measured rather than assumed, on DuckDB 1.5.5, and each is now a test:
+Four things there were measured rather than assumed, on DuckDB 1.5.5, and each is now a test:
 
+- **A statement's kind does not say it only reads, and `allowed_directories` allows writing as well as reading.**
+  Until 1.4.4 a client of a catalog folder could write files under the store: `EXPLAIN ANALYZE` runs what it wraps,
+  and a `SELECT` can call a table function that writes. Each new function in a DuckDB upgrade now fails a test until
+  somebody decides which list it goes on.
 - **Read-only alone is not a sandbox.** A read-only connection reads any CSV on disk.
 - **`enable_external_access=false` does not close `ATTACH`.** Another DuckDB file could still be
   attached and queried — returning rows that are not in this catalog, under a result labelled with

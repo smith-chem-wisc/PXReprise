@@ -174,6 +174,192 @@ public class McpTests
         Assert.That(box.Query("SHOW TABLES").RowCount, Is.GreaterThanOrEqualTo(1));
     }
 
+    /// <summary>A question is still a question when it is explained, and when it is explained by running it.</summary>
+    [TestCase("EXPLAIN SELECT * FROM psms")]
+    [TestCase("EXPLAIN ANALYZE SELECT count(*) FROM psms")]
+    [TestCase("explain analyse select 1")]
+    [TestCase("EXPLAIN\n  ANALYZE\n  SELECT 1")]
+    [TestCase("EXPLAIN (SELECT 1)")]
+    [TestCase("EXPLAIN /* why */ SELECT 1")]
+    [TestCase("EXPLAIN WITH t AS (SELECT 1 AS a) SELECT * FROM t")]
+    [TestCase("EXPLAIN FROM psms")]
+    [TestCase("EXPLAIN SELECT 1;")]
+    public void AnExplainedSelectIsAnswered(string statement)
+    {
+        using var box = new Sandbox(_catalog);
+        Assert.That(box.CheckStatement(statement), Is.EqualTo("EXPLAIN"));
+        Assert.That(box.Query(statement).RowCount, Is.GreaterThanOrEqualTo(1));
+    }
+
+    /// <summary>The whole statement's kind is EXPLAIN whatever it wraps, and <c>EXPLAIN ANALYZE</c> runs what it wraps, so the
+    /// wrapped statement is what has to be a question. Every spelling, and every kind, because the reproduction was one of
+    /// them.</summary>
+    [TestCase("EXPLAIN ANALYZE COPY (SELECT 1) TO 'out.csv'")]
+    [TestCase("EXPLAIN ANALYSE COPY (SELECT 1) TO 'out.csv'")]
+    [TestCase("explain analyze copy (select 1) to 'out.csv'")]
+    [TestCase("EXPLAIN\nANALYZE\nCOPY (SELECT 1) TO 'out.csv'")]
+    [TestCase("EXPLAIN (ANALYZE) COPY (SELECT 1) TO 'out.csv'")]
+    [TestCase("EXPLAIN (ANALYZE, FORMAT JSON) COPY (SELECT 1) TO 'out.csv'")]
+    [TestCase("EXPLAIN /* a */ ANALYZE /* b */ COPY (SELECT 1) TO 'out.csv'")]
+    [TestCase("EXPLAIN/**/ANALYZE/**/COPY (SELECT 1) TO 'out.csv'")]
+    [TestCase("EXPLAIN -- a\nANALYZE -- b\nCOPY (SELECT 1) TO 'out.csv'")]
+    [TestCase("/* a */ EXPLAIN ANALYZE COPY (SELECT 1) TO 'out.csv'")]
+    [TestCase("EXPLAIN ANALYZE VERBOSE COPY (SELECT 1) TO 'out.csv'")]
+    [TestCase("EXPLAIN VERBOSE COPY (SELECT 1) TO 'out.csv'")]
+    [TestCase("EXPLAIN COPY (SELECT 1) TO 'out.csv'")]
+    [TestCase("EXPLAIN ANALYZE CREATE TEMP TABLE t AS SELECT 1")]
+    [TestCase("EXPLAIN ANALYZE CREATE TEMP VIEW v AS SELECT 1")]
+    [TestCase("EXPLAIN ANALYZE CREATE TEMP MACRO m() AS 1")]
+    [TestCase("EXPLAIN ANALYZE INSERT INTO nope VALUES (1)")]
+    [TestCase("EXPLAIN ANALYZE WITH t AS (SELECT 1) INSERT INTO psms SELECT * FROM t")]
+    [TestCase("EXPLAIN ANALYZE DELETE FROM psms")]
+    [TestCase("EXPLAIN ANALYZE UPDATE psms SET scan = 2")]
+    [TestCase("EXPLAIN ANALYZE SET threads=4")]
+    [TestCase("EXPLAIN ANALYZE CALL pragma_version()")]
+    [TestCase("EXPLAIN ANALYZE EXPLAIN ANALYZE COPY (SELECT 1) TO 'out.csv'")]
+    public void AnExplainWrapsASelectAndNothingElse(string statement)
+    {
+        using var box = new Sandbox(_catalog);
+        Assert.That(() => box.CheckStatement(statement), Throws.InstanceOf<QueryRefusedException>(), statement);
+        Assert.That(() => box.Query(statement), Throws.InstanceOf<QueryRefusedException>(), statement);
+    }
+
+    [Test]
+    public void ARefusedExplainSaysWhatToSendInstead()
+    {
+        using var box = new Sandbox(_catalog);
+        Assert.That(Assert.Throws<QueryRefusedException>(() => box.Query("EXPLAIN ANALYZE COPY (SELECT 1) TO 'out.csv'"))!.Message,
+            Does.StartWith("EXPLAIN here takes one SELECT").And.Contain("EXPLAIN ANALYZE SELECT"));
+    }
+
+    /// <summary>A SELECT's kind does not say it only reads. Each of these runs on DuckDB 1.5.5: <c>enable_profiling</c>
+    /// overwrote a bundle's <c>bundle.json</c> and <c>enable_logging</c> wrote files, through every one of these routes that
+    /// reaches a table function.</summary>
+    [TestCase("SELECT * FROM enable_logging(storage='file', storage_path='x')")]
+    [TestCase("FROM enable_logging(storage='file', storage_path='x')")]
+    [TestCase("select * from ENABLE_LOGGING(storage='file', storage_path='x')")]
+    [TestCase("SELECT * FROM main.enable_logging(storage='file', storage_path='x')")]
+    [TestCase("SELECT * FROM system.main.enable_logging(storage='file', storage_path='x')")]
+    [TestCase("SELECT * FROM \"ENABLE_LOGGING\"(storage='file', storage_path='x')")]
+    [TestCase("SELECT * FROM range(1), LATERAL (SELECT * FROM enable_logging(storage='file', storage_path='x'))")]
+    [TestCase("SELECT * FROM range(1) JOIN enable_logging(storage='file', storage_path='x') ON true")]
+    [TestCase("SELECT (SELECT count(*) FROM enable_logging(storage='file', storage_path='x'))")]
+    [TestCase("WITH t AS (SELECT * FROM enable_logging(storage='file', storage_path='x')) SELECT * FROM t")]
+    [TestCase("SELECT 1 WHERE EXISTS (FROM enable_logging(storage='file', storage_path='x'))")]
+    [TestCase("SELECT 1 UNION ALL SELECT count(*) FROM enable_logging(storage='file', storage_path='x')")]
+    [TestCase("SUMMARIZE SELECT * FROM enable_logging(storage='file', storage_path='x')")]
+    [TestCase("DESCRIBE SELECT * FROM enable_logging(storage='file', storage_path='x')")]
+    [TestCase("EXPLAIN SELECT * FROM enable_logging(storage='file', storage_path='x')")]
+    [TestCase("EXPLAIN ANALYZE SELECT * FROM enable_logging(storage='file', storage_path='x')")]
+    [TestCase("SELECT * FROM query('SELECT * FROM enable_logging(storage=''file'', storage_path=''x'')')")]
+    [TestCase("SELECT * FROM query('SELECT * FROM query(''SELECT * FROM enable_logging(storage=''''file'''', storage_path=''''x'''')'')')")]
+    [TestCase("SELECT * FROM query($$SELECT * FROM enable_profiling(format='json', save_location='x.json')$$)")]
+    [TestCase("EXPLAIN ANALYZE SELECT * FROM query('SELECT * FROM enable_logging(storage=''file'', storage_path=''x'')')")]
+    [TestCase("SELECT * FROM query('SEL' || 'ECT 1')")]
+    [TestCase("SELECT * FROM query(?)")]
+    [TestCase("SELECT * FROM query('COPY (SELECT 1) TO ''x''')")]
+    [TestCase("SELECT * FROM enable_profiling(format='json', save_location='x.json')")]
+    [TestCase("SELECT * FROM json_execute_serialized_sql(json_serialize_sql('SELECT 1'))")]
+    [TestCase("SELECT write_log('x')")]
+    [TestCase("SELECT WRITE_LOG('x')")]
+    [TestCase("SELECT 1 WHERE write_log('x') IS NULL")]
+    [TestCase("PRAGMA disable_optimizer")]
+    [TestCase("pragma disable_optimizer")]
+    [TestCase("PRAGMA /* a */ disable_optimizer")]
+    [TestCase("-- a\nPRAGMA disable_optimizer")]
+    [TestCase("/* a /* b */ */ PRAGMA disable_optimizer")]
+    [TestCase("PRAGMA \"disable_optimizer\"")]
+    [TestCase("PRAGMA enable_profiling")]
+    [TestCase("PRAGMA add_parquet_key('k','0123456789012345')")]
+    [TestCase("PRAGMA json_execute_serialized_sql('{}')")]
+    public void OnlyWhatReadsIsCalled(string statement)
+    {
+        using var box = new Sandbox(_catalog);
+        Assert.That(() => box.CheckStatement(statement), Throws.InstanceOf<QueryRefusedException>(), statement);
+        Assert.That(() => box.Query(statement), Throws.InstanceOf<QueryRefusedException>(), statement);
+    }
+
+    /// <summary>Every way of asking that reads stays open: the allow-list is not meant to cost a question.</summary>
+    [TestCase("SELECT count(*) FROM query('SELECT count(*) FROM psms')")]
+    [TestCase("SELECT * FROM query($$SELECT 1 AS a$$)")]
+    [TestCase("SELECT * FROM query('SELECT * FROM query(''SELECT 1 AS a'')')")]
+    [TestCase("SELECT count(*) FROM query_table('psms')")]
+    [TestCase("PRAGMA version")]
+    [TestCase("pragma platform")]
+    [TestCase("PRAGMA table_info('psms')")]
+    [TestCase("PRAGMA show_tables")]
+    [TestCase("PRAGMA database_size")]
+    [TestCase("SHOW TABLES")]
+    [TestCase("DESCRIBE psms")]
+    [TestCase("SUMMARIZE SELECT 1 AS a")]
+    [TestCase("SELECT * FROM duckdb_functions() LIMIT 1")]
+    [TestCase("SELECT * FROM main.range(3)")]
+    [TestCase("SELECT * FROM \"RANGE\"(3)")]
+    [TestCase("SELECT * FROM unnest([1, 2])")]
+    [TestCase("SELECT * FROM generate_series(1, 2)")]
+    [TestCase("VALUES (1)")]
+    [TestCase("TABLE psms")]
+    [TestCase("FROM psms")]
+    public void WhatReadsIsAnswered(string statement)
+    {
+        using var box = new Sandbox(_catalog);
+        Assert.That(box.Query(statement).Columns, Is.Not.Empty, statement);
+    }
+
+    /// <summary>The table functions and macros kept off <see cref="Sandbox.ReadingTableFunctions"/>, each read by name.</summary>
+    private static readonly string[] RefusedTableFunctions =
+    [
+        "arrow_scan", "arrow_scan_dumb", "check_peg_parser", "checkpoint", "disable_logging", "disable_peg_parser", "disable_profiling",
+        "enable_logging", "enable_peg_parser", "enable_profiling", "force_checkpoint", "json_execute_serialized_sql", "seq_scan",
+        "truncate_duckdb_logs",
+    ];
+
+    /// <summary>The PRAGMAs kept off <see cref="Sandbox.ReadingPragmas"/>, each read by name.</summary>
+    private static readonly string[] RefusedPragmas =
+    [
+        "add_parquet_key", "all_profiling_output", "copy_database", "disable_checkpoint_on_shutdown", "disable_object_cache",
+        "disable_optimizer", "disable_print_progress_bar", "disable_profile", "disable_profiling", "disable_progress_bar",
+        "disable_verification", "disable_verify_external", "disable_verify_fetch_row", "disable_verify_parallelism",
+        "disable_verify_serializer", "enable_checkpoint_on_shutdown", "enable_object_cache", "enable_optimizer",
+        "enable_print_progress_bar", "enable_profile", "enable_profiling", "enable_progress_bar", "enable_verification",
+        "force_checkpoint", "import_database", "json_execute_serialized_sql", "verify_external", "verify_fetch_row",
+        "verify_parallelism", "verify_serializer",
+    ];
+
+    /// <summary>A function a new DuckDB adds is a decision, and this is what forces it: the same rule as a manifest field
+    /// that must be classified content or not. A name here is one somebody read.</summary>
+    [Test]
+    public void EveryCallableDuckDbOffersIsADecision()
+    {
+        using var box = new Sandbox(_catalog);
+        List<string> Offered(string types) => box.Query($"SELECT DISTINCT function_name FROM duckdb_functions() WHERE function_type IN ({types})")
+            .Rows.Select(r => (string)r[0]!).ToList();
+        var tables = Offered("'table', 'table_macro'");
+        var pragmas = Offered("'pragma'");
+        Assert.Multiple(() =>
+        {
+            Assert.That(tables.Except(Sandbox.ReadingTableFunctions).Except(RefusedTableFunctions), Is.Empty, "unclassified table functions");
+            Assert.That(pragmas.Except(Sandbox.ReadingPragmas).Except(RefusedPragmas), Is.Empty, "unclassified pragmas");
+            Assert.That(Sandbox.ReadingTableFunctions.Concat(RefusedTableFunctions).Except(tables), Is.Empty, "table functions DuckDB no longer offers");
+            Assert.That(Sandbox.ReadingPragmas.Concat(RefusedPragmas).Except(pragmas), Is.Empty, "pragmas DuckDB no longer offers");
+            Assert.That(Sandbox.ReadingTableFunctions.Intersect(RefusedTableFunctions), Is.Empty);
+            Assert.That(Sandbox.ReadingPragmas.Intersect(RefusedPragmas), Is.Empty);
+        });
+        foreach (var name in RefusedTableFunctions)
+            Assert.That(() => box.CheckStatement($"SELECT * FROM {name}()"), Throws.InstanceOf<QueryRefusedException>(), name);
+        foreach (var name in RefusedPragmas)
+            Assert.That(() => box.CheckStatement($"PRAGMA {name}"), Throws.InstanceOf<QueryRefusedException>(), name);
+    }
+
+    /// <summary>Checking the wrapped statement must not change how the whole one is answered.</summary>
+    [Test]
+    public void AnExplainedSelectKeepsItsOwnErrors()
+    {
+        using var box = new Sandbox(_catalog);
+        Assert.That(() => box.Query("EXPLAIN SELECT * FROM no_such_table"), Throws.InstanceOf<CatalogException>().With.Message.Contain("no_such_table"));
+        Assert.That(() => box.Query("EXPLAIN SELECT ?"), Throws.InstanceOf<CatalogException>().With.Message.Contain("Values were not provided"));
+    }
+
     [Test]
     public void ABadColumnIsACatalogErrorWithDuckDbsOwnMessage()
     {

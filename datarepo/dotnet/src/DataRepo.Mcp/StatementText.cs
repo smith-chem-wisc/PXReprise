@@ -130,6 +130,14 @@ public static class StatementText
         return words.Count == 0 ? "" : words[0].Word;
     }
 
+    /// <summary>A statement's second keyword, upper-cased, or the empty string. A quoted word is not a keyword, so it does not
+    /// count.</summary>
+    public static string SecondWord(string statement)
+    {
+        var words = Words(statement);
+        return words.Count < 2 ? "" : words[1].Word;
+    }
+
     /// <summary>The kind DuckDB's transformer gives a statement, named as Python's <c>duckdb.StatementType</c>.</summary>
     public static string Kind(string statement)
     {

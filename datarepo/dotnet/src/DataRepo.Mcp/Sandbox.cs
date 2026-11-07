@@ -48,6 +48,14 @@ public sealed class BoundedResult
 /// <item><b>The <c>range(3e9)</c> probe no longer demonstrates a timeout.</b> DuckDB 1.5 answers
 /// <c>SELECT count(*) FROM range(3000000000)</c> from metadata in half a second. A real cross join is needed to
 /// show the watchdog working, and it does.</item>
+/// <item><b>A statement's kind does not say it only reads, and <c>allowed_directories</c> allows writing as well as
+/// reading.</b> On a folder catalog (DuckDB 1.5.5, datarepo 1.4.3): <c>EXPLAIN ANALYZE COPY ... TO</c>, whose kind is
+/// EXPLAIN, replaced a table in the store under an unchanged catalog id. <c>EXPLAIN ANALYZE CREATE TEMP TABLE</c> put
+/// invented rows in front of a served table's name, certified by <c>tables_touched</c>. <c>SELECT * FROM
+/// enable_profiling(...)</c>, whose kind is SELECT, overwrote a bundle's <c>bundle.json</c> and <c>build</c> then crashed;
+/// <c>enable_logging</c> wrote files, and <c>json_execute_serialized_sql</c> runs a statement no parse can see into. And
+/// <c>lock_configuration</c> does not stop <c>PRAGMA disable_optimizer</c>. So what a statement may call is an allow-list
+/// (<see cref="CheckReadsOnly"/>), and a test makes every function DuckDB adds a decision.</item>
 /// </list>
 /// <para>The filesystem lock belongs to the DuckDB <b>database instance</b>, not to the connection: in one process,
 /// a second connection to the same file shares it, and DuckDB refuses a second connection with a different config.
@@ -86,6 +94,38 @@ public sealed class Sandbox : IDisposable
     {
         "query", "query_table", "read_parquet", "read_csv", "read_csv_auto", "read_json", "read_json_auto",
     };
+
+    /// <summary>Table functions that only read, and table macros. A name not here is refused, so a function a new DuckDB
+    /// adds starts refused. <c>query</c> is here on terms: its text is checked as a statement of its own
+    /// (<see cref="CheckReadsOnly"/>). Everything DuckDB 1.5.5 offers is classified, here or in
+    /// <c>McpTests.RefusedTableFunctions</c>, and a test fails on a name in neither.</summary>
+    public static readonly IReadOnlySet<string> ReadingTableFunctions = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "duckdb_approx_database_count", "duckdb_columns", "duckdb_connection_count", "duckdb_constraints", "duckdb_coordinate_systems",
+        "duckdb_databases", "duckdb_dependencies", "duckdb_extensions", "duckdb_external_file_cache", "duckdb_functions", "duckdb_indexes",
+        "duckdb_keywords", "duckdb_log_contexts", "duckdb_logs", "duckdb_logs_parsed", "duckdb_memory", "duckdb_optimizers",
+        "duckdb_prepared_statements", "duckdb_profiling_settings", "duckdb_schemas", "duckdb_secret_types", "duckdb_secrets", "duckdb_sequences",
+        "duckdb_settings", "duckdb_table_sample", "duckdb_tables", "duckdb_temporary_files", "duckdb_types", "duckdb_variables", "duckdb_views",
+        "generate_series", "glob", "histogram", "histogram_values", "icu_calendar_names", "json_each", "json_tree", "parquet_bloom_probe",
+        "parquet_file_metadata", "parquet_full_metadata", "parquet_kv_metadata", "parquet_metadata", "parquet_scan", "parquet_schema",
+        "pg_timezone_names", "pragma_collations", "pragma_database_size", "pragma_metadata_info", "pragma_platform", "pragma_show",
+        "pragma_storage_info", "pragma_table_info", "pragma_user_agent", "pragma_version", "query", "query_table", "range", "read_blob",
+        "read_csv", "read_csv_auto", "read_duckdb", "read_json", "read_json_auto", "read_json_objects", "read_json_objects_auto",
+        "read_ndjson", "read_ndjson_auto", "read_ndjson_objects", "read_parquet", "read_text", "repeat", "repeat_row", "sniff_csv",
+        "sql_auto_complete", "summary", "test_all_types", "test_vector_types", "unnest", "which_secret",
+    };
+
+    /// <summary>PRAGMAs that only read. A name not here is refused; <c>McpTests.RefusedPragmas</c> holds the rest of DuckDB
+    /// 1.5.5's, and a test fails on a name in neither.</summary>
+    public static readonly IReadOnlySet<string> ReadingPragmas = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "collations", "database_list", "database_size", "extension_versions", "functions", "metadata_info", "platform", "show",
+        "show_databases", "show_tables", "show_tables_expanded", "storage_info", "table_info", "user_agent", "version",
+    };
+
+    /// <summary>The one scalar that writes: it fills the log. With <c>enable_logging</c> refused that goes nowhere, but a
+    /// question has no use for it. (Read off DuckDB 1.5.5's 616 scalars and 118 macros by name, so this is not a proof.)</summary>
+    private static readonly IReadOnlySet<string> WritingScalars = new HashSet<string>(StringComparer.Ordinal) { "write_log" };
 
     private readonly DuckDBConnection _con;
 
@@ -342,7 +382,107 @@ public sealed class Sandbox : IDisposable
                 $"{kind} is not one of the statement kinds this catalog answers "
                 + $"({string.Join(", ", AllowedStatements)}). The catalog is derived and read-only: it is "
                 + "rebuilt from its bundles by `datarepo build`, never written to through a query.");
+        var parameters = _parameters;  // checking a wrapped statement must not change what the whole one declares
+        try
+        {
+            if (kind == "EXPLAIN") CheckExplained(sql);
+            else CheckReadsOnly(sql, kind);
+        }
+        finally
+        {
+            _parameters = parameters;
+        }
         return kind;
+    }
+
+    private const string NeverWritten = "The catalog is derived and read-only: it is rebuilt from its bundles by `datarepo build`, never written to through a query.";
+
+    /// <summary>An <c>EXPLAIN</c>'s two forms this sandbox reads. Only whitespace may come before the wrapped statement's
+    /// text, so a form this does not recognise leaves text DuckDB will not call a SELECT, and is refused.</summary>
+    private static readonly System.Text.RegularExpressions.Regex ExplainPrefix = new(
+        @"\A\s*EXPLAIN\s+(?:ANALY[SZ]E\s+)?",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>Refuse an <c>EXPLAIN</c> of anything but one SELECT that only reads, using DuckDB's own parser on the wrapped
+    /// text.</summary>
+    /// <remarks>DuckDB gives the whole statement the kind EXPLAIN whatever it wraps, and <c>EXPLAIN ANALYZE</c> executes it.
+    /// This is an allow-list on purpose: option lists, <c>VERBOSE</c> and a comment before <c>ANALYZE</c> are refused, not
+    /// parsed, because a reading of this text that differs from DuckDB's is the failure being closed.</remarks>
+    private void CheckExplained(string sql)
+    {
+        var prefix = ExplainPrefix.Match(sql);
+        var wrapped = prefix.Success ? sql[prefix.Length..] : null;
+        List<string> kinds;
+        try
+        {
+            kinds = wrapped is null ? [] : StatementKinds(wrapped);
+        }
+        catch (QueryRefusedException)
+        {
+            kinds = [];
+        }
+        if (kinds is not ["SELECT"])
+            throw new QueryRefusedException(
+                "EXPLAIN here takes one SELECT, written as `EXPLAIN SELECT ...` or `EXPLAIN ANALYZE SELECT ...`, because "
+                + $"EXPLAIN ANALYZE runs what it wraps. {NeverWritten}");
+        CheckReadsOnly(wrapped!, "SELECT");
+    }
+
+    /// <summary>Refuse a statement that calls anything not known to only read: a PRAGMA or a table function off its
+    /// allow-list, a writing scalar, or a <c>query()</c> whose text is not itself such a statement.</summary>
+    /// <remarks>This reads DuckDB's own parse. What it cannot read is refused, never passed: <c>json_serialize_sql</c> reports
+    /// its failures as a document, not an error, and a walk over that document would find nothing to object to.</remarks>
+    private void CheckReadsOnly(string sql, string kind)
+    {
+        if (kind == "PRAGMA" || StatementText.FirstWord(sql) == "PRAGMA")
+        {
+            var name = StatementText.SecondWord(sql).ToLowerInvariant();
+            if (!ReadingPragmas.Contains(name))
+                throw new QueryRefusedException($"PRAGMA {name} is not one this catalog answers: it changes this session rather than reading it. {NeverWritten}");
+            return;
+        }
+        if (ParseTree(sql) is not { } tree || (Get(tree, "error") is { } failed && failed.ValueKind != JsonValueKind.False))
+            throw new QueryRefusedException($"this statement could not be read to check that it only reads, so it was not run. {NeverWritten}");
+        WalkCalls(tree);
+    }
+
+    private void WalkCalls(JsonElement node)
+    {
+        if (node.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var value in node.EnumerateArray()) WalkCalls(value);
+            return;
+        }
+        if (node.ValueKind != JsonValueKind.Object) return;
+        if (Get(node, "type") is { ValueKind: JsonValueKind.String } type && type.GetString() == "TABLE_FUNCTION"
+            && Get(node, "function") is { ValueKind: JsonValueKind.Object } call)
+            CheckTableFunction(call);
+        if (Get(node, "class") is { ValueKind: JsonValueKind.String } cls && cls.GetString() == "FUNCTION"
+            && Get(node, "function_name") is { ValueKind: JsonValueKind.String } scalar
+            && WritingScalars.Contains(scalar.GetString()!.ToLowerInvariant()))
+            throw new QueryRefusedException($"{scalar.GetString()} writes, so it is not one this catalog runs. {NeverWritten}");
+        foreach (var property in node.EnumerateObject()) WalkCalls(property.Value);
+    }
+
+    private void CheckTableFunction(JsonElement call)
+    {
+        var name = Get(call, "function_name") is { ValueKind: JsonValueKind.String } n ? n.GetString()!.ToLowerInvariant() : "";
+        if (!ReadingTableFunctions.Contains(name))
+            throw new QueryRefusedException($"{name} is not one of the table functions this catalog runs: it can change this session or write a file. {NeverWritten}");
+        if (name != "query") return;
+        // query() parses its text when it runs, so no walk of this statement sees into it. Only text that is here to read can
+        // be checked, and it is checked as the statement it is.
+        if (Get(call, "children") is { ValueKind: JsonValueKind.Array } children && children.GetArrayLength() == 1
+            && Get(children[0], "class") is { ValueKind: JsonValueKind.String } argument && argument.GetString() == "CONSTANT"
+            && Get(children[0], "value") is { ValueKind: JsonValueKind.Object } constant
+            && Get(constant, "value") is { ValueKind: JsonValueKind.String } text)
+        {
+            if (StatementKinds(text.GetString()!) is not ["SELECT"])
+                throw new QueryRefusedException($"query() here takes one SELECT. {NeverWritten}");
+            CheckReadsOnly(text.GetString()!, "SELECT");
+            return;
+        }
+        throw new QueryRefusedException($"query() here takes its statement as one plain string, so that it can be checked before it runs. {NeverWritten}");
     }
 
     // --- querying -------------------------------------------------------------------------------------

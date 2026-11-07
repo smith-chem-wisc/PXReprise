@@ -4,6 +4,34 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [1.4.4] - unreleased
+
+**No row moves and no bundle id moves.** The ingest path stays `cs-1.2.0`, the schema 0.0.16 and the catalog format 15.
+Nothing needs re-ingesting: swap the binary, and restart anything serving a catalog through `datarepo mcp`.
+
+### Security (MCP server)
+- **A client of a catalog folder could write files under the store, from 1.3.5 on.** `allowed_directories` lets DuckDB write
+  where it lets it read, and the sandbox judged a statement by its kind. An independent review of `feat/ai-contributions`
+  found the first route, and sweeping DuckDB's functions found the rest. All were measured on 1.4.3 against a scratch store:
+  - `EXPLAIN ANALYZE` runs what it wraps. Its kind is EXPLAIN, and wrapping a `COPY` replaced a served table. The catalog id
+    did not move, and a rebuild passed every check.
+  - `SELECT * FROM enable_profiling(...)` overwrote a bundle's `bundle.json`, and the next `datarepo build` crashed.
+    `enable_logging` wrote log files to a folder the client chose.
+- **A client could put invented rows in front of a served table, on any catalog.** `EXPLAIN ANALYZE CREATE TEMP TABLE` made a
+  table of a served table's name, and `tables_touched` then certified the real table's row count beside those rows (D20).
+- **`lock_configuration` does not stop a `PRAGMA` changing the session** (`PRAGMA disable_optimizer` ran).
+- **The fix is an allow-list.** An `EXPLAIN` takes one `SELECT`. A table function, table macro or `PRAGMA` runs only if it is
+  on a list of those that read, and `write_log` is refused. `query()` takes one plain string, which is checked as a statement
+  of its own. A statement that cannot be read is refused. A test fails on any function DuckDB adds until it is put on a list.
+- **What it costs a reader:** `EXPLAIN (option list)`, `EXPLAIN VERBOSE` and a comment before `EXPLAIN` or `ANALYZE` are
+  refused, with a sentence saying what to send, and so is `query()` given anything but one plain string. Every other way of
+  asking still answers, and the parity tests against 0.32.0's answers pass unchanged.
+- **The sandbox is still not a boundary for a public, no-login endpoint.** `docs/mcp.md` keeps that as stage two.
+
+### Fixed (docs)
+- `docs/build.md` said DuckDB refuses a write from `datarepo query`. It refuses a change to the catalog; with `--limit 0` a
+  `COPY ... TO` runs. That command is the operator's own shell, not a sandbox.
+
 ## [1.4.3] - 2026-11-05
 
 **No row moves and no bundle id moves.** The ingest path stays `cs-1.2.0`, the schema 0.0.16 and the catalog format 15.

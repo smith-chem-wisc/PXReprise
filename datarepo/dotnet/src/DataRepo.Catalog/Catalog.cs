@@ -2797,8 +2797,9 @@ public static partial class CatalogBuilder
     }
 
     /// <summary>Run one read-only query against a catalog.</summary>
-    /// <remarks>The connection is opened read-only, so a query that tries to write is refused by DuckDB rather
-    /// than by a rule of ours.</remarks>
+    /// <remarks>The connection is opened read-only, so a query that tries to change the catalog is refused by DuckDB rather
+    /// than by a rule of ours. This is no sandbox: it is the operator's own command, and an unwrapped <c>COPY ... TO</c> writes
+    /// its file. What a client may send is the MCP sandbox's to decide.</remarks>
     /// <param name="path">The catalog file.</param>
     /// <param name="sql">One SQL statement.</param>
     /// <param name="limit">Wrap the statement in a <c>LIMIT</c> so an exploratory query cannot print a million rows.</param>
