@@ -290,10 +290,15 @@ internal static class SupplementContent
     internal static IEnumerable<UglyToad.PdfPig.Content.Word> WithoutMarginNumbers(List<UglyToad.PdfPig.Content.Word> words)
     {
         static bool Digits(string s) => s.Length > 0 && s.All(char.IsAsciiDigit);
-        var lefts = words.Where(w => !Digits(w.Text)).Select(w => w.BoundingBox.Left).Order().ToList();
-        var rights = words.Where(w => !Digits(w.Text)).Select(w => w.BoundingBox.Right).Order().ToList();
-        if (lefts.Count < 20) return words;
-        double left = lefts[lefts.Count / 20], right = rights[rights.Count - 1 - rights.Count / 20];
+        var text = words.Where(w => !Digits(w.Text)).ToList();
+        if (text.Count < 20) return words;
+        // The text block's edges from where its LINES start and end (words grouped by baseline), not from all words' starts:
+        // on a dense two-column page fewer than 1 word in 20 starts a line, so the 5th percentile of word starts lay right of
+        // the margin and a number beginning a line went as a margin number ("Fisher (F344) rats", PXD047289, 2026-11-07).
+        var lines = text.GroupBy(w => Math.Round(w.Letters.Count > 0 ? w.Letters[0].StartBaseLine.Y : w.BoundingBox.Bottom)).ToList();
+        var starts = lines.Select(g => g.Min(w => w.BoundingBox.Left)).Order().ToList();
+        var ends = lines.Select(g => g.Max(w => w.BoundingBox.Right)).Order().ToList();
+        double left = starts[starts.Count / 20], right = ends[ends.Count - 1 - ends.Count / 20];
         return words.Where(w => !(Digits(w.Text) && (w.BoundingBox.Right < left - 1 || w.BoundingBox.Left > right + 1)));
     }
 

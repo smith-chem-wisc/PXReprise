@@ -110,6 +110,23 @@ internal static class SelfTest
                 "a two-column PDF's left column reads in order, across its lines");
             Check(two.Contains("proteome with a precursor tolerance of ten parts per million", StringComparison.Ordinal),
                 "and so does its right column");
+
+            // A dense two-column page where a line of the left column begins with a number: fewer than 1 word in 20 starts a
+            // line there, so a text edge taken from all words' starts lies right of it, and the number was dropped as a margin
+            // line number ("Fisher (F344) rats", PXD047289: the paper has "Fisher 344 (F344) rats").
+            var b3 = new UglyToad.PdfPig.Writer.PdfDocumentBuilder();
+            var f3 = b3.AddStandard14Font(UglyToad.PdfPig.Fonts.Standard14Fonts.Standard14Font.Helvetica);
+            var p3 = b3.AddPage(UglyToad.PdfPig.Content.PageSize.A4);
+            string[] dense = { "proteins", "digested", "peptides", "measured", "searched", "analysed", "fraction", "quantity", "detector", "protocol", "reported", "standard" };
+            string Line(int from) => string.Join(" ", Enumerable.Range(0, 11).Select(i => dense[(from + i) % dense.Length]));
+            for (int k = 0; k < 20; k++)
+            {
+                p3.AddText(k == 6 ? "344 (F344) rats were obtained from the aging colony at one age" : Line(k), 5, new UglyToad.PdfPig.Core.PdfPoint(40, 780 - 8 * k), f3);
+                p3.AddText(Line(k + 5), 5, new UglyToad.PdfPig.Core.PdfPoint(310, 780 - 8 * k), f3);
+            }
+            File.WriteAllBytes(pdf, b3.Build());
+            Check(SupplementContent.PdfText(pdf).Contains("344 (F344) rats were obtained", StringComparison.Ordinal),
+                "a number that begins a line of a dense two-column page stays");
         }
         finally { File.Delete(pdf); }
 
