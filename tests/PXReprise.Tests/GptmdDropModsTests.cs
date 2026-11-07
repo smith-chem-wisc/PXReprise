@@ -75,7 +75,7 @@ public class GptmdDropModsTests
             FiltersLine + "\ngptmd_drop_mods = [\"Common Biological\\tMalonylation on K\"]")));
         Assert.That(p.GptmdDropMods, Is.EqualTo(new[] { "Common Biological\tMalonylation on K" }));
         Assert.That(ProfileLoader.LoadDirectory(TestSupport.ProfilesDir).Where(kv => kv.Value.GptmdDropMods is not null).Select(kv => kv.Key),
-            Is.EquivalentTo(new[] { "label-free-dda@13", "label-free-dda@14" }), "only @13 and @14 drop anything (a profile never changes)");
+            Is.EquivalentTo(new[] { "label-free-dda@13", "label-free-dda@14", "label-free-dda-uniprot@1" }), "only @13, @14 and the UniProt profile made from @14 drop anything (a profile never changes)");
     }
 
     [TestCase("gptmd_drop_mods = [\"Malonylation on K\"]", "is not")]

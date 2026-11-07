@@ -21,7 +21,8 @@ public sealed record QcFileResult(
     ReporterEvidence? Reporters = null,
     RunMetadata? Run = null,
     string? IsobaricKit = null,   // v0.4.34: under an isobaric profile, the kit's modification id (IsobaricReporters.ModificationId)
-    bool? SpsMs3 = null);         //   and whether its reporters are read in MS3 (null: not an isobaric profile)
+    bool? SpsMs3 = null,          //   and whether its reporters are read in MS3 (null: not an isobaric profile)
+    IReadOnlyList<string>? IsobaricChannels = null);   // v0.4.41: the channels that show a sample (IsobaricReporters.Kit), when a kit was read
 
 /// <summary>
 /// What the raw file says about its own acquisition (DATAREPO-72), recorded while the file still exists: the search's
@@ -97,6 +98,7 @@ public static class SpectraQc
         var reporters = refuseIsobaric ? IsobaricReporters.Detect(scans) : null;
         if (reporters?.Tag is not null) reasons.Add(IsobaricLabelled);
         string? kit = null;
+        IReadOnlyList<string>? channels = null;
         bool? spsMs3 = null;
         if (isobaric)
         {
@@ -105,15 +107,22 @@ public static class SpectraQc
             // low-res MS2 gate is waived for it, and its MS2 is searched under the low-res rules (Fragmentation, LowCID).
             reporters = IsobaricReporters.Detect(scans);
             var ms3 = scans.Where(s => s.MsnOrder == 3).ToList();
-            spsMs3 = ms3.Count > 0 && IsobaricReporters.Detect(ms3).Tag is not null;
+            var ms3Reporters = IsobaricReporters.Detect(ms3);
+            spsMs3 = ms3.Count > 0 && ms3Reporters.Tag is not null;
+            // v0.4.41: an SPS-MS3 file's reporters are judged in MS3 alone. Its ion-trap MS2 cannot carry them, and counting them halved
+            // the share under the gate (PXD035577's Ref_735_fr_11: 0.178 of MS2 + MS3, 0.356 of MS3).
+            if (spsMs3 == true) reporters = ms3Reporters;
             if (reporters.Tag is { } family
                 && IsobaricReporters.Kit((spsMs3 == true ? ms3 : ms2).Where(s => s.MassSpectrum is { Size: > 0 }).Select(s => s.MassSpectrum), family) is { } k)
+            {
                 kit = IsobaricReporters.ModificationId(k.Kit);
+                channels = k.Seen;
+            }
             else reasons.Add(NoReporters);
             if (spsMs3 == true) reasons.Remove(LowResMs2);
         }
         return new QcFileResult(reasons.Count == 0, reasons, scans.Count, ms2.Count, Search.SearchMetrics.PyRound(frac, 4), pairs,
-            Search.SearchMetrics.PyRound(runMinutes, 2), charges, Reporters: reporters, IsobaricKit: kit, SpsMs3: spsMs3);
+            Search.SearchMetrics.PyRound(runMinutes, 2), charges, Reporters: reporters, IsobaricKit: kit, SpsMs3: spsMs3, IsobaricChannels: channels);
     }
 
     /// <summary>Counts by value, most common first; ties keep first-seen order (Python's Counter.most_common).</summary>

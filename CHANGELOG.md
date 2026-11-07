@@ -7,6 +7,71 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.41 (2026-11-07)
+
+**MetaMorpheus** 1.1.14 for the new `tmt-dda@4`; every other profile unchanged (the label-free ones stay on 1.1.13). **Machine
+file:** add `"1.1.14"` under `[metamorpheus]` to run `tmt-dda@4`. A new installation now needs `"1.1.13"` in place of `"1.1.11"`
+(the guide installs `label-free-dda-uniprot@1`). **Safe mid-batch?** Yes: swap the pin as usual.
+
+- **New profile `tmt-dda@4`: the TMT method on MetaMorpheus 1.1.14.** It is `tmt-dda@3` on 1.1.14 and the agingPTM-v8 databases,
+  nothing else, and a test holds it to that. 1.1.14 fixes a calibration failure (MetaMorpheus #2939). On PXD034564 (TMT10,
+  SPS-MS3, 32 files, `tmt-dda@3`'s settings) 1.1.13 calibrated 16 files and 1.1.14 all 32: target PSMs at 1% 59,443 to 68,948
+  (+16.0%), peptides +15.5%, protein groups +4.8%, and 99.2% of 1.1.13's peptidoforms found again. datarepo 1.4.3 ingests the output.
+  The label-free profiles stay on 1.1.13: their identifications are identical under 1.1.14, but match-between-runs moves (mzLib
+  1.0.597 draws its decoys differently), and whether the refused transfers are right is not yet measured.
+- **agingPTM-v8**, the rebuild a new MetaMorpheus version calls for: v7's build on the catalog of 2026-11-07 (197 deposits), with
+  one more enriched deposit excluded (42). Human's proteome and the human and rat isoform files are byte-identical to v7's; mouse
+  gains 282 sites (12,063 to 12,345) and 10 isoform sites; rat keeps 76 more of UniProt's own sites. No GO id is missing from
+  go.obo. Checksums in `data/ptm-db/agingPTM-v8`.
+- **The guide now installs `label-free-dda-uniprot@1`.** Getting started, the README, the example questions and the machine
+  template name it and MetaMorpheus 1.1.13 in place of `label-free-dda@2` and 1.1.11, and a test holds every example to a profile
+  whose databases download and whose MetaMorpheus the template names. A first run now downloads three proteomes, about 1.7 GB,
+  in place of mouse's 0.5 GB. `pxreprise search` alone still takes only a profile with fixed chemistry, such as `@2`.
+- **The guide names dataRepo 1.4.4.** It fixes a security bug in `datarepo mcp`, which a client could use to write into a
+  repository's folder. Ingest, catalog and website are unchanged, and nothing needs ingesting again.
+- **New profile `label-free-dda-uniprot@1`: today's label-free method on databases the engine downloads.** It is
+  `label-free-dda@14` with only its databases changed, and a test holds it to that: `uniprot = "UP..."` for human, mouse and rat
+  in place of the ageing project's unpublished files. So a new installation or a new question can run the current method, on
+  MetaMorpheus 1.1.13, with nothing but a download.
+  - **Reviewed entries only:** human 20,414, mouse 17,279, rat 8,235 on 2026-11-06, against 20,652, 21,872 and 21,416 in the
+    one-protein-per-gene sets. mzLib's gene-centric download is broken until mzLib #1554 merges; a later version can move to it.
+  - **The probe searches all three species, so a first probe downloads all three,** into `<database_dir>/uniprot`.
+  - **Results are not pooled with `@14` as one method:** no ageing-project sites are added, and UniProt's own sites are all kept.
+  - **A downloaded database is identified by its checksum, not the profile key.** Two machines can hold different downloads under
+    this one profile. Each search records the file's date and SHA-256.
+- **A TMT10 file is no longer read as TMTpro because of an isotope peak.** Every reporter's m/z is the channel two below it plus
+  one carbon-13, so a strong channel's isotope lands exactly on the next kit's channel, and the brighter the file the more spectra
+  show it. Under v0.4.36's rule, 131N's isotope on 132N made 9 of PXD034564's 32 TMT10 files read as TMTpro, and the search refused
+  the deposit for mixing kits. A deposit misread whole would have been searched with the wrong reagent. A channel now counts only
+  if it is at least 15% as tall as the channel one carbon-13 below it: on four deposits isotopes measured 0.03 to 0.08, and real
+  channels 0.37 to 1.39. One delivered deposit was misread this way: PXD051031 is TMT10, delivered as TMT11 because 130C's isotope
+  crossed the old threshold in one of its 24 files (131C is 0.045 of 130C in all of them). A re-search corrects it.
+- **A channel holding no sample is no longer delivered as one.** With no SDRF to say which sample is in which channel, the default
+  design called every channel of the kit a study sample, so a channel left unused went out holding only its neighbour's isotope, or
+  nothing. Three of the four TMT deposits delivered so far carry such channels: PXD051031 131C, PXD027548 130C, PXD043296 six of 18.
+  The default design now marks a channel QC saw no sample in, file by file, as `Sample Type` `empty`, and the provenance counts them
+  (`channels_without_sample`). File by file, because a default design makes each file its own plex: PXD035577 has samples 1 to 8 and
+  9 to 16 on different channels of one kit, and across the deposit every channel looks used. The row stays because MetaMorpheus writes a column for every channel of the kit
+  and dataRepo refuses a column no row labels. An SDRF, curated or deposited, is left as it is. Those three deposits change only if
+  they are searched again.
+- **A whole deposit set aside by QC now tells someone.** QC refusing a file of a fully downloaded deposit used to log one line and move on.
+  It now writes a `decisions_needed.tsv` row with the file and the reader's own words. PXD005035's 142 files and 280 GB waited on one raw file
+  flagged "still being acquired", and no row said so.
+- **An SPS-MS3 file's reporters are judged in its MS3 alone.** Its ion-trap MS2 cannot carry them, and counting them halved the share: two of
+  PXD035577's real fractions failed as `no_isobaric_reporters`.
+- **A profile with a probe search downloads every species' UniProt database before any raw file.** The probe reads them all, so a
+  stall on another species used to happen inside it: its raw files were wasted and the deposit parked as `probe_search_failed`. It
+  now waits for its next pass, as a stall on the deposit's own species always has. Profiles naming prepared files are unaffected.
+- **A batch's wait can no longer hang or crash at its very end.** `BatchRunner.WaitAsync` checked the clock, then worked out
+  the time left. If the deadline passed in between, the time left was negative, and `Task.Delay` rounds toward zero: 1 to 2 ms
+  late meant "wait forever", with no message and no STOP check, and 2 ms or more late threw `ArgumentOutOfRangeException` and
+  ended the driver. It affects the wait between download passes and a probe worker's polling. It was seen once, on CI, and
+  never in the aging batch's log, but a heavily loaded machine makes it likelier. The wait now ends when its deadline has passed.
+- **The log no longer sends a reader to the wrong service when UniProt is what is down.** A queue ending on a UniProt outage said
+  "still waiting on PRIDE"; it now says "PRIDE or UniProt". And a database download no longer promises "takes minutes": on
+  2026-11-07 UniProt's REST service gave about 3 kB/s, while its file server gave this machine 9.6 MB/s. A slow transfer is not a
+  stall (mzLib gives up only after 2 minutes with no data at all), so it can run far longer than that.
+
 ## 0.4.40 (2026-11-05)
 
 **MetaMorpheus** unchanged (1.1.13). **Machine file:** unchanged. **Safe mid-batch?** Yes: swap the pin as usual.

@@ -6,7 +6,7 @@
 #   pxreprise batch run examples/muscle-ageing/question.toml --machine machines/my-machine.toml
 question = "muscle-ageing"
 description = "Skeletal muscle proteome across age"
-profiles = ["label-free-dda@2", "tmt-dda@1"]
+profiles = ["label-free-dda-uniprot@1", "tmt-dda@1"]
 
 [discover]
 # "skeletal muscle" finds 605 deposits, most irrelevant, but it is the only keyword that finds most of the relevant ones.

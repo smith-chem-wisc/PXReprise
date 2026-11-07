@@ -75,6 +75,11 @@ public class SearchStageTests
         string used = TestSupport.WriteFile(dir, "pg.tsv", "Protein Group\tS126_a_126\tS127N_a_127N\nP1\t1\t2\n");
         string unused = TestSupport.WriteFile(dir, "pg2.tsv", "Protein Group\t126\t127N\nP1\t1\t2\n");
         Assert.That(SearchStage.TmtDesignMissing(design, used), Is.Null);
+
+        // v0.4.41: an empty channel has no sample name, so there is no sample to look for in the table's columns.
+        string withEmpty = TestSupport.WriteFile(dir, "TmtDesignWithEmpty.txt",
+            File.ReadAllText(design).TrimEnd() + "\na.raw\tp\t\t130C\t\t3\t1\t1\n");
+        Assert.That(SearchStage.TmtDesignMissing(withEmpty, used), Is.Null);
         Assert.That(SearchStage.TmtDesignMissing(design, unused), Is.EqualTo("2 of 2 design samples have no reporter column (S126, S127N)"));
 
         var tmt = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir)["tmt-dda@2"];

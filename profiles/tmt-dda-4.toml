@@ -1,0 +1,74 @@
+# tmt-dda/4 (v0.4.41, 2026-11-07; the user: "move to mm 1.1.14"): tmt-dda/3 on MetaMorpheus 1.1.14 and the agingPTM-v8
+# databases. Nothing else changes.
+#   - Why 1.1.14 (results/mm-1.1.14-trial_2026-11-06, PXD034564: TMT10, SPS-MS3, 32 files, tmt-dda/3's settings): 1.1.13's
+#     calibration failed on half the files (calibration_failed); 1.1.14 carries the fix (MetaMorpheus #2939) and calibrated
+#     all 32. Target PSMs at 1% +16.0% (59,443 to 68,948), peptides +15.5%, protein groups +4.8%; 99.2% of 1.1.13's
+#     peptidoforms are found again. datarepo 1.4.3 ingests the output.
+#   - Why TMT first: label-free identifications are identical under 1.1.14, but match-between-runs moves (mzLib 1.0.597,
+#     #1484), so a label-free profile waits for QuantProject's answer on the MBR floor (G85, PXR-T18, PXR-T19).
+#   - agingPTM-v8 (D29: a new MetaMorpheus version rebuilds the PTM databases): v7's build (D62, --uniprot-sites regular)
+#     on catalog e56b5ac87dcf5187 (data/ptm-db/agingPTM-v8). TMT runs no GPTMD, so the database's sites and the variable
+#     classes are the only PTMs it searches.
+# Every other setting is /3's. Needs PXReprise v0.4.41 (the kit and empty-channel fixes, G82, G84) and a machine file naming
+# MetaMorpheus "1.1.14".
+id = "tmt-dda"
+version = 4
+description = "Isobaric-labelled DDA (TMT, iTRAQ), MS2 or SPS-MS3 reporters; the kit read from the spectra; MetaMorpheus 1.1.14 Calibrate/Search (no GPTMD) with cleavage-blocking modifications respected and a deposit's enriched PTM classes (phospho, acetyl-K, succinyl-K, GG) variable in every task with up to 3 modifications a peptide, reporter-ion quantification on a TmtDesign.txt, ±20 ppm precursors, LowCID for ion-trap MS2; a spectral library per kit; UniProt canonical proteomes, their own PTM sites kept only where non-enriched data see them, with agingPTM-v8 sites"
+
+[accepts]
+acquisition = ["dda"]
+labelling = ["isobaric"]
+instrument = ["orbitrap_hcd_only", "orbitrap_hybrid"]
+file_types = [".raw"]
+
+[engine]
+chemistry = "deposit"
+metamorpheus = "1.1.14"   # released 2026-11-06
+tasks = ["Calibration", "Search"]
+spectral_library = true   # the kit's own chain (SpectralLibrary.Plan label); off for low-res MS2 (SearchStage)
+write_sdrf = true
+fragmentation = "per_file"
+low_res_product_tolerance = "±0.5000 Absolute"
+precursor_window = "wide"
+enriched_variable = true
+timeout_h = 8
+
+[databases.human]
+proteome = "UP000005640_all_genecentric_2026_03_agingPTM-v8.xml"
+taxon = 9606
+
+[databases.mouse]
+proteome = "UP000000589_all_genecentric_2026_03_agingPTM-v8.xml"
+taxon = 10090
+
+[databases.rat]
+proteome = "UP000002494_all_genecentric_2026_03_agingPTM-v8.xml"
+taxon = 10116
+
+[contaminants]
+file = "MetaMorpheusContaminants_NoUPS.xml"
+
+[quant]
+method = "reporter_ion"
+mbr = false
+
+[deposit]
+whole = true
+max_files = 120
+probe = "probe_spread"
+max_est_ms2 = 3_000_000
+max_file_mb = 5000
+defer_if_median_file_mb = 2200
+
+[qc]
+ms2_analyzer = "orbitrap"
+min_fraction_orbitrap_hcd = 0.9   # waived for a file whose MS3 carries the kit's reporters (SPS-MS3)
+min_ms2 = 5000
+excludable = ["too_few_ms2"]
+max_excluded_frac = 0.10
+
+[metamorpheus_settings.all]
+RespectCleavageBlockingModifications = true
+
+[metamorpheus_settings.search]
+WriteIndividualFiles = false

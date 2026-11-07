@@ -69,6 +69,10 @@ public sealed class BatchRunner
     /// <summary>How often the controller looks for packages while every deposit left waits on the worker, and how often
     /// the worker looks for assignments while it has none.</summary>
     internal TimeSpan WorkerPoll { get; set; } = TimeSpan.FromMinutes(1);
+    /// <summary>What downloads a UniProt proteome, so a test can make one stall. Null is mzLib.</summary>
+    internal Search.ProteomeCache.Retrieve? ProteomeRetrieveForTest { get; set; }
+    /// <summary>The clock <see cref="WaitAsync"/> reads, so a test can make its deadline pass at an exact moment.</summary>
+    internal Func<DateTime> WaitClock { get; set; } = () => DateTime.UtcNow;
 
     /// <summary>How often the worker writes its heartbeat, during a probe too.</summary>
     internal TimeSpan HeartbeatEvery { get; set; } = TimeSpan.FromMinutes(5);
@@ -463,7 +467,7 @@ public sealed class BatchRunner
                 string which = string.Join(", ", walk.Take(10).Select(e => e.Accession)) + (walk.Count > 10 ? ", ..." : "");
                 if (pass >= _m.FetchPasses)
                 {
-                    Log($"queue exhausted; {walk.Count} deposit(s) still waiting on PRIDE after {pass} pass(es) ({which}): run the batch again later");
+                    Log($"queue exhausted; {walk.Count} deposit(s) still waiting on PRIDE or UniProt after {pass} pass(es) ({which}): run the batch again later");
                     ranOut = true;
                     return;
                 }
@@ -575,13 +579,16 @@ public sealed class BatchRunner
     internal Func<QueueEntry, Profile, CancellationToken, Task>? SearchForTest { get; set; }
 
     /// <summary>Waits between passes, watching for STOP each minute. False when STOP or cancellation ended the wait.</summary>
-    private async Task<bool> WaitAsync(TimeSpan wait, CancellationToken ct)
+    internal async Task<bool> WaitAsync(TimeSpan wait, CancellationToken ct)
     {
-        var until = DateTime.UtcNow + wait;
-        while (DateTime.UtcNow < until)
+        var until = WaitClock() + wait;
+        while (WaitClock() < until)
         {
             if (File.Exists(StopFile)) { Log("STOP file present: finishing"); return false; }
-            var left = until - DateTime.UtcNow;
+            var left = until - WaitClock();
+            // The deadline can pass after the check above. Task.Delay rounds toward zero, so a time left of -1 ms means
+            // "forever" and anything below it throws. Either would end or hang a driver at the end of an ordinary wait.
+            if (left <= TimeSpan.Zero) break;
             try { await Task.Delay(left < TimeSpan.FromMinutes(1) ? left : TimeSpan.FromMinutes(1), ct).ConfigureAwait(false); }
             catch (OperationCanceledException) { return false; }
         }
@@ -993,14 +1000,17 @@ public sealed class BatchRunner
                 return null;
             }
         }
-        // A UniProt database is downloaded (once) before any PRIDE download, so an outage costs nothing and is retried.
-        if (profile.Databases[e.Organism].UniProt is { } up)
+        // A UniProt database is downloaded (once) before any PRIDE download, so an outage costs nothing and is retried. A probe
+        // search reads every species' database (ProbeSearch.RunAsync), so a profile with one needs them all here: a download
+        // failing inside the probe would waste its raw files and park the deposit as probe_search_failed. The deposit's own first.
+        foreach (var (organism, db) in profile.Databases.Where(kv => profile.ProbeSearch || kv.Key == e.Organism).OrderBy(kv => kv.Key == e.Organism ? 0 : 1).ThenBy(kv => kv.Key, StringComparer.Ordinal))
         {
+            if (db.UniProt is not { } up) continue;
             try
             {
-                if (!Search.ProteomeCache.IsCached(profile.Databases[e.Organism], _m.DatabaseDir))
-                    Log($"{acc} database: downloading UniProt {up} (reviewed, xml) for {e.Organism}; first use on this machine, takes minutes");
-                var (dbPath, retrieval) = await Search.ProteomeCache.ResolveAsync(profile.Databases[e.Organism], _m.DatabaseDir, ct).ConfigureAwait(false);
+                if (!Search.ProteomeCache.IsCached(db, _m.DatabaseDir))
+                    Log($"{acc} database: downloading UniProt {up} (reviewed, xml) for {organism}; first use on this machine: minutes when UniProt is well, far longer when UniProt is slow");
+                var (dbPath, retrieval) = await Search.ProteomeCache.ResolveAsync(db, _m.DatabaseDir, ct, ProteomeRetrieveForTest).ConfigureAwait(false);
                 Log($"{acc} database: {dbPath} (retrieved {retrieval?["retrieved_utc"]}, sha256 {retrieval?["sha256"]?.GetValue<string>()[..12]})");
             }
             catch (Exception ex) when (Envelope.IsUnavailable(ex)) { Log($"{acc} database: UniProt {up} unavailable ({ex.Message}); retry next pass"); return null; }
@@ -1418,8 +1428,7 @@ public sealed class BatchRunner
             var x = QcExclusion(report, profile.Qc);
             if (x is null || x.Count == 0)
             {
-                Log($"{acc} QC(full) failed: {Reasons(report)}");
-                Record(acc, ("status", "skipped_acquisition_full"), ("detail", Reasons(report)));
+                SkipOnFullQc(acc, report);
                 return;
             }
             excl = x;
@@ -2108,6 +2117,22 @@ public sealed class BatchRunner
         string p = Path.Combine(_stateDir, $"params_{acc}.json");
         File.WriteAllText(p, JsonSerializer.Serialize(new { accession = acc, profile = profile.Key, question = _q.Name, run_date = _runDate }, Envelope.Json));
         return p;
+    }
+
+    /// <summary>
+    /// QC refused a file of a whole downloaded deposit, so nothing is searched and its raw files wait on disk. v0.4.41: a person is told
+    /// (D34), in the reader's own words. It used to log one line: PXD005035's 142 files and 280 GB waited on one raw file flagged "still
+    /// being acquired", and no row said so.
+    /// </summary>
+    internal void SkipOnFullQc(string acc, JsonObject report)
+    {
+        Log($"{acc} QC(full) failed: {Reasons(report)}");
+        Record(acc, ("status", "skipped_acquisition_full"), ("detail", Reasons(report)));
+        string evidence = string.Join("; ", report.Where(kv => kv.Value!["pass"]!.GetValue<bool>() != true).Select(kv =>
+            $"{kv.Key}: {string.Join("/", kv.Value!["fail_reasons"]?.AsArray().Select(r => r!.GetValue<string>()) ?? [])}"
+            + (kv.Value!["error"]?.GetValue<string>() is { } error ? $" ({error})" : "")));
+        if (DecisionsNeeded.Announce(_runRoot, acc, "skipped_acquisition_full", evidence) is { } d)
+            Log($"{acc} DECISION NEEDED (skipped_acquisition_full): {d.Question} Listed in {DecisionsNeeded.FileName}.");
     }
 
     private static string Reasons(JsonObject report) => string.Join("; ", report.Where(kv => kv.Value!["pass"]!.GetValue<bool>() != true)

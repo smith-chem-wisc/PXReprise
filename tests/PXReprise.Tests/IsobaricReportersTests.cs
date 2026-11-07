@@ -90,6 +90,106 @@ public class IsobaricReportersTests
         Assert.That(IsobaricReporters.Kit(spectra, "unknown family"), Is.Null);
     }
 
+    // v0.4.41: every channel's m/z is the channel two below it plus one carbon-13, so a strong channel's isotope lands on the next
+    // kit's channel. Measured 2026-11-06, each channel's median height against that parent, on real files: isotopes 0.03 to 0.07,
+    // real channels 0.37 to 1.39 (isotopes up to 0.08 on all 39 files). These tests use the measured shares and heights.
+    private static MzSpectrum ReporterSpectrum(int i, int ofHundred, IReadOnlyDictionary<string, (int In, double Height)> extra, string[] plain)
+    {
+        var tag = Tmt18;
+        var points = new SortedDictionary<double, double>();
+        var labels = tag.ChannelLabels.ToArray();
+        for (int c = 0; c < labels.Length; c++)
+        {
+            if (plain.Contains(labels[c])) points[tag.ReporterIonMzs[c]] = 1000;
+            else if (extra.TryGetValue(labels[c], out var e) && i * 100 / ofHundred < e.In) points[tag.ReporterIonMzs[c]] = 1000 * e.Height;
+        }
+        return new MzSpectrum(points.Keys.ToArray(), points.Values.ToArray(), false);
+    }
+
+    private static Omics.Modifications.IsobaricMassTag Tmt18 =>
+        Omics.Modifications.IsobaricMassTag.TryGetIsobaricMassTag(Omics.Modifications.IsobaricMassTagType.TMT18, out var t) ? t! : throw new InvalidOperationException();
+
+    private static readonly string[] Tmt10Labels = { "126", "127N", "127C", "128N", "128C", "129N", "129C", "130N", "130C", "131N" };
+
+    [TestCase(60, 0.03, TestName = "A TMT10 file is TMT10 though 131N's isotope sits on 132N in 60 percent of its spectra (PXD034564 01_FS_50)")]
+    [TestCase(90, 0.09, TestName = "A TMT10 file is TMT10 however often a bright 131N's isotope is seen")]
+    public void AChannelsCarbon13IsotopeIsNotALargerKit(int inPercent, double height)
+    {
+        var extra = new Dictionary<string, (int, double)> { ["131C"] = (25, 0.07), ["132N"] = (inPercent, height) };
+        var spectra = Enumerable.Range(0, 200).Select(i => ReporterSpectrum(i, 200, extra, Tmt10Labels)).ToList();
+
+        Assert.That(IsobaricReporters.Kit(spectra, "TMT")?.Kit, Is.EqualTo(Omics.Modifications.IsobaricMassTagType.TMT10));
+    }
+
+    [Test]
+    public void ARealChannelStaysSeenAtItsOwnHeightEvenWhenItIsNotInEverySpectrum()
+    {
+        // 132N as tall as 131N is TMTpro's own channel, in however many spectra.
+        var extra = new Dictionary<string, (int, double)> { ["132N"] = (60, 0.99) };
+        var spectra = Enumerable.Range(0, 200).Select(i => ReporterSpectrum(i, 200, extra, Tmt10Labels)).ToList();
+
+        Assert.That(IsobaricReporters.Kit(spectra, "TMT")?.Kit, Is.EqualTo(Omics.Modifications.IsobaricMassTagType.TMT16));
+    }
+
+    [Test]
+    public void RealTmtproIsStillTmtproAndItsOwnIsotopesAreNotCounted()
+    {
+        // PXD043296 Frac1: 126 to 132N in every spectrum at equal height; 132C and 133N its isotopes at 0.03 in 44% and 56%.
+        var extra = new Dictionary<string, (int, double)> { ["132C"] = (44, 0.03), ["133N"] = (56, 0.03) };
+        var plain = Tmt10Labels.Concat(new[] { "131C", "132N" }).ToArray();
+        var spectra = Enumerable.Range(0, 200).Select(i => ReporterSpectrum(i, 200, extra, plain)).ToList();
+
+        var kit = IsobaricReporters.Kit(spectra, "TMT");
+        Assert.That(kit?.Kit, Is.EqualTo(Omics.Modifications.IsobaricMassTagType.TMT16));
+        Assert.That(IsobaricReporters.ModificationId(kit!.Value.Kit), Is.EqualTo("TMT18"), "the mod TMTpro is searched with");
+    }
+
+    [Test]
+    public void AReal131CIsStillTmt11()
+    {
+        var extra = new Dictionary<string, (int, double)> { ["131C"] = (90, 0.97) };
+        var spectra = Enumerable.Range(0, 200).Select(i => ReporterSpectrum(i, 200, extra, Tmt10Labels)).ToList();
+
+        Assert.That(IsobaricReporters.Kit(spectra, "TMT")?.Kit, Is.EqualTo(Omics.Modifications.IsobaricMassTagType.TMT11));
+    }
+
+    // v0.4.41: which channels hold a sample, for a default design. Each case is a delivered deposit at its measured shares and
+    // heights. The kit stays what it was; these channels were delivered as samples.
+    [Test]
+    public void TheKitSaysWhichChannelsHoldASample()
+    {
+        // PXD051031, h00445: 130C's isotope on 131C in 48% of the spectra, at 0.045.
+        var pxd051031 = Enumerable.Range(0, 200).Select(i => ReporterSpectrum(i, 200, new Dictionary<string, (int, double)> { ["131C"] = (48, 0.045) }, Tmt10Labels)).ToList();
+        Assert.That(IsobaricReporters.Kit(pxd051031, "TMT")!.Value.Seen, Is.EquivalentTo(Tmt10Labels));
+
+        // PXD027548: 130C unused, 129C's isotope on it at 0.047. The kit is still TMT10: 131N is TMT6's too, but 127C is not.
+        var nine = Tmt10Labels.Where(l => l != "130C").ToArray();
+        var pxd027548 = Enumerable.Range(0, 200).Select(i => ReporterSpectrum(i, 200, new Dictionary<string, (int, double)> { ["130C"] = (60, 0.047) }, nine)).ToList();
+        var k027548 = IsobaricReporters.Kit(pxd027548, "TMT")!.Value;
+        Assert.That(k027548.Kit, Is.EqualTo(Omics.Modifications.IsobaricMassTagType.TMT10));
+        Assert.That(k027548.Seen, Is.EquivalentTo(nine));
+
+        // PXD043296: twelve channels of TMTpro, 132C and 133N only isotopes, the rest of the kit empty.
+        var twelve = Tmt10Labels.Concat(new[] { "131C", "132N" }).ToArray();
+        var pxd043296 = Enumerable.Range(0, 200).Select(i => ReporterSpectrum(i, 200, new Dictionary<string, (int, double)> { ["132C"] = (44, 0.03), ["133N"] = (56, 0.03) }, twelve)).ToList();
+        var k043296 = IsobaricReporters.Kit(pxd043296, "TMT")!.Value;
+        Assert.That(k043296.Kit, Is.EqualTo(Omics.Modifications.IsobaricMassTagType.TMT16));
+        Assert.That(k043296.Seen, Is.EquivalentTo(twelve));
+    }
+
+    // PXD035577: samples 1 to 8 in Ref_735_*, on 126 to 129N, 130N and 131N; samples 9 to 16 in Ref_735_9_16_*, on 127N to 130C. Seen across
+    // the deposit, every channel holds a sample, so a list per deposit would mark nothing. Each file's own list is what a default design wants.
+    [Test]
+    public void EachFilesChannelsAreItsOwn()
+    {
+        var channels = IsobaricReporters.ChannelsByFile(new (string, IReadOnlyList<string>?)[] { ("a.raw", new[] { "126", "127N" }), ("b.raw", new[] { "127N", "127C" }) });
+        Assert.That(channels!["a.raw"], Is.EqualTo(new[] { "126", "127N" }));
+        Assert.That(channels["b.raw"], Is.EqualTo(new[] { "127N", "127C" }));
+
+        Assert.That(IsobaricReporters.ChannelsByFile(new (string, IReadOnlyList<string>?)[] { ("a.raw", new[] { "126" }), ("b.raw", null) }), Is.Null, "a QC report from before v0.4.41 has no list: nothing is marked");
+        Assert.That(IsobaricReporters.ChannelsByFile(Array.Empty<(string, IReadOnlyList<string>?)>()), Is.Null);
+    }
+
     // v0.4.36 (TMT phospho trial, PXD027548, 2026-11-02): a deposit that leaves a channel unused is still its kit. Measured
     // on its Q Exactive MS2: 1.raw (TMT10 proteome) 130C in 42% of reporter spectra and every other channel in 98-100%;
     // Z9423TPSTB2_1.raw (TMT10 phospho) 131N in 34%, 131C in 20%. v0.4.35 wanted EVERY channel of a kit and found none
@@ -133,6 +233,37 @@ public class IsobaricReportersTests
         Assert.That(IsobaricReporters.DepositKit(Array.Empty<string?>()), Is.Null);
     }
 
+    // v0.4.41: reporters of an SPS-MS3 file are read in MS3, and its ion-trap MS2 cannot carry them. Counting both halves the share, so
+    // two of PXD035577's real fractions failed as no_isobaric_reporters: Ref_735_fr_11, 0.178 of MS2 + MS3 and 0.356 of MS3 alone;
+    // Ref_735_fr_12, 0.225 and 0.451. Ref_735_fr_10 is 0.084 and 0.167: too few by either count, and it stays a failure.
+    [TestCase(36, true, TestName = "An SPS-MS3 file whose MS3 clears the reporter gate passes, though its MS2 halve the share")]
+    [TestCase(16, false, TestName = "An SPS-MS3 file whose MS3 alone is under the reporter gate still fails")]
+    public void AnSpsMs3FilesReporterShareIsReadInMs3Alone(int percentOfMs3WithReporters, bool passes)
+    {
+        double[] tmt10 = Reporters(Omics.Modifications.IsobaricMassTagType.TMT10);
+        MsDataScan IonTrapMs2(int n) => new(new MzSpectrum(new[] { 300.0, 500.0, 700.0 }, new[] { 1e4, 1e4, 1e4 }, false), n, 2, true, Polarity.Positive,
+            n / 10.0, new MzRange(100, 2000), "", MZAnalyzerType.IonTrap2D, 1e6, 10, null, $"scan={n}", selectedIonMz: 500, dissociationType: DissociationType.CID);
+        var scans = Enumerable.Range(0, 100).SelectMany(i => new[]
+        {
+            IonTrapMs2(2 * i),
+            i < percentOfMs3WithReporters ? Scan(2 * i + 1, 3, tmt10) : Scan(2 * i + 1, 3, 300, 500, 700),
+        }).ToList();
+
+        var qc = SpectraQc.Evaluate(scans, Gates, isobaric: true);
+
+        if (passes)
+        {
+            Assert.That(qc.FailReasons, Does.Not.Contain(SpectraQc.NoReporters));
+            Assert.That(qc.FailReasons, Does.Not.Contain(SpectraQc.LowResMs2), "SPS-MS3: the ion-trap MS2 is expected");
+            Assert.That((qc.IsobaricKit, qc.SpsMs3), Is.EqualTo(("TMT10", (bool?)true)));
+        }
+        else
+        {
+            Assert.That(qc.FailReasons, Does.Contain(SpectraQc.NoReporters));
+            Assert.That(qc.IsobaricKit, Is.Null);
+        }
+    }
+
     // v0.4.34 (PLAN_tmt-dda-2 stage 4): SPS-MS3, as PXD034564: MS2 in the ion trap (CID) carries no reporters, MS3 in the
     // Orbitrap carries them. Under an isobaric profile the low-res MS2 gate is waived and the kit is read from MS3.
     [Test]
@@ -146,11 +277,13 @@ public class IsobaricReportersTests
         var tmt = SpectraQc.Evaluate(scans, Gates, isobaric: true);
         Assert.That(tmt.FailReasons, Does.Not.Contain(SpectraQc.LowResMs2), "SPS-MS3: the ion-trap MS2 is expected");
         Assert.That((tmt.IsobaricKit, tmt.SpsMs3), Is.EqualTo(("TMT10", (bool?)true)));
+        Assert.That(tmt.IsobaricChannels, Is.EquivalentTo(Tmt10Labels));
         Assert.That(SpectraQc.Evaluate(scans, Gates).FailReasons, Does.Contain(SpectraQc.LowResMs2), "a label-free profile keeps the gate");
 
         var unlabelled = Enumerable.Range(0, 60).Select(i => Scan(i, 2, 300, 500, 700)).ToList();
         var none = SpectraQc.Evaluate(unlabelled, Gates, isobaric: true);
         Assert.That(none.FailReasons, Does.Contain(SpectraQc.NoReporters));
         Assert.That((none.IsobaricKit, none.SpsMs3), Is.EqualTo(((string?)null, (bool?)false)));
+        Assert.That(none.IsobaricChannels, Is.Null);
     }
 }

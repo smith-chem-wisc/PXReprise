@@ -99,6 +99,152 @@ public class BatchRunnerTests
         return (new BatchRunner(question, Profiles, machine, files, search, "2026-09-28") { Sha1Source = NoSha1 }, search, files, dir);
     }
 
+    // D34: QC refusing a whole downloaded deposit used to log one line and set it aside, with no decisions row. PXD005035, 2026-11-07:
+    // 142 files and 280 GB waited on one raw file flagged "still being acquired", which matches PRIDE's checksum, and nobody was told.
+    [Test]
+    public void AFullQcRefusalIsAnnouncedWithWhatTheReaderSaid()
+    {
+        var (runner, _, _, dir, acc) = UniProtRunner("label-free-dda@2");
+        var report = new JsonObject
+        {
+            ["a.raw"] = new JsonObject { ["pass"] = true, ["fail_reasons"] = new JsonArray() },
+            ["b.raw"] = new JsonObject { ["pass"] = false, ["fail_reasons"] = new JsonArray("unreadable"), ["error"] = "RAW file still being acquired!" },
+            ["c.raw"] = new JsonObject { ["pass"] = false, ["fail_reasons"] = new JsonArray("too_few_ms2") },
+        };
+
+        runner.SkipOnFullQc(acc, report);
+        runner.SkipOnFullQc(acc, report);
+
+        Assert.That(runner.Settled(acc), Is.EqualTo("skipped_acquisition_full"));
+        var row = File.ReadAllLines(Path.Combine(dir, "runs", DecisionsNeeded.FileName)).Skip(1).Single().Split('\t');
+        Assert.That((row[1], row[2]), Is.EqualTo((acc, "skipped_acquisition_full")));
+        Assert.That(row[4], Is.EqualTo("b.raw: unreadable (RAW file still being acquired!); c.raw: too_few_ms2"), "which files, and in the reader's own words");
+        Assert.That(row[5], Does.Contain("exclude_files").And.Contain("batch retry"), "the way back: an exception alone does not reopen this one");
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain($"{acc} DECISION NEEDED (skipped_acquisition_full)"));
+    }
+
+    // Issue #4: a probe search reads every species' database. Under `uniprot =` those must all be fetched in the step that retries,
+    // before any raw file: a stall inside the probe wastes its files and parks the deposit as probe_search_failed.
+    private static (BatchRunner Runner, FakeSearch Search, FakeFiles Files, string Dir, string Acc) UniProtRunner(string profile, string extraMachine = "")
+    {
+        string dir = TestSupport.TempDir();
+        var question = QuestionLoader.Load(TestSupport.WriteFile(dir, "question.toml",
+            $"question = \"q\"\nprofiles = [\"{profile}\"]\n[discover]\nkeywords = [\"muscle\"]\n[batch]\nrun_root = \"runs\"\nstate_dir = \"state\"\nqueue = \"queue.json\"\n"));
+        var machine = Machine.Load(TestSupport.WriteFile(dir, "machine.toml",
+            $"work_root = '{dir}'\nmin_free_gb = 0\n{extraMachine}[metamorpheus]\n\"1.1.11\" = 'C:/nowhere/CMD.exe'\n\"1.1.13\" = 'C:/nowhere/CMD.exe'\n"));
+        var (search, files) = (new FakeSearch(), new FakeFiles());
+        const string acc = "PXD000991";
+        search.Results[acc] = new() { TestSupport.Record(acc, "Muscle", "digested with trypsin", instruments: new[] { "Q Exactive HF" }, files: new[] { "run1.raw" }) };
+        search.Projects[acc] = new PrideProject { Accession = acc, Title = "Muscle", SampleProcessingProtocol = "digested with trypsin" };
+        files.Listing = new() { new PrideArchiveFile { FileName = "run1.raw", FileSizeBytes = 64 } };
+        return (new BatchRunner(question, Profiles, machine, files, search, "2026-11-06") { Sha1Source = NoSha1 }, search, files, dir, acc);
+    }
+
+    private static PXReprise.Search.ProteomeCache.Retrieve Writes(List<string> calls) => (id, directory) =>
+    {
+        lock (calls) calls.Add(id);
+        string p = Path.Combine(directory, $"{id}_reviewed.xml");
+        File.WriteAllText(p, "<uniprot/>");
+        return p;
+    };
+
+    [Test]
+    public async Task AProfileWithAProbeDownloadsEverySpeciesBeforeAnyRawFile()
+    {
+        var (runner, _, files, _, acc) = UniProtRunner("label-free-dda-uniprot@1");
+        var calls = new List<string>();
+        runner.ProteomeRetrieveForTest = Writes(calls);
+        files.Failure = () => new InvalidOperationException("stop here: the test is about what came before this download");
+
+        try { await runner.ProbeAsync(new QueueEntry(acc, "t", "human"), CancellationToken.None); }
+        catch (InvalidOperationException) { }
+
+        Assert.That(calls, Is.EquivalentTo(new[] { "UP000005640", "UP000000589", "UP000002494" }));
+        Assert.That(calls[0], Is.EqualTo("UP000005640"), "the deposit's own species first");
+    }
+
+    [Test]
+    public async Task AnotherSpeciesStallingDownloadsNoRawFileAndRetriesNextPass()
+    {
+        var (runner, _, files, dir, acc) = UniProtRunner("label-free-dda-uniprot@1");
+        var ok = Writes(new List<string>());
+        runner.ProteomeRetrieveForTest = (id, directory) => id == "UP000002494"
+            ? throw new HttpRequestException("The UniProt download failed while reading the response body", new TimeoutException())
+            : ok(id, directory);
+
+        var profile = await runner.ProbeAsync(new QueueEntry(acc, "t", "human"), CancellationToken.None);
+
+        Assert.That(profile, Is.Null);
+        Assert.That(files.Downloads, Is.Zero, "no raw file before the databases are all here");
+        string log = File.ReadAllText(Path.Combine(dir, "state", "batch.log"));
+        Assert.That(log, Does.Contain("UniProt UP000002494 unavailable").And.Contain("retry next pass"));
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "state.json")), Does.Not.Contain("probe_search_failed"));
+    }
+
+    // A new installation's reader sees this log first. An outage at UniProt must not send them to PRIDE, and "takes minutes" must
+    // not promise what a trickle will not keep (2026-11-07: UniProt's REST service at 3 kB/s, about four days for human's 1 GB).
+    [Test]
+    public async Task AQueueEndingOnAUniProtOutageNamesUniProtAndPromisesNoTime()
+    {
+        var (runner, _, _, dir, acc) = UniProtRunner("label-free-dda-uniprot@1", "fetch_passes = 1\n");
+        runner.ProteomeRetrieveForTest = (_, _) => throw new HttpRequestException("The UniProt download failed while reading the response body", new TimeoutException());
+
+        await runner.RunAsync(new[] { new QueueEntry(acc, "t", "human") }, CancellationToken.None);
+
+        string log = File.ReadAllText(Path.Combine(dir, "state", "batch.log"));
+        Assert.That(log, Does.Contain("still waiting on PRIDE or UniProt after 1 pass(es)"));
+        Assert.That(log, Does.Contain("far longer when UniProt is slow").And.Not.Contain("takes minutes"));
+    }
+
+    [Test]
+    public async Task AProfileWithNoProbeStillDownloadsOnlyItsOwnSpecies()
+    {
+        var (runner, _, files, _, acc) = UniProtRunner("label-free-dda@2");
+        var calls = new List<string>();
+        runner.ProteomeRetrieveForTest = Writes(calls);
+        files.Failure = () => new InvalidOperationException("stop here");
+
+        try { await runner.ProbeAsync(new QueueEntry(acc, "t", "human"), CancellationToken.None); }
+        catch (InvalidOperationException) { }
+
+        Assert.That(calls, Is.EqualTo(new[] { "UP000005640" }));
+    }
+
+    // G79: the deadline can pass between WaitAsync's clock check and its sleep. Task.Delay rounds toward zero, so the time
+    // left then does one of three things: under 1 ms late it is 0 and harmless; 1 to 2 ms late it is -1, which Task.Delay
+    // reads as WAIT FOREVER; 2 ms or more late it throws ArgumentOutOfRangeException. Seen once, on public CI.
+    [TestCase(0.2, TestName = "A wait ends when its deadline passed under 1 ms before its sleep")]
+    [TestCase(1.5, TestName = "A wait ends when its deadline passed 1 to 2 ms before its sleep, which Task.Delay reads as forever")]
+    [TestCase(5.0, TestName = "A wait ends when its deadline passed 2 ms or more before its sleep, which Task.Delay refuses")]
+    public async Task AWaitWhoseDeadlinePassesBetweenItsClockCheckAndItsSleepEnds(double millisecondsLate)
+    {
+        var (runner, _, _, _) = Runner();
+        var start = new DateTime(2026, 11, 6, 12, 0, 0, DateTimeKind.Utc);
+        var wait = TimeSpan.FromMinutes(1);
+        int reads = 0;
+        // The first read sets the deadline and the second passes the loop's check. Every later read is past the deadline.
+        runner.WaitClock = () => ++reads <= 2 ? start : start + wait + TimeSpan.FromMilliseconds(millisecondsLate);
+
+        var waiting = runner.WaitAsync(wait, CancellationToken.None);
+        var first = await Task.WhenAny(waiting, Task.Delay(TimeSpan.FromSeconds(10)));
+
+        Assert.That(first, Is.SameAs(waiting), "the wait must end, not sleep forever");
+        Assert.That(await waiting, Is.True, "nothing asked it to stop");
+    }
+
+    [Test]
+    public async Task AWaitStillEndsOnStopAndStillWaitsOutItsTime()
+    {
+        var (runner, _, _, dir) = Runner();
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        Assert.That(await runner.WaitAsync(TimeSpan.FromMilliseconds(200), CancellationToken.None), Is.True);
+        Assert.That(watch.Elapsed, Is.GreaterThanOrEqualTo(TimeSpan.FromMilliseconds(150)), "a wait with time left sleeps it out");
+
+        Directory.CreateDirectory(Path.Combine(dir, "state"));
+        File.WriteAllText(Path.Combine(dir, "state", "STOP"), "test");
+        Assert.That(await runner.WaitAsync(TimeSpan.FromMinutes(5), CancellationToken.None), Is.False, "STOP ends the wait at once");
+    }
+
     [Test]
     public async Task TheScreenRoutesBeforeAnyDownload()
     {

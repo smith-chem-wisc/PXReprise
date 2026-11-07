@@ -33,7 +33,7 @@ public class EnrichedVariableTests
         Profile p2 = all["tmt-dda@2"], p3 = all["tmt-dda@3"];
         Assert.That(p3.EnrichedVariable, Is.True);
         Assert.That(p3.Status, Is.EqualTo(ProfileStatus.Available));
-        Assert.That(all.Where(kv => kv.Value.EnrichedVariable).Select(kv => kv.Key), Is.EquivalentTo(new[] { "tmt-dda@3" }));
+        Assert.That(all.Where(kv => kv.Value.EnrichedVariable).Select(kv => kv.Key), Is.EquivalentTo(new[] { "tmt-dda@3", "tmt-dda@4" }));
         Assert.That(p3.Databases.Select(kv => (kv.Key, kv.Value.Proteome)),
             Is.EquivalentTo(p2.Databases.Select(kv => (kv.Key, kv.Value.Proteome.Replace("_agingPTM-v6.xml", "_agingPTM-v7.xml")))));
         Assert.That(p3.Databases.Values.Select(d => d.Proteome), Is.EquivalentTo(all["label-free-dda@13"].Databases.Values.Select(d => d.Proteome)),

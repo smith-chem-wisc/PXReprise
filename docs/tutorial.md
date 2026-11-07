@@ -26,7 +26,7 @@ Start broad. It is easier to cut false positives you can see than to find deposi
 ```toml
 question = "muscle-ageing"
 description = "Skeletal muscle proteome across age"
-profiles = ["label-free-dda@2", "tmt-dda@1"]
+profiles = ["label-free-dda-uniprot@1", "tmt-dda@1"]
 
 [discover]
 keywords = ["sarcopenia", "muscle aging", "muscle ageing", "aged muscle", "skeletal muscle"]
@@ -169,7 +169,10 @@ PXD030350	include	multi-organ ageing study (young-plasma vesicles in aged mice);
 | | draft | step 2 | step 3 | final |
 |---|---:|---:|---:|---:|
 | relevant or included | 81 | 68 | 72 | **73** |
-| of which `label-free-dda@2` would search | 32 | 28 | 29 | **29** |
+| of which the label-free profile would search | 32 | 28 | 29 | **29** |
+
+These were counted under `label-free-dda@2`, the profile a new installation ran then. On 7 November the final question routed
+exactly the same deposits under `label-free-dda-uniprot@1` as under `@2` (28 of 74 by then, PRIDE having changed).
 
 The draft's 81 looked like more, but it counted *fold change* and *3 months old*. The final 73 are deposits you have
 read reasons for.

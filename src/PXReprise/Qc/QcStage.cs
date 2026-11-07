@@ -86,6 +86,7 @@ public static class QcStage
                 var entry = report[Path.GetFileName(f)]!.AsObject();
                 entry["isobaric_kit"] = r.IsobaricKit;
                 entry["sps_ms3"] = sps;
+                if (r.IsobaricChannels is { } channels) entry["isobaric_channels"] = new JsonArray(channels.Select(c => (JsonNode?)c).ToArray());
             }
             // DATAREPO-72: a key only for a value the reader gave; a missing key means "not read".
             if (r.Run is { } run)

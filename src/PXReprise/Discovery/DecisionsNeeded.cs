@@ -44,6 +44,9 @@ public static class DecisionsNeeded
             "say what the deposit is (a curated SDRF naming its label or chemistry, or a profile that takes it); or exclude the deposit"),
         ["unsupported_fragmentation"] =new("Some files' MS2 fragmentation cannot be searched per file (an unsupported type, no header, or ion-trap and Orbitrap MS2 mixed).",
             "exclude those files ([exceptions]); or exclude the deposit until a profile supports them"),
+        // v0.4.41: PXD005035, 2026-11-07, 280 GB waiting on one raw file. An exception does not reopen this status (Settled), hence the retry.
+        ["skipped_acquisition_full"] = new("QC refused some of the raw files of a whole downloaded deposit, so nothing was searched. Its raw files are still on disk, waiting.",
+            "leave those files out ([exceptions] exclude_files), then batch retry at the next driver start; or exclude the deposit, and free its disk"),
         // v0.4.39 (the user, 2026-11-04): the disk-floor stop is the machine's call, not the question's, and it stops the whole
         // batch. Unannounced, it left the batch idle for about 13 hours (PXD005035, 2026-11-03/04) until someone asked.
         ["fetch_paused_disk"] = new("The deposit's download needs more free disk than the machine has above its floor (min_free_gb), so the batch starts no new deposit until space is freed. This is the machine operator's call, not the question's.",
