@@ -1428,8 +1428,7 @@ public sealed class BatchRunner
             var x = QcExclusion(report, profile.Qc);
             if (x is null || x.Count == 0)
             {
-                Log($"{acc} QC(full) failed: {Reasons(report)}");
-                Record(acc, ("status", "skipped_acquisition_full"), ("detail", Reasons(report)));
+                SkipOnFullQc(acc, report);
                 return;
             }
             excl = x;
@@ -2118,6 +2117,22 @@ public sealed class BatchRunner
         string p = Path.Combine(_stateDir, $"params_{acc}.json");
         File.WriteAllText(p, JsonSerializer.Serialize(new { accession = acc, profile = profile.Key, question = _q.Name, run_date = _runDate }, Envelope.Json));
         return p;
+    }
+
+    /// <summary>
+    /// QC refused a file of a whole downloaded deposit, so nothing is searched and its raw files wait on disk. v0.4.41: a person is told
+    /// (D34), in the reader's own words. It used to log one line: PXD005035's 142 files and 280 GB waited on one raw file flagged "still
+    /// being acquired", and no row said so.
+    /// </summary>
+    internal void SkipOnFullQc(string acc, JsonObject report)
+    {
+        Log($"{acc} QC(full) failed: {Reasons(report)}");
+        Record(acc, ("status", "skipped_acquisition_full"), ("detail", Reasons(report)));
+        string evidence = string.Join("; ", report.Where(kv => kv.Value!["pass"]!.GetValue<bool>() != true).Select(kv =>
+            $"{kv.Key}: {string.Join("/", kv.Value!["fail_reasons"]?.AsArray().Select(r => r!.GetValue<string>()) ?? [])}"
+            + (kv.Value!["error"]?.GetValue<string>() is { } error ? $" ({error})" : "")));
+        if (DecisionsNeeded.Announce(_runRoot, acc, "skipped_acquisition_full", evidence) is { } d)
+            Log($"{acc} DECISION NEEDED (skipped_acquisition_full): {d.Question} Listed in {DecisionsNeeded.FileName}.");
     }
 
     private static string Reasons(JsonObject report) => string.Join("; ", report.Where(kv => kv.Value!["pass"]!.GetValue<bool>() != true)

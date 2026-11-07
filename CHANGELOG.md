@@ -35,6 +35,9 @@ A new version of the engine never changes a finished result. Methods live in ver
   provenance lists them (`channels_without_sample`). The row stays because MetaMorpheus writes a column for every channel of the kit
   and dataRepo refuses a column no row labels. An SDRF, curated or deposited, is left as it is. Those three deposits change only if
   they are searched again.
+- **A whole deposit set aside by QC now tells someone.** QC refusing a file of a fully downloaded deposit used to log one line and move on.
+  It now writes a `decisions_needed.tsv` row with the file and the reader's own words. PXD005035's 142 files and 280 GB waited on one raw file
+  flagged "still being acquired", and no row said so.
 - **A profile with a probe search downloads every species' UniProt database before any raw file.** The probe reads them all, so a
   stall on another species used to happen inside it: its raw files were wasted and the deposit parked as `probe_search_failed`. It
   now waits for its next pass, as a stall on the deposit's own species always has. Profiles naming prepared files are unaffected.

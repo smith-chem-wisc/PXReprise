@@ -99,6 +99,30 @@ public class BatchRunnerTests
         return (new BatchRunner(question, Profiles, machine, files, search, "2026-09-28") { Sha1Source = NoSha1 }, search, files, dir);
     }
 
+    // D34: QC refusing a whole downloaded deposit used to log one line and set it aside, with no decisions row. PXD005035, 2026-11-07:
+    // 142 files and 280 GB waited on one raw file flagged "still being acquired", which matches PRIDE's checksum, and nobody was told.
+    [Test]
+    public void AFullQcRefusalIsAnnouncedWithWhatTheReaderSaid()
+    {
+        var (runner, _, _, dir, acc) = UniProtRunner("label-free-dda@2");
+        var report = new JsonObject
+        {
+            ["a.raw"] = new JsonObject { ["pass"] = true, ["fail_reasons"] = new JsonArray() },
+            ["b.raw"] = new JsonObject { ["pass"] = false, ["fail_reasons"] = new JsonArray("unreadable"), ["error"] = "RAW file still being acquired!" },
+            ["c.raw"] = new JsonObject { ["pass"] = false, ["fail_reasons"] = new JsonArray("too_few_ms2") },
+        };
+
+        runner.SkipOnFullQc(acc, report);
+        runner.SkipOnFullQc(acc, report);
+
+        Assert.That(runner.Settled(acc), Is.EqualTo("skipped_acquisition_full"));
+        var row = File.ReadAllLines(Path.Combine(dir, "runs", DecisionsNeeded.FileName)).Skip(1).Single().Split('\t');
+        Assert.That((row[1], row[2]), Is.EqualTo((acc, "skipped_acquisition_full")));
+        Assert.That(row[4], Is.EqualTo("b.raw: unreadable (RAW file still being acquired!); c.raw: too_few_ms2"), "which files, and in the reader's own words");
+        Assert.That(row[5], Does.Contain("exclude_files").And.Contain("batch retry"), "the way back: an exception alone does not reopen this one");
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain($"{acc} DECISION NEEDED (skipped_acquisition_full)"));
+    }
+
     // Issue #4: a probe search reads every species' database. Under `uniprot =` those must all be fetched in the step that retries,
     // before any raw file: a stall inside the probe wastes its files and parks the deposit as probe_search_failed.
     private static (BatchRunner Runner, FakeSearch Search, FakeFiles Files, string Dir, string Acc) UniProtRunner(string profile)
