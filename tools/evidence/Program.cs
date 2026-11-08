@@ -11,7 +11,9 @@
 //       (draft.independent.sdrf.tsv, model.independent.json, summary.independent.tsv, ...), so a reading paid for with the
 //       SDRF in view is never reused or overwritten; the downloads in each deposit folder are shared.
 //       --max-usd: start no new deposit once the estimated spend reaches N. --curator: DIR\<acc>.evidence.tsv holds what a
-//       curator confirmed (rows copied from review.tsv with confidence certain), applied like any certain claim.
+//       curator confirmed (rows copied from review.tsv with confidence certain), applied like any certain claim; the rules'
+//       and the model's claims about the same file and column are set aside (Deposit.CuratorFirst), so a disagreeing one
+//       cannot cancel the curator's.
 //       Per deposit, into DIR\<acc>\:
 //         project.json, files.json   the PRIDE record and file list;
 //         paper\                     the paper's JATS (Europe PMC, else a TDM author manuscript from the PMC Article
@@ -213,6 +215,51 @@ internal static class Deposit
     };
 
     internal const string FactsHeader = "column\tvalue\tsource\tmethod\tconfidence\tlocator";
+
+    /// <summary>
+    /// The rules' and the model's claims with those a curator spoke for set aside (D65: sample facts are the user's call).
+    /// The drafter applies none of two claims that disagree, and a claim about one file beats one about the whole deposit, so
+    /// a curator's word could be cancelled by a model's (PXD082596: "C57BL/6J" against "C57BL6/J"). A curator's claim about a
+    /// file covers that file's column; one about a set of files (a pattern), each file in it; one about the whole deposit,
+    /// every file. A claim about a set of files is split into its files, as the drafter does, so it is set aside only where
+    /// the curator spoke. A guess is never applied, so it is kept as it is (review.tsv lists the guesses for a curator).
+    /// </summary>
+    internal static List<SdrfEvidence> CuratorFirst(IReadOnlyList<SdrfEvidence> others, IReadOnlyList<SdrfEvidence> curated,
+        IReadOnlyList<string> rawNames, out int replaced)
+    {
+        static string Col(SdrfEvidence e) => e.Column.Trim().ToLowerInvariant();
+        static string Key(string file) => SdrfFileNamePattern.Stem(file).ToLowerInvariant();
+        IEnumerable<string> FilesOf(SdrfEvidence e) =>
+            e.DataFilePattern.Length > 0 ? rawNames.Where(n => SdrfEvidence.GlobMatches(e.DataFilePattern, n))
+            : e.DataFile.Length > 0 ? new[] { e.DataFile } : rawNames;
+        var wide = curated.Where(e => e.DataFile.Length == 0 && e.DataFilePattern.Length == 0).Select(Col).ToHashSet(StringComparer.Ordinal);
+        var spoken = curated.SelectMany(e => FilesOf(e).Select(f => (Key(f), Col(e)))).ToHashSet();
+        var columns = curated.Select(Col).ToHashSet(StringComparer.Ordinal);
+        replaced = 0;
+        var kept = new List<SdrfEvidence>();
+        foreach (var e in others)
+        {
+            if (e.Confidence == SdrfEvidenceConfidence.Guess || !columns.Contains(Col(e)))
+            {
+                kept.Add(e);
+                continue;
+            }
+            if (e.DataFile.Length == 0 && e.DataFilePattern.Length == 0)
+            {
+                // About the whole deposit: a curator's claim about some files already beats it there, so it goes only
+                // when the curator spoke for the whole deposit.
+                if (wide.Contains(Col(e))) replaced++;
+                else kept.Add(e);
+                continue;
+            }
+            var files = FilesOf(e).ToList();
+            var open = files.Where(f => !spoken.Contains((Key(f), Col(e)))).ToList();
+            replaced += files.Count - open.Count;
+            if (open.Count == files.Count) kept.Add(e);
+            else kept.AddRange(open.Select(f => e with { DataFile = f, DataFilePattern = "" }));
+        }
+        return kept;
+    }
 
     /// <summary>
     /// An output's name under a mode suffix (<c>.independent</c>, or none): <c>draft.sdrf.tsv</c> becomes
@@ -623,7 +670,9 @@ internal static class Deposit
         IReadOnlyList<SdrfEvidence> curated = Array.Empty<SdrfEvidence>();
         if (curatorDir is not null && File.Exists(Path.Combine(curatorDir, $"{acc}.evidence.tsv")))
             curated = SdrfEvidenceFile.Read(Path.Combine(curatorDir, $"{acc}.evidence.tsv"));
-        var all = rules.Concat(modelEvidence).Concat(curated).ToList();
+        var others = CuratorFirst(rules.Concat(modelEvidence).ToList(), curated, raw, out int setAside);
+        if (setAside > 0) notes.Add($"curator: {setAside} rule or model claims set aside where the curator spoke (a claim about a set of files counts once per file)");
+        var all = others.Concat(curated).ToList();
         var withEvidence = Draft(all, Name("draft.sdrf.tsv", sfx), out int err, out int warn);
 
         // 5b. The guesses, for a curator to confirm or not (the drafter never applies one): the evidence file's own format.

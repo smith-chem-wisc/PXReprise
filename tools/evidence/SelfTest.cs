@@ -196,6 +196,41 @@ internal static class SelfTest
             """));
         Check(contacts.Count == 2 && contacts[0].Contains("submitter") && contacts[0].Contains("ada@example.org") && contacts[1].Contains("lab PI") && contacts[1].Contains("Prof. C. Babbage"),
             "the depositors' contacts are read from PRIDE's record, submitter and lab PI");
+        // A curator's claim is the one the drafter sees for its file and column (D65: sample facts are the user's call). Before,
+        // the drafter met the model's disagreeing claim beside it and applied neither (PXD082596: the curator's "C57BL/6J"
+        // against the model's "C57BL6/J"), and a model claim about a file beat a curator's about the whole deposit.
+        {
+            string[] names = { "Tg1_L.raw", "Tg1_R.raw" };
+            static SdrfEvidence Model(string file, string column, string value, string pattern = "") =>
+                new(file, "", column, value, "paper", "model's quote", "model", SdrfEvidenceConfidence.Likely, pattern);
+            static SdrfEvidence Curator(string file, string column, string value) =>
+                new(file, "", column, value, "paper", "curator's reading", "curator", SdrfEvidenceConfidence.Certain);
+            var model = new List<SdrfEvidence>
+            {
+                Model("", "characteristics[strain]", "C57BL6/J", "*"),
+                Model("Tg1_L.raw", "characteristics[biological replicate]", "2"),
+                Model("", "characteristics[individual]", "mouse A", "Tg1_*"),
+                Model("Tg1_R.raw", "characteristics[sex]", "female"),
+            };
+            var curated = new List<SdrfEvidence>
+            {
+                Curator("", "characteristics[strain]", "C57BL/6J"),
+                Curator("Tg1_L.raw", "characteristics[biological replicate]", "3"),
+                Curator("Tg1_L.raw", "characteristics[individual]", "Tg1"),
+            };
+            var others = Deposit.CuratorFirst(model, curated, names, out int replaced);
+            var draft = SdrfDrafter.Draft(new SdrfDepositRecord(SdrfRepository.Pride) { Title = "t" }, names, others.Concat(curated));
+            var left = draft.Rows.Single(x => x.DataFile == "Tg1_L.raw");
+            var right = draft.Rows.Single(x => x.DataFile == "Tg1_R.raw");
+            string Cell(SdrfDraftRow row, string column) => row.Characteristics.TryGetValue(column, out var c) ? c.Value : "";
+            Check(Cell(left, "characteristics[strain]") == "C57BL/6J" && Cell(right, "characteristics[strain]") == "C57BL/6J",
+                $"a curator's deposit-wide claim beats the model's about each file ({Cell(left, "characteristics[strain]")})");
+            Check(left.BiologicalReplicate.Value == "3", $"a curator's claim about a file beats the model's disagreeing one ({left.BiologicalReplicate.Value})");
+            Check(Cell(left, "characteristics[individual]") == "Tg1" && Cell(right, "characteristics[individual]") == "mouse A",
+                "a model claim about a set of files is set aside only for the files the curator spoke for");
+            Check(Cell(right, "characteristics[sex]") == "female" && replaced == 4,
+                $"a model claim the curator did not speak to stays; four claims about a file were set aside ({replaced})");
+        }
         foreach (var x in r.Result.Rejected) Console.WriteLine($"     rejected: {x}");
         Console.WriteLine(failures == 0 ? "selftest passed" : $"selftest FAILED ({failures})");
         return failures == 0 ? 0 : 1;
