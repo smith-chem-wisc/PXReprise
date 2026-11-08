@@ -211,6 +211,21 @@ internal static class SdrfComparison
 
     private static string Get(Dictionary<string, string> row, string column) => row.GetValueOrDefault(column, "");
 
+    /// <summary>
+    /// Whether our cell came from curator evidence (pxr-evidence read --curator): the drafter's <c>comment[... source method]</c>
+    /// for the column says <c>curator</c>. Such a cell is the user's decision already (D65), so a difference there is not
+    /// put to the user again.
+    /// </summary>
+    internal static bool FromCurator(Dictionary<string, string> ours, string column)
+    {
+        var m = Regex.Match(column, @"^(characteristics|comment|factor value)\[(.+)\]$");
+        string name = column == "source name" ? "source name"
+            : !m.Success ? ""
+            : m.Groups[1].Value == "factor value" ? "factor value " + m.Groups[2].Value
+            : m.Groups[2].Value;
+        return name.Length > 0 && Get(ours, $"comment[{name} source method]").Equals("curator", StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>Every difference between our draft and one of their SDRFs, before the model is asked anything.</summary>
     internal static List<Difference> Compare(Grading.Table ours, Grading.Table theirs, string theirsName, IReadOnlyDictionary<string, string> measured,
         out int sharedRows, out int agreeCells)
@@ -229,7 +244,7 @@ internal static class SdrfComparison
         string? depositModel = models.Count == 1 ? models[0] : null;
 
         var diffs = new List<Difference>();
-        var cells = new List<(string Column, DiffKind Kind, string Ours, string Theirs, string Measured, string Where)>();
+        var cells = new List<(string Column, DiffKind Kind, string Ours, string Theirs, string Measured, string Where, bool Curator)>();
         var columns = theirs.Columns.Concat(ours.Columns).Distinct(StringComparer.Ordinal).Where(Compared).ToList();
         foreach (string col in columns)
         {
@@ -242,14 +257,20 @@ internal static class SdrfComparison
                 var kind = Grouping(o, t);
                 double ari = Grading.RandValue(o.Select(Norm).ToList(), t.Select(Norm).ToList());
                 string what = $"{o.Select(Norm).Distinct().Count()} groups in ours, {t.Select(Norm).Distinct().Count()} in theirs, adjusted Rand {ari.ToString("0.00", Inv)}";
+                // Ours grouped by the curator on every file: the user's decision. On some files only: still open, naming the rest.
+                var notCurated = pairs.Where(p => !FromCurator(p.O, col)).Select(Place).ToList();
                 string how = kind switch
                 {
                     DiffKind.Numbering => "the same groups of files under other numbers",
                     DiffKind.OursMissing => "only theirs numbers them (ours gives every file one number)",
                     DiffKind.TheirsMissing => "only ours numbers them (theirs gives every file one number)",
+                    DiffKind.Grouping when notCurated.Count == 0 => "the curator decided: ours",
+                    DiffKind.Grouping when notCurated.Count < pairs.Count =>
+                        $"unresolved: the files are grouped differently; the curator decided all but {notCurated.Count} file(s): {Files(notCurated)}",
                     _ => "unresolved: the files are grouped differently",
                 };
-                diffs.Add(new Difference(theirsName, col, kind, what, "", "", pairs.Select(Place).ToList(), kind != DiffKind.Grouping, how, "", ""));
+                bool decided = kind != DiffKind.Grouping || notCurated.Count == 0;
+                diffs.Add(new Difference(theirsName, col, kind, what, "", "", pairs.Select(Place).ToList(), decided, how, "", ""));
                 continue;
             }
             foreach (var p in pairs)
@@ -259,20 +280,21 @@ internal static class SdrfComparison
                 {
                     // An empty side is an omission, not a wrong value: only a stated instrument can be wrong.
                     bool oursWrong = Norm(a).Length > 0 && !SameInstrument(a, raw), theirsWrong = Norm(b).Length > 0 && !SameInstrument(b, raw);
-                    if (oursWrong || theirsWrong) { cells.Add((col, DiffKind.Measured, a, b, raw, Place(p))); continue; }
+                    if (oursWrong || theirsWrong) { cells.Add((col, DiffKind.Measured, a, b, raw, Place(p), false)); continue; }
                     if (Norm(a).Length > 0 && Norm(b).Length > 0) { agreeCells++; continue; }
                 }
                 var k = Classify(a, b);
                 if (k == DiffKind.Agree) { if (Norm(a).Length > 0) agreeCells++; continue; }
-                cells.Add((col, k, a, b, "", Place(p)));
+                cells.Add((col, k, a, b, "", Place(p), FromCurator(p.O, col)));
             }
         }
-        foreach (var g in cells.GroupBy(c => (c.Column, c.Kind, O: Norm(c.Ours), T: Norm(c.Theirs), M: c.Measured)))
+        foreach (var g in cells.GroupBy(c => (c.Column, c.Kind, O: Norm(c.Ours), T: Norm(c.Theirs), M: c.Measured, c.Curator)))
         {
             var first = g.First();
             var files = g.Select(c => c.Where).ToList();
             (bool resolved, string how, string value) = g.Key.Kind switch
             {
+                DiffKind.Conflict when g.Key.Curator => (true, "the curator decided: ours", first.Ours),
                 DiffKind.Measured => (true, (Norm(first.Ours).Length > 0 && !SameInstrument(first.Ours, first.Measured), Norm(first.Theirs).Length > 0 && !SameInstrument(first.Theirs, first.Measured)) switch
                 {
                     (false, true) => "the raw files decide: theirs is wrong",
@@ -429,7 +451,9 @@ internal static class SdrfComparison
             // The model, on the real conflicts only, with the text the independent reading was given (no SDRF in it).
             // One question per distinct conflict: a deposit with two SDRFs saying the same thing is asked once (PXD008934).
             var conflicts = diffs.Where(d => d.Kind == DiffKind.Conflict).ToList();
-            var asked = conflicts.GroupBy(d => (d.Column, O: Norm(d.Ours), T: Norm(d.Theirs), F: string.Join("\n", d.Files))).ToList();
+            int byCurator = diffs.Count(d => d.Resolution.StartsWith("the curator decided", StringComparison.Ordinal));
+            if (byCurator > 0) notes.Add($"{byCurator} difference(s) decided by the curator (read --curator)");
+            var asked = conflicts.Where(d => !d.Resolved).GroupBy(d => (d.Column, O: Norm(d.Ours), T: Norm(d.Theirs), F: string.Join("\n", d.Files))).ToList();
             var questions = asked.Select((g, i) => new Question(i, g.Key.Column, g.First().Ours, g.First().Theirs, g.First().Files)).ToList();
             var swapped = questions.Select(q => q.Id % 2 == 1).ToList();
             double cost = 0;
@@ -531,7 +555,9 @@ internal static class SdrfComparison
         }
         Section("Settled by the raw files", diffs.Where(d => d.Kind == DiffKind.Measured), d =>
             $"{d.Column}, {d.Files.Count} file(s): ours `{d.Ours}`, theirs `{d.Theirs}`, the raw files `{d.Measured}`: {d.Resolution}");
-        Section("Settled by the text", diffs.Where(d => d.Kind == DiffKind.Conflict && d.Resolved), d =>
+        Section("Decided by the curator (your decisions, from read --curator)", diffs.Where(d => d.Resolution.StartsWith("the curator decided", StringComparison.Ordinal)), d =>
+            d.Kind == DiffKind.Grouping ? $"{d.Column}: {d.Ours}" : $"{d.Column}, {d.Files.Count} file(s) ({Files(d.Files)}): ours `{d.Ours}`, theirs `{d.Theirs}`");
+        Section("Settled by the text", diffs.Where(d => d.Kind == DiffKind.Conflict && d.Resolved && d.Resolution.StartsWith("the text", StringComparison.Ordinal)), d =>
             $"{d.Column}, {d.Files.Count} file(s) ({Files(d.Files)}): ours `{d.Ours}`, theirs `{d.Theirs}`: {d.Resolution}, `{d.Value}`. {d.Evidence}");
         Section("Not disagreements: wording, a more specific value, numbering", diffs.Where(d => d.Kind is DiffKind.Wording or DiffKind.MoreSpecificOurs or DiffKind.MoreSpecificTheirs or DiffKind.Numbering), d =>
             d.Kind == DiffKind.Numbering ? $"{d.Column}: {d.Resolution} ({d.Ours})" : $"{d.Column}, {d.Files.Count} file(s): ours `{d.Ours}`, theirs `{d.Theirs}`: {d.Resolution}");

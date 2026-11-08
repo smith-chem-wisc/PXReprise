@@ -231,6 +231,34 @@ internal static class SelfTest
             Check(Cell(right, "characteristics[sex]") == "female" && replaced == 4,
                 $"a model claim the curator did not speak to stays; four claims about a file were set aside ({replaced})");
         }
+        // A difference where our cell came from the curator is the user's decision already: it is not put to the user again.
+        // A grouping is decided only when every file's cell came from the curator; otherwise it stays open and says which not.
+        {
+            static Grading.Table T(string[] header, params string[][] rows) =>
+                new(header.ToList(), rows.Select(r => header.Zip(r).ToDictionary(x => x.First, x => x.Second, StringComparer.Ordinal)).ToList());
+            string[] oh = { "comment[data file]", "source name", "comment[source name source method]", "characteristics[disease]",
+                "comment[disease source method]", "characteristics[sex]" };
+            var oursT = T(oh,
+                new[] { "a1.raw", "heart a", "curator", "dilated cardiomyopathy", "curator", "male" },
+                new[] { "a2.raw", "heart a", "curator", "dilated cardiomyopathy", "curator", "female" },
+                new[] { "b1.raw", "b1", "", "normal", "", "male" });
+            string[] th = { "comment[data file]", "source name", "characteristics[disease]", "characteristics[sex]" };
+            var theirsT = T(th,
+                new[] { "a1.raw", "s1", "cardiac hypertrophy", "male" },
+                new[] { "a2.raw", "s2", "cardiac hypertrophy", "male" },
+                new[] { "b1.raw", "s3", "heart failure", "male" });
+            var cmp = SdrfComparison.Compare(oursT, theirsT, "theirs.sdrf.tsv", new Dictionary<string, string>(), out _, out _);
+            var curatorDisease = cmp.SingleOrDefault(d => d.Column == "characteristics[disease]" && d.Ours == "dilated cardiomyopathy");
+            Check(curatorDisease is { Resolved: true } && curatorDisease.Resolution.Contains("curator"),
+                $"a conflict where ours came from the curator is decided, not asked ({curatorDisease?.Resolution})");
+            Check(cmp.Single(d => d.Column == "characteristics[disease]" && d.Ours == "normal") is { Resolved: false },
+                "a conflict where ours did not come from the curator is still open");
+            Check(cmp.Single(d => d.Column == "characteristics[sex]") is { Resolved: false },
+                "a column the curator did not speak to is untouched");
+            var names = cmp.Single(d => d.Column == "source name");
+            Check(names is { Resolved: false } && names.Resolution.Contains("b1.raw"),
+                $"a grouping the curator decided for only some files stays open and names the rest ({names.Resolution})");
+        }
         foreach (var x in r.Result.Rejected) Console.WriteLine($"     rejected: {x}");
         Console.WriteLine(failures == 0 ? "selftest passed" : $"selftest FAILED ({failures})");
         return failures == 0 ? 0 : 1;
