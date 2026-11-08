@@ -259,6 +259,26 @@ internal static class SelfTest
             Check(names is { Resolved: false } && names.Resolution.Contains("b1.raw"),
                 $"a grouping the curator decided for only some files stays open and names the rest ({names.Resolution})");
         }
+        // Europe PMC not answering must not make a rerun read a deposit without the paper an earlier run saved (2026-11-07:
+        // a redraft of PXD008934 and PXD061069 lost their papers to a passing outage).
+        {
+            string paperDir = Path.Combine(Path.GetTempPath(), "pxr-evidence-selftest-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(paperDir);
+            try
+            {
+                var saved = new UsefulProteomicsDatabases.EuropePmcArticle { PmcId = "PMC6195768", PubMedId = "29892068", HasFullText = true };
+                File.WriteAllText(Path.Combine(paperDir, "article.json"), Newtonsoft.Json.JsonConvert.SerializeObject(saved));
+                var notes = new List<string>();
+                var back = Deposit.PaperOrEarlierCopy(null, paperDir, refresh: false, notes);
+                Check(back is { PmcId: "PMC6195768", HasFullText: true } && notes.Any(n => n.Contains("earlier run")),
+                    $"with no answer from Europe PMC, the paper an earlier run saved is used, and the summary says so ({back?.PmcId})");
+                Check(Deposit.PaperOrEarlierCopy(null, paperDir, refresh: true, new List<string>()) is null, "--refresh does not fall back to a saved copy");
+                Check(Deposit.PaperOrEarlierCopy(null, Path.Combine(paperDir, "none"), refresh: false, new List<string>()) is null, "with nothing saved, there is no paper");
+                var found = new UsefulProteomicsDatabases.EuropePmcArticle { PmcId = "PMC1" };
+                Check(ReferenceEquals(Deposit.PaperOrEarlierCopy(found, paperDir, refresh: false, new List<string>()), found), "an answer from Europe PMC is used as it is");
+            }
+            finally { Directory.Delete(paperDir, recursive: true); }
+        }
         foreach (var x in r.Result.Rejected) Console.WriteLine($"     rejected: {x}");
         Console.WriteLine(failures == 0 ? "selftest passed" : $"selftest FAILED ({failures})");
         return failures == 0 ? 0 : 1;

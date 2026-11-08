@@ -224,6 +224,20 @@ internal static class Deposit
     /// every file. A claim about a set of files is split into its files, as the drafter does, so it is set aside only where
     /// the curator spoke. A guess is never applied, so it is kept as it is (review.tsv lists the guesses for a curator).
     /// </summary>
+    /// <summary>
+    /// The paper Europe PMC found, else the one an earlier run saved (paper\article.json), unless --refresh. A passing outage,
+    /// or a lookup that finds nothing this time, otherwise has a rerun read the deposit without a paper it had (2026-11-07:
+    /// PXD008934 and PXD061069 were redrafted without theirs). The full text it names is reused from disk by the download.
+    /// </summary>
+    internal static EuropePmcArticle? PaperOrEarlierCopy(EuropePmcArticle? found, string paperDir, bool refresh, List<string> notes)
+    {
+        string saved = Path.Combine(paperDir, "article.json");
+        if (found is not null || refresh || !File.Exists(saved)) return found;
+        var article = JsonConvert.DeserializeObject<EuropePmcArticle>(File.ReadAllText(saved));
+        if (article is not null) notes.Add("Europe PMC did not give the paper this time: an earlier run's copy is used");
+        return article;
+    }
+
     internal static List<SdrfEvidence> CuratorFirst(IReadOnlyList<SdrfEvidence> others, IReadOnlyList<SdrfEvidence> curated,
         IReadOnlyList<string> rawNames, out int replaced)
     {
@@ -309,6 +323,7 @@ internal static class Deposit
         EuropePmcArticle? article = null;
         string? paperXml = null;
         string paperSource = "";
+        bool pmcAnswered = false;
         try
         {
             foreach (var r in project.References ?? new List<PrideReference>())
@@ -317,7 +332,18 @@ internal static class Deposit
                 var (found, a) = await pmc.TryFindArticleAsync(r);
                 if (found) { article = a; break; }
             }
-            if (article is null) notes.Add(project.References is { Count: > 0 } ? "the cited paper is not in Europe PMC" : "the record cites no paper");
+            pmcAnswered = true;
+        }
+        catch (HttpRequestException e) { notes.Add($"Europe PMC unavailable ({e.Message})"); }
+        catch (MzLibException e) { notes.Add($"Europe PMC refused ({e.Message})"); }
+        article = PaperOrEarlierCopy(article, paperDir, refresh, notes);
+        try
+        {
+            if (article is null)
+            {
+                if (pmcAnswered) notes.Add(project.References is { Count: > 0 } ? "the cited paper is not in Europe PMC" : "the record cites no paper");
+                else notes.Add("read without the paper (Europe PMC did not answer, and no earlier copy)");
+            }
             else
             {
                 Directory.CreateDirectory(paperDir);
