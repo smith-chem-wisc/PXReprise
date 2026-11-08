@@ -40,10 +40,27 @@ public sealed record Question(
     PublishSettings? Publish = null,
     DesignSettings? Designs = null,
     DiscoverLists? Lists = null,
-    IReadOnlyDictionary<string, DepositException>? Exceptions = null)
+    IReadOnlyDictionary<string, DepositException>? Exceptions = null,
+    IReadOnlyDictionary<string, IReadOnlyList<string>>? Splits = null)
 {
-    /// <summary>The question's exception for one deposit, or null.</summary>
-    public DepositException? ExceptionFor(string accession) => Exceptions?.GetValueOrDefault(accession);
+    /// <summary>
+    /// The question's exception for one search key, or null: a deposit's <c>[exceptions]</c> entry, or for a split search
+    /// (<c>PXD027754-mouse</c>) its group's settings, which take the same keys.
+    /// </summary>
+    public DepositException? ExceptionFor(string key) => Exceptions?.GetValueOrDefault(key);
+
+    /// <summary>v0.4.43: the search keys a deposit is split into (<c>[splits.PXD...]</c>), or null when it is searched whole.</summary>
+    public IReadOnlyList<string>? SplitKeysOf(string accession) => Splits?.GetValueOrDefault(accession);
+
+    /// <summary>
+    /// What the question says about a key, for the batch's one-more-look rule (<c>BatchRunner.Settled</c>): the exception's
+    /// <see cref="DepositException.Describe"/>, or for a split search every group's, so a change to any group's file
+    /// selection reopens each of them (two groups that overlap are fixed by editing either).
+    /// </summary>
+    public string? ExceptionStamp(string key) =>
+        ExceptionFor(key) is not { } e ? null
+        : e.Split is { } s ? string.Join(" | ", s.Keys.Select(k => $"{SearchKey.Group(k)}: {ExceptionFor(k)?.Describe()}"))
+        : e.Describe();
 
     /// <summary>The <c>[discover]</c> keywords beyond <see cref="Keywords"/>; empty when the question names none.</summary>
     public DiscoverLists More => Lists ?? DiscoverLists.None;
@@ -68,7 +85,16 @@ public sealed record DiscoverLists(IReadOnlyList<string> Disease, IReadOnlyList<
 /// </summary>
 public sealed record DesignSettings(string Dir, IReadOnlyList<string> ConditionColumns)
 {
-    public string For(string accession) => Path.Combine(Dir, $"{accession}.sdrf.tsv");
+    /// <summary>
+    /// The design file for a search key. A split search (v0.4.43) takes its own (<c>PXD027754-mouse.sdrf.tsv</c>) when
+    /// there is one, else the deposit's: the design stage keeps only the rows of the files the search takes.
+    /// </summary>
+    public string For(string key)
+    {
+        string own = Path.Combine(Dir, $"{key}.sdrf.tsv");
+        string deposit = SearchKey.Accession(key);
+        return deposit == key || File.Exists(own) ? own : Path.Combine(Dir, $"{deposit}.sdrf.tsv");
+    }
 }
 
 /// <summary>
@@ -93,7 +119,8 @@ public sealed record DepositException(
     int? DeferIfMedianFileMb = null,
     string? Alkylation = null,
     string? Species = null,
-    IReadOnlyDictionary<string, FileReplacement>? ReplaceFiles = null)
+    IReadOnlyDictionary<string, FileReplacement>? ReplaceFiles = null,
+    SplitGroup? Split = null)
 {
     public const string NoAlkylation = "none";
 
@@ -137,6 +164,21 @@ public sealed record DepositException(
 /// bytes, and why (<paramref name="Note"/>).
 /// </summary>
 public sealed record FileReplacement(string Path, string PrideSha1, string Sha256, string Note);
+
+/// <summary>
+/// v0.4.43 (D33, design/PLAN_split-deposits.md): one group of a split deposit, <c>[splits.&lt;accession&gt;.&lt;group&gt;]</c>.
+/// <paramref name="By"/> is what the split separates (<see cref="Reasons"/>; written to the manifest as dataRepo's
+/// <c>split_reason</c>, their 093); <paramref name="Keys"/> are every group's search key, this one's included, in the
+/// question's order.
+/// </summary>
+public sealed record SplitGroup(string Accession, string Group, string By, string Reason, IReadOnlyList<string> Keys)
+{
+    public static readonly IReadOnlyList<string> Reasons = new[] { "species", "enrichment", "label", "chemistry" };
+
+    public string Key => SearchKey.Of(Accession, Group);
+
+    public IEnumerable<string> Siblings => Keys.Where(k => k != Key);
+}
 
 /// <summary>Where a question's batch keeps its run folders and its own state (queue, state.json, log, STOP).</summary>
 public sealed record BatchSettings(string RunRoot, string StateDir, string Queue);

@@ -19,6 +19,11 @@ A question's `[batch]` settings name two folders:
 A deposit searched again leaves its old folder beside the new one, as `PXD012345.superseded-<time>`. Delete it only when you
 no longer need it.
 
+A deposit the question splits (`[splits]`, since 0.4.43) has one folder per group, `PXD012345-mouse` and
+`PXD012345-human`, each a search of its own, with its own status in `state.json` and its own manifest entry. Until the
+machine file sets `deliver_split_deposits`, `batch.log` says `DELIVERY HELD` for each searched group, and nothing of it is
+in the manifest.
+
 Inside a deposit's folder (which ones exist depends on the profile):
 
 | Folder | Contents |
@@ -66,7 +71,8 @@ spend time on them again.
 | `waiting_species`, `waiting_mixed_species` | Under a probe search: a run's PSMs are mostly another species, or a mix. Listed in `decisions_needed.tsv`. | until the question answers |
 | `waiting_alkylation_check` | Under a probe search: a whole proteome expected to be carbamidomethylated shows under 2% cysteine-containing peptides, so its cysteines were blocked some other way, or not at all. Listed in `decisions_needed.tsv`. | until the question answers |
 | `waiting_no_identifications` | Under a probe search: no probe run reached 50 PSMs. Its peptides are not what the search looks for, such as a label the text did not make clear. Listed in `decisions_needed.tsv`. | until the question answers |
-| `waiting_other_organism` | PRIDE's project record names an organism outside the question's `organisms` beside the one the deposit is queued as, or names two species that are both in the question's `organisms` (human and mouse, say; two names of one species, such as `Mus musculus (mouse)` and `Mus musculus`, count once): runs of another species, a host and its pathogen, a xenograft, or a mislabel. Decided before any download, and listed in `decisions_needed.tsv`. The question's answer is an `[exceptions]` entry that selects the runs to search or names the `species`; the deposit then gets one more look by itself. | until the question answers |
+| `waiting_other_organism` | PRIDE's project record names an organism outside the question's `organisms` beside the one the deposit is queued as, or names two species that are both in the question's `organisms` (human and mouse, say; two names of one species, such as `Mus musculus (mouse)` and `Mus musculus`, count once): runs of another species, a host and its pathogen, a xenograft, or a mislabel. Decided before any download, and listed in `decisions_needed.tsv`. The question's answer is an `[exceptions]` entry that selects the runs to search or names the `species`, or (since 0.4.43) a `[splits]` table that searches each species' runs on their own; the deposit then gets one more look by itself. | until the question answers |
+| `waiting_split_overlap` | Since 0.4.43: the question splits the deposit (`[splits]`), and two of its groups take the same raw file. A file is searched in one group only. Decided before any download, and listed in `decisions_needed.tsv`. Once a group's `include_files` or `exclude_files` changes, each group gets one more look by itself. | until the question answers |
 | `deferred_mixed_labelling` | Some files' spectra carry isobaric reporter ions (TMT, iTRAQ) and some do not. Searching only part of the deposit is a design decision; the state entry's `isobaric_files` lists the labelled files. | yes |
 | `search_interrupted` | The search was cut off by the environment, not by its data: the machine's .NET runtimes changed under it (searched again on a later pass, twice at most; set `dotnet_root` to prevent it), or the batch itself stopped mid-search (a reboot, a crash). In the second case the next `batch run` moves the partial output aside and searches the deposit again, up to three times. | no |
 | `excluded_duplicate` | Every raw file (name and size) is in a deposit already searched, or in the one being searched at that moment; the state entry's `duplicate_of` names it. Decided from PRIDE's file list, before any download. A deposit the question's manifest excludes as this one's copy (`reason: duplicate_of: <this deposit>`) does not count. | yes |

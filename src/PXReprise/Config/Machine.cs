@@ -38,7 +38,8 @@ public sealed record Machine(
     double? ProbeSearchMinutes = null,
     WorkerConfig? Worker = null,
     WorkersConfig? Workers = null,
-    bool DeleteRawAfterCalibration = true)
+    bool DeleteRawAfterCalibration = true,
+    bool DeliverSplitDeposits = false)
 {
     public static Machine Load(string file)
     {
@@ -120,6 +121,9 @@ public sealed record Machine(
         }
         // v0.4.35 (the user, 2026-11-02): a raw file is deleted as soon as MetaMorpheus has calibrated it (CalibratedRaws).
         bool deleteCalibrated = root.OptionalBool("delete_raw_after_calibration") ?? true;
+        // v0.4.43 (dataRepo 093, PXR-R32): a split deposit's searches are searched, and their delivery waits until the store
+        // can serve them: until dataRepo's roll-up by accession, a served split gets a wrong PRIDE link and counts twice.
+        bool deliverSplits = root.OptionalBool("deliver_split_deposits") ?? false;
         root.RefuseUnknownKeys();
         if (worker is not null && workers is not null) throw new ConfigException(file, "[worker] and [workers] do not go together: a machine probes for a controller, or controls workers");
         if (worker is not null && datarepo is not null) throw new ConfigException(file, "a probe worker ([worker]) never ingests: remove 'datarepo'");
@@ -142,7 +146,7 @@ public sealed record Machine(
         if (passWait < 0) throw new ConfigException(file, "'pass_wait_minutes' must not be negative");
         if (searchTimeout <= 0) throw new ConfigException(file, "'search_timeout_h' must be positive");
         if (stall < 0) throw new ConfigException(file, "'search_stall_minutes' must not be negative (0 turns the stall check off)");
-        return new Machine(file, workRoot, dbDir, mm, settings, threads, dotnet, licence, libraries, minFree, datarepo, attempts, parallel, qcPython, passes, passWait, searchTimeout, stall, dotnetRoot, fetchStall, slots, catchUp, ascp, asperaKey, asperaAttempts, prideHttps, limits, probeMinutes, worker, workers, deleteCalibrated);
+        return new Machine(file, workRoot, dbDir, mm, settings, threads, dotnet, licence, libraries, minFree, datarepo, attempts, parallel, qcPython, passes, passWait, searchTimeout, stall, dotnetRoot, fetchStall, slots, catchUp, ascp, asperaKey, asperaAttempts, prideHttps, limits, probeMinutes, worker, workers, deleteCalibrated, deliverSplits);
     }
 
     public string CmdFor(string release) =>

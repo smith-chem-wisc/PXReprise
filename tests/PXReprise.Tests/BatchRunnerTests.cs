@@ -565,6 +565,7 @@ public class BatchRunnerTests
             "the PRIDE project record names Homo sapiens (human); Mus musculus (mouse): 2 of the question's species, and every run would be searched as human")));
         Assert.That(row[3], Does.Contain("a second of the question's own"));
         Assert.That(row[5], Does.Contain("[exceptions] species"));
+        Assert.That(row[5], Does.StartWith("split it into one search per species ([splits.<accession>] by = \"species\""), "v0.4.43: the split is the first choice");
 
         // Two names of one species are not two species: it goes ahead.
         await runner.ProbeAsync(new QueueEntry("PXD000602", "t", "mouse"), CancellationToken.None);
@@ -594,6 +595,201 @@ public class BatchRunnerTests
     [TestCase("Trypanosoma brucei", "trypanosoma brucei")]
     public void APrideOrganismNameStandsForItsSpecies(string name, string species) =>
         Assert.That(BatchRunner.Species(name), Is.EqualTo(species));
+
+    // ------------------------------------------------------------------ v0.4.43: split deposits (D33)
+    // The user, 2026-11-08: "These dual species repos should be split and that should be an option for the human".
+    // PXD076192 holds mouse and human muscle runs; the question splits it into one search per species.
+
+    private static string SplitQuestion(string body) =>
+        TestSupport.MinimalQuestion.Replace("organisms = [\"Homo sapiens (human)\"]", "organisms = [\"Homo sapiens (human)\", \"Mus musculus (mouse)\"]")
+        + "\n[batch]\nrun_root = \"runs\"\nstate_dir = \"state\"\nqueue = \"queue.json\"\n" + body;
+
+    private const string Pxd076192Split =
+        "[splits.PXD076192]\nreason = \"human and mouse muscle in one deposit (aging PXR-A177)\"\nby = \"species\"\n"
+        + "[splits.PXD076192.mouse]\nspecies = \"mouse\"\ninclude_files = \"_mouse_\"\n"
+        + "[splits.PXD076192.human]\nspecies = \"human\"\ninclude_files = \"_human_\"\n";
+
+    private static (BatchRunner Runner, FakeSearch Search, FakeFiles Files, string Dir) SplitRunner(string split, string extraMachine = "")
+    {
+        string dir = TestSupport.TempDir();
+        var machine = Machine.Load(TestSupport.WriteFile(dir, "machine.toml",
+            $"work_root = '{dir}'\nmin_free_gb = 0\n{extraMachine}[metamorpheus]\n\"1.1.11\" = 'C:/nowhere/CMD.exe'\n"));
+        var (search, files) = (new FakeSearch(), new FakeFiles());
+        files.Listing = new()
+        {
+            new PrideArchiveFile { FileName = "muscle_mouse_1.raw", FileSizeBytes = 500_000_000 },
+            new PrideArchiveFile { FileName = "muscle_mouse_2.raw", FileSizeBytes = 500_000_000 },
+            new PrideArchiveFile { FileName = "muscle_human_1.raw", FileSizeBytes = 500_000_000 },
+        };
+        search.Results["PXD076192"] = new() { TestSupport.Record("PXD076192", "Type 2 diabetes muscle") };
+        search.Projects["PXD076192"] = FakeSearch.Project("PXD076192", "Homo sapiens (human)", "Mus musculus (mouse)");
+        var q = QuestionLoader.Load(TestSupport.WriteFile(dir, "question.toml", SplitQuestion(split)));
+        return (new BatchRunner(q, Profiles, machine, files, search, "2026-11-08") { Sha1Source = NoSha1 }, search, files, dir);
+    }
+
+    [Test]
+    public void AQuestionSplitsADepositIntoOneSearchPerGroup()
+    {
+        string dir = TestSupport.TempDir();
+        var q = QuestionLoader.Load(TestSupport.WriteFile(dir, "q.toml", SplitQuestion(Pxd076192Split)));
+        Assert.That(q.SplitKeysOf("PXD076192"), Is.EqualTo(new[] { "PXD076192-mouse", "PXD076192-human" }), "in the question's order");
+        var mouse = q.ExceptionFor("PXD076192-mouse")!;
+        Assert.That((mouse.Species, mouse.Keeps("muscle_mouse_1.raw"), mouse.Keeps("muscle_human_1.raw"), mouse.Split!.By, mouse.Reason),
+            Is.EqualTo(("mouse", true, false, "species", "human and mouse muscle in one deposit (aging PXR-A177)")));
+        Assert.That(mouse.Split.Siblings, Is.EqualTo(new[] { "PXD076192-human" }));
+        Assert.That(q.ExceptionFor("PXD076192"), Is.Null, "the deposit itself has no exception");
+        Assert.That(q.ExceptionStamp("PXD076192-mouse"), Does.Contain("mouse: include_files /_mouse_/").And.Contain("human: include_files /_human_/"),
+            "a change to either group gives both one more look");
+        QuestionLoader.CheckAgainstProfiles(q, Profiles);
+
+        string Refused(string body) =>
+            Assert.Throws<ConfigException>(() => QuestionLoader.Load(TestSupport.WriteFile(dir, "bad.toml", SplitQuestion(body))))!.Message;
+        Assert.That(Refused(Pxd076192Split + "[exceptions.PXD076192]\nreason = \"r\"\nmax_files = 5\n"), Does.Contain("both [exceptions.PXD076192] and [splits.PXD076192]"));
+        Assert.That(Refused(Pxd076192Split.Replace("[splits.PXD076192.human]", "[splits.PXD076192.Human]")), Does.Contain("lower-case letters and digits"));
+        Assert.That(Refused(Pxd076192Split.Replace("include_files = \"_human_\"\n", "")), Does.Contain("splits.PXD076192.human selects no files"));
+        Assert.That(Refused(Pxd076192Split.Replace("species = \"human\"\n", "")), Does.Contain("names each group's species"));
+        Assert.That(Refused(Pxd076192Split.Replace("species = \"human\"", "species = \"mouse\"")), Does.Contain("two groups name the same species"));
+        Assert.That(Refused(Pxd076192Split.Replace("by = \"species\"", "by = \"organism\"")), Does.Contain("by must be one of species, enrichment, label, chemistry"));
+        Assert.That(Refused("[splits.PXD076192]\nreason = \"r\"\nby = \"species\"\n[splits.PXD076192.mouse]\nspecies = \"mouse\"\ninclude_files = \"_mouse_\"\n"),
+            Does.Contain("names 1 group"));
+        var zebrafish = QuestionLoader.Load(TestSupport.WriteFile(dir, "q3.toml", SplitQuestion(Pxd076192Split.Replace("species = \"human\"", "species = \"zebrafish\""))));
+        Assert.That(Assert.Throws<ConfigException>(() => QuestionLoader.CheckAgainstProfiles(zebrafish, Profiles))!.Message,
+            Does.Contain("splits.PXD076192.human.species 'zebrafish'"));
+
+        // A split search takes its own curated design when there is one, else the deposit's (the design stage keeps its rows).
+        var designs = new DesignSettings(dir, Array.Empty<string>());
+        Assert.That(Path.GetFileName(designs.For("PXD076192-mouse")), Is.EqualTo("PXD076192.sdrf.tsv"));
+        File.WriteAllText(Path.Combine(dir, "PXD076192-mouse.sdrf.tsv"), "");
+        Assert.That(Path.GetFileName(designs.For("PXD076192-mouse")), Is.EqualTo("PXD076192-mouse.sdrf.tsv"));
+        Assert.That(Path.GetFileName(designs.For("PXD076192")), Is.EqualTo("PXD076192.sdrf.tsv"));
+    }
+
+    [TestCase("PXD027754-rat", "PXD027754", "rat")]
+    [TestCase("PXD027754", "PXD027754", null)]
+    [TestCase("anti-aging", "anti-aging", null)]
+    [TestCase("PXD027754-Rat", "PXD027754-Rat", null)]
+    public void ASearchKeyNamesItsDepositAndGroup(string key, string accession, string? group) =>
+        Assert.That((SearchKey.Accession(key), SearchKey.Group(key)), Is.EqualTo((accession, group)));
+
+    [Test]
+    public async Task ASplitDepositIsSearchedAsItsGroupsAndPrideIsAskedForTheDeposit()
+    {
+        var (runner, _, files, dir) = SplitRunner(Pxd076192Split);
+
+        // The queue's one entry becomes the split's two searches, in its place, each as its group's species.
+        var queue = runner.Expand(new[] { new QueueEntry("PXD000700", "a", "human"), new QueueEntry("PXD076192", "t", "human"), new QueueEntry("PXD000701", "b", "human") })
+            .Select(runner.WithQuestionSpecies).ToList();
+        Assert.That(queue.Select(e => (e.Accession, e.Organism, e.QueuedOrganism)), Is.EqualTo(new (string, string, string?)[]
+        {
+            ("PXD000700", "human", null), ("PXD076192-mouse", "mouse", "human"), ("PXD076192-human", "human", null), ("PXD000701", "human", null),
+        }));
+
+        // The mouse search is not parked on the record's two species (its group says which runs and what they are). PRIDE is
+        // asked for the deposit, only the mouse runs are downloaded, and into the search's own folder.
+        await runner.ProbeAsync(queue[1], CancellationToken.None);
+        Assert.That(runner.Settled("PXD076192-mouse"), Is.Not.EqualTo("waiting_other_organism"));
+        Assert.That(files.Listed.Distinct(), Is.EqualTo(new[] { "PXD076192" }));
+        Assert.That(files.Tried, Is.Not.Empty);
+        Assert.That(files.Tried.All(n => n.Contains("_mouse_")), Is.True, string.Join(", ", files.Tried));
+        Assert.That(Directory.Exists(Path.Combine(dir, "runs", "PXD076192-mouse")), Is.True);
+        Assert.That(runner.State()["datasets"]!["PXD076192"], Is.Null, "the deposit's own key is not touched");
+    }
+
+    // PXD027526 was searched whole before the split: the catch-up must not search it whole again, and its files must not
+    // make its own groups look like copies of it.
+    [Test]
+    public void ADepositSearchedWholeBeforeItsSplitIsNeitherCaughtUpNorAnOriginalForItsGroups()
+    {
+        var (runner, _, _, dir) = SplitRunner(Pxd076192Split);
+        runner.Record("PXD076192", ("status", "searched"), ("profile", "label-free-dda@0"), ("organism", "human"), ("title", "t"));
+        Directory.CreateDirectory(Path.Combine(dir, "runs", "PXD076192", "04_search"));
+        File.WriteAllText(Path.Combine(dir, "runs", "PXD076192", "04_search", "provenance.json"), "{\"success\": true}");
+        var none = new HashSet<string>();
+        Assert.That(runner.CatchUpCandidate(Array.Empty<QueueEntry>(), none, none), Is.Null);
+        var unsplit = new BatchRunner(QuestionLoader.Load(TestSupport.WriteFile(dir, "question.toml", SplitQuestion(""))), Profiles,
+            Machine.Load(Path.Combine(dir, "machine.toml")), new FakeFiles(), new FakeSearch(), "2026-11-08");
+        Assert.That(unsplit.CatchUpCandidate(Array.Empty<QueueEntry>(), none, none)?.Accession, Is.EqualTo("PXD076192"), "without the split it is due");
+
+        var raws = new[] { ("muscle_mouse_1.raw", 5L), ("muscle_mouse_2.raw", 6L) };
+        var whole = new DuplicateScreen.Searched("PXD076192", raws.Append(("muscle_human_1.raw", 7L)).ToHashSet());
+        Assert.That(DuplicateScreen.Check("PXD076192-mouse", raws, new[] { whole }).DuplicateOf, Is.Null);
+        Assert.That(DuplicateScreen.Check("PXD076192-mouse", raws, new[] { whole, whole with { Accession = "PXD099999" } }).DuplicateOf,
+            Is.EqualTo("PXD099999"), "another deposit with the same files is still an original");
+    }
+
+    [Test]
+    public async Task TwoGroupsThatTakeOneRawFileWaitForAPersonAndAFixGivesThemOneMoreLook()
+    {
+        var (runner, search, files, dir) = SplitRunner(Pxd076192Split.Replace("include_files = \"_human_\"", "include_files = \"muscle_\""));
+        Assert.That(await runner.ProbeAsync(runner.WithQuestionSpecies(new QueueEntry("PXD076192-human", "t", "human")), CancellationToken.None), Is.Null);
+        Assert.That(runner.Settled("PXD076192-human"), Is.EqualTo(BatchRunner.SplitOverlapStatus));
+        Assert.That(files.Downloads, Is.Zero, "parked before any download");
+        var row = File.ReadAllLines(Path.Combine(dir, "runs", DecisionsNeeded.FileName)).Skip(1).Single().Split('\t');
+        Assert.That((row[1], row[2]), Is.EqualTo(("PXD076192-human", BatchRunner.SplitOverlapStatus)));
+        Assert.That(row[4], Does.Contain("2 raw file(s) of PXD076192 are in more than one group")
+            .And.Contain("muscle_mouse_1.raw (mouse, human)").And.Contain("muscle_mouse_2.raw (mouse, human)"));
+
+        var fixedQ = QuestionLoader.Load(TestSupport.WriteFile(dir, "question.toml", SplitQuestion(Pxd076192Split)));
+        var answered = new BatchRunner(fixedQ, Profiles, Machine.Load(Path.Combine(dir, "machine.toml")), files, search, "2026-11-08") { Sha1Source = NoSha1 };
+        Assert.That(answered.Settled("PXD076192-human"), Is.Empty, "the fixed groups earn one more look");
+        await answered.ProbeAsync(answered.WithQuestionSpecies(new QueueEntry("PXD076192-human", "t", "human")), CancellationToken.None);
+        Assert.That(answered.Settled("PXD076192-human"), Is.Not.EqualTo(BatchRunner.SplitOverlapStatus));
+        Assert.That(files.Tried.Distinct(), Is.EqualTo(new[] { "muscle_human_1.raw" }));
+    }
+
+    // dataRepo 093: a split key ingests on 1.4.3, but the store's roll-up by accession (PXR-R32) is not built, so a split
+    // search is held, searched, until the machine says the store serves splits. Then its entry carries split_reason, and the
+    // deposit's own entry is retired in the same write, as dataRepo asked: served side by side, nothing would complain.
+    [Test]
+    public async Task ASplitSearchIsDeliveredOnlyOnceTheStoreServesSplitsAndRetiresTheWholeDeposit()
+    {
+        string dir = TestSupport.TempDir();
+        string manifest = TestSupport.WriteFile(dir, "manifest.yaml", "manifest_version: 1\nwork_root: runs\ndatasets:\n\n"
+            + "  - accession: PXD076192\n    status: include\n    title: \"t\"\n    run: PXD076192\n    notes: >\n      searched whole as human\n");
+        string qfile = TestSupport.WriteFile(dir, "question.toml", SplitQuestion(Pxd076192Split) + "[publish]\nmanifest = \"manifest.yaml\"\n");
+        BatchRunner Make(string extra) => new(QuestionLoader.Load(qfile), Profiles, Machine.Load(TestSupport.WriteFile(dir, "machine.toml",
+            $"work_root = '{dir}'\nmin_free_gb = 0\n{extra}[metamorpheus]\n\"1.1.11\" = 'C:/nowhere/CMD.exe'\n")), new FakeFiles(), new FakeSearch(), "2026-11-08");
+        foreach (string g in new[] { "mouse", "human" })
+        {
+            string run = Path.Combine(dir, "runs", $"PXD076192-{g}");
+            Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
+            Directory.CreateDirectory(Path.Combine(run, "04_search"));
+            File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(($"muscle_{g}_1.raw", true, Array.Empty<string>())).ToJsonString());
+            File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), "{\"success\": true, \"tools\": {\"MetaMorpheus\": {\"release\": \"1.1.11\"}}}");
+        }
+        var profile = Profiles["label-free-dda@1"];
+
+        string before = File.ReadAllText(manifest);
+        var held = Make("");
+        var mouse = held.WithQuestionSpecies(new QueueEntry("PXD076192-mouse", "t", "human"));
+        await held.DeliverAsync(mouse, profile, CancellationToken.None);
+        Assert.That(File.ReadAllText(manifest), Is.EqualTo(before), "held: nothing is written");
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain("PXD076192-mouse DELIVERY HELD"));
+        Assert.That(BatchRunner.Delivered(ManifestEntry.ReadLf(manifest), "PXD076192-mouse", held.State()["datasets"]!["PXD076192-mouse"] as JsonObject),
+            Is.False, "so each driver start asks again");
+
+        var serving = Make("deliver_split_deposits = true\n");
+        await serving.DeliverAsync(mouse, profile, CancellationToken.None);
+        string text = ManifestEntry.ReadLf(manifest);
+        var (s, e) = ManifestEntry.Block(text, "PXD076192-mouse");
+        Assert.That(text[s..e], Does.Contain("    status: include\n    split_reason: species\n"));
+        Assert.That(text[s..e], Does.Contain("SPLIT (species): one of 2 searches of PXD076192").And.Contain("group 'mouse' only"));
+        Assert.That(text[s..e], Does.Contain($"organism: NCBITaxon:{profile.Databases["mouse"].Taxon}"));
+        var (bs, be) = ManifestEntry.Block(text, "PXD076192");
+        Assert.That(text[bs..be], Does.Contain("    status: superseded\n    reason: \"split into PXD076192-mouse and PXD076192-human\"\n"));
+        Assert.That(text[bs..be], Does.Contain("searched whole as human"), "the rest of the deposit's entry is kept");
+
+        // The second group finds the deposit retired already and leaves it so.
+        await serving.DeliverAsync(serving.WithQuestionSpecies(new QueueEntry("PXD076192-human", "t", "human")), profile, CancellationToken.None);
+        string after = ManifestEntry.ReadLf(manifest);
+        Assert.That(System.Text.RegularExpressions.Regex.Matches(after, "(?m)^[ \t]+status: superseded$").Count, Is.EqualTo(1));
+        Assert.That(System.Text.RegularExpressions.Regex.Matches(after, "(?m)^[ \t]+reason: ").Count, Is.EqualTo(1));
+        Assert.That(after, Does.Contain("  - accession: PXD076192-human\n    status: include\n    split_reason: species\n"));
+
+        // An excluded deposit is not the split's to change.
+        string excluded = "datasets:\n  - accession: PXD076192\n    status: exclude\n    reason: duplicate_of: PXD000001\n";
+        Assert.That(ManifestEntry.RetireSplitDeposit(excluded, QuestionLoader.Load(qfile).ExceptionFor("PXD076192-mouse")!.Split!), Is.EqualTo(excluded));
+    }
 
     // v0.4.15 (PXR-A99, aging 098): PXD015239's protocol has no reduction or alkylation step.
     [Test]
@@ -1992,13 +2188,16 @@ public class BatchRunnerTests
         public List<PrideArchiveFile> Listing { get; set; } = new();
         public Func<Exception> Failure { get; set; } = () => new InvalidOperationException("no downloads in this test");
         public int Downloads;
-        public Task<List<PrideArchiveFile>> ListFilesAsync(string a, CancellationToken ct) => Task.FromResult(Listing);
-        public Task<List<string>> ListFtpNamesAsync(string a, CancellationToken ct) => Task.FromResult(Listing.Select(f => f.FileName).ToList());
+        /// <summary>The accessions PRIDE's file list was asked for, and the files downloads were tried for.</summary>
+        public readonly System.Collections.Concurrent.ConcurrentBag<string> Listed = new(), Tried = new();
+        public Task<List<PrideArchiveFile>> ListFilesAsync(string a, CancellationToken ct) { Listed.Add(a); return Task.FromResult(Listing); }
+        public Task<List<string>> ListFtpNamesAsync(string a, CancellationToken ct) { Listed.Add(a); return Task.FromResult(Listing.Select(f => f.FileName).ToList()); }
         public Task<string> DownloadAsync(PrideArchiveFile f, string dir, CancellationToken ct)
         {
             // As the PRIDE client does: a file already present is returned, not fetched again.
             if (File.Exists(Path.Combine(dir, f.FileName))) return Task.FromResult(Path.Combine(dir, f.FileName));
             Interlocked.Increment(ref Downloads);
+            Tried.Add(f.FileName);
             throw Failure();
         }
     }

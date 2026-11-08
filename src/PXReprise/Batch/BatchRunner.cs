@@ -100,8 +100,9 @@ public sealed class BatchRunner
         _limits = m.Worker is null ? m.DepositLimits : null;
         _probeMinutes = m.Worker is null ? m.ProbeSearchMinutes : null;
         _limitsStamp = m.Worker is null && File.Exists(m.SourceFile) ? File.GetLastWriteTimeUtc(m.SourceFile) : default;
-        _files = files;
-        _search = search;
+        // v0.4.43: keyed by search key here, asked by accession at PRIDE (DepositLookups).
+        _files = new DepositFiles(files);
+        _search = new DepositSearch(search);
         _runDate = runDate;
         // A probe worker runs the controller's copy of the question, whose [batch] is the controller's: its own run root
         // and state directory come from its machine file (v0.4.26).
@@ -382,13 +383,15 @@ public sealed class BatchRunner
     /// <summary><see cref="Settled(string)"/> on a state entry already read.</summary>
     internal string Settled(string acc, JsonObject? entry0)
     {
-        if (_q.Holds.ContainsKey(acc)) return "on_hold_user";
+        // A hold on a deposit holds each of its split searches too (v0.4.43).
+        if (_q.Holds.ContainsKey(acc) || _q.Holds.ContainsKey(SearchKey.Accession(acc))) return "on_hold_user";
         string? s = entry0?["status"]?.GetValue<string>();
         // A deposit deferred by a cap, settled by size, or parked on a second organism (v0.4.19) gets ONE more look when the
         // question adds or changes an exception for it: the exception is recorded on that look, so a deposit that still does
-        // not fit settles again (D28).
-        if (s is not null && (s.StartsWith("deferred_", StringComparison.Ordinal) || s is "skipped_selection_empty" or "waiting_other_organism")
-            && _q.ExceptionFor(acc) is { } ex && entry0?["exception"]?.GetValue<string>() != ex.Describe())
+        // not fit settles again (D28). v0.4.43: a split search's whole split is compared (Question.ExceptionStamp), and a
+        // split whose groups overlap gets its look the same way.
+        if (s is not null && (s.StartsWith("deferred_", StringComparison.Ordinal) || s is "skipped_selection_empty" or "waiting_other_organism" or SplitOverlapStatus)
+            && _q.ExceptionStamp(acc) is { } stamp && entry0?["exception"]?.GetValue<string>() != stamp)
             return "";
         // v0.4.21: a deposit a size gate deferred gets ONE more look when the machine's [deposit_limits] change and now fit
         // what its deferral measured; the look records the limits, so a deposit that still does not fit settles again.
@@ -407,6 +410,34 @@ public sealed class BatchRunner
     /// </summary>
     internal QueueEntry WithQuestionSpecies(QueueEntry e) =>
         _q.ExceptionFor(e.Accession)?.Species is { } sp && sp != e.Organism ? e with { Organism = sp, QueuedOrganism = e.Organism } : e;
+
+    /// <summary>A split deposit's park for two groups that take the same raw file (v0.4.43).</summary>
+    internal const string SplitOverlapStatus = "waiting_split_overlap";
+
+    /// <summary>The raw files two or more groups of <paramref name="split"/> take, said for the decisions row, or null.</summary>
+    internal string? SplitOverlap(SplitGroup split, IEnumerable<UsefulProteomicsDatabases.PrideArchiveFile> all)
+    {
+        var twice = all.Where(f => f.FileName.EndsWith(".raw", StringComparison.OrdinalIgnoreCase))
+            .Select(f => (f.FileName, Groups: split.Keys.Where(k => _q.ExceptionFor(k)?.Keeps(f.FileName) == true).Select(k => SearchKey.Group(k)!).ToList()))
+            .Where(x => x.Groups.Count > 1).OrderBy(x => x.FileName, StringComparer.Ordinal).ToList();
+        if (twice.Count == 0) return null;
+        return $"{twice.Count} raw file(s) of {split.Accession} are in more than one group of its split, and a file is searched in one group only: "
+            + string.Join("; ", twice.Take(10).Select(x => $"{x.FileName} ({string.Join(", ", x.Groups)})")) + (twice.Count > 10 ? $"; and {twice.Count - 10} more" : "");
+    }
+
+    /// <summary>
+    /// v0.4.43 (D33): a deposit the question splits (<c>[splits.PXD...]</c>) is queued as its groups' searches, in its own
+    /// place and in the question's order, each keyed <c>&lt;accession&gt;-&lt;group&gt;</c>; <see cref="WithQuestionSpecies"/>
+    /// then gives each its group's species. The deposit's own key is no longer queued, so it is neither searched whole nor
+    /// caught up again; its earlier search stays on disk, and its manifest entry is retired when the first group is delivered.
+    /// </summary>
+    internal IReadOnlyList<QueueEntry> Expand(IReadOnlyList<QueueEntry> queue)
+    {
+        var seen = new HashSet<string>(queue.Select(e => e.Accession), StringComparer.Ordinal);
+        return queue.SelectMany(e => _q.SplitKeysOf(e.Accession) is { } keys
+            ? keys.Where(k => !seen.Contains(k)).Select(k => new QueueEntry(k, e.Title, e.Organism))
+            : new[] { e }).ToList();
+    }
 
     /// <summary>
     /// The species a PRIDE organism name stands for: its first two words, without the common name, in lower case.
@@ -434,7 +465,7 @@ public sealed class BatchRunner
             finally { try { File.Delete(PidFile); } catch (IOException) { } }
             return;
         }
-        queue = queue.Select(WithQuestionSpecies).ToList();
+        queue = Expand(queue).Select(WithQuestionSpecies).ToList();
         ClaimOrDie();
         Log($"batch start: pid {Environment.ProcessId}, {queue.Count} queued, free {FreeGb():0} GB");
         Log($"  engine   pxreprise {Provenance.RunRecord.Versions()["pxreprise"]}");
@@ -845,7 +876,7 @@ public sealed class BatchRunner
         var picks = new List<(QueueEntry E, string When)>();
         foreach (var (acc, node) in State()["datasets"]!.AsObject())
         {
-            if (consumed.Contains(acc) || node is not JsonObject o || o["status"]?.GetValue<string>() != "requeued_user") continue;
+            if (consumed.Contains(acc) || node is not JsonObject o || o["status"]?.GetValue<string>() != "requeued_user" || _q.SplitKeysOf(acc) is not null) continue;
             if (File.Exists(Path.Combine(Run(acc), "04_search", "provenance.json"))) continue;
             var qe = queue.FirstOrDefault(x => x.Accession == acc)
                      ?? (o["organism"]?.GetValue<string>() is { } org ? WithQuestionSpecies(new QueueEntry(acc, o["title"]?.GetValue<string>() ?? "", org)) : null);
@@ -870,7 +901,7 @@ public sealed class BatchRunner
         var passes = new List<(QueueEntry E, int At, string When)>();
         foreach (var (acc, node) in State()["datasets"]!.AsObject())
         {
-            if (consumed.Contains(acc) || node is not JsonObject o || o["status"]?.GetValue<string>() != ProbedByWorkerStatus) continue;
+            if (consumed.Contains(acc) || node is not JsonObject o || o["status"]?.GetValue<string>() != ProbedByWorkerStatus || _q.SplitKeysOf(acc) is not null) continue;
             if (File.Exists(Path.Combine(Run(acc), "04_search", "provenance.json")) || Settled(acc, o).Length > 0) continue;
             var qe = order.TryGetValue(acc, out int at) ? queue[at]
                 : o["organism"]?.GetValue<string>() is { } org ? WithQuestionSpecies(new QueueEntry(acc, o["title"]?.GetValue<string>() ?? "", org)) : null;
@@ -892,7 +923,8 @@ public sealed class BatchRunner
         var picks = new List<(QueueEntry E, int Rank, string When)>();
         foreach (var (acc, node) in State()["datasets"]!.AsObject())
         {
-            if (consumed.Contains(acc) || node is not JsonObject o || o["status"]?.GetValue<string>() != "searched") continue;
+            // v0.4.43: a deposit the question now splits is searched as its groups (Expand), never caught up whole.
+            if (consumed.Contains(acc) || node is not JsonObject o || o["status"]?.GetValue<string>() != "searched" || _q.SplitKeysOf(acc) is not null) continue;
             string? had = o["profile"]?.GetValue<string>();
             if (had is not null && _q.Profiles.Contains(had)) continue;
             if (!File.Exists(Path.Combine(Run(acc), "04_search", "provenance.json"))) continue;
@@ -940,13 +972,13 @@ public sealed class BatchRunner
         try
         {
             var hits = await _search.SearchAsync(acc, ct).ConfigureAwait(false);
-            rec = hits.FirstOrDefault(h => h.Accession == acc) is { } h ? new PrideProjectSearchResultLike(h) : null;
+            rec = hits.FirstOrDefault(h => h.Accession == SearchKey.Accession(acc)) is { } h ? new PrideProjectSearchResultLike(h) : null;
         }
         catch (Exception ex) when (Envelope.IsUnavailable(ex)) { Log($"{acc} screen: PRIDE unavailable ({ex.Message}); retry next pass"); return null; }
         if (rec is null) { Log($"{acc} screen: PRIDE returned no record; retry next pass"); return null; }
 
         var acq = AcquisitionClassifier.Classify(rec.Record);
-        var route = Router.Assign(acc, acq, new RelevanceResult(RelevanceVerdict.DecidedInclude, "queued"), _q, _profiles);
+        var route = Router.Assign(SearchKey.Accession(acc), acq, new RelevanceResult(RelevanceVerdict.DecidedInclude, "queued"), _q, _profiles);
         // D30/D32: what experiment this is, fact by fact with sources, written at every exit of this stage.
         var xr = new ExperimentRecord(acc);
         xr.Species(e.Organism, e.QueuedOrganism is { } queued
@@ -1015,7 +1047,7 @@ public sealed class BatchRunner
             {
                 Log($"{acc} SCREENED OUT (waiting_other_organism): {why}");
                 // The exception as it stands (caps only, or none) is recorded, so a new one gives the deposit one more look (Settled).
-                Record(acc, ("status", "waiting_other_organism"), ("detail", why), ("exception", _q.ExceptionFor(acc)?.Describe()));
+                Record(acc, ("status", "waiting_other_organism"), ("detail", why), ("exception", _q.ExceptionStamp(acc)));
                 Experiment(acc, xr, "waiting_other_organism", why);
                 return null;
             }
@@ -1048,7 +1080,16 @@ public sealed class BatchRunner
             int before = listing.Count;
             if (exception.SelectsFiles) listing = listing.Where(f => exception.Keeps(f.FileName)).ToList();
             Log($"{acc} EXCEPTION (question): {exception.Describe()}" + (exception.SelectsFiles ? $"; {listing.Count} of {before} raw files selected" : ""));
-            Record(acc, ("exception", exception.Describe()));
+            Record(acc, ("exception", _q.ExceptionStamp(acc)));
+            // v0.4.43 (plan rule 1): a split's groups are files, so a raw file is in one group only. Checked here, against
+            // PRIDE's own list, because the question file alone does not know the deposit's file names.
+            if (exception.Split is { } split && SplitOverlap(split, all) is { } overlap)
+            {
+                Log($"{acc} SCREENED OUT ({SplitOverlapStatus}): {overlap}");
+                Record(acc, ("status", SplitOverlapStatus), ("detail", overlap));
+                Experiment(acc, xr, SplitOverlapStatus, overlap);
+                return null;
+            }
             if (listing.Count == 0)
             {
                 Log($"{acc} SKIPPED: the question's file selection keeps no raw file");
@@ -1218,7 +1259,8 @@ public sealed class BatchRunner
     private bool ExcludedAsDuplicate(string acc, IReadOnlyList<UsefulProteomicsDatabases.PrideArchiveFile> listing, ExperimentRecord? xr)
     {
         var searching = Searching;
-        var copies = _q.Publish?.Manifest is { } mfp && File.Exists(mfp) ? ManifestEntry.ExcludedCopiesOf(ManifestEntry.ReadLf(mfp), acc) : null;
+        // A copy of a split deposit is a copy of each of its groups (v0.4.43): the manifest names the deposit, not the group.
+        var copies = _q.Publish?.Manifest is { } mfp && File.Exists(mfp) ? ManifestEntry.ExcludedCopiesOf(ManifestEntry.ReadLf(mfp), SearchKey.Accession(acc)) : null;
         foreach (string copy in copies ?? new HashSet<string>())
             Log($"{acc} duplicate screen: {copy} is excluded in the manifest as this deposit's copy, so it is not compared");
         var dup = DuplicateScreen.Check(acc, listing.Select(f => (f.FileName, f.FileSizeBytes)).ToList(),
@@ -1620,7 +1662,7 @@ public sealed class BatchRunner
 
     /// <summary>One delivery at a time: two searches may finish together, and the manifest, the store and the publish
     /// script are shared.</summary>
-    private async Task DeliverAsync(QueueEntry e, Profile profile, CancellationToken ct)
+    internal async Task DeliverAsync(QueueEntry e, Profile profile, CancellationToken ct)
     {
         await _delivering.WaitAsync(ct).ConfigureAwait(false);
         try { await DeliverOneAsync(e, profile, ct).ConfigureAwait(false); }
@@ -1630,11 +1672,21 @@ public sealed class BatchRunner
     private async Task DeliverOneAsync(QueueEntry e, Profile profile, CancellationToken ct)
     {
         if (_q.Publish?.Manifest is not { } manifest) return;
+        // v0.4.43 (dataRepo 093): a split search waits, searched, until the store can serve a split (their roll-up by
+        // accession, PXR-R32): served before it, its site page links PRIDE to "PXD027754-rat" and every count reads it as
+        // two deposits. Nothing is written to the manifest, so each driver start finds it undelivered and asks again here.
+        if (SearchKey.IsSplit(e.Accession) && !_m.DeliverSplitDeposits)
+        {
+            Log($"{e.Accession} DELIVERY HELD: a split deposit's search is delivered once the store serves splits (dataRepo PXR-R32); the machine file's deliver_split_deposits is off");
+            Record(e.Accession, ("delivery", "held: a split search, waiting for deliver_split_deposits (dataRepo PXR-R32)"));
+            return;
+        }
         try
         {
             ManifestEntry.EnsureExists(manifest, _q.Name, _runRoot);
-            ManifestEntry.Append(manifest, e, profile, Run(e.Accession), Entry(e.Accession), _m.WorkRoot);
-            Log($"{e.Accession} MANIFEST entry appended");
+            var split = _q.ExceptionFor(e.Accession)?.Split;
+            ManifestEntry.Append(manifest, e, profile, Run(e.Accession), Entry(e.Accession), _m.WorkRoot, split);
+            Log($"{e.Accession} MANIFEST entry appended" + (split is null ? "" : $" (split by {split.By}; {split.Accession}'s own entry, if served, retired as superseded)"));
             var qcNames = JsonNode.Parse(File.ReadAllText(Path.Combine(Run(e.Accession), "02b_qc", "qc_report.json")))!.AsObject().Select(kv => kv.Key);
             if (MixedSamples.Detect(qcNames) is { } mixed)
                 Log($"{e.Accession} POSSIBLY MIXED SAMPLES (flagged in the manifest; curate run_enrichment): {MixedSamples.Describe(mixed)}");

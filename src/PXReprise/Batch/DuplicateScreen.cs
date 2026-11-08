@@ -65,7 +65,10 @@ public static class DuplicateScreen
     {
         if (raws.Count == 0) return new(null, Array.Empty<(string, int)>());
         var partial = new List<(string, int)>();
-        foreach (var s in index.Where(s => s.Accession != accession && excludedCopies?.Contains(s.Accession) != true)
+        // v0.4.43: a deposit is no original for itself, under any key: a split search's files are all in the deposit's own
+        // earlier whole search (PXD027526, searched whole before its split), and its sibling groups share none by rule.
+        string deposit = Config.SearchKey.Accession(accession);
+        foreach (var s in index.Where(s => Config.SearchKey.Accession(s.Accession) != deposit && excludedCopies?.Contains(s.Accession) != true)
                      .OrderBy(s => s.Accession, StringComparer.Ordinal))
         {
             int shared = raws.Count(s.Raws.Contains);

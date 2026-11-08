@@ -9,8 +9,27 @@ A new version of the engine never changes a finished result. Methods live in ver
 
 ## 0.4.43 (unreleased)
 
-**MetaMorpheus** unchanged. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual.
+**MetaMorpheus** unchanged. **Machine file:** no change needed. A new optional key, `deliver_split_deposits` (default
+false), lets split searches be delivered. **Safe mid-batch?** Yes: swap the pin as usual. Nothing changes for a question with no
+`[splits]`.
 
+- **A deposit can be split: one search per species (or per enrichment, label or chemistry), each delivered on its own.** This is
+  D33 (design/PLAN_split-deposits.md). The user asked for it on 2026-11-08: "These dual species repos should be split and that
+  should be an option for the human".
+  - The question names the groups in `[splits.PXD012345]` (`reason`, `by`), with one sub-table per group that takes the keys of
+    `[exceptions]`. Each group says which raw files are its own, and under `by = "species"` which species it is.
+  - Each group is its own search, keyed `<accession>-<group>` (`PXD076192-mouse`), with its own folder, state entry, probe,
+    provenance and manifest entry, which carries `split_reason`. PRIDE is still asked about the deposit itself: its record, file
+    list and checksums, and the ProteomeXchange accession MetaMorpheus writes.
+  - Once split, a deposit is no longer queued, retried or caught up whole. Its earlier whole search stays on disk and does not make
+    its own groups look like copies of it. Its manifest entry is retired (`status: superseded`, `reason: split into ...`) in the
+    same write that adds the first group, as dataRepo asked (093).
+  - A raw file belongs to one group only. This is checked against PRIDE's file list before any download. Two groups that take one
+    file park as `waiting_split_overlap`, with a decisions row.
+  - **Delivery waits for the store:** dataRepo's catalog does not yet roll a split up by accession (PXR-R32), so a served split
+    would get a wrong PRIDE link and count as two deposits. Until the machine file sets `deliver_split_deposits = true`, split
+    searches are searched and held (`DELIVERY HELD` in batch.log). The next batch start after it is set delivers them.
+  - The decisions row for `waiting_other_organism` now offers the split first.
 - **A deposit whose PRIDE record names two of the question's own species now waits for a person.** Until now, only an organism
   outside the question held a deposit back (v0.4.19). A record naming human and mouse, both in the question, was searched whole as
   the one the census queued first. PXD076192 has 4 mouse and 2 human raw files and was queued as human, so its mouse runs would
