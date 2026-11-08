@@ -54,6 +54,7 @@ public class LibraryCleaningTests
     [TestCase("label-free-dda-13", true)]
     [TestCase("label-free-dda-12", true)]
     [TestCase("label-free-dda-11", false)]
+    [TestCase("label-free-dda-lowres-8", true)]
     [TestCase("label-free-dda-lowres-7", true)]
     [TestCase("label-free-dda-lowres-6", true)]
     [TestCase("tmt-dda-2", true)]

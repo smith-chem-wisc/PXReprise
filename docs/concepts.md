@@ -38,7 +38,7 @@ is a new version, so every result says exactly which method made it.
   at different times can hold different proteins under one profile. Each search records the file's date and SHA-256, so compare
   those before pooling results.
 - **Where the ageing project's databases exist:** the newest of each kind, which is what that project runs today:
-  `label-free-dda@14` and `label-free-dda-lowres@7` on MetaMorpheus 1.1.13, and `tmt-dda@4` on 1.1.14. Every other profile names that
+  `label-free-dda@14` and `label-free-dda-lowres@8` on MetaMorpheus 1.1.13, and `tmt-dda@4` on 1.1.14. Every other profile names that
   project's PTM-annotated databases in the machine's `database_dir`. They are not published, so without them these profiles
   cannot search.
 - **Older versions stay shipped** so that a question can keep naming them and the deposits searched under them are not
@@ -70,7 +70,8 @@ is a new version, so every result says exactly which method made it.
 | `label-free-dda-lowres@4` | available | `lowres@3`, with MS2 fragmented by HCD and read in the ion trap searched as MetaMorpheus's LowCID, its low-resolution path, in the probe and the search. **Not recommended: use `lowres@5`.** Its evidence was measured under the probe's settings, where one test file gave 107 PSMs as HCD and 2,442 as LowCID. In the full search LowCID lost PSMs on every deposit searched both ways (1% to 16%) |
 | `label-free-dda-lowres@5` | available | `lowres@3`, with MS2 fragmented by HCD and read in the ion trap taken as LowCID in the probe search only. Under the probe's settings such a deposit can identify nothing as HCD and park; the full search keeps `lowres@3`'s HCD at the low-resolution tolerance. In full searches HCD found more than LowCID in three deposits, and about as much in the deposit the probe change was made for |
 | `label-free-dda-lowres@6` | available | `lowres@5` on MetaMorpheus 1.1.13, with cleavage-blocking modifications respected. Its databases stay agingPTM-v3: v4's added sites cost an ion-trap run 4% of its PSMs, and the later releases have not been measured on ion-trap data |
-| `label-free-dda-lowres@7` | available (0.4.40) | `lowres@6` without the individual-file tables, as `@14`. **The ageing project's current ion-trap method** |
+| `label-free-dda-lowres@7` | available (0.4.40) | `lowres@6` without the individual-file tables, as `@14` |
+| `label-free-dda-lowres@8` | available (0.4.42) | `lowres@7`, plus the modification file and NBF-Cl mapping `@14` ships (below). A deposit whose cysteines carry NBF and whose MS2 is read in the ion trap could not be searched under `lowres@7`: its probe search failed. Any other deposit is searched exactly as under `lowres@7`. **The ageing project's current ion-trap method** |
 | `tmt-dda@1` | pending | TMT-labelled DDA. Not runnable: a question that lists it gets a count of the TMT deposits it would unlock. Use `tmt-dda@2` |
 | `tmt-dda@2` | available (0.4.35) | Isobaric-labelled DDA (TMT, iTRAQ) on MetaMorpheus 1.1.13: the kit read from each file's spectra, MS2 or SPS-MS3 reporters, Calibration then Search (no GPTMD), reporter-ion quantification on a channel design from the SDRF (else one plex per file, flagged `no_channel_design`), a spectral library per kit. Its deliveries need datarepo 1.4.1 or newer |
 | `tmt-dda@3` | available (0.4.40) | `tmt-dda@2` on the agingPTM-v7 databases, with a deposit's enriched PTM classes searched as variable modifications. Phospho (S, T, Y), acetyl-K, succinyl-K and GG-K are variable in every task when the deposit enriches them, with up to 3 modifications a peptide. Under `tmt-dda@2` an enriched deposit waits (`waiting_isobaric_enriched`), because its sites would be searched only where the database annotates one |
@@ -91,7 +92,7 @@ which protease made the deposit's peptides, how its cysteines were alkylated, an
 - **When it waits instead:** if the deposit cannot be searched as read (two proteases with no way to tell the files
   apart, a protease or modification MetaMorpheus does not know, a label). A thiol reagent with no UniMod entry, such as
   NBF-Cl, waits too, unless the profile models it.
-- **A profile can model such a reagent** (`label-free-dda@6`). It ships a MetaMorpheus modification file
+- **A profile can model such a reagent** (`label-free-dda@6`; for MS2 read in the ion trap, `label-free-dda-lowres@8`). It ships a MetaMorpheus modification file
   (`[engine] custom_modifications`, under `profiles/lists/`) and maps the reagent to one of its modifications
   (`[thiol_reagents]`). The deposit is then searched with that modification, variable. Before such a search,
   PXReprise copies the file into the MetaMorpheus settings folder the search uses.
