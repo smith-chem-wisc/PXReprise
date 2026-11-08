@@ -7,6 +7,21 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.43 (unreleased)
+
+**MetaMorpheus** unchanged. **Machine file:** no change. **Safe mid-batch?** Yes: swap the pin as usual.
+
+- **A deposit whose PRIDE record names two of the question's own species now waits for a person.** Until now, only an organism
+  outside the question held a deposit back (v0.4.19). A record naming human and mouse, both in the question, was searched whole as
+  the one the census queued first. PXD076192 has 4 mouse and 2 human raw files and was queued as human, so its mouse runs would
+  have been searched against the human database. A TMT profile runs no probe search, so nothing later would have noticed. Such a
+  deposit now parks as `waiting_other_organism` before any download, with a row in `decisions_needed.tsv`. The answers are the
+  ones that status already takes: an `[exceptions]` entry that selects the runs to search, or one that names the `species`. Two
+  names of one species (`Mus musculus (mouse)` and `Mus musculus`) count once.
+  - In aging's batch, this holds back two delivered deposits at their next catch-up re-search: PXD027526 and PXD035412 (human and
+    mouse, no exception). Their served results stay served. Four deposits deferred for size (PXD006921, PXD009792, PXD022723,
+    PXD031456) would park if they are looked at again. Four more already carry an exception that answers it and go on as before.
+
 ## 0.4.42 (2026-11-08)
 
 **MetaMorpheus** unchanged (`lowres@8` runs 1.1.13, as `lowres@7`). **Machine file:** no change. **Safe mid-batch?** Yes: swap the

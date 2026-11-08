@@ -531,6 +531,70 @@ public class BatchRunnerTests
         Assert.That(files.Downloads, Is.GreaterThan(before));
     }
 
+    // v0.4.43 (aging 222/223, PXR-A177): PXD076192's record names human and mouse, both the question's own, and the census
+    // queued it as human, so its 4 mouse raws would have been searched against the human database. Two of the question's
+    // species wait for a person as well, with the same answers. Two names of one species ("Mus musculus (mouse)" and
+    // "Mus musculus", both in aging's list) are one species.
+    [Test]
+    public async Task ARecordNamingTwoOfTheQuestionsOwnSpeciesWaitsForAPerson()
+    {
+        string Q(string body) => TestSupport.MinimalQuestion.Replace("organisms = [\"Homo sapiens (human)\"]",
+                "organisms = [\"Homo sapiens (human)\", \"Mus musculus (mouse)\", \"Mus musculus\"]")
+            + "\n[batch]\nrun_root = \"runs\"\nstate_dir = \"state\"\nqueue = \"queue.json\"\n" + body;
+        string dir = TestSupport.TempDir();
+        var machine = Machine.Load(TestSupport.WriteFile(dir, "machine.toml",
+            $"work_root = '{dir}'\nmin_free_gb = 0\n[metamorpheus]\n\"1.1.11\" = 'C:/nowhere/CMD.exe'\n"));
+        var (search, files) = (new FakeSearch(), new FakeFiles());
+        files.Listing = new() { new PrideArchiveFile { FileName = "muscle_mouse_1.raw", FileSizeBytes = 500_000_000 } };
+        void Deposit(string acc, params string[] named)
+        {
+            search.Results[acc] = new() { TestSupport.Record(acc, "Type 2 diabetes muscle") };
+            search.Projects[acc] = FakeSearch.Project(acc, named);
+        }
+        Deposit("PXD076192", "Homo sapiens (human)", "Mus musculus (mouse)");
+        Deposit("PXD000601", "Homo sapiens (human)", "Mus musculus (mouse)");
+        Deposit("PXD000602", "Mus musculus (mouse)", "Mus musculus");
+        var runner = new BatchRunner(QuestionLoader.Load(TestSupport.WriteFile(dir, "question.toml", Q(""))),
+            Profiles, machine, files, search, "2026-11-08") { Sha1Source = NoSha1 };
+
+        Assert.That(await runner.ProbeAsync(new QueueEntry("PXD076192", "t", "human"), CancellationToken.None), Is.Null);
+        Assert.That(runner.Settled("PXD076192"), Is.EqualTo("waiting_other_organism"));
+        Assert.That(files.Downloads, Is.Zero, "parked before any download");
+        var row = File.ReadAllLines(Path.Combine(dir, "runs", DecisionsNeeded.FileName)).Skip(1).Single().Split('\t');
+        Assert.That((row[1], row[2], row[4]), Is.EqualTo(("PXD076192", "waiting_other_organism",
+            "the PRIDE project record names Homo sapiens (human); Mus musculus (mouse): 2 of the question's species, and every run would be searched as human")));
+        Assert.That(row[3], Does.Contain("a second of the question's own"));
+        Assert.That(row[5], Does.Contain("[exceptions] species"));
+
+        // Two names of one species are not two species: it goes ahead.
+        await runner.ProbeAsync(new QueueEntry("PXD000602", "t", "mouse"), CancellationToken.None);
+        Assert.That(runner.Settled("PXD000602"), Is.Not.EqualTo("waiting_other_organism"));
+        int afterOneSpecies = files.Downloads;
+        Assert.That(afterOneSpecies, Is.GreaterThan(0), "one species under two names was not held");
+
+        // The answers are those of a species outside the question: runs selected, or the species named, gives one more look.
+        var answered = new BatchRunner(QuestionLoader.Load(TestSupport.WriteFile(dir, "q2.toml", Q(
+                "[exceptions.PXD076192]\nreason = \"the mouse runs (PXR-A177)\"\nspecies = \"mouse\"\ninclude_files = \"_mouse_\"\n"
+                + "[exceptions.PXD000601]\nreason = \"a cap answers nothing\"\nmax_files = 5\n"))),
+            Profiles, machine, files, search, "2026-11-08") { Sha1Source = NoSha1 };
+        Assert.That(answered.Settled("PXD076192"), Is.Empty, "an exception added after the park earns one more look");
+        await answered.ProbeAsync(answered.WithQuestionSpecies(new QueueEntry("PXD076192", "t", "human")), CancellationToken.None);
+        Assert.That(answered.Settled("PXD076192"), Is.Not.EqualTo("waiting_other_organism"));
+        Assert.That(files.Downloads, Is.GreaterThan(afterOneSpecies), "the selected mouse runs went ahead");
+        await answered.ProbeAsync(new QueueEntry("PXD000601", "t", "human"), CancellationToken.None);
+        Assert.That(answered.Settled("PXD000601"), Is.EqualTo("waiting_other_organism"), "a cap says neither which runs nor what they are");
+    }
+
+    [TestCase("Mus musculus (mouse)", "mus musculus")]
+    [TestCase("Mus musculus", "mus musculus")]
+    [TestCase("  Homo  sapiens (human) ", "homo sapiens")]
+    [TestCase("Taeniopygia guttata (zebra finch) (poephila guttata)", "taeniopygia guttata")]
+    [TestCase("Rattus rattus (black rat)", "rattus rattus")]
+    [TestCase("Mus musculus domesticus", "mus musculus")]
+    [TestCase("Trypanosoma brucei", "trypanosoma brucei")]
+    public void APrideOrganismNameStandsForItsSpecies(string name, string species) =>
+        Assert.That(BatchRunner.Species(name), Is.EqualTo(species));
+
     // v0.4.15 (PXR-A99, aging 098): PXD015239's protocol has no reduction or alkylation step.
     [Test]
     public void AnAlkylationExceptionSaysNoneAndNothingElse()

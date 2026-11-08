@@ -408,6 +408,17 @@ public sealed class BatchRunner
     internal QueueEntry WithQuestionSpecies(QueueEntry e) =>
         _q.ExceptionFor(e.Accession)?.Species is { } sp && sp != e.Organism ? e with { Organism = sp, QueuedOrganism = e.Organism } : e;
 
+    /// <summary>
+    /// The species a PRIDE organism name stands for: its first two words, without the common name, in lower case.
+    /// "Mus musculus (mouse)" and "Mus musculus" are one species; "Rattus rattus (black rat)" is not "Rattus norvegicus".
+    /// </summary>
+    internal static string Species(string prideOrganism)
+    {
+        var words = System.Text.RegularExpressions.Regex.Replace(prideOrganism, @"\s*\(.*$", "").Trim().ToLowerInvariant()
+            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        return string.Join(' ', words.Take(2));
+    }
+
     private bool SearchedOk(string acc) =>
         File.Exists(Path.Combine(Run(acc), "04_search", "provenance.json"))
         && JsonNode.Parse(File.ReadAllText(Path.Combine(Run(acc), "04_search", "provenance.json")))?["success"]?.GetValue<bool>() == true;
@@ -990,9 +1001,18 @@ public sealed class BatchRunner
             }
             catch (Exception ex) when (Envelope.IsUnavailable(ex) || FetchStage.IsTransient(ex)) { Log($"{acc} organisms: PRIDE unavailable ({ex.Message}); retry next pass"); return null; }
             var outside = named.Where(n => !_q.Organisms.Contains(n)).ToList();
-            if (outside.Count > 0)
+            // v0.4.43 (aging 222/223, PXR-A177): a record naming two of the question's OWN species was searched whole as the
+            // one the census queued first. PXD076192 (4 mouse, 2 human raws) and three more would have searched their mouse
+            // runs against the human database, and a TMT profile has no probe search to notice. Species, not names: aging
+            // lists "Mus musculus (mouse)" and "Mus musculus".
+            var species = named.Where(n => _q.Organisms.Contains(n)).Select(Species).Distinct(StringComparer.Ordinal).ToList();
+            string? why = outside.Count > 0
+                ? $"the PRIDE project record names {string.Join("; ", named)}; outside the question: {string.Join("; ", outside)}"
+                : species.Count > 1
+                    ? $"the PRIDE project record names {string.Join("; ", named)}: {species.Count} of the question's species, and every run would be searched as {e.Organism}"
+                    : null;
+            if (why is not null)
             {
-                string why = $"the PRIDE project record names {string.Join("; ", named)}; outside the question: {string.Join("; ", outside)}";
                 Log($"{acc} SCREENED OUT (waiting_other_organism): {why}");
                 // The exception as it stands (caps only, or none) is recorded, so a new one gives the deposit one more look (Settled).
                 Record(acc, ("status", "waiting_other_organism"), ("detail", why), ("exception", _q.ExceptionFor(acc)?.Describe()));
