@@ -7,7 +7,7 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
-## 0.4.42 (unreleased)
+## 0.4.42 (2026-11-08)
 
 **MetaMorpheus** unchanged (`lowres@8` runs 1.1.13, as `lowres@7`). **Machine file:** no change. **Safe mid-batch?** Yes: swap the
 pin as usual. The new profile runs only for a question that names it.
