@@ -102,6 +102,31 @@ public class CustomModificationTests
         Assert.That(Directory.Exists(unseeded), Is.False, "the settings folder is never created by hand: an empty one crashes MetaMorpheus");
     }
 
+    /// <summary>
+    /// 2026-11-08: a deposit's chemistry is read under the question's Orbitrap profile, and a probe whose MS2 is read in the
+    /// ion trap then sends the deposit to an ion-trap profile (BatchRunner.LowResProfile) with that chemistry. lowres@7
+    /// modelled no custom modification, so PXD048079 and PXD045806 (NBF-Cl, Eclipse ion-trap MS2) failed their probe search
+    /// at every driver start: "the deposit's chemistry needs PXReprise NBF on C, and label-free-dda-lowres@7 ships no custom
+    /// modifications". The newest ion-trap profile models every thiol reagent the newest Orbitrap profile models, from the
+    /// same file.
+    /// </summary>
+    [Test]
+    public void TheNewestIonTrapProfileModelsEveryThiolReagentTheNewestOrbitrapProfileModels()
+    {
+        var all = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
+        Profile Newest(string id) => all.Values.Where(p => p.Id == id && p.Status == ProfileStatus.Available).MaxBy(p => p.Version)!;
+        var (orbitrap, ionTrap) = (Newest("label-free-dda"), Newest("label-free-dda-lowres"));
+        Assert.That(orbitrap.ThiolReagents, Is.Not.Null.And.Not.Empty, $"premise: {orbitrap.Key} models NBF-Cl");
+        Assert.That(ionTrap.ThiolReagents ?? new Dictionary<string, string>(), Is.EquivalentTo(orbitrap.ThiolReagents!),
+            $"{ionTrap.Key} models every thiol reagent {orbitrap.Key} models");
+        Assert.That(ionTrap.CustomModifications, Is.EqualTo(orbitrap.CustomModifications), "from the same file");
+
+        string settings = TestSupport.TempDir();
+        Directory.CreateDirectory(Path.Combine(settings, "Mods"));
+        Assert.That(CustomModificationFile.Install(ionTrap, settings, new[] { Nbf }, () => { }),
+            Is.EqualTo(Path.Combine(settings, "Mods", orbitrap.CustomModifications!)), "the probe search and the search can install it");
+    }
+
     [Test]
     public void AModificationTheProfileDoesNotShipIsRefused()
     {

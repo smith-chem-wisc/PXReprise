@@ -41,6 +41,38 @@ public class ConfigTests
     }
 
     /// <summary>
+    /// 2026-11-08 (the user: "lets do the custom modifications now"): label-free-dda-lowres@8 is lowres@7 with the custom
+    /// modification file and the NBF-Cl mapping that label-free-dda@14 ships (G40), so an ion-trap deposit whose cysteines
+    /// carry NBF (PXD048079, PXD045806) can be searched. An ion-trap profile runs no GPTMD, so @14's [chemistry_artifacts],
+    /// which go only to GPTMD, stay out. Lines, not parsed fields, so a key the Profile record does not carry is compared too.
+    /// </summary>
+    [Test]
+    public void Lowres8_IsLowres7_WithTheCustomModificationsOfLabelFreeDda14()
+    {
+        static List<string> Settings(string name) => File.ReadAllLines(Path.Combine(TestSupport.ProfilesDir, name))
+            .Select(l => System.Text.RegularExpressions.Regex.Replace(l, @"\s+#.*$", "").TrimEnd())
+            .Where(l => l.Length > 0 && !l.StartsWith('#'))
+            .Where(l => !System.Text.RegularExpressions.Regex.IsMatch(l, @"^(id|version|description) = "))
+            .ToList();
+
+        string[] custom = { "custom_modifications = \"PXReprise_custom_modifications_v2.txt\"", "[thiol_reagents]", "\"NBF-Cl\" = \"PXReprise\\tNBF on C\"" };
+        var eight = Settings("label-free-dda-lowres-8.toml");
+        Assert.That(eight.Where(custom.Contains), Is.EqualTo(custom), "lowres@8 carries the three lines once each");
+        Assert.That(eight.Where(l => !custom.Contains(l)), Is.EqualTo(Settings("label-free-dda-lowres-7.toml")), "nothing else differs from lowres@7");
+        Assert.That(custom, Is.SubsetOf(Settings("label-free-dda-14.toml")), "the same lines as label-free-dda@14");
+
+        var all = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
+        var (seven, p8) = (all["label-free-dda-lowres@7"], all["label-free-dda-lowres@8"]);
+        Assert.Multiple(() =>
+        {
+            Assert.That(p8.Status, Is.EqualTo(ProfileStatus.Available));
+            Assert.That(p8.ChemistryArtifacts, Is.Null, "GPTMD-only artifacts have no task to go to");
+            Assert.That(seven.CustomModifications, Is.Null, "a released profile never changes");
+            Assert.That(p8.Description, Is.EqualTo(seven.Description + "; NBF-Cl modelled by a shipped modification (G40)"));
+        });
+    }
+
+    /// <summary>
     /// Issue #4: label-free-dda-uniprot@1 is today's method on databases the engine downloads. The promise is that nothing else
     /// differs from the profile it was made from, so a setting added to neither by hand can drift. Lines, not parsed fields,
     /// so a key the Profile record does not carry is compared too.
@@ -77,7 +109,7 @@ public class ConfigTests
         var profiles = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
         Assert.That(profiles.Keys, Is.EquivalentTo(new[] { "label-free-dda@1", "label-free-dda@2", "label-free-dda@3", "label-free-dda@4",
             "label-free-dda@5", "label-free-dda@6", "label-free-dda@7", "label-free-dda@8", "label-free-dda@9", "label-free-dda@10", "label-free-dda@11", "label-free-dda@12", "label-free-dda@13", "label-free-dda@14", "label-free-dda-uniprot@1", "label-free-dda-lowres@1", "label-free-dda-lowres@2",
-            "label-free-dda-lowres@3", "label-free-dda-lowres@4", "label-free-dda-lowres@5", "label-free-dda-lowres@6", "label-free-dda-lowres@7", "tmt-dda@1", "tmt-dda@2", "tmt-dda@3", "tmt-dda@4" }));
+            "label-free-dda-lowres@3", "label-free-dda-lowres@4", "label-free-dda-lowres@5", "label-free-dda-lowres@6", "label-free-dda-lowres@7", "label-free-dda-lowres@8", "tmt-dda@1", "tmt-dda@2", "tmt-dda@3", "tmt-dda@4" }));
 
         // D44 (2026-10-17): @8 is @7 on agingPTM-v4; nothing else. No lowres version on v4: it cost an ion-trap run 4% of its PSMs.
         foreach (var (newer, older) in new[] { ("label-free-dda@8", "label-free-dda@7") })

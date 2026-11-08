@@ -7,6 +7,19 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.42 (unreleased)
+
+**MetaMorpheus** unchanged (`lowres@8` runs 1.1.13, as `lowres@7`). **Machine file:** no change. **Safe mid-batch?** Yes: swap the
+pin as usual. The new profile runs only for a question that names it.
+
+- **New profile `label-free-dda-lowres@8`: the ion-trap method can search an NBF-Cl deposit.** A deposit's chemistry is read
+  under the question's Orbitrap profile, and a probe that finds its MS2 read in the ion trap sends it to the ion-trap profile.
+  `lowres@7` ships no custom modification, so a deposit whose cysteines carry NBF failed its probe search there at every driver
+  start ("ships no custom modifications": PXD048079 and PXD045806). `lowres@8` is `lowres@7` plus the modification file and the
+  NBF-Cl mapping that `label-free-dda@14` ships, and a test holds it to that. NBF on C is searched variable, as under `@14`.
+  `@14`'s GPTMD-only side reactions stay out, because the ion-trap profiles run no GPTMD. Any other deposit is searched exactly as
+  under `lowres@7`. A second test holds the newest ion-trap profile to every thiol reagent the newest Orbitrap profile models.
+
 ## 0.4.41 (2026-11-07)
 
 **MetaMorpheus** 1.1.14 for the new `tmt-dda@4`; every other profile unchanged (the label-free ones stay on 1.1.13). **Machine
