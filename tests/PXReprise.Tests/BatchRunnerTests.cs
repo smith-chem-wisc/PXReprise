@@ -969,6 +969,45 @@ public class BatchRunnerTests
         Assert.That(log, Does.Contain("PXD000942 RE-SEARCH (catch-up").And.Contain("PXD000943 RE-SEARCH (catch-up"));
     }
 
+    // Aging 222, PXR-A176: a deposit the manifest excludes is never re-searched by the catch-up, even when the question
+    // stops naming the profile it was searched under. The catch-up calls Research, which refuses any manifest status but
+    // `include` before moving anything; the driver goes on to the next candidate. (Our aging 218 wrongly said otherwise.)
+    [Test]
+    public async Task TheCatchUpNeverReSearchesADepositTheManifestExcludes()
+    {
+        var (runner, _, _, dir) = Runner($"[publish]\nmanifest = \"manifest.yaml\"\ncommand = {ShellToml("exit 0")}\n",
+            "datarepo = 'x'\ncatch_up_every = 4\n");
+        TestSupport.WriteFile(dir, "manifest.yaml", "manifest_version: 1\r\ndatasets:\r\n\r\n  - accession: PXD000952\r\n    status: exclude\r\n"
+            + "\r\n  - accession: PXD000953\r\n    status: include\r\n");
+        foreach (var (acc, org) in new[] { ("PXD000952", "rat"), ("PXD000953", "mouse") })
+        {
+            runner.Record(acc, ("status", "searched"), ("profile", "label-free-dda@0"), ("organism", org), ("title", acc));
+            Directory.CreateDirectory(Path.Combine(dir, "runs", acc, "04_search")); TestSupport.WriteFile(Path.Combine(dir, "runs", acc, "04_search"), "provenance.json", "{}");
+        }
+        var started = new List<string>();
+        runner.PrepareForTest = (e, ct) => { runner.Record(e.Accession, ("status", "fetched")); return Task.FromResult<Profile?>(Profiles["label-free-dda@1"]); };
+        runner.SearchForTest = (e, p, ct) =>
+        {
+            lock (started) started.Add(e.Accession);
+            runner.Record(e.Accession, ("status", "searched"), ("profile", p.Key));
+            return Task.CompletedTask;
+        };
+
+        await runner.RunAsync(new[] { new QueueEntry("PXD000951", "new", "mouse") }, CancellationToken.None);
+
+        Assert.That(started, Is.EqualTo(new[] { "PXD000951", "PXD000953" }),
+            "the excluded rat deposit is due first by gain, is refused, and the included one is re-searched instead");
+        Assert.That(File.Exists(Path.Combine(dir, "runs", "PXD000952", "04_search", "provenance.json")), Is.True, "its search is not moved aside");
+        Assert.That(Directory.GetDirectories(Path.Combine(dir, "runs"), "PXD000952.superseded-*"), Is.Empty);
+        var e952 = runner.State()["datasets"]!["PXD000952"]!;
+        Assert.That((e952["status"]!.GetValue<string>(), e952["profile"]!.GetValue<string>()), Is.EqualTo(("searched", "label-free-dda@0")),
+            "its state is untouched");
+        string log = File.ReadAllText(Path.Combine(dir, "state", "batch.log"));
+        Assert.That(log, Does.Contain("PXD000952 catch-up refused: PXD000952 is 'exclude' in"));
+        Assert.That(log, Does.Not.Contain("PXD000952 RE-SEARCH"));
+        Assert.That(log, Does.Contain("PXD000953 RE-SEARCH (catch-up"));
+    }
+
     // Ion-trap MS2 (low_res_ms2) is searched under a low-res profile when the question names one, never anything else.
     [Test]
     public void OnlyALowResFailureIsRoutedToTheLowResProfile()
