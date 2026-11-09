@@ -7,7 +7,7 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
-## 0.4.43 (unreleased)
+## 0.4.43 (2026-11-09)
 
 **MetaMorpheus** unchanged. **Machine file:** no change needed. A new optional key, `deliver_split_deposits` (default
 false), lets split searches be delivered. **Safe mid-batch?** Yes: swap the pin as usual. Nothing changes for a question with no
