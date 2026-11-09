@@ -24,6 +24,10 @@ already written keep their numbers until they are rebuilt.
     note says why.
   - Deposits whose every sample spans several runs used to report no quantified count, and now report one.
   - Three of the aging batch's 217 payloads carried the wrong numbers: PXD051203, PXD047293 and PXD051644.
+- **The two fields now name their definitions** in `/2` payloads (qc 019, PXR-C13):
+  `pxreprise:DEF-PROTEINGROUP-1PCT-MSMS v1` and `pxreprise:DEF-PROTEINGROUP-RUNS-MSMS v1`, in DEFINITIONS.md.
+  - Both count groups seen by MS/MS (a spectral count above 0), not groups with an intensity. The name
+    `protein_groups_quantified` comes from aging's builder, which never defined it.
 
 ## 0.4.43 (2026-11-09)
 
