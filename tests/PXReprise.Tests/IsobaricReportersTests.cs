@@ -153,6 +153,44 @@ public class IsobaricReportersTests
         Assert.That(IsobaricReporters.Kit(spectra, "TMT")?.Kit, Is.EqualTo(Omics.Modifications.IsobaricMassTagType.TMT11));
     }
 
+    // v0.4.43 (PXD007229, 2026-11-09): a chance peak within 3 mDa of a channel the deposit never used, in a few of a file's thousands
+    // of spectra, is not a channel. PXD007229 is six TMT 6-plex sets (its paper; LTQ Orbitrap XL, 2016). Its files' six channels are each
+    // in about 97% of the reporter spectra, and ten other channels of the largest kit in 0.02% to 0.3%. The "typical" share was the median
+    // of every channel present at all: ten noise channels outnumber six real ones, the median fell to 0.001, and any channel in four
+    // spectra was seen. 32 of its 60 files read TMT18, 5 TMT10, 23 TMT6, and its search was refused for mixing reagents. Each case is
+    // one real file's measured share (per 10,000 reporter spectra) and isotope height; a noise channel is given its parent's full
+    // height, so only the share rule can leave it out.
+    private static List<MzSpectrum> MeasuredSpectra(string channels)
+    {
+        var tag = Tmt18;
+        var labels = tag.ChannelLabels.ToArray();
+        var parsed = channels.Split(' ').Select(c => c.Split(':')).ToDictionary(p => p[0], p => (Count: int.Parse(p[1]), Height: p.Length > 2 ? double.Parse(p[2], System.Globalization.CultureInfo.InvariantCulture) : 1.0));
+        return Enumerable.Range(0, 10_000).Select(i =>
+        {
+            var points = new SortedDictionary<double, double>();
+            for (int c = 0; c < labels.Length; c++)
+                if (parsed.TryGetValue(labels[c], out var p) && i < p.Count) points[tag.ReporterIonMzs[c]] = 1000 * p.Height;
+            return new MzSpectrum(points.Keys.ToArray(), points.Values.ToArray(), false);
+        }).ToList();
+    }
+
+    [TestCase("126:9655 127N:9750 128C:9847 129N:9847 130C:9767 131N:9805 132N:3149:0.03 127C:12 128N:2 129C:2 132C:9 133N:3 133C:3 134N:5 134C:2 135N:7",
+        "TMT6", "126 127N 128C 129N 130C 131N", TestName = "A TMT6 file with chance peaks on ten other channels is TMT6, not TMT18 (PXD007229 M1-1)")]
+    [TestCase("126:9743 127N:9749 128C:9796 129N:9860 130C:9690 131N:9795 132N:3174:0.03 127C:17 128N:14 129C:12 130N:15 132C:5 133N:2 133C:3 134N:3 134C:3",
+        "TMT6", "126 127N 128C 129N 130C 131N", TestName = "A TMT6 file with a chance peak on 129C is TMT6, and 129C holds no sample (PXD007229 M1-8)")]
+    [TestCase("126:9452 127N:9858 128C:9782 129N:9847 130C:9612 131N:9722 132N:3031:0.03 127C:2 128N:2 130N:14 132C:9 133N:2 133C:8 134N:3 134C:5 135N:3",
+        "TMT6", "126 127N 128C 129N 130C 131N", TestName = "A TMT6 file with chance peaks on 132C and 133C is TMT6, not TMTpro 16 (PXD007229 M2-1)")]
+    [TestCase("126:9700 127N:9700 129C:9700 130N:9700 130C:9700 131N:9700 127C:12 128N:9 128C:14 129N:6 132C:9 133N:3 133C:3 134N:5 134C:2 135N:7",
+        "TMT10", "126 127N 129C 130N 130C 131N", TestName = "A TMT10 experiment on six channels keeps exactly those six beside chance peaks (as PXD006743)")]
+    public void AChancePeakOnAnUnusedChannelIsNotAChannel(string measured, string kit, string seen)
+    {
+        var k = IsobaricReporters.Kit(MeasuredSpectra(measured), "TMT");
+
+        Assert.That(k, Is.Not.Null);
+        Assert.That(IsobaricReporters.ModificationId(k!.Value.Kit), Is.EqualTo(kit == "TMT6" ? "TMT6-plex" : kit));
+        Assert.That(k.Value.Seen, Is.EqualTo(seen.Split(' ')), "the channels a default design calls samples");
+    }
+
     // v0.4.41: which channels hold a sample, for a default design. Each case is a delivered deposit at its measured shares and
     // heights. The kit stays what it was; these channels were delivered as samples.
     [Test]

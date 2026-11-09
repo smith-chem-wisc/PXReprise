@@ -82,6 +82,15 @@ public static class IsobaricReporters
     public const double MinChannelShare = 0.5;
 
     /// <summary>
+    /// v0.4.43: the typical channel is judged among the channels present in at least this share of the most common channel's
+    /// spectra. A channel the deposit never used still gets a chance peak within 3 mDa in a few of a file's thousands of spectra.
+    /// Counted in the median, ten such channels outnumbered a TMT6 file's six real ones, and any channel in four spectra was seen
+    /// (PXD007229: 32 of 60 TMT6 files read TMT18). Measured 2026-11-09 on PXD007229: noise channels 0.0002 to 0.003 of the most
+    /// common channel; the weakest real channel known is 0.34 (PXD027548's 131N), and isotopes 0.31 to 0.60 (left out by height).
+    /// </summary>
+    public const double MinTypicalShareOfMost = 0.1;
+
+    /// <summary>
     /// v0.4.41: a channel whose median height is below this share of the channel one carbon-13 below it is that channel's
     /// isotope, not a channel. Every reporter's m/z is the channel two below it plus 1.00335, so a strong channel's isotope lands
     /// exactly on the next kit's channel, and the brighter the file the more spectra show it. Presence alone cannot tell them
@@ -102,6 +111,7 @@ public static class IsobaricReporters
     /// v0.4.41: a channel that is only its carbon-13 parent's isotope (<see cref="MaxIsotopeHeight"/>) is not seen. Under v0.4.36's
     /// rule 131N's isotope on 132N, in 42-60% of PXD034564's spectra around a threshold of 47%, made 9 of its 32 TMT10 files read
     /// as TMTpro, and the search refused the deposit for mixing kits.
+    /// v0.4.43: the typical channel leaves out channels only chance peaks put in a few spectra (<see cref="MinTypicalShareOfMost"/>).
     /// <c>Seen</c> is those channels, in reporter m/z order and in the largest kit's labels: what a default design calls a sample
     /// (<see cref="DepositChannels"/>).
     /// Null when the family is unknown or no channel is seen.
@@ -132,8 +142,10 @@ public static class IsobaricReporters
         }
         if (counted == 0) return null;
         var shares = tag.ChannelLabels.Select((label, i) => (label, share: (double)present[i] / counted)).ToDictionary(x => x.label, x => x.share);
-        // The typical channel: the median of the channels present at all (the largest kit's unused ones are zeros).
-        double typical = Median(shares.Values.Where(s => s > 0));
+        // The typical channel: the median of the channels present in a real share of the spectra. The largest kit's unused channels
+        // are not zeros: chance peaks put them in a few spectra (MinTypicalShareOfMost).
+        double most = shares.Values.Max();
+        double typical = Median(shares.Values.Where(s => s > 0 && s >= MinTypicalShareOfMost * most));
         var seen = shares.Where(kv => kv.Value >= MinChannelShare * typical).Select(kv => kv.Key).ToHashSet(StringComparer.Ordinal);
         var labels = tag.ChannelLabels.ToArray();
         var seenBeforeIsotopes = seen.ToHashSet(StringComparer.Ordinal);

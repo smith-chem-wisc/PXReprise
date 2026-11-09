@@ -40,6 +40,16 @@ false), lets split searches be delivered. **Safe mid-batch?** Yes: swap the pin 
   - In aging's batch, this holds back two delivered deposits at their next catch-up re-search: PXD027526 and PXD035412 (human and
     mouse, no exception). Their served results stay served. Four deposits deferred for size (PXD006921, PXD009792, PXD022723,
     PXD031456) would park if they are looked at again. Four more already carry an exception that answers it and go on as before.
+- **A TMT 6-plex file is read as TMT6 again, not TMT18.** The kit reader decides which channels a file used by comparing each channel
+  with the typical one. The typical one was the median of every channel with any reporter peak, and a channel the deposit never used
+  still gets a chance peak within 3 mDa in a few of a file's thousands of spectra. In a file with six real channels, ten such channels
+  outnumbered the real ones: the median fell into the noise, and any channel in four spectra counted. PXD007229 (six TMT 6-plex
+  sets, 2016) read TMT18 in 32 of its 60 files, TMT10 in 5 and TMT6 in 23, and its search was refused for mixing reagents. Now
+  the typical channel is judged only among channels present in at least a tenth as many spectra as the most common one. Files
+  with nine or more real channels per file were never affected. Every isobaric raw file on disk was re-read with the fix: PXD007229
+  and PXD016199 now read TMT6 in every file, PXD012552 the TMT reagent instead of TMTpro, and two files lose a channel that was
+  never a sample (PXD014929's 128N in 5% of spectra, PXD023435's 130N in 20%). The QC reports of delivered deposits show no channel
+  that only chance peaks could put there.
 
 ## 0.4.42 (2026-11-08)
 
