@@ -31,6 +31,15 @@ public sealed class SiteFacts
     /// <summary>Whether the catalog holds PSMs. Catalog format 13 leaves them in the bundles (D48 step 2); a Python
     /// 0.32.0 catalog holds them.</summary>
     public bool PsmsInCatalog { get; init; }
+
+    /// <summary>How many deposits (ProteomeXchange accessions) the datasets were searched from (PXR-R32). Equal to
+    /// <see cref="Datasets"/>' count unless a deposit is served in parts; a catalog before format 16 names no
+    /// deposit, so each dataset counts as its own.</summary>
+    public int DepositCount { get; init; }
+
+    /// <summary>Each deposit served in parts (a split), in accession order: <c>accession</c>, <c>datasets</c> (its
+    /// datasets' dictionaries, in id order) and <c>split_reasons</c>. Empty when nothing is split.</summary>
+    public List<Dict> SplitDeposits { get; init; } = [];
 }
 
 public static partial class SiteGenerator
@@ -282,8 +291,44 @@ public static partial class SiteGenerator
             ds["finding_codes"] = Findings(ds).Select(f => PyText.Str(f["code"])).Distinct()
                 .OrderBy(c => c, StringComparer.Ordinal).Cast<object?>().ToList();
         }
-        return new SiteFacts { Meta = meta, Datasets = datasets, Merit = merit, Proteins = proteins, PsmsInCatalog = psmsInCatalog };
+        // PXR-R32: the catalog names each dataset's deposit from format 16. A split search learns its siblings here, and
+        // only a split search: an unsplit dataset's dictionary, and so its JSON, keeps exactly the keys it had.
+        var byDeposit = datasets.GroupBy(DepositOf, StringComparer.Ordinal).OrderBy(g => g.Key, StringComparer.Ordinal).ToList();
+        var splitDeposits = new List<Dict>();
+        foreach (var deposit in byDeposit)
+        {
+            var parts = deposit.Where(IsSplitSearch).ToList();
+            if (parts.Count == 0) continue;
+            foreach (var ds in parts)
+                ds["siblings"] = parts.Where(p => !ReferenceEquals(p, ds)).Select(p => (object?)Id(p)).ToList();
+            splitDeposits.Add(new Dict
+            {
+                ["accession"] = deposit.Key,
+                ["datasets"] = parts,
+                ["split_reasons"] = parts.Select(p => p.GetValueOrDefault("split_reason")).OfType<string>().Distinct()
+                    .OrderBy(r => r, StringComparer.Ordinal).Cast<object?>().ToList(),
+            });
+        }
+        return new SiteFacts
+        {
+            Meta = meta, Datasets = datasets, Merit = merit, Proteins = proteins, PsmsInCatalog = psmsInCatalog,
+            DepositCount = byDeposit.Count, SplitDeposits = splitDeposits,
+        };
     }
+
+    /// <summary>The deposit a dataset was searched from, as the catalog names it (<c>dataset_overview.accession</c>,
+    /// format 16), or the dataset's own id in a catalog that names none.</summary>
+    internal static string DepositOf(Dict ds) => ds.GetValueOrDefault("accession") as string ?? Id(ds);
+
+    /// <summary>Whether a dataset is one search of a deposit served in parts: the catalog gave it a group.</summary>
+    internal static bool IsSplitSearch(Dict ds) => ds.GetValueOrDefault("split_group") is string;
+
+    /// <summary>A CTE naming each dataset's deposit, for counting deposits in SQL (PXR-R32): the catalog's
+    /// <c>dataset_overview.accession</c>, or the dataset itself in a catalog before format 16.</summary>
+    private static string DepositKeys(DuckDBConnection con) =>
+        "WITH deposit_keys AS (SELECT dataset_id, "
+        + (Columns(con, "dataset_overview").Contains("accession") ? "accession" : "dataset_id AS accession")
+        + " FROM dataset_overview) ";
 
     private static Dictionary<string, Dict> ByDataset(List<Dict> rows)
     {
@@ -339,20 +384,24 @@ public static partial class SiteGenerator
     /// datasets cannot supply says how many did, rather than presenting a partial sum as a total.</remarks>
     private static List<Dict> FiguresOfMerit(DuckDBConnection con, string schemaVersion)
     {
-        var o = One(con, "SELECT count(*), sum(n_runs), sum(n_psms_1pct), sum(n_ptm_sites) FROM dataset_overview");
+        // Datasets are counted as DEPOSITS (PXR-R32): a deposit searched in parts is one public dataset, and counting its
+        // parts would count one study twice. With nothing split the counts are the ones they always were.
+        var keys = DepositKeys(con);
+        var o = One(con, keys + "SELECT count(DISTINCT k.accession), sum(o.n_runs), sum(o.n_psms_1pct), sum(o.n_ptm_sites) "
+            + "FROM dataset_overview o JOIN deposit_keys k USING (dataset_id)");
         var (nDatasets, runs, psms, sites) = (o[0], o[1], o[2], o[3]);
         o = One(con,
-            "SELECT sum(value), count(DISTINCT dataset_id) FROM metrics " +
-            "WHERE scope = 'dataset' AND name = 'ms2'");
+            keys + "SELECT sum(m.value), count(DISTINCT k.accession) FROM metrics m JOIN deposit_keys k USING (dataset_id) " +
+            "WHERE m.scope = 'dataset' AND m.name = 'ms2'");
         var (ms2, ms2Datasets) = (o[0], o[1]);
         // Per dataset, because the contaminant label is: human albumin is a target in a human search and a
         // contaminant in a rodent one, and a corpus-wide flag dropped it from every count (aging 070 57f). An
-        // accession counts in a dataset where it was accepted and was not a contaminant.
+        // accession counts in a dataset where it was accepted and was not a contaminant, and a deposit once.
         var spread = Rows(con,
-            "SELECT n, count(*) FROM (" +
-            "  SELECT protein_accession, count(DISTINCT dataset_id) AS n FROM protein_datasets " +
-            "  WHERE (n_protein_groups > 0 OR n_peptidoforms > 0) " +
-            "    AND NOT coalesce(is_contaminant, false) AND protein_accession NOT LIKE 'DECOY%' " +
+            keys + "SELECT n, count(*) FROM (" +
+            "  SELECT p.protein_accession, count(DISTINCT k.accession) AS n FROM protein_datasets p JOIN deposit_keys k USING (dataset_id) " +
+            "  WHERE (p.n_protein_groups > 0 OR p.n_peptidoforms > 0) " +
+            "    AND NOT coalesce(p.is_contaminant, false) AND p.protein_accession NOT LIKE 'DECOY%' " +
             "  GROUP BY 1) GROUP BY 1")
             .Select(r => r.Values.ToArray()).Select(a => ((long)a[0]!, (long)a[1]!)).ToList();
         var proteins = spread.Sum(s => s.Item2);
@@ -379,7 +428,8 @@ public static partial class SiteGenerator
             "AND (p.n_protein_groups > 0 OR p.n_peptidoforms > 0) " +
             "AND NOT coalesce(p.is_contaminant, false) AND p.protein_accession NOT LIKE 'DECOY%'")[0];
         var nWhole = One(con,
-            "SELECT count(*) FROM datasets WHERE enrichment = ['none'] AND NOT coalesce(enrichment_mixed, false)")[0];
+            keys + "SELECT count(DISTINCT k.accession) FROM datasets d JOIN deposit_keys k USING (dataset_id) "
+            + "WHERE d.enrichment = ['none'] AND NOT coalesce(d.enrichment_mixed, false)")[0];
         var kinds = One(con,
             "SELECT count(DISTINCT modification_name) FROM ptm_sites WHERE target_decoy = 'target'")[0];
         // By UNIMOD accession, not name: "Phosphoserine on S" (UniProt) and "Phosphorylation on S" (the

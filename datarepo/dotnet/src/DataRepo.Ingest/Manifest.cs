@@ -28,6 +28,12 @@ public sealed record DatasetEntry
     public object? ProvenanceSchema { get; init; }
     public IReadOnlyList<string> Flags { get; init; } = [];
     public object? Sdrf { get; init; }
+    /// <summary>The SDRF the instance owner curated for this search (<c>operator_sdrf: &lt;path&gt;</c>, G107), absolute; a
+    /// relative path is taken against the manifest's folder. Null when the entry names none.</summary>
+    /// <remarks>When named, it describes the samples in place of any other SDRF. Its characteristics are read and its
+    /// factor values left out, and its source names must group the searched files exactly as the search's design does
+    /// (<c>Ingester</c>). The FILE is a source of the bundle and hashed by its bytes; this path is not.</remarks>
+    public string? OperatorSdrf { get; init; }
     public object? Reason { get; init; }
     public object? Notes { get; init; }
     /// <summary><c>(run base name, reason)</c> pairs, sorted by run, from <c>excluded_runs: {run: reason}</c> (G85):
@@ -36,7 +42,23 @@ public sealed record DatasetEntry
     /// <summary><c>(use, reason)</c> pairs, sorted by use, from <c>restrictions: {use: reason}</c> (aging DATAREPO-74):
     /// uses the producer says the WHOLE dataset is unfit for. Each use is one of <see cref="RestrictionUses"/>.</summary>
     public IReadOnlyList<(string Use, string Reason)> Restrictions { get; init; } = [];
+    /// <summary>Why the deposit was searched in parts (<c>split_reason</c>, PXR-R32): one of <see cref="SplitReasons"/>, on
+    /// an entry keyed <c>&lt;accession&gt;-&lt;group&gt;</c>. Null when the entry states none.</summary>
+    /// <remarks>The one fact about a split that its key cannot carry: the key already gives the deposit and the group, so
+    /// neither is written twice (our PXReprise 093).</remarks>
+    public string? SplitReason { get; init; }
     public IReadOnlyDictionary<string, object?> Raw { get; init; } = new Dictionary<string, object?>();
+
+    /// <summary>The reasons a <c>split_reason</c> may give, each with what it means (PXReprise's 062 and 105).</summary>
+    /// <remarks>A fixed list for <see cref="RestrictionUses"/>' reason: a value from a list can be filtered on. PXReprise
+    /// owns the list; a new reason is added when they ask.</remarks>
+    public static readonly IReadOnlyDictionary<string, string> SplitReasons = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["species"] = "the deposit's runs come from more than one species, each searched against its own proteome",
+        ["enrichment"] = "the deposit's runs differ in enrichment (e.g. whole proteome and a phospho enrichment), each searched on its own",
+        ["label"] = "the deposit's runs differ in labelling (e.g. label-free and TMT), each searched on its own",
+        ["chemistry"] = "the deposit's runs differ in sample chemistry (e.g. digestion or alkylation), each searched on its own",
+    };
 
     /// <summary>The uses a <c>restrictions</c> entry may name, each with what it rules out (aging DATAREPO-74, their 101).</summary>
     /// <remarks>A short fixed list, and the reason this is a field rather than a sentence in <c>notes</c>: a key from a
@@ -71,8 +93,10 @@ public sealed record DatasetEntry
         ["flags"] = "shown by `datarepo manifest`; the ingest reads none of them except `mixed_enrichment`, which is lifted into its own content field so the rest stay prose",
         ["provenance_schema"] = "the producer's declared expectation; the ingest reads the schema from provenance.json itself and refuses a version it cannot map",
         ["sdrf"] = "declared but not read -- the SDRF is found under the run folder and hashed as a file",
+        ["operator_sdrf"] = "a path, which is site-specific; the file it names is read in place of any other SDRF and is a source of the bundle, hashed by its bytes (G107)",
         ["excluded_runs"] = "the producer's judgement of which runs an ANALYSIS should leave out (G85); every run is still searched, ingested and counted the same, so no row changes, and the catalog takes the field at build (run_exclusions)",
         ["restrictions"] = "the producer's judgement of which USES the whole dataset is unfit for (DATAREPO-74); no row changes, and the catalog takes the field at build (dataset_restrictions, dataset_overview.restrictions)",
+        ["split_reason"] = "why the producer searched the deposit in parts (PXR-R32); the key already names the deposit and the group, every row is the same under any reason, and the catalog takes the field at build (dataset_annotations, dataset_overview.split_reason, deposits)",
         ["raw"] = "the source row itself, which is the container for every field above",
     };
 
@@ -230,10 +254,12 @@ public sealed record Manifest(
                 ProvenanceSchema = row.GetValueOrDefault("provenance_schema"),
                 Flags = flags,
                 Sdrf = row.GetValueOrDefault("sdrf"),
+                OperatorSdrf = OperatorSdrfPath(row.GetValueOrDefault("operator_sdrf"), path, accession),
                 Reason = row.GetValueOrDefault("reason"),
                 Notes = row.GetValueOrDefault("notes"),
                 ExcludedRuns = ExcludedRunPairs(DatasetNode(root, i, "excluded_runs"), $"{path}: {accession}"),
                 Restrictions = RestrictionPairs(DatasetNode(root, i, "restrictions"), $"{path}: {accession}"),
+                SplitReason = SplitReasonOf(DatasetNode(root, i, "split_reason"), $"{path}: {accession}", accession),
                 Raw = row,
             };
         }
@@ -260,6 +286,17 @@ public sealed record Manifest(
             throw new ManifestException(
                 $"{path}: candidates must be the path of the discovery census TSV, found {(value is string ? "an empty str" : PyTypeName(value))}");
         return Resolve(text, path);
+    }
+
+    /// <summary>An entry's <c>operator_sdrf</c> as an absolute path, or null when it names none.</summary>
+    /// <exception cref="ManifestException">The value is not a non-empty path.</exception>
+    private static string? OperatorSdrfPath(object? value, string path, string accession)
+    {
+        if (value is null) return null;
+        if (value is not string text || text.Trim().Length == 0)
+            throw new ManifestException(
+                $"{path}: {accession}'s operator_sdrf must be the path of an SDRF, found {(value is string ? "an empty str" : PyTypeName(value))}");
+        return Resolve(text.Trim(), path);
     }
 
     private static IReadOnlyList<string> AsTuple(object? value, IReadOnlyList<string> fallback) => value switch
@@ -358,6 +395,26 @@ public sealed record Manifest(
             seen[use] = text;
         }
         return seen.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => (kv.Key, kv.Value)).ToList();
+    }
+
+    /// <summary>An entry's <c>split_reason</c>, or null when it writes none (PXR-R32).</summary>
+    /// <remarks>Read from the YAML node, as <see cref="RestrictionPairs"/> is, so the reason is the text written. A reason
+    /// not in <see cref="DatasetEntry.SplitReasons"/> is refused, as an unknown use is. So is a reason on an entry whose
+    /// key names no group: a bare accession is a deposit searched whole, and a reason there would say a split happened
+    /// where the key says it did not.</remarks>
+    private static string? SplitReasonOf(YamlDotNet.RepresentationModel.YamlNode? node, string where, string accession)
+    {
+        if (node is null || PyYaml.Plain(node) is null) return null;
+        var known = string.Join(", ", DatasetEntry.SplitReasons.Keys.Order(StringComparer.Ordinal));
+        if (node is not YamlDotNet.RepresentationModel.YamlScalarNode { Value: { } reason } || !DatasetEntry.SplitReasons.ContainsKey(reason))
+            throw new ManifestException(
+                $"{where}: split_reason {PyRepr(PyYaml.Plain(node))} is not one of {known}. "
+                + "Ask dataRepo to add one rather than write another: a reason no filter knows hides the split.");
+        if (Usi.DepositAccession(accession) == accession)
+            throw new ManifestException(
+                $"{where}: split_reason {PyRepr(reason)} is written on a key that names no group. A split deposit's searches "
+                + $"are keyed <accession>-<group> (e.g. {accession}-human); the bare accession is a deposit searched whole.");
+        return reason;
     }
 
     /// <summary>A manifest path, with a relative one taken against the manifest's own directory.</summary>

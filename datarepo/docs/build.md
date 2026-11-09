@@ -167,11 +167,12 @@ protein", which is the question the repository exists for.
 
 | Table | Grain | For |
 |---|---|---|
-| `dataset_overview` | 1/dataset | axes, run and sample counts, accepted identification counts, open findings |
-| `protein_index` | 1/accession | gene, organism, how many datasets have it, and how many have **accepted** evidence for it |
+| `dataset_overview` | 1/dataset | axes, run and sample counts, accepted identification counts, open findings; from 1.4.5 the deposit each dataset was searched from (`accession`, and for a split's part `split_group` and `split_reason`) |
+| `deposits` | 1/deposit | each ProteomeXchange accession's datasets: one for a deposit searched whole, one per part for a split (1.4.5) |
+| `protein_index` | 1/accession | gene, organism, how many deposits have it, and how many have **accepted** evidence for it |
 | `protein_datasets` | 1/accession/dataset | accepted protein groups and peptidoforms, best group q-value |
-| `peptide_index` | 1/base sequence | how many datasets it appears in |
-| `dataset_annotations` | 1/dataset | the producer's notes, flags, status and reason, its declared `sdrf`, and the `operator_sdrf` the ingest read in place of any other SDRF (G107), from the manifest `build` was given |
+| `peptide_index` | 1/base sequence | how many deposits it appears in |
+| `dataset_annotations` | 1/dataset | the producer's notes, flags, status and reason, its declared `sdrf`, the `operator_sdrf` the ingest read in place of any other SDRF (G107) and a split's `split_reason`, from the manifest `build` was given |
 | `run_exclusions` | 1/excluded run | runs the manifest's `excluded_runs` leaves out of analysis, with the reason; `run_id` joins `runs` |
 | `dataset_restrictions` | 1/dataset/use | uses the manifest's `restrictions` says the whole dataset is unfit for, with the reason; the same uses are listed on `dataset_overview.restrictions` (NULL when the manifest has no entry for the dataset) |
 
@@ -198,7 +199,9 @@ the catalog id is the same as before.
 `protein_index` carries both `n_datasets` and `n_datasets_1pct` on purpose. `proteins` is the
 search's protein *list*, decoys and sub-threshold matches included, not its answer. An agent asking
 "which datasets have this protein" almost always means the second column, so both are there with
-names that say which is which.
+names that say which is which. From 1.4.5 both count **deposits** (`dataset_overview.accession`), as
+`peptide_index.n_datasets` does: the parts of a split deposit count once, while `dataset_ids` lists each
+part.
 
 In a one-file catalog, point-lookup indexes are built on the columns those questions land on —
 `peptidoforms.base_sequence`, `quant_values.feature_id`, `proteins.gene` and the rest. List-valued

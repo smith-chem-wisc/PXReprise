@@ -166,7 +166,9 @@ protein_accession     gene  n_datasets_1pct
 
 `protein_index` and `peptide_index` are cross-dataset convenience tables built by `build`. They
 carry `n_datasets`, `n_datasets_1pct`, `dataset_ids`, `dataset_ids_1pct` and `best_q_value`, so a
-"how reproducible is this?" question needs no join.
+"how reproducible is this?" question needs no join. The counts are of **deposits**: a deposit searched
+in parts (one dataset per part, keyed `<accession>-<group>`) counts once, and `dataset_ids` lists each
+part. `deposits` lists every deposit with its datasets.
 
 ⚠ **`gene` here is currently unvalidated** — see [limitations.md §4](limitations.md). Use the
 accession as the key.

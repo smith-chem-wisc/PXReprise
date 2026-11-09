@@ -105,7 +105,8 @@ public sealed record DatasetAnnotation(
     IReadOnlyList<string>? Flags,
     string? ProvenanceSchema,
     string? Sdrf,
-    string? OperatorSdrf)
+    string? OperatorSdrf,
+    string? SplitReason = null)
 {
     /// <summary>The fields as one line of JSON, keys sorted: what the catalog id hashes. Not the manifest's path,
     /// which moves when the file does while the content stays.</summary>
@@ -119,6 +120,7 @@ public sealed record DatasetAnnotation(
         ["provenance_schema"] = ProvenanceSchema,
         ["sdrf"] = Sdrf,
         ["operator_sdrf"] = OperatorSdrf,
+        ["split_reason"] = SplitReason,
     }, sortKeys: true, ensureAscii: true);
 }
 
@@ -251,8 +253,12 @@ public static partial class CatalogBuilder
     /// on their own branch and never released under it. "15" (1.4.1) judges each bundle's reconciliation at build
     /// against the bound its producer's file format leaves (aging DATAREPO-86, <c>CatalogReconciliation.cs</c>):
     /// <c>catalog_reconciliation</c>, <c>catalog_bundles.reconciliation_explained</c>, and
-    /// <c>reconciliation_failed</c> naming only unexplained checks.</remarks>
-    public static string CatalogVersion => SchemaContract.IsPython0320 ? "8" : "15";
+    /// <c>reconciliation_failed</c> naming only unexplained checks. "16" (1.4.5) serves split deposits (PXR-R32):
+    /// <c>dataset_overview.accession</c>, <c>split_group</c> and <c>split_reason</c> (the manifest's, also in
+    /// <c>dataset_annotations</c>), the <c>deposits</c> table, <c>protein_index</c>'s and <c>peptide_index</c>'s
+    /// <c>n_datasets*</c> counting deposits, the census matched by accession, and a <c>split</c> check refusing a deposit
+    /// served both whole and in parts.</remarks>
+    public static string CatalogVersion => SchemaContract.IsPython0320 ? "8" : "16";
 
     /// <summary>Bundle tables a catalog does not hold. PSMs are archived per deposit, never in a catalog (PXReprise's
     /// public-data contract, rule 3; D48 step 2): they are 82% of a store's bytes, and nothing served from a catalog
@@ -277,7 +283,12 @@ public static partial class CatalogBuilder
     /// <summary>The <see cref="DatasetEntry.NonContentFields"/> that <c>dataset_annotations</c> carries, in column
     /// order. Every non-content field but <c>raw</c> (the source row, the container of these) is here, and a test
     /// fails on one that is in neither, so adding a manifest field means deciding whether a reader sees it.</summary>
-    public static readonly IReadOnlyList<string> AnnotationFields = ["status", "reason", "notes", "flags", "provenance_schema", "sdrf", "operator_sdrf"];
+    public static readonly IReadOnlyList<string> AnnotationFields = ["status", "reason", "notes", "flags", "provenance_schema", "sdrf", "operator_sdrf", "split_reason"];
+
+    /// <summary>The derived table of deposits: one row per ProteomeXchange accession, naming the searches the catalog
+    /// serves for it (PXR-R32). A split deposit is searched in parts, each its own dataset keyed
+    /// <c>&lt;accession&gt;-&lt;group&gt;</c> (G95); every other deposit is one dataset under its bare accession.</summary>
+    public const string DepositsTable = "deposits";
 
     /// <summary>The derived table of runs the build's manifest excludes from analysis (G85).</summary>
     public const string RunExclusionsTable = "run_exclusions";
@@ -349,6 +360,7 @@ public static partial class CatalogBuilder
         AnnotationsTable,
         RunExclusionsTable,
         RestrictionsTable,
+        DepositsTable,
     ];
 
     /// <summary>Views that apply the producing search engine's acceptance rule, so no caller has to restate
@@ -460,9 +472,21 @@ public static partial class CatalogBuilder
             "One row per dataset: its axes and its headline counts. The counts are the numbers the "
             + "bundle reconciled against the producer's own summary, so they agree with the bundle "
             + "by construction -- where they disagree with the PRODUCER, a `count_mismatch` finding "
-            + "says by how much, and the producer's number stays canonical.",
+            + "says by how much, and the producer's number stays canonical. A dataset is one SEARCH: a "
+            + "deposit searched in parts (a split, e.g. one search per species) has a row per part, so count "
+            + "DEPOSITS by `accession` (or read `deposits`), never by counting rows.",
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
+                ["accession"] = "The ProteomeXchange accession of the deposit this dataset was searched from: the "
+                    + "`dataset_id` itself, or for one search of a split deposit (`<accession>-<group>`) the part before "
+                    + "the `-`. PRIDE knows the deposit by it, and every USI names it.",
+                ["split_group"] = "For one search of a split deposit, the group its key names (`mouse` in "
+                    + "`PXD027754-mouse`); NULL for a deposit searched whole. The other searches of the deposit are the "
+                    + "rows with the same `accession`.",
+                ["split_reason"] = "Why the producer split the deposit, from the manifest the build was given: "
+                    + "`species`, `enrichment`, `label` or `chemistry`. NULL for a deposit searched whole, and for a split "
+                    + "search whose manifest entry states no reason (or that has no entry), which is not stated, never "
+                    + "'no reason'.",
                 ["n_psms_1pct"] = "Target PSMs passing the producer's acceptance rule, as the ingest counted them "
                     + "(`bundle.json` reconciliation `psms_target_1pct`). The PSMs themselves stay in the dataset's bundle "
                     + "(`psms.parquet`), not in the catalog. NULL when the bundle recorded no such count.",
@@ -494,16 +518,21 @@ public static partial class CatalogBuilder
             {
                 ["protein_accession"] = "The accession as the search database carried it. A `DECOY_` "
                     + "prefix marks a reversed sequence: FDR machinery, never a protein.",
-                ["n_datasets"] = "Datasets whose search DATABASE held this accession. Says nothing about "
-                    + "identification.",
-                ["n_datasets_1pct"] = "Datasets where the accession has evidence that passed acceptance "
-                    + "-- an accepted protein GROUP **or** an accepted PEPTIDOFORM. It is deliberately the "
-                    + "looser of the two and is NOT 'identified at 1% protein FDR': on aging's catalog 879 "
-                    + "of 9,130 pairs counted here are absent from `protein_groups_1pct`, because a peptide "
+                ["n_datasets"] = "DEPOSITS (ProteomeXchange accessions, `dataset_overview.accession`) whose search "
+                    + "DATABASE held this accession. Says nothing about identification. The searches of one split "
+                    + "deposit count once, so this can be less than the length of `dataset_ids`, which lists each search.",
+                ["n_datasets_1pct"] = "DEPOSITS where the accession has evidence that passed acceptance "
+                    + "-- an accepted protein GROUP **or** an accepted PEPTIDOFORM -- in any of the deposit's searches. "
+                    + "It is deliberately the looser of the two and is NOT 'identified at 1% protein FDR': on aging's "
+                    + "catalog 879 of 9,130 pairs counted here are absent from `protein_groups_1pct`, because a peptide "
                     + "passed where the protein group did not. For protein-level identification query "
                     + "`protein_groups_1pct` directly.",
-                ["dataset_ids_1pct"] = "The datasets `n_datasets_1pct` counted, same caveat.",
-                ["dataset_ids"] = "Every dataset whose database held it, same caveat as `n_datasets`.",
+                ["n_datasets_contaminant"] = "Deposits in which this accession is labelled a contaminant, in any of the "
+                    + "deposit's searches. There is no corpus-wide contaminant flag, because the label is per dataset: "
+                    + "P02768 (human albumin) is a target in every human search and a contaminant in every rodent one. "
+                    + "Compare with `n_datasets`, and use `protein_datasets.is_contaminant` per dataset.",
+                ["dataset_ids_1pct"] = "The datasets (searches) behind `n_datasets_1pct`, same caveat.",
+                ["dataset_ids"] = "Every dataset (search) whose database held it, same caveat as `n_datasets`.",
                 ["best_q_value"] = "Lowest PROTEIN-GROUP q-value across datasets, from "
                     + "`protein_groups_1pct`. NULL where no accepted group contains the accession -- which "
                     + "is why a row can carry `n_datasets_1pct > 0` beside a NULL here. The two columns are "
@@ -512,10 +541,6 @@ public static partial class CatalogBuilder
                     + "`protein_datasets` keeps the per-dataset truth.",
                 ["organism"] = "As above, per-accession. NULL for contaminant and decoy entries: a "
                     + "contaminant panel is bovine, porcine and bacterial by design.",
-                ["n_datasets_contaminant"] = "Datasets in which this accession is labelled a contaminant. "
-                    + "There is no corpus-wide contaminant flag, because the label is per dataset: P02768 "
-                    + "(human albumin) is a target in every human search and a contaminant in every rodent "
-                    + "one. Compare with `n_datasets`, and use `protein_datasets.is_contaminant` per dataset.",
             }),
         ["protein_datasets"] = new(
             "One row per (dataset, accession): the per-dataset truth that `protein_index` "
@@ -537,6 +562,8 @@ public static partial class CatalogBuilder
             + "appear in `peptidoforms` below threshold.",
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
+                ["n_datasets"] = "DEPOSITS (`dataset_overview.accession`) with an accepted peptidoform of this "
+                    + "sequence. The searches of one split deposit count once; `dataset_ids` lists each search.",
                 ["n_peptidoforms"] = "Accepted peptidoform rows with this base sequence, summed over "
                     + "datasets -- so one sequence seen in three datasets with two modification states "
                     + "each counts six.",
@@ -614,6 +641,29 @@ public static partial class CatalogBuilder
                     + "its factor values. Its bytes are a source of the bundle and in the bundle id; this path is not. NULL "
                     + "when the entry names none; the search's own recorded SDRF was then read (sha256-checked) or, for "
                     + "pxreprise_default, the deposit's metadata/ SDRF.",
+                ["split_reason"] = "Why the producer searched the deposit in parts, for one search of a split deposit "
+                    + "(`<accession>-<group>`): `species`, `enrichment`, `label` or `chemistry`. NULL when the entry "
+                    + "states none. Also on `dataset_overview.split_reason`.",
+            }),
+        [DepositsTable] = new(
+            "One row per DEPOSIT (ProteomeXchange accession) the catalog serves, naming its searches. Most deposits "
+            + "are searched whole, as one dataset under the bare accession. A deposit whose runs differ in species, "
+            + "enrichment, labelling or chemistry can be searched in parts (a split), each part its own dataset keyed "
+            + "`<accession>-<group>`. Count deposits here, or by `dataset_overview.accession`; a count of datasets counts "
+            + "a split deposit once per part. The build refuses a catalog serving a deposit both whole and in parts.",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["accession"] = "The ProteomeXchange accession, as PRIDE holds it.",
+                ["n_datasets"] = "How many datasets (searches) the catalog serves for the deposit: 1 for a deposit "
+                    + "searched whole, one per part served for a split.",
+                ["dataset_ids"] = "The deposit's datasets, sorted: `[accession]` for a deposit searched whole, the "
+                    + "`<accession>-<group>` keys for a split. Join `dataset_overview` on them.",
+                ["split_groups"] = "The groups of a split deposit's served parts, sorted; empty for a deposit searched whole.",
+                ["split_reasons"] = "The distinct reasons the manifest gives for the parts, sorted; empty when it "
+                    + "states none or the deposit is searched whole.",
+                ["n_runs"] = "Runs summed over the deposit's served searches. A split puts each raw file in one part, "
+                    + "so this is the deposit's runs the catalog holds; a raw file searched in two parts would count "
+                    + "twice, and `runs.sha256` finds one.",
             }),
         [RestrictionsTable] = new(
             "One row per (dataset, use) the producer says the WHOLE dataset is unfit for (the manifest's "
@@ -738,10 +788,11 @@ public static partial class CatalogBuilder
     {
         ["dataset_id"] = "The catalog's dataset for this accession, or NULL when the catalog holds none -- the "
             + "usual case for an accession the census excluded, and for an included one ingest has not reached "
-            + "(the `catalog_checks` rows of kind `census` name those). The rows come from the producer's "
-            + "discovery census, the TSV its manifest names as `candidates`, read by `datarepo build` "
-            + "(`catalog_meta.notes.candidates` gives the file and its sha256), not from any bundle.",
-        ["bundle_id"] = "The catalog's bundle for this accession, or NULL when the catalog holds none.",
+            + "(the `catalog_checks` rows of kind `census` name those). A deposit the catalog serves in parts (a "
+            + "split, `<accession>-<group>`) has one row per served part, each naming its dataset. The rows come "
+            + "from the producer's discovery census, the TSV its manifest names as `candidates`, read by `datarepo "
+            + "build` (`catalog_meta.notes.candidates` gives the file and its sha256), not from any bundle.",
+        ["bundle_id"] = "The catalog's bundle for this row's dataset, or NULL when the catalog holds none.",
     };
 
     // --- discovery and selection ---------------------------------------------------------------------
@@ -987,7 +1038,7 @@ public static partial class CatalogBuilder
                 return new DatasetAnnotation(r.DatasetId, r.BundleId, false, null, null, null, null, null, null, null);
             return new DatasetAnnotation(r.DatasetId, r.BundleId, true, e.Status, DatasetEntry.Text(e.Reason),
                 DatasetEntry.Text(e.Notes), e.Flags.ToList(), DatasetEntry.Text(e.ProvenanceSchema), DatasetEntry.Text(e.Sdrf),
-                e.OperatorSdrf);
+                e.OperatorSdrf, e.SplitReason);
         }).ToList();
 
     private static string CatalogIdOf(
@@ -1450,6 +1501,12 @@ public static partial class CatalogBuilder
                     + $"{r.SchemaVersion}, and this build writes {SchemaContract.Version}. Re-run it.");
 
         var datasets = seen.Keys.Order(SourcesPy.CodePointOrder).ToList();
+        // PXR-R31: refused before anything is staged, since nothing loaded can change it. Python 0.32.0 had no splits.
+        var splitCheck = AnnotationsActive ? SplitCheck(bundles) : null;
+        if (splitCheck is { Ok: false })
+            throw new CatalogException(
+                "the bundles do not hold together as one catalog, so nothing was written:\n"
+                + $"  - {splitCheck.Name}: {PyOptional(splitCheck.Observed)} vs {PyOptional(splitCheck.Expected)} ({splitCheck.Detail})");
         var annotations = Annotations(bundles, manifest);
         var exclusions = RunExclusions(bundles, manifest);
         var restrictions = Restrictions(bundles, manifest);
@@ -1527,6 +1584,7 @@ public static partial class CatalogBuilder
                     CreateAnnotations(con, annotations);
                     CreateRunExclusions(con, exclusions);
                     CreateRestrictions(con, restrictions);
+                    CreateDeposits(con);
                 }
                 if (census is not null) rowCounts[CandidateCensus.Table] = LoadCandidates(con, census, bundles);
                 Lap("manifest");
@@ -1546,7 +1604,7 @@ public static partial class CatalogBuilder
                 checks = [
                     .. checks,
                     .. engineChecks ?? [],
-                    .. AnnotationsActive ? [AnnotationCheck(annotations)] : Array.Empty<CatalogCheck>(),
+                    .. AnnotationsActive ? [AnnotationCheck(annotations), splitCheck!] : Array.Empty<CatalogCheck>(),
                     .. AnnotationsActive && exclusions.Count > 0 ? [RunExclusionCheck(con, exclusions)] : Array.Empty<CatalogCheck>(),
                     .. census is not null ? CensusChecks(census, bundles) : Array.Empty<CatalogCheck>(),
                 ];
@@ -1741,13 +1799,62 @@ public static partial class CatalogBuilder
         Exec(con, $@"
         CREATE TABLE ""{AnnotationsTable}"" (
             dataset_id VARCHAR, bundle_id VARCHAR, in_manifest BOOLEAN, status VARCHAR, reason VARCHAR,
-            notes VARCHAR, flags VARCHAR[], provenance_schema VARCHAR, sdrf VARCHAR, operator_sdrf VARCHAR
+            notes VARCHAR, flags VARCHAR[], provenance_schema VARCHAR, sdrf VARCHAR, operator_sdrf VARCHAR,
+            split_reason VARCHAR
         )
         ");
         foreach (var a in annotations)
-            Exec(con, $"INSERT INTO \"{AnnotationsTable}\" VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            Exec(con, $"INSERT INTO \"{AnnotationsTable}\" VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 a.DatasetId, a.BundleId, a.InManifest, a.Status, a.Reason, a.Notes, a.Flags?.ToList(), a.ProvenanceSchema, a.Sdrf,
-                a.OperatorSdrf);
+                a.OperatorSdrf, a.SplitReason);
+    }
+
+    /// <summary><c>dataset_overview.split_reason</c> from <c>dataset_annotations</c>, and <c>deposits</c>: one row per
+    /// ProteomeXchange accession, naming the searches served for it (PXR-R32).</summary>
+    /// <remarks>Needs <c>dataset_annotations</c> and the overview's <c>accession</c> and <c>split_group</c>. The reason
+    /// is read only for a split search: a bare key's entry cannot carry one (<see cref="Manifest.Load"/> refuses it).</remarks>
+    private static void CreateDeposits(DuckDBConnection con)
+    {
+        Exec(con, "ALTER TABLE dataset_overview ADD COLUMN split_reason VARCHAR");
+        Exec(con, $@"
+        UPDATE dataset_overview o SET split_reason = a.split_reason
+        FROM ""{AnnotationsTable}"" a WHERE a.dataset_id = o.dataset_id AND o.split_group IS NOT NULL
+        ");
+        Exec(con, $@"
+        CREATE TABLE ""{DepositsTable}"" AS
+        SELECT
+            accession,
+            count(*)                                                                  AS n_datasets,
+            list_sort(list(dataset_id))                                               AS dataset_ids,
+            coalesce(list_sort(list(split_group) FILTER (WHERE split_group IS NOT NULL)), []::VARCHAR[])   AS split_groups,
+            coalesce(list_sort(list(DISTINCT split_reason) FILTER (WHERE split_reason IS NOT NULL)), []::VARCHAR[]) AS split_reasons,
+            CAST(sum(n_runs) AS BIGINT)                                               AS n_runs
+        FROM dataset_overview
+        GROUP BY accession
+        ORDER BY accession
+        ");
+    }
+
+    /// <summary>Whether a deposit is served both whole and in parts: its bare accession beside one of its own
+    /// <c>&lt;accession&gt;-&lt;group&gt;</c> keys (PXR-R31). FAILS then, which stops the build.</summary>
+    /// <remarks>Every number for the deposit would be counted twice -- once in the whole search and once in its parts --
+    /// and nothing else in the build notices: every table reconciles per key. A producer retiring the whole search writes
+    /// <c>status: superseded</c> on its entry in the same manifest write that adds the parts (our PXReprise 093).
+    /// Observed and expected are the split deposits served, so a passing row says how many there are.</remarks>
+    internal static CatalogCheck SplitCheck(IReadOnlyList<BundleRef> bundles)
+    {
+        var keys = bundles.Select(r => r.DatasetId).ToHashSet(StringComparer.Ordinal);
+        var split = bundles.Select(r => r.DatasetId).Where(k => Usi.DepositAccession(k) != k)
+            .GroupBy(Usi.DepositAccession, StringComparer.Ordinal)
+            .OrderBy(g => g.Key, SourcesPy.CodePointOrder).ToList();
+        var both = split.Where(g => keys.Contains(g.Key)).ToList();
+        return new CatalogCheck("split deposits (none served both whole and in parts)", "split", both.Count == 0,
+            split.Count - both.Count, split.Count,
+            both.Count == 0 ? null
+                : "served both whole and in parts: " + string.Join("; ", both.Select(g =>
+                    $"{g.Key} beside {string.Join(", ", g.Order(SourcesPy.CodePointOrder))}"))
+                  + ". Every count for the deposit would be counted twice. Retire the whole search (status: superseded) "
+                  + "or leave its parts out.");
     }
 
     /// <summary><c>run_exclusions</c>: one row per run the build's manifest excludes from analysis (G85). Written
@@ -1791,42 +1898,59 @@ public static partial class CatalogBuilder
     /// <remarks>No bundle wrote these rows, so the two provenance columns cannot name one. They say instead what a
     /// reader of this table wants first: the catalog's <c>dataset_id</c> and <c>bundle_id</c> for the accession when the
     /// catalog holds it, NULL when it does not. Where the rows came from is <c>catalog_meta.notes.candidates</c> (the
-    /// file and its sha256) and <c>catalog_tables.kind</c> <c>manifest</c>.</remarks>
+    /// file and its sha256) and <c>catalog_tables.kind</c> <c>manifest</c>.
+    /// <para>The census screens DEPOSITS, so it is matched by accession (PXR-R32): a deposit served in parts has one row
+    /// per served part, each naming its dataset, and one served whole has the one row it always had.</para></remarks>
     private static long LoadCandidates(DuckDBConnection con, CandidateCensus census, IReadOnlyList<BundleRef> bundles)
     {
-        var held = bundles.ToDictionary(r => r.DatasetId, r => r.BundleId, StringComparer.Ordinal);
+        var held = HeldByAccession(bundles);
+        long written = 0;
         foreach (var row in census.Rows.OrderBy(r => r.Accession, SourcesPy.CodePointOrder))
         {
-            var bundleId = held.GetValueOrDefault(row.Accession);
-            Exec(con,
-                $"INSERT INTO \"{CandidateCensus.Table}\" (dataset_id, bundle_id, census_version, accession, included, exclusion_reason, definition_id) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                bundleId is null ? null : row.Accession, bundleId, row.CensusVersion, row.Accession, row.Included,
-                row.ExclusionReason, row.DefinitionId);
+            IEnumerable<(string? DatasetId, string? BundleId)> served = held.TryGetValue(row.Accession, out var parts)
+                ? parts.Select(r => ((string?)r.DatasetId, (string?)r.BundleId))
+                : [(null, null)];
+            foreach (var (datasetId, bundleId) in served)
+            {
+                Exec(con,
+                    $"INSERT INTO \"{CandidateCensus.Table}\" (dataset_id, bundle_id, census_version, accession, included, exclusion_reason, definition_id) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    datasetId, bundleId, row.CensusVersion, row.Accession, row.Included, row.ExclusionReason, row.DefinitionId);
+                written++;
+            }
         }
-        return census.Rows.Count;
+        return written;
     }
+
+    /// <summary>The bundles a catalog holds, by the deposit each was searched from (<see cref="Usi.DepositAccession"/>),
+    /// each deposit's in dataset order.</summary>
+    private static Dictionary<string, List<BundleRef>> HeldByAccession(IReadOnlyList<BundleRef> bundles) =>
+        bundles.GroupBy(r => Usi.DepositAccession(r.DatasetId), StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.OrderBy(r => r.DatasetId, SourcesPy.CodePointOrder).ToList(), StringComparer.Ordinal);
 
     /// <summary>The census against the catalog, both ways. Both always PASS: they name, they do not refuse.</summary>
     /// <remarks>An accession the census includes with no dataset here is normal while ingest catches up with the
     /// screen, and a catalog dataset the census does not include is the producer's to reconcile, not a reason to
     /// withhold a catalog. Each is named, so neither is silent: a reader asking "why is PXDn not here?" of a census
-    /// that says it is included is told by this row, and a dataset served without a verdict is told by the other.</remarks>
+    /// that says it is included is told by this row, and a dataset served without a verdict is told by the other.
+    /// <para>The census screens DEPOSITS, so both compare by accession (PXR-R32): an included deposit served in parts is
+    /// held, and each part takes its deposit's verdict.</para></remarks>
     private static CatalogCheck[] CensusChecks(CandidateCensus census, IReadOnlyList<BundleRef> bundles)
     {
-        var held = bundles.Select(r => r.DatasetId).ToHashSet(StringComparer.Ordinal);
+        var held = HeldByAccession(bundles);
         var verdict = census.Rows.ToDictionary(r => r.Accession, StringComparer.Ordinal);
         var included = census.Rows.Where(r => r.Included).Select(r => r.Accession).Order(SourcesPy.CodePointOrder).ToList();
-        var notHeld = included.Where(a => !held.Contains(a)).ToList();
-        var datasets = held.Order(SourcesPy.CodePointOrder).ToList();
-        var absent = datasets.Where(d => !verdict.ContainsKey(d)).ToList();
-        var notIncluded = datasets.Where(d => verdict.TryGetValue(d, out var v) && !v.Included).ToList();
+        var notHeld = included.Where(a => !held.ContainsKey(a)).ToList();
+        var datasets = bundles.Select(r => r.DatasetId).Distinct(StringComparer.Ordinal).Order(SourcesPy.CodePointOrder).ToList();
+        CandidateRow? VerdictOf(string datasetId) => verdict.GetValueOrDefault(Usi.DepositAccession(datasetId));
+        var absent = datasets.Where(d => VerdictOf(d) is null).ToList();
+        var notIncluded = datasets.Where(d => VerdictOf(d) is { Included: false }).ToList();
 
         var problems = new List<string>();
         if (absent.Count > 0) problems.Add("not in the census: " + string.Join(", ", absent));
         if (notIncluded.Count > 0)
             problems.Add("in the census as not included: " + string.Join(", ", notIncluded.Select(d =>
-                verdict[d].ExclusionReason is { } reason ? $"{d} ({reason})" : d)));
+                VerdictOf(d)!.ExclusionReason is { } reason ? $"{d} ({reason})" : d)));
         return
         [
             new CatalogCheck($"{CandidateCensus.Table} (included accessions the catalog holds)", "census", true,
@@ -2221,11 +2345,18 @@ public static partial class CatalogBuilder
                 ELSE 'database' END AS unique_peptides_scope,
             ";
 
+    /// <summary>The deposit a dataset was searched from, and the group a split search names (PXR-R32): the SQL of
+    /// <see cref="Usi.DepositAccession"/>, which an accession satisfies because it holds no <c>-</c>. Python 0.32.0's
+    /// overview had neither column, so a parity build writes none.</summary>
+    internal static string SplitKeyColumns => SchemaContract.IsPython0320 ? "" : @"split_part(d.dataset_id, '-', 1) AS accession,
+            CASE WHEN contains(d.dataset_id, '-') THEN substr(d.dataset_id, strpos(d.dataset_id, '-') + 1) END AS split_group,
+            ";
+
     /// <summary><c>dataset_overview</c>: one row per dataset. <paramref name="psmCounts"/> names the table of each bundle's
     /// own PSM counts when the catalog holds no PSMs (<see cref="PsmCountsFromBundles"/>).</summary>
     private static string OverviewSelect(string? psmCounts) => $@"        SELECT
             d.dataset_id,
-            d.bundle_id,
+            {SplitKeyColumns}d.bundle_id,
             d.title,
             d.organisms,
             d.acquisition,
@@ -2289,13 +2420,16 @@ public static partial class CatalogBuilder
     // sub-threshold matches included, because `proteins` is the search's protein list, not its answer.
     // `n_datasets_1pct` counts where it has evidence that passed. An agent asking "which datasets have
     // this protein" almost always means the second one, so both are here with names that say which is which.
+    //
+    // Both count DEPOSITS (PXR-R32): `split_part` is `Usi.DepositAccession`, so the searches of one split deposit count
+    // once while `dataset_ids` keeps each. A count of keys would read one deposit's two halves as two studies.
     private const string ProteinIndexSelect = @"        SELECT
             p.protein_accession,
             max(p.gene)                                AS gene,
             max(p.organism)                            AS organism,
-            count(DISTINCT p.dataset_id) FILTER (WHERE p.is_contaminant) AS n_datasets_contaminant,
-            count(DISTINCT p.dataset_id)               AS n_datasets,
-            count(DISTINCT p.dataset_id) FILTER (
+            count(DISTINCT split_part(p.dataset_id, '-', 1)) FILTER (WHERE p.is_contaminant) AS n_datasets_contaminant,
+            count(DISTINCT split_part(p.dataset_id, '-', 1))  AS n_datasets,
+            count(DISTINCT split_part(p.dataset_id, '-', 1)) FILTER (
                 WHERE d.n_protein_groups > 0 OR d.n_peptidoforms > 0)  AS n_datasets_1pct,
             list_sort(list(DISTINCT p.dataset_id))     AS dataset_ids,
             list_sort(list(DISTINCT p.dataset_id) FILTER (
@@ -2338,7 +2472,7 @@ public static partial class CatalogBuilder
 
     private const string PeptideIndexSelect = @"        SELECT
             base_sequence,
-            count(DISTINCT dataset_id)           AS n_datasets,
+            count(DISTINCT split_part(dataset_id, '-', 1)) AS n_datasets,
             list_sort(list(DISTINCT dataset_id)) AS dataset_ids,
             count(*)                             AS n_peptidoforms,
             min(best_q_value)                    AS best_q_value
@@ -2719,7 +2853,7 @@ public static partial class CatalogBuilder
         var views = CatalogedAcceptedViews.Select(kv => kv.Key).Concat(GrainViews.Select(kv => kv.Key)).ToHashSet(StringComparer.Ordinal);
         foreach (var name in DerivedTables.Concat(CatalogedAcceptedViews.Select(kv => kv.Key)).Concat(GrainViews.Select(kv => kv.Key)))
         {
-            if (name is AnnotationsTable or RunExclusionsTable or RestrictionsTable && !AnnotationsActive) continue;
+            if (name is AnnotationsTable or RunExclusionsTable or RestrictionsTable or DepositsTable && !AnnotationsActive) continue;
             var rows = Count(con, $"SELECT count(*) FROM \"{name}\"");
             Exec(con, "INSERT INTO catalog_tables VALUES (?, ?, ?)", name, rows, views.Contains(name) ? "view" : "derived");
         }

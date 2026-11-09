@@ -375,9 +375,14 @@ public sealed partial class CatalogServer : IDisposable
     {
         var tables = TablesInCatalog();
         var populated = tables.Where(kv => RowsOrZero(kv.Value) > 0).ToList();
+        // PXR-R32: a catalog serving a deposit in parts says which deposit each part is of, so an agent never counts two
+        // parts as two studies. Only then: a catalog with no split answers exactly as it did.
+        var split = Box.HasTable(CatalogBuilder.DepositsTable)
+            && Box.Dicts($"SELECT count(*) AS n FROM {CatalogBuilder.DepositsTable} WHERE n_datasets > 1 OR len(split_groups) > 0")
+                .Single()["n"] is long n && n > 0;
         var datasets = Box.HasTable("dataset_overview")
             ? Box.Dicts(
-                "SELECT dataset_id, title, organisms, acquisition, quant_method, labelling, "
+                "SELECT dataset_id, " + (split ? "accession, split_group, split_reason, " : "") + "title, organisms, acquisition, quant_method, labelling, "
                 + "enrichment, enrichment_mixed, instrument_vendor, n_runs, n_samples, n_psms_1pct, "
                 + "n_peptidoforms_1pct, n_protein_groups_1pct, n_ptm_sites, n_open_findings "
                 + "FROM dataset_overview ORDER BY dataset_id")

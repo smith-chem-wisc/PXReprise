@@ -41,6 +41,10 @@ public sealed class SiteResult
     public required string Out { get; init; }
     public required string CatalogId { get; init; }
     public List<string> Files { get; set; } = [];
+
+    /// <summary>The pages of deposits served in parts (<c>datasets/&lt;accession&gt;.html</c>, PXR-R32), among
+    /// <see cref="Files"/>.</summary>
+    public IReadOnlyList<string> DepositPages { get; init; } = [];
     public Dictionary<string, string> Skipped { get; } = [];
     public List<string> Warnings { get; } = [];
 }
@@ -181,7 +185,19 @@ public static partial class SiteGenerator
             $"protein groups, and the repository holds {N(ds["n_ptm_sites"])} PTM sites for it.");
         var warnings = (long)Findings(ds).Count(f => f["severity"] is "warning" or "error");
         if (warnings != 0) parts.Add($"{Plural(warnings, "open warning")} about it are recorded.");
+        if (IsSplitSearch(ds)) parts.Add(SplitSentence(ds));
         return string.Join(" ", parts);
+    }
+
+    /// <summary>What a split search is (PXR-R32), from catalog fields only (D17): its deposit, the reason the manifest
+    /// gives, and the deposit's other searches the catalog serves.</summary>
+    private static string SplitSentence(Dict ds)
+    {
+        var reason = ds.GetValueOrDefault("split_reason") is string r ? $" by {r}" : "";
+        var siblings = Strings(ds.GetValueOrDefault("siblings"));
+        var others = siblings.Count == 0 ? "No other part of it is in this repository."
+            : $"The deposit's other {(siblings.Count == 1 ? "part is" : "parts are")} {JoinWords(siblings)}.";
+        return $"It is one part of deposit {DepositOf(ds)}, which was searched in parts (split{reason}). {others}";
     }
 
     // --- URLs ----------------------------------------------------------------------------------
@@ -192,9 +208,11 @@ public static partial class SiteGenerator
     private static string ForQuestions(SiteFacts facts) =>
         facts.Purpose is { Length: > 0 } p ? $", for questions about {p}" : "";
 
-    private static string? PrideUrl(string datasetId) =>
-        datasetId.StartsWith("PXD", StringComparison.Ordinal)
-            ? $"https://www.ebi.ac.uk/pride/archive/projects/{PyText.Quote(datasetId)}" : null;
+    /// <summary>The deposit's PRIDE page. Built from the ACCESSION (<see cref="DepositOf"/>), never a split search's key:
+    /// <c>projects/PXD027754-rat</c> is no PRIDE project (PXR-R32).</summary>
+    private static string? PrideUrl(string accession) =>
+        accession.StartsWith("PXD", StringComparison.Ordinal)
+            ? $"https://www.ebi.ac.uk/pride/archive/projects/{PyText.Quote(accession)}" : null;
 
     private static string PagePath(string datasetId) => $"datasets/{PyText.Quote(datasetId)}.html";
 
@@ -252,7 +270,10 @@ public static partial class SiteGenerator
             {
                 "peptide-spectrum match", "peptidoform", "protein group", "PTM site", "protein abundance",
             },
-            ["isBasedOn"] = PrideUrl(Id(ds)),
+            ["isBasedOn"] = PrideUrl(DepositOf(ds)),
+            ["isPartOf"] = IsSplitSearch(ds)
+                ? WithoutNulls(new Dict { ["@type"] = "Dataset", ["name"] = DepositOf(ds), ["url"] = Absolute(baseUrl, PagePath(DepositOf(ds))) })
+                : null,
             ["license"] = LicenceUrl(ds.GetValueOrDefault("licence")),
             ["creator"] = PyText.Truthy(ds.GetValueOrDefault("credit"))
                 ? new Dict { ["@type"] = "Organization", ["name"] = ds["credit"] } : null,
@@ -285,7 +306,7 @@ public static partial class SiteGenerator
             ["url"] = Absolute(baseUrl, "index.html"),
             ["identifier"] = $"datarepo:catalog:{PyText.Str(facts.Meta["catalog_id"])}",
             ["description"] =
-                $"Search and quantification results for {facts.Datasets.Count} public proteomics " +
+                $"Search and quantification results for {facts.DepositCount} public proteomics " +
                 $"datasets reanalysed with one pipeline{ForQuestions(facts)}.",
             ["dataset"] = facts.Datasets.Select(ds => (object?)WithoutNulls(new Dict
             {
@@ -589,9 +610,11 @@ public static partial class SiteGenerator
         var rows = new List<string>();
         foreach (var ds in facts.Datasets)
         {
+            var partOf = IsSplitSearch(ds)
+                ? $"<br><span class=\"note\">part of <a href=\"{PagePath(DepositOf(ds))}\">{E(DepositOf(ds))}</a></span>" : "";
             rows.Add(
                 "<tr>" +
-                $"<td><a href=\"{PagePath(Id(ds))}\">{E(Id(ds))}</a></td>" +
+                $"<td><a href=\"{PagePath(Id(ds))}\">{E(Id(ds))}</a>{partOf}</td>" +
                 $"<td>{E(Or(ds, "title", ""))}</td>" +
                 $"<td>{E(string.Join(", ", Strings(ds["organism_names"])))}</td>" +
                 $"<td>{E(EnrichmentCell(ds))}</td>" +
@@ -609,6 +632,11 @@ public static partial class SiteGenerator
             $"<div class=\"tile-note\">{E(m["note"])}</div></div>"));
         var aboutBlock = !string.IsNullOrEmpty(about) ? $"<section class=\"about\">\n{AboutHtml(about)}\n</section>" : "";
         var purposeSentence = facts.Purpose is { Length: > 0 } p ? $" The question they serve is {E(p)}." : "";
+        // PXR-R32: said only when something is split, so a catalog with no split says what it always said.
+        var splitSentence = facts.SplitDeposits.Count == 0 ? ""
+            : $" {PyText.Thousands((long)facts.SplitDeposits.Count)} of them {(facts.SplitDeposits.Count == 1 ? "was" : "were")} searched in parts (split, e.g. one "
+              + $"search per species), so the table below has {Plural((long)facts.Datasets.Count, "row")}, one per search; each "
+              + "split deposit has a page of its own linking its parts.";
         var body = Lf.Text($"""
             <header>
             <h1>{E(title)}</h1>
@@ -621,8 +649,8 @@ public static partial class SiteGenerator
             </div>
             <p class="note">Figures of merit from catalog <code>{E(meta["catalog_id"])}</code>. Hover a number for its exact value.</p>
             <h2>This repository</h2>
-            <p class="lede">Search and quantification results for {Plural((long)facts.Datasets.Count, "public proteomics dataset")},
-            reanalysed with one pipeline and stored with the same schema, so they can be compared.{purposeSentence}</p>
+            <p class="lede">Search and quantification results for {Plural((long)facts.DepositCount, "public proteomics dataset")},
+            reanalysed with one pipeline and stored with the same schema, so they can be compared.{purposeSentence}{splitSentence}</p>
             <p><strong>For AI agents:</strong> start at <a href="llms.txt"><code>llms.txt</code></a>. The same facts
             as this page are in <a href="datasets.json"><code>datasets.json</code></a>.</p>
             <h2>The corpus at a glance</h2>
@@ -655,7 +683,19 @@ public static partial class SiteGenerator
     private static string DatasetHtml(Dict ds, Dict meta, string title, string? baseUrl, string? dataUrl, IReadOnlyList<string> keywords)
     {
         var datasetId = Id(ds);
-        var pride = PrideUrl(datasetId);
+        var pride = PrideUrl(DepositOf(ds));
+        // PXR-R32: a split search names its deposit and the deposit's other parts, so no reader takes it for the whole.
+        var partOf = "";
+        if (IsSplitSearch(ds))
+        {
+            var reason = ds.GetValueOrDefault("split_reason") is string r ? $", split by {E(r)}" : "";
+            var siblings = Strings(ds.GetValueOrDefault("siblings"));
+            var others = siblings.Count == 0 ? "No other part of it is in this repository."
+                : $"Its other {(siblings.Count == 1 ? "part" : "parts")}: "
+                  + string.Join(", ", siblings.Select(s => $"<a href=\"{PyText.Quote(s)}.html\">{E(s)}</a>")) + ".";
+            partOf = $"\n<p class=\"note\">One part of deposit <a href=\"{PyText.Quote(DepositOf(ds))}.html\">{E(DepositOf(ds))}</a>{reason}: "
+                + $"a search of some of its runs, not the whole deposit. {others}</p>";
+        }
         var counts = new (string Label, object? Value)[]
         {
             ("PSMs at 1% FDR", ds["n_psms_1pct"]),
@@ -765,7 +805,7 @@ public static partial class SiteGenerator
             <header>
             <p class="crumb"><a href="../index.html">{E(title)}</a> / {E(datasetId)}</p>
             <h1>{E(Title(ds))}</h1>
-            <p>{E(datasetId)}{(links.Count > 0 ? " · " + string.Join(" · ", links) : "")}</p>
+            <p>{E(datasetId)}{(links.Count > 0 ? " · " + string.Join(" · ", links) : "")}</p>{partOf}
             </header>
             <main>
             <div class="generated"><span class="label">Generated summary</span>
@@ -811,5 +851,69 @@ public static partial class SiteGenerator
             """);
         return Page($"{datasetId}: {Title(ds)}", body, "../",
             DatasetJsonLd(ds, meta, baseUrl, dataUrl, keywords), meta);
+    }
+
+    /// <summary>The page of a deposit served in parts, at <c>datasets/&lt;accession&gt;.html</c> (PXR-R32): the address the
+    /// deposit had while it was searched whole, now listing its parts. Each part's numbers stay on its own page and are
+    /// never summed here: a protein found in two parts would be counted twice.</summary>
+    private static string DepositHtml(Dict deposit, Dict meta, string title, string? baseUrl)
+    {
+        var accession = (string)deposit["accession"]!;
+        var parts = ((List<Dict>)deposit["datasets"]!).ToList();
+        var pride = PrideUrl(accession);
+        var reasons = Strings(deposit["split_reasons"]);
+        var why = reasons.Count > 0 ? $" (split by {E(JoinWords(reasons))})" : "";
+        var heading = parts.Select(p => S(p, "title")).FirstOrDefault(t => !string.IsNullOrEmpty(t)) ?? accession;
+        var rows = string.Join("\n", parts.Select(ds =>
+            "<tr>" +
+            $"<td><a href=\"{PyText.Quote(Id(ds))}.html\">{E(Id(ds))}</a></td>" +
+            $"<td>{E(string.Join(", ", Strings(ds["organism_names"])))}</td>" +
+            $"<td>{E(EnrichmentCell(ds))}</td>" +
+            $"<td class=\"num\">{N(ds["n_runs"])}</td>" +
+            $"<td class=\"num\">{N(ds["n_psms_1pct"])}</td>" +
+            $"<td class=\"num\">{N(ds["n_protein_groups_1pct"])}</td>" +
+            $"<td class=\"num\">{N(ds["n_ptm_sites"])}</td>" +
+            "</tr>"));
+        var body = Lf.Text($"""
+            <header>
+            <p class="crumb"><a href="../index.html">{E(title)}</a> / {E(accession)}</p>
+            <h1>{E(heading)}</h1>
+            <p>{E(accession)}{(pride is not null ? $" · <a href=\"{E(pride)}\">PRIDE record</a>" : "")}</p>
+            </header>
+            <main>
+            <p class="lede">This deposit was searched in {Plural((long)parts.Count, "part")}{why}. Each part is a dataset of
+            its own, with its own runs, search, bundle and findings. Open a part for its numbers: they are not summed here,
+            because one protein or peptide can be found in more than one part.</p>
+            <div class="scroll"><table>
+            <thead><tr><th>Part</th><th>Organism</th><th>Enrichment</th><th class="num">Runs</th><th class="num">PSMs</th>
+            <th class="num">Protein groups</th><th class="num">PTM sites</th></tr></thead>
+            <tbody>
+            {rows}
+            </tbody>
+            </table></div>
+            <p class="note">Counts are at 1% FDR, as the search engine reports them. Organism is that of the protein database searched.</p>
+            </main>
+            """);
+        var jsonld = WithoutNulls(new Dict
+        {
+            ["@context"] = "https://schema.org/",
+            ["@type"] = "Dataset",
+            ["@id"] = Absolute(baseUrl, PagePath(accession)),
+            ["url"] = Absolute(baseUrl, PagePath(accession)),
+            ["name"] = $"{accession} reanalysis: {heading}",
+            ["identifier"] = accession,
+            ["isBasedOn"] = pride,
+            ["hasPart"] = parts.Select(ds => (object?)WithoutNulls(new Dict
+            {
+                ["@type"] = "Dataset", ["name"] = Id(ds), ["identifier"] = Id(ds), ["url"] = Absolute(baseUrl, PagePath(Id(ds))),
+            })).ToList(),
+            ["includedInDataCatalog"] = new Dict
+            {
+                ["@type"] = "DataCatalog",
+                ["name"] = $"datarepo catalog {PyText.Str(meta["catalog_id"])}",
+                ["url"] = Absolute(baseUrl, "index.html"),
+            },
+        });
+        return Page($"{accession}: {heading}", body, "../", jsonld, meta);
     }
 }

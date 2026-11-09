@@ -356,7 +356,22 @@ namespace DataRepo.Cli
                 // manifest loaded, so each one listed here is a key `build` will serve.
                 foreach (var (use, reason) in entry.Restrictions)
                     Console.WriteLine($"     restricted {use}: {string.Join(" ", reason.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))}");
+                // PXR-R32: one part of a deposit searched in parts. An unknown reason was already refused on load.
+                var deposit = Usi.DepositAccession(entry.Accession);
+                if (deposit != entry.Accession)
+                    Console.WriteLine($"     split  part of {deposit}, {(entry.SplitReason is { } why ? $"split by {why}" : "no split_reason stated")}");
             }
+            // PXR-R31: `build` refuses a deposit served whole beside its parts, since every count would be counted twice. A
+            // whole entry still `include` beside an `include` part is that mistake, found here before a build.
+            var wholeBesideParts = manifest.Datasets.Values.Where(e => e.Ingestable)
+                .GroupBy(e => Usi.DepositAccession(e.Accession), StringComparer.Ordinal)
+                .Where(g => g.Any(e => e.Accession == g.Key) && g.Any(e => e.Accession != g.Key))
+                .OrderBy(g => g.Key, StringComparer.Ordinal).ToList();
+            if (wholeBesideParts.Count > 0) Console.WriteLine();
+            foreach (var g in wholeBesideParts)
+                Console.WriteLine($"WHOLE AND PARTS {g.Key} is include beside "
+                    + string.Join(", ", g.Where(e => e.Accession != g.Key).Select(e => e.Accession).Order(StringComparer.Ordinal))
+                    + $"; retire it (status: superseded) in the write that adds its parts");
             // The discovery census (dataset_candidates): read here exactly as `build` reads it, so a malformed file is
             // found before a build refuses it. Ingest never reads it.
             var censusRefused = false;
@@ -385,7 +400,9 @@ namespace DataRepo.Cli
                 Console.Error.WriteLine($"{manifest.Path}: {unmatched} dataset(s) have excluded_runs that are not runs of the dataset; build would refuse them");
             if (censusRefused)
                 Console.Error.WriteLine($"{manifest.Path}: the candidates census is malformed; build would refuse it");
-            return refused > 0 || unmatched > 0 || censusRefused ? 1 : 0;
+            if (wholeBesideParts.Count > 0)
+                Console.Error.WriteLine($"{manifest.Path}: {wholeBesideParts.Count} deposit(s) are include both whole and in parts; build would refuse them served together");
+            return refused > 0 || unmatched > 0 || censusRefused || wholeBesideParts.Count > 0 ? 1 : 0;
         }
 
         private static int Inspect(string[] argv)

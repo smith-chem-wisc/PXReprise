@@ -4,6 +4,33 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [1.4.5] - unreleased
+
+**No row moves and no bundle id moves.** The ingest path stays `cs-1.2.0` and the schema 0.0.16; the catalog format goes
+to 16, so every catalog id moves and a catalog folder derives each deposit's rows once more. Nothing needs re-ingesting:
+swap the binary and build. From PXReprise's PXR-R32 (our 093) and their 105.
+
+### Added (catalog): split deposits
+A deposit searched in parts has one dataset per part, keyed `<accession>-<group>` (G95, schema 0.0.16). Such a key
+already ingested and built; 1.4.5 serves it as one deposit.
+- **`split_reason`**, a manifest field: `species`, `enrichment`, `label` or `chemistry`. Any other value is refused, and
+  so is one on a key with no group. It is not content, so no bundle id moves. It reaches `dataset_annotations` and the
+  catalog id at build.
+- **`dataset_overview.accession`, `split_group` and `split_reason`.** `accession` is the deposit each dataset was searched
+  from: the id itself, or the part before the `-`.
+- **`deposits`**, one row per accession: its datasets, groups, reasons and runs.
+- **`protein_index.n_datasets`, `n_datasets_1pct`, `n_datasets_contaminant` and `peptide_index.n_datasets` count
+  deposits.** The parts of one split count once; `dataset_ids` still lists each part. Nothing is split today, so no value
+  changes.
+- **The census is matched by accession.** A deposit served in parts is held, with one `dataset_candidates` row per part.
+- **`build` refuses a deposit served both whole and in parts** (a `split` check, before anything is staged). It passes
+  with the number of split deposits served.
+- **The site** links PRIDE by the accession, counts deposits on the front page, `llms.txt` and the figures of merit,
+  writes `datasets/<accession>.html` for a split deposit (the address it had while searched whole), and has each part's
+  page name its deposit and its other parts. `datasets.json` gains `split_deposits`. With no split every page reads as it
+  did; each dataset's JSON, and its `datasets.json` entry, gains `accession`, `split_group` and `split_reason`.
+- **The MCP server's `describe`** names each dataset's deposit when the catalog serves a split.
+
 ## [1.4.4] - 2026-11-07
 
 **No row moves and no bundle id moves.** The ingest path stays `cs-1.2.0`, the schema 0.0.16 and the catalog format 15.

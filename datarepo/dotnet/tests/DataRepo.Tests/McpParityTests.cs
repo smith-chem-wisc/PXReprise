@@ -302,6 +302,25 @@ public class McpParityTests
             ("matched_ion_count", "Number of matched fragment ions."),
             ("matched_ion_count", "Reserved for the number of matched fragment ions. NOT FILLED: null in every row of every bundle, as `matched_ion_series` says; never read a null as zero matched ions."),
         }.Select(d => (new Regex(Regex.Escape(d.Item2), RegexOptions.CultureInvariant), $"<{d.Item1}: rewritten for PXR-R44>")),
+        // 1.4.5 (PXR-R32, catalog format 16): the indexes count DEPOSITS, so their dataset columns are reworded; old and new
+        // texts mask to one placeholder per column. dataset_overview gains one sentence, and peptide_index.n_datasets a
+        // description Python never had: only those are removed, so the text both answers share is still compared.
+        .. new[]
+        {
+            ("n_datasets", "Datasets whose search DATABASE held this accession."),
+            ("n_datasets", "DEPOSITS (ProteomeXchange accessions, `dataset_overview.accession`) whose search"),
+            ("n_datasets_1pct", "Datasets where the accession has evidence that passed acceptance"),
+            ("n_datasets_1pct", "DEPOSITS where the accession has evidence that passed acceptance"),
+            ("n_datasets_contaminant", "Datasets in which this accession is labelled a contaminant."),
+            ("n_datasets_contaminant", "Deposits in which this accession is labelled a contaminant, in any"),
+            ("dataset_ids_1pct", "The datasets `n_datasets_1pct` counted, same caveat."),
+            ("dataset_ids_1pct", "The datasets (searches) behind `n_datasets_1pct`, same caveat."),
+            ("dataset_ids", "Every dataset whose database held it, same caveat as `n_datasets`."),
+            ("dataset_ids", "Every dataset (search) whose database held it, same caveat as `n_datasets`."),
+        }.Select(d => (new Regex(Regex.Escape(d.Item2) + @"(?:[^""\\]|\\.)*", RegexOptions.CultureInvariant), $"<{d.Item1}: rewritten for PXR-R32>")),
+        (new Regex(@" A dataset is one SEARCH: a deposit searched in parts(?:[^""\\]|\\.)*?never by counting rows\.", RegexOptions.CultureInvariant), ""),
+        (new Regex(@" -- DEPOSITS \(`dataset_overview\.accession`\) with an accepted peptidoform(?:(?! \[\d)[^""\\]|\\.)*", RegexOptions.CultureInvariant), ""),
+        (new Regex(@",\s*""means"": ""DEPOSITS \(`dataset_overview\.accession`\) with an accepted peptidoform(?:[^""\\]|\\.)*""", RegexOptions.CultureInvariant), ""),
     ];
 
     public static string Normalise(string text, string catalogPath)

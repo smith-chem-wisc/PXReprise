@@ -59,9 +59,9 @@ public static partial class CatalogBuilder
             protein_accession,
             max(gene)                                                         AS gene,
             max(organism)                                                     AS organism,
-            count(DISTINCT dataset_id) FILTER (WHERE is_contaminant)          AS n_datasets_contaminant,
-            count(DISTINCT dataset_id)                                        AS n_datasets,
-            count(DISTINCT dataset_id) FILTER (WHERE passes_1pct)             AS n_datasets_1pct,
+            count(DISTINCT split_part(dataset_id, '-', 1)) FILTER (WHERE is_contaminant) AS n_datasets_contaminant,
+            count(DISTINCT split_part(dataset_id, '-', 1))                    AS n_datasets,
+            count(DISTINCT split_part(dataset_id, '-', 1)) FILTER (WHERE passes_1pct) AS n_datasets_1pct,
             list_sort(list(DISTINCT dataset_id))                              AS dataset_ids,
             list_sort(list(DISTINCT dataset_id) FILTER (WHERE passes_1pct))   AS dataset_ids_1pct,
             min(best_q_value)                                                 AS best_q_value
@@ -81,7 +81,7 @@ public static partial class CatalogBuilder
     private const string PeptideIndexFromPartials = @"
         SELECT
             base_sequence,
-            count(DISTINCT dataset_id)                                        AS n_datasets,
+            count(DISTINCT split_part(dataset_id, '-', 1))                    AS n_datasets,
             list_sort(list(DISTINCT dataset_id))                              AS dataset_ids,
             CAST(sum(n_peptidoforms) AS BIGINT)                               AS n_peptidoforms,
             min(best_q_value)                                                 AS best_q_value

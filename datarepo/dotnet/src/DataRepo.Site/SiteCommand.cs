@@ -112,8 +112,10 @@ public static class SiteCommand
                 Keywords: keywords));
             stdout.WriteLine($"site     {result.Out}");
             stdout.WriteLine($"  catalog  {result.CatalogId}");
-            var pages = result.Files.Count(n => n.StartsWith("datasets/", StringComparison.Ordinal) && n.EndsWith(".html", StringComparison.Ordinal));
-            stdout.WriteLine($"  wrote    {result.Files.Count} files, {pages} dataset page{(pages == 1 ? "" : "s")}");
+            var deposits = result.DepositPages.Count;
+            var pages = result.Files.Count(n => n.StartsWith("datasets/", StringComparison.Ordinal) && n.EndsWith(".html", StringComparison.Ordinal)) - deposits;
+            stdout.WriteLine($"  wrote    {result.Files.Count} files, {pages} dataset page{(pages == 1 ? "" : "s")}"
+                + (deposits > 0 ? $", {deposits} split-deposit page{(deposits == 1 ? "" : "s")}" : ""));
             foreach (var (name, reason) in result.Skipped.OrderBy(kv => kv.Key, StringComparer.Ordinal))
                 stdout.WriteLine($"  skipped  {name}: {reason}");
             foreach (var warning in result.Warnings)

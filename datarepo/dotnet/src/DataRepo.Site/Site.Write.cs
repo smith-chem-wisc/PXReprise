@@ -17,7 +17,7 @@ public static partial class SiteGenerator
             $"# {title}",
             "",
             "> Search and quantification results for " +
-            $"{Plural((long)facts.Datasets.Count, "public proteomics dataset")}, reanalysed with one " +
+            $"{Plural((long)facts.DepositCount, "public proteomics dataset")}, reanalysed with one " +
             $"pipeline into one schema{ForQuestions(facts)}. " +
             $"Every number here comes from catalog `{PyText.Str(meta["catalog_id"])}` (datarepo " +
             $"{PyText.Str(meta["builder_version"])}, schema {PyText.Str(meta["schema_version"])}, built {PyText.Str(meta["built_utc"])}); " +
@@ -46,10 +46,15 @@ public static partial class SiteGenerator
             "- A protein group's accession list is kept in the search engine's order, and " +
             "MetaMorpheus writes it alphabetically. The first accession is not a leading or razor " +
             "protein, and nothing in this repository names one.",
-            "",
-            "## Datasets",
-            "",
         };
+        // PXR-R32: only when something is split, so a catalog with no split writes the file it always wrote.
+        if (facts.SplitDeposits.Count > 0)
+            lines.Add(
+                "- A deposit searched in parts (a split, e.g. one search per species) has one dataset per part, keyed " +
+                "`<accession>-<group>` (" + string.Join(", ", facts.SplitDeposits.Select(d => PyText.Str(d["accession"]))) +
+                " here). Count deposits by `dataset_overview.accession` or the `deposits` table, never by datasets, and " +
+                "never sum a protein's or peptide's counts over parts: it can be found in more than one.");
+        lines.AddRange(["", "## Datasets", ""]);
         foreach (var ds in facts.Datasets)
             lines.Add($"- [{Id(ds)}: {Title(ds)}]({PagePath(Id(ds))}): {Summary(ds)}");
         lines.AddRange(
@@ -124,14 +129,59 @@ public static partial class SiteGenerator
         "findings_by_severity", "finding_codes",
     ];
 
+    /// <summary>The deposit keys an index entry carries after <c>dataset_id</c>, when the catalog names deposits (format
+    /// 16, PXR-R32). A catalog before it has none, and its entries keep exactly the keys they had.</summary>
+    private static readonly string[] DepositIndexKeys = ["accession", "split_group", "split_reason", "siblings"];
+
     private static Dict IndexEntry(Dict ds, string? baseUrl)
     {
         var entry = new Dict();
-        foreach (var k in IndexKeys) entry[k] = ds.GetValueOrDefault(k);
+        foreach (var k in IndexKeys)
+        {
+            entry[k] = ds.GetValueOrDefault(k);
+            if (k == "dataset_id")
+                foreach (var d in DepositIndexKeys.Where(ds.ContainsKey)) entry[d] = ds[d];
+        }
         entry["summary"] = Summary(ds);
         foreach (var (k, v) in Links(Id(ds), baseUrl)) entry[k] = v;
         return entry;
     }
+
+    /// <summary><c>datasets.json</c>: one entry per dataset and, when a deposit is served in parts, one per such deposit
+    /// (PXR-R32). With nothing split it is the file it always was.</summary>
+    private static Dict DatasetsIndex(SiteFacts facts, Dict catalogBlock, string? baseUrl)
+    {
+        var doc = new Dict
+        {
+            ["catalog"] = catalogBlock,
+            ["datasets_are"] = DatasetsAre,
+            ["datasets"] = facts.Datasets.Select(ds => (object?)IndexEntry(ds, baseUrl)).ToList(),
+        };
+        if (facts.SplitDeposits.Count > 0)
+        {
+            doc["deposits_are"] = DepositsAre;
+            doc["split_deposits"] = facts.SplitDeposits.Select(d =>
+            {
+                var accession = PyText.Str(d["accession"]);
+                var page = PagePath(accession);
+                return (object?)new Dict
+                {
+                    ["accession"] = accession,
+                    ["dataset_ids"] = ((List<Dict>)d["datasets"]!).Select(ds => (object?)Id(ds)).ToList(),
+                    ["split_reasons"] = d["split_reasons"],
+                    ["page"] = page,
+                    ["page_url"] = Absolute(baseUrl, page),
+                };
+            }).ToList();
+        }
+        return doc;
+    }
+
+    /// <summary>What <c>datasets.json</c>'s <c>split_deposits</c> are.</summary>
+    public const string DepositsAre =
+        "Deposits searched in parts (a split, e.g. one search per species), each part a dataset above keyed " +
+        "`<accession>-<group>`. A public dataset is a DEPOSIT: count deposits by `accession`, not entries of `datasets`, " +
+        "and never sum a protein's or peptide's counts over parts, since one can be found in more than one.";
 
     /// <summary><c>{prefix: entries}</c> with every shard under <see cref="MaxShardBytes"/>, prefixes as short
     /// as allows.</summary>
@@ -303,13 +353,23 @@ public static partial class SiteGenerator
             ["llms.txt"] = LlmsTxt(facts, title, dataUrl),
             // An INDEX, one small entry per dataset. The whole thing in one file was cut off by agent fetch
             // tools after about 19 of 26 entries, and the agent could not tell (aging 069 55a).
-            ["datasets.json"] = Json(new Dict
-            {
-                ["catalog"] = catalogBlock,
-                ["datasets_are"] = DatasetsAre,
-                ["datasets"] = facts.Datasets.Select(ds => (object?)IndexEntry(ds, baseUrl)).ToList(),
-            }),
+            ["datasets.json"] = Json(DatasetsIndex(facts, catalogBlock, baseUrl)),
         };
+        var splitWarnings = new List<string>();
+        var depositPages = new List<string>();
+        foreach (var deposit in facts.SplitDeposits)
+        {
+            var accession = PyText.Str(deposit["accession"]);
+            if (facts.Datasets.Any(ds => Id(ds) == accession))
+            {
+                // A 1.4.5 build refuses a deposit served whole beside its parts; a page here would overwrite the whole's.
+                splitWarnings.Add($"{accession} is served both whole and in parts, so no deposit page was written for it; "
+                    + "rebuild the catalog with this datarepo, which refuses that");
+                continue;
+            }
+            files[PagePath(accession)] = DepositHtml(deposit, meta, title, baseUrl);
+            depositPages.Add(PagePath(accession));
+        }
         foreach (var ds in facts.Datasets)
         {
             files[PagePath(Id(ds))] = DatasetHtml(ds, meta, title, baseUrl, dataUrl, keywords);
@@ -331,7 +391,8 @@ public static partial class SiteGenerator
         }
         foreach (var (k, v) in ProteinFiles(facts.Proteins, catalogBlock)) files[k] = v;
 
-        var result = new SiteResult { Out = out_, CatalogId = PyText.Str(meta["catalog_id"]) };
+        var result = new SiteResult { Out = out_, CatalogId = PyText.Str(meta["catalog_id"]), DepositPages = depositPages };
+        result.Warnings.AddRange(splitWarnings);
         if (!string.IsNullOrEmpty(dataUrl))
         {
             var (doc, unreadable) = Croissant(facts, title, baseUrl, dataUrl);
@@ -352,6 +413,7 @@ public static partial class SiteGenerator
         {
             var urls = new List<string> { "index.html", "llms.txt" };
             urls.AddRange(facts.Datasets.Select(ds => PagePath(Id(ds))));
+            urls.AddRange(depositPages);
             files["sitemap.xml"] =
                 "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
                 "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n" +
