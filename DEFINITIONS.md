@@ -1,7 +1,7 @@
 # Definitions
 
 PXReprise's pipeline counts, and what each one means. Every number PXReprise writes into a `provenance.json` carries a
-definition ID, `pxreprise:<ID> v<n>`. **PXReprise owns these thirteen.** They describe how the engine counts. They say
+definition ID, `pxreprise:<ID> v<n>`. **PXReprise owns these fifteen.** They describe how the engine counts. They say
 nothing about any biological question. Quantitative definitions (intensities, match-between-runs, contaminant
 intensity) belong to QuantProject and keep its IDs (`QuantProject:DEF-QC-9`, ...). PXReprise never redefines another
 project's number.
@@ -119,6 +119,36 @@ PSMs alone), with a different meaning. The rule is the one qc accepted (qc 009, 
 **The filter of all three.** v1 uses today's rule: q-value and notch q-value at 0.01. When PXReprise's D36 filter (PEP
 q-value first, else notch q-value, else q-value) enters the pipeline (G30), it arrives as v2 of each, and data keep the
 version that produced them.
+
+## pxreprise:DEF-PROTEINGROUP-1PCT-MSMS v1
+
+**Grain:** dataset.
+
+- **What it counts:** the protein groups of `pxreprise:DEF-PROTEINGROUP-1PCT` (`Protein QValue <= 0.01` and not decoy,
+  so contaminant groups count) that MS/MS identified in at least one run.
+- **How:** in `AllQuantifiedProteinGroups.tsv`, at least one `SpectralCount_` column is above 0.
+  - With an experimental design the columns are samples. A sample spanning several runs counts, because a group seen
+    in a sample was seen in at least one of its runs.
+  - No `SpectralCount_` column: not measurable, and absent.
+- **It is identification, not quantification.** It is the dataset-grain companion of the `_msms` variant of
+  `QuantProject:DEF-QC-13`. An intensity, which MBR can supply, plays no part.
+- **In practice it equals `pxreprise:DEF-PROTEINGROUP-1PCT`.** Every 1% group has spectra somewhere.
+- **Where it is written:** the qc payload's `protein_groups_quantified`, a name taken over from aging's builder, which
+  never defined it (qc 019, PXR-C13).
+- **Before PXReprise 0.4.44** a payload built from a design with multi-run samples counted the single-run columns
+  alone (qc 016, PXR-C11). Those payloads carry no definition entry.
+
+## pxreprise:DEF-PROTEINGROUP-RUNS-MSMS v1
+
+**Grain:** dataset (a histogram over runs).
+
+- **What it counts:** for each k >= 1, the number of `pxreprise:DEF-PROTEINGROUP-1PCT-MSMS` groups whose
+  `SpectralCount_` is above 0 in exactly k runs.
+- **Empty (`{}`) means not measurable.** That is so when any `SpectralCount_` column is a sample spanning several
+  runs: a sample's combined column cannot say which of its runs saw the group. It is also so when there is no
+  `SpectralCount_` column.
+- **It is identification completeness across runs, not quantification completeness.**
+- **Where it is written:** the qc payload's `runs_per_protein_group`.
 
 ## pxreprise:DEF-ID-RATE v1
 

@@ -100,6 +100,9 @@ public static class QcPayloadBuilder
             d["psms"] = Def("pxreprise:DEF-PSM-1PCT-RUN", "v1", "PXReprise DEFINITIONS.md");
             d["peptides"] = Def("pxreprise:DEF-PEPTIDE-1PCT-RUN", "v1", "PXReprise DEFINITIONS.md");
             d["protein_groups"] = Def("pxreprise:DEF-PROTEINGROUP-1PCT-RUN", "v1", "PXReprise DEFINITIONS.md");
+            // qc 019 PXR-C13: aging's builder never named these two. Both count groups seen by MS/MS (SpectralCount_ > 0).
+            d["protein_groups_quantified"] = Def("pxreprise:DEF-PROTEINGROUP-1PCT-MSMS", "v1", "PXReprise DEFINITIONS.md");
+            d["runs_per_protein_group"] = Def("pxreprise:DEF-PROTEINGROUP-RUNS-MSMS", "v1", "PXReprise DEFINITIONS.md");
         }
         else if (schema != SchemaV1) throw new ArgumentException($"no such payload schema: {schema}", nameof(schema));
         return d;
