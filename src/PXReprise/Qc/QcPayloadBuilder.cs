@@ -552,6 +552,10 @@ public static class QcPayloadBuilder
     /// the file identified it itself; the <c>_any</c> variant would depend on the other files through MBR), and the per-file
     /// contaminant intensity fraction (QuantProject DEF-QC-9 v3.5, run grain, same filter). No SpectralCount_ columns:
     /// not measurable, so everything is empty rather than a quantified count of zero.
+    /// <para>A group is quantified when ANY SpectralCount_ column has it, a sample spanning several files included: seen in
+    /// a sample is seen in at least one run. The runs-per-group histogram counts runs, so it is empty (not measurable) once
+    /// any sample spans several files. Before qc 016 (PXR-C11) both were counted over the single-file columns alone, as if
+    /// those were the whole table: PXD051203, 39 runs and 19 multi-run samples, read 236 groups, all {"1": 236}.</para>
     /// </summary>
     public static ProteinGroupPass ParseProteinGroups(string path)
     {
@@ -562,12 +566,11 @@ public static class QcPayloadBuilder
         var columns = ProteinGroupColumns.ForTable(path);
         List<(string c, string)> Runs(string prefix) => fields.Where(c => c.StartsWith(prefix, StringComparison.Ordinal))
             .Select(c => (c, f: columns.FileOf(c[prefix.Length..]))).Where(x => x.f is not null).Select(x => (x.c, Stem(x.f))).ToList();
+        var everyCount = fields.Where(c => c.StartsWith("SpectralCount_", StringComparison.Ordinal)).ToList();
         var counts = Runs("SpectralCount_");
         var inten = Runs("Intensity_");
-        if (counts.Count == 0)
-            return columns.MultiFileSamples.Count > 0
-                ? empty with { MultiFileSamples = columns.MultiFileSamples, Runs = new HashSet<string>(StringComparer.Ordinal) }
-                : empty;
+        if (everyCount.Count == 0) return empty;
+        bool runGrain = counts.Count == everyCount.Count;
         var present = new Dictionary<string, int>(StringComparer.Ordinal);
         var runsPer = new SortedDictionary<int, int>();
         var contamInt = new Dictionary<string, double>(StringComparer.Ordinal);
@@ -585,10 +588,10 @@ public static class QcPayloadBuilder
                 totalInt[f] = totalInt.GetValueOrDefault(f) + v;
                 if (td == "C") contamInt[f] = contamInt.GetValueOrDefault(f) + v;
             }
-            var hits = counts.Where(x => (Num(row.GetValueOrDefault(x.c)) ?? 0) > 0).Select(x => x.Item2).ToList();
-            if (hits.Count == 0) continue;
+            if (!everyCount.Any(c => (Num(row.GetValueOrDefault(c)) ?? 0) > 0)) continue;
             quantified++;
-            runsPer[hits.Count] = runsPer.GetValueOrDefault(hits.Count) + 1;
+            var hits = counts.Where(x => (Num(row.GetValueOrDefault(x.c)) ?? 0) > 0).Select(x => x.Item2).ToList();
+            if (runGrain) runsPer[hits.Count] = runsPer.GetValueOrDefault(hits.Count) + 1;
             foreach (string f in hits) present[f] = present.GetValueOrDefault(f) + 1;
         }
         var contam = new Dictionary<string, double>(StringComparer.Ordinal);
@@ -723,7 +726,9 @@ public static class QcPayloadBuilder
             notes.Add("The protein-group table is labelled by sample (the experimental design), and "
                       + $"{multi.Count} sample(s) span several runs ({string.Join(", ", multi.Take(5))}): their runs have no "
                       + "pg_missing_frac_msms or contaminant_intensity_frac, because a sample's combined value is not a run's. "
-                      + "Absent means not measurable, not zero.");
+                      + "Absent means not measurable, not zero. For the same reason runs_per_protein_group is empty: runs "
+                      + "per group cannot be counted. protein_groups_quantified counts every sample, since a group seen in a "
+                      + "sample was seen in at least one of its runs.");
         if (!bins.FromQc)
             notes.Add("Histogram bins came from a VENDORED copy of qc's canonical edges, because qctemplates "
                       + "is not installed here. The payload is valid and renders, but its figures may not line "

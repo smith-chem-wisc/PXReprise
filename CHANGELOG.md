@@ -7,6 +7,24 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.44 (unreleased)
+
+**MetaMorpheus** unchanged. **Machine file:** no change needed. **Safe mid-batch?** Yes: swap the pin as usual. Payloads
+already written keep their numbers until they are rebuilt.
+
+- **The QC payload counts a deposit's protein groups correctly when its design has samples spanning several runs** (qc 016,
+  PXR-C11).
+  - With a design, MetaMorpheus labels the protein-group columns by sample. A sample spanning several runs (fractions,
+    re-injections) has no run of its own.
+  - Since 0.4.0, `protein_groups_quantified` and `runs_per_protein_group` were counted over the single-run columns alone,
+    as if those were the whole table. PXD051203 (39 runs, 19 samples spanning several) read 236 groups, every one in 1
+    run (`{"1": 236}`); it has 921 at 1%.
+  - Now a group counts as quantified when any sample has it.
+  - `runs_per_protein_group` is empty, meaning not measurable, once any sample spans several runs, and the payload's
+    note says why.
+  - Deposits whose every sample spans several runs used to report no quantified count, and now report one.
+  - Three of the aging batch's 217 payloads carried the wrong numbers: PXD051203, PXD047293 and PXD051644.
+
 ## 0.4.43 (2026-11-09)
 
 **MetaMorpheus** unchanged. **Machine file:** no change needed. A new optional key, `deliver_split_deposits` (default
