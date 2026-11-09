@@ -115,7 +115,7 @@ public class DocsTests
                 "--purpose", "how a tutorial fixture behaves");
             Assert.That(publish.Code, Is.EqualTo(0), publish.Stderr);
             var printed = Regex.Match(publish.Stdout, @"id\s+([0-9a-f]{16})").Groups[1].Value;
-            Assert.That(publish.Stdout, Does.Contain("checks   60 run, all passed"));
+            Assert.That(publish.Stdout, Does.Contain("checks   61 run, all passed"));
             Assert.That(publish.Stdout, Does.Contain("wrote    36 files, 1 dataset page"));
 
             // The id a release build of the page's version prints for these bundles. First prove the recomputation
