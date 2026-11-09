@@ -7,6 +7,50 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.43 (2026-11-09)
+
+**MetaMorpheus** unchanged. **Machine file:** no change needed. A new optional key, `deliver_split_deposits` (default
+false), lets split searches be delivered. **Safe mid-batch?** Yes: swap the pin as usual. Nothing changes for a question with no
+`[splits]`.
+
+- **A deposit can be split: one search per species (or per enrichment, label or chemistry), each delivered on its own.** This is
+  D33 (design/PLAN_split-deposits.md). The user asked for it on 2026-11-08: "These dual species repos should be split and that
+  should be an option for the human".
+  - The question names the groups in `[splits.PXD012345]` (`reason`, `by`), with one sub-table per group that takes the keys of
+    `[exceptions]`. Each group says which raw files are its own, and under `by = "species"` which species it is.
+  - Each group is its own search, keyed `<accession>-<group>` (`PXD076192-mouse`), with its own folder, state entry, probe,
+    provenance and manifest entry, which carries `split_reason`. PRIDE is still asked about the deposit itself: its record, file
+    list and checksums, and the ProteomeXchange accession MetaMorpheus writes.
+  - Once split, a deposit is no longer queued, retried or caught up whole. Its earlier whole search stays on disk and does not make
+    its own groups look like copies of it. Its manifest entry is retired (`status: superseded`, `reason: split into ...`) in the
+    same write that adds the first group, as dataRepo asked (093).
+  - A raw file belongs to one group only. This is checked against PRIDE's file list before any download. Two groups that take one
+    file park as `waiting_split_overlap`, with a decisions row.
+  - **Delivery waits for the store:** dataRepo's catalog does not yet roll a split up by accession (PXR-R32), so a served split
+    would get a wrong PRIDE link and count as two deposits. Until the machine file sets `deliver_split_deposits = true`, split
+    searches are searched and held (`DELIVERY HELD` in batch.log). The next batch start after it is set delivers them.
+  - The decisions row for `waiting_other_organism` now offers the split first.
+- **A deposit whose PRIDE record names two of the question's own species now waits for a person.** Until now, only an organism
+  outside the question held a deposit back (v0.4.19). A record naming human and mouse, both in the question, was searched whole as
+  the one the census queued first. PXD076192 has 4 mouse and 2 human raw files and was queued as human, so its mouse runs would
+  have been searched against the human database. A TMT profile runs no probe search, so nothing later would have noticed. Such a
+  deposit now parks as `waiting_other_organism` before any download, with a row in `decisions_needed.tsv`. The answers are the
+  ones that status already takes: an `[exceptions]` entry that selects the runs to search, or one that names the `species`. Two
+  names of one species (`Mus musculus (mouse)` and `Mus musculus`) count once.
+  - In aging's batch, this holds back two delivered deposits at their next catch-up re-search: PXD027526 and PXD035412 (human and
+    mouse, no exception). Their served results stay served. Four deposits deferred for size (PXD006921, PXD009792, PXD022723,
+    PXD031456) would park if they are looked at again. Four more already carry an exception that answers it and go on as before.
+- **A TMT 6-plex file is read as TMT6 again, not TMT18.** The kit reader decides which channels a file used by comparing each channel
+  with the typical one. The typical one was the median of every channel with any reporter peak, and a channel the deposit never used
+  still gets a chance peak within 3 mDa in a few of a file's thousands of spectra. In a file with six real channels, ten such channels
+  outnumbered the real ones: the median fell into the noise, and any channel in four spectra counted. PXD007229 (six TMT 6-plex
+  sets, 2016) read TMT18 in 32 of its 60 files, TMT10 in 5 and TMT6 in 23, and its search was refused for mixing reagents. Now
+  the typical channel is judged only among channels present in at least a tenth as many spectra as the most common one. Files
+  with nine or more real channels per file were never affected. Every isobaric raw file on disk was re-read with the fix: PXD007229
+  and PXD016199 now read TMT6 in every file, PXD012552 the TMT reagent instead of TMTpro, and two files lose a channel that was
+  never a sample (PXD014929's 128N in 5% of spectra, PXD023435's 130N in 20%). The QC reports of delivered deposits show no channel
+  that only chance peaks could put there.
+
 ## 0.4.42 (2026-11-08)
 
 **MetaMorpheus** unchanged (`lowres@8` runs 1.1.13, as `lowres@7`). **Machine file:** no change. **Safe mid-batch?** Yes: swap the

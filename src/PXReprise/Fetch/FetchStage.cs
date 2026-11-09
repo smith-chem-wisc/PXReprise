@@ -206,15 +206,18 @@ public static class FetchStage
                 extension = r.Extension, parallel_downloads = r.ParallelDownloads, max_attempts = r.MaxAttempts,
                 aspera_attempts = r.Aspera?.Attempts ?? 0, pride_https = r.Https.ToString().ToLowerInvariant() })!, null);
         prov.Set("accession", (JsonNode)r.Accession);
+        // v0.4.43: a split search's key (PXD027754-mouse) names the search; PRIDE is asked for the deposit.
+        string deposit = Config.SearchKey.Accession(r.Accession);
+        if (deposit != r.Accession) prov.Set("pride_accession", (JsonNode)deposit);
         string discover = Path.Combine(Path.GetDirectoryName(outDir)!, "..", "01_discover", "provenance.json");
         if (File.Exists(discover)) prov.Upstream(discover);
-        prov.Command(new[] { "mzLib.PrideArchiveClient.GetProjectFilesAsync", r.Accession });
-        prov.Command(new[] { "mzLib.PrideArchiveClient.GetProjectFilesFromFtpAsync", r.Accession });
+        prov.Command(new[] { "mzLib.PrideArchiveClient.GetProjectFilesAsync", deposit });
+        prov.Command(new[] { "mzLib.PrideArchiveClient.GetProjectFilesFromFtpAsync", deposit });
         var flags = new List<string>();
 
         int listingAttempts = Math.Min(r.MaxAttempts, 4);
-        var (rest, nRest) = await ListWithRetry(() => pride.ListFilesAsync(r.Accession, ct), listingAttempts, r.ListingBackoff, ct).ConfigureAwait(false);
-        var (ftp, nFtp) = await ListWithRetry(() => pride.ListFtpNamesAsync(r.Accession, ct), listingAttempts, r.ListingBackoff, ct).ConfigureAwait(false);
+        var (rest, nRest) = await ListWithRetry(() => pride.ListFilesAsync(deposit, ct), listingAttempts, r.ListingBackoff, ct).ConfigureAwait(false);
+        var (ftp, nFtp) = await ListWithRetry(() => pride.ListFtpNamesAsync(deposit, ct), listingAttempts, r.ListingBackoff, ct).ConfigureAwait(false);
         prov.Set("listing_attempts", new JsonObject { ["list_files"] = nRest, ["list_ftp_files"] = nFtp });
         if (nRest > 1 || nFtp > 1) flags.Add($"listing_retried: list_files x{nRest}, list_ftp_files x{nFtp} (S52)");
 
@@ -257,13 +260,13 @@ public static class FetchStage
         int done = 0;
         // 2026-10-08: every raw file is checked against PRIDE's SHA-1 where PRIDE gives one, and always for EBI's own error
         // response written into the data (Integrity); a file that fails is deleted and fetched again.
-        var sha1 = r.Sha1Source is null ? new Dictionary<string, string>() : await r.Sha1Source(r.Accession, ct).ConfigureAwait(false);
+        var sha1 = r.Sha1Source is null ? new Dictionary<string, string>() : await r.Sha1Source(deposit, ct).ConfigureAwait(false);
         prov.Set("pride_sha1_known", (JsonNode)chosen.Count(f => sha1.ContainsKey(f.FileName)));
         // v0.4.39 (aging PXR-A158): a file the question replaces is not downloaded. PRIDE's own SHA-1 for it is read first
         // (an outage throws and the deposit waits for a later pass), so the replacement is known to stand for PRIDE's file.
         var replace = chosen.Where(f => r.Replace?.ContainsKey(f.FileName) == true).ToDictionary(f => f.FileName, f => r.Replace![f.FileName], StringComparer.Ordinal);
         var prideSha1 = replace.Count == 0 ? new Dictionary<string, string>()
-            : await (r.PrideSha1Source ?? Integrity.PrideSha1sAsync)(r.Accession, ct).ConfigureAwait(false);
+            : await (r.PrideSha1Source ?? Integrity.PrideSha1sAsync)(deposit, ct).ConfigureAwait(false);
         using (var gate = new SemaphoreSlim(Math.Max(1, r.ParallelDownloads)))
         {
             await Task.WhenAll(chosen.Select(async (f, i) =>

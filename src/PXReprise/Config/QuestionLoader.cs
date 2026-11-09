@@ -110,37 +110,7 @@ public static class QuestionLoader
             {
                 if (!IsAccession(acc)) throw new ConfigException(file, $"'exceptions' key '{acc}' is not a PXD accession");
                 var t = ex.RequiredTable(acc);
-                Regex? Rx(string key) => t.OptionalString(key) is { } s
-                    ? TryRegex(s) ?? throw new ConfigException(file, $"exceptions.{acc}.{key} is not a valid regular expression: '{s}'")
-                    : null;
-                int? Int(string key) => t.OptionalInteger(key) is { } v ? checked((int)v) : null;
-                string? alkylation = t.OptionalString("alkylation");
-                if (alkylation is not null && alkylation != DepositException.NoAlkylation)
-                    throw new ConfigException(file, $"exceptions.{acc}.alkylation can only be \"{DepositException.NoAlkylation}\" (got '{alkylation}'): name another alkylant in a curated SDRF");
-                // A profile database key ("rat"), as the queue names organisms; whether a profile has it is checked
-                // against the profiles (CheckAgainstProfiles), which this file does not load.
-                string? species = t.OptionalString("species");
-                if (species is not null && !Regex.IsMatch(species, "^[a-z]+(_[a-z]+)*$"))
-                    throw new ConfigException(file, $"exceptions.{acc}.species must be a profile database key such as \"rat\" (got '{species}')");
-                // v0.4.39 (aging PXR-A158): [exceptions.PXD.replace_files."<raw file name>"] path, pride_sha1, sha256, note.
-                Dictionary<string, FileReplacement>? replace = null;
-                if (t.OptionalTable("replace_files") is { } rt)
-                {
-                    replace = new Dictionary<string, FileReplacement>(StringComparer.Ordinal);
-                    foreach (string rawName in rt.Keys.ToList())
-                    {
-                        if (rawName.Length == 0 || rawName.IndexOfAny(new[] { '/', '\\', ':' }) >= 0)
-                            throw new ConfigException(file, $"exceptions.{acc}.replace_files key '{rawName}' must be a raw file name as PRIDE lists it, not a path");
-                        var f = rt.RequiredTable(rawName);
-                        string Hex(string key, int length) => f.RequiredString(key).ToLowerInvariant() is var h && h.Length == length && h.All(Uri.IsHexDigit)
-                            ? h : throw new ConfigException(file, $"exceptions.{acc}.replace_files.\"{rawName}\".{key} must be {length} hex digits");
-                        replace[rawName] = new FileReplacement(Abs(dir, f.RequiredString("path")), Hex("pride_sha1", 40), Hex("sha256", 64), f.RequiredString("note"));
-                        f.RefuseUnknownKeys();
-                    }
-                    if (replace.Count == 0) throw new ConfigException(file, $"exceptions.{acc}.replace_files names no file");
-                }
-                var e = new DepositException(acc, t.RequiredString("reason"), Rx("include_files"), Rx("exclude_files"),
-                    Int("max_files"), Int("max_file_mb"), t.OptionalInteger("max_est_ms2"), Int("defer_if_median_file_mb"), alkylation, species, replace);
+                var e = ParseException(file, dir, t, $"exceptions.{acc}", acc, t.RequiredString("reason"), null);
                 t.RefuseUnknownKeys();
                 if (!e.SelectsFiles && e.MaxFiles is null && e.MaxFileMb is null && e.MaxEstimatedMs2 is null && e.DeferIfMedianFileMb is null
                     && e.Alkylation is null && e.Species is null && e.ReplaceFiles is null)
@@ -150,12 +120,93 @@ public static class QuestionLoader
             ex.RefuseUnknownKeys();
         }
 
+        // v0.4.43 (D33, design/PLAN_split-deposits.md; the user, 2026-11-08: "These dual species repos should be split and
+        // that should be an option for the human"): [splits.PXD...] takes `reason` and `by`, and one table per group, each
+        // with the keys an [exceptions] entry takes. Each group is its own search, keyed <accession>-<group>.
+        var splits = new SortedDictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+        if (root.OptionalTable("splits") is { } sx)
+        {
+            foreach (string acc in sx.Keys.ToList())
+            {
+                if (!IsAccession(acc)) throw new ConfigException(file, $"'splits' key '{acc}' is not a PXD accession");
+                // One deposit, one say: an [exceptions] entry beside its split would leave unclear which one a group follows.
+                if (exceptions.ContainsKey(acc))
+                    throw new ConfigException(file, $"{acc} has both [exceptions.{acc}] and [splits.{acc}]: put its settings in each group of the split");
+                var s = sx.RequiredTable(acc);
+                string reason = s.RequiredString("reason");
+                string by = s.RequiredString("by");
+                if (!SplitGroup.Reasons.Contains(by))
+                    throw new ConfigException(file, $"splits.{acc}.by must be one of {string.Join(", ", SplitGroup.Reasons)} (got '{by}')");
+                var groups = s.Keys.Where(k => k is not ("reason" or "by")).ToList();
+                foreach (string g in groups)
+                    if (!SearchKey.GroupToken.IsMatch(g))
+                        throw new ConfigException(file, $"splits.{acc}.{g}: a group is named with lower-case letters and digits only (rat, mouse, phospho)");
+                if (groups.Count < 2)
+                    throw new ConfigException(file, $"splits.{acc} names {groups.Count} group: a split is two searches or more (one group is an [exceptions] entry)");
+                var keys = groups.Select(g => SearchKey.Of(acc, g)).ToList();
+                foreach (string g in groups)
+                {
+                    var t = s.RequiredTable(g);
+                    var split = new SplitGroup(acc, g, by, reason, keys);
+                    var e = ParseException(file, dir, t, $"splits.{acc}.{g}", SearchKey.Of(acc, g), t.OptionalString("reason") ?? reason, split);
+                    t.RefuseUnknownKeys();
+                    // The groups are files, not samples (plan rule 1): each group says which raw files are its own.
+                    if (!e.SelectsFiles)
+                        throw new ConfigException(file, $"splits.{acc}.{g} selects no files: give include_files or exclude_files, so each raw file is in one group");
+                    if (by == "species" && e.Species is null)
+                        throw new ConfigException(file, $"splits.{acc}.{g}: a split by species names each group's species (species = \"mouse\")");
+                    exceptions[split.Key] = e;
+                }
+                if (by == "species" && keys.Select(k => exceptions[k].Species).Distinct(StringComparer.Ordinal).Count() < keys.Count)
+                    throw new ConfigException(file, $"splits.{acc}: two groups name the same species; a split by species searches each species once");
+                s.RefuseUnknownKeys();
+                splits[acc] = keys;
+            }
+            sx.RefuseUnknownKeys();
+        }
+
         root.RefuseUnknownKeys();
         return new Question(name, description, file, profiles, keywords, organisms,
             new RelevanceRules(require, exclude, unless, decisions), overlays, requiredTraits, optionalTraits,
             traitsSource, holds, studyLayer, batch,
             new PublishSettings(manifest is null ? null : Abs(dir, manifest), command, everyHours, publishTimeout), designs,
-            new DiscoverLists(diseaseKeywords, watchKeywords), exceptions);
+            new DiscoverLists(diseaseKeywords, watchKeywords), exceptions, splits);
+    }
+
+    /// <summary>The keys an <c>[exceptions]</c> entry and a <c>[splits]</c> group both take, read from <paramref name="t"/>.</summary>
+    private static DepositException ParseException(string file, string dir, TomlSection t, string where, string key, string reason, SplitGroup? split)
+    {
+        Regex? Rx(string k) => t.OptionalString(k) is { } s
+            ? TryRegex(s) ?? throw new ConfigException(file, $"{where}.{k} is not a valid regular expression: '{s}'")
+            : null;
+        int? Int(string k) => t.OptionalInteger(k) is { } v ? checked((int)v) : null;
+        string? alkylation = t.OptionalString("alkylation");
+        if (alkylation is not null && alkylation != DepositException.NoAlkylation)
+            throw new ConfigException(file, $"{where}.alkylation can only be \"{DepositException.NoAlkylation}\" (got '{alkylation}'): name another alkylant in a curated SDRF");
+        // A profile database key ("rat"), as the queue names organisms; whether a profile has it is checked
+        // against the profiles (CheckAgainstProfiles), which this file does not load.
+        string? species = t.OptionalString("species");
+        if (species is not null && !Regex.IsMatch(species, "^[a-z]+(_[a-z]+)*$"))
+            throw new ConfigException(file, $"{where}.species must be a profile database key such as \"rat\" (got '{species}')");
+        // v0.4.39 (aging PXR-A158): [exceptions.PXD.replace_files."<raw file name>"] path, pride_sha1, sha256, note.
+        Dictionary<string, FileReplacement>? replace = null;
+        if (t.OptionalTable("replace_files") is { } rt)
+        {
+            replace = new Dictionary<string, FileReplacement>(StringComparer.Ordinal);
+            foreach (string rawName in rt.Keys.ToList())
+            {
+                if (rawName.Length == 0 || rawName.IndexOfAny(new[] { '/', '\\', ':' }) >= 0)
+                    throw new ConfigException(file, $"{where}.replace_files key '{rawName}' must be a raw file name as PRIDE lists it, not a path");
+                var f = rt.RequiredTable(rawName);
+                string Hex(string k, int length) => f.RequiredString(k).ToLowerInvariant() is var h && h.Length == length && h.All(Uri.IsHexDigit)
+                    ? h : throw new ConfigException(file, $"{where}.replace_files.\"{rawName}\".{k} must be {length} hex digits");
+                replace[rawName] = new FileReplacement(Abs(dir, f.RequiredString("path")), Hex("pride_sha1", 40), Hex("sha256", 64), f.RequiredString("note"));
+                f.RefuseUnknownKeys();
+            }
+            if (replace.Count == 0) throw new ConfigException(file, $"{where}.replace_files names no file");
+        }
+        return new DepositException(key, reason, Rx("include_files"), Rx("exclude_files"),
+            Int("max_files"), Int("max_file_mb"), t.OptionalInteger("max_est_ms2"), Int("defer_if_median_file_mb"), alkylation, species, replace, split);
     }
 
     /// <summary>
@@ -167,7 +218,7 @@ public static class QuestionLoader
         var keys = q.Profiles.Where(profiles.ContainsKey).SelectMany(p => profiles[p].Databases.Keys).ToHashSet(StringComparer.Ordinal);
         foreach (var e in q.Exceptions?.Values ?? Enumerable.Empty<DepositException>())
             if (e.Species is { } sp && !keys.Contains(sp))
-                throw new ConfigException(q.SourceFile, $"exceptions.{e.Accession}.species '{sp}' is not a database of the question's profiles ({string.Join(", ", keys.Order(StringComparer.Ordinal))})");
+                throw new ConfigException(q.SourceFile, $"{(e.Split is { } s ? $"splits.{s.Accession}.{s.Group}" : $"exceptions.{e.Accession}")}.species '{sp}' is not a database of the question's profiles ({string.Join(", ", keys.Order(StringComparer.Ordinal))})");
     }
 
     /// <summary>A path in a question file is relative to the file, so a project folder can move.</summary>

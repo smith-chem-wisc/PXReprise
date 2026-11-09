@@ -70,6 +70,12 @@ min_free_gb = 50
 # the search read only the calibrated copy). A search that must be redone then fetches its raws again. Default true.
 # delete_raw_after_calibration = true
 
+# OPTIONAL (0.4.43). Deliver a split deposit's searches (a question's [splits]; keys such as PXD012345-mouse) to the
+# repository. Off by default: until dataRepo's catalog rolls a split up by accession, a served split gets a wrong PRIDE
+# link and is counted as two deposits. Off, the groups are searched and wait; turned on, the next batch start delivers
+# them. Default false.
+# deliver_split_deposits = false
+
 # OPTIONAL (0.4.21). How long the short probe search before the whole download may run, over the profile's own value
 # (60 minutes in the profiles that have a probe search). Larger files and ion-trap files take longer.
 # probe_search_minutes = 90

@@ -73,6 +73,8 @@ public static class Program
                 {
                     question = q.Name, q.Profiles, keywords = q.Keywords.Count, q.Organisms,
                     decisions = q.Relevance.Decisions.Count, holds = q.Holds.Count, overlays = q.Overlays.Keys,
+                    // v0.4.43: each split deposit with the search keys it is searched and delivered under.
+                    splits = q.Splits is { Count: > 0 } sp ? sp.ToDictionary(kv => kv.Key, kv => kv.Value) : null,
                     designs = q.Designs is not { } d ? null : new
                     {
                         dir = d.Dir,

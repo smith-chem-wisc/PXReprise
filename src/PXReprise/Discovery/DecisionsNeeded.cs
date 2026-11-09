@@ -29,13 +29,18 @@ public static class DecisionsNeeded
         [ChemistryDetector.UnknownLabelPark] = new("Is the deposit labelled, and with what? Its SDRF's label column names no label we know, and nothing else in the deposit says.",
             "name the label (or label free sample) in a curated SDRF; or exclude the deposit"),
         ["deferred_mixed_labelling"] = new("The spectra show isobaric reporter ions in some files and not others. Which files are searched, and how?",
-            "exclude one group of files ([exceptions]); split into one search per group (waits on dataRepo R8); or exclude the deposit"),
+            "exclude one group of files ([exceptions]); split into one search per group ([splits] by = \"label\"); or exclude the deposit"),
         ["deferred_needs_design_selection"] = new("The deposit is larger than a search takes whole. Which files make the experiment?",
             "select files by name ([exceptions] include/exclude) or lift the cap for it ([exceptions]); or exclude the deposit"),
         ["waiting_species"] = new("The probe runs' own spectra say another species than the deposit's record (D35).",
             "record each run's species in a curated SDRF; approve and search that species; or exclude the deposit"),
-        ["waiting_other_organism"] = new("The deposit's PRIDE record names an organism outside the question beside the one it is queued as: runs of another species, a host and its pathogen, or a mislabel.",
-            "say which runs to search ([exceptions] include_files / exclude_files) or what all its runs are ([exceptions] species); or exclude the deposit"),
+        // v0.4.43: also a record naming two of the question's own species (human and mouse), searched whole as one before.
+        ["waiting_other_organism"] = new("The deposit's PRIDE record names another organism beside the one it is queued as, outside the question or a second of the question's own (human and mouse): runs of another species, a host and its pathogen, a xenograft, or a mislabel.",
+            // v0.4.43 (the user, 2026-11-08: "These dual species repos should be split and that should be an option for the human").
+            "split it into one search per species ([splits.<accession>] by = \"species\", one group per species with its include_files and species; each is delivered as <accession>-<group>); say which runs to search ([exceptions] include_files / exclude_files) or what all its runs are ([exceptions] species); or exclude the deposit"),
+        // v0.4.43: a raw file is in one group of a split only, checked against PRIDE's file list.
+        [Batch.BatchRunner.SplitOverlapStatus] = new("The question splits this deposit, and two of its groups take the same raw file. Which group is the file in?",
+            "change the groups' include_files / exclude_files so each raw file is in one group (each group of the split gets one more look by itself); or exclude the file from both"),
         ["waiting_mixed_species"] = new("A probe run holds several species and none dominates: a mixed sample (xenograft, infection, spike-in) or a mislabel.",
             "say what the sample is in a curated SDRF (mixed samples wait for sdrf's plan, sdrf 008); or exclude the deposit"),
         ["waiting_alkylation_check"] = new("Carbamidomethyl was expected, but the probe runs have almost no cysteine peptides: the cysteines were blocked some other way, or not at all.",

@@ -278,7 +278,8 @@ public static class SearchStage
             Protease: chem is { ProteasePerFile: null } ? chem.Protease.Value : null,
             FixedCysMods: chem?.CysMods.Where(c => c.Fixed).Select(c => c.MetaMorpheusId!).ToList(),
             VariableCysMods: chem?.CysMods.Where(c => !c.Fixed).Select(c => c.MetaMorpheusId!).ToList(),
-            WriteSdrf: p.WriteSdrf, ProteomeXchangeAccession: p.WriteSdrf ? r.Accession : null,
+            // v0.4.43: PRIDE's accession, never a split search's key (PXD027754-mouse is no ProteomeXchange accession).
+            WriteSdrf: p.WriteSdrf, ProteomeXchangeAccession: p.WriteSdrf && r.Accession is { } px ? Config.SearchKey.Accession(px) : null,
             PrecursorMassTolerance: window is { } w ? $"±{w}.0000 PPM" : null, QuantifyPpmTol: window,
             GptmdFilters: p.GptmdFilters, MultiplexKit: kit, GptmdDropMods: p.GptmdDropMods);
         // v0.4.40 (G66): the classes the deposit enriches, the ones its library spectra are routed by, variable in every task.

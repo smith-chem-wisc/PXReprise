@@ -39,7 +39,8 @@ public sealed class WorkerShare(string root)
     public const string DecisionsName = "decisions.tsv";
     public const string PackageSchema = "pxreprise probe package 1";
 
-    private static readonly Regex Accession = new(@"^PXD\d+$", RegexOptions.CultureInvariant);
+    // A search key: an accession, or a split deposit's group search (v0.4.43, PXD027754-mouse).
+    private static readonly Regex Accession = new(@"^PXD\d+(-[a-z0-9]+)?$", RegexOptions.CultureInvariant);
 
     // ------------------------------------------------------------------ assignments
 

@@ -56,7 +56,11 @@ public static class ManifestEntry
     /// <paramref name="workRoot"/> is the fallback for a manifest that names none; an entry's <c>run</c> is relative to the
     /// manifest's own <c>work_root</c>, because that is what dataRepo joins it to.
     /// </summary>
-    public static void Append(string manifestPath, QueueEntry e, Profile profile, string runDir, JsonObject? state, string workRoot)
+    /// <param name="split">v0.4.43 (D33): the group this search is of a split deposit, or null for a whole deposit. Its entry
+    /// is keyed by the search key and carries <c>split_reason</c> (dataRepo 093: the one fact the key cannot carry), and the
+    /// deposit's own entry, if still served, is retired in the same write (<c>status: superseded</c>), because the store
+    /// serves the bare bundle and both halves side by side, silently, while it is not (dataRepo 093, R31).</param>
+    public static void Append(string manifestPath, QueueEntry e, Profile profile, string runDir, JsonObject? state, string workRoot, SplitGroup? split = null)
     {
         workRoot = WorkRootOf(manifestPath) ?? workRoot;
         // Parsed as LF, written back in the file's own line ends (aging's is CRLF).
@@ -103,6 +107,10 @@ public static class ManifestEntry
         var extras = search["extra_databases"]?.AsArray().Select(x => Sha12(Path.GetFileName(x!.GetValue<string>().Replace('\\', '/')))).ToList() ?? new List<string>();
 
         var notes = new List<string>();
+        if (split is not null)
+            notes.Add($"SPLIT ({split.By}): one of {split.Keys.Count} searches of {split.Accession}, each delivered under its own key "
+                + $"({string.Join(", ", split.Keys)}); this one searches group '{split.Group}' only. A raw file is in one group; PRIDE holds them all under {split.Accession}. "
+                + $"The question's reason: {split.Reason.Replace('"', '\'')}.");
         // From what the search did (its provenance flags), no longer assumed: an SDRF design and the search's own SDRF exist
         // since label-free-dda@4 (D28).
         var searchFlags = search["flags"]?.AsArray().Select(x => x!.GetValue<string>()).ToList() ?? new List<string> { "no_design_file", "no_output_sdrf" };
@@ -208,7 +216,7 @@ public static class ManifestEntry
 
   - accession: {e.Accession}
     status: {earlier?.Status ?? "include"}
-    title: {JsonSerializer.Serialize(e.Title)}
+{(split is null ? "" : $"    split_reason: {split.By}\n")}    title: {JsonSerializer.Serialize(e.Title)}
     run: {run}
     stages:
       qc: 02b_qc
@@ -229,10 +237,33 @@ public static class ManifestEntry
         // Write beside it and rename over it: a reader (dataRepo, aging's publish) must never see a half-written manifest
         // (dataRepo 010 caught one). On one volume the rename is atomic.
         // The raw string above carries the line ends of the checkout it was compiled from, so it is normalised too.
+        if (split is not null) text = RetireSplitDeposit(text, split);
         string tmp = manifestPath + ".pxreprise-tmp";
         string written = text.TrimEnd('\n') + "\n" + entry.ReplaceLineEndings("\n").TrimEnd('\n') + "\n";
         File.WriteAllText(tmp, crlf ? written.ReplaceLineEndings("\r\n") : written);
         File.Move(tmp, manifestPath, overwrite: true);
+    }
+
+    /// <summary>
+    /// v0.4.43 (dataRepo 093, R31, their (a)): the deposit's own entry, while it is <c>status: include</c>, becomes
+    /// <c>status: superseded</c> with <c>reason: split into ...</c>. Its bundle stays in the store; a default build no longer
+    /// serves it, and <c>include</c> brings it back. Any other status (an exclusion, an earlier retirement) is left alone.
+    /// </summary>
+    internal static string RetireSplitDeposit(string textLf, SplitGroup split)
+    {
+        if (!System.Text.RegularExpressions.Regex.IsMatch(textLf, $@"(?m)^[ \t]*- accession: {split.Accession}$")) return textLf;
+        var (start, end) = Block(textLf, split.Accession);
+        string block = textLf[start..end];
+        var status = System.Text.RegularExpressions.Regex.Match(block, @"(?m)^([ \t]+)status: include[ \t]*$");
+        if (!status.Success) return textLf;
+        string indent = status.Groups[1].Value;
+        string reason = $"{indent}reason: {JsonSerializer.Serialize($"split into {string.Join(" and ", split.Keys)}")}";
+        string retired = block[..status.Index] + $"{indent}status: superseded" + block[(status.Index + status.Length)..];
+        var old = System.Text.RegularExpressions.Regex.Match(retired, @"(?m)^[ \t]+reason: .*$");
+        retired = old.Success
+            ? retired[..old.Index] + reason + retired[(old.Index + old.Length)..]
+            : retired.Insert(retired.IndexOf($"{indent}status: superseded", StringComparison.Ordinal) + $"{indent}status: superseded".Length, "\n" + reason);
+        return textLf[..start] + retired + textLf[end..];
     }
 
     /// <summary>
