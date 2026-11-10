@@ -36,6 +36,13 @@ already written keep their numbers until they are rebuilt.
     lysines and N-termini. Of 234 delivered searches, 8 were under 1%. The median is 40% label-free, 23% TMT.
   - A sample that really holds few peptides (a pulldown, a secretome) is delivered once the question sets the deposit's
     own floor: `[exceptions.PXD...] min_identification_rate = 0`, with the reason. The delivery's note quotes it.
+- **iodoTMT is read as its own label and waits for a profile** (`waiting_iodotmt_labelling`), instead of being searched as
+  TMT on lysines and N-termini. iodoTMT tags cysteines. PRIDE files such deposits as plain TMT (PXD002479's quantification
+  and even its PTM list; PXD022888's "TMT intensity 126..."), so the deposit's own words win over every source but a curated
+  SDRF: "iodoTMT", "iodo-TMT", "iodoacetyl tandem mass tag".
+- **The screen reads two more pulldowns as enrichment:** a click reaction to biotin, a biotin azide or alkyne, or an
+  isoprenoid analog is `chemical_probe` (PXD037896, prenylated proteins on an alkyne isoprenoid analog), and an anti-TMT
+  resin or antibody is `affinity_purification` (PXD002479). Both had been screened as whole proteomes.
 - **`batch retry` can put a deposit that has not started yet first.** Until now it refused any deposit missing from
   `state.json`. A queued deposit could then wait without end behind a probe worker's passes, which go ahead of every
   deposit still to be probed on the main machine while the worker keeps refilling its window. PXD034029 was queue entry 1

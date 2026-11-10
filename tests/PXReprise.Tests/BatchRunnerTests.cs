@@ -1464,6 +1464,31 @@ public class BatchRunnerTests
         Assert.That(pendingOnly.IsobaricTaker(acq), Is.Null, "tmt-dda@1 is pending");
     }
 
+    // v0.4.44: PXD002479 and PXD022888 (iodoTMT on cysteines; PRIDE: "TMT") were routed to the TMT profile, searched as TMT on
+    // lysines and N-termini and delivered at 0.07% and 0.42% of their spectra. iodoTMT now waits, before any download, for a
+    // profile that searches it, and no isobaric profile takes it.
+    [Test]
+    public async Task AnIodoTmtDepositWaitsForItsOwnProfileInsteadOfTheTmtOne()
+    {
+        var (runner, search, files, dir) = DepositChemistryRunner("\"label-free-dda@3\", \"tmt-dda@2\"");
+        const string protocol = "Thiol groups were alkylated and labeled with 2.95 mM iodoTMT (Thermo Scientific #90101) for 1h in the dark.";
+        search.Results["PXD000412"] = new() { TestSupport.Record("PXD000412", "Type 2 diabetes muscle", protocol, instruments: new[] { "Q Exactive HF" }, files: new[] { "run1.raw" }) };
+        search.Projects["PXD000412"] = new PrideProject
+        {
+            Accession = "PXD000412", Title = "Type 2 diabetes muscle", SampleProcessingProtocol = protocol,
+            QuantificationMethods = new List<MzLibUtil.CvParam> { new() { Name = "TMT intensity 126" }, new() { Name = "TMT intensity 127" } },
+            IdentifiedPTMStrings = new List<MzLibUtil.CvParam> { new() { Name = "TMT6plex-126 reporter+balance reagent acylated residue" } },
+        };
+
+        Assert.That(await runner.ProbeAsync(new QueueEntry("PXD000412", "t", "human"), CancellationToken.None), Is.Null);
+
+        Assert.That(runner.Settled("PXD000412"), Is.EqualTo("waiting_iodotmt_labelling"));
+        Assert.That(files.Downloads, Is.Zero, "the chemistry is read before any download");
+        Assert.That(runner.State()["datasets"]!["PXD000412"]!["routed_isobaric"], Is.Null, "not routed to the TMT profile");
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain("PXD000412 SCREENED OUT (waiting_iodotmt_labelling)").And.Contain("label iodotmt"));
+        Assert.That(File.Exists(Path.Combine(dir, "runs", DecisionsNeeded.FileName)), Is.False, "a capability wait, not a person's decision");
+    }
+
     // G18: a reboot mid-search left the deposit at "searching" with a half-written 04_search/mm, which MetaMorpheus refuses
     // to reuse; the restart would have settled it as search_failed.
     [Test]

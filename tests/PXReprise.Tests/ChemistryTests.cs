@@ -145,6 +145,23 @@ public class ChemistryTests
             Assert.That((c.Label.Source, c.Label.Evidence), Is.EqualTo((ChemistrySource.PridePtm, "4x(2)H labeled dimethylated residue")));
     }
 
+    // v0.4.44: iodoTMT tags cysteines. PRIDE files PXD002479 as "TMT" (its quantification and PTM list) and PXD022888 as
+    // "TMT intensity 126..."; their protocols name iodoTMT, and their authors searched no amine TMT.
+    [TestCase("prior to labeling with isobaric iodoTMT ragent at 1 mM for 2 h at room temperature. TMT-tagged peptides were enriched", new[] { "TMT" })]
+    [TestCase("Thiol groups were alkylated and labeled with 2.95 mM iodoTMT (Thermo Scientific #90101) for 1h in the dark.", new[] { "TMT intensity 127", "TMT intensity 126" })]
+    [TestCase("labelled with iodoacetyl tandem mass tags", new string[0])]
+    public void IodoTmtIsACysteineTagNotTmtOnLysines(string protocol, string[] quant)
+    {
+        var c = ChemistryDetector.Detect(Project(protocol, new[] { "TMT6plex-126 reporter+balance reagent acylated residue" }, quant), null, null, Files);
+        Assert.That(c.Label.Value, Is.EqualTo(ChemistryDetector.IodoTmt));
+        Assert.That(c.Label.Evidence, Does.Contain("iodo").IgnoreCase, "the deposit's own words");
+    }
+
+    [TestCase("peptides were labelled with TMT10plex reagents", new[] { "TMT" })]
+    [TestCase("labelled with TMTpro 16plex; cysteines alkylated with iodoacetamide", new string[0])]
+    public void PlainTmtStaysTmt(string protocol, string[] quant) =>
+        Assert.That(ChemistryDetector.Detect(Project(protocol, null, quant), null, null, Files).Label.Value, Is.EqualTo("tmt"));
+
     [Test]
     public void APolyacrylamideGelIsNotAnAlkylantAndNoAlkylationMeansNoCysMod()
     {

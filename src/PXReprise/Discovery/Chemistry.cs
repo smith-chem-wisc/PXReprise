@@ -292,8 +292,13 @@ public static class ChemistryDetector
 
     // ------------------------------------------------------------------ labels (D25)
 
+    // Declared before Labels: static fields are initialised in the order they are written.
+    private static readonly Regex IodoTmtWords = new(@"iodo-?TMT|iodoacetyl[- ](tandem mass tag|TMT)", Opt);
+
     private static readonly (string Name, Regex Pattern)[] Labels =
     {
+        // v0.4.44: before "tmt", which its words also say ("isobaric iodoTMT reagent", "IodoTMT6plex").
+        (IodoTmt, IodoTmtWords),
         ("tmt", new(@"\bTMT|tandem mass tag", Opt)),
         ("itraq", new(@"\biTRAQ", Opt)),
         ("silac", new(@"\bSILAC\b|\b13C6\b|heavy (lysine|arginine)|\bLys8\b|\bArg10\b", Opt)),
@@ -304,6 +309,14 @@ public static class ChemistryDetector
         ("heavy_water", new(@"heavy[- ]?(labell?ed )?water|\bD2O\b|deuterated water", Opt)),
         ("15n", new(@"\b15N\b", Opt)),
     };
+    /// <summary>
+    /// v0.4.44: iodoTMT (Thermo #90101; UNIMOD:1342, +329.2266 on C) is a TMT that tags CYSTEINES, not lysines and N-termini,
+    /// so a profile that searches amine TMT finds nothing: PXD002479 (110 PSMs, 0.07% of its spectra) and PXD022888 (0.42%),
+    /// 2026-11-09/10, whose authors searched "IodoTMT6plex-labeled (C)" with no amine TMT. PRIDE files it as plain "TMT" (its
+    /// quantification methods, even its PTM list), so the deposit's own naming of iodoTMT wins over every source but a curated
+    /// SDRF. It waits for a profile that searches it (a capability, not a person's decision).
+    /// </summary>
+    internal const string IodoTmt = "iodotmt";
     private static readonly Regex LabelFreeWords = new(@"label[- ]?free", Opt);
     private static readonly Regex SpectralCounting = new(@"spectr(um|al) count", Opt);
 
@@ -512,6 +525,10 @@ public static class ChemistryDetector
             park ??= UnknownLabelPark;
         }
         else label = new("label_free", ChemistrySource.Default);
+        string iodoText = text + " " + string.Join(" ", pridePtms);
+        if (label.Value == "tmt" && label.Source != ChemistrySource.CuratedSdrf && IodoTmtWords.Match(iodoText) is { Success: true } iodo)
+            label = new(IodoTmt, ChemistrySource.ProtocolText,
+                $"iodoTMT tags cysteines, not lysines and N-termini (TMT read from {label.Source}: {label.Evidence}): {Snip(iodoText, iodo)}");
 
         // Every protease name as the pinned mzLib spells it (ProteaseDictionary). A per-file map is searched through
         // MetaMorpheus's file-specific parameters (the user, 2026-10-05: calibration carries the protease into X-calib.toml).
