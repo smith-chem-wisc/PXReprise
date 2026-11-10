@@ -217,6 +217,41 @@ public class ChemistryTests
         Assert.That(c.Label.Source, Is.EqualTo(ChemistrySource.PrideQuant), "a label-free SDRF label says nothing; PRIDE's TMT is next");
     }
 
+    // v0.4.45 (aging PXR-A181, PXD080133 at MassIVE): `pxreprise search` under a profile that reads each deposit's chemistry
+    // refused every search ("none was given"), so a deposit PRIDE does not host could not be searched under the current
+    // profile at all. Outside the batch the chemistry comes from the SDRF given with --design, else the defaults, never PRIDE.
+    [Test]
+    public void ASearchOutsideTheBatchReadsItsChemistryFromTheSdrfGivenOrTheDefaults()
+    {
+        var profiles = PXReprise.Config.ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
+        var p14 = profiles["label-free-dda@14"];
+        string spectra = TestSupport.TempDir();
+        foreach (var f in Files) TestSupport.WriteFile(spectra, f, "");
+        string sdrf = TestSupport.WriteFile(TestSupport.TempDir(), "PXD080133.sdrf.tsv",
+            "source name\tcomment[data file]\tcomment[cleavage agent details]\tcomment[modification parameters]\tcomment[label]\n"
+            + "s1\ta.raw\tNT=Lys-C;AC=MS:1001309\tNT=Carbamidomethyl;AC=UNIMOD:4;TA=C;MT=Fixed\tlabel free sample\n"
+            + "s2\tb.raw\tNT=Lys-C;AC=MS:1001309\tNT=Carbamidomethyl;AC=UNIMOD:4;TA=C;MT=Fixed\tlabel free sample\n");
+
+        var given = Search.SearchStage.ChemistryOutsideTheBatch(p14, spectra, sdrf)!;
+        Assert.That((given.Protease.Value, given.Protease.Source), Is.EqualTo(("Lys-C|P", ChemistrySource.CuratedSdrf)));
+        Assert.That((given.Alkylation.Value, given.Alkylation.Source), Is.EqualTo(("Carbamidomethyl", ChemistrySource.CuratedSdrf)));
+        Assert.That((given.Label.Value, given.Park), Is.EqualTo(("label_free", (string?)null)));
+
+        var none = Search.SearchStage.ChemistryOutsideTheBatch(p14, spectra, null)!;
+        Assert.That((none.Protease.Value, none.Protease.Source), Is.EqualTo(("trypsin", ChemistrySource.Default)));
+        Assert.That(none.CysMods, Is.EqualTo(new[] { new CysMod("Carbamidomethyl", "UNIMOD:4", true) }));
+
+        // An SDRF that states the protease is unknown (the validator wants the column) names none: the default stands.
+        string unstated = TestSupport.WriteFile(TestSupport.TempDir(), "u.sdrf.tsv",
+            "source name\tcomment[data file]\tcomment[cleavage agent details]\tcomment[label]\n"
+            + "s1\ta.raw\tnot available\tlabel free sample\ns2\tb.raw\tnot available\tlabel free sample\n");
+        var na = Search.SearchStage.ChemistryOutsideTheBatch(p14, spectra, unstated)!;
+        Assert.That((na.Protease.Value, na.Protease.Source, na.Park), Is.EqualTo(("trypsin", ChemistrySource.Default, (string?)null)));
+
+        Assert.That(Search.SearchStage.ChemistryOutsideTheBatch(profiles["label-free-dda@2"], spectra, sdrf), Is.Null,
+            "a profile that keeps its own chemistry is given none");
+    }
+
     // v0.4.25 (PXD022954, PXD022956): a community-annotated SDRF says "NT=isotope labeling;AC=PRIDE:0000310" on every row,
     // while PRIDE's record says label-free. v0.4.24 took the cell as the label and parked the deposit under a status made of
     // its text, with no decisions row.

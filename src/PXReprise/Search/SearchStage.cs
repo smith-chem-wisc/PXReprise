@@ -42,6 +42,21 @@ public static class SearchStage
     public const double CysteinePoorBelow = 0.05;
 
     /// <summary>
+    /// v0.4.45 (aging PXR-A181): the chemistry of a search run outside the batch (<c>pxreprise search</c>), e.g. a deposit
+    /// hosted at MassIVE, of which PRIDE has no record. A profile that reads each deposit's chemistry (G19) takes it from the
+    /// SDRF given with <c>--design</c> (PXReprise writes every deposit's, D65), and with none from the defaults; each fact's
+    /// source goes to provenance as in the batch. PRIDE is never asked. Null for a profile that keeps its own chemistry.
+    /// </summary>
+    public static Discovery.DepositChemistry? ChemistryOutsideTheBatch(Profile p, string spectraDir, string? sdrf)
+    {
+        if (p.Chemistry != "deposit") return null;
+        var raws = Directory.Exists(spectraDir)
+            ? Directory.EnumerateFiles(spectraDir, "*.raw").Select(f => Path.GetFileName(f)).Order(StringComparer.Ordinal).ToList()
+            : new List<string>();
+        return Discovery.ChemistryDetector.Detect(null, sdrf is null ? null : new Readers.SdrfDocument(sdrf), null, raws, p.ThiolReagents);
+    }
+
+    /// <summary>
     /// The precursor and FlashLFQ window, in ppm, under <c>[engine] precursor_window = "probe"</c>: wide enough for the
     /// largest offset the probe search measured (<see cref="ProbeMeasures.WindowPpm"/>), recorded in provenance. Null keeps
     /// MetaMorpheus's windows: under the default, when the offsets are small, or when none was measured.

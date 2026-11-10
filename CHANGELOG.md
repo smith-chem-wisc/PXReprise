@@ -25,6 +25,14 @@ takes the new release (`worker release`): it probes too, and the change is in th
     files as TMT alone is not second-guessed.
   - The decision is kept in the state (`label_from_spectra`), so a restart before the search or a `batch retry` keeps it.
     A worker's package carries it to the controller.
+- **`pxreprise search` runs a profile that reads each deposit's chemistry** (aging PXR-A181, a MassIVE pilot, 2026-11-10).
+  - Every current profile reads the deposit's protease, cysteine chemistry and label (G19). The batch reads them from
+    PRIDE's record and the SDRFs; `pxreprise search` on local files had no way to give them, so it refused every such
+    profile ("none was given for this search"). A deposit PRIDE does not host could not be searched under the current
+    profile at all.
+  - Now `search` reads them from the SDRF given with `--design` (PXReprise writes every deposit's, D65). A fact the SDRF
+    does not state takes the default (trypsin, carbamidomethyl fixed, label-free). Each fact's source goes to provenance,
+    as in the batch. PRIDE is never asked.
 
 ## 0.4.44 (2026-11-10)
 
