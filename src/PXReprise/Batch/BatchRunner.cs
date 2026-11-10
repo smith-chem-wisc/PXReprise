@@ -2189,12 +2189,26 @@ public sealed class BatchRunner
     public static List<string>? QcExclusion(JsonObject report, QcGates gates)
     {
         var failed = report.Where(kv => kv.Value!["pass"]!.GetValue<bool>() != true)
-            .ToDictionary(kv => kv.Key, kv => kv.Value!["fail_reasons"]?.AsArray().Select(r => r!.GetValue<string>()).ToHashSet() ?? new HashSet<string> { "unspecified" });
+            .ToDictionary(kv => kv.Key, kv => NoMs2AtAll(kv.Value!) ? new HashSet<string> { Qc.SpectraQc.TooFewMs2 }
+                : kv.Value!["fail_reasons"]?.AsArray().Select(r => r!.GetValue<string>()).ToHashSet() ?? new HashSet<string> { "unspecified" });
         if (failed.Count == 0) return new List<string>();
         if (failed.Values.Any(rs => rs.Any(r => !gates.Excludable.Contains(r)))) return null;
         if (report.Count - failed.Count < 1) return null;
         if (failed.Count > Math.Max(1, (int)(gates.MaxExcludedFraction * report.Count))) return null;
         return failed.Keys.OrderBy(k => k, StringComparer.Ordinal).ToList();
+    }
+
+    /// <summary>
+    /// v0.4.45 (PXD023647's `90C_10B_12`, a 1 MB re-injection with no scans): a file that was read and holds no MS2 at all
+    /// is the plainest blank or failed injection, judged on too_few_ms2 alone. It also fails every gate that judges MS2 (a
+    /// 0.0 Orbitrap HCD share, no reporters, no fragmentation to read), and those verdicts kept it from being excluded, so
+    /// one empty file held back eleven good ones. A file that could not be read reports 0 MS2 too and is not one of these.
+    /// </summary>
+    private static bool NoMs2AtAll(JsonNode qc)
+    {
+        var reasons = qc["fail_reasons"]?.AsArray().Select(r => r?.GetValue<string>()).ToList() ?? new List<string?>();
+        return qc["ms2"] is JsonValue v && v.TryGetValue<int>(out int n) && n == 0
+            && reasons.Contains(Qc.SpectraQc.TooFewMs2) && !reasons.Contains(Qc.SpectraQc.Unreadable);
     }
 
     private FetchRequest FetchRequestFor(string acc, Pick pick, DepositPolicy dep) =>

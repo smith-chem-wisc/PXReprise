@@ -36,6 +36,29 @@ public class BatchRunnerTests
         Assert.That(BatchRunner.QcExclusion(Report(("a.raw", false, new[] { "low_res_ms2" }), ("b.raw", true, Array.Empty<string>())), Gates), Is.Null);
     }
 
+    // PXD023647, 2026-11-10: `..._TMTpro_90C_10B_12.raw` is a 1 MB re-injection with no scans beside 11 good TMTpro files (its
+    // 90C sample's real run is `90C_10`). With no MS2 it also failed every gate that judges MS2 (low_res_ms2 at a 0.0 share,
+    // no_isobaric_reporters, unsupported_fragmentation "no MS2 scans"), so it was not excludable as a blank and held back the
+    // whole deposit as skipped_acquisition_full. A file with no MS2 at all is excluded as too_few_ms2; a corrupt one is not.
+    [Test]
+    public void AFileWithNoMs2AtAllIsExcludedAsAFailedInjectionWhateverElseItFailed()
+    {
+        static (string, bool, string[]) Good(int i) => ($"f{i:00}.raw", true, Array.Empty<string>());
+        var report = Report(Enumerable.Range(1, 11).Select(Good).Append(("f12.raw", false,
+            new[] { "low_res_ms2", "too_few_ms2", "no_isobaric_reporters", "unsupported_fragmentation" })).ToArray());
+        report["f12.raw"]!["ms2"] = 0;
+        foreach (var kv in report.Where(kv => kv.Key != "f12.raw").ToList()) kv.Value!["ms2"] = 42543;
+        Assert.That(BatchRunner.QcExclusion(report, Gates), Is.EqualTo(new[] { "f12.raw" }));
+
+        // The same reasons on a file that HAS MS2 (an ion-trap run among Orbitrap ones) still refuse the deposit.
+        report["f12.raw"]!["ms2"] = 90;
+        Assert.That(BatchRunner.QcExclusion(report, Gates), Is.Null);
+
+        // An unreadable file reports 0 MS2 too, and stays a decision for a person.
+        report["f12.raw"] = new JsonObject { ["pass"] = false, ["fail_reasons"] = new JsonArray("unreadable"), ["ms2"] = 0 };
+        Assert.That(BatchRunner.QcExclusion(report, Gates), Is.Null);
+    }
+
     // PXD057407, 2026-10-12: five phospho runs from the 10-08 attempt lay beside the ten global runs the question now
     // selects (PXR-A68). The fetch counted "15 of 10" and failed; had the count passed, QC and the search would have taken
     // all fifteen. A whole-deposit fetch now sets aside what its selection does not name.
