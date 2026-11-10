@@ -7,10 +7,11 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
-## 0.4.44 (unreleased)
+## 0.4.44 (2026-11-10)
 
 **MetaMorpheus** unchanged. **Machine file:** no change needed. **Safe mid-batch?** Yes: swap the pin as usual. Payloads
-already written keep their numbers until they are rebuilt.
+already written keep their numbers until they are rebuilt. A probe worker takes the new release (`worker release`); its
+packages probed under 0.4.43 are refused once and probed again.
 
 - **The QC payload counts a deposit's protein groups correctly when its design has samples spanning several runs** (qc 016,
   PXR-C11).
