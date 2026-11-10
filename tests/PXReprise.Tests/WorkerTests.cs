@@ -481,6 +481,52 @@ public class WorkerTests
         });
     }
 
+    // v0.4.44, PXD034029 (aging D161, 2026-11-10): queue entry 1 since 11-09 16:24 UTC and never started, because a worker's pass
+    // goes ahead of every deposit still to be probed here and the worker refills its window. `batch retry` refused it ("not in
+    // state.json"). It now takes a queued deposit that never started, and the request goes ahead of the worker's passes.
+    [Test]
+    public async Task BatchRetryPutsAQueuedDepositThatNeverStartedAheadOfTheWorkersPasses()
+    {
+        var (runner, dir, share) = Controller(window: 1, gap: 5);
+        share.WriteHeartbeat(new JsonObject { ["state"] = "working" });
+        runner.Record("PXD000753", ("status", BatchRunner.ProbedByWorkerStatus), ("profile", "label-free-dda@1"), ("title", "p"), ("organism", "human"));
+        string queueFile = Path.Combine(dir, "queue.json"), state = Path.Combine(dir, "state"), runs = Path.Combine(dir, "runs");
+        File.WriteAllText(queueFile, """
+            [{"accession": "PXD000751", "title": "first in line", "organism": "human"},
+             {"accession": "PXD000752", "title": "b", "organism": "human"},
+             {"accession": "PXD000753", "title": "p", "organism": "human"}]
+            """);
+        var queue = BatchRunner.LoadQueue(queueFile);
+
+        Assert.That(() => BatchRunner.Requeue(state, runs, "PXD000759", "x", queueFile),
+            Throws.TypeOf<PXReprise.Cli.UsageException>().With.Message.Contains("nor in the queue"), "neither started nor queued");
+        BatchRunner.Requeue(state, runs, "PXD000751", "aging D161: searched first", queueFile);
+
+        var e = runner.State()["datasets"]!["PXD000751"]!;
+        var order = new List<string>();
+        void Did(string what) { lock (order) order.Add(what); }
+        runner.ProbeForTest = (x, ct) => { Did($"probe {x.Accession}"); runner.Record(x.Accession, ("status", "skipped_test")); return Task.FromResult<Profile?>(null); };
+        runner.FetchWholeForTest = (x, p, ct) => { Did($"fetch {x.Accession}"); runner.Record(x.Accession, ("status", "fetched")); return Task.FromResult(true); };
+        runner.SearchForTest = (x, p, ct) => { Did($"search {x.Accession}"); return Task.CompletedTask; };
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var run = runner.RunAsync(queue, cts.Token);
+        await Until(() => { lock (order) return order.Count >= 4; }, cts.Token);
+        File.WriteAllText(Path.Combine(state, "STOP"), "test");
+        await run;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(e["status"]!.GetValue<string>(), Is.EqualTo("requeued_user"));
+            Assert.That((e["title"]!.GetValue<string>(), e["organism"]!.GetValue<string>()), Is.EqualTo(("first in line", "human")), "from its queue entry");
+            Assert.That((e["requeued"]![0]!["previous_status"]!.GetValue<string>(), e["requeued"]![0]!["reason"]!.GetValue<string>()),
+                Is.EqualTo(("not_started", "aging D161: searched first")));
+            Assert.That(order.IndexOf("probe PXD000751"), Is.EqualTo(0), "the person's request goes first, ahead of the worker's pass");
+            Assert.That(order, Does.Contain("fetch PXD000753"), "the pass still comes next");
+            Assert.That(Log(dir), Does.Contain("PXD000751 REQUEUED by").And.Contain("(was not_started)")
+                .And.Contain("PXD000751 taken next: a person asked for it"));
+        });
+    }
+
     [Test]
     public async Task ATakeBackRewritesTheWorkersAssignmentsBeforeTheDepositIsProbedHere()
     {

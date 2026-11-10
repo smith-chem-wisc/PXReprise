@@ -28,6 +28,11 @@ already written keep their numbers until they are rebuilt.
   `pxreprise:DEF-PROTEINGROUP-1PCT-MSMS v1` and `pxreprise:DEF-PROTEINGROUP-RUNS-MSMS v1`, in DEFINITIONS.md.
   - Both count groups seen by MS/MS (a spectral count above 0), not groups with an intensity. The name
     `protein_groups_quantified` comes from aging's builder, which never defined it.
+- **`batch retry` can put a deposit that has not started yet first.** Until now it refused any deposit missing from
+  `state.json`. A queued deposit could then wait without end behind a probe worker's passes, which go ahead of every
+  deposit still to be probed on the main machine while the worker keeps refilling its window. PXD034029 was queue entry 1
+  for ten hours and never started. A retried deposit goes ahead of the worker's passes, and its `requeued` record says
+  `not_started`.
 
 ## 0.4.43 (2026-11-09)
 

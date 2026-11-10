@@ -291,7 +291,7 @@ public static class Program
                 switch (rest[0])
                 {
                     case "retry":
-                        return Batch.BatchRunner.Requeue(b.StateDir, b.RunRoot, rest[2], args.Required("reason"));
+                        return Batch.BatchRunner.Requeue(b.StateDir, b.RunRoot, rest[2], args.Required("reason"), b.Queue);
                     case "research":
                     {
                         // The profile must be one the question names: a question is data, and the batch searches only its profiles.

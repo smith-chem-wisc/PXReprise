@@ -268,8 +268,12 @@ public sealed class BatchRunner
     /// <c>fetch_failed</c> is never undone by hand-editing state.json. The previous status, detail, time, user and reason
     /// are kept in the entry's <c>requeued</c> list and in batch.log. Refused while a driver runs (it owns state.json)
     /// and for a deposit whose search finished.
+    /// v0.4.44 (PXD034029, aging D161, 2026-11-10): a deposit in <paramref name="queueFile"/> that never started (no
+    /// state entry) is taken too, so a person can put it first. PXD034029 was queue entry 1 for ten hours and never
+    /// started: a deposit the probe worker passed goes ahead of every one still to be probed here, and the worker keeps
+    /// refilling its window. A person's request goes ahead of the worker's passes.
     /// </summary>
-    public static object Requeue(string stateDir, string runRoot, string acc, string reason)
+    public static object Requeue(string stateDir, string runRoot, string acc, string reason, string? queueFile = null)
     {
         string pidFile = Path.Combine(stateDir, "driver.pid"), stateFile = Path.Combine(stateDir, "state.json");
         if (string.IsNullOrWhiteSpace(reason)) throw new UsageException("--reason must say why the deposit is retried");
@@ -280,9 +284,18 @@ public sealed class BatchRunner
             throw new UsageException($"{acc} has a finished search; there is nothing to retry (batch research searches it again)");
         if (!File.Exists(stateFile)) throw new UsageException($"no {stateFile}: the batch has not run");
         var st = JsonNode.Parse(File.ReadAllText(stateFile))!.AsObject();
-        if (st["datasets"]?[acc] is not JsonObject e) throw new UsageException($"{acc} is not in {stateFile}");
         string now = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'+00:00'");
-        string previous = e["status"]?.GetValue<string>() ?? "?";
+        string previous;
+        if (st["datasets"]?[acc] is JsonObject known) previous = known["status"]?.GetValue<string>() ?? "?";
+        else
+        {
+            var queued = queueFile is not null && File.Exists(queueFile) ? LoadQueue(queueFile).FirstOrDefault(x => x.Accession == acc) : null;
+            if (queued is null) throw new UsageException($"{acc} is not in {stateFile}" + (queueFile is null ? "" : $" nor in the queue ({queueFile})"));
+            if (st["datasets"] is not JsonObject datasets) st["datasets"] = datasets = new JsonObject();
+            datasets[acc] = new JsonObject { ["title"] = queued.Title, ["organism"] = queued.Organism };
+            previous = "not_started";
+        }
+        var e = st["datasets"]![acc]!.AsObject();
         // v0.4.18: a failed search's output is moved aside, never deleted; the raw files stay and are checked, not fetched again.
         string? movedTo = null;
         if (failedSearch)
