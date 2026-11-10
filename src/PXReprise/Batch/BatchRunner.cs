@@ -268,8 +268,12 @@ public sealed class BatchRunner
     /// <c>fetch_failed</c> is never undone by hand-editing state.json. The previous status, detail, time, user and reason
     /// are kept in the entry's <c>requeued</c> list and in batch.log. Refused while a driver runs (it owns state.json)
     /// and for a deposit whose search finished.
+    /// v0.4.44 (PXD034029, aging D161, 2026-11-10): a deposit in <paramref name="queueFile"/> that never started (no
+    /// state entry) is taken too, so a person can put it first. PXD034029 was queue entry 1 for ten hours and never
+    /// started: a deposit the probe worker passed goes ahead of every one still to be probed here, and the worker keeps
+    /// refilling its window. A person's request goes ahead of the worker's passes.
     /// </summary>
-    public static object Requeue(string stateDir, string runRoot, string acc, string reason)
+    public static object Requeue(string stateDir, string runRoot, string acc, string reason, string? queueFile = null)
     {
         string pidFile = Path.Combine(stateDir, "driver.pid"), stateFile = Path.Combine(stateDir, "state.json");
         if (string.IsNullOrWhiteSpace(reason)) throw new UsageException("--reason must say why the deposit is retried");
@@ -280,9 +284,18 @@ public sealed class BatchRunner
             throw new UsageException($"{acc} has a finished search; there is nothing to retry (batch research searches it again)");
         if (!File.Exists(stateFile)) throw new UsageException($"no {stateFile}: the batch has not run");
         var st = JsonNode.Parse(File.ReadAllText(stateFile))!.AsObject();
-        if (st["datasets"]?[acc] is not JsonObject e) throw new UsageException($"{acc} is not in {stateFile}");
         string now = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'+00:00'");
-        string previous = e["status"]?.GetValue<string>() ?? "?";
+        string previous;
+        if (st["datasets"]?[acc] is JsonObject known) previous = known["status"]?.GetValue<string>() ?? "?";
+        else
+        {
+            var queued = queueFile is not null && File.Exists(queueFile) ? LoadQueue(queueFile).FirstOrDefault(x => x.Accession == acc) : null;
+            if (queued is null) throw new UsageException($"{acc} is not in {stateFile}" + (queueFile is null ? "" : $" nor in the queue ({queueFile})"));
+            if (st["datasets"] is not JsonObject datasets) st["datasets"] = datasets = new JsonObject();
+            datasets[acc] = new JsonObject { ["title"] = queued.Title, ["organism"] = queued.Organism };
+            previous = "not_started";
+        }
+        var e = st["datasets"]![acc]!.AsObject();
         // v0.4.18: a failed search's output is moved aside, never deleted; the raw files stay and are checked, not fetched again.
         string? movedTo = null;
         if (failedSearch)
@@ -1658,6 +1671,33 @@ public sealed class BatchRunner
 
     // ------------------------------------------------------------------ delivery
 
+    /// <summary>
+    /// v0.4.44 (the user, 2026-11-10: "some qc ... when something looks off, we should automatically dig in"): the share of a
+    /// full search's MS2 spectra its 1% PSMs must reach to be delivered (aging DEF-PSM-1PCT v1 over all MS2, the search's
+    /// <c>id_rate</c>). Of 234 delivered searches, 8 were under it: our two iodoTMT deposits searched as amine TMT (PXD002479
+    /// 0.07%, PXD022888 0.42%), small samples (PXD016932 0.48%, a secretome) and deposits aging later excluded. The median
+    /// is 40% label-free, 23% TMT, 19% ion-trap. A deposit's own floor is its question's <c>min_identification_rate</c>.
+    /// </summary>
+    internal const double MinIdentificationRate = 0.01;
+
+    /// <summary>The park of a full search under the identification floor: searched, kept on disk, not delivered.</summary>
+    internal const string LowIdentificationsStatus = "waiting_low_identifications";
+
+    /// <summary>
+    /// Why the deposit's finished search is under its identification floor, or null when it is not (or the search records
+    /// no rate: searches before v0.4.0's <c>id_rate</c> are delivered as before).
+    /// </summary>
+    internal string? BelowIdentificationFloor(string acc)
+    {
+        string prov = Path.Combine(Run(acc), "04_search", "provenance.json");
+        if (!File.Exists(prov) || JsonNode.Parse(File.ReadAllText(prov))?["id_rate"] is not JsonObject id
+            || id["rate"]?.GetValue<double>() is not { } rate) return null;
+        double floor = _q.ExceptionFor(acc)?.MinIdentificationRate ?? MinIdentificationRate;
+        if (rate >= floor) return null;
+        string ms2 = id["ms2"]?.GetValue<long>() is { } n ? $" of {n:N0} MS2 spectra" : "";
+        return $"the full search's {id["psms_1pct"]?.GetValue<long>().ToString("N0") ?? "?"} PSMs at 1% are {rate:P2}{ms2}, under the identification floor of {floor:P0}";
+    }
+
     private readonly SemaphoreSlim _delivering = new(1, 1);
 
     /// <summary>One delivery at a time: two searches may finish together, and the manifest, the store and the publish
@@ -1680,6 +1720,20 @@ public sealed class BatchRunner
             Log($"{e.Accession} DELIVERY HELD: a split deposit's search is delivered once the store serves splits (dataRepo PXR-R32); the machine file's deliver_split_deposits is off");
             Record(e.Accession, ("delivery", "held: a split search, waiting for deliver_split_deposits (dataRepo PXR-R32)"));
             return;
+        }
+        if (BelowIdentificationFloor(e.Accession) is { } low)
+        {
+            Log($"{e.Accession} DELIVERY HELD (waiting_low_identifications): {low}");
+            Record(e.Accession, ("status", LowIdentificationsStatus), ("detail", low), ("delivery", "held: below the identification floor"));
+            if (DecisionsNeeded.Announce(_runRoot, e.Accession, LowIdentificationsStatus, low) is { } d)
+                Log($"{e.Accession} DECISION NEEDED ({LowIdentificationsStatus}): {d.Question} Listed in {DecisionsNeeded.FileName}.");
+            return;
+        }
+        if (Entry(e.Accession)?["status"]?.GetValue<string>() == LowIdentificationsStatus)
+        {
+            // The question lowered the deposit's own floor: delivered as it is, and the manifest note quotes the exception.
+            Log($"{e.Accession} DELIVERY RELEASED: the question's exception lowers its identification floor ({_q.ExceptionStamp(e.Accession)})");
+            Record(e.Accession, ("status", "searched"), ("exception", _q.ExceptionStamp(e.Accession)));
         }
         try
         {

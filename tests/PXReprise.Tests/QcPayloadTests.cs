@@ -189,6 +189,11 @@ public class QcPayloadTests
             Assert.That(r.Payload["schema"]!.GetValue<string>(), Is.EqualTo("qc-payload/2"));
             Assert.That(r.Payload["definitions"]!["psms"]!["id"]!.GetValue<string>(), Is.EqualTo("pxreprise:DEF-PSM-1PCT-RUN"));
             Assert.That(r.Payload["definitions"]!["protein_groups"]!["id"]!.GetValue<string>(), Is.EqualTo("pxreprise:DEF-PROTEINGROUP-1PCT-RUN"));
+            // qc 019 PXR-C13: both dataset keys name what they count, groups seen by MS/MS (SpectralCount_ > 0), not intensity.
+            Assert.That(r.Payload["definitions"]!["protein_groups_quantified"]!["id"]!.GetValue<string>(), Is.EqualTo("pxreprise:DEF-PROTEINGROUP-1PCT-MSMS"));
+            Assert.That(r.Payload["definitions"]!["runs_per_protein_group"]!["id"]!.GetValue<string>(), Is.EqualTo("pxreprise:DEF-PROTEINGROUP-RUNS-MSMS"));
+            Assert.That(r.Payload["dataset_metrics"]!["protein_groups_quantified"]!.GetValue<int>(), Is.EqualTo(2), "P1 and P2, each with a spectral count");
+            Assert.That(r.Payload["dataset_metrics"]!["runs_per_protein_group"]!.ToJsonString(), Is.EqualTo("{\"1\":1,\"2\":1}"), "P1 in a only, P2 in both");
             // psms: exactly T, both q <= 0.01, unambiguous notch. a: 2. b: the q 0.005 row and the ambiguous-sequence row.
             Assert.That((files["a"]["psms"]!.GetValue<int>(), files["b"]["psms"]!.GetValue<int>()), Is.EqualTo((2, 2)));
             // peptides: a's oxidised form is above 1% at peptide level; b's ambiguous sequence supports none.
@@ -215,6 +220,7 @@ public class QcPayloadTests
             Assert.That(f1["a"].ContainsKey("peptides"), Is.False);
             Assert.That(v1.Payload["dataset"]!.AsObject().ContainsKey("search_databases"), Is.False);
             Assert.That(v1.Payload["definitions"]!["psms"]!["id"]!.GetValue<string>(), Is.EqualTo("aging:DEF-PSM-1PCT-RUN"));
+            Assert.That(v1.Payload["definitions"]!.AsObject().ContainsKey("protein_groups_quantified"), Is.False, "/1 stays aging's block, key for key");
         });
     }
 

@@ -7,6 +7,49 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.44 (2026-11-10)
+
+**MetaMorpheus** unchanged. **Machine file:** no change needed. **Safe mid-batch?** Yes: swap the pin as usual. Payloads
+already written keep their numbers until they are rebuilt. A probe worker takes the new release (`worker release`); its
+packages probed under 0.4.43 are refused once and probed again.
+
+- **The QC payload counts a deposit's protein groups correctly when its design has samples spanning several runs** (qc 016,
+  PXR-C11).
+  - With a design, MetaMorpheus labels the protein-group columns by sample. A sample spanning several runs (fractions,
+    re-injections) has no run of its own.
+  - Since 0.4.0, `protein_groups_quantified` and `runs_per_protein_group` were counted over the single-run columns alone,
+    as if those were the whole table. PXD051203 (39 runs, 19 samples spanning several) read 236 groups, every one in 1
+    run (`{"1": 236}`); it has 921 at 1%.
+  - Now a group counts as quantified when any sample has it.
+  - `runs_per_protein_group` is empty, meaning not measurable, once any sample spans several runs, and the payload's
+    note says why.
+  - Deposits whose every sample spans several runs used to report no quantified count, and now report one.
+  - Three of the aging batch's 217 payloads carried the wrong numbers: PXD051203, PXD047293 and PXD051644.
+- **The two fields now name their definitions** in `/2` payloads (qc 019, PXR-C13):
+  `pxreprise:DEF-PROTEINGROUP-1PCT-MSMS v1` and `pxreprise:DEF-PROTEINGROUP-RUNS-MSMS v1`, in DEFINITIONS.md.
+  - Both count groups seen by MS/MS (a spectral count above 0), not groups with an intensity. The name
+    `protein_groups_quantified` comes from aging's builder, which never defined it.
+- **A full search that identifies almost nothing is held, not delivered.** Every profile now checks the full search
+  before delivery: if its PSMs at 1% are under 1% of its MS2 spectra, the search is kept on disk, the deposit waits as
+  `waiting_low_identifications`, and a row in `decisions_needed.tsv` asks a person.
+  - Why: TMT deposits run no probe search, so nothing caught a wrong label. On 2026-11-09/10, PXD002479 (110 PSMs, 0.07%)
+    and PXD022888 (0.42%) were delivered: both are labelled with iodoTMT, a cysteine tag, and were searched as TMT on
+    lysines and N-termini. Of 234 delivered searches, 8 were under 1%. The median is 40% label-free, 23% TMT.
+  - A sample that really holds few peptides (a pulldown, a secretome) is delivered once the question sets the deposit's
+    own floor: `[exceptions.PXD...] min_identification_rate = 0`, with the reason. The delivery's note quotes it.
+- **iodoTMT is read as its own label and waits for a profile** (`waiting_iodotmt_labelling`), instead of being searched as
+  TMT on lysines and N-termini. iodoTMT tags cysteines. PRIDE files such deposits as plain TMT (PXD002479's quantification
+  and even its PTM list; PXD022888's "TMT intensity 126..."), so the deposit's own words win over every source but a curated
+  SDRF: "iodoTMT", "iodo-TMT", "iodoacetyl tandem mass tag".
+- **The screen reads two more pulldowns as enrichment:** a click reaction to biotin, a biotin azide or alkyne, or an
+  isoprenoid analog is `chemical_probe` (PXD037896, prenylated proteins on an alkyne isoprenoid analog), and an anti-TMT
+  resin or antibody is `affinity_purification` (PXD002479). Both had been screened as whole proteomes.
+- **`batch retry` can put a deposit that has not started yet first.** Until now it refused any deposit missing from
+  `state.json`. A queued deposit could then wait without end behind a probe worker's passes, which go ahead of every
+  deposit still to be probed on the main machine while the worker keeps refilling its window. PXD034029 was queue entry 1
+  for ten hours and never started. A retried deposit goes ahead of the worker's passes, and its `requeued` record says
+  `not_started`.
+
 ## 0.4.43 (2026-11-09)
 
 **MetaMorpheus** unchanged. **Machine file:** no change needed. A new optional key, `deliver_split_deposits` (default

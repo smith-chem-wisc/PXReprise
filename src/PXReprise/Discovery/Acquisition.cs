@@ -112,7 +112,15 @@ public static class AcquisitionClassifier
         @"di-?gly(cine)? remnant", "ubiquitin remnant", @"glyco(peptide)?[- ]?enrich", "crosslinking mass spectrometry",
         "cross-linking mass spectrometry", @"\bXL-MS\b", @"\bDSSO\b", "interactome", "GFP-?trap", @"\bLyso-?IP\b",
         "organelle (isolation|purification|enrichment)", AcylEnrichment("acetyl"), AcylEnrichment("succinyl"),
+        ChemicalProbeWords, AntiTagResin,
     }), Opt);
+
+    // v0.4.44: PXD037896 enriched prenylated proteins with an alkyne isoprenoid analog, a click reaction to biotin-N3 and a
+    // pulldown ("Enrichment of labeled prenylated proteins"), and was screened as a whole proteome. A click reaction to a
+    // biotin or an azide/alkyne probe is a chemical-probe pulldown.
+    private const string ChemicalProbeWords = @"click (reaction|chemistry)|\bbiotin-?(N3|azide|alkyne)\b|isoprenoid analog";
+    // v0.4.44: PXD002479: "TMT-tagged peptides were enriched with immobilized anti-TMT resin".
+    private const string AntiTagResin = @"anti-?TMT (resin|antibod)";
 
     // PXR-A88 (aging 082): PXD038328 ("acetyl-lysine enrichment") and PXD061654 ("enriched for acetylated peptides using a
     // specific antibody"; keyword "Acetylome") were screened as whole proteomes: no acetyl term existed. Each phrase names
@@ -134,9 +142,9 @@ public static class AcquisitionClassifier
         // v0.4.17 (aging 108, PXR-A107): "lectin" as a word. Inside "collecting" it made a FLAG/HA immunoprecipitation glyco.
         ("glyco", new(@"glyco(peptide)?[- ]?enrich|\blectins?\b", Opt)),
         ("proximity_labelling", new(@"\bturboid\b|\bbioid\b|\bapex2\b|proximity[- ]labell?ing", Opt)),
-        ("chemical_probe", new(@"kinobead|chemical probe|activity-based probe|\bdcp-?bio", Opt)),
+        ("chemical_probe", new(@"kinobead|chemical probe|activity-based probe|\bdcp-?bio|" + ChemicalProbeWords, Opt)),
         ("immunoprecipitation", new(@"immunoprecipitat|\bco-?ip\b|\bip-ms\b|\blyso-?ip\b", Opt)),
-        ("affinity_purification", new(@"affinity (purif|enrich|capture)|pull-?down|gfp-?trap|streptavidin|\bflag\b", Opt)),
+        ("affinity_purification", new(@"affinity (purif|enrich|capture)|pull-?down|gfp-?trap|streptavidin|\bflag\b|" + AntiTagResin, Opt)),
     };
 
     private static readonly Regex OrbitrapOnly = new("Q Exactive|Exploris", Opt);

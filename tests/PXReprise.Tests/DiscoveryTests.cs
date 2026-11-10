@@ -98,6 +98,19 @@ public class DiscoveryTests
         Assert.That(Router.Assign(r.Accession, a, Relevance.Evaluate(r, Q().Relevance), Q(), Profiles).Kind, Is.EqualTo(RouteKind.Search));
     }
 
+    // v0.4.44: two pulldowns screened as whole proteomes (enrichment "none"). The sentences are PRIDE's own: PXD037896 (an
+    // alkyne isoprenoid analog, clicked to biotin-N3) and PXD002479 (iodoTMT peptides on an anti-TMT resin).
+    [TestCase("lysates from cells treated with C15AlkOPP or FPP were subjected to click reaction with biotin-N3 (100 uM biotin-N3 (BroadPharm), 1 mM TCEP)", "chemical_probe")]
+    [TestCase("expression changes of prenylated proteins with enrichment for prenylated proteins by an isoprenoid analog", "chemical_probe")]
+    [TestCase("TMT-tagged peptides were enriched with immobilized anti-TMT resin and eluted with TMT-elution buffer", "affinity_purification")]
+    public void APulldownOnAProbeOrATagIsAnEnrichment(string text, string kind)
+    {
+        var r = TestSupport.Record("PXD000018", "Muscle in type 2 diabetes", text, instruments: new[] { "Q Exactive HF" }, files: new[] { "a.raw" });
+        var a = AcquisitionClassifier.Classify(r);
+        Assert.That(a.Enrichment, Is.EqualTo(kind));
+        Assert.That(a.EnrichmentEvidence, Is.Not.Null.And.Not.Empty, "the kind's own words");
+    }
+
     // Aging 030 (PXR-A23): immunopeptidomes passed the screen and were searched as tryptic. The sentences are PRIDE's own.
     [TestCase("Bead coupling and immunopurification of MHC class I peptides were performed as previously described")]   // PXD034059
     [TestCase("Native MHC-II-peptide complexes were purified using the InvivoMab anti-mouse MHC-II antibody")]          // PXD058775

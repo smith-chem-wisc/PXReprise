@@ -116,7 +116,9 @@ pxreprise batch research question.toml PXD000000 --reason "why" [--profile label
   them first. A download still under way when the last search ends is cut and taken up again by the next `run`.
 - `retry` puts one settled deposit (for example `fetch_failed`) back in the queue for the next `run`. The reason is
   required; it is kept in `state.json` with the old status, the time and the user, and logged. Refused while a batch is
-  running and for a deposit whose search finished.
+  running and for a deposit whose search finished. A deposit a person retries goes ahead of the queue order, and ahead of
+  deposits a probe worker passed. It also takes a deposit in the queue that has not started yet (old status
+  `not_started`), so you can put one first.
 - `research` searches a finished deposit again, for example under a newer profile. Its folder is moved aside whole
   (`PXD000000.superseded-<time>`), never deleted, and the next `run` downloads and searches it like a new deposit, under
   `--profile` when given (one of the question's own profiles), else as routing chooses. The delivery already in the

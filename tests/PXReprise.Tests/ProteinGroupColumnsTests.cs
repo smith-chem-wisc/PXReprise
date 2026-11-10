@@ -89,6 +89,59 @@ public class ProteinGroupColumnsTests
         });
     }
 
+    private const string OneSingleOneFractionated =
+        "FileName\tCondition\tBiorep\tFraction\tTechrep\nrunA-calib.mzML\taged\t1\t1\t1\n"
+        + "runC_F1-calib.mzML\tyoung\t1\t1\t1\nrunC_F2-calib.mzML\tyoung\t1\t2\t1\n";
+
+    /// <summary>
+    /// qc 016 (PXR-C11): PXD051203's payload said 236 quantified groups, every one in exactly 1 run ({"1": 236}). It has 39
+    /// runs and 19 samples spanning several of them. The groups and the histogram were counted over the one column that
+    /// maps to a single run, as if it were the whole table. The fix: a group is quantified when any sample column has it
+    /// (DEF: an intensity in at least one run). The histogram counts runs, so it is not measurable, and empty, once any
+    /// sample spans several runs.
+    /// </summary>
+    [Test]
+    public void ASampleSpanningSeveralFilesLeavesTheRunHistogramEmptyButCountsEveryGroup()
+    {
+        string pg = Table(new[] { "aged_1", "young_1" }, OneSingleOneFractionated,
+            ("T", new[] { 5.0, 5.0 }, new[] { 1, 1 }),
+            ("T", new[] { 0.0, 5.0 }, new[] { 0, 2 }),
+            ("D", new[] { 5.0, 5.0 }, new[] { 1, 1 }));
+        var pass = QcPayloadBuilder.ParseProteinGroups(pg);
+        Assert.Multiple(() =>
+        {
+            Assert.That(pass.Quantified, Is.EqualTo(2), "a group seen in any sample was seen in at least one run; the decoy never counts");
+            Assert.That(pass.RunsPer.Count, Is.EqualTo(0), "runs per group cannot be counted when a sample spans several runs");
+            Assert.That(pass.Present["runA"], Is.EqualTo(1));
+            Assert.That(pass.Measures("runA"), Is.True);
+            Assert.That(pass.Measures("runC_F1") || pass.Measures("runC_F2"), Is.False);
+        });
+    }
+
+    [Test]
+    public void WhenEverySampleSpansSeveralFilesTheGroupsAreStillCounted()
+    {
+        string design = "FileName\tCondition\tBiorep\tFraction\tTechrep\nf1-calib.mzML\tyoung\t1\t1\t1\nf2-calib.mzML\tyoung\t1\t2\t1\n";
+        var pass = QcPayloadBuilder.ParseProteinGroups(Table(new[] { "young_1" }, design,
+            ("T", new[] { 5.0 }, new[] { 1 }), ("T", new[] { 5.0 }, new[] { 0 })));
+        Assert.Multiple(() =>
+        {
+            Assert.That(pass.Quantified, Is.EqualTo(1), "only the group with a spectral count is quantified (_msms)");
+            Assert.That(pass.RunsPer.Count, Is.EqualTo(0));
+            Assert.That(pass.Present, Is.Empty);
+            Assert.That(pass.Measures("f1"), Is.False);
+        });
+    }
+
+    /// <summary>Every sample one file: the histogram is the runs', as before.</summary>
+    [Test]
+    public void WhenEverySampleIsOneFileTheHistogramCountsRuns()
+    {
+        var pass = QcPayloadBuilder.ParseProteinGroups(Table(new[] { "aged_1", "aged_2" }, OneFilePerSample,
+            ("T", new[] { 5.0, 5.0 }, new[] { 1, 1 }), ("T", new[] { 5.0, 0.0 }, new[] { 1, 0 })));
+        Assert.That(pass.RunsPer.ToJsonString(), Is.EqualTo("{\"1\":1,\"2\":1}"));
+    }
+
     [Test]
     public void SearchContaminationKeysTheSharePerFileThroughTheDesign()
     {
