@@ -137,7 +137,8 @@ database the profile has, with variable phospho and GG. Each
 run's species, share of cysteine-containing peptides, and phospho, GG and acetyl-K shares go into the deposit's
 experiment record. The spectra win over the text:
 - a deposit none of whose probe runs reaches 50 PSMs waits (`waiting_no_identifications`): its peptides are not what
-  the search looks for, such as a label the text did not make clear;
+  the search looks for, such as a label the text did not make clear. Since 0.4.44 every full search, probed or not,
+  meets a second check before delivery: PSMs at 1% under 1% of its MS2 spectra wait as `waiting_low_identifications`;
 - a run whose PSMs are mostly another species waits (`waiting_species`), and so does a run of mixed species
   (`waiting_mixed_species`). A PSM of a contaminant-panel protein, such as a human skin keratin from handling, counts
   for no species. A run is judged only when it has at least 500 PSMs specific to one species: in a run with little

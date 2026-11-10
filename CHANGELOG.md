@@ -28,6 +28,14 @@ already written keep their numbers until they are rebuilt.
   `pxreprise:DEF-PROTEINGROUP-1PCT-MSMS v1` and `pxreprise:DEF-PROTEINGROUP-RUNS-MSMS v1`, in DEFINITIONS.md.
   - Both count groups seen by MS/MS (a spectral count above 0), not groups with an intensity. The name
     `protein_groups_quantified` comes from aging's builder, which never defined it.
+- **A full search that identifies almost nothing is held, not delivered.** Every profile now checks the full search
+  before delivery: if its PSMs at 1% are under 1% of its MS2 spectra, the search is kept on disk, the deposit waits as
+  `waiting_low_identifications`, and a row in `decisions_needed.tsv` asks a person.
+  - Why: TMT deposits run no probe search, so nothing caught a wrong label. On 2026-11-09/10, PXD002479 (110 PSMs, 0.07%)
+    and PXD022888 (0.42%) were delivered: both are labelled with iodoTMT, a cysteine tag, and were searched as TMT on
+    lysines and N-termini. Of 234 delivered searches, 8 were under 1%. The median is 40% label-free, 23% TMT.
+  - A sample that really holds few peptides (a pulldown, a secretome) is delivered once the question sets the deposit's
+    own floor: `[exceptions.PXD...] min_identification_rate = 0`, with the reason. The delivery's note quotes it.
 - **`batch retry` can put a deposit that has not started yet first.** Until now it refused any deposit missing from
   `state.json`. A queued deposit could then wait without end behind a probe worker's passes, which go ahead of every
   deposit still to be probed on the main machine while the worker keeps refilling its window. PXD034029 was queue entry 1

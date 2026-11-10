@@ -107,6 +107,8 @@ public sealed record DesignSettings(string Dir, IReadOnlyList<string> ConditionC
 /// alkylation step, 0.2-0.4% cysteine peptides). It is the only value: another alkylant is named in a curated SDRF.
 /// <see cref="Species"/> (v0.4.19, aging PXR-A109): the organism the deposit is searched as, a key of the profiles'
 /// <c>[databases]</c> (<c>"rat"</c>), over the one the queue read from PRIDE's record (PXD068498: rat, filed as mouse).
+/// <see cref="MinIdentificationRate"/> (v0.4.44): the deposit's own identification floor, under which its full search is
+/// held instead of delivered (<c>BatchRunner.MinIdentificationRate</c>); <c>0</c> delivers it whatever it found.
 /// </summary>
 public sealed record DepositException(
     string Accession,
@@ -120,7 +122,8 @@ public sealed record DepositException(
     string? Alkylation = null,
     string? Species = null,
     IReadOnlyDictionary<string, FileReplacement>? ReplaceFiles = null,
-    SplitGroup? Split = null)
+    SplitGroup? Split = null,
+    double? MinIdentificationRate = null)
 {
     public const string NoAlkylation = "none";
 
@@ -151,6 +154,7 @@ public sealed record DepositException(
         if (Alkylation is { } alk) parts.Add($"alkylation {alk}");
         if (Species is { } sp) parts.Add($"species {sp}");
         if (ReplaceFiles is { Count: > 0 } rf) parts.Add($"replace_files {rf.Count} ({string.Join(", ", rf.Keys.Order(StringComparer.Ordinal))})");
+        if (MinIdentificationRate is { } floor) parts.Add($"min_identification_rate {floor.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
         return $"{string.Join(", ", parts)} ({Reason})";
     }
 }

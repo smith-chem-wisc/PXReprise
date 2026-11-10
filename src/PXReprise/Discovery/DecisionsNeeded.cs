@@ -47,6 +47,9 @@ public static class DecisionsNeeded
             "name the reagent in a curated SDRF; search with no fixed cysteine modification; or exclude the deposit"),
         ["waiting_no_identifications"] = new("The probe search identified (almost) nothing: the peptides are not what the search looks for (a label, chemistry, species or acquisition the text does not state).",
             "say what the deposit is (a curated SDRF naming its label or chemistry, or a profile that takes it); or exclude the deposit"),
+        // v0.4.44: after the full search, for every profile (PXD002479 and PXD022888, iodoTMT searched as amine TMT, were delivered).
+        [Batch.BatchRunner.LowIdentificationsStatus] = new("The full search identified under 1% of the MS2 spectra, so it is kept but not delivered: the peptides may not be what the search looked for (a label, chemistry, species or acquisition the text does not state), or the sample holds few peptides (a pulldown, a secretome).",
+            "say what the deposit is (a curated SDRF naming its label or chemistry, or a profile that takes it) and batch research it; deliver it as it is ([exceptions] min_identification_rate = 0, with the reason); or exclude the deposit"),
         ["unsupported_fragmentation"] =new("Some files' MS2 fragmentation cannot be searched per file (an unsupported type, no header, or ion-trap and Orbitrap MS2 mixed).",
             "exclude those files ([exceptions]); or exclude the deposit until a profile supports them"),
         // v0.4.41: PXD005035, 2026-11-07, 280 GB waiting on one raw file. An exception does not reopen this status (Settled), hence the retry.

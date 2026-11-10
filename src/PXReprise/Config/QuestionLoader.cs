@@ -113,8 +113,8 @@ public static class QuestionLoader
                 var e = ParseException(file, dir, t, $"exceptions.{acc}", acc, t.RequiredString("reason"), null);
                 t.RefuseUnknownKeys();
                 if (!e.SelectsFiles && e.MaxFiles is null && e.MaxFileMb is null && e.MaxEstimatedMs2 is null && e.DeferIfMedianFileMb is null
-                    && e.Alkylation is null && e.Species is null && e.ReplaceFiles is null)
-                    throw new ConfigException(file, $"exceptions.{acc} changes nothing: give a cap, include_files / exclude_files, alkylation, species or replace_files");
+                    && e.Alkylation is null && e.Species is null && e.ReplaceFiles is null && e.MinIdentificationRate is null)
+                    throw new ConfigException(file, $"exceptions.{acc} changes nothing: give a cap, include_files / exclude_files, alkylation, species, replace_files or min_identification_rate");
                 exceptions[acc] = e;
             }
             ex.RefuseUnknownKeys();
@@ -205,8 +205,13 @@ public static class QuestionLoader
             }
             if (replace.Count == 0) throw new ConfigException(file, $"{where}.replace_files names no file");
         }
+        // v0.4.44: the deposit's own identification floor (BatchRunner.MinIdentificationRate); 0 delivers whatever the search found.
+        double? minIdRate = t.OptionalNumber("min_identification_rate");
+        if (minIdRate is < 0 or > 1)
+            throw new ConfigException(file, $"{where}.min_identification_rate is a share of the MS2 spectra, from 0 to 1 (got {minIdRate})");
         return new DepositException(key, reason, Rx("include_files"), Rx("exclude_files"),
-            Int("max_files"), Int("max_file_mb"), t.OptionalInteger("max_est_ms2"), Int("defer_if_median_file_mb"), alkylation, species, replace, split);
+            Int("max_files"), Int("max_file_mb"), t.OptionalInteger("max_est_ms2"), Int("defer_if_median_file_mb"), alkylation, species, replace, split,
+            minIdRate);
     }
 
     /// <summary>

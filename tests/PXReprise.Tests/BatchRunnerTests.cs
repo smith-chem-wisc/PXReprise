@@ -791,6 +791,72 @@ public class BatchRunnerTests
         Assert.That(ManifestEntry.RetireSplitDeposit(excluded, QuestionLoader.Load(qfile).ExceptionFor("PXD076192-mouse")!.Split!), Is.EqualTo(excluded));
     }
 
+    // v0.4.44 (the user, 2026-11-10): a full search under the identification floor (1% of its MS2 spectra) is kept but not
+    // delivered, and a person is asked. PXD002479 (iodoTMT searched as TMT on K and N-termini: 110 PSMs of 163,293 MS2, 0.07%)
+    // and PXD022888 (0.42%) were delivered overnight 2026-11-09/10. The question's min_identification_rate releases one.
+    [Test]
+    public async Task AFullSearchUnderTheIdentificationFloorIsHeldUntilTheQuestionLowersItsFloor()
+    {
+        string dir = TestSupport.TempDir();
+        string manifest = TestSupport.WriteFile(dir, "manifest.yaml", "manifest_version: 1\nwork_root: runs\ndatasets:\n\n");
+        string Q(string extra) => TestSupport.MinimalQuestion + "\n[batch]\nrun_root = \"runs\"\nstate_dir = \"state\"\nqueue = \"queue.json\"\n"
+            + "[publish]\nmanifest = \"manifest.yaml\"\n" + extra;
+        BatchRunner Make(string extra) => new(QuestionLoader.Load(TestSupport.WriteFile(dir, "question.toml", Q(extra))), Profiles,
+            Machine.Load(TestSupport.WriteFile(dir, "machine.toml", $"work_root = '{dir}'\nmin_free_gb = 0\n[metamorpheus]\n\"1.1.11\" = 'C:/nowhere/CMD.exe'\n")),
+            new FakeFiles(), new FakeSearch(), "2026-11-10");
+        void Searched(string acc, long psms, long ms2)
+        {
+            string run = Path.Combine(dir, "runs", acc);
+            Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
+            Directory.CreateDirectory(Path.Combine(run, "04_search"));
+            File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(("a.raw", true, Array.Empty<string>())).ToJsonString());
+            File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), new JsonObject
+            {
+                ["success"] = true, ["tools"] = new JsonObject { ["MetaMorpheus"] = new JsonObject { ["release"] = "1.1.11" } },
+                ["id_rate"] = new JsonObject { ["definition"] = "aging DEF-PSM-1PCT v1", ["psms_1pct"] = psms, ["ms2"] = ms2, ["rate"] = Math.Round((double)psms / ms2, 4) },
+            }.ToJsonString());
+        }
+        Searched("PXD002479", 110, 163_293);
+        Searched("PXD000231", 40_000, 160_000);
+        var profile = Profiles["label-free-dda@1"];
+        var low = new QueueEntry("PXD002479", "t", "mouse");
+
+        var held = Make("");
+        held.Record("PXD002479", ("status", "searched"));
+        await held.DeliverAsync(low, profile, CancellationToken.None);
+        await held.DeliverAsync(new QueueEntry("PXD000231", "t", "mouse"), profile, CancellationToken.None);
+
+        string text = ManifestEntry.ReadLf(manifest), log = File.ReadAllText(Path.Combine(dir, "state", "batch.log"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(text, Does.Not.Contain("PXD002479"), "held: no manifest entry");
+            Assert.That(text, Does.Contain("accession: PXD000231\n"), "a healthy search is delivered as before");
+            Assert.That(held.Settled("PXD002479"), Is.EqualTo(BatchRunner.LowIdentificationsStatus), "settled: not searched again by itself");
+            Assert.That(BatchRunner.Delivered(text, "PXD002479", held.State()["datasets"]!["PXD002479"] as JsonObject), Is.False, "so each driver start asks again");
+            Assert.That(log, Does.Contain("PXD002479 DELIVERY HELD (waiting_low_identifications): the full search's 110 PSMs at 1% are 0.07% of 163,293 MS2 spectra, under the identification floor of 1%"));
+            Assert.That(log, Does.Contain($"PXD002479 DECISION NEEDED ({BatchRunner.LowIdentificationsStatus})"));
+        });
+        var row = File.ReadAllLines(Path.Combine(dir, "runs", DecisionsNeeded.FileName)).Skip(1).Single().Split('\t');
+        Assert.That((row[1], row[2]), Is.EqualTo(("PXD002479", BatchRunner.LowIdentificationsStatus)));
+        Assert.That(row[5], Does.Contain("min_identification_rate = 0").And.Contain("batch research"));
+
+        // A floor above 1 is not a share of the spectra.
+        Assert.That(() => Make("[exceptions.PXD002479]\nreason = \"x\"\nmin_identification_rate = 2\n"),
+            Throws.TypeOf<ConfigException>().With.Message.Contains("min_identification_rate"));
+
+        var released = Make("[exceptions.PXD002479]\nreason = \"a secretome: few peptides, searched right (the user)\"\nmin_identification_rate = 0\n");
+        await released.DeliverAsync(low, profile, CancellationToken.None);
+        text = ManifestEntry.ReadLf(manifest);
+        var (s, e) = ManifestEntry.Block(text, "PXD002479");
+        Assert.Multiple(() =>
+        {
+            Assert.That(text[s..e], Does.Contain("    status: include\n"));
+            Assert.That(text[s..e], Does.Contain("QUESTION EXCEPTION: min_identification_rate 0 (a secretome: few peptides, searched right (the user))"), "never silent");
+            Assert.That(released.State()["datasets"]!["PXD002479"]!["status"]!.GetValue<string>(), Is.EqualTo("searched"));
+            Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain("PXD002479 DELIVERY RELEASED"));
+        });
+    }
+
     // v0.4.15 (PXR-A99, aging 098): PXD015239's protocol has no reduction or alkylation step.
     [Test]
     public void AnAlkylationExceptionSaysNoneAndNothingElse()
