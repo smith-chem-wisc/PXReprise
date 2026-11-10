@@ -1489,6 +1489,70 @@ public class BatchRunnerTests
         Assert.That(File.Exists(Path.Combine(dir, "runs", DecisionsNeeded.FileName)), Is.False, "a capability wait, not a person's decision");
     }
 
+    // v0.4.45 (PXD032900-lfq, 2026-11-10): PRIDE says "Label free; TMT" for a deposit aging split by label. The label-free
+    // group was routed to the TMT profile by those words and refused at its probe, none of KMS_1Y, KMS_4Ag, KMS_6Ag carrying
+    // reporters. When PRIDE names label-free too and no probe file carries reporters, the spectra decide (D34): label-free.
+    private static DepositChemistry PrideChemistry(params string[] quant) => ChemistryDetector.Detect(new PrideProject
+    {
+        Accession = "PXD032900", Title = "t", SampleProcessingProtocol = "digested with trypsin",
+        QuantificationMethods = quant.Select(n => new MzLibUtil.CvParam { Name = n }).ToList(),
+    }, null, null, new[] { "KMS_1Y.raw" });
+
+    [Test]
+    public void WhenPrideNamesLabelFreeTooAProbeWithNoReportersIsLabelFree()
+    {
+        string none = PXReprise.Qc.SpectraQc.NoReporters;
+        var both = PrideChemistry("Label free", "TMT");
+        var probe = Report(("KMS_1Y.raw", false, new[] { none }), ("KMS_4Ag.raw", false, new[] { none }), ("KMS_6Ag.raw", false, new[] { none }));
+
+        Assert.That(BatchRunner.LabelFreeBySpectra(both, probe),
+            Does.Contain("no isobaric reporter ions in any of the 3 probe files").And.Contain("Label free; TMT"));
+        Assert.That(BatchRunner.LabelFreeBySpectra(both, Report(("a.raw", false, new[] { "low_res_ms2", none }))), Is.Not.Null,
+            "ion-trap MS2 too: label-free first, then the low-res route under the label-free profile");
+
+        Assert.That(BatchRunner.LabelFreeBySpectra(PrideChemistry("TMT"), probe), Is.Null, "PRIDE files it as TMT alone: not second-guessed");
+        Assert.That(BatchRunner.LabelFreeBySpectra(both, Report(("a.raw", false, new[] { none }), ("b.raw", true, Array.Empty<string>()))), Is.Null,
+            "one file carries a kit: a mix, refused as before (a split)");
+        Assert.That(BatchRunner.LabelFreeBySpectra(both, Report(("a.raw", false, new[] { "unreadable" }))), Is.Null, "an unreadable file says nothing");
+        Assert.That(BatchRunner.LabelFreeBySpectra(both, new JsonObject()), Is.Null, "no probe file read");
+    }
+
+    // The label the spectra decided is kept in the state, so every later read of the chemistry (a restart before the search,
+    // a batch retry) keeps it instead of reading TMT from PRIDE's words again and routing the deposit back to the TMT profile.
+    [Test]
+    public async Task ALabelTheSpectraDecidedOutranksPridesWordsAtEveryReadOfTheChemistry()
+    {
+        var (runner, search, files, dir) = DepositChemistryRunner("\"label-free-dda@3\", \"tmt-dda@2\"");
+        void Deposit(string acc)
+        {
+            search.Results[acc] = new() { TestSupport.Record(acc, "Type 2 diabetes muscle", "digested with trypsin", instruments: new[] { "Q Exactive HF" }, files: new[] { "run1.raw" }) };
+            search.Projects[acc] = new PrideProject
+            {
+                Accession = acc, Title = "Type 2 diabetes muscle", SampleProcessingProtocol = "digested with trypsin",
+                QuantificationMethods = new List<MzLibUtil.CvParam> { new() { Name = "Label free" }, new() { Name = "TMT" } },
+            };
+        }
+
+        Deposit("PXD000413");
+        await runner.ProbeAsync(new QueueEntry("PXD000413", "t", "human"), CancellationToken.None);
+        var routed = runner.State()["datasets"]!["PXD000413"]!;
+        Assert.That((routed["profile"]!.GetValue<string>(), routed["routed_isobaric"]!.GetValue<string>()), Is.EqualTo(("tmt-dda@2", "chemistry")),
+            "with nothing read from the spectra yet, PRIDE's TMT routes it as before");
+
+        Deposit("PXD000414");
+        runner.Record("PXD000414", ("label_from_spectra", new JsonObject { ["value"] = "label_free", ["evidence"] = "no isobaric reporter ions in any of the 3 probe files" }));
+        int before = files.Downloads;
+        await runner.ProbeAsync(new QueueEntry("PXD000414", "t", "human"), CancellationToken.None);
+        var kept = runner.State()["datasets"]!["PXD000414"]!;
+        Assert.That(kept["routed_isobaric"], Is.Null, "not routed to the TMT profile again");
+        Assert.That(files.Downloads, Is.GreaterThan(before), "on to the probe download, as a label-free deposit");
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Not.Contain("PXD000414 chemistry: label tmt"));
+        Assert.That((kept["chemistry"]!["label"]!["value"]!.GetValue<string>(), kept["chemistry"]!["label"]!["source"]!.GetValue<string>()),
+            Is.EqualTo(("label_free", ChemistrySource.ProbeSpectra)));
+        var onDisk = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "runs", "PXD000414", "01_chemistry", "chemistry.json")))!;
+        Assert.That(onDisk["label"]!["source"]!.GetValue<string>(), Is.EqualTo(ChemistrySource.ProbeSpectra));
+    }
+
     // G18: a reboot mid-search left the deposit at "searching" with a half-written 04_search/mm, which MetaMorpheus refuses
     // to reuse; the restart would have settled it as search_failed.
     [Test]

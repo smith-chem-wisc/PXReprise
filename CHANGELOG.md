@@ -7,6 +7,25 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.45 (unreleased)
+
+**MetaMorpheus** unchanged. **Machine file:** no change needed. **Safe mid-batch?** Yes: swap the pin as usual. A probe worker
+takes the new release (`worker release`): it probes too, and the change is in the probe.
+
+- **A deposit's spectra decide its label when PRIDE names label-free beside a label** (PXD032900, 2026-11-10).
+  - PRIDE's quantification methods for PXD032900 are "Label free; TMT": a label-free and a TMT experiment in one deposit.
+    Aging split it by file name (`[splits.PXD032900] by = "label"`). A split group takes no label of its own, so both
+    groups read TMT from PRIDE's list and were routed to the TMT profile. The label-free group's probe files (KMS_1Y,
+    KMS_4Ag, KMS_6Ag) carry no reporter ions, so it was refused as `skipped_acquisition` (`no_isobaric_reporters`).
+  - Now, when PRIDE's words alone routed a deposit to the isobaric profile, those words name label-free too, and not one
+    probe file carries reporter ions, the deposit goes back to the profile it had. Its label is recorded as `label_free`
+    from `probe_spectra` (D34: spectra beat text), and the probe QC runs again under that profile, whose own routes
+    (ion-trap MS2, reporters after all) apply as for any deposit.
+  - A probe with reporters in some files and not others is refused as before: that is a mix, to be split. A deposit PRIDE
+    files as TMT alone is not second-guessed.
+  - The decision is kept in the state (`label_from_spectra`), so a restart before the search or a `batch retry` keeps it.
+    A worker's package carries it to the controller.
+
 ## 0.4.44 (2026-11-10)
 
 **MetaMorpheus** unchanged. **Machine file:** no change needed. **Safe mid-batch?** Yes: swap the pin as usual. Payloads

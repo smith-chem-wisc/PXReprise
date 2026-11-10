@@ -162,6 +162,18 @@ public class ChemistryTests
     public void PlainTmtStaysTmt(string protocol, string[] quant) =>
         Assert.That(ChemistryDetector.Detect(Project(protocol, null, quant), null, null, Files).Label.Value, Is.EqualTo("tmt"));
 
+    // v0.4.45 (PXD032900, 2026-11-10): PRIDE's quantification methods were "Label free; TMT", a label-free and a TMT experiment
+    // in one deposit. The label read stays the named one; the chemistry also says label-free was named, so the probe's own
+    // spectra can decide between them (BatchRunner.LabelFreeBySpectra). Only PRIDE's list says so: an SDRF names each file's label.
+    [TestCase(new[] { "Label free", "TMT" }, true)]
+    [TestCase(new[] { "TMT", "Spectrum counting" }, true)]
+    [TestCase(new[] { "TMT" }, false)]
+    public void PridesQuantificationNamingLabelFreeBesideTmtIsKept(string[] quant, bool both)
+    {
+        var c = ChemistryDetector.Detect(Project("digested with trypsin", null, quant), null, null, Files);
+        Assert.That((c.Label.Value, c.Label.Source, c.LabelFreeNamedToo), Is.EqualTo(("tmt", ChemistrySource.PrideQuant, both)));
+    }
+
     [Test]
     public void APolyacrylamideGelIsNotAnAlkylantAndNoAlkylationMeansNoCysMod()
     {

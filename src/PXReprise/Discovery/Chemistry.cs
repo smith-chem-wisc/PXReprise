@@ -18,6 +18,11 @@ public static class ChemistrySource
     public const string Default = "default";
     /// <summary>The question's <c>[exceptions]</c> for the deposit (v0.4.15: <c>alkylation = "none"</c>); it outranks every other source.</summary>
     public const string QuestionException = "question_exception";
+    /// <summary>
+    /// v0.4.45: the probe files' own spectra (D34), for a label PRIDE's words leave open: its quantification methods name
+    /// label-free beside a label, and no probe file carries reporter ions (BatchRunner.LabelFreeBySpectra; PXD032900-lfq).
+    /// </summary>
+    public const string ProbeSpectra = "probe_spectra";
 }
 
 /// <summary>One fact (a protease, an alkylation, a label), where it came from, and the words it was read from.</summary>
@@ -48,7 +53,9 @@ public sealed record ChemistryArtifact(string Kind, string Evidence);
 /// <summary>
 /// A deposit's chemistry (G19, decided 2026-10-05 as D22 to D24): which protease made its peptides, how its cysteines
 /// were alkylated, and what label it carries. Read before any download. <see cref="Park"/> is set when the search cannot
-/// proceed as is (e.g. <c>waiting_multi_protease</c>).
+/// proceed as is (e.g. <c>waiting_multi_protease</c>). <see cref="LabelFreeNamedToo"/> (v0.4.45): the label came from PRIDE's
+/// quantification methods, which also name a label-free method ("Label free; TMT"), so the deposit's words do not say which
+/// of its files carry the label; the probe's spectra may decide.
 /// </summary>
 public sealed record DepositChemistry(
     ChemistryFact Protease,
@@ -57,7 +64,8 @@ public sealed record DepositChemistry(
     IReadOnlyList<CysMod> CysMods,
     ChemistryFact Label,
     string? Park,
-    IReadOnlyList<ChemistryArtifact>? Artifacts = null)
+    IReadOnlyList<ChemistryArtifact>? Artifacts = null,
+    bool LabelFreeNamedToo = false)
 {
     public bool AnyGuessed => Protease.Guessed || Alkylation.Guessed || Label.Guessed;
 
@@ -554,7 +562,9 @@ public static class ChemistryDetector
         if (GelWords.Match(text) is { Success: true } gel && mods.All(m => m.Unimod != "UNIMOD:24"))
             artifacts.Add(new(GelPropionamide, $"the protocol names a gel: {Snip(text, gel)}"));
 
-        return new DepositChemistry(protease, perFile, alkylation, mods, label, park, artifacts);
+        // v0.4.45 (PXD032900: "Label free; TMT"): PRIDE's list named label-free beside the label it gave.
+        bool labelFreeToo = label.Source == ChemistrySource.PrideQuant && label.Value != "label_free" && quantFree.Count > 0;
+        return new DepositChemistry(protease, perFile, alkylation, mods, label, park, artifacts, labelFreeToo);
     }
 
     // ------------------------------------------------------------------ helpers

@@ -1115,6 +1115,7 @@ public sealed class BatchRunner
         // G19: a profile that searches with the deposit's own chemistry reads it before any download, and a deposit it cannot
         // search as read (two proteases with no per-file map, an unknown protease or modification, a label) waits.
         DepositChemistry? chemistry = null;
+        Profile? routedFrom = null;   // v0.4.45: the profile before PRIDE's words routed the deposit to the isobaric one
         if (profile.Chemistry == "deposit")
         {
             DepositChemistry chem;
@@ -1126,6 +1127,7 @@ public sealed class BatchRunner
                 && IsobaricTaker(acq) is { } taker && taker.Databases.ContainsKey(e.Organism))
             {
                 Log($"{acc} chemistry: label {chem.Label.Value} ({chem.Label.Source}); routing to {taker.Key}");
+                routedFrom = profile;
                 profile = taker;
                 Record(acc, ("profile", profile.Key), ("routed_isobaric", "chemistry"));
                 try { chem = await ChemistryAsync(acc, all, listing.Select(f => f.FileName).ToList(), profile, ct).ConfigureAwait(false); }
@@ -1188,6 +1190,23 @@ public sealed class BatchRunner
             Log($"{acc} PROBE reads its {probeFiles.Count} probe files only; {onDisk} raw files are on disk (downloaded ahead)");
         var (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles, probe: true);
         xr.Probe(report);
+        // v0.4.45 (PXD032900-lfq, 2026-11-10): PRIDE's words routed the deposit to the isobaric profile, but they named label-free
+        // too, and not one probe file carries reporter ions: the spectra decide (D34). Back to the profile it had, the label
+        // recorded as read from the spectra (kept in the state; ChemistryAsync applies it at every later read), and the probe QC
+        // run again under that profile, whose own routes (low-res MS2, reporters after all) then apply as for any deposit.
+        if (routedFrom is not null && chemistry is not null && LabelFreeBySpectra(chemistry, report) is { } bySpectra)
+        {
+            Log($"{acc} PROBE qc: {bySpectra}: the spectra decide, label-free; back to {routedFrom.Key}");
+            profile = routedFrom;
+            Record(acc, ("profile", profile.Key), ("routed_isobaric", null),
+                ("label_from_spectra", new JsonObject { ["value"] = "label_free", ["evidence"] = bySpectra }));
+            try { chemistry = await ChemistryAsync(acc, all, listing.Select(f => f.FileName).ToList(), profile, ct).ConfigureAwait(false); }
+            catch (Exception ex) when (Envelope.IsUnavailable(ex) || FetchStage.IsTransient(ex)) { Log($"{acc} chemistry: PRIDE unavailable ({ex.Message}); retry next pass"); return null; }
+            xr.Chemistry(chemistry);
+            Log($"{acc} chemistry: {Describe(chemistry)}");
+            (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles, probe: true);
+            xr.Probe(report);
+        }
         // v0.4.35: reporter ions in every probe file, under a profile that refuses them: the question's isobaric profile takes
         // the deposit when it names an available one, and its QC reads the kit from the same files. The chemistry read above
         // stands (protease and cysteine are the deposit's, whichever profile searches it).
@@ -2043,6 +2062,10 @@ public sealed class BatchRunner
         var chem = ChemistryDetector.Detect(project, curated, deposited, rawFiles, profile.ThiolReagents);
         // v0.4.15 (PXR-A99): the question states the cysteines were never alkylated; it outranks every source read above.
         if (_q.ExceptionFor(acc) is { Alkylation: DepositException.NoAlkylation } ex) chem = chem.Unalkylated(ex.Reason);
+        // v0.4.45: a label the probe's own spectra decided (LabelFreeBySpectra) outranks PRIDE's words. It is kept in the state,
+        // so a restart before the search, or a retry, does not read TMT again and route the deposit back to the TMT profile.
+        if (Entry(acc)?["label_from_spectra"] is JsonObject lfs && lfs["value"]?.GetValue<string>() is { } decided)
+            chem = chem with { Label = new(decided, ChemistrySource.ProbeSpectra, lfs["evidence"]?.GetValue<string>()), LabelFreeNamedToo = false };
         var json = Search.SearchStage.Chemistry(chem);
         json["sdrf_file"] = sdrf?.FileName;
         json["curated_sdrf"] = curated is not null;
@@ -2146,6 +2169,21 @@ public sealed class BatchRunner
         Record(acc, ("status", status), ("isobaric_files", new JsonArray(labelled.Select(n => (JsonNode?)n).ToArray())),
             ("isobaric_of", report.Count), ("isobaric_tag", tags));
         return true;
+    }
+
+    /// <summary>
+    /// v0.4.45 (PXD032900-lfq, 2026-11-10): why the probe's spectra make a deposit label-free, or null. PRIDE named both
+    /// ("Label free; TMT", <see cref="DepositChemistry.LabelFreeNamedToo"/>), its words routed it to the isobaric profile, and
+    /// not one probe file carries reporter ions there (every one fails <c>no_isobaric_reporters</c>). D34: spectra beat text.
+    /// A probe with a kit in any file is left alone: a mix of labels is a split, not a label-free deposit.
+    /// </summary>
+    internal static string? LabelFreeBySpectra(DepositChemistry chem, JsonObject report)
+    {
+        if (!chem.LabelFreeNamedToo || report.Count == 0) return null;
+        bool noneCarry = report.All(kv => kv.Value!["fail_reasons"]?.AsArray().Any(r => r?.GetValue<string>() == Qc.SpectraQc.NoReporters) == true);
+        return noneCarry
+            ? $"no isobaric reporter ions in any of the {report.Count} probe files, and PRIDE's quantification methods name label-free too ({chem.Label.Evidence})"
+            : null;
     }
 
     public static List<string>? QcExclusion(JsonObject report, QcGates gates)
