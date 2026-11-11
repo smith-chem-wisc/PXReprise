@@ -157,6 +157,18 @@ public static class Gate
             : new(GateOutcome.Queue, $"strong term '{strong[0].Term}' in {strong[0].Field}", text.Source, matches);
     }
 
+    /// <summary>
+    /// v0.4.46 (aging PXR-A180; the user, 2026-11-11): a hand decision in the question's decisions file is a person's reading of
+    /// the deposit, which is what the watch list asks for. An include is queued without the gate, so a word in passing (a cancer
+    /// named as an age-related disease) cannot park a deposit someone approved; an exclude is not queued. Null with no decision.
+    /// </summary>
+    public static GateDecision? Decided(Question q, string accession) =>
+        q.Relevance.Decisions.TryGetValue(accession, out var d)
+            ? new GateDecision(d.Verdict == DecisionVerdict.Include ? GateOutcome.Queue : GateOutcome.NotQueued,
+                $"a hand decision {(d.Verdict == DecisionVerdict.Include ? "includes" : "excludes")} it ({d.Reason}); the gate is not applied",
+                GateTextSource.None, Array.Empty<GateMatch>())
+            : null;
+
     private static string Context(string s, Match m)
     {
         int start = Math.Max(0, m.Index - ContextChars), end = Math.Min(s.Length, m.Index + m.Length + ContextChars);

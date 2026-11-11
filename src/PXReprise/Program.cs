@@ -216,6 +216,7 @@ public static class Program
                     var rows = new List<(string, IReadOnlyCollection<string>, GateDecision)>();
                     foreach (string acc in accessions.Distinct(StringComparer.Ordinal))
                     {
+                        if (Gate.Decided(q, acc) is { } decided) { rows.Add((acc, Array.Empty<string>(), decided)); continue; }
                         GateText text;
                         PrideProject? project = null;
                         try { project = await search.TryGetProjectAsync(acc, ct).ConfigureAwait(false); }

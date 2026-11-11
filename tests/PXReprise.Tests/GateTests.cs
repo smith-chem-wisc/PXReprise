@@ -152,6 +152,33 @@ public class GateTests
             Is.EquivalentTo(new Dictionary<string, int> { [GateOutcome.Queue] = 1, [GateOutcome.NotQueued] = 1, [GateOutcome.Watch] = 1 }));
     }
 
+    // Aging PXR-A180 (the user, 2026-11-11): a hand include in the question's decisions file is a person's reading, so the gate
+    // is not applied; aging's 78 hand-read DIA deposits are queued even where a word in passing would send them to the watch list.
+    [Test]
+    public async Task AHandIncludeIsQueuedWithoutTheGate()
+    {
+        var s = new FakeSearch();
+        s.Results["type 2 diabetes"] = new()
+        {
+            TestSupport.Record("PXD000410", "Type 2 diabetes muscle of aged mice, and age-related diseases such as cancer"),
+            TestSupport.Record("PXD000411", "Type 2 diabetes muscle of aged mice, and age-related diseases such as cancer"),
+        };
+        string dir = TestSupport.TempDir();
+        TestSupport.WriteFile(dir, "decisions.tsv", "accession\tverdict\treason\nPXD000410\tinclude\tread by aging's user (D181)\n");
+        string q = TestSupport.WriteFile(dir, "question.toml", TestSupport.MinimalQuestion.Replace("[relevance]", "[relevance]\ndecisions = \"decisions.tsv\"")
+            + "\n[gate]\nstrong = [\"aged\"]\nwatch_if_any = [\"cancer\"]\n");
+        string outDir = Path.Combine(dir, "out");
+        var sw = new StringWriter();
+        int exit = await Program.RunAsync(new[] { "census", q, "--profiles", TestSupport.ProfilesDir, "--out", outDir }, sw, CancellationToken.None, () => s);
+        Assert.That(exit, Is.EqualTo(0), sw.ToString());
+
+        var queued = JsonNode.Parse(File.ReadAllText(Path.Combine(outDir, "queue.json")))!.AsArray().Select(x => x!["accession"]!.GetValue<string>()).ToList();
+        Assert.That(queued, Is.EqualTo(new[] { "PXD000410" }));
+        var gate = File.ReadAllLines(Path.Combine(outDir, "gate.tsv")).Skip(1).Select(l => l.Split('\t')).ToDictionary(c => c[0], c => (c[1], c[2]));
+        Assert.That(gate["PXD000410"], Is.EqualTo((GateOutcome.Queue, "a hand decision includes it (read by aging's user (D181)); the gate is not applied")));
+        Assert.That(gate["PXD000411"].Item1, Is.EqualTo(GateOutcome.Watch));
+    }
+
     [Test]
     public void AQuestionsGateIsCheckedWhenItIsRead()
     {

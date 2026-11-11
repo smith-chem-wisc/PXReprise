@@ -26,6 +26,9 @@ mid-batch?** Yes: swap the pin as usual.
   - `pxreprise gate <question> --list <file>` writes the same rows for any list of deposits (a queue, a catalog) and
     changes nothing.
   - The terms are the question's (a question is data). A question without `[gate]` is unchanged.
+  - A deposit the question's decisions file includes has been read by a person, so it is queued without the gate, and its
+    `gate.tsv` row says so (aging PXR-A180). A word in passing, such as a cancer named as an age-related disease, cannot then
+    send a hand-approved deposit to the watch list.
 - **The SDRF a search writes is read-only** (the user, 2026-11-11: "make the output sdrf read-only by default"; dataRepo
   PXR-R58).
   - Every current profile writes the search's own SDRF beside its results. That file states the facts the search's

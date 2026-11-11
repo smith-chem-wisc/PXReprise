@@ -127,8 +127,13 @@ public sealed class CensusRunner(IProjectSearch search)
                 // reference_group key), on the deposit's own text: the project record, else ProteomeXchange's, else the index's.
                 bool noReference = watch == WatchReason.NoReferenceGroup;
                 if (noReference) watch = null;
-                var text = await GateTextAsync(acc, project, r, record, ct).ConfigureAwait(false);
-                gate = Gate.Evaluate(terms, text, noReference);
+                // A hand include in the decisions file is a person's reading: queued without the gate (aging PXR-A180).
+                gate = Gate.Decided(q, acc);
+                if (gate is null)
+                {
+                    var text = await GateTextAsync(acc, project, r, record, ct).ConfigureAwait(false);
+                    gate = Gate.Evaluate(terms, text, noReference);
+                }
                 if (gate.Outcome == GateOutcome.Watch) watch ??= WatchReason.Gate;
             }
             rows.Add(new CensusRow(acc, relevance, acquisition, route, r, kws.ToList(), organisms, source, watch, reference, gate));
