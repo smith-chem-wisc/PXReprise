@@ -25,6 +25,15 @@ takes the new release (`worker release`): it probes too, and the change is in th
     files as TMT alone is not second-guessed.
   - The decision is kept in the state (`label_from_spectra`), so a restart before the search or a `batch retry` keeps it.
     A worker's package carries it to the controller.
+- **A probe worker's pass gets this release's chemistry screen before its whole download** (PXD025746, 2026-11-11).
+  - A deposit the worker passes waits here for its whole download and search, and that wait can span a release. PXD025746
+    (mouse, one raw file) was passed on 11-09 under v0.4.43, the day before v0.4.44 made iodoTMT wait for its own profile.
+    A worker's pass got only this machine's duplicate screen, so it was downloaded and searched as ordinary TMT on every
+    lysine and peptide end. iodoTMT tags cysteines: 18 PSMs of 44,828 MS2. The failed search, made while it was adding
+    to a spectral library, also turned the library off for every later search of that driver.
+  - Now the pass is screened for its chemistry here too, as the deposit's own probe would be. A chemistry no profile of
+    this release searches (iodoTMT, SILAC, a chemistry park) waits as the screen makes it wait, before anything is
+    downloaded. Under the release that made the pass, the screen gives the pass's own answer again.
 - **A raw file with no MS2 at all is set aside as a failed injection** (PXD023647, 2026-11-10).
   - PXD023647 has 11 TMTpro files of about 800 MB and one of 1 MB, `..._90C_10B_12.raw`: a re-injection that recorded no
     scans (the 90C sample's real run is `90C_10`). A blank or failed injection (`too_few_ms2`) may be excluded with a record,

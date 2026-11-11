@@ -769,7 +769,7 @@ public sealed class BatchRunner
         if (PrepareForTest is { } prepare) return await prepare(e, ct).ConfigureAwait(false);
         Profile? profile;
         if (WorkerPassProfile(e.Accession) is { } passed)
-            profile = await ScreenWorkerPassAsync(e, ct).ConfigureAwait(false) ? passed : null;
+            profile = await ScreenWorkerPassAsync(e, passed, ct).ConfigureAwait(false) ? passed : null;
         else
             profile = await (ProbeForTest ?? ProbeAsync)(e, ct).ConfigureAwait(false);
         return profile is not null && await (FetchWholeForTest ?? FetchWholeAsync)(e, profile, ct).ConfigureAwait(false) ? profile : null;
@@ -1135,9 +1135,8 @@ public sealed class BatchRunner
             }
             xr.Chemistry(chem);
             chemistry = chem;
-            bool searchable = chem.Label.Value == "label_free"
-                || (IsIsobaricLabel(chem.Label.Value) && profile.Accepts.Labellings.Contains(Labelling.Isobaric));
-            string? wait = chem.Park ?? (searchable ? null : $"waiting_{Slug(chem.Label.Value)}_labelling");
+            string? wait = UnsearchableChemistry(chem)
+                ?? (IsIsobaricLabel(chem.Label.Value) && !profile.Accepts.Labellings.Contains(Labelling.Isobaric) ? $"waiting_{Slug(chem.Label.Value)}_labelling" : null);
             if (wait is not null)
             {
                 Log($"{acc} SCREENED OUT ({wait}): chemistry {Describe(chem)}");
@@ -2147,6 +2146,15 @@ public sealed class BatchRunner
 
     private static bool IsIsobaricLabel(string label) => label is "tmt" or "itraq";
 
+    /// <summary>
+    /// What a deposit waits for when no profile of this build searches its chemistry as read: the chemistry's own park, or a
+    /// label that is neither label-free nor isobaric (iodoTMT, SILAC, dimethyl, ...) as <c>waiting_&lt;label&gt;_labelling</c>.
+    /// Null when some profile does. Which profile takes an isobaric label is the screen's to settle (it routes, or parks when
+    /// none takes it); the spectra may also decide it (reporter ions, LabelFreeBySpectra).
+    /// </summary>
+    internal static string? UnsearchableChemistry(DepositChemistry chem) =>
+        chem.Park ?? (chem.Label.Value == "label_free" || IsIsobaricLabel(chem.Label.Value) ? null : $"waiting_{Slug(chem.Label.Value)}_labelling");
+
     /// <summary>The first profile the question names, in its order, that is available and takes this deposit as isobaric.</summary>
     internal Profile? IsobaricTaker(Acquisition acq) =>
         _q.Profiles.Select(k => _profiles[k]).FirstOrDefault(p => p.Status == ProfileStatus.Available
@@ -2569,22 +2577,34 @@ public sealed class BatchRunner
         && o["profile"]?.GetValue<string>() is { } key && _q.Profiles.Contains(key) && _profiles.TryGetValue(key, out var p) ? p : null;
 
     /// <summary>
-    /// A worker's pass gets this machine's duplicate screen, since the worker cannot see the searches here. False when the
-    /// deposit stops: a duplicate, or PRIDE unavailable (it stays a pass for the next look).
+    /// A worker's pass gets this machine's duplicate screen, since the worker cannot see the searches here, and this build's
+    /// chemistry screen. False when the deposit stops: a duplicate, a chemistry no profile here searches, or PRIDE
+    /// unavailable (it stays a pass for the next look).
     /// </summary>
-    private async Task<bool> ScreenWorkerPassAsync(QueueEntry e, CancellationToken ct)
+    /// <remarks>v0.4.45 (PXD025746, 2026-11-11): a pass waits for its whole fetch across a release. The worker passed it on
+    /// 11-09 under v0.4.43, before iodoTMT parked (v0.4.44); with the duplicate screen alone it was fetched and searched as
+    /// amine TMT on every lysine and N-terminus (18 PSMs of 44,828 MS2), and the failure turned the spectral library off for
+    /// the rest of the driver (G46). Under the build that made the pass, this screen gives the pass's own answer again.</remarks>
+    private async Task<bool> ScreenWorkerPassAsync(QueueEntry e, Profile passed, CancellationToken ct)
     {
         string acc = e.Accession;
-        List<UsefulProteomicsDatabases.PrideArchiveFile> listing;
-        try
-        {
-            listing = (await _files.ListFilesAsync(acc, ct).ConfigureAwait(false))
-                .Where(f => f.FileName.EndsWith(".raw", StringComparison.OrdinalIgnoreCase)).ToList();
-        }
+        List<UsefulProteomicsDatabases.PrideArchiveFile> all, listing;
+        try { all = await _files.ListFilesAsync(acc, ct).ConfigureAwait(false); }
         catch (Exception ex) when (FetchStage.IsTransient(ex)) { Log($"{acc} size listing failed ({ex.Message}); retry next pass"); return false; }
+        listing = all.Where(f => f.FileName.EndsWith(".raw", StringComparison.OrdinalIgnoreCase)).ToList();
         if (_q.ExceptionFor(acc) is { SelectsFiles: true } exception) listing = listing.Where(f => exception.Keeps(f.FileName)).ToList();
-        Log($"{acc} probe passed on {Entry(acc)?["probed_by"]} under {Entry(acc)?["profile"]}: duplicate screen here, then the whole fetch");
-        return !ExcludedAsDuplicate(acc, listing, null);
+        Log($"{acc} probe passed on {Entry(acc)?["probed_by"]} under {Entry(acc)?["profile"]}: duplicate and chemistry screen here, then the whole fetch");
+        if (ExcludedAsDuplicate(acc, listing, null)) return false;
+        if (passed.Chemistry != "deposit") return true;
+        DepositChemistry chem;
+        try { chem = await ChemistryAsync(acc, all, listing.Select(f => f.FileName).ToList(), passed, ct).ConfigureAwait(false); }
+        catch (Exception ex) when (Envelope.IsUnavailable(ex) || FetchStage.IsTransient(ex)) { Log($"{acc} chemistry: PRIDE unavailable ({ex.Message}); retry next pass"); return false; }
+        if (UnsearchableChemistry(chem) is not { } wait) return true;
+        Log($"{acc} SCREENED OUT ({wait}): the worker's pass (package {Entry(acc)?["probe_package_utc"]}) is not searched; chemistry {Describe(chem)}");
+        Record(acc, ("status", wait), ("detail", Describe(chem)));
+        if (DecisionsNeeded.Announce(_runRoot, acc, wait, Describe(chem)) is { } d)
+            Log($"{acc} DECISION NEEDED ({wait}): {d.Question} Listed in {DecisionsNeeded.FileName}.");
+        return false;
     }
 
     /// <summary>

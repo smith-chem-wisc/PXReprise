@@ -1512,6 +1512,46 @@ public class BatchRunnerTests
         Assert.That(File.Exists(Path.Combine(dir, "runs", DecisionsNeeded.FileName)), Is.False, "a capability wait, not a person's decision");
     }
 
+    // v0.4.45 (PXD025746, 2026-11-11): the probe worker passed it on 11-09 under v0.4.43, before iodoTMT parked (v0.4.44). The
+    // pass waited across the release, and a worker's pass got only this machine's duplicate screen: it was fetched whole and
+    // searched as amine TMT (18 PSMs of 44,828 MS2), and the failure switched the spectral library off for the driver (G46). A
+    // pass now gets this build's chemistry screen before the whole fetch; a plain TMT pass goes on as before.
+    [Test]
+    public async Task AWorkersPassMadeBeforeTheIodoTmtRuleGetsThisBuildsChemistryScreenBeforeTheWholeFetch()
+    {
+        var (runner, search, _, dir) = DepositChemistryRunner("\"label-free-dda@3\", \"tmt-dda@2\"");
+        var tmt = new List<MzLibUtil.CvParam> { new() { Name = "TMT intensity 126" }, new() { Name = "TMT intensity 127" } };
+        foreach (var (acc, protocol) in new[]
+        {
+            ("PXD000414", "Thiol groups were alkylated and labeled with 2.95 mM iodoTMT (Thermo Scientific #90101) for 1h in the dark."),
+            ("PXD000415", "Peptides were labelled with TMT10plex and digested with trypsin."),
+        })
+        {
+            search.Projects[acc] = new PrideProject { Accession = acc, Title = "t", SampleProcessingProtocol = protocol, QuantificationMethods = tmt };
+            runner.Record(acc, ("status", BatchRunner.ProbedByWorkerStatus), ("profile", "tmt-dda@2"), ("title", "t"), ("organism", "human"),
+                ("probed_by", "WORKER"), ("probe_package_utc", "2026-11-09T13:24:00Z"));
+        }
+        var fetched = new List<string>();
+        var searched = new List<string>();
+        runner.ProbeForTest = (e, ct) => throw new AssertionException("a worker's pass is not probed again");
+        runner.FetchWholeForTest = (e, p, ct) => { lock (fetched) fetched.Add(e.Accession); runner.Record(e.Accession, ("status", "fetched")); return Task.FromResult(true); };
+        runner.SearchForTest = (e, p, ct) => { lock (searched) searched.Add($"{e.Accession} {p.Key}"); runner.Record(e.Accession, ("status", "searched")); return Task.CompletedTask; };
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+        await runner.RunAsync(new[] { new QueueEntry("PXD000414", "t", "human"), new QueueEntry("PXD000415", "t", "human") }, cts.Token);
+
+        string log = File.ReadAllText(Path.Combine(dir, "state", "batch.log"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(runner.Settled("PXD000414"), Is.EqualTo("waiting_iodotmt_labelling"));
+            Assert.That(fetched, Is.EqualTo(new[] { "PXD000415" }), "the iodoTMT pass is not fetched whole");
+            Assert.That(searched, Is.EqualTo(new[] { "PXD000415 tmt-dda@2" }), "the plain TMT pass is searched as before");
+            Assert.That(log, Does.Contain("PXD000414 SCREENED OUT (waiting_iodotmt_labelling): the worker's pass (package 2026-11-09T13:24:00Z) is not searched")
+                .And.Contain("label iodotmt"));
+            Assert.That(File.Exists(Path.Combine(dir, "runs", DecisionsNeeded.FileName)), Is.False, "a capability wait, not a person's decision");
+        });
+    }
+
     // v0.4.45 (PXD032900-lfq, 2026-11-10): PRIDE says "Label free; TMT" for a deposit aging split by label. The label-free
     // group was routed to the TMT profile by those words and refused at its probe, none of KMS_1Y, KMS_4Ag, KMS_6Ag carrying
     // reporters. When PRIDE names label-free too and no probe file carries reporters, the spectra decide (D34): label-free.
