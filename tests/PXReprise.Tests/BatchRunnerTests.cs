@@ -36,6 +36,29 @@ public class BatchRunnerTests
         Assert.That(BatchRunner.QcExclusion(Report(("a.raw", false, new[] { "low_res_ms2" }), ("b.raw", true, Array.Empty<string>())), Gates), Is.Null);
     }
 
+    // PXD023647, 2026-11-10: `..._TMTpro_90C_10B_12.raw` is a 1 MB re-injection with no scans beside 11 good TMTpro files (its
+    // 90C sample's real run is `90C_10`). With no MS2 it also failed every gate that judges MS2 (low_res_ms2 at a 0.0 share,
+    // no_isobaric_reporters, unsupported_fragmentation "no MS2 scans"), so it was not excludable as a blank and held back the
+    // whole deposit as skipped_acquisition_full. A file with no MS2 at all is excluded as too_few_ms2; a corrupt one is not.
+    [Test]
+    public void AFileWithNoMs2AtAllIsExcludedAsAFailedInjectionWhateverElseItFailed()
+    {
+        static (string, bool, string[]) Good(int i) => ($"f{i:00}.raw", true, Array.Empty<string>());
+        var report = Report(Enumerable.Range(1, 11).Select(Good).Append(("f12.raw", false,
+            new[] { "low_res_ms2", "too_few_ms2", "no_isobaric_reporters", "unsupported_fragmentation" })).ToArray());
+        report["f12.raw"]!["ms2"] = 0;
+        foreach (var kv in report.Where(kv => kv.Key != "f12.raw").ToList()) kv.Value!["ms2"] = 42543;
+        Assert.That(BatchRunner.QcExclusion(report, Gates), Is.EqualTo(new[] { "f12.raw" }));
+
+        // The same reasons on a file that HAS MS2 (an ion-trap run among Orbitrap ones) still refuse the deposit.
+        report["f12.raw"]!["ms2"] = 90;
+        Assert.That(BatchRunner.QcExclusion(report, Gates), Is.Null);
+
+        // An unreadable file reports 0 MS2 too, and stays a decision for a person.
+        report["f12.raw"] = new JsonObject { ["pass"] = false, ["fail_reasons"] = new JsonArray("unreadable"), ["ms2"] = 0 };
+        Assert.That(BatchRunner.QcExclusion(report, Gates), Is.Null);
+    }
+
     // PXD057407, 2026-10-12: five phospho runs from the 10-08 attempt lay beside the ten global runs the question now
     // selects (PXR-A68). The fetch counted "15 of 10" and failed; had the count passed, QC and the search would have taken
     // all fifteen. A whole-deposit fetch now sets aside what its selection does not name.
@@ -1489,6 +1512,135 @@ public class BatchRunnerTests
         Assert.That(File.Exists(Path.Combine(dir, "runs", DecisionsNeeded.FileName)), Is.False, "a capability wait, not a person's decision");
     }
 
+    // v0.4.45 (PXD025746, 2026-11-11): the probe worker passed it on 11-09 under v0.4.43, before iodoTMT parked (v0.4.44). The
+    // pass waited across the release, and a worker's pass got only this machine's duplicate screen: it was fetched whole and
+    // searched as amine TMT (18 PSMs of 44,828 MS2), and the failure switched the spectral library off for the driver (G46). A
+    // pass now gets this build's chemistry screen before the whole fetch; a plain TMT pass goes on as before.
+    [Test]
+    public async Task AWorkersPassMadeBeforeTheIodoTmtRuleGetsThisBuildsChemistryScreenBeforeTheWholeFetch()
+    {
+        var (runner, search, _, dir) = DepositChemistryRunner("\"label-free-dda@3\", \"tmt-dda@2\"");
+        var tmt = new List<MzLibUtil.CvParam> { new() { Name = "TMT intensity 126" }, new() { Name = "TMT intensity 127" } };
+        foreach (var (acc, protocol) in new[]
+        {
+            ("PXD000414", "Thiol groups were alkylated and labeled with 2.95 mM iodoTMT (Thermo Scientific #90101) for 1h in the dark."),
+            ("PXD000415", "Peptides were labelled with TMT10plex and digested with trypsin."),
+        })
+        {
+            search.Projects[acc] = new PrideProject { Accession = acc, Title = "t", SampleProcessingProtocol = protocol, QuantificationMethods = tmt };
+            runner.Record(acc, ("status", BatchRunner.ProbedByWorkerStatus), ("profile", "tmt-dda@2"), ("title", "t"), ("organism", "human"),
+                ("probed_by", "WORKER"), ("probe_package_utc", "2026-11-09T13:24:00Z"));
+        }
+        var fetched = new List<string>();
+        var searched = new List<string>();
+        runner.ProbeForTest = (e, ct) => throw new AssertionException("a worker's pass is not probed again");
+        runner.FetchWholeForTest = (e, p, ct) => { lock (fetched) fetched.Add(e.Accession); runner.Record(e.Accession, ("status", "fetched")); return Task.FromResult(true); };
+        runner.SearchForTest = (e, p, ct) => { lock (searched) searched.Add($"{e.Accession} {p.Key}"); runner.Record(e.Accession, ("status", "searched")); return Task.CompletedTask; };
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+        await runner.RunAsync(new[] { new QueueEntry("PXD000414", "t", "human"), new QueueEntry("PXD000415", "t", "human") }, cts.Token);
+
+        string log = File.ReadAllText(Path.Combine(dir, "state", "batch.log"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(runner.Settled("PXD000414"), Is.EqualTo("waiting_iodotmt_labelling"));
+            Assert.That(fetched, Is.EqualTo(new[] { "PXD000415" }), "the iodoTMT pass is not fetched whole");
+            Assert.That(searched, Is.EqualTo(new[] { "PXD000415 tmt-dda@2" }), "the plain TMT pass is searched as before");
+            Assert.That(log, Does.Contain("PXD000414 SCREENED OUT (waiting_iodotmt_labelling): the worker's pass (package 2026-11-09T13:24:00Z) is not searched")
+                .And.Contain("label iodotmt"));
+            Assert.That(File.Exists(Path.Combine(dir, "runs", DecisionsNeeded.FileName)), Is.False, "a capability wait, not a person's decision");
+        });
+    }
+
+    // v0.4.45 (PXD025746, 2026-11-11): its iodoTMT search failed while updating mouse_tmt6plex (G46), and every later search of
+    // the driver ran without any library, human and mouse TMT11 alike. Only the chain the failed search read is switched off.
+    [Test]
+    public void AFailedUpdateModeSearchSwitchesOffOnlyTheLibraryChainItRead()
+    {
+        var (runner, _, _, dir) = DepositChemistryRunner();
+        JsonNode Lib(string mode, string chain) => new JsonObject { ["mode"] = mode, ["organism"] = chain };
+        var failed = new PXReprise.Search.SearchOutcome(false, 0, false, 18, Array.Empty<string>(), "");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(runner.SwitchOffLibraryAfterFailure("PXD000416", failed with { TimedOut = true }, Lib("update", "human")), Is.Null, "a timeout is no evidence against the library (S60)");
+            Assert.That(runner.SwitchOffLibraryAfterFailure("PXD000416", failed, Lib("write", "human_tmt10")), Is.Null, "a new chain: nothing was read");
+            Assert.That(runner.SwitchOffLibraryAfterFailure("PXD000416", failed with { Success = true }, Lib("update", "human")), Is.Null, "a success");
+            Assert.That(runner.SwitchOffLibraryAfterFailure("PXD000416", failed, null), Is.Null, "no library");
+            Assert.That(runner.LibraryChainsOff, Is.Empty);
+
+            Assert.That(runner.SwitchOffLibraryAfterFailure("PXD025746", failed, Lib("update", "mouse_tmt6plex")), Is.EqualTo("mouse_tmt6plex"));
+            Assert.That(runner.LibraryChainsOff, Is.EqualTo(new[] { "mouse_tmt6plex" }), "human, mouse and the other TMT chains stay on");
+            Assert.That(runner.State()["datasets"]!["PXD025746"]!["library_disabled_after_failure"]!.GetValue<string>(), Is.EqualTo("mouse_tmt6plex"));
+            Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")),
+                Does.Contain("PXD025746 SEARCH FAILED IN UPDATE MODE - disabling the spectral library mouse_tmt6plex for the rest of this batch (other chains stay on)"));
+        });
+    }
+
+    // v0.4.45 (PXD032900-lfq, 2026-11-10): PRIDE says "Label free; TMT" for a deposit aging split by label. The label-free
+    // group was routed to the TMT profile by those words and refused at its probe, none of KMS_1Y, KMS_4Ag, KMS_6Ag carrying
+    // reporters. When PRIDE names label-free too and no probe file carries reporters, the spectra decide (D34): label-free.
+    private static DepositChemistry PrideChemistry(params string[] quant) => ChemistryDetector.Detect(new PrideProject
+    {
+        Accession = "PXD032900", Title = "t", SampleProcessingProtocol = "digested with trypsin",
+        QuantificationMethods = quant.Select(n => new MzLibUtil.CvParam { Name = n }).ToList(),
+    }, null, null, new[] { "KMS_1Y.raw" });
+
+    [Test]
+    public void WhenPrideNamesLabelFreeTooAProbeWithNoReportersIsLabelFree()
+    {
+        string none = PXReprise.Qc.SpectraQc.NoReporters;
+        var both = PrideChemistry("Label free", "TMT");
+        var probe = Report(("KMS_1Y.raw", false, new[] { none }), ("KMS_4Ag.raw", false, new[] { none }), ("KMS_6Ag.raw", false, new[] { none }));
+
+        Assert.That(BatchRunner.LabelFreeBySpectra(both, probe),
+            Does.Contain("no isobaric reporter ions in any of the 3 probe files").And.Contain("Label free; TMT"));
+        Assert.That(BatchRunner.LabelFreeBySpectra(both, Report(("a.raw", false, new[] { "low_res_ms2", none }))), Is.Not.Null,
+            "ion-trap MS2 too: label-free first, then the low-res route under the label-free profile");
+
+        Assert.That(BatchRunner.LabelFreeBySpectra(PrideChemistry("TMT"), probe), Is.Null, "PRIDE files it as TMT alone: not second-guessed");
+        Assert.That(BatchRunner.LabelFreeBySpectra(both, Report(("a.raw", false, new[] { none }), ("b.raw", true, Array.Empty<string>()))), Is.Null,
+            "one file carries a kit: a mix, refused as before (a split)");
+        Assert.That(BatchRunner.LabelFreeBySpectra(both, Report(("a.raw", false, new[] { "unreadable" }))), Is.Null, "an unreadable file says nothing");
+        Assert.That(BatchRunner.LabelFreeBySpectra(both, new JsonObject()), Is.Null, "no probe file read");
+    }
+
+    // The label the spectra decided is kept in the state, so every later read of the chemistry (a restart before the search,
+    // a batch retry) keeps it instead of reading TMT from PRIDE's words again and routing the deposit back to the TMT profile.
+    [Test]
+    public async Task ALabelTheSpectraDecidedOutranksPridesWordsAtEveryReadOfTheChemistry()
+    {
+        var (runner, search, files, dir) = DepositChemistryRunner("\"label-free-dda@3\", \"tmt-dda@2\"");
+        void Deposit(string acc)
+        {
+            search.Results[acc] = new() { TestSupport.Record(acc, "Type 2 diabetes muscle", "digested with trypsin", instruments: new[] { "Q Exactive HF" }, files: new[] { "run1.raw" }) };
+            search.Projects[acc] = new PrideProject
+            {
+                Accession = acc, Title = "Type 2 diabetes muscle", SampleProcessingProtocol = "digested with trypsin",
+                QuantificationMethods = new List<MzLibUtil.CvParam> { new() { Name = "Label free" }, new() { Name = "TMT" } },
+            };
+        }
+
+        Deposit("PXD000413");
+        await runner.ProbeAsync(new QueueEntry("PXD000413", "t", "human"), CancellationToken.None);
+        var routed = runner.State()["datasets"]!["PXD000413"]!;
+        Assert.That((routed["profile"]!.GetValue<string>(), routed["routed_isobaric"]!.GetValue<string>()), Is.EqualTo(("tmt-dda@2", "chemistry")),
+            "with nothing read from the spectra yet, PRIDE's TMT routes it as before");
+
+        Deposit("PXD000414");
+        runner.Record("PXD000414", ("label_from_spectra", new JsonObject { ["value"] = "label_free", ["evidence"] = "no isobaric reporter ions in any of the 3 probe files" }));
+        int before = files.Downloads;
+        await runner.ProbeAsync(new QueueEntry("PXD000414", "t", "human"), CancellationToken.None);
+        var kept = runner.State()["datasets"]!["PXD000414"]!;
+        Assert.That(kept["routed_isobaric"], Is.Null, "not routed to the TMT profile again");
+        Assert.That(files.Downloads, Is.GreaterThan(before), "on to the probe download, as a label-free deposit");
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Not.Contain("PXD000414 chemistry: label tmt"));
+        Assert.That((kept["chemistry"]!["label"]!["value"]!.GetValue<string>(), kept["chemistry"]!["label"]!["source"]!.GetValue<string>()),
+            Is.EqualTo(("label_free", ChemistrySource.ProbeSpectra)));
+        var onDisk = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "runs", "PXD000414", "01_chemistry", "chemistry.json")))!;
+        Assert.That(onDisk["label"]!["source"]!.GetValue<string>(), Is.EqualTo(ChemistrySource.ProbeSpectra));
+    }
+
     // G18: a reboot mid-search left the deposit at "searching" with a half-written 04_search/mm, which MetaMorpheus refuses
     // to reuse; the restart would have settled it as search_failed.
     [Test]
@@ -1533,6 +1685,38 @@ public class BatchRunnerTests
         runner.RecoverInterruptedSearches(new[] { lost });
         Assert.That(runner.Settled("PXD000221"), Is.EqualTo("search_failed"));
         Assert.That(File.Exists(Path.Combine(lostSearch, "provenance.json")), Is.True, "the failed output stays for batch retry to move aside");
+    }
+
+    // v0.4.45 (PXD028799, 2026-11-11): Windows Update cut its search after 34 of 48 raws were calibrated and deleted (D59), and
+    // it then waited behind 74 worker passes to be fetched again. At a driver's start an interrupted search's calibrations stand
+    // in for their raws, whether the search was cut under this driver's predecessor or found cut by an earlier driver, and a
+    // deposit whose raws are here or stand in goes first.
+    [Test]
+    public void AnInterruptedSearchsCalibrationsStandInForItsRawsAndTheDepositGoesFirst()
+    {
+        var (runner, _, _, dir) = Runner();
+        var queue = new[] { new QueueEntry("PXD000230", "new", "human"), new QueueEntry("PXD028799", "cut now", "human"), new QueueEntry("PXD028800", "cut before", "human") };
+        foreach (var (acc, search) in new[] { ("PXD028799", "04_search"), ("PXD028800", "04_search.interrupted-20261111T133322Z") })
+        {
+            string run = Path.Combine(dir, "runs", acc), spectra = Directory.CreateDirectory(Path.Combine(run, "02_fetch", "spectra")).FullName;
+            File.WriteAllText(Path.Combine(spectra, "a.raw"), "");   // b.raw was deleted once calibrated (D59)
+            File.WriteAllText(Path.Combine(run, "02_fetch", "fetch_manifest.json"), """{"files":[{"name":"a.raw","sha256":"aa"},{"name":"b.raw","sha256":"bb"}]}""");
+            string cal = Directory.CreateDirectory(Path.Combine(run, search, "mm", "Task1CalibrationTask")).FullName;
+            File.WriteAllText(Path.Combine(cal, "b-calib.mzML"), "<indexedmzML><mzML/></indexedmzML>");
+            File.WriteAllText(Path.Combine(cal, "b-calib.toml"), "");
+            File.WriteAllText(Path.Combine(run, search, "params.json"), """{"profile":"label-free-dda@14"}""");
+            File.WriteAllText(Path.Combine(Directory.CreateDirectory(Path.Combine(run, search, "tasks")).FullName, "1_CalibrationTask.toml"), "TaskType = \"Calibrate\"\n");
+            runner.Record(acc, ("status", search == "04_search" ? "searching" : "search_interrupted"), ("n_listed", 2));
+        }
+        Assert.That(runner.DownloadedFirst(queue, new HashSet<string>(), new HashSet<string>()), Is.Null, "one raw of two on disk");
+
+        runner.RecoverInterruptedSearches(queue);
+
+        foreach (string acc in new[] { "PXD028799", "PXD028800" })
+            Assert.That(Search.CalibratedStandIns.In(Path.Combine(dir, "runs", acc, "02_fetch", "spectra")).Select(s => (s.RawName, s.FetchEntry?["sha256"]?.GetValue<string>())),
+                Is.EqualTo(new[] { ("b.raw", (string?)"bb") }), acc);
+        Assert.That(runner.DownloadedFirst(queue, new HashSet<string>(), new HashSet<string>())?.Accession, Is.EqualTo("PXD028799"), "ahead of the queue's first");
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain("PXD028800 CALIBRATED STAND-INS: 1 raw file(s)"));
     }
 
     // v0.4.17 (PXD044227, 2026-10-14): a reboot cut off the full search of 61 files. Its 04_search was moved aside, but the

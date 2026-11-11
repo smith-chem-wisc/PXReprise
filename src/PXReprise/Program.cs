@@ -243,6 +243,8 @@ public static class Program
                     args.Required("spectra"), args.Required("out"), args.Required("qc"), List(args.Option("extra-db")),
                     List(args.Option("exclude")), args.Option("run-date"), args.Option("accession"),
                     CuratedDesign: args.Option("design"), DesignConditionColumns: args.Option("condition-columns") is null ? null : List(args.Option("condition-columns")),
+                    // v0.4.45 (aging PXR-A181): a profile that reads each deposit's chemistry takes it from --design's SDRF here.
+                    Chemistry: Search.SearchStage.ChemistryOutsideTheBatch(profile, args.Required("spectra"), args.Option("design")),
                     LibraryRouteClasses: enriched.Count > 0 ? enriched : null);
                 return await Search.SearchStage.RunAsync(request, ct).ConfigureAwait(false);
             }

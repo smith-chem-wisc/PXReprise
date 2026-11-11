@@ -38,7 +38,8 @@ public sealed class BatchRunner
     private readonly string _runDate;
     private readonly string _stateDir, _runRoot;
     private readonly object _gate = new();
-    private bool _libraryOk = true;
+    // G46, per chain since v0.4.45: the library chains an update-mode search failure switched off for this driver (under _gate).
+    private readonly HashSet<string> _libraryChainsOff = new(StringComparer.Ordinal);
     private readonly HashSet<string> _searching = new(StringComparer.Ordinal);
     private int _started;
 
@@ -767,9 +768,12 @@ public sealed class BatchRunner
     private async Task<Profile?> PrepareAsync(QueueEntry e, CancellationToken ct)
     {
         if (PrepareForTest is { } prepare) return await prepare(e, ct).ConfigureAwait(false);
+        // v0.4.45: before the probe's fetch rewrites the fetch manifest, an interrupted search's finished calibrations become
+        // stand-ins for their raws (CalibratedStandIns), with the manifest entries they need.
+        HarvestCalibrations(e.Accession);
         Profile? profile;
         if (WorkerPassProfile(e.Accession) is { } passed)
-            profile = await ScreenWorkerPassAsync(e, ct).ConfigureAwait(false) ? passed : null;
+            profile = await ScreenWorkerPassAsync(e, passed, ct).ConfigureAwait(false) ? passed : null;
         else
             profile = await (ProbeForTest ?? ProbeAsync)(e, ct).ConfigureAwait(false);
         return profile is not null && await (FetchWholeForTest ?? FetchWholeAsync)(e, profile, ct).ConfigureAwait(false) ? profile : null;
@@ -869,7 +873,11 @@ public sealed class BatchRunner
             if (consumed.Contains(x.Accession) || ds[x.Accession]?["n_listed"] is not JsonValue nv || !nv.TryGetValue<int>(out int listed) || listed <= 0)
                 continue;
             string spectra = Path.Combine(Run(x.Accession), "02_fetch", "spectra");
-            if (!Directory.Exists(spectra) || Directory.EnumerateFiles(spectra, "*.raw").Count() < listed) continue;
+            if (!Directory.Exists(spectra)) continue;
+            // v0.4.45: a raw a calibrated stand-in replaces counts as here (PXD028799: 14 raws and 34 stand-ins of 48).
+            var here = Directory.EnumerateFiles(spectra, "*.raw").Select(f => Path.GetFileName(f)).ToHashSet(StringComparer.Ordinal);
+            here.UnionWith(Search.CalibratedStandIns.In(spectra).Select(s => s.RawName));
+            if (here.Count < listed) continue;
             if (File.Exists(Path.Combine(Run(x.Accession), "04_search", "provenance.json")) || Settled(x.Accession).Length > 0) continue;
             if (!busy.Contains(x.Organism)) return x;
             first ??= x;
@@ -1115,6 +1123,7 @@ public sealed class BatchRunner
         // G19: a profile that searches with the deposit's own chemistry reads it before any download, and a deposit it cannot
         // search as read (two proteases with no per-file map, an unknown protease or modification, a label) waits.
         DepositChemistry? chemistry = null;
+        Profile? routedFrom = null;   // v0.4.45: the profile before PRIDE's words routed the deposit to the isobaric one
         if (profile.Chemistry == "deposit")
         {
             DepositChemistry chem;
@@ -1126,6 +1135,7 @@ public sealed class BatchRunner
                 && IsobaricTaker(acq) is { } taker && taker.Databases.ContainsKey(e.Organism))
             {
                 Log($"{acc} chemistry: label {chem.Label.Value} ({chem.Label.Source}); routing to {taker.Key}");
+                routedFrom = profile;
                 profile = taker;
                 Record(acc, ("profile", profile.Key), ("routed_isobaric", "chemistry"));
                 try { chem = await ChemistryAsync(acc, all, listing.Select(f => f.FileName).ToList(), profile, ct).ConfigureAwait(false); }
@@ -1133,9 +1143,8 @@ public sealed class BatchRunner
             }
             xr.Chemistry(chem);
             chemistry = chem;
-            bool searchable = chem.Label.Value == "label_free"
-                || (IsIsobaricLabel(chem.Label.Value) && profile.Accepts.Labellings.Contains(Labelling.Isobaric));
-            string? wait = chem.Park ?? (searchable ? null : $"waiting_{Slug(chem.Label.Value)}_labelling");
+            string? wait = UnsearchableChemistry(chem)
+                ?? (IsIsobaricLabel(chem.Label.Value) && !profile.Accepts.Labellings.Contains(Labelling.Isobaric) ? $"waiting_{Slug(chem.Label.Value)}_labelling" : null);
             if (wait is not null)
             {
                 Log($"{acc} SCREENED OUT ({wait}): chemistry {Describe(chem)}");
@@ -1188,6 +1197,23 @@ public sealed class BatchRunner
             Log($"{acc} PROBE reads its {probeFiles.Count} probe files only; {onDisk} raw files are on disk (downloaded ahead)");
         var (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles, probe: true);
         xr.Probe(report);
+        // v0.4.45 (PXD032900-lfq, 2026-11-10): PRIDE's words routed the deposit to the isobaric profile, but they named label-free
+        // too, and not one probe file carries reporter ions: the spectra decide (D34). Back to the profile it had, the label
+        // recorded as read from the spectra (kept in the state; ChemistryAsync applies it at every later read), and the probe QC
+        // run again under that profile, whose own routes (low-res MS2, reporters after all) then apply as for any deposit.
+        if (routedFrom is not null && chemistry is not null && LabelFreeBySpectra(chemistry, report) is { } bySpectra)
+        {
+            Log($"{acc} PROBE qc: {bySpectra}: the spectra decide, label-free; back to {routedFrom.Key}");
+            profile = routedFrom;
+            Record(acc, ("profile", profile.Key), ("routed_isobaric", null),
+                ("label_from_spectra", new JsonObject { ["value"] = "label_free", ["evidence"] = bySpectra }));
+            try { chemistry = await ChemistryAsync(acc, all, listing.Select(f => f.FileName).ToList(), profile, ct).ConfigureAwait(false); }
+            catch (Exception ex) when (Envelope.IsUnavailable(ex) || FetchStage.IsTransient(ex)) { Log($"{acc} chemistry: PRIDE unavailable ({ex.Message}); retry next pass"); return null; }
+            xr.Chemistry(chemistry);
+            Log($"{acc} chemistry: {Describe(chemistry)}");
+            (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles, probe: true);
+            xr.Probe(report);
+        }
         // v0.4.35: reporter ions in every probe file, under a profile that refuses them: the question's isobaric profile takes
         // the deposit when it names an available one, and its QC reads the kit from the same files. The chemistry read above
         // stands (protease and cysteine are the deposit's, whichever profile searches it).
@@ -1461,14 +1487,47 @@ public sealed class BatchRunner
         return moved;
     }
 
+    /// <summary>
+    /// v0.4.45 (the user, 2026-11-11): moves the finished calibrations of <paramref name="acc"/>'s interrupted searches into its
+    /// spectra folder as calibrated stand-ins (CalibratedStandIns.Harvest). A failure costs only the stand-ins: the raws are fetched.
+    /// </summary>
+    internal void HarvestCalibrations(string acc)
+    {
+        try
+        {
+            var got = Search.CalibratedStandIns.Harvest(Run(acc));
+            if (got.Count > 0)
+                Log($"{acc} CALIBRATED STAND-INS: {got.Count} raw file(s) already calibrated by an interrupted search ({string.Join(", ", got.Select(g => g.From).Distinct())}) are kept and not fetched or calibrated again");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Log($"{acc} calibrated stand-ins: could not take them from the interrupted search ({ex.Message}); those raws are fetched again");
+        }
+    }
+
+    /// <summary>The raw file names the deposit's last full QC report has a verdict for; empty when there is none.</summary>
+    private HashSet<string> FullQcVerdicts(string acc)
+    {
+        string f = Path.Combine(Run(acc), "02b_qc", "qc_report.json");
+        try { return File.Exists(f) && JsonNode.Parse(File.ReadAllText(f)) is JsonObject o ? o.Select(kv => kv.Key).ToHashSet(StringComparer.Ordinal) : new(StringComparer.Ordinal); }
+        catch (JsonException) { return new(StringComparer.Ordinal); }
+    }
+
     /// <summary>The whole deposit, or nothing: anything short of every listed file is a failure that says what it got (S43).</summary>
     private async Task<bool> FetchWholeAsync(QueueEntry e, Profile profile, CancellationToken ct)
     {
         string acc = e.Accession;
+        string spectra = Path.Combine(Run(acc), "02_fetch", "spectra");
+        // v0.4.45: a raw with a calibrated stand-in is not fetched when the stand-in carries the raw's fetch entry and the
+        // last full QC judged the raw (QC cannot read a raw that is gone).
+        var verdicts = FullQcVerdicts(acc);
+        var calibrated = Search.CalibratedStandIns.In(spectra).Where(s => s.FetchEntry is not null && verdicts.Contains(s.RawName))
+            .ToDictionary(s => s.RawName, s => s.FetchEntry!, StringComparer.Ordinal);
         JsonObject manifest;
         try
         {
-            manifest = await FetchStage.RunAsync(FetchRequestFor(acc, Pick.All, DepositFor(acc, profile)), _files, ct, m => Log($"{acc} FETCH {m}")).ConfigureAwait(false);
+            manifest = await FetchStage.RunAsync(FetchRequestFor(acc, Pick.All, DepositFor(acc, profile)) with { Calibrated = calibrated },
+                _files, ct, m => Log($"{acc} FETCH {m}")).ConfigureAwait(false);
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
@@ -1476,7 +1535,6 @@ public sealed class BatchRunner
             return false;
         }
         int listed = manifest["rest_raw_count"]!.GetValue<int>();
-        string spectra = Path.Combine(Run(acc), "02_fetch", "spectra");
         var selected = manifest["files"]?.AsArray().Select(f => f?["name"]?.GetValue<string>()).OfType<string>().ToList() ?? new List<string>();
         if (selected.Count > 0 && SetAsideUnselected(spectra, selected) is { Count: > 0 } aside)
         {
@@ -1484,8 +1542,17 @@ public sealed class BatchRunner
                 + $"{string.Join(", ", aside)} -> 02_fetch/{NotSelectedFolder} (deleted at cleanup)");
             Record(acc, ("set_aside", new JsonArray(aside.Select(n => (JsonNode?)n).ToArray())));
         }
-        int got = Directory.EnumerateFiles(spectra, "*.raw").Count();
-        Log($"{acc} FETCH raw_files={got} of {listed}");
+        var standIns = Search.CalibratedStandIns.In(spectra).Select(s => s.RawName).ToList();
+        if (selected.Count > 0 && standIns.Where(n => !selected.Contains(n)).ToList() is { Count: > 0 } unselected)
+        {
+            Search.CalibratedStandIns.Discard(spectra, unselected);
+            Log($"{acc} FETCH discarded {unselected.Count} calibrated stand-in(s) this selection does not name: {string.Join(", ", unselected)}");
+            standIns = standIns.Except(unselected).ToList();
+        }
+        var raws = Directory.EnumerateFiles(spectra, "*.raw").Select(f => Path.GetFileName(f)).ToList();
+        int got = raws.Union(standIns, StringComparer.Ordinal).Count();
+        int asStandIns = standIns.Except(raws, StringComparer.Ordinal).Count();
+        Log($"{acc} FETCH raw_files={got} of {listed}" + (asStandIns > 0 ? $" ({asStandIns} as calibrated stand-ins, not fetched again)" : ""));
         if (listed > 0 && got == listed) { Record(acc, ("status", "fetched"), ("n_raw", got), ("n_listed", listed)); return true; }
         Log($"{acc} FETCH INCOMPLETE: {got} of {listed} raw files -- not searched (whole deposits only)");
         Record(acc, ("status", "fetch_failed"), ("n_raw", got), ("n_listed", listed));
@@ -1495,7 +1562,10 @@ public sealed class BatchRunner
     private async Task SearchAndDeliverAsync(QueueEntry e, Profile profile, CancellationToken ct)
     {
         string acc = e.Accession, d = Run(acc);
-        var (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc"), profile, _m, ParamsFile(acc, profile), _runDate);
+        string spectraDir = Path.Combine(d, "02_fetch", "spectra");
+        // v0.4.45: a raw that is gone and has a calibrated stand-in keeps the verdict the last full QC gave it.
+        var keptVerdicts = Search.CalibratedStandIns.In(spectraDir).Select(s => s.RawName).Where(n => !File.Exists(Path.Combine(spectraDir, n))).ToList();
+        var (report, allPass) = QcStage.Run(spectraDir, Path.Combine(d, "02b_qc"), profile, _m, ParamsFile(acc, profile), _runDate, kept: keptVerdicts);
         if (RoutedByReporters(acc, report, "QC(full)")) return;
         var excl = new List<string>();
         if (!allPass)
@@ -1511,8 +1581,8 @@ public sealed class BatchRunner
             Record(acc, ("qc_excluded", new JsonArray(excl.Select(n => (JsonNode?)n).ToArray())), ("qc_excluded_of", report.Count));
         }
 
-        bool library = _libraryOk;
-        Log($"{acc} SEARCH starting (profile={profile.Key}, organism={e.Organism}, library={library})");
+        var chainsOff = LibraryChainsOff;
+        Log($"{acc} SEARCH starting (profile={profile.Key}, organism={e.Organism}, library=True{(chainsOff.Count == 0 ? "" : $" except {string.Join(", ", chainsOff)}")})");
         Record(acc, ("status", "searching"));
         var overlays = _q.Overlays.TryGetValue(e.Organism, out var ov) ? ov : Array.Empty<string>();
         string? curated = _q.Designs?.For(acc);
@@ -1537,7 +1607,7 @@ public sealed class BatchRunner
         // The limits as the machine file says now (v0.4.21), so provenance records the ones this deposit was admitted under.
         var req = new SearchRequest(profile, e.Organism, _m with { DepositLimits = Limits, ProbeSearchMinutes = ProbeMinutes },
             Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "04_search"),
-            Path.Combine(d, "02b_qc"), overlays, excl, _runDate, acc, UseLibrary: library,
+            Path.Combine(d, "02b_qc"), overlays, excl, _runDate, acc, LibraryChainsOff: chainsOff,
             CuratedDesign: curated, DesignConditionColumns: _q.Designs is { ConditionColumns.Count: > 0 } ds ? ds.ConditionColumns : null, Chemistry: chemistry,
             ProbePrecursorOffsets: profile.PrecursorWindow == "probe" ? ProbeOffsets(acc) : null,
             LibraryRouteClasses: LibraryRouteClasses(acc));
@@ -1547,6 +1617,14 @@ public sealed class BatchRunner
         try
         {
             outcome = await SearchStage.RunAsync(req, ct).ConfigureAwait(false);
+        }
+        catch (Search.CalibrationNotCarriedException ex)
+        {
+            // v0.4.45: nothing ran. The stand-ins go, and the next pass fetches their raws and calibrates them in the search.
+            Search.CalibratedStandIns.Discard(spectraDir, ex.RawNames);
+            Log($"{acc} SEARCH NOT STARTED: {ex.Message}. Those stand-ins are discarded; their raws are fetched on a later pass");
+            Record(acc, ("status", "search_interrupted"), ("detail", $"calibrated stand-ins refused before the search: {ex.Message}"));
+            return;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -1570,15 +1648,29 @@ public sealed class BatchRunner
             Cleanup(acc);
             await DeliverAsync(e, profile, ct).ConfigureAwait(false);
         }
-        else if (library && lib?["mode"]?.GetValue<string>() == "update" && !outcome.TimedOut)
-        {
-            // A failure while updating the library may be the library's fault; stop feeding it until someone looks (G46).
-            // A timeout is not evidence against the library (S60), so it never disables it.
-            _libraryOk = false;
-            Log($"{acc} SEARCH FAILED IN UPDATE MODE - disabling the spectral library for the rest of this batch. Raw files kept. INVESTIGATE.");
-            Record(acc, ("library_disabled_after_failure", true));
-        }
+        else SwitchOffLibraryAfterFailure(acc, outcome, lib);
     }
+
+    /// <summary>
+    /// G46: a search that failed while updating a library may be the library's fault, so this driver stops reading that
+    /// library chain until someone looks. A timeout is not evidence against the library (S60), and a search that wrote a
+    /// new chain read none. Returns the chain switched off, or null.
+    /// </summary>
+    /// <remarks>v0.4.45 (PXD025746, 2026-11-11): one chain, not all. PXD025746's iodoTMT search failed on mouse_tmt6plex for
+    /// its labelling, not its library, and every later search of driver 69324 ran without one: PXD027232 (human) and PXD034029
+    /// (mouse TMT11, 240 files). The list lives in memory only, as before: a new driver starts with every chain on.</remarks>
+    internal string? SwitchOffLibraryAfterFailure(string acc, SearchOutcome outcome, JsonNode? lib)
+    {
+        if (outcome.Success || outcome.TimedOut || lib?["mode"]?.GetValue<string>() != "update" || lib["organism"]?.GetValue<string>() is not { } chain)
+            return null;
+        lock (_gate) _libraryChainsOff.Add(chain);
+        Log($"{acc} SEARCH FAILED IN UPDATE MODE - disabling the spectral library {chain} for the rest of this batch (other chains stay on). Raw files kept. INVESTIGATE.");
+        Record(acc, ("library_disabled_after_failure", chain));
+        return chain;
+    }
+
+    /// <summary>The library chains this driver has switched off (G46).</summary>
+    internal IReadOnlyList<string> LibraryChainsOff { get { lock (_gate) return _libraryChainsOff.Order(StringComparer.Ordinal).ToList(); } }
 
     /// <summary>
     /// qc's payload for the search (stage 05_qc), and qc's validate + render when the machine names a qc_python. Never
@@ -1694,8 +1786,11 @@ public sealed class BatchRunner
             || id["rate"]?.GetValue<double>() is not { } rate) return null;
         double floor = _q.ExceptionFor(acc)?.MinIdentificationRate ?? MinIdentificationRate;
         if (rate >= floor) return null;
-        string ms2 = id["ms2"]?.GetValue<long>() is { } n ? $" of {n:N0} MS2 spectra" : "";
-        return $"the full search's {id["psms_1pct"]?.GetValue<long>().ToString("N0") ?? "?"} PSMs at 1% are {rate:P2}{ms2}, under the identification floor of {floor:P0}";
+        // Invariant on purpose: "P2" is "0.07%" on Windows en-US and "0.07 %" on Linux (public CI, v0.4.44).
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        string ms2 = id["ms2"]?.GetValue<long>() is { } n ? $" of {n.ToString("N0", inv)} MS2 spectra" : "";
+        string psms = id["psms_1pct"]?.GetValue<long>() is { } p ? p.ToString("N0", inv) : "?";
+        return $"the full search's {psms} PSMs at 1% are {(rate * 100).ToString("0.00", inv)}%{ms2}, under the identification floor of {(floor * 100).ToString("0.##", inv)}%";
     }
 
     private readonly SemaphoreSlim _delivering = new(1, 1);
@@ -2040,6 +2135,10 @@ public sealed class BatchRunner
         var chem = ChemistryDetector.Detect(project, curated, deposited, rawFiles, profile.ThiolReagents);
         // v0.4.15 (PXR-A99): the question states the cysteines were never alkylated; it outranks every source read above.
         if (_q.ExceptionFor(acc) is { Alkylation: DepositException.NoAlkylation } ex) chem = chem.Unalkylated(ex.Reason);
+        // v0.4.45: a label the probe's own spectra decided (LabelFreeBySpectra) outranks PRIDE's words. It is kept in the state,
+        // so a restart before the search, or a retry, does not read TMT again and route the deposit back to the TMT profile.
+        if (Entry(acc)?["label_from_spectra"] is JsonObject lfs && lfs["value"]?.GetValue<string>() is { } decided)
+            chem = chem with { Label = new(decided, ChemistrySource.ProbeSpectra, lfs["evidence"]?.GetValue<string>()), LabelFreeNamedToo = false };
         var json = Search.SearchStage.Chemistry(chem);
         json["sdrf_file"] = sdrf?.FileName;
         json["curated_sdrf"] = curated is not null;
@@ -2064,7 +2163,11 @@ public sealed class BatchRunner
         foreach (var e in queue)
         {
             string acc = e.Accession;
-            if (Entry(acc)?["status"]?.GetValue<string>() != "searching") continue;
+            string? status = Entry(acc)?["status"]?.GetValue<string>();
+            // v0.4.45 (PXD028799): an interrupted search's finished calibrations become stand-ins at the driver's start, so a
+            // deposit whose raws are here or stand in counts as downloaded (DownloadedFirst) instead of waiting in the queue.
+            if (status == "search_interrupted") { HarvestCalibrations(acc); continue; }
+            if (status != "searching") continue;
             string d = Path.Combine(Run(acc), "04_search");
             if (File.Exists(Path.Combine(d, "provenance.json")))
             {
@@ -2103,6 +2206,7 @@ public sealed class BatchRunner
                 + (designMoved ? $"its {Search.DesignStage.FileName} moved to {Path.GetFileName(aside)}/{InterruptedSpectraFolder}; " : "")
                 + $"searched again on this run ({n} of {MaxDriverInterruptions}).");
             Record(acc, ("status", "search_interrupted"), ("driver_interruptions", n), ("detail", why));
+            if (moved) HarvestCalibrations(acc);
         }
     }
 
@@ -2120,6 +2224,15 @@ public sealed class BatchRunner
     }
 
     private static bool IsIsobaricLabel(string label) => label is "tmt" or "itraq";
+
+    /// <summary>
+    /// What a deposit waits for when no profile of this build searches its chemistry as read: the chemistry's own park, or a
+    /// label that is neither label-free nor isobaric (iodoTMT, SILAC, dimethyl, ...) as <c>waiting_&lt;label&gt;_labelling</c>.
+    /// Null when some profile does. Which profile takes an isobaric label is the screen's to settle (it routes, or parks when
+    /// none takes it); the spectra may also decide it (reporter ions, LabelFreeBySpectra).
+    /// </summary>
+    internal static string? UnsearchableChemistry(DepositChemistry chem) =>
+        chem.Park ?? (chem.Label.Value == "label_free" || IsIsobaricLabel(chem.Label.Value) ? null : $"waiting_{Slug(chem.Label.Value)}_labelling");
 
     /// <summary>The first profile the question names, in its order, that is available and takes this deposit as isobaric.</summary>
     internal Profile? IsobaricTaker(Acquisition acq) =>
@@ -2145,15 +2258,44 @@ public sealed class BatchRunner
         return true;
     }
 
+    /// <summary>
+    /// v0.4.45 (PXD032900-lfq, 2026-11-10): why the probe's spectra make a deposit label-free, or null. PRIDE named both
+    /// ("Label free; TMT", <see cref="DepositChemistry.LabelFreeNamedToo"/>), its words routed it to the isobaric profile, and
+    /// not one probe file carries reporter ions there (every one fails <c>no_isobaric_reporters</c>). D34: spectra beat text.
+    /// A probe with a kit in any file is left alone: a mix of labels is a split, not a label-free deposit.
+    /// </summary>
+    internal static string? LabelFreeBySpectra(DepositChemistry chem, JsonObject report)
+    {
+        if (!chem.LabelFreeNamedToo || report.Count == 0) return null;
+        bool noneCarry = report.All(kv => kv.Value!["fail_reasons"]?.AsArray().Any(r => r?.GetValue<string>() == Qc.SpectraQc.NoReporters) == true);
+        return noneCarry
+            ? $"no isobaric reporter ions in any of the {report.Count} probe files, and PRIDE's quantification methods name label-free too ({chem.Label.Evidence})"
+            : null;
+    }
+
     public static List<string>? QcExclusion(JsonObject report, QcGates gates)
     {
         var failed = report.Where(kv => kv.Value!["pass"]!.GetValue<bool>() != true)
-            .ToDictionary(kv => kv.Key, kv => kv.Value!["fail_reasons"]?.AsArray().Select(r => r!.GetValue<string>()).ToHashSet() ?? new HashSet<string> { "unspecified" });
+            .ToDictionary(kv => kv.Key, kv => NoMs2AtAll(kv.Value!) ? new HashSet<string> { Qc.SpectraQc.TooFewMs2 }
+                : kv.Value!["fail_reasons"]?.AsArray().Select(r => r!.GetValue<string>()).ToHashSet() ?? new HashSet<string> { "unspecified" });
         if (failed.Count == 0) return new List<string>();
         if (failed.Values.Any(rs => rs.Any(r => !gates.Excludable.Contains(r)))) return null;
         if (report.Count - failed.Count < 1) return null;
         if (failed.Count > Math.Max(1, (int)(gates.MaxExcludedFraction * report.Count))) return null;
         return failed.Keys.OrderBy(k => k, StringComparer.Ordinal).ToList();
+    }
+
+    /// <summary>
+    /// v0.4.45 (PXD023647's `90C_10B_12`, a 1 MB re-injection with no scans): a file that was read and holds no MS2 at all
+    /// is the plainest blank or failed injection, judged on too_few_ms2 alone. It also fails every gate that judges MS2 (a
+    /// 0.0 Orbitrap HCD share, no reporters, no fragmentation to read), and those verdicts kept it from being excluded, so
+    /// one empty file held back eleven good ones. A file that could not be read reports 0 MS2 too and is not one of these.
+    /// </summary>
+    private static bool NoMs2AtAll(JsonNode qc)
+    {
+        var reasons = qc["fail_reasons"]?.AsArray().Select(r => r?.GetValue<string>()).ToList() ?? new List<string?>();
+        return qc["ms2"] is JsonValue v && v.TryGetValue<int>(out int n) && n == 0
+            && reasons.Contains(Qc.SpectraQc.TooFewMs2) && !reasons.Contains(Qc.SpectraQc.Unreadable);
     }
 
     private FetchRequest FetchRequestFor(string acc, Pick pick, DepositPolicy dep) =>
@@ -2514,22 +2656,34 @@ public sealed class BatchRunner
         && o["profile"]?.GetValue<string>() is { } key && _q.Profiles.Contains(key) && _profiles.TryGetValue(key, out var p) ? p : null;
 
     /// <summary>
-    /// A worker's pass gets this machine's duplicate screen, since the worker cannot see the searches here. False when the
-    /// deposit stops: a duplicate, or PRIDE unavailable (it stays a pass for the next look).
+    /// A worker's pass gets this machine's duplicate screen, since the worker cannot see the searches here, and this build's
+    /// chemistry screen. False when the deposit stops: a duplicate, a chemistry no profile here searches, or PRIDE
+    /// unavailable (it stays a pass for the next look).
     /// </summary>
-    private async Task<bool> ScreenWorkerPassAsync(QueueEntry e, CancellationToken ct)
+    /// <remarks>v0.4.45 (PXD025746, 2026-11-11): a pass waits for its whole fetch across a release. The worker passed it on
+    /// 11-09 under v0.4.43, before iodoTMT parked (v0.4.44); with the duplicate screen alone it was fetched and searched as
+    /// amine TMT on every lysine and N-terminus (18 PSMs of 44,828 MS2), and the failure turned the spectral library off for
+    /// the rest of the driver (G46). Under the build that made the pass, this screen gives the pass's own answer again.</remarks>
+    private async Task<bool> ScreenWorkerPassAsync(QueueEntry e, Profile passed, CancellationToken ct)
     {
         string acc = e.Accession;
-        List<UsefulProteomicsDatabases.PrideArchiveFile> listing;
-        try
-        {
-            listing = (await _files.ListFilesAsync(acc, ct).ConfigureAwait(false))
-                .Where(f => f.FileName.EndsWith(".raw", StringComparison.OrdinalIgnoreCase)).ToList();
-        }
+        List<UsefulProteomicsDatabases.PrideArchiveFile> all, listing;
+        try { all = await _files.ListFilesAsync(acc, ct).ConfigureAwait(false); }
         catch (Exception ex) when (FetchStage.IsTransient(ex)) { Log($"{acc} size listing failed ({ex.Message}); retry next pass"); return false; }
+        listing = all.Where(f => f.FileName.EndsWith(".raw", StringComparison.OrdinalIgnoreCase)).ToList();
         if (_q.ExceptionFor(acc) is { SelectsFiles: true } exception) listing = listing.Where(f => exception.Keeps(f.FileName)).ToList();
-        Log($"{acc} probe passed on {Entry(acc)?["probed_by"]} under {Entry(acc)?["profile"]}: duplicate screen here, then the whole fetch");
-        return !ExcludedAsDuplicate(acc, listing, null);
+        Log($"{acc} probe passed on {Entry(acc)?["probed_by"]} under {Entry(acc)?["profile"]}: duplicate and chemistry screen here, then the whole fetch");
+        if (ExcludedAsDuplicate(acc, listing, null)) return false;
+        if (passed.Chemistry != "deposit") return true;
+        DepositChemistry chem;
+        try { chem = await ChemistryAsync(acc, all, listing.Select(f => f.FileName).ToList(), passed, ct).ConfigureAwait(false); }
+        catch (Exception ex) when (Envelope.IsUnavailable(ex) || FetchStage.IsTransient(ex)) { Log($"{acc} chemistry: PRIDE unavailable ({ex.Message}); retry next pass"); return false; }
+        if (UnsearchableChemistry(chem) is not { } wait) return true;
+        Log($"{acc} SCREENED OUT ({wait}): the worker's pass (package {Entry(acc)?["probe_package_utc"]}) is not searched; chemistry {Describe(chem)}");
+        Record(acc, ("status", wait), ("detail", Describe(chem)));
+        if (DecisionsNeeded.Announce(_runRoot, acc, wait, Describe(chem)) is { } d)
+            Log($"{acc} DECISION NEEDED ({wait}): {d.Question} Listed in {DecisionsNeeded.FileName}.");
+        return false;
     }
 
     /// <summary>

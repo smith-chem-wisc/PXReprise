@@ -7,7 +7,9 @@ namespace PXReprise.Qc;
 /// <summary>What a file's spectra say about isobaric labelling: the best-supported tag, or none.</summary>
 /// <param name="Tag">The label family (<c>TMT</c>, <c>iTRAQ</c>, <c>DiLeu</c>), or null when no family is supported.</param>
 /// <param name="Fraction">Of the MSn spectra checked, the fraction carrying at least <see cref="IsobaricReporters.MinChannels"/> of one of that family's kits' reporters.</param>
-public sealed record ReporterEvidence(string? Tag, double Fraction, int SpectraChecked);
+/// <param name="Family">v0.4.45: the best-supported family even below <see cref="IsobaricReporters.MinFraction"/> (null when no
+/// spectrum carries one), for a thin fraction of an isobaric deposit (<see cref="IsobaricReporters.MinFractionBesideItsDeposit"/>).</param>
+public sealed record ReporterEvidence(string? Tag, double Fraction, int SpectraChecked, string? Family = null);
 
 /// <summary>
 /// Finds isobaric reporter ions in a file's own spectra, because a deposit's text can fail to say it is labelled:
@@ -24,6 +26,16 @@ public static class IsobaricReporters
 
     /// <summary>A file is labelled when at least this fraction of its MSn spectra carry a kit's reporters.</summary>
     public const double MinFraction = 0.25;
+
+    /// <summary>
+    /// v0.4.45 (PXD027464; the user, 2026-11-11, "(b)"): the least share of a file's MSn spectra with reporters at which QC under an
+    /// isobaric profile still reads its kit. The late fractions of a fractionated plex hold few peptides: PXD027464's F36 and F37
+    /// (TMT10, all ten channels) carry reporters in 24% and 23% of their spectra, PXD030407's IMAC_22 (TMTpro, the twelve channels of
+    /// its passing files) in 8.6%. Such a file still fails alone, and its deposit passes it (QcStage.PassThinFractions) when it shows
+    /// the deposit's kit and every channel the passing files share. Label-free runs measured 2026-11-11 (PXD006571, PXD006572,
+    /// PXD006576, 25,000 to 41,000 MS2 each): a share of 0.0000 and no kit.
+    /// </summary>
+    public const double MinFractionBesideItsDeposit = 0.05;
 
     /// <summary>Each kit's reporter m/z values, ascending; one entry per kit (its K and N-terminal mods share them).</summary>
     public static readonly IReadOnlyList<(string Tag, double[] Mzs)> Kits = Mods.IsobaricLabelModifications
@@ -48,8 +60,8 @@ public static class IsobaricReporters
             if (f > bestFraction) (best, bestFraction) = (family.Key, f);
         }
         return bestFraction >= MinFraction
-            ? new(best, Search.SearchMetrics.PyRound(bestFraction, 4), spectra.Count)
-            : new(null, Search.SearchMetrics.PyRound(bestFraction, 4), spectra.Count);
+            ? new(best, Search.SearchMetrics.PyRound(bestFraction, 4), spectra.Count, best)
+            : new(null, Search.SearchMetrics.PyRound(bestFraction, 4), spectra.Count, best);
     }
 
     /// <summary>The kits a family's reporters can come from, smallest first: each kit's channels contain the one before's.</summary>

@@ -3,7 +3,8 @@
 // writes. It tests orchestration (arguments, success checks, provenance, the library registry), never science.
 //   CMD -g -o <dir>      -> the banner "Welcome to MetaMorpheus / <release>" and the three default task TOMLs (CRLF)
 //   CMD --help           -> help text carrying "CMD 1.0.0+<40-hex commit>"
-//   CMD -t ... -o <dir>  -> Task1CalibrationTask/, Task2GptmdTask/, Task3SearchTask/ with small result tables
+//   CMD -t ... -o <dir>  -> Task<N><Kind>Task/ for each task file -t names, N its place (Task1CalibrationTask/,
+//                           Task2GptmdTask/, Task3SearchTask/ for the three defaults), with small result tables
 // Environment: FAKE_MM_EXIT=<n> exits with n after writing outputs; FAKE_MM_NO_PROTEIN_GROUPS=1 omits the protein-group
 // table (FlashLFQ failing silently); FAKE_MM_SKIP_QUANT=1 prints the design warning; FAKE_MM_HANG=1 sleeps forever, using
 // no CPU (a hung search); FAKE_MM_BUSY_SECONDS=<n> works silently for n seconds first (MetaMorpheus's long PEP step);
@@ -48,7 +49,15 @@ if (double.TryParse(Environment.GetEnvironmentVariable("FAKE_MM_BUSY_SECONDS"), 
     while (DateTime.UtcNow < until) x += Math.Sqrt(x + 1);
 }
 var spectra = Values("-s").Select(Path.GetFileNameWithoutExtension).ToList();
-foreach (var (task, i) in new[] { "CalibrationTask", "GptmdTask", "SearchTask" }.Select((t, i) => (t, i + 1)))
+// FAKE_MM_ARGS_LOG=<file> appends each run's arguments, one line a run (a search split by calibrated stand-ins runs twice).
+if (Environment.GetEnvironmentVariable("FAKE_MM_ARGS_LOG") is { Length: > 0 } argsLog) File.AppendAllText(argsLog, string.Join(" ", args) + "\n");
+// The tasks -t names, in order, numbered from 1 in this run as MetaMorpheus's CMD numbers them; the three defaults when no
+// task file is recognised.
+string[] kinds = { "CalibrationTask", "GptmdTask", "SearchTask" };
+var tasks = Values("-t").Select(t => kinds.FirstOrDefault(k => Path.GetFileName(t).EndsWith(k + ".toml", StringComparison.Ordinal))).OfType<string>().ToList();
+if (tasks.Count == 0) tasks = kinds.ToList();
+string? TaskDir(string kind) => tasks.IndexOf(kind) is int k and >= 0 ? Path.Combine(outDir, $"Task{k + 1}{kind}") : null;
+foreach (var (task, i) in tasks.Select((t, i) => (t, i + 1)))
 {
     Console.WriteLine($"Starting task: Task{i}{task}");
     if (i == 1 && Environment.GetEnvironmentVariable("FAKE_MM_WARN") is { Length: > 0 } warn) Console.WriteLine(warn);
@@ -56,17 +65,24 @@ foreach (var (task, i) in new[] { "CalibrationTask", "GptmdTask", "SearchTask" }
     if (task == "CalibrationTask" && Environment.GetEnvironmentVariable("FAKE_MM_CALIBRATE") is { Length: > 0 } calibrate)
         foreach (string s in spectra.Where(s => calibrate == "all" || calibrate.Split(',').Contains(s)))
         {
-            File.WriteAllText(Path.Combine(outDir, $"Task{i}{task}", s + "-calib.mzML"), "<mzML/>");
+            File.WriteAllText(Path.Combine(outDir, $"Task{i}{task}", s + "-calib.mzML"), "<indexedmzML><mzML/></indexedmzML>");
             File.WriteAllText(Path.Combine(outDir, $"Task{i}{task}", s + "-calib.toml"), "");
         }
     if (task == "SearchTask" && Environment.GetEnvironmentVariable("FAKE_MM_SKIP_QUANT") == "1")
         Console.WriteLine("Error reading experimental design file: Condition \"x\" biorep 2 is missing. Skipping quantification");
     Console.WriteLine($"Finished task: Task{i}{task}");
 }
-File.WriteAllText(Path.Combine(outDir, "Task2GptmdTask", "db-GPTMD.xml"), "<uniprot/>");
-// GPTMD writes the contaminants separately, under a name that sorts before the proteome's (as MetaMorpheus does).
-File.WriteAllText(Path.Combine(outDir, "Task2GptmdTask", "MetaMorpheusContaminantsGPTMD.xml"), "<uniprot><!-- contaminants --></uniprot>");
-string sd = Path.Combine(outDir, "Task3SearchTask");
+if (TaskDir("GptmdTask") is { } gd)
+{
+    File.WriteAllText(Path.Combine(gd, "db-GPTMD.xml"), "<uniprot/>");
+    // GPTMD writes the contaminants separately, under a name that sorts before the proteome's (as MetaMorpheus does).
+    File.WriteAllText(Path.Combine(gd, "MetaMorpheusContaminantsGPTMD.xml"), "<uniprot><!-- contaminants --></uniprot>");
+}
+if (TaskDir("SearchTask") is not { } sd)
+{
+    File.WriteAllText(Path.Combine(outDir, "allResults.txt"), "fake run\n");
+    return int.TryParse(Environment.GetEnvironmentVariable("FAKE_MM_EXIT"), out int calRc) ? calRc : 0;
+}
 // 8 target, 1 contaminant, 1 decoy PSM at q <= 0.01, plus one above the cut-off.
 File.WriteAllText(Path.Combine(sd, "AllPSMs.psmtsv"), "QValue\tDecoy/Contaminant/Target\n" + string.Concat(Enumerable.Repeat("0.001\tT\n", 8)) + "0.002\tC\n0.003\tD\n0.5\tT\n");
 File.WriteAllText(Path.Combine(sd, "AllPeptides.psmtsv"), "QValue\n0.001\n");

@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using PXReprise.Batch;
 using PXReprise.Config;
 using PXReprise.Search;
 
@@ -152,6 +153,30 @@ public class SearchStageTests
 
     private static SearchRequest Req(Rig r, string outName, string acc = "PXD000301") =>
         new(r.Profile, "human", r.Machine, r.Spectra, Path.Combine(r.Root, "run", outName), r.Qc, Array.Empty<string>(), Array.Empty<string>(), "2026-09-28", acc);
+
+    // v0.4.45 (PXD025746, 2026-11-11): its iodoTMT search failed while updating mouse_tmt6plex, and the batch then searched
+    // every deposit without a library: PXD027232 (human) and PXD034029 (mouse TMT11) too. Only the chain that failed is off.
+    [Test]
+    public async Task AChainTheBatchSwitchedOffIsNotReadAndEveryOtherChainIs()
+    {
+        var rig = Setup();
+        Assume.That((await SearchStage.RunAsync(Req(rig, "04_search"), CancellationToken.None)).Success, "the first search writes human v1");
+
+        var off = await SearchStage.RunAsync(Req(rig, "04_search_2", "PXD000302") with { LibraryChainsOff = new[] { "human" } }, CancellationToken.None);
+        var other = await SearchStage.RunAsync(Req(rig, "04_search_3", "PXD000303") with { LibraryChainsOff = new[] { "mouse_tmt6plex" } }, CancellationToken.None);
+
+        var pOff = JsonNode.Parse(File.ReadAllText(off.ProvenanceFile))!;
+        var pOther = JsonNode.Parse(File.ReadAllText(other.ProvenanceFile))!;
+        Assert.Multiple(() =>
+        {
+            Assert.That((off.Success, other.Success), Is.EqualTo((true, true)));
+            Assert.That(pOff["spectral_library"], Is.Null, "the chain that failed is not read");
+            Assert.That(pOff["notes"]!.AsArray().Select(n => n!.GetValue<string>()),
+                Has.Some.Contains("spectral library human switched OFF for this search by the batch"));
+            Assert.That(pOther["spectral_library"]!["organism"]!.GetValue<string>(), Is.EqualTo("human"));
+            Assert.That(pOther["spectral_library"]!["mode"]!.GetValue<string>(), Is.EqualTo("update"), "another chain's failure leaves this one on");
+        });
+    }
 
     [Test]
     public async Task ASearchWritesTheLibraryAndTheNextOneUpdatesItWithTheRecordIntact()
@@ -553,5 +578,81 @@ public class SearchStageTests
         var rig = Setup(library: false);
         await SearchStage.RunAsync(Req(rig, "04_search"), CancellationToken.None);
         Assert.ThrowsAsync<PXReprise.Cli.UsageException>(() => SearchStage.RunAsync(Req(rig, "04_search"), CancellationToken.None));
+    }
+
+    // v0.4.45 (the user, 2026-11-11: "once a file is calibrated, we don't need to calibrate it again ... they can split"). PXD028799:
+    // a reboot cut its search after 34 of 48 raws were calibrated and deleted (D59). The raw an interrupted search calibrated is
+    // searched from that calibration: MetaMorpheus calibrates only the raw still here, then runs GPTMD and the search on both.
+    [Test]
+    public async Task ARawAnInterruptedSearchCalibratedIsSearchedFromThatCalibration()
+    {
+        var rig = Setup(library: false);
+        string run = Path.Combine(rig.Root, "run"), argsLog = Path.Combine(rig.Root, "args.log");
+        Environment.SetEnvironmentVariable("FAKE_MM_CALIBRATE", "b");
+        try
+        {
+            // The interrupted search: b.raw calibrated, then deleted for it (D59); a.raw never reached.
+            Assume.That((await SearchStage.RunAsync(Req(rig, "04_search"), CancellationToken.None)).Success);
+            Assume.That(File.Exists(Path.Combine(rig.Spectra, "b.raw")), Is.False, "D59 deleted the calibrated raw");
+            Directory.Move(Path.Combine(run, "04_search"), Path.Combine(run, "04_search.interrupted-20261111T133322Z"));
+            Assert.That(CalibratedStandIns.Harvest(run).Select(s => s.RawName), Is.EqualTo(new[] { "b.raw" }));
+
+            Environment.SetEnvironmentVariable("FAKE_MM_CALIBRATE", "all");
+            Environment.SetEnvironmentVariable("FAKE_MM_ARGS_LOG", argsLog);
+            var o = await SearchStage.RunAsync(Req(rig, "04_search"), CancellationToken.None);
+
+            Assert.That(o.Success, Is.True);
+            var runs = File.ReadAllLines(argsLog);
+            Assert.That(runs, Has.Length.EqualTo(2), "a calibration run, then the rest of the chain");
+            Assert.That(runs[0], Does.Contain("1_CalibrationTask.toml").And.Contain("a.raw").And.Not.Contain("b.raw").And.Not.Contain("GptmdTask"));
+            Assert.That(runs[1], Does.Contain("2_GptmdTask.toml").And.Contain("3_SearchTask.toml").And.Not.Contain("CalibrationTask.toml"));
+            Assert.That(runs[1], Does.Contain("a-calib.mzML").And.Contain("b-calib.mzML").And.Not.Contain("b.raw"));
+            string mm = Path.Combine(run, "04_search", "mm");
+            Assert.That(File.Exists(Path.Combine(mm, "Task1CalibrationTask", "b-calib.mzML")), Is.True, "the stand-in joined this search's calibrations");
+            Assert.That(File.Exists(Path.Combine(mm, "allResults.calibration.txt")), Is.True, "the calibration run's record is kept beside the chain's");
+            Assert.That(ManifestEntry.SearchTaskFolder(rig.Profile, run), Is.EqualTo("Task2SearchTask"));
+            Assert.That(CalibratedStandIns.In(rig.Spectra), Is.Empty);
+            Assert.That(File.Exists(Path.Combine(run, "04_search", "carried_calibrations", "b.calibration.json")), Is.True);
+            var prov = JsonNode.Parse(File.ReadAllText(o.ProvenanceFile))!;
+            Assert.That(prov["calibration_carried_over"]!["files"]![0]!["raw"]!.GetValue<string>(), Is.EqualTo("b.raw"));
+            Assert.That(prov["calibration_run"]!["files"]!.GetValue<int>(), Is.EqualTo(1));
+            Assert.That(prov["per_task_resources"]!.AsObject().Select(kv => kv.Key),
+                Is.EquivalentTo(new[] { "Task1CalibrationTask", "Task1GptmdTask", "Task2SearchTask" }), "both runs' tasks");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("FAKE_MM_CALIBRATE", null);
+            Environment.SetEnvironmentVariable("FAKE_MM_ARGS_LOG", null);
+        }
+    }
+
+    // A stand-in made under other settings is never searched: with its raw here the raw is calibrated in one run as before;
+    // with its raw gone nothing runs, and the batch fetches the raw.
+    [Test]
+    public async Task AStandInMadeUnderOtherSettingsIsIgnoredWhenItsRawIsHereAndRefusedWhenItIsGone()
+    {
+        var rig = Setup(library: false);
+        string run = Path.Combine(rig.Root, "run"), argsLog = Path.Combine(rig.Root, "args.log");
+        string cal = Directory.CreateDirectory(Path.Combine(rig.Spectra, CalibratedStandIns.Folder)).FullName;
+        File.WriteAllText(Path.Combine(cal, "b-calib.mzML"), "<indexedmzML/>");
+        File.WriteAllText(Path.Combine(cal, "b-calib.toml"), "");
+        File.WriteAllText(Path.Combine(cal, "b.calibration.json"),
+            """{"raw":"b.raw","mzml":"b-calib.mzML","toml":"b-calib.toml","identity":{"profile":"test-dda@0"},"from":"04_search.interrupted-x"}""");
+        Environment.SetEnvironmentVariable("FAKE_MM_ARGS_LOG", argsLog);
+        try
+        {
+            var o = await SearchStage.RunAsync(Req(rig, "04_search"), CancellationToken.None);
+            Assert.That(o.Success, Is.True);
+            Assert.That(File.ReadAllLines(argsLog), Has.Length.EqualTo(1), "one run, as with no stand-in");
+            Assert.That(File.ReadAllText(o.ProvenanceFile), Does.Contain("not used (made under other settings: "));
+
+            File.Delete(Path.Combine(rig.Spectra, "b.raw"));
+            var refused = Assert.ThrowsAsync<CalibrationNotCarriedException>(() => SearchStage.RunAsync(Req(rig, "04_search_2"), CancellationToken.None))!;
+            Assert.That(refused.RawNames, Is.EqualTo(new[] { "b.raw" }));
+            Assert.That(refused.Message, Does.Contain("calibration_task_sha256").And.Contain("profile"));
+            Assert.That(Directory.Exists(Path.Combine(run, "04_search_2", "mm")), Is.False, "MetaMorpheus never ran");
+            Assert.That(File.ReadAllLines(argsLog), Has.Length.EqualTo(1));
+        }
+        finally { Environment.SetEnvironmentVariable("FAKE_MM_ARGS_LOG", null); }
     }
 }

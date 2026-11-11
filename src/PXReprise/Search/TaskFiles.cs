@@ -4,7 +4,7 @@ using System.Text.RegularExpressions;
 namespace PXReprise.Search;
 
 /// <summary>A search cannot be set up as asked: the pinned MetaMorpheus does not have a setting, or a value is invalid.</summary>
-public sealed class SearchSetupException(string message) : Exception(message);
+public class SearchSetupException(string message) : Exception(message);
 
 /// <summary>The task kinds the engine drives, and the file name MetaMorpheus's <c>CMD -g</c> writes for each.</summary>
 public enum TaskKind { Calibration, Gptmd, Search }

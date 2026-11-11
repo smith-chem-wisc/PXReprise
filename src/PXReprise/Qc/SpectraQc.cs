@@ -112,13 +112,16 @@ public static class SpectraQc
             // v0.4.41: an SPS-MS3 file's reporters are judged in MS3 alone. Its ion-trap MS2 cannot carry them, and counting them halved
             // the share under the gate (PXD035577's Ref_735_fr_11: 0.178 of MS2 + MS3, 0.356 of MS3).
             if (spsMs3 == true) reporters = ms3Reporters;
-            if (reporters.Tag is { } family
+            // v0.4.45 (PXD027464, the user, 2026-11-11): below MinFraction the kit is still read, down to MinFractionBesideItsDeposit.
+            // Such a file fails alone; its deposit passes it when it shows the deposit's kit and channels (QcStage.PassThinFractions).
+            string? family = reporters.Tag ?? (reporters.Fraction >= IsobaricReporters.MinFractionBesideItsDeposit ? reporters.Family : null);
+            if (family is not null
                 && IsobaricReporters.Kit((spsMs3 == true ? ms3 : ms2).Where(s => s.MassSpectrum is { Size: > 0 }).Select(s => s.MassSpectrum), family) is { } k)
             {
                 kit = IsobaricReporters.ModificationId(k.Kit);
                 channels = k.Seen;
             }
-            else reasons.Add(NoReporters);
+            if (reporters.Tag is null || kit is null) reasons.Add(NoReporters);
             if (spsMs3 == true) reasons.Remove(LowResMs2);
         }
         return new QcFileResult(reasons.Count == 0, reasons, scans.Count, ms2.Count, Search.SearchMetrics.PyRound(frac, 4), pairs,

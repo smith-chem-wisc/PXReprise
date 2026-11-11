@@ -110,6 +110,35 @@ public class FetchStageTests
         Assert.That(prov, Does.Contain("sdrf_ftp_only: y_sdrf.tsv").And.Contain("PXR-S6"));
     }
 
+    // v0.4.45 (the user, 2026-11-11): a raw a calibrated stand-in replaces is not fetched again, and its manifest entry from the
+    // fetch of the interrupted search (what dataRepo builds the run from) is written again.
+    [Test]
+    public async Task ARawWithACalibratedStandInIsNotFetchedAgainAndKeepsItsManifestEntry()
+    {
+        string dir = TestSupport.TempDir();
+        var pride = new FlakyPride { Files = { F("a.raw", 10), F("b.raw", 20) }, Ftp = { "a.raw", "b.raw" } };
+        var earlier = new System.Text.Json.Nodes.JsonObject
+        {
+            ["file"] = "F:/run/02_fetch/spectra/b.raw", ["name"] = "b.raw", ["pride_size_bytes"] = 20, ["local_size_bytes"] = 20,
+            ["pride_checksum"] = "s1", ["sha256"] = "bb", ["category"] = "RAW",
+        };
+        var r = new FetchRequest("PXD028799", Path.Combine(dir, "02_fetch"), Pick.All, 60, 5000, ".raw", 2, 3, TimeSpan.Zero, TimeSpan.Zero, dir,
+            Calibrated: new Dictionary<string, System.Text.Json.Nodes.JsonObject> { ["b.raw"] = earlier });
+        var manifest = await FetchStage.RunAsync(r, pride, CancellationToken.None);
+
+        Assert.That(pride.Locations, Has.Count.EqualTo(1), "only a.raw is downloaded");
+        Assert.That(File.Exists(Path.Combine(dir, "02_fetch", "spectra", "b.raw")), Is.False);
+        Assert.That(manifest["files"]!.AsArray(), Has.Count.EqualTo(2), "the whole deposit is still the manifest's");
+        var b = manifest["files"]!.AsArray().Single(f => f!["name"]!.GetValue<string>() == "b.raw")!;
+        Assert.That((b["sha256"]!.GetValue<string>(), b["pride_checksum"]!.GetValue<string>(), b["calibrated_stand_in"]!.GetValue<bool>()), Is.EqualTo(("bb", "s1", true)));
+        string prov = File.ReadAllText(Path.Combine(dir, "02_fetch", "provenance.json"));
+        Assert.That(prov, Does.Contain("\"calibrated_stand_ins\"").And.Contain("not fetched again"));
+
+        // A raw that is on disk is checked as always, stand-in or not.
+        var again = await FetchStage.RunAsync(r with { OutDir = Path.Combine(dir, "02_fetch") }, pride, CancellationToken.None);
+        Assert.That(again["files"]!.AsArray().Single(f => f!["name"]!.GetValue<string>() == "a.raw")!["calibrated_stand_in"], Is.Null);
+    }
+
     // D28: a question's choice of runs is applied first, recorded, and is what "the whole deposit" means afterwards.
     [Test]
     public async Task AQuestionsFileSelectionIsFetchedAndRecorded()

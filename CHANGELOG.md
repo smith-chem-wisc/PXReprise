@@ -7,6 +7,87 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.45 (2026-11-11)
+
+**MetaMorpheus** unchanged. **Machine file:** no change needed. **Safe mid-batch?** Yes: swap the pin as usual. A probe worker
+takes the new release (`worker release`): it probes too, and the change is in the probe.
+
+- **A deposit's spectra decide its label when PRIDE names label-free beside a label** (PXD032900, 2026-11-10).
+  - PRIDE's quantification methods for PXD032900 are "Label free; TMT": a label-free and a TMT experiment in one deposit.
+    Aging split it by file name (`[splits.PXD032900] by = "label"`). A split group takes no label of its own, so both
+    groups read TMT from PRIDE's list and were routed to the TMT profile. The label-free group's probe files (KMS_1Y,
+    KMS_4Ag, KMS_6Ag) carry no reporter ions, so it was refused as `skipped_acquisition` (`no_isobaric_reporters`).
+  - Now, when PRIDE's words alone routed a deposit to the isobaric profile, those words name label-free too, and not one
+    probe file carries reporter ions, the deposit goes back to the profile it had. Its label is recorded as `label_free`
+    from `probe_spectra` (D34: spectra beat text), and the probe QC runs again under that profile, whose own routes
+    (ion-trap MS2, reporters after all) apply as for any deposit.
+  - A probe with reporters in some files and not others is refused as before: that is a mix, to be split. A deposit PRIDE
+    files as TMT alone is not second-guessed.
+  - The decision is kept in the state (`label_from_spectra`), so a restart before the search or a `batch retry` keeps it.
+    A worker's package carries it to the controller.
+- **A probe worker's pass gets this release's chemistry screen before its whole download** (PXD025746, 2026-11-11).
+  - A deposit the worker passes waits here for its whole download and search, and that wait can span a release. PXD025746
+    (mouse, one raw file) was passed on 11-09 under v0.4.43, the day before v0.4.44 made iodoTMT wait for its own profile.
+    A worker's pass got only this machine's duplicate screen, so it was downloaded and searched as ordinary TMT on every
+    lysine and peptide end. iodoTMT tags cysteines: 18 PSMs of 44,828 MS2. The failed search, made while it was adding
+    to a spectral library, also turned the library off for every later search of that driver.
+  - Now the pass is screened for its chemistry here too, as the deposit's own probe would be. A chemistry no profile of
+    this release searches (iodoTMT, SILAC, a chemistry park) waits as the screen makes it wait, before anything is
+    downloaded. Under the release that made the pass, the screen gives the pass's own answer again.
+- **The thin late fractions of an isobaric deposit pass with it** (PXD027464, PXD030407, 2026-11-11).
+  - Under an isobaric profile, QC refuses a file when fewer than 25% of its spectra carry reporter ions
+    (`no_isobaric_reporters`). The late fractions of a fractionated plex hold few peptides. PXD027464's F36 and F37 carry
+    reporters in 24% and 23% of their spectra, with all ten TMT10 channels. PXD030407's IMAC_21, 22 and 24 carry them in
+    20%, 8.6% and 15%, with the same twelve TMTpro channels as its other files. Both deposits were refused whole.
+  - Now QC reads a file's kit down to 5% of spectra with reporters. Such a file still fails on its own, but it passes with
+    its deposit when nothing else failed it, its kit is the deposit's (the kit of the files that pass), and it shows every
+    channel those files share. QC's `provenance.json` lists the files passed this way, with their shares
+    (`thin_fractions_passed`).
+  - Label-free runs carry no reporters: in three of them (25,000 to 41,000 MS2 each) the share was 0. The 5% floor keeps them
+    refused, and a file with a kit other than the deposit's, or missing a channel, stays refused too.
+  - A deposit refused this way before v0.4.45 does not reopen by itself: run `batch retry` on it.
+- **A raw file an interrupted search already calibrated is neither downloaded nor calibrated again** (PXD028799, 2026-11-11).
+  - Since v0.4.35 each raw file is deleted once MetaMorpheus has calibrated it. Windows Update restarted the machine
+    during PXD028799's search, after 34 of its 48 raws were calibrated and deleted. The next driver set that search aside
+    as interrupted, and its re-search would have downloaded all 34 again (about 14 GB) and calibrated every file afresh.
+  - MetaMorpheus calibrates each file from its own data alone, so a file calibrated in an earlier run is the file this run
+    would write (the user: "once a file is calibrated, we don't need to calibrate it again ... they can split").
+  - Now, before anything is downloaded, the finished calibrations of a search set aside as interrupted become calibrated
+    stand-ins in `02_fetch/spectra/calibrated/`, each with a record of the settings it was made under: profile, organism,
+    MetaMorpheus and its mzLib, databases, and the Calibration task file. Only complete files count (both files written, the
+    mzML closed). A failed search that someone retried is never used: a retry usually follows a change.
+  - The fetch skips a raw that has a stand-in and writes its earlier manifest entry again (SHA-256 included); full QC keeps
+    that raw's earlier verdict.
+  - The search then runs MetaMorpheus twice: Calibration on the raws still on disk, then the later tasks on every
+    calibrated file. Each run numbers its own task folders, so the search folder is `Task2SearchTask` under a
+    Calibration, GPTMD, Search profile and `Task1SearchTask` under TMT, and the manifest's `search_results` names the
+    folder on disk. `provenance.json` records `calibration_carried_over` and `calibration_run`, and the calibration run's
+    log is `metamorpheus.calibration.log`.
+  - A stand-in made under other settings is never searched. If its raw is still on disk, the raw is calibrated again. If
+    the raw is gone, the search does not start: the stand-in is discarded and the raw is fetched on a later pass.
+- **A search that fails while adding to a spectral library switches off that library only** (PXD025746, 2026-11-11).
+  - A failure while a search reads and extends a library may be the library's fault, so the batch stops using it until
+    someone looks (G46). It stopped using every library: after PXD025746 failed on the mouse TMT6 library, PXD027232
+    (human) and PXD034029 (mouse TMT11, 240 files) were searched without theirs.
+  - Now only the library chain that search read is off, for the rest of that driver; `batch.log` names it, and so does
+    the search's provenance when it skips one. As before, a timeout never switches a library off, and a new driver
+    starts with every library on.
+- **A raw file with no MS2 at all is set aside as a failed injection** (PXD023647, 2026-11-10).
+  - PXD023647 has 11 TMTpro files of about 800 MB and one of 1 MB, `..._90C_10B_12.raw`: a re-injection that recorded no
+    scans (the 90C sample's real run is `90C_10`). A blank or failed injection (`too_few_ms2`) may be excluded with a record,
+    but this file also failed every check that judges MS2: a 0.0 share of Orbitrap HCD, no reporter ions, no fragmentation
+    to read. So it did not count as a blank, and the whole deposit was refused (`skipped_acquisition_full`).
+  - Now a file that was read and holds no MS2 is judged on `too_few_ms2` alone, within the same limit (at most a tenth of the
+    files). A file that could not be read stays a decision for a person. The QC report still lists every check it failed.
+- **`pxreprise search` runs a profile that reads each deposit's chemistry** (aging PXR-A181, a MassIVE pilot, 2026-11-10).
+  - Every current profile reads the deposit's protease, cysteine chemistry and label (G19). The batch reads them from
+    PRIDE's record and the SDRFs; `pxreprise search` on local files had no way to give them, so it refused every such
+    profile ("none was given for this search"). A deposit PRIDE does not host could not be searched under the current
+    profile at all.
+  - Now `search` reads them from the SDRF given with `--design` (PXReprise writes every deposit's, D65). A fact the SDRF
+    does not state takes the default (trypsin, carbamidomethyl fixed, label-free). Each fact's source goes to provenance,
+    as in the batch. PRIDE is never asked.
+
 ## 0.4.44 (2026-11-10)
 
 **MetaMorpheus** unchanged. **Machine file:** no change needed. **Safe mid-batch?** Yes: swap the pin as usual. Payloads

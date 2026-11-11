@@ -33,6 +33,9 @@ public static class CleanupStage
         {
             targets.UnionWith(Directory.EnumerateFiles(spectra, "*.raw"));
             targets.UnionWith(Directory.EnumerateFiles(spectra, "*.raw.partial*"));
+            // v0.4.45: calibrated stand-ins the search did not use (a QC-excluded file's, one refused but whose raw was here).
+            string standIns = Path.Combine(spectra, Search.CalibratedStandIns.Folder);
+            if (Directory.Exists(standIns)) targets.UnionWith(Directory.EnumerateFiles(standIns));
         }
         string aside = Path.Combine(runDir, "02_fetch", BatchRunner.NotSelectedFolder);
         if (Directory.Exists(aside)) targets.UnionWith(Directory.EnumerateFiles(aside));
