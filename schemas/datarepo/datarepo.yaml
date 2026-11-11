@@ -18,7 +18,7 @@
 id: https://w3id.org/datarepo/core
 name: datarepo
 title: dataRepo core schema
-version: 0.0.16
+version: 0.0.17
 license: https://creativecommons.org/licenses/by/4.0/
 description: >-
   Generic core schema for an AI-ready repository of reanalyzed public proteomics datasets:
@@ -210,6 +210,19 @@ enums:
       target:
       decoy:
       contaminant:
+  ConfidenceRule:
+    description: >-
+      Which q-value a search's 1% rule reads, chosen ONCE PER SEARCH by mzLib's `QuantifiedPsmRule.ChooseTier`
+      over the search's target PSMs (D55, schema 0.0.17), never per row. Each value names the column it reads.
+    permissible_values:
+      pep_q_value:
+        description: >-
+          PEP was trained for the search (some target PSM's PEP q-value is in [0, 1], and its target PSMs' PEPs are not
+          all one value), so its PEP q-value is read, whatever that accepts.
+      q_value_notch:
+        description: PEP was not trained, and the search reports notch q-values; its notch q-value is read.
+      q_value:
+        description: Neither PEP nor a notch q-value is usable; the plain q-value is read.
   DetectionType:
     description: "How a quantity was obtained."
     permissible_values:
@@ -384,6 +397,7 @@ classes:
       pipeline_repo: {description: "Repository of the pipeline that produced it."}
       pipeline_commit: {description: "Git commit of the pipeline that produced it."}
       searches: {multivalued: true, description: "Search kinds run on this dataset: standard, gptmd, glyco_N, glyco_O, glyco_NO."}
+      confidence_rule: {range: ConfidenceRule, required: true, description: "Which q-value this search's 1% rule reads (D55, schema 0.0.17): `pep_q_value` when PEP was trained for the search, whatever that accepts; `q_value_notch` when it was not. Decided once for the whole search by mzLib's `QuantifiedPsmRule.ChooseTier` over its target PSMs, never per row: a search that trained no PEP still writes numbers in `PEP_QValue` (PXD058775). A row passes when that value is strictly below 0.01, as mzLib's `PassesConfidence` has it. `peptidoforms_1pct` follows it; `psms_1pct` and `protein_groups_1pct` keep their own q-value rules. A `confidence_rule_fallback` finding marks a search not on `pep_q_value`, and a `confidence_rule_fewer_peptides` finding one where this rule passes fewer target peptidoforms than the q-value rule used before."}
       first_release_id: {range: Release, description: "Release in which the dataset first appeared."}
       latest_release_id: {range: Release, description: "Most recent release that changed the dataset."}
 
@@ -522,6 +536,7 @@ classes:
       best_q_value: {range: float, minimum_value: 0, maximum_value: 1, description: "Lowest q-value among the supporting PSMs. For a multiplex (TMT, iTRAQ) search by MetaMorpheus up to 1.1.13 it is the best PSM's PSM-level q-value, not a peptide-level one, as that search's AllPeptides.psmtsv writes it (MetaMorpheus #2941, QuantProject 071), so `peptidoforms_1pct` is a PSM-level filter there; the bundle's `isobaric_peptide_q_psm_level` finding says so."}
       best_q_value_notch: {range: float, minimum_value: 0, maximum_value: 1, description: "Lowest notch q-value among the supporting PSMs. PSM-level for a multiplex search by MetaMorpheus up to 1.1.13, as `best_q_value` says."}
       best_pep: {range: float, minimum_value: 0, maximum_value: 1, description: "Lowest `pep` among the supporting PSMs. RUN-RELATIVE, like `Psm.pep`: rank or threshold within the dataset, never compare values across datasets or releases (definition pep:DEF-PEP)."}
+      best_pep_q_value: {range: float, minimum_value: 0, description: "Lowest PEP q-value (`PEP_QValue`) among the supporting rows, as AllPeptides.psmtsv writes it (schema 0.0.17). `peptidoforms_1pct` reads it when the dataset's `confidence_rule` is `pep_q_value`. It moves whenever PEP does, so a count at a threshold compares within one MetaMorpheus release only (pep 002). It can exceed 1 because MetaMorpheus writes it so: 2 is its value for a row it computed none for, and some searches write real values just above 1 (PXD020462). Read it only under a `pep_q_value` rule."}
       target_decoy: {range: TargetDecoy, required: true, description: "Target, decoy or contaminant. Decoy peptidoforms are kept so a caller can recompute FDR."}
       n_psms: {range: integer, description: "Number of PSMs supporting this row."}
       protein_group_id: {range: ProteinGroup, description: "Protein group the peptidoform was assigned to."}

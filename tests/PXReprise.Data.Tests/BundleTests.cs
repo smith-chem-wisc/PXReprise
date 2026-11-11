@@ -181,8 +181,10 @@ public class BundleTests
         var store = Path.Combine(Path.GetTempPath(), "datarepo-store-" + Guid.NewGuid().ToString("N"));
         try
         {
-            // A real, complete dataset row: the one Python wrote for the fixture.
+            // A real, complete dataset row: the one Python wrote for the fixture, with schema 0.0.17's required
+            // confidence_rule, which Python never wrote.
             var (_, datasetRows) = ArrowTables.ReadParquet(Path.Combine(FixtureBundle, "datasets.parquet"));
+            foreach (var row in datasetRows) row["confidence_rule"] = "pep_q_value";
             var writer = new BundleWriter(store, "PXD999999");
             writer.AddDeclaration("manifest_entry", new Dictionary<string, object?> { ["accession"] = "PXD999999" });
             writer.Add("datasets", datasetRows);

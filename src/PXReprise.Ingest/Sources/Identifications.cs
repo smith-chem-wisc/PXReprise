@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using PXReprise.Bundle;
+using Quantification;
 
 namespace PXReprise.Ingest.Sources;
 
@@ -364,9 +365,11 @@ public static class Identifications
     /// <param name="proteinGroups">The group ids that exist in this bundle. A peptidoform is linked to a group only
     /// when its accession set IS one of them: grouping is the producer's parsimony result, and a link invented
     /// here would dangle.</param>
+    /// <param name="pepQValue">Write <c>best_pep_q_value</c> (schema 0.0.17), the lowest <c>PEP_QValue</c> as written; a
+    /// parity ingest of Python 0.32.0's schema has no such column.</param>
     public static List<Row> PeptidoformRows(
         IReadOnlyDictionary<string, List<object?>> columns, string datasetId, ProformaCache proforma,
-        IReadOnlyDictionary<string, long> psmCounts, IReadOnlySet<string>? proteinGroups = null)
+        IReadOnlyDictionary<string, long> psmCounts, IReadOnlySet<string>? proteinGroups = null, bool pepQValue = false)
     {
         var n = Length(columns, "full_sequence");
         var full = columns.TryGetValue("full_sequence", out var f) ? f : [];
@@ -374,6 +377,7 @@ public static class Identifications
         var qs = Get(columns, "q_value", n);
         var qNotches = Get(columns, "q_value_notch", n);
         var peps = Get(columns, "pep", n);
+        var pepQs = Get(columns, "pep_q_value", n);
         var statuses = Get(columns, "decoy_contam_target", n);
         var output = new Dictionary<string, Row>(StringComparer.Ordinal);
         for (var i = 0; i < n; i++)
@@ -386,10 +390,11 @@ public static class Identifications
             var q = Float(qs[i]);
             var qNotch = Float(qNotches[i]);
             var pep = Float(peps[i]);
+            var pepQ = Float(pepQs[i]);
             var status = TargetDecoy(statuses[i]);
             if (!output.TryGetValue(pid, out var row))
             {
-                output[pid] = new Row
+                row = output[pid] = new Row
                 {
                     ["peptidoform_id"] = pid,
                     ["dataset_id"] = datasetId,
@@ -406,6 +411,7 @@ public static class Identifications
                     ["is_isoform_specific"] = null,
                     ["engine_full_sequences"] = new List<object?> { engine },
                 };
+                if (pepQValue) row["best_pep_q_value"] = pepQ;
                 continue;
             }
             // Kept as a set, not a pick: two engine names that resolve to one UNIMOD accession make one
@@ -416,6 +422,8 @@ public static class Identifications
             if (q is not null && (row["best_q_value"] is null || q < (double)row["best_q_value"]!)) row["best_q_value"] = q;
             if (qNotch is not null && (row["best_q_value_notch"] is null || qNotch < (double)row["best_q_value_notch"]!)) row["best_q_value_notch"] = qNotch;
             if (pep is not null && (row["best_pep"] is null || pep < (double)row["best_pep"]!)) row["best_pep"] = pep;
+            if (pepQValue && pepQ is not null && (row["best_pep_q_value"] is null || pepQ < (double)row["best_pep_q_value"]!))
+                row["best_pep_q_value"] = pepQ;
             if (Equals(row["target_decoy"], "decoy") || status == "target")
                 row["target_decoy"] = status == "target" ? status : row["target_decoy"];
         }
@@ -673,6 +681,69 @@ public static class Identifications
         if (groups is null) return candidate;
         return groups.Contains(candidate) ? candidate : null;
     }
+
+    /// <summary>A search's confidence rule (D55; schema 0.0.17's <c>datasets.confidence_rule</c>) and what decided it.</summary>
+    /// <param name="Tier">mzLib's tier for the whole search.</param>
+    /// <param name="TargetPsms">How many target PSMs it was decided from.</param>
+    /// <param name="PepQValueInRange">Whether any target PSM's PEP q-value is in [0, 1].</param>
+    /// <param name="NotchQValueInRange">Whether any target PSM's notch q-value is in [0, 1].</param>
+    /// <param name="SolePep">The one PEP every target PSM carries, when they carry one value only (PEP not trained);
+    /// otherwise null.</param>
+    public sealed record ConfidenceChoice(QuantifiedPsmTier Tier, long TargetPsms, bool PepQValueInRange, bool NotchQValueInRange, double? SolePep)
+    {
+        /// <summary>The <c>ConfidenceRule</c> value: the column the rule reads.</summary>
+        public string Rule => RuleName(Tier);
+    }
+
+    /// <summary>The schema's <c>ConfidenceRule</c> value for an mzLib tier: the name of the column it reads.</summary>
+    public static string RuleName(QuantifiedPsmTier tier) => tier switch
+    {
+        QuantifiedPsmTier.PepQValue => "pep_q_value",
+        QuantifiedPsmTier.QValueNotch => "q_value_notch",
+        _ => "q_value",
+    };
+
+    /// <summary>Which q-value the search's 1% rule reads, decided once for the whole search by mzLib's
+    /// <see cref="QuantifiedPsmRule.ChooseTier"/> over its target PSMs (D55, the user 2026-11-11).</summary>
+    /// <remarks>
+    /// <para>Target PSMs only, PEPs included, as ptmQtl's S7 decides it (<c>PtmQtlBundle.Tiers</c>), so the two can never
+    /// put one search on different rules. mzLib's own comment asks for every match's PEP, decoys included; on every
+    /// served deposit the two give the same tier (<c>results/confidence_rule_2026-11-11/tier_targets_vs_all.py</c>).</para>
+    /// <para>The values are reduced to what the rule reads before it is called, as S7 does: whether any PEP q-value or
+    /// notch q-value is a probability, and up to two distinct finite PEPs. A row's own PEP q-value never decides:
+    /// PXD058775 trained no PEP and still wrote 229 target rows at or below 1% in <c>PEP_QValue</c>.</para>
+    /// </remarks>
+    public static ConfidenceChoice ChooseConfidence(IEnumerable<IReadOnlyDictionary<string, object?>> psmRows)
+    {
+        long targets = 0;
+        bool pepQ = false, notch = false;
+        var peps = new List<double>(2);
+        foreach (var row in psmRows)
+        {
+            if (!Equals(row.GetValueOrDefault("target_decoy"), "target")) continue;
+            targets++;
+            pepQ |= row.GetValueOrDefault("pep_q_value") is double p && p >= 0 && p <= 1;
+            notch |= row.GetValueOrDefault("q_value_notch") is double q && q >= 0 && q <= 1;
+            if (peps.Count < 2 && row.GetValueOrDefault("pep") is double pep && double.IsFinite(pep) && !peps.Contains(pep))
+                peps.Add(pep);
+        }
+        var tier = QuantifiedPsmRule.ChooseTier(pepQ ? [0.0] : [], notch ? [0.0] : [], peps);
+        return new ConfidenceChoice(tier, targets, pepQ, notch, peps.Count == 1 ? peps[0] : null);
+    }
+
+    /// <summary>Whether a peptidoform row passes <paramref name="tier"/> at 1%: the value it names is strictly below
+    /// 0.01, as mzLib's <see cref="QuantifiedPsmRule.PassesConfidence"/> has it. A row with no value for it fails.</summary>
+    public static bool PassesConfidence(QuantifiedPsmTier tier, IReadOnlyDictionary<string, object?> peptidoform) =>
+        QuantifiedPsmRule.PassesConfidence(tier,
+            peptidoform.GetValueOrDefault("best_q_value") as double? ?? double.NaN,
+            peptidoform.GetValueOrDefault("best_q_value_notch") as double?,
+            peptidoform.GetValueOrDefault("best_pep_q_value") as double?);
+
+    /// <summary>Whether a peptidoform row passes the q-value rule <c>peptidoforms_1pct</c> held up to datarepo 1.4.5:
+    /// <c>best_q_value</c> at or below 0.01, and <c>best_q_value_notch</c> too where there is one.</summary>
+    public static bool PassesQValueRule(IReadOnlyDictionary<string, object?> peptidoform) =>
+        peptidoform.GetValueOrDefault("best_q_value") is double q && q <= ProducerThreshold
+        && (peptidoform.GetValueOrDefault("best_q_value_notch") is not double notch || notch <= ProducerThreshold);
 
     /// <summary>How many PSMs support each peptidoform, for <c>Peptidoform.n_psms</c>.</summary>
     public static Dictionary<string, long> PsmCountsByPeptidoform(IEnumerable<IReadOnlyDictionary<string, object?>> rows)

@@ -36,8 +36,11 @@ public sealed class BundleWriter(string store, string datasetId, string? ingestP
     /// 0.0.16: assay kinds, sequence_window, and PXR-R23's pooled assays for a design sample of several files;
     /// DATAREPO-84, a target entry of another source than UniProt says so in source_db; DATAREPO-D7, a
     /// localization-ambiguous peptide row is left out with a finding, never stored under its first full sequence.
+    /// cs-1.3.0 (1.5.0, one re-ingest; <c>design/RELEASE_1.5.0.md</c>'s build list): mzLib 1.0.597, which moves
+    /// peptidoform keys (#1416, #1524); schema 0.0.17: each search's confidence rule (D55) in
+    /// <c>datasets.confidence_rule</c>, <c>peptidoforms.best_pep_q_value</c>, and two findings on the rule.
     /// </remarks>
-    public const string IngesterVersion = "cs-1.2.0";
+    public const string IngesterVersion = "cs-1.3.0";
 
     /// <summary>QPX release the column names are written against (D4). Provisional (G13).</summary>
     public const string QpxVersion = "unpinned";
