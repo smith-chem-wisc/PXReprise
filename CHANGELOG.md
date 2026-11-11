@@ -34,6 +34,37 @@ takes the new release (`worker release`): it probes too, and the change is in th
   - Now the pass is screened for its chemistry here too, as the deposit's own probe would be. A chemistry no profile of
     this release searches (iodoTMT, SILAC, a chemistry park) waits as the screen makes it wait, before anything is
     downloaded. Under the release that made the pass, the screen gives the pass's own answer again.
+- **The thin late fractions of an isobaric deposit pass with it** (PXD027464, PXD030407, 2026-11-11).
+  - Under an isobaric profile, QC refuses a file when fewer than 25% of its spectra carry reporter ions
+    (`no_isobaric_reporters`). The late fractions of a fractionated plex hold few peptides. PXD027464's F36 and F37 carry
+    reporters in 24% and 23% of their spectra, with all ten TMT10 channels. PXD030407's IMAC_21, 22 and 24 carry them in
+    20%, 8.6% and 15%, with the same twelve TMTpro channels as its other files. Both deposits were refused whole.
+  - Now QC reads a file's kit down to 5% of spectra with reporters. Such a file still fails on its own, but it passes with
+    its deposit when nothing else failed it, its kit is the deposit's (the kit of the files that pass), and it shows every
+    channel those files share. QC's `provenance.json` lists the files passed this way, with their shares
+    (`thin_fractions_passed`).
+  - Label-free runs carry no reporters: in three of them (25,000 to 41,000 MS2 each) the share was 0. The 5% floor keeps them
+    refused, and a file with a kit other than the deposit's, or missing a channel, stays refused too.
+  - A deposit refused this way before v0.4.45 does not reopen by itself: run `batch retry` on it.
+- **A raw file an interrupted search already calibrated is neither downloaded nor calibrated again** (PXD028799, 2026-11-11).
+  - Since v0.4.35 each raw file is deleted once MetaMorpheus has calibrated it. Windows Update restarted the machine
+    during PXD028799's search, after 34 of its 48 raws were calibrated and deleted. The next driver set that search aside
+    as interrupted, and its re-search would have downloaded all 34 again (about 14 GB) and calibrated every file afresh.
+  - MetaMorpheus calibrates each file from its own data alone, so a file calibrated in an earlier run is the file this run
+    would write (the user: "once a file is calibrated, we don't need to calibrate it again ... they can split").
+  - Now, before anything is downloaded, the finished calibrations of a search set aside as interrupted become calibrated
+    stand-ins in `02_fetch/spectra/calibrated/`, each with a record of the settings it was made under: profile, organism,
+    MetaMorpheus and its mzLib, databases, and the Calibration task file. Only complete files count (both files written, the
+    mzML closed). A failed search that someone retried is never used: a retry usually follows a change.
+  - The fetch skips a raw that has a stand-in and writes its earlier manifest entry again (SHA-256 included); full QC keeps
+    that raw's earlier verdict.
+  - The search then runs MetaMorpheus twice: Calibration on the raws still on disk, then the later tasks on every
+    calibrated file. Each run numbers its own task folders, so the search folder is `Task2SearchTask` under a
+    Calibration, GPTMD, Search profile and `Task1SearchTask` under TMT, and the manifest's `search_results` names the
+    folder on disk. `provenance.json` records `calibration_carried_over` and `calibration_run`, and the calibration run's
+    log is `metamorpheus.calibration.log`.
+  - A stand-in made under other settings is never searched. If its raw is still on disk, the raw is calibrated again. If
+    the raw is gone, the search does not start: the stand-in is discarded and the raw is fetched on a later pass.
 - **A search that fails while adding to a spectral library switches off that library only** (PXD025746, 2026-11-11).
   - A failure while a search reads and extends a library may be the library's fault, so the batch stops using it until
     someone looks (G46). It stopped using every library: after PXD025746 failed on the mouse TMT6 library, PXD027232

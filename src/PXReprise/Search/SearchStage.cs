@@ -144,11 +144,18 @@ public static class SearchStage
         string qcReport = Path.Combine(r.QcDir, "qc_report.json");
         if (!File.Exists(qcReport)) throw new UsageException($"no QC report at {qcReport}: run `pxreprise qc` first");
         var qc = JsonNode.Parse(File.ReadAllText(qcReport))!.AsObject();
-        var files = Directory.EnumerateFiles(r.SpectraDir, "*.raw").OrderBy(f => Path.GetFileName(f), StringComparer.Ordinal).ToList();
+        // v0.4.45 (the user, 2026-11-11): a raw whose calibration an interrupted search finished is searched from that
+        // calibration (CalibratedStandIns), whether or not the raw is still here. `files` holds every searched raw's path (a
+        // stand-in's raw may be gone); `toCalibrate` the ones MetaMorpheus calibrates in this search.
+        var standIns = CalibratedStandIns.In(r.SpectraDir).ToDictionary(s => s.RawName, StringComparer.Ordinal);
+        var files = Directory.EnumerateFiles(r.SpectraDir, "*.raw").Select(f => Path.GetFileName(f)).Concat(standIns.Keys)
+            .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).Select(n => Path.Combine(r.SpectraDir, n)).ToList();
         var missing = r.ExcludeFiles.Where(x => files.All(f => Path.GetFileName(f) != x)).ToList();
         if (missing.Count > 0) throw new UsageException($"--exclude names {string.Join(", ", missing)}, which are not in {r.SpectraDir}");
         files = files.Where(f => !r.ExcludeFiles.Contains(Path.GetFileName(f))).ToList();
         if (files.Count == 0) throw new UsageException("every file is excluded");
+        foreach (string x in r.ExcludeFiles) standIns.Remove(x);
+        var toCalibrate = files.Where(f => !standIns.ContainsKey(Path.GetFileName(f))).ToList();
         var failed = files.Where(f => qc[Path.GetFileName(f)]?["pass"]?.GetValue<bool>() != true).Select(Path.GetFileName).ToList();
         if (failed.Count > 0) throw new SearchSetupException($"QC failed or is missing for {string.Join(", ", failed)}");
         // v0.4.34 (PLAN_tmt-dda-2 stage 5): an isobaric search's kit is the one QC read from every searched file's spectra
@@ -372,6 +379,25 @@ public static class SearchStage
             tomls.Add(dst);
         }
         foreach (string t in tomls) prov.Input(t);
+        // v0.4.45: a stand-in is used only by a search that calibrates first, as it was calibrated. One whose raw is still here
+        // is calibrated again instead; one whose raw is gone refuses the search, and the batch fetches that raw.
+        if (standIns.Count > 0)
+        {
+            string? refusal = p.Tasks.FirstOrDefault() != "Calibration" ? $"{p.Key} does not calibrate first"
+                : chem?.ProteasePerFile is not null ? "this search names a protease per file, which calibration reads from each raw's own settings file"
+                : null;
+            var now = CalibratedStandIns.Identity(JsonNode.Parse(File.ReadAllText(paramsFile))!, File.ReadAllText(tomls[0]));
+            var unusable = refusal is not null ? standIns.Values.ToList() : standIns.Values.Where(s => !CalibratedStandIns.Same(s.Identity, now)).ToList();
+            if (unusable.Count > 0)
+            {
+                refusal ??= "made under other settings: " + string.Join(", ", unusable.SelectMany(s => CalibratedStandIns.Differences(s.Identity, now)).Distinct().Order(StringComparer.Ordinal));
+                var gone = unusable.Where(s => !File.Exists(Path.Combine(r.SpectraDir, s.RawName))).Select(s => s.RawName).Order(StringComparer.Ordinal).ToList();
+                if (gone.Count > 0) throw new CalibrationNotCarriedException(gone, refusal);
+                foreach (var s in unusable) standIns.Remove(s.RawName);
+                toCalibrate = files.Where(f => !standIns.ContainsKey(Path.GetFileName(f))).ToList();
+                prov.Note($"{unusable.Count} calibrated stand-in(s) not used ({refusal}); their raws are here and are calibrated in this search");
+            }
+        }
         if (p.MetaMorpheusSettings is { } mmSettings)
         {
             if (mmSettings.FirstOrDefault(s => !mmApplied.Contains(s)) is { } unapplied)
@@ -416,44 +442,80 @@ public static class SearchStage
             prov.Note($"spectral library in use: {libIn} ({lib.Organism}, parent version {lib.ParentVersion})");
         }
         prov.Input(qcReport);
-        foreach (string f in files) prov.Input(f);
+        foreach (string f in toCalibrate) prov.Input(f);   // a stand-in is recorded where it is searched (JoinCalibrations)
         foreach (string d in dbs) prov.Input(d);
-        var args = new List<string> { "-t" };
-        args.AddRange(tomls);
-        args.Add("-s"); args.AddRange(files);
-        args.Add("-d"); args.AddRange(dbs);
-        args.AddRange(new[] { "-o", Path.Combine(outDir, "mm"), "--mmsettings", settingsDir, "-v", "normal" });
-        if (m.AcceptThermoLicence)
+        string mmDir = Path.Combine(outDir, "mm");
+        List<string> Args(IEnumerable<string> taskFiles, IEnumerable<string> spectra)
         {
-            args.Add("--acceptThermoLicence");
-            prov.Note("Thermo RawFileReader licence accepted via the machine configuration (operator's recorded choice).");
+            var a = new List<string> { "-t" };
+            a.AddRange(taskFiles);
+            a.Add("-s"); a.AddRange(spectra);
+            a.Add("-d"); a.AddRange(dbs);
+            a.AddRange(new[] { "-o", mmDir, "--mmsettings", settingsDir, "-v", "normal" });
+            if (m.AcceptThermoLicence) a.Add("--acceptThermoLicence");
+            return a;
         }
-        prov.Command(runner.Launch.Concat(args));
+        if (m.AcceptThermoLicence) prov.Note("Thermo RawFileReader licence accepted via the machine configuration (operator's recorded choice).");
         // v0.4.35 (the user, 2026-11-02): each raw is deleted once its calibration is finished, while the search runs.
         bool sweep = m.DeleteRawAfterCalibration && p.Tasks.Contains("Calibration");
         var calibratedGone = new List<string>();
-        using var stopSweep = new CancellationTokenSource();
-        var watch = sweep
-            ? CalibratedRaws.WatchAsync(Path.Combine(outDir, "mm"), files, calibratedGone, TimeSpan.FromMinutes(1), stopSweep.Token)
-            : Task.CompletedTask;
-        RunResult run;
-        try
+        async Task<RunResult> RunMetaMorpheus(List<string> a, string logName, IReadOnlyList<string> sweepFiles)
         {
-            run = await runner.RunAsync(args, Path.Combine(outDir, "metamorpheus.log"), TimeSpan.FromHours(m.SearchTimeoutHours), ct,
-                TimeSpan.FromMinutes(m.SearchStallMinutes)).ConfigureAwait(false);
+            prov.Command(runner.Launch.Concat(a));
+            using var stopSweep = new CancellationTokenSource();
+            var watch = sweep && sweepFiles.Count > 0
+                ? CalibratedRaws.WatchAsync(mmDir, sweepFiles, calibratedGone, TimeSpan.FromMinutes(1), stopSweep.Token)
+                : Task.CompletedTask;
+            try
+            {
+                return await runner.RunAsync(a, Path.Combine(outDir, logName), TimeSpan.FromHours(m.SearchTimeoutHours), ct,
+                    TimeSpan.FromMinutes(m.SearchStallMinutes)).ConfigureAwait(false);
+            }
+            finally
+            {
+                stopSweep.Cancel();
+                await watch.ConfigureAwait(false);
+            }
         }
-        finally
+        RunResult run;
+        RunResult? calibrationRun = null;
+        if (standIns.Count == 0)
+            run = await RunMetaMorpheus(Args(tomls, files), "metamorpheus.log", files).ConfigureAwait(false);
+        else
         {
-            stopSweep.Cancel();
-            await watch.ConfigureAwait(false);
+            // v0.4.45: two runs. Calibration of the raws here, then every task after Calibration on all the calibrated files,
+            // the stand-ins with them. MetaMorpheus numbers each run's task folders from 1 (the second run writes
+            // Task1GptmdTask, Task2SearchTask); the manifest names the search folder on disk.
+            if (toCalibrate.Count > 0)
+            {
+                calibrationRun = await RunMetaMorpheus(Args(tomls.Take(1), toCalibrate), CalibrationLogName, toCalibrate).ConfigureAwait(false);
+                string all = Path.Combine(mmDir, "allResults.txt");
+                if (File.Exists(all)) File.Move(all, Path.Combine(mmDir, "allResults.calibration.txt"), overwrite: true);
+            }
+            if (calibrationRun is { } c && (c.ExitCode != 0 || c.TimedOut))
+            {
+                run = c;
+                prov.Note($"the calibration of the {toCalibrate.Count} raw file(s) here failed (exit {c.ExitCode}{(c.TimedOut ? ", killed" : "")}); the {standIns.Count} calibrated stand-in(s) were not used and stay in 02_fetch/spectra/{CalibratedStandIns.Folder}");
+            }
+            else
+            {
+                var chain = JoinCalibrations(mmDir, outDir, r.SpectraDir, files, standIns.Values.ToList(), prov);
+                run = await RunMetaMorpheus(Args(tomls.Skip(1), chain), "metamorpheus.log", Array.Empty<string>()).ConfigureAwait(false);
+            }
         }
         if (sweep)
         {
-            try { calibratedGone.AddRange(CalibratedRaws.Sweep(Path.Combine(outDir, "mm"), files)); }
+            try { calibratedGone.AddRange(CalibratedRaws.Sweep(mmDir, toCalibrate)); }
             catch (IOException) { }
             prov.Set("raw_deleted_after_calibration", (JsonNode)new JsonArray(calibratedGone.Select(f => (JsonNode?)Path.GetFileName(f)).ToArray()));
-            prov.Note($"{calibratedGone.Count} of {files.Count} raw files were deleted once MetaMorpheus had calibrated them (machine delete_raw_after_calibration; the user, 2026-11-02); the later tasks read the -calib.mzML. A re-search fetches them again.");
+            prov.Note($"{calibratedGone.Count} of {toCalibrate.Count} raw files calibrated in this search were deleted once MetaMorpheus had calibrated them (machine delete_raw_after_calibration; the user, 2026-11-02); the later tasks read the -calib.mzML. An interrupted search keeps them as calibrated stand-ins (v0.4.45).");
         }
+        if (calibrationRun is { } cal)
+            prov.Set("calibration_run", new JsonObject
+            {
+                ["files"] = toCalibrate.Count, ["exit_code"] = cal.ExitCode, ["timed_out"] = cal.TimedOut,
+                ["wall_seconds"] = Math.Round(cal.WallSeconds, 1), ["cpu_seconds"] = Math.Round(cal.CpuSeconds, 1), ["log"] = CalibrationLogName,
+            });
         prov.Set("exit_code", (JsonNode)run.ExitCode);
         if (run.Stalled)
         {
@@ -465,10 +527,13 @@ public static class SearchStage
             prov.Set("timed_out_after_s", (JsonNode)(int)(m.SearchTimeoutHours * 3600));
             prov.Note($"KILLED: the search exceeded the machine's ceiling ({m.SearchTimeoutHours} h, search_timeout_h) and the process tree was terminated. Partial outputs are NOT a completed search.");
         }
-        var starts = run.Marks.Where(x => x.Event == "start").GroupBy(x => x.Task).ToDictionary(g => g.Key, g => g.First().Seconds);
         var perTask = new JsonObject();
-        foreach (var e in run.Marks.Where(x => x.Event == "end" && starts.ContainsKey(x.Task)))
-            perTask[e.Task] = new JsonObject { ["wall_seconds"] = Math.Round(e.Seconds - starts[e.Task], 1) };
+        foreach (var rr in new[] { calibrationRun, run }.OfType<RunResult>().Distinct())
+        {
+            var starts = rr.Marks.Where(x => x.Event == "start").GroupBy(x => x.Task).ToDictionary(g => g.Key, g => g.First().Seconds);
+            foreach (var e in rr.Marks.Where(x => x.Event == "end" && starts.ContainsKey(x.Task)))
+                perTask[e.Task] = new JsonObject { ["wall_seconds"] = Math.Round(e.Seconds - starts[e.Task], 1) };
+        }
         prov.Set("per_task_resources", perTask);
 
         // 3. success checks
@@ -480,7 +545,9 @@ public static class SearchStage
             : new[] { "AllPSMs.psmtsv", "AllPeptides.psmtsv", "ProteinGroupQuantification.tsv", "PeptideQuantification.tsv" };
         var key = keyNames.ToDictionary(n => n, n => sd is not null && File.Exists(Path.Combine(sd, n)) ? Path.Combine(sd, n) : null);
         bool ok = run.ExitCode == 0 && key.Values.All(v => v is not null);
-        string log = File.ReadAllText(Path.Combine(outDir, "metamorpheus.log"));
+        // v0.4.45: a search with calibrated stand-ins logs its calibration run apart; MetaMorpheus's warnings count in both.
+        var logFiles = new[] { CalibrationLogName, "metamorpheus.log" }.Select(n => Path.Combine(outDir, n)).Where(File.Exists).ToList();
+        string log = string.Concat(logFiles.Select(File.ReadAllText));
         bool hasDesign = File.Exists(Path.Combine(r.SpectraDir, "ExperimentalDesign.tsv"));
         var skipped = log.Split('\n').Where(l => l.Contains(SkipQuantSuffix)).Select(l => l.Split('\t', 2)[^1].Trim()).ToList();
         if (skipped.Count > 0 && hasDesign)
@@ -558,8 +625,8 @@ public static class SearchStage
         // the first one found recorded the contaminant file and never the proteome the search actually used.
         foreach (string gptmd in Directory.Exists(mm) ? Directory.EnumerateFiles(mm, "*GPTMD.xml", SearchOption.AllDirectories).Order(StringComparer.Ordinal) : Enumerable.Empty<string>())
             prov.Output(gptmd);
-        prov.Output(Path.Combine(outDir, "metamorpheus.log"));
-        if (File.Exists(Path.Combine(mm, "allResults.txt"))) prov.Output(Path.Combine(mm, "allResults.txt"));
+        foreach (string l in logFiles) prov.Output(l);
+        foreach (string a in new[] { "allResults.calibration.txt", "allResults.txt" }.Select(n => Path.Combine(mm, n)).Where(File.Exists)) prov.Output(a);
 
         // 4. derived measurements and automatic flags (they never fail the stage by themselves)
         var flags = new List<string>();
@@ -885,6 +952,90 @@ public static class SearchStage
             ["artifacts"] = new JsonArray(c.ArtifactsRead.Select(a => (JsonNode?)new JsonObject { ["kind"] = a.Kind, ["evidence"] = a.Evidence }).ToArray()),
             ["guessed"] = c.AnyGuessed,
         };
+    }
+
+    /// <summary>v0.4.45: the log of a search's own calibration run, when calibrated stand-ins split the search in two.</summary>
+    public const string CalibrationLogName = "metamorpheus.calibration.log";
+
+    /// <summary>
+    /// v0.4.45: moves the calibrated stand-ins into this search's Calibration folder beside the files MetaMorpheus calibrated
+    /// here (their records into <c>carried_calibrations/</c>), writes the designs the tasks after Calibration read, and returns
+    /// the files those tasks search: each raw's <c>-calib.mzML</c>, or the raw itself when Calibration could not calibrate
+    /// it (as one run passes it on), the calibrated ones first, since MetaMorpheus reads a design from beside the first file.
+    /// </summary>
+    internal static List<string> JoinCalibrations(string mmDir, string outDir, string spectraDir, IReadOnlyList<string> files,
+        IReadOnlyList<CalibratedStandIns.StandIn> standIns, AgingProvenance prov)
+    {
+        string calDir = (Directory.Exists(mmDir) ? Directory.EnumerateDirectories(mmDir, "Task*CalibrationTask").Order(StringComparer.Ordinal).FirstOrDefault() : null)
+                        ?? Path.Combine(mmDir, "Task1CalibrationTask");
+        Directory.CreateDirectory(calDir);
+        string records = Path.Combine(outDir, "carried_calibrations");
+        Directory.CreateDirectory(records);
+        foreach (var s in standIns.OrderBy(s => s.RawName, StringComparer.Ordinal))
+        {
+            string mzml = Path.Combine(calDir, Path.GetFileName(s.Mzml)), toml = Path.Combine(calDir, Path.GetFileName(s.Toml));
+            File.Move(s.Mzml, mzml);
+            File.Move(s.Toml, toml);
+            prov.Input(mzml);
+            prov.Input(toml);
+            string rec = Path.Combine(spectraDir, CalibratedStandIns.Folder, Path.GetFileNameWithoutExtension(s.RawName) + CalibratedStandIns.RecordSuffix);
+            if (File.Exists(rec)) File.Move(rec, Path.Combine(records, Path.GetFileName(rec)), overwrite: true);
+        }
+        var calibrated = new List<string>();
+        var asIs = new List<string>();
+        var byStem = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (string f in files)
+        {
+            string stem = Path.GetFileNameWithoutExtension(f);
+            string c = Path.Combine(calDir, stem + CalibratedStandIns.CalibSuffix + ".mzML");
+            if (File.Exists(c)) calibrated.Add(byStem[stem] = c);
+            else if (File.Exists(f)) asIs.Add(byStem[stem] = f);
+            else throw new SearchSetupException($"{Path.GetFileName(f)}: neither its calibration nor its raw file is on disk");
+        }
+        WriteChainDesigns(spectraDir, calDir, byStem);
+        prov.Set("calibration_carried_over", new JsonObject
+        {
+            ["files"] = new JsonArray(standIns.OrderBy(s => s.RawName, StringComparer.Ordinal).Select(s => (JsonNode?)new JsonObject
+                { ["raw"] = s.RawName, ["mzml"] = Path.GetFileName(s.Mzml), ["from"] = s.From }).ToArray()),
+            ["calibrated_in_this_search"] = files.Count - standIns.Count,
+            ["searched_uncalibrated"] = new JsonArray(asIs.Select(f => (JsonNode?)Path.GetFileName(f)).ToArray()),
+            ["rule"] = "the user, 2026-11-11: a file once calibrated is not calibrated again, and a deposit's files may be calibrated in separate runs",
+        });
+        prov.Note($"{standIns.Count} of {files.Count} file(s) are searched from the calibration an interrupted search made under the same settings "
+                  + $"({string.Join(", ", standIns.Select(s => s.From).Distinct().Order(StringComparer.Ordinal))}); MetaMorpheus calibrated the other {files.Count - standIns.Count} "
+                  + "in this search, then ran the tasks after Calibration on all of them (v0.4.45)");
+        return calibrated.Concat(asIs).ToList();
+    }
+
+    /// <summary>
+    /// v0.4.45: the spectra folder's <c>ExperimentalDesign.tsv</c> and <c>TmtDesign.txt</c>, rewritten into the Calibration folder
+    /// for the files the later tasks search. MetaMorpheus 1.1.14's Calibration does this itself, but only for the files of its
+    /// own run. ExperimentalDesign.tsv names a file by its name with extension (MetaMorpheus matches <c>Path.GetFileName</c>);
+    /// TmtDesign.txt by its full path, which MetaMorpheus reads as it is (a bare name is read against the design's folder,
+    /// and a raw Calibration could not calibrate stays in the spectra folder). A design the spectra folder lacks is removed.
+    /// </summary>
+    internal static void WriteChainDesigns(string spectraDir, string calDir, IReadOnlyDictionary<string, string> chainByStem)
+    {
+        string Stem(string cell) => Path.GetFileNameWithoutExtension(cell.Split('\\', '/')[^1]);
+        foreach (var (file, column, full) in new[] { (DesignStage.FileName, "FileName", false), (DesignStage.TmtFileName, "File", true) })
+        {
+            string from = Path.Combine(spectraDir, file), to = Path.Combine(calDir, file);
+            if (!File.Exists(from))
+            {
+                if (File.Exists(to)) File.Delete(to);
+                continue;
+            }
+            var lines = File.ReadAllLines(from);
+            int col = Array.FindIndex(lines[0].Split('\t'), h => h.Trim().Equals(column, StringComparison.OrdinalIgnoreCase));
+            if (col < 0) throw new SearchSetupException($"{from} has no {column} column");
+            File.WriteAllLines(to, lines.Select((l, i) =>
+            {
+                var cells = l.Split('\t');
+                if (i == 0 || cells.Length <= col || !chainByStem.TryGetValue(Stem(cells[col].Trim()), out string? path)) return l;
+                cells[col] = full ? path : Path.GetFileName(path);
+                return string.Join('\t', cells);
+            }));
+        }
     }
 
     private static string Pct(double x) => (x * 100).ToString("0.00", CultureInfo.InvariantCulture) + "%";

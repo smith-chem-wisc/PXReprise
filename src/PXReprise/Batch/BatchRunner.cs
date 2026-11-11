@@ -768,6 +768,9 @@ public sealed class BatchRunner
     private async Task<Profile?> PrepareAsync(QueueEntry e, CancellationToken ct)
     {
         if (PrepareForTest is { } prepare) return await prepare(e, ct).ConfigureAwait(false);
+        // v0.4.45: before the probe's fetch rewrites the fetch manifest, an interrupted search's finished calibrations become
+        // stand-ins for their raws (CalibratedStandIns), with the manifest entries they need.
+        HarvestCalibrations(e.Accession);
         Profile? profile;
         if (WorkerPassProfile(e.Accession) is { } passed)
             profile = await ScreenWorkerPassAsync(e, passed, ct).ConfigureAwait(false) ? passed : null;
@@ -870,7 +873,11 @@ public sealed class BatchRunner
             if (consumed.Contains(x.Accession) || ds[x.Accession]?["n_listed"] is not JsonValue nv || !nv.TryGetValue<int>(out int listed) || listed <= 0)
                 continue;
             string spectra = Path.Combine(Run(x.Accession), "02_fetch", "spectra");
-            if (!Directory.Exists(spectra) || Directory.EnumerateFiles(spectra, "*.raw").Count() < listed) continue;
+            if (!Directory.Exists(spectra)) continue;
+            // v0.4.45: a raw a calibrated stand-in replaces counts as here (PXD028799: 14 raws and 34 stand-ins of 48).
+            var here = Directory.EnumerateFiles(spectra, "*.raw").Select(f => Path.GetFileName(f)).ToHashSet(StringComparer.Ordinal);
+            here.UnionWith(Search.CalibratedStandIns.In(spectra).Select(s => s.RawName));
+            if (here.Count < listed) continue;
             if (File.Exists(Path.Combine(Run(x.Accession), "04_search", "provenance.json")) || Settled(x.Accession).Length > 0) continue;
             if (!busy.Contains(x.Organism)) return x;
             first ??= x;
@@ -1480,14 +1487,47 @@ public sealed class BatchRunner
         return moved;
     }
 
+    /// <summary>
+    /// v0.4.45 (the user, 2026-11-11): moves the finished calibrations of <paramref name="acc"/>'s interrupted searches into its
+    /// spectra folder as calibrated stand-ins (CalibratedStandIns.Harvest). A failure costs only the stand-ins: the raws are fetched.
+    /// </summary>
+    internal void HarvestCalibrations(string acc)
+    {
+        try
+        {
+            var got = Search.CalibratedStandIns.Harvest(Run(acc));
+            if (got.Count > 0)
+                Log($"{acc} CALIBRATED STAND-INS: {got.Count} raw file(s) already calibrated by an interrupted search ({string.Join(", ", got.Select(g => g.From).Distinct())}) are kept and not fetched or calibrated again");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Log($"{acc} calibrated stand-ins: could not take them from the interrupted search ({ex.Message}); those raws are fetched again");
+        }
+    }
+
+    /// <summary>The raw file names the deposit's last full QC report has a verdict for; empty when there is none.</summary>
+    private HashSet<string> FullQcVerdicts(string acc)
+    {
+        string f = Path.Combine(Run(acc), "02b_qc", "qc_report.json");
+        try { return File.Exists(f) && JsonNode.Parse(File.ReadAllText(f)) is JsonObject o ? o.Select(kv => kv.Key).ToHashSet(StringComparer.Ordinal) : new(StringComparer.Ordinal); }
+        catch (JsonException) { return new(StringComparer.Ordinal); }
+    }
+
     /// <summary>The whole deposit, or nothing: anything short of every listed file is a failure that says what it got (S43).</summary>
     private async Task<bool> FetchWholeAsync(QueueEntry e, Profile profile, CancellationToken ct)
     {
         string acc = e.Accession;
+        string spectra = Path.Combine(Run(acc), "02_fetch", "spectra");
+        // v0.4.45: a raw with a calibrated stand-in is not fetched when the stand-in carries the raw's fetch entry and the
+        // last full QC judged the raw (QC cannot read a raw that is gone).
+        var verdicts = FullQcVerdicts(acc);
+        var calibrated = Search.CalibratedStandIns.In(spectra).Where(s => s.FetchEntry is not null && verdicts.Contains(s.RawName))
+            .ToDictionary(s => s.RawName, s => s.FetchEntry!, StringComparer.Ordinal);
         JsonObject manifest;
         try
         {
-            manifest = await FetchStage.RunAsync(FetchRequestFor(acc, Pick.All, DepositFor(acc, profile)), _files, ct, m => Log($"{acc} FETCH {m}")).ConfigureAwait(false);
+            manifest = await FetchStage.RunAsync(FetchRequestFor(acc, Pick.All, DepositFor(acc, profile)) with { Calibrated = calibrated },
+                _files, ct, m => Log($"{acc} FETCH {m}")).ConfigureAwait(false);
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
@@ -1495,7 +1535,6 @@ public sealed class BatchRunner
             return false;
         }
         int listed = manifest["rest_raw_count"]!.GetValue<int>();
-        string spectra = Path.Combine(Run(acc), "02_fetch", "spectra");
         var selected = manifest["files"]?.AsArray().Select(f => f?["name"]?.GetValue<string>()).OfType<string>().ToList() ?? new List<string>();
         if (selected.Count > 0 && SetAsideUnselected(spectra, selected) is { Count: > 0 } aside)
         {
@@ -1503,8 +1542,17 @@ public sealed class BatchRunner
                 + $"{string.Join(", ", aside)} -> 02_fetch/{NotSelectedFolder} (deleted at cleanup)");
             Record(acc, ("set_aside", new JsonArray(aside.Select(n => (JsonNode?)n).ToArray())));
         }
-        int got = Directory.EnumerateFiles(spectra, "*.raw").Count();
-        Log($"{acc} FETCH raw_files={got} of {listed}");
+        var standIns = Search.CalibratedStandIns.In(spectra).Select(s => s.RawName).ToList();
+        if (selected.Count > 0 && standIns.Where(n => !selected.Contains(n)).ToList() is { Count: > 0 } unselected)
+        {
+            Search.CalibratedStandIns.Discard(spectra, unselected);
+            Log($"{acc} FETCH discarded {unselected.Count} calibrated stand-in(s) this selection does not name: {string.Join(", ", unselected)}");
+            standIns = standIns.Except(unselected).ToList();
+        }
+        var raws = Directory.EnumerateFiles(spectra, "*.raw").Select(f => Path.GetFileName(f)).ToList();
+        int got = raws.Union(standIns, StringComparer.Ordinal).Count();
+        int asStandIns = standIns.Except(raws, StringComparer.Ordinal).Count();
+        Log($"{acc} FETCH raw_files={got} of {listed}" + (asStandIns > 0 ? $" ({asStandIns} as calibrated stand-ins, not fetched again)" : ""));
         if (listed > 0 && got == listed) { Record(acc, ("status", "fetched"), ("n_raw", got), ("n_listed", listed)); return true; }
         Log($"{acc} FETCH INCOMPLETE: {got} of {listed} raw files -- not searched (whole deposits only)");
         Record(acc, ("status", "fetch_failed"), ("n_raw", got), ("n_listed", listed));
@@ -1514,7 +1562,10 @@ public sealed class BatchRunner
     private async Task SearchAndDeliverAsync(QueueEntry e, Profile profile, CancellationToken ct)
     {
         string acc = e.Accession, d = Run(acc);
-        var (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc"), profile, _m, ParamsFile(acc, profile), _runDate);
+        string spectraDir = Path.Combine(d, "02_fetch", "spectra");
+        // v0.4.45: a raw that is gone and has a calibrated stand-in keeps the verdict the last full QC gave it.
+        var keptVerdicts = Search.CalibratedStandIns.In(spectraDir).Select(s => s.RawName).Where(n => !File.Exists(Path.Combine(spectraDir, n))).ToList();
+        var (report, allPass) = QcStage.Run(spectraDir, Path.Combine(d, "02b_qc"), profile, _m, ParamsFile(acc, profile), _runDate, kept: keptVerdicts);
         if (RoutedByReporters(acc, report, "QC(full)")) return;
         var excl = new List<string>();
         if (!allPass)
@@ -1566,6 +1617,14 @@ public sealed class BatchRunner
         try
         {
             outcome = await SearchStage.RunAsync(req, ct).ConfigureAwait(false);
+        }
+        catch (Search.CalibrationNotCarriedException ex)
+        {
+            // v0.4.45: nothing ran. The stand-ins go, and the next pass fetches their raws and calibrates them in the search.
+            Search.CalibratedStandIns.Discard(spectraDir, ex.RawNames);
+            Log($"{acc} SEARCH NOT STARTED: {ex.Message}. Those stand-ins are discarded; their raws are fetched on a later pass");
+            Record(acc, ("status", "search_interrupted"), ("detail", $"calibrated stand-ins refused before the search: {ex.Message}"));
+            return;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -2104,7 +2163,11 @@ public sealed class BatchRunner
         foreach (var e in queue)
         {
             string acc = e.Accession;
-            if (Entry(acc)?["status"]?.GetValue<string>() != "searching") continue;
+            string? status = Entry(acc)?["status"]?.GetValue<string>();
+            // v0.4.45 (PXD028799): an interrupted search's finished calibrations become stand-ins at the driver's start, so a
+            // deposit whose raws are here or stand in counts as downloaded (DownloadedFirst) instead of waiting in the queue.
+            if (status == "search_interrupted") { HarvestCalibrations(acc); continue; }
+            if (status != "searching") continue;
             string d = Path.Combine(Run(acc), "04_search");
             if (File.Exists(Path.Combine(d, "provenance.json")))
             {
@@ -2143,6 +2206,7 @@ public sealed class BatchRunner
                 + (designMoved ? $"its {Search.DesignStage.FileName} moved to {Path.GetFileName(aside)}/{InterruptedSpectraFolder}; " : "")
                 + $"searched again on this run ({n} of {MaxDriverInterruptions}).");
             Record(acc, ("status", "search_interrupted"), ("driver_interruptions", n), ("detail", why));
+            if (moved) HarvestCalibrations(acc);
         }
     }
 

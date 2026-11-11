@@ -1687,6 +1687,38 @@ public class BatchRunnerTests
         Assert.That(File.Exists(Path.Combine(lostSearch, "provenance.json")), Is.True, "the failed output stays for batch retry to move aside");
     }
 
+    // v0.4.45 (PXD028799, 2026-11-11): Windows Update cut its search after 34 of 48 raws were calibrated and deleted (D59), and
+    // it then waited behind 74 worker passes to be fetched again. At a driver's start an interrupted search's calibrations stand
+    // in for their raws, whether the search was cut under this driver's predecessor or found cut by an earlier driver, and a
+    // deposit whose raws are here or stand in goes first.
+    [Test]
+    public void AnInterruptedSearchsCalibrationsStandInForItsRawsAndTheDepositGoesFirst()
+    {
+        var (runner, _, _, dir) = Runner();
+        var queue = new[] { new QueueEntry("PXD000230", "new", "human"), new QueueEntry("PXD028799", "cut now", "human"), new QueueEntry("PXD028800", "cut before", "human") };
+        foreach (var (acc, search) in new[] { ("PXD028799", "04_search"), ("PXD028800", "04_search.interrupted-20261111T133322Z") })
+        {
+            string run = Path.Combine(dir, "runs", acc), spectra = Directory.CreateDirectory(Path.Combine(run, "02_fetch", "spectra")).FullName;
+            File.WriteAllText(Path.Combine(spectra, "a.raw"), "");   // b.raw was deleted once calibrated (D59)
+            File.WriteAllText(Path.Combine(run, "02_fetch", "fetch_manifest.json"), """{"files":[{"name":"a.raw","sha256":"aa"},{"name":"b.raw","sha256":"bb"}]}""");
+            string cal = Directory.CreateDirectory(Path.Combine(run, search, "mm", "Task1CalibrationTask")).FullName;
+            File.WriteAllText(Path.Combine(cal, "b-calib.mzML"), "<indexedmzML><mzML/></indexedmzML>");
+            File.WriteAllText(Path.Combine(cal, "b-calib.toml"), "");
+            File.WriteAllText(Path.Combine(run, search, "params.json"), """{"profile":"label-free-dda@14"}""");
+            File.WriteAllText(Path.Combine(Directory.CreateDirectory(Path.Combine(run, search, "tasks")).FullName, "1_CalibrationTask.toml"), "TaskType = \"Calibrate\"\n");
+            runner.Record(acc, ("status", search == "04_search" ? "searching" : "search_interrupted"), ("n_listed", 2));
+        }
+        Assert.That(runner.DownloadedFirst(queue, new HashSet<string>(), new HashSet<string>()), Is.Null, "one raw of two on disk");
+
+        runner.RecoverInterruptedSearches(queue);
+
+        foreach (string acc in new[] { "PXD028799", "PXD028800" })
+            Assert.That(Search.CalibratedStandIns.In(Path.Combine(dir, "runs", acc, "02_fetch", "spectra")).Select(s => (s.RawName, s.FetchEntry?["sha256"]?.GetValue<string>())),
+                Is.EqualTo(new[] { ("b.raw", (string?)"bb") }), acc);
+        Assert.That(runner.DownloadedFirst(queue, new HashSet<string>(), new HashSet<string>())?.Accession, Is.EqualTo("PXD028799"), "ahead of the queue's first");
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain("PXD028800 CALIBRATED STAND-INS: 1 raw file(s)"));
+    }
+
     // v0.4.17 (PXD044227, 2026-10-14): a reboot cut off the full search of 61 files. Its 04_search was moved aside, but the
     // ExperimentalDesign.tsv it wrote beside the spectra stayed, and the re-probe of three files read it: MetaMorpheus
     // stopped with `Condition "all" biorep 2 is missing!` (exit 5) and the deposit settled probe_search_failed.

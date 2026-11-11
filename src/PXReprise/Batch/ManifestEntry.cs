@@ -221,7 +221,7 @@ public static class ManifestEntry
     stages:
       qc: 02b_qc
       search: 04_search
-    search_results: 04_search/mm/{SearchTaskFolder(profile)}
+    search_results: 04_search/mm/{SearchTaskFolder(profile, runDir)}
     files: {nfiles}
     organism: NCBITaxon:{taxon}
     acquisition: DDA
@@ -276,6 +276,20 @@ public static class ManifestEntry
         int n = profile.Tasks.ToList().LastIndexOf("Search") + 1;
         if (n == 0) throw new InvalidOperationException($"{profile.Key} has no Search task, so it has no search results to ingest");
         return $"Task{n}SearchTask";
+    }
+
+    /// <summary>
+    /// v0.4.45: the Search task's folder as MetaMorpheus wrote it under <c>04_search/mm</c> of <paramref name="runDir"/>, else
+    /// <see cref="SearchTaskFolder(Profile)"/>. A search split in two by calibrated stand-ins (SearchStage) runs the tasks
+    /// after Calibration on their own, so a Calibration, Gptmd, Search profile writes <c>Task2SearchTask</c>.
+    /// </summary>
+    internal static string SearchTaskFolder(Profile profile, string runDir)
+    {
+        string mm = Path.Combine(runDir, "04_search", "mm");
+        string? onDisk = Directory.Exists(mm)
+            ? Directory.EnumerateDirectories(mm, "Task*SearchTask").Select(Path.GetFileName).OfType<string>().Order(StringComparer.Ordinal).LastOrDefault()
+            : null;
+        return onDisk ?? SearchTaskFolder(profile);
     }
 
     /// <summary>The span of <paramref name="acc"/>'s entry: from its <c>- accession:</c> line to the next entry or the end.</summary>

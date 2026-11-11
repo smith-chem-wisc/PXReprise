@@ -79,7 +79,8 @@ public sealed record FetchRequest(string Accession, string OutDir, Pick Pick, in
     AsperaClient? Aspera = null, PrideHttps Https = PrideHttps.Globus,
     [property: System.Text.Json.Serialization.JsonIgnore] DiskFloor? Floor = null,
     IReadOnlyDictionary<string, PXReprise.Config.FileReplacement>? Replace = null,
-    [property: System.Text.Json.Serialization.JsonIgnore] Func<string, CancellationToken, Task<IReadOnlyDictionary<string, string>>>? PrideSha1Source = null);
+    [property: System.Text.Json.Serialization.JsonIgnore] Func<string, CancellationToken, Task<IReadOnlyDictionary<string, string>>>? PrideSha1Source = null,
+    [property: System.Text.Json.Serialization.JsonIgnore] IReadOnlyDictionary<string, JsonObject>? Calibrated = null);
 
 /// <summary>Which raw files of a deposit a question searches, and why (<c>[exceptions]</c>, PXReprise D28).</summary>
 public sealed record FileSelection([property: System.Text.Json.Serialization.JsonIgnore] Func<string, bool> Keeps, string Reason);
@@ -252,10 +253,17 @@ public static class FetchStage
 
         string spectraDir = Path.Combine(outDir, "spectra"), metaDir = Path.Combine(outDir, "metadata");
         Directory.CreateDirectory(spectraDir);
+        string manifestFile = Path.Combine(outDir, "fetch_manifest.json");
+        // v0.4.45 (the user, 2026-11-11): a chosen raw that is not on disk and has a calibrated stand-in (Search.CalibratedStandIns)
+        // is not fetched again. The stand-in carries the raw's entry from the fetch manifest of the search it came from (name,
+        // SHA-256, PRIDE checksum: what dataRepo builds a run from), and that entry is written again here.
+        var earlier = r.Calibrated ?? new Dictionary<string, JsonObject>(StringComparer.Ordinal);
+        var standIn = chosen.Where(f => earlier.ContainsKey(f.FileName) && !File.Exists(Path.Combine(spectraDir, f.FileName)))
+            .Select(f => f.FileName).ToHashSet(StringComparer.Ordinal);
         // The whole selection must fit above the floor before anything is downloaded; each file is checked again as it
         // starts, since searches and a publish write to the same disk meanwhile (v0.4.18).
-        r.Floor?.Check(chosen.Sum(f => StillToFetch(f, spectraDir)), $"{r.Accession}'s {chosen.Count} raw file(s)");
-        prov.Command(new[] { "mzLib.PrideArchiveClient.DownloadFileAsync" }.Concat(chosen.Concat(sdrfs).Select(f => f.FileName)).Append("overwrite=False"));
+        r.Floor?.Check(chosen.Where(f => !standIn.Contains(f.FileName)).Sum(f => StillToFetch(f, spectraDir)), $"{r.Accession}'s {chosen.Count} raw file(s)");
+        prov.Command(new[] { "mzLib.PrideArchiveClient.DownloadFileAsync" }.Concat(chosen.Where(f => !standIn.Contains(f.FileName)).Concat(sdrfs).Select(f => f.FileName)).Append("overwrite=False"));
         var results = new (string Path, double Seconds, int Attempts)[chosen.Count];
         int done = 0;
         // 2026-10-08: every raw file is checked against PRIDE's SHA-1 where PRIDE gives one, and always for EBI's own error
@@ -274,6 +282,12 @@ public static class FetchStage
                 await gate.WaitAsync(ct).ConfigureAwait(false);
                 try
                 {
+                    if (standIn.Contains(f.FileName))
+                    {
+                        results[i] = (Path.Combine(spectraDir, f.FileName), 0, 0);
+                        log?.Invoke($"{Interlocked.Increment(ref done)} of {chosen.Count} done: {f.FileName} has a calibrated stand-in (not fetched again)");
+                        return;
+                    }
                     r.Floor?.Check(StillToFetch(f, spectraDir), f.FileName);
                     if (replace.TryGetValue(f.FileName, out var rep))
                     {
@@ -313,6 +327,13 @@ public static class FetchStage
         for (int i = 0; i < chosen.Count; i++)
         {
             var f = chosen[i];
+            if (standIn.Contains(f.FileName))
+            {
+                var kept = (JsonObject)earlier[f.FileName].DeepClone();
+                kept["calibrated_stand_in"] = true;
+                files.Add(kept);
+                continue;
+            }
             files.Add(new JsonObject
             {
                 ["file"] = results[i].Path, ["name"] = f.FileName, ["pride_size_bytes"] = f.FileSizeBytes,
@@ -341,13 +362,18 @@ public static class FetchStage
             ["raw_missing_from_rest_manifest"] = new JsonArray(missingFromRest.Select(n => (JsonNode?)n).ToArray()),
             ["files"] = files, ["sdrf"] = new JsonArray(gotSdrf.Select(n => (JsonNode?)n).ToArray()),
         };
-        string manifestFile = Path.Combine(outDir, "fetch_manifest.json");
         File.WriteAllText(manifestFile, manifest.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        if (standIn.Count > 0)
+        {
+            prov.Set("calibrated_stand_ins", new JsonArray(standIn.Order(StringComparer.Ordinal).Select(n => (JsonNode?)n).ToArray()));
+            prov.Note($"{standIn.Count} of {chosen.Count} raw file(s) were not fetched again: each was deleted once MetaMorpheus had calibrated it, and that calibration, "
+                      + "kept from an interrupted search, stands in for it (v0.4.45). Their manifest entries, SHA-256 included, are the earlier fetch's.");
+        }
         if (!files.Any(f => f!["pride_checksum"] is not null))
             prov.Note("pride_checksum is null because PRIDE's REST file list leaves it empty (pride 007, PXR-S6), not because PRIDE "
                       + "has none: its MD5s are served only by /files/checksum (mzLib #1427, released in 1.0.595, not yet used here). Integrity rests on the "
                       + "local SHA-256 and PRIDE's listed size.");
-        foreach (var (p, _, _) in results) prov.Output(p);
+        foreach (var (p, _, _) in results.Where(x => !standIn.Contains(Path.GetFileName(x.Path)))) prov.Output(p);
         foreach (string s in gotSdrf) prov.Output(s);
         prov.Output(manifestFile);
         if (flags.Count > 0) prov.Set("flags", new JsonArray(flags.Select(x => (JsonNode?)x).ToArray()));

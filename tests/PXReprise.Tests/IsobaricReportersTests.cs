@@ -45,6 +45,44 @@ public class IsobaricReportersTests
         // A few labelled spectra in a label-free file are noise, not a label.
         var sparse = labelFree.Take(36).Concat(labelled.Take(4)).ToList();
         Assert.That(IsobaricReporters.Detect(sparse).Tag, Is.Null);
+
+        // v0.4.45: below the line the family is still named, for QC to read a thin fraction's kit; a label-free file names none.
+        var thin = IsobaricReporters.Detect(sparse);
+        Assert.That((thin.Family, thin.Fraction), Is.EqualTo(("TMT", 0.1)));
+        Assert.That(none.Family, Is.Null);
+        Assert.That(thin.Fraction, Is.GreaterThanOrEqualTo(IsobaricReporters.MinFractionBesideItsDeposit), "10% is read; label-free runs measure 0");
+    }
+
+    // v0.4.45 (PXD027464; the user, 2026-11-11, "(b)"): fractions F36 and F37 of a 40-fraction TMT10 plex carry reporters in 24% and
+    // 23% of their spectra, under the 25% line, with all ten channels, and the deposit was refused. A thin fraction passes with its
+    // deposit when it shows the deposit's kit and every channel the passing files share; nothing else about it may have failed.
+    [Test]
+    public void AThinFractionWithItsDepositsKitAndChannelsPassesWithItsDeposit()
+    {
+        const string ten = "126 127N 127C 128N 128C 129N 129C 130N 130C 131N";
+        static System.Text.Json.Nodes.JsonObject Row(bool pass, string? kit, string channels, params string[] reasons) => new()
+        {
+            ["pass"] = pass,
+            ["fail_reasons"] = new System.Text.Json.Nodes.JsonArray(reasons.Select(r => (System.Text.Json.Nodes.JsonNode?)r).ToArray()),
+            ["isobaric_kit"] = kit,
+            ["isobaric_channels"] = kit is null ? null : new System.Text.Json.Nodes.JsonArray(channels.Split(' ').Select(c => (System.Text.Json.Nodes.JsonNode?)c).ToArray()),
+        };
+        var report = new System.Text.Json.Nodes.JsonObject
+        {
+            ["F01.raw"] = Row(true, "TMT10", ten),
+            ["F02.raw"] = Row(true, "TMT10", ten),
+            ["F36.raw"] = Row(false, "TMT10", ten, SpectraQc.NoReporters),                                 // passes
+            ["F37.raw"] = Row(false, "TMT10", "126 127N 127C 128N", SpectraQc.NoReporters),                // channels missing
+            ["F38.raw"] = Row(false, "TMT10", ten, SpectraQc.NoReporters, SpectraQc.TooFewMs2),            // failed on more
+            ["F39.raw"] = Row(false, null, "", SpectraQc.NoReporters),                                     // no kit read
+            ["F40.raw"] = Row(false, "TMT18", ten + " 131C 132N 132C", SpectraQc.NoReporters),             // another reagent
+        };
+        Assert.That(QcStage.PassThinFractions(report), Is.EqualTo(new[] { "F36.raw" }));
+        Assert.That((report["F36.raw"]!["pass"]!.GetValue<bool>(), report["F36.raw"]!["fail_reasons"]!.AsArray().Count), Is.EqualTo((true, 0)));
+        Assert.That(report["F37.raw"]!["pass"]!.GetValue<bool>(), Is.False);
+
+        var alone = new System.Text.Json.Nodes.JsonObject { ["a.raw"] = Row(false, "TMT10", ten, SpectraQc.NoReporters) };
+        Assert.That(QcStage.PassThinFractions(alone), Is.Empty, "no passing labelled file: no deposit kit to match");
     }
 
     [Test]
