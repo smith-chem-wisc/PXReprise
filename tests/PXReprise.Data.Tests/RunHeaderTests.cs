@@ -163,8 +163,30 @@ public class RunHeaderTests
         var runs = Tables.ByName["runs"];
         Assert.That(SchemaContract.ColumnsAt(runs, Tables.SchemaVersion), Is.EqualTo(runs.Columns));
         Assert.That(SchemaContract.ColumnsAt(runs, "0.0.14").Select(c => c.Name), Has.None.EqualTo("instrument_serial"));
-        Assert.That(SchemaContract.ColumnsAt(Tables.ByName["psms"], "0.0.13"), Is.EqualTo(Tables.ByName["psms"].Columns));
+        Assert.That(SchemaContract.ColumnsAt(Tables.ByName["proteins"], "0.0.13"), Is.EqualTo(Tables.ByName["proteins"].Columns));
         foreach (var (version, table, column) in SchemaContract.AddedColumns)
             Assert.That(Tables.ByName[table].Columns.Select(c => c.Name), Does.Contain(column), $"{version} {table}.{column}");
+    }
+
+    /// <summary>D56 (schema 0.0.17): psms' two reserved matched-ion columns are gone from the current schema and still
+    /// in every earlier one, where Python 0.32.0 wrote them, so a parity bundle keeps Python's Parquet schema.</summary>
+    [Test]
+    public void ColumnsAtPutBackTheColumnsRemovedSince()
+    {
+        var psms = Tables.ByName["psms"];
+        var names = (string version) => SchemaContract.ColumnsAt(psms, version).Select(c => c.Name).ToList();
+        var current = psms.Columns.Select(c => c.Name).ToList();
+        var end = current.IndexOf("end_residue");
+        Assert.Multiple(() =>
+        {
+            Assert.That(current, Has.None.StartsWith("matched_ion"));
+            Assert.That(names(Tables.SchemaVersion), Is.EqualTo(current));
+            foreach (var version in new[] { "0.0.13", "0.0.16" })
+                Assert.That(names(version), Is.EqualTo(current.Take(end + 1).Concat(["matched_ion_series", "matched_ion_count"]).Concat(current.Skip(end + 1))), version);
+            Assert.That(SchemaContract.ColumnsAt(psms, "0.0.16").Single(c => c.Name == "matched_ion_count"),
+                Is.EqualTo(new ColumnSpec("matched_ion_count", ColumnType.Int64, IsList: false, Nullable: true)));
+            foreach (var (version, table, _, column) in SchemaContract.RemovedColumns)
+                Assert.That(Tables.ByName[table].Columns.Select(c => c.Name), Has.None.EqualTo(column.Name), $"{version} {table}.{column.Name}");
+        });
     }
 }

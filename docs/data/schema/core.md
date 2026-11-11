@@ -301,8 +301,6 @@ QPX view: `psm` (table-level; column mapping not yet verified).
 | `nonspecific_termini` | `integer` |  | Termini not matching the protease (L3 truncation). (range 0..2) |
 | `start_residue` | `integer` |  | First residue of the peptide in the protein (1-based). |
 | `end_residue` | `integer` |  | Last residue of the peptide in the protein (1-based). |
-| `matched_ion_series` | `string` |  | Reserved for the producer's annotated fragment list (F7; full evidence is R14). NOT FILLED: no ingest has ever written it, so it is null in every row of every bundle; null here never means that no fragment ion matched (PXReprise 082, PXR-R44). |
-| `matched_ion_count` | `integer` |  | Reserved for the number of matched fragment ions. NOT FILLED: null in every row of every bundle, as `matched_ion_series` says; never read a null as zero matched ions. |
 
 ## Peptidoform
 
