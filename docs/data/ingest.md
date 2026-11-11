@@ -298,8 +298,15 @@ store/PXD036557/6fea2187b2d9f737/
   quant_values.parquet  search_modifications.parquet  metrics.parquet  definitions.parquet
   provenance_records.parquet  findings.parquet
   sources/     the producer's provenance, QC report, SDRF, task files and results.txt, copied
-  bundle.json  inputs with hashes, row counts, reader log, reconciliation, modification registry
+  bundle.json  inputs with hashes, row counts, each table file's sha256, reader log, reconciliation,
+               modification registry
 ```
+
+**`datarepo verify <bundle>` (or `--store <store>`) re-hashes a bundle's table files and copied sources** against
+the sha256 its `bundle.json` recorded (`table_sha256`, from datarepo 1.5.0; every copied source has always carried
+one), and names each file that is changed, missing or extra; it exits 1 if any is. `build` does not run it. A bundle
+written before 1.5.0 records no table checksums, so its tables are reported as not verified, never as passed. The
+check is of the files' bytes: a table rewritten with identical rows by another program also reads as changed.
 
 **A folder is a bundle exactly when it holds `bundle.json`, and then every table it lists is complete.**
 Ingest writes every table and every source first and `bundle.json` last, and `build` counts no other

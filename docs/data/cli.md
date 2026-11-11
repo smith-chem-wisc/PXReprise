@@ -12,6 +12,7 @@ New here? Start with [getting-started.md](getting-started.md), which runs the ma
 | [`manifest`](#datarepo-manifest) | show what the producing instance offers, and check its run_enrichment maps, excluded_runs and candidates census |
 | [`ingest`](#datarepo-ingest) | build a Parquet bundle for one or more datasets |
 | [`inspect`](#datarepo-inspect) | summarise a written bundle |
+| [`verify`](#datarepo-verify) | re-hash bundles' table files and copied sources against what each bundle.json recorded |
 | [`study`](#datarepo-study) | write a study layer's delivered rows as a study bundle |
 | [`run`](#datarepo-run) | run a released engine on stored data (the instance operator's step) |
 | [`publish`](#datarepo-publish) | build the catalog from every ingested dataset, then write the static site |
@@ -106,6 +107,23 @@ positional arguments:
 options:
   -h, --help             show this help message and exit
   --json                 print the manifest verbatim
+```
+
+### `datarepo verify`
+
+Re-hash bundles' table files and copied sources against what each bundle.json recorded.
+
+```text
+usage: datarepo verify [-h] [--store STORE] [bundle ...]
+
+re-hash bundles' table files and copied sources against what each bundle.json recorded
+
+positional arguments:
+  bundle                 bundle directories to check (zero or more)
+
+options:
+  -h, --help             show this help message and exit
+  --store STORE          check every bundle in this store (<store>/<dataset>/<bundle id>)
 ```
 
 ### `datarepo study`

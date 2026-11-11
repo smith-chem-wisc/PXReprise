@@ -185,12 +185,15 @@ public sealed class BundleWriter(string store, string datasetId, string? ingestP
 
         Directory.CreateDirectory(Path.Combine(output, SourcesDir));
         var rowCounts = new OrderedDictionary<string, object?>(StringComparer.Ordinal);
+        var tableHashes = new OrderedDictionary<string, object?>(StringComparer.Ordinal);
         foreach (var spec in SchemaContract.CoreTables)
         {
             if (!_tables.TryGetValue(spec.Name, out var rows) || rows.Count == 0) continue;
             var batch = ArrowTables.FromRows(spec.Name, SchemaContract.Columns(spec), rows);
-            ArrowTables.WriteParquet(batch, Path.Combine(output, $"{spec.Name}.parquet"));
+            var tablePath = Path.Combine(output, $"{spec.Name}.parquet");
+            ArrowTables.WriteParquet(batch, tablePath);
             rowCounts[spec.Name] = (long)batch.Length;
+            tableHashes[spec.Name] = Sha256File(tablePath);
         }
         foreach (var (source, copyAs) in _copied)
             File.Copy(source, Path.Combine(output, SourcesDir, copyAs), overwrite: true);
@@ -213,6 +216,9 @@ public sealed class BundleWriter(string store, string datasetId, string? ingestP
             ["tables"] = rowCounts,
             ["sources"] = _sources,
         };
+        // D61 (1.5.0): each table file's sha256, for `datarepo verify` (BundleVerifier); `tables` keeps its shape. A parity
+        // bundle writes the manifest Python 0.32.0 wrote, which had none.
+        if (!SchemaContract.IsPython0320) manifest.Insert(manifest.IndexOf("sources"), BundleVerifier.TableHashesKey, tableHashes);
         foreach (var (key, value) in Notes) manifest[key] = value;
         File.WriteAllText(manifestPath, JsonSerializer.Serialize(manifest, ManifestJson) + "\n", new UTF8Encoding(false));
         return output;

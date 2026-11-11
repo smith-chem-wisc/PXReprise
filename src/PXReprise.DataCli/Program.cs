@@ -37,7 +37,7 @@ namespace PXReprise.DataCli
     {
         private const string Prog = "datarepo";
 
-        private static readonly string[] Commands = ["ingest", "study", "manifest", "inspect", "build", "catalog", "query", "site", "publish", "push", "pull", "run", "mcp", "doctor"];
+        private static readonly string[] Commands = ["ingest", "study", "manifest", "inspect", "verify", "build", "catalog", "query", "site", "publish", "push", "pull", "run", "mcp", "doctor"];
         private static readonly string[] Pending = [];
 
         /// <summary>Each command's one line, as <c>datarepo -h</c> lists it and as its own <c>-h</c> prints it
@@ -48,6 +48,7 @@ namespace PXReprise.DataCli
             ["study"] = "write a study layer's delivered rows as a study bundle",
             ["manifest"] = "show what the producing instance offers, and check its run_enrichment maps, excluded_runs and candidates census",
             ["inspect"] = "summarise a written bundle",
+            ["verify"] = "re-hash bundles' table files and copied sources against what each bundle.json recorded",
             ["build"] = "load bundles into one DuckDB catalog",
             ["catalog"] = "summarise a built catalog",
             ["query"] = "run one read-only SQL query against a catalog",
@@ -110,6 +111,7 @@ namespace PXReprise.DataCli
                     "study" => StudyCommand(rest),
                     "manifest" => ManifestCommand(rest),
                     "inspect" => Inspect(rest),
+                    "verify" => Verify(rest, Console.Out),
                     "build" => CatalogCommands.Build(rest),
                     "catalog" => CatalogCommands.CatalogSummary(rest),
                     "query" => CatalogCommands.Query(rest),
@@ -410,6 +412,47 @@ namespace PXReprise.DataCli
             if (wholeBesideParts.Count > 0)
                 Console.Error.WriteLine($"{manifest.Path}: {wholeBesideParts.Count} deposit(s) are include both whole and in parts; build would refuse them served together");
             return refused > 0 || unmatched > 0 || censusRefused || wholeBesideParts.Count > 0 ? 1 : 0;
+        }
+
+        /// <summary><c>datarepo verify</c> (D61, 1.5.0): each bundle's table files and copied sources against the sha256
+        /// its <c>bundle.json</c> recorded.</summary>
+        /// <returns>1 when any file is changed, missing or extra; 0 otherwise, including bundles with no table checksums
+        /// (written before 1.5.0), which are listed and counted as not verified, never as passed.</returns>
+        internal static int Verify(string[] argv, TextWriter output)
+        {
+            var args = new Args.Spec($"{Prog} verify", Summaries["verify"])
+                .Positional("bundle", "bundle directories to check", "*")
+                .Option("--store", Args.Kind.Value, "check every bundle in this store (<store>/<dataset>/<bundle id>)")
+                .Parse(argv);
+            var folders = args.Positionals("bundle").ToList();
+            if (args.Value("--store") is { } store) folders.AddRange(BundleVerifier.BundlesIn(store));
+            if (folders.Count == 0)
+                throw new Args.UsageException($"usage: {Prog} verify [-h] [--store STORE] [bundle ...]", "name bundle directories or --store");
+            int ok = 0, unrecorded = 0, failed = 0;
+            foreach (var folder in folders)
+            {
+                var result = BundleVerifier.Verify(folder);
+                var name = $"{result.DatasetId ?? "?",-12} {result.BundleId ?? System.IO.Path.GetFileName(folder.TrimEnd('/', '\\'))}";
+                if (!result.Ok)
+                {
+                    failed++;
+                    output.WriteLine($"{name}  {result.Problems.Count} problem(s)");
+                    foreach (var p in result.Problems)
+                        output.WriteLine($"    {p.Kind,-8} {p.File}{(p.Detail.Length > 0 ? "  " + p.Detail : "")}");
+                }
+                else if (!result.TablesRecorded)
+                {
+                    unrecorded++;
+                    output.WriteLine($"{name}  no table checksums (written before datarepo 1.5.0): tables NOT verified; {result.SourcesChecked} copied source(s) match");
+                }
+                else
+                {
+                    ok++;
+                    output.WriteLine($"{name}  ok: {result.TablesChecked} table(s), {result.SourcesChecked} copied source(s)");
+                }
+            }
+            output.WriteLine($"verified {folders.Count} bundle(s): {ok} ok, {unrecorded} without table checksums (not verified), {failed} with problems");
+            return failed > 0 ? 1 : 0;
         }
 
         private static int Inspect(string[] argv)
