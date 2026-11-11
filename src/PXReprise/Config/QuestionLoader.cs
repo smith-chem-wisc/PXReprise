@@ -180,12 +180,41 @@ public static class QuestionLoader
             gt.RefuseUnknownKeys();
         }
 
+        // v0.4.46 (aging PXR-A51, DATAREPO-74; the user, 2026-11-11, chose that the engine writes them, not a hand edit of
+        // the manifest): [restrictions.<key>] use = "reason", the uses a whole delivered dataset is unfit for that no fact the
+        // engine records can show (an immunopeptidome searched as tryptic, too few PSMs for protein statistics). The engine
+        // adds its own rule (Batch.Restrictions: any enrichment restricts occupancy) and writes both into the manifest.
+        var restrictions = new SortedDictionary<string, IReadOnlyDictionary<string, string>>(StringComparer.Ordinal);
+        if (root.OptionalTable("restrictions") is { } rx)
+        {
+            foreach (string key in rx.Keys.ToList())
+            {
+                if (!IsAccession(SearchKey.Accession(key)))
+                    throw new ConfigException(file, $"'restrictions' key '{key}' is not a PXD accession or a split search's key (PXD027754-rat)");
+                var t = rx.RequiredTable(key);
+                var uses = new SortedDictionary<string, string>(StringComparer.Ordinal);
+                foreach (string use in t.Keys.ToList())
+                {
+                    if (!Question.RestrictionUses.Contains(use))
+                        throw new ConfigException(file, $"restrictions.{key}.{use} is not a use dataRepo knows ({string.Join(", ", Question.RestrictionUses)}): "
+                            + "dataRepo refuses the whole manifest over it, and a use no filter knows leaves the dataset looking unrestricted");
+                    string reason = t.RequiredString(use).Trim();
+                    if (reason.Length == 0) throw new ConfigException(file, $"restrictions.{key}.{use} gives no reason: a reader is owed why the dataset is unfit for it");
+                    uses[use] = reason;
+                }
+                if (uses.Count == 0) throw new ConfigException(file, $"restrictions.{key} names no use");
+                t.RefuseUnknownKeys();
+                restrictions[key] = uses;
+            }
+            rx.RefuseUnknownKeys();
+        }
+
         root.RefuseUnknownKeys();
         return new Question(name, description, file, profiles, keywords, organisms,
             new RelevanceRules(require, exclude, unless, decisions), overlays, requiredTraits, optionalTraits,
             traitsSource, holds, studyLayer, batch,
             new PublishSettings(manifest is null ? null : Abs(dir, manifest), command, everyHours, publishTimeout), designs,
-            new DiscoverLists(diseaseKeywords, watchKeywords), exceptions, splits, gate);
+            new DiscoverLists(diseaseKeywords, watchKeywords), exceptions, splits, gate, restrictions);
     }
 
     /// <summary>

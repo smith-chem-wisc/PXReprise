@@ -39,6 +39,21 @@ mid-batch?** Yes: swap the pin as usual.
     deletes), and its provenance says so. `output_sdrf_read_only = false` in the machine file turns this off.
   - Deleting a search folder by hand now needs `Remove-Item -Recurse -Force` (or clearing the flag first); a plain
     recursive delete stops at the read-only file.
+- **The batch writes each manifest entry's `restrictions`, and a question declares its own in `[restrictions]`** (aging
+  PXR-A51, DATAREPO-74; the user, 2026-11-11).
+  - Since datarepo 1.3.4 the catalog shows, for each dataset, the uses it is unfit for (`dataset_restrictions`), read from
+    the manifest's `restrictions`. None was ever written: aging's list of 41 from 2026-10-07 waited to be typed in, and a
+    month later 15 of its rows no longer held (those deposits had been re-searched with their own cysteine reagent), and it
+    missed every deposit delivered since.
+  - Now the batch writes them, from two sources only. Its rule: an entry whose `enrichment` or `run_enrichment` names
+    anything but `none` is restricted for `occupancy`. And the question's `[restrictions.<key>]`, for the judgments no
+    recorded fact shows (an immunopeptidome searched as tryptic, too few PSMs for protein statistics). Uses and reasons
+    are checked when the question is loaded, against dataRepo's list.
+  - They are written at delivery, in the same write as the entry, and brought up to date at every start of the batch.
+    The first start of this release writes them for every entry delivered before it: on aging's manifest, 74 entries (47
+    of them served), every one for `occupancy`. A restriction written into the manifest by hand is replaced.
+  - `pxreprise batch restrictions <question>` shows what a start would write; `--manifest` and `--write` write a copy.
+  - The repository needs a rebuild only; no bundle id moves.
 
 ## 0.4.45 (2026-11-11)
 

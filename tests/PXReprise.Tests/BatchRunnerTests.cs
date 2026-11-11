@@ -1318,6 +1318,25 @@ public class BatchRunnerTests
         Assert.That(log, Does.Contain("PXD000942 RE-SEARCH (catch-up").And.Contain("PXD000943 RE-SEARCH (catch-up"));
     }
 
+    // v0.4.46 (aging PXR-A51): a driver's start brings every entry's `restrictions` to the rule and the question, so the first
+    // start of the release writes them for the deposits delivered before it, and a changed [restrictions] takes effect.
+    [Test]
+    public async Task ADriverStartWritesEveryEntrysRestrictions()
+    {
+        var (runner, _, _, dir) = Runner("[publish]\nmanifest = \"manifest.yaml\"\n"
+            + "[restrictions.PXD000953]\nprotein_statistics = \"5 of 10 runs under 400 PSMs\"\n");
+        string mf = TestSupport.WriteFile(dir, "manifest.yaml", "manifest_version: 1\r\ndatasets:\r\n\r\n  - accession: PXD000952\r\n    status: include\r\n"
+            + "    enrichment: [phospho]\r\n    restrictions: {cysteine: \"stale: re-searched since\"}\r\n    notes: n\r\n"
+            + "\r\n  - accession: PXD000953\r\n    status: include\r\n    enrichment: [none]\r\n");
+
+        await runner.RunAsync(Array.Empty<QueueEntry>(), CancellationToken.None);
+
+        string text = File.ReadAllText(mf);
+        Assert.That(text, Does.Contain("    enrichment: [phospho]\r\n    restrictions:\r\n      occupancy: \"enriched (phospho): ").And.Not.Contain("stale"));
+        Assert.That(text, Does.EndWith("    enrichment: [none]\r\n    restrictions:\r\n      protein_statistics: \"5 of 10 runs under 400 PSMs\"\r\n"));
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain("  restrictions 2 entries restricted; 2 rewritten (PXD000952, PXD000953)"));
+    }
+
     // Aging 222, PXR-A176: a deposit the manifest excludes is never re-searched by the catch-up, even when the question
     // stops naming the profile it was searched under. The catch-up calls Research, which refuses any manifest status but
     // `include` before moving anything; the driver goes on to the next candidate. (Our aging 218 wrongly said otherwise.)
@@ -2412,6 +2431,8 @@ public class BatchRunnerTests
 
     // aging 042 (PXR-A36): keys the batch does not write are the owner's, and survive a re-search verbatim. The two
     // search-decided flags come from the new search's provenance (D28: @4 has a design and writes its own SDRF).
+    // v0.4.46 (aging PXR-A51): `restrictions` is no longer one of them. It is written from the question, so a hand-written
+    // one is replaced by what the question declares.
     [Test]
     public void AReSearchKeepsKeysItDoesNotOwnAndTakesTheDesignFlagsFromTheNewSearch()
     {
@@ -2428,10 +2449,12 @@ public class BatchRunnerTests
         {
             ["researched"] = new JsonArray(new JsonObject { ["utc"] = "2026-10-08T00:00:00+00:00", ["reason"] = "1.1.12", ["previous_profile"] = "label-free-dda@1", ["moved_to"] = "x" }),
         };
-        ManifestEntry.Append(manifest, new QueueEntry("PXD012753", "Muscle", "mouse"), Profiles["label-free-dda@4"], run, state, dir);
+        ManifestEntry.Append(manifest, new QueueEntry("PXD012753", "Muscle", "mouse"), Profiles["label-free-dda@4"], run, state, dir,
+            restrictions: new Dictionary<string, string> { ["protein_statistics"] = "5 of 10 runs under 400 PSMs" });
         string text = File.ReadAllText(manifest);
         Assert.That(text, Does.Contain("    excluded_runs:\n      20170317_VM_17: \"242 PSMs (aging S72, D68)\"\n      20170317_VM_18: \"326 PSMs\"\n"));
-        Assert.That(text, Does.Contain("    restrictions: {protein_statistics: \"few PSMs\"}\n"));
+        Assert.That(text, Does.Not.Contain("few PSMs"));
+        Assert.That(text, Does.Contain("    restrictions:\n      protein_statistics: \"5 of 10 runs under 400 PSMs\"\n    notes: >\n"));
         Assert.That(text, Does.Contain("    flags: []").And.Contain("metamorpheus: \"1.1.12\""));
     }
 

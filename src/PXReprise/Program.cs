@@ -25,7 +25,7 @@ public static class Program
     {
         try
         {
-            var args = new Arguments(argv, new HashSet<string>(StringComparer.Ordinal) { "queue" });
+            var args = new Arguments(argv, new HashSet<string>(StringComparer.Ordinal) { "queue", "write" });
             if (args.Words.Count == 0) throw new UsageException($"a verb is required: {string.Join(", ", Verbs)}");
             object? data = await Dispatch(args, ct, searchFactory, rankSource).ConfigureAwait(false);
             return Envelope.Ok(stdout, data);
@@ -333,9 +333,11 @@ public static class Program
                 // pxreprise batch retry <question.toml> <PXD> --reason "..."
                 var rest = args.Words.Skip(1).ToList();
                 // pxreprise batch research <question.toml> <PXD> --reason "..." [--profile key@n]
-                if (!(rest.Count == 2 && rest[0] is ("run" or "status" or "stop")) && !(rest.Count == 3 && rest[0] is ("retry" or "research")))
-                    throw new UsageException("usage: pxreprise batch run|status|stop <question.toml> --machine m.toml, batch retry <question.toml> <PXD> --reason \"...\", or batch research <question.toml> <PXD> --reason \"...\" [--profile key@n]");
-                args.AllowOnly("machine", "profiles", "run-date", "reason", "profile");
+                // pxreprise batch restrictions <question.toml> [--manifest copy.yaml] [--write]
+                if (!(rest.Count == 2 && rest[0] is ("run" or "status" or "stop" or "restrictions")) && !(rest.Count == 3 && rest[0] is ("retry" or "research")))
+                    throw new UsageException("usage: pxreprise batch run|status|stop <question.toml> --machine m.toml, batch retry <question.toml> <PXD> --reason \"...\", batch research <question.toml> <PXD> --reason \"...\" [--profile key@n], or batch restrictions <question.toml> [--manifest file] [--write]");
+                args.AllowOnly("machine", "profiles", "run-date", "reason", "profile", "manifest", "write");
+                if ((args.Has("manifest") || args.Has("write")) && rest[0] != "restrictions") throw new UsageException("--manifest and --write are for batch restrictions only");
                 if (args.Option("profile") is not null && rest[0] != "research") throw new UsageException("--profile is for batch research only");
                 var q = QuestionLoader.Load(rest[1]);
                 var b = q.Batch ?? throw new ConfigException(q.SourceFile, "a batch needs a [batch] table");
@@ -356,6 +358,28 @@ public static class Program
                         if (key is not null && !q.Profiles.Contains(key))
                             throw new UsageException($"--profile {key} is not among the question's profiles ({string.Join(", ", q.Profiles)}); add it to the question first");
                         return Batch.BatchRunner.Research(b.StateDir, b.RunRoot, rest[2], args.Required("reason"), key, q.Publish?.Manifest);
+                    }
+                    case "restrictions":
+                    {
+                        // v0.4.46 (aging PXR-A51): what the driver's start writes into the manifest's `restrictions`, shown
+                        // without writing; --write writes it, refused on the live manifest while a driver runs (it is the
+                        // manifest's writer, and syncs at its own start anyway). --manifest points at a copy, e.g. to check it
+                        // with `datarepo manifest` first.
+                        string mf = args.Option("manifest") ?? q.Publish?.Manifest
+                                    ?? throw new ConfigException(q.SourceFile, "the question names no [publish] manifest; give --manifest");
+                        if (!File.Exists(mf)) throw new UsageException($"no manifest at {mf}");
+                        bool write = args.Has("write");
+                        if (write && args.Option("manifest") is null && Batch.BatchRunner.LiveDriver(Path.Combine(b.StateDir, "driver.pid")) is { } live)
+                            throw new UsageException($"driver {live} is running and writes this manifest; it syncs restrictions at its next start (or give --manifest for a copy)");
+                        var r = Batch.Restrictions.Sync(mf, q.Restrictions, write);
+                        return new
+                        {
+                            manifest = mf,
+                            written = write && r.Changed.Count > 0,
+                            restricted = r.Restricted,
+                            changed = r.Changed,
+                            waiting_for_delivery = r.Waiting,
+                        };
                     }
                     case "stop":
                         // Taken at the top of the loop: the search in flight, its cleanup and delivery finish first.

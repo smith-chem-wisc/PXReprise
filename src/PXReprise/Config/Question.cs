@@ -42,8 +42,20 @@ public sealed record Question(
     DiscoverLists? Lists = null,
     IReadOnlyDictionary<string, DepositException>? Exceptions = null,
     IReadOnlyDictionary<string, IReadOnlyList<string>>? Splits = null,
-    GateTerms? Gate = null)
+    GateTerms? Gate = null,
+    IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? Restrictions = null)
 {
+    /// <summary>
+    /// v0.4.46 (aging PXR-A51, DATAREPO-74): the uses a manifest <c>restrictions</c> entry may name, as datarepo 1.3.4+
+    /// reads them (<c>DatasetEntry.RestrictionUses</c>). dataRepo refuses the whole manifest over any other key, so the
+    /// question's <c>[restrictions]</c> is checked against this list when it is loaded, not at the next build.
+    /// </summary>
+    public static readonly IReadOnlyList<string> RestrictionUses =
+        new[] { "protein_statistics", "quantitation", "age_analysis", "any_analysis", "occupancy", "cysteine" };
+
+    /// <summary>The uses the question itself declares for one manifest key (<c>[restrictions.&lt;key&gt;]</c>), or null.</summary>
+    public IReadOnlyDictionary<string, string>? RestrictionsFor(string key) => Restrictions?.GetValueOrDefault(key);
+
     /// <summary>
     /// The question's exception for one search key, or null: a deposit's <c>[exceptions]</c> entry, or for a split search
     /// (<c>PXD027754-mouse</c>) its group's settings, which take the same keys.

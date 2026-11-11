@@ -117,6 +117,7 @@ pxreprise batch status question.toml
 pxreprise batch stop   question.toml
 pxreprise batch retry  question.toml PXD000000 --reason "why"
 pxreprise batch research question.toml PXD000000 --reason "why" [--profile label-free-dda@14]
+pxreprise batch restrictions question.toml [--manifest copy.yaml] [--write]
 ```
 
 - `run` works through the queue, one deposit at a time, until the queue is done, the disk is full, or it is stopped.
@@ -136,6 +137,10 @@ pxreprise batch research question.toml PXD000000 --reason "why" [--profile label
   `--profile` when given (one of the question's own profiles), else as routing chooses. The delivery already in the
   repository stays served until the new search is ingested. Refused while a batch is running, for a deposit with no
   finished search (use `retry`), and for one the manifest does not `include`.
+- `restrictions` (since 0.4.46) shows what the next `run` writes into each manifest entry's `restrictions`: the
+  `occupancy` rule for enriched entries and the question's `[restrictions]` (see [Writing a question](questions.md)). It
+  changes nothing unless `--write` is given, which is refused on the question's own manifest while a batch is running (the
+  batch writes it at its next start anyway). `--manifest` points it at another file, such as a copy to check first.
 
 A deposit put back with `retry` or `research` goes ahead of the queue order, oldest request first. A deposit already
 downloaded still goes before it.

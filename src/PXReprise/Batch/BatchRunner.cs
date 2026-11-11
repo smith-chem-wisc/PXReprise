@@ -504,6 +504,7 @@ public sealed class BatchRunner
                 _ingestJson = vrc == 0 && TakesIngestJson(version);
                 Log($"  datarepo version: {(version.Length > 0 ? version : $"unknown (rc {vrc})")}; ingest reads {(_ingestJson ? "the --json envelope" : "the exit code")}");
             }
+            SyncRestrictions();
             await ReconcileAsync(queue, ct).ConfigureAwait(false);
             if (Publishes)
             {
@@ -1834,7 +1835,7 @@ public sealed class BatchRunner
         {
             ManifestEntry.EnsureExists(manifest, _q.Name, _runRoot);
             var split = _q.ExceptionFor(e.Accession)?.Split;
-            ManifestEntry.Append(manifest, e, profile, Run(e.Accession), Entry(e.Accession), _m.WorkRoot, split);
+            ManifestEntry.Append(manifest, e, profile, Run(e.Accession), Entry(e.Accession), _m.WorkRoot, split, _q.RestrictionsFor(e.Accession));
             Log($"{e.Accession} MANIFEST entry appended" + (split is null ? "" : $" (split by {split.By}; {split.Accession}'s own entry, if served, retired as superseded)"));
             var qcNames = JsonNode.Parse(File.ReadAllText(Path.Combine(Run(e.Accession), "02b_qc", "qc_report.json")))!.AsObject().Select(kv => kv.Key);
             if (MixedSamples.Detect(qcNames) is { } mixed)
@@ -1906,6 +1907,28 @@ public sealed class BatchRunner
             : "within a minute";
 
     private bool Publishes => _q.Publish is { Manifest: not null, Command.Count: > 0 } && _m.DataRepo is not null;
+
+    /// <summary>
+    /// v0.4.46 (aging PXR-A51): at each start, every manifest entry's <c>restrictions</c> is brought to the rule and the
+    /// question's <c>[restrictions]</c> (<see cref="Restrictions"/>). The driver reads the question only at start, so a start
+    /// is when a changed declaration can take effect; the first start of v0.4.46 writes them for every delivered entry. A
+    /// failure is logged and the batch goes on: a restriction is the catalog's annotation, not a delivery.
+    /// </summary>
+    private void SyncRestrictions()
+    {
+        if (_q.Publish?.Manifest is not { } mf || !File.Exists(mf)) return;
+        try
+        {
+            var r = Restrictions.Sync(mf, _q.Restrictions);
+            Log($"  restrictions {r.Restricted} entr{(r.Restricted == 1 ? "y" : "ies")} restricted; {r.Changed.Count} rewritten"
+                + (r.Changed.Count > 0 ? $" ({string.Join(", ", r.Changed.Keys.Take(12))}{(r.Changed.Count > 12 ? ", ..." : "")})" : "")
+                + (r.Waiting.Count > 0 ? $"; the question's {string.Join(", ", r.Waiting)} wait for their delivery" : ""));
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            Log($"  restrictions NOT synced: {ex.Message}");
+        }
+    }
 
     private volatile bool _publishRunning;
 
