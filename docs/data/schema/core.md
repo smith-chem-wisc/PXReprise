@@ -536,7 +536,7 @@ Protein -> stable Ensembl gene, as logs' resolver (mzLib `EnsemblGeneResolver`, 
 
 | Column | Type | Req | Meaning |
 |---|---|---|---|
-| `definition_id` | [Definition](#definition) | yes | `logs:DEF-GENE-RESOLUTION v1`. A run without Ensembl's xref is not v1 and is refused by the runner (logs 017 section 3). |
+| `definition_id` | [Definition](#definition) | yes | `logs:DEF-GENE-RESOLUTION v1`, or `v2` on a row that fills `ensembl_xref_agreement` (logs 034, schema 0.0.17). A v1 row never carries the v2 column, so never read a v1 row's NULL there as a v2 answer. A run without Ensembl's xref is neither and is refused by the runner (logs 017 section 3). |
 | `accession` | `string` | yes | As the search database has it, variant suffix and all. |
 | `entry_accession` | `string` |  | The UniProt entry or unversioned RefSeq accession; verbatim otherwise. Joins to `proteins.protein_accession` (the same accession under the name logs' artefact uses); the catalog's `protein_genes` view has already made that join. |
 | `isoform` | `integer` |  | UniProt isoform number. NULL: the accession has no `-N` suffix. |
@@ -556,6 +556,7 @@ Protein -> stable Ensembl gene, as logs' resolver (mzLib `EnsemblGeneResolver`, 
 | `ensembl_xref_agrees` | `boolean` |  | Whether Ensembl's UniProt xref links this pair. NULL: the row has no gene (unknown, not false). |
 | `ensembl_xref_info_type` | `string` |  | Ensembl's evidence for the link (`DIRECT`, `SEQUENCE_MATCH`, `INFERRED_PAIR`). NULL: no xref link. |
 | `ensembl_xref_sha256` | `string` | yes | sha256 of Ensembl's UniProt xref file. Always present: v1 requires the xref. |
+| `ensembl_xref_agreement` | [XrefAgreement](#xrefagreement) |  | What Ensembl's xref says of this row (logs:DEF-GENE-RESOLUTION v2, mzLib #1578): `agrees` exactly where `ensembl_xref_agrees` is true; `silent` where the xref has no row for the accession or its entry; `disagrees` where it links the accession to other genes. NULL where `ensembl_xref_agrees` is NULL (no gene), and on EVERY v1 row: until dataRepo's mzLib carries #1578 (not merged on 2026-11-11), every run writes v1 rows and this column is empty, which says nothing about Ensembl. logs' and aging's default gene view is `agrees` or `silent` (aging REQ-AGING-9). |
 
 ## FeatureSet
 
@@ -866,6 +867,16 @@ Which q-value a search's 1% rule reads, chosen ONCE PER SEARCH by mzLib's `Quant
 | `pep_q_value` | PEP was trained for the search (some target PSM's PEP q-value is in [0, 1], and its target PSMs' PEPs are not all one value), so its PEP q-value is read, whatever that accepts. |
 | `q_value_notch` | PEP was not trained, and the search reports notch q-values; its notch q-value is read. |
 | `q_value` | Neither PEP nor a notch q-value is usable; the plain q-value is read. |
+
+### XrefAgreement
+
+What Ensembl's UniProt xref says of a (protein, gene) row (logs:DEF-GENE-RESOLUTION v2, mzLib #1578).
+
+| Value | Meaning |
+|---|---|
+| `agrees` | The xref links this accession to this gene. |
+| `silent` | The xref has no row for the accession nor for its entry. |
+| `disagrees` | The xref knows the accession but links it to other genes. |
 
 ### DetectionType
 

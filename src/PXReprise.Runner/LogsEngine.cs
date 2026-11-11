@@ -55,6 +55,10 @@ public static class LogsEngine
 {
     public const string Engine = "logs.resolve_genes";
     public const string DefinitionId = "logs:DEF-GENE-RESOLUTION v1";
+
+    /// <summary>The definition a run writes once it fills <c>ensembl_xref_agreement</c> (logs 034, mzLib #1578). Not yet
+    /// written: our mzLib does not carry #1578, so every row is v1 and the column is empty (schema 0.0.17, D59).</summary>
+    public const string DefinitionIdV2 = "logs:DEF-GENE-RESOLUTION v2";
     public const string Table = "gene_resolutions";
     public static readonly IReadOnlyList<string> Roles = ["gene_set", "xref", "logs_manifest"];
 
@@ -239,6 +243,7 @@ public static class LogsEngine
         var n = names.Count > 0 ? result.Columns[names[0]].Count : 0;
         if (n == 0) throw new RunnerException("the resolver returned no rows for the database");
         var outcomes = SchemaDocs.Enums["GeneResolutionOutcome"].Values.ToHashSet(StringComparer.Ordinal);
+        var agreements = SchemaDocs.Enums["XrefAgreement"].Values;
         var expected = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["gene_set_sha256"] = S(rowValues["gene_set_sha256"]),
@@ -268,6 +273,17 @@ public static class LogsEngine
             }
             if (row.GetValueOrDefault("outcome") is not string outcome || !outcomes.Contains(outcome))
                 throw new RunnerException($"{where}: outcome {PyFormat.Repr(row.GetValueOrDefault("outcome"))} is not one of mzLib's [{string.Join(", ", outcomes.Order(StringComparer.Ordinal).Select(o => $"'{o}'"))}]");
+            // Schema 0.0.17 (logs 034/035, D59): the column is checked against the schema's three words, since the writer
+            // checks no enum, and a value can never sit on a v1 row. It stays empty until our mzLib carries #1578.
+            if (row.GetValueOrDefault("ensembl_xref_agreement") is { } agreement)
+            {
+                if (agreement is not string word || !agreements.Contains(word))
+                    throw new RunnerException($"{where}: ensembl_xref_agreement {PyFormat.Repr(agreement)} is not one of [{string.Join(", ", agreements.Select(a => $"'{a}'"))}]");
+                if (DefinitionId != DefinitionIdV2)
+                    throw new RunnerException(
+                        $"{where}: ensembl_xref_agreement is {DefinitionIdV2}'s column, and this runner writes {DefinitionId} rows. "
+                        + "Fill it only with the runner change that labels the rows v2.");
+            }
             row["definition_id"] = DefinitionId;
             rows.Add(row);
         }

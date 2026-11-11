@@ -308,6 +308,13 @@ public class McpParityTests
         // columns themselves and their NULL notices are still compared.
         (new Regex(@" -- <matched_ion_(?:series|count): rewritten for PXR-R44>", RegexOptions.CultureInvariant), ""),
         (new Regex(@",\s*""means"": ""<matched_ion_(?:series|count): rewritten for PXR-R44>""", RegexOptions.CultureInvariant), ""),
+        // 1.5.0 (logs 034/035, D59, schema 0.0.17) rewrites gene_resolutions.definition_id's description for v2. The old and
+        // the new text each mask to one placeholder; the column line around them is still compared.
+        .. new[]
+        {
+            "`logs:DEF-GENE-RESOLUTION v1`. A run without Ensembl's xref is not v1 and is refused by the runner (logs 017 section 3).",
+            "`logs:DEF-GENE-RESOLUTION v1`, or `v2` on a row that fills `ensembl_xref_agreement` (logs 034, schema 0.0.17). A v1 row never carries the v2 column, so never read a v1 row's NULL there as a v2 answer. A run without Ensembl's xref is neither and is refused by the runner (logs 017 section 3).",
+        }.Select(text => (new Regex(Regex.Escape(text), RegexOptions.CultureInvariant), "<definition_id: rewritten for logs 034>")),
         // 1.4.5 (PXR-R32, catalog format 16): the indexes count DEPOSITS, so their dataset columns are reworded; old and new
         // texts mask to one placeholder per column. dataset_overview gains one sentence, and peptide_index.n_datasets a
         // description Python never had: only those are removed, so the text both answers share is still compared.
