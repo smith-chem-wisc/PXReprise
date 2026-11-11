@@ -162,8 +162,11 @@ Each of these waits is listed for a person in `decisions_needed.tsv`. A deposit 
 A profile can also take an experimental design (`[quant] design = "sdrf"`, `label-free-dda@4` onward and every `lowres`
 profile): before the search, PXReprise writes MetaMorpheus's `ExperimentalDesign.tsv` from the question's own SDRF for that deposit, or else
 from the deposit's, so quantification knows the conditions and replicates. With no usable SDRF it writes a default design,
-one condition with each file its own replicate, and the search says so. An isobaric profile does the same with
-`TmtDesign.txt`, and a search on its default design is flagged `no_channel_design`.
+one condition with each file its own replicate, and the search says so. An isobaric profile writes `TmtDesign.txt` the
+same way, but only from an SDRF that states which files form each plex, their fractions and their technical replicates.
+Since 0.4.46 there is no default isobaric design: a deposit no SDRF describes waits as `waiting_isobaric_design` until one
+does. (0.4.34 to 0.4.45 searched such a deposit with each file its own plex, flagged `no_channel_design`; those searches
+are restricted for `quantitation` in the catalog.)
 
 **Spectral libraries** (`[engine] spectral_library = true`). A search that has a library reads the organism's current
 version, and adds its own spectra as the next version. `pxreprise library list` shows them.

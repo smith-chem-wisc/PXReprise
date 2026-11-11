@@ -243,7 +243,8 @@ public static class ManifestEntry
         if (split is not null) text = RetireSplitDeposit(text, split);
         string tmp = manifestPath + ".pxreprise-tmp";
         string written = text.TrimEnd('\n') + "\n" + entry.ReplaceLineEndings("\n").TrimEnd('\n') + "\n";
-        written = Restrictions.ApplyTo(written, e.Accession, restrictions);
+        written = Restrictions.ApplyTo(written, e.Accession, restrictions,
+            search["experimental_design"]?["flag"]?.GetValue<string>() == Search.DesignStage.NoChannelDesign);
         File.WriteAllText(tmp, crlf ? written.ReplaceLineEndings("\r\n") : written);
         File.Move(tmp, manifestPath, overwrite: true);
     }

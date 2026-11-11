@@ -1334,7 +1334,7 @@ public class BatchRunnerTests
         string text = File.ReadAllText(mf);
         Assert.That(text, Does.Contain("    enrichment: [phospho]\r\n    restrictions:\r\n      occupancy: \"enriched (phospho): ").And.Not.Contain("stale"));
         Assert.That(text, Does.EndWith("    enrichment: [none]\r\n    restrictions:\r\n      protein_statistics: \"5 of 10 runs under 400 PSMs\"\r\n"));
-        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain("  restrictions 2 entries restricted; 2 rewritten (PXD000952, PXD000953)"));
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain("  restrictions 2 entries restricted (0 for no stated isobaric design); 2 rewritten (PXD000952, PXD000953)"));
     }
 
     // Aging 222, PXR-A176: a deposit the manifest excludes is never re-searched by the catch-up, even when the question
@@ -1418,17 +1418,61 @@ public class BatchRunnerTests
         Assert.That(() => Machine.Load(M("aspera_attempts = -1\n")), Throws.InstanceOf<ConfigException>());
     }
 
-    private static (BatchRunner Runner, FakeSearch Search, FakeFiles Files, string Dir) DepositChemistryRunner(string profiles = "\"label-free-dda@3\"")
+    private static (BatchRunner Runner, FakeSearch Search, FakeFiles Files, string Dir) DepositChemistryRunner(string profiles = "\"label-free-dda@3\"", bool designs = false)
     {
         string dir = TestSupport.TempDir();
         string q = TestSupport.MinimalQuestion.Replace("profiles = [\"label-free-dda@1\", \"tmt-dda@1\"]", $"profiles = [{profiles}]")
             + "\n[batch]\nrun_root = \"runs\"\nstate_dir = \"state\"\nqueue = \"queue.json\"\n";
+        if (designs)
+        {
+            Directory.CreateDirectory(Path.Combine(dir, "designs"));
+            q += "\n[designs]\ndir = \"designs\"\n";
+        }
         var question = QuestionLoader.Load(TestSupport.WriteFile(dir, "question.toml", q));
         var machine = Machine.Load(TestSupport.WriteFile(dir, "machine.toml",
             $"work_root = '{dir}'\nmin_free_gb = 0\n[metamorpheus]\n\"1.1.11\" = 'C:/nowhere/CMD.exe'\n"));
         var search = new FakeSearch();
         var files = new FakeFiles { Listing = Enumerable.Range(1, 6).Select(i => new PrideArchiveFile { FileName = $"run{i}.raw", FileSizeBytes = 500_000_000 }).ToList() };
         return (new BatchRunner(question, Profiles, machine, files, search, "2026-10-05") { Sha1Source = NoSha1 }, search, files, dir);
+    }
+
+    // v0.4.46 (G69; the user, 2026-11-11): an isobaric deposit no SDRF describes waits after its probe, before the whole
+    // download, instead of being searched with each file its own plex. "These are definitely not plexes ... These fractions
+    // also must correctly be collapsed ... I think this must be in SDRF." It gets one more look when the question's design
+    // for it is added or changed, and the deposit's own SDRF counts when it states the plexes.
+    [Test]
+    public void AnIsobaricDepositWithNoStatedDesignWaitsAndGetsOneMoreLookWhenItsDesignArrives()
+    {
+        var (runner, _, _, dir) = DepositChemistryRunner("\"label-free-dda@3\", \"tmt-dda@2\"", designs: true);
+        var selection = new[] { "a.raw", "b.raw", "c.raw", "d.raw" };
+        var probeQc = new JsonObject(selection.Select(f => KeyValuePair.Create(f, (JsonNode?)new JsonObject { ["isobaric_kit"] = "TMT10" })));
+        const string acc = "PXD000430";
+
+        Assert.That(runner.IsobaricDesignHold(acc, probeQc, selection),
+            Does.Contain("plexes, fractions and technical replicates").And.Contain("no curated design and no deposited SDRF"));
+        Assert.That(runner.DesignStamp(acc), Is.EqualTo("none"));
+        runner.Record(acc, ("status", BatchRunner.IsobaricDesignStatus), ("design_stamp", runner.DesignStamp(acc)));
+        Assert.That(runner.Settled(acc), Is.EqualTo(BatchRunner.IsobaricDesignStatus), "settled while nothing changes");
+        Assert.That(DecisionsNeeded.AnnouncedParks, Does.Not.Contain(BatchRunner.IsobaricDesignStatus), "a capability wait: the SDRF is made for it, no one is asked");
+
+        // A curated SDRF that states the two plexes (a.raw/b.raw and c.raw/d.raw are fractions of each) arrives.
+        DesignStageTests.TmtSdrf(Path.Combine(dir, "designs"), $"{acc}.sdrf.tsv", plexColumn: "characteristics[plex]");
+        Assert.That(runner.Settled(acc), Is.Empty, "one more look");
+        Assert.That(runner.IsobaricDesignHold(acc, probeQc, selection), Is.Null);
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain($"{acc} PROBE isobaric design: TMT10, the question SDRF (column: characteristics[plex]; 4 files)"));
+        runner.Record(acc, ("design_stamp", runner.DesignStamp(acc)));
+        Assert.That(runner.Settled(acc), Is.EqualTo(BatchRunner.IsobaricDesignStatus), "the look is recorded, so it is not taken again");
+
+        // The deposit's own SDRF counts when it states the plexes, and not when it does not (two plexes, no plex column).
+        string metadata = Path.Combine(dir, "runs", "PXD000431", "02_fetch", "metadata");
+        DesignStageTests.TmtSdrf(metadata, "PXD000431.sdrf.tsv");
+        Assert.That(runner.IsobaricDesignHold("PXD000431", probeQc, selection), Does.Contain("every SDRF was refused"));
+        DesignStageTests.TmtSdrf(metadata, "PXD000431.sdrf.tsv", plexColumn: "characteristics[plex]");
+        Assert.That(runner.IsobaricDesignHold("PXD000431", probeQc, selection), Is.Null);
+
+        // A probe that read no single kit is not judged here: the search refuses it with its own reason.
+        probeQc["d.raw"]!["isobaric_kit"] = "iTRAQ-8plex";   // two reagents (TMT10 and TMT11 would read as TMT11)
+        Assert.That(runner.IsobaricDesignHold("PXD000432", probeQc, selection), Is.Null);
     }
 
     [Test]

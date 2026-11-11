@@ -371,12 +371,18 @@ public static class Program
                         bool write = args.Has("write");
                         if (write && args.Option("manifest") is null && Batch.BatchRunner.LiveDriver(Path.Combine(b.StateDir, "driver.pid")) is { } live)
                             throw new UsageException($"driver {live} is running and writes this manifest; it syncs restrictions at its next start (or give --manifest for a copy)");
-                        var r = Batch.Restrictions.Sync(mf, q.Restrictions, write);
+                        // v0.4.46 (G69): an entry's `run` is relative to the machine's work root; without --machine, the run
+                        // root's parent, where the batch puts it.
+                        string workRoot = args.Option("machine") is { } restrictionsMachine ? Machine.Load(restrictionsMachine).WorkRoot : Path.GetDirectoryName(Path.GetFullPath(b.RunRoot))!;
+                        var noDesign = Batch.Restrictions.NoChannelDesignKeys(Batch.ManifestEntry.ReadLf(mf), workRoot, out var unread);
+                        var r = Batch.Restrictions.Sync(mf, q.Restrictions, write, noDesign);
                         return new
                         {
                             manifest = mf,
                             written = write && r.Changed.Count > 0,
                             restricted = r.Restricted,
+                            no_stated_isobaric_design = noDesign.Order(StringComparer.Ordinal).ToList(),
+                            isobaric_provenance_unread = unread,
                             changed = r.Changed,
                             waiting_for_delivery = r.Waiting,
                         };

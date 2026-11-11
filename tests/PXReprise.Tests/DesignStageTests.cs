@@ -78,7 +78,7 @@ public class DesignStageTests
     /// A TMT10 SDRF, one row per file and channel: a.raw and b.raw are fractions 1 and 2 of one plex (samples s1-s10), c.raw
     /// and d.raw of a second (s11-s20). Channels 1-5 are young, 6-10 old. <paramref name="plexColumn"/> adds a plex column.
     /// </summary>
-    private static string TmtSdrf(string dir, string name, string? plexColumn = null, bool twoPlexes = true)
+    internal static string TmtSdrf(string dir, string name, string? plexColumn = null, bool twoPlexes = true)
     {
         var lines = new List<string> { Header + "\tfactor value[age]" + (plexColumn is null ? "" : $"\t{plexColumn}") };
         var files = new[] { "a.raw", "b.raw", "c.raw", "d.raw" }.Take(twoPlexes ? 4 : 2).ToArray();
@@ -159,128 +159,32 @@ public class DesignStageTests
         Assert.That(rec["plexes"]!.AsArray().Select(x => x!.GetValue<string>()), Is.EqualTo(new[] { "plex1", "plex2" }));
     }
 
-    // With no SDRF that gives a channel design, the search runs on PXReprise's default and is flagged (QuantProject 079,
-    // as D31 for label-free): each file its own plex, each channel its own sample, so no two files are taken to share one.
+    // v0.4.46 (G69; the user, 2026-11-11): no default isobaric design. Until v0.4.45 a deposit no SDRF described was searched
+    // with each file its own plex, so the fractions a.raw/b.raw of one plex became two plexes and their channels 20 samples
+    // (PXD034564: one TMT10 plex in 32 files came out as 32 plexes and 320 samples). The user: "These are definitely not
+    // plexes ... These fractions also must correctly be collapsed ... I think this must be in SDRF." Now nothing is written
+    // and the search does not run; the batch parks the deposit until an SDRF states its plexes.
     [Test]
-    public void WithNoChannelDesignTheDefaultClaimsNothingAndIsFlagged()
+    public void WithNoStatedPlexAnIsobaricSearchIsRefusedNotDefaulted()
     {
         var (spectra, metadata, files) = Run();
         TmtSdrf(metadata, "PXD000001.sdrf.tsv");   // two plexes, no plex column: refused
-        var rec = DesignStage.PrepareIsobaric(spectra, files, null, null, "TMT10", "mouse", "PXD000001");
-        Assert.That((rec["source"]!.GetValue<string>(), rec["flag"]!.GetValue<string>()), Is.EqualTo((DesignStage.DefaultSource, DesignStage.NoChannelDesign)));
-        Assert.That(rec["reason"]!.GetValue<string>(), Is.EqualTo("every SDRF was refused"));
-        Assert.That(rec["sdrfs_refused"]![0]!["sdrf"]!.GetValue<string>(), Is.EqualTo("PXD000001.sdrf.tsv"));
-        Assert.That(rec["plexes"]!.AsArray().Select(x => x!.GetValue<string>()), Is.EqualTo(new[] { "a", "b", "c", "d" }), "each file its own plex");
-        var rows = File.ReadAllLines(Path.Combine(spectra, DesignStage.TmtFileName)).Skip(1).Select(l => l.Split('\t')).ToList();
-        Assert.That(rows, Has.Count.EqualTo(4 * 10));
-        Assert.That(rows.Select(r => r[2]).Distinct().Count(), Is.EqualTo(40), "each file and channel its own sample");
-        Assert.That(rows.Select(r => r[4]).Distinct(), Is.EqualTo(new[] { DesignStage.DefaultCondition }));
-        Assert.That(Path.GetDirectoryName(rec["sdrf"]!.GetValue<string>()), Does.EndWith("pxreprise_sdrf"), "never in metadata, where a later attempt would read it as the deposit's");
-        Assert.Throws<SearchSetupException>(() => DesignStage.FindIsobaric(spectra, files, null, null, "TMT99", out _), "an unknown kit is a wrong call");
-    }
+        var e = Assert.Throws<IsobaricDesignMissingException>(() => DesignStage.PrepareIsobaric(spectra, files, null, null, "TMT10"));
+        Assert.That(e, Is.InstanceOf<SearchSetupException>(), "a setup refusal: MetaMorpheus never runs");
+        Assert.That(e!.Message, Does.Contain("plexes, fractions and technical replicates").And.Contain("every SDRF was refused").And.Contain("waits"));
+        Assert.That(e.Record["sdrfs_refused"]![0]!["sdrf"]!.GetValue<string>(), Is.EqualTo("PXD000001.sdrf.tsv"));
+        Assert.That(File.Exists(Path.Combine(spectra, DesignStage.TmtFileName)), Is.False, "no design is invented");
+        Assert.That(Directory.Exists(Path.Combine(Path.GetDirectoryName(spectra)!, "pxreprise_sdrf")), Is.False, "and no default SDRF is written");
 
-    // v0.4.41: a default design used to call every channel of the kit a study sample. Three of the four TMT deposits delivered so far
-    // carry false ones: PXD051031 131C and PXD027548 130C (a neighbour's isotope, 0.045 and 0.047 of it), PXD043296 six of 18.
-    private static readonly string[] Tmt10Channels = { "126", "127N", "127C", "128N", "128C", "129N", "129C", "130N", "130C", "131N" };
-
-    // The channel stays in the design as `empty`, because MetaMorpheus writes a column for every channel of the kit whatever the design
-    // says, and datarepo 1.4.3 refuses a column no row labels (found on a real file, 2026-11-07). Blank sample name: that column's label
-    // is <file>_<channel>, which is also how datarepo labels such a row. MetaMorpheus 1.1.13 wants a biological replicate >= 1 on any row.
-    [Test]
-    public void TheDefaultDesignMarksAChannelWithNoSampleEmptyAndSaysWhichItMarked()
-    {
-        var (spectra, _, files) = Run();
-        var nine = Tmt10Channels.Where(c => c != "130C").ToList();
-
-        var rec = DesignStage.PrepareIsobaric(spectra, files, null, null, "TMT10", "mouse", "PXD000001", files.ToDictionary(Path.GetFileName, _ => (IReadOnlyList<string>)nine)!);
-
-        var lines = File.ReadAllLines(Path.Combine(spectra, DesignStage.TmtFileName));
-        var header = lines[0].Split('\t').ToList();
-        Assert.That(header, Does.Contain("Sample Type"));
-        int plex = header.IndexOf("Plex"), sample = header.IndexOf("Sample Name"), channel = header.IndexOf("TMT Channel"), condition = header.IndexOf("Condition"),
-            biorep = header.IndexOf("Biological Replicate"), type = header.IndexOf("Sample Type");
-        var rows = lines.Skip(1).Select(l => l.Split('\t')).ToList();
-        Assert.That(rows, Has.Count.EqualTo(4 * 10), "every channel of the kit, in every file");
-        Assert.That(rows.All(r => r.Length == header.Count), "every row has every column");
-
-        var fileA = rows.Where(r => r[plex] == "a").ToList();
-        Assert.That(fileA.Select(r => r[channel]), Is.EqualTo(Tmt10Channels), "in the kit's order");
-        var empty = fileA.Single(r => r[channel] == "130C");
-        Assert.That((empty[sample], empty[condition], empty[type]), Is.EqualTo(("", "", "empty")));
-        Assert.That(int.Parse(empty[biorep]), Is.GreaterThanOrEqualTo(1), "MetaMorpheus refuses a row with a biological replicate under 1");
-
-        var samples = fileA.Where(r => r[channel] != "130C").ToList();
-        Assert.That(samples.Select(r => r[type]).Distinct(), Is.EqualTo(new[] { "study sample" }));
-        Assert.That(samples.Select(r => r[condition]).Distinct(), Is.EqualTo(new[] { DesignStage.DefaultCondition }));
-        Assert.That(samples.Select(r => int.Parse(r[biorep])), Is.EqualTo(Enumerable.Range(1, 9)), "the samples' biological replicates have no gap");
-
-        Assert.That(rec["flag"]!.GetValue<string>(), Is.EqualTo(DesignStage.NoChannelDesign));
-        Assert.That(rec["channels_without_sample"]!["130C"]!.GetValue<int>(), Is.EqualTo(4), "the channel, and in how many files");
-        Assert.That(rec["design_sha256"]!.GetValue<string>(), Is.EqualTo(File.ReadAllText(Path.Combine(spectra, DesignStage.TmtMarkerName))), "the record names the design as written");
-        Assert.That(DesignStage.RemoveStale(spectra), Is.True, "still ours, so a later search removes it");
-    }
-
-    // PXD035577: two sets of eight samples on different channels of one kit. Each file is its own plex in a default design, so each is judged alone.
-    [Test]
-    public void TheDefaultDesignMarksEachFilesOwnEmptyChannels()
-    {
-        var (spectra, _, files) = Run();
-        var channels = new Dictionary<string, IReadOnlyList<string>>
-        {
-            ["a.raw"] = Tmt10Channels.Where(c => c is not ("129C" or "130C")).ToList(),
-            ["b.raw"] = Tmt10Channels.Where(c => c is not ("129C" or "130C")).ToList(),
-            ["c.raw"] = Tmt10Channels.Where(c => c is not ("126" or "131N")).ToList(),
-            ["d.raw"] = Tmt10Channels,
-        };
-
-        var rec = DesignStage.PrepareIsobaric(spectra, files, null, null, "TMT10", "mouse", "PXD000001", channels);
-
-        var rows = File.ReadAllLines(Path.Combine(spectra, DesignStage.TmtFileName)).Skip(1).Select(l => l.Split('\t')).ToList();
-        Assert.That(rows, Has.Count.EqualTo(4 * 10), "every channel of the kit, in every file");
-        string[] Empties(string plex) => rows.Where(r => r[1] == plex && r[8] == "empty").Select(r => r[3]).ToArray();
-        Assert.That(Empties("a"), Is.EqualTo(new[] { "129C", "130C" }));
-        Assert.That(Empties("b"), Is.EqualTo(new[] { "129C", "130C" }));
-        Assert.That(Empties("c"), Is.EqualTo(new[] { "126", "131N" }));
-        Assert.That(Empties("d"), Is.Empty);
-        var counts = rec["channels_without_sample"]!.AsObject().ToDictionary(kv => kv.Key, kv => kv.Value!.GetValue<int>());
-        Assert.That(counts, Is.EquivalentTo(new Dictionary<string, int> { ["126"] = 1, ["129C"] = 2, ["130C"] = 2, ["131N"] = 1 }));
-    }
-
-    [Test]
-    public void TheDefaultDesignWithNoChannelListKeepsEveryChannel()
-    {
-        var (spectra, _, files) = Run();
-        var rec = DesignStage.PrepareIsobaric(spectra, files, null, null, "TMT10", "mouse", "PXD000001", null);
-        var lines = File.ReadAllLines(Path.Combine(spectra, DesignStage.TmtFileName));
-        Assert.That(lines, Has.Length.EqualTo(1 + 4 * 10), "a QC report from before v0.4.41 says nothing");
-        Assert.That(lines[0], Does.Not.Contain("Sample Type"), "nothing to mark, so the design is mzLib's as written");
-        Assert.That(rec["channels_without_sample"], Is.Null);
-    }
-
-    // TMT6's labels are plain 127..131; the list is in the largest kit's labels, 127N, 128C, 129N, 130C, 131N.
-    [Test]
-    public void TheDefaultDesignFindsTmt6sChannelsByMass()
-    {
-        var (spectra, _, files) = Run();
-        var rec = DesignStage.PrepareIsobaric(spectra, files, null, null, "TMT6-plex", "mouse", "PXD000001", files.ToDictionary(Path.GetFileName, _ => (IReadOnlyList<string>)new[] { "126", "127N", "128C", "129N", "130C" })!);
-        var rows = File.ReadAllLines(Path.Combine(spectra, DesignStage.TmtFileName)).Skip(1).Select(l => l.Split('\t')).ToList();
-        Assert.That(rows.Where(r => r[8] == "study sample").Select(r => r[3]).Distinct(), Is.EquivalentTo(new[] { "126", "127", "128", "129", "130" }));
-        Assert.That(rows.Where(r => r[8] == "empty").Select(r => r[3]).Distinct(), Is.EqualTo(new[] { "131" }));
-        Assert.That(rec["channels_without_sample"]!["131"]!.GetValue<int>(), Is.EqualTo(4));
-    }
-
-    // What a person curated is theirs: a channel they named stays, whatever the spectra looked like.
-    [Test]
-    public void ACuratedIsobaricDesignIsNeverCutDown()
-    {
-        var (spectra, _, files) = Run();
+        // With no SDRF at all, the same; with one that states the plex, the two fractions of each plex are one plex.
+        Directory.Delete(metadata, recursive: true);
+        Assert.That(Assert.Throws<IsobaricDesignMissingException>(() => DesignStage.PrepareIsobaric(spectra, files, null, null, "TMT10"))!.Message,
+            Does.Contain("no curated design and no deposited SDRF"));
         string curated = TmtSdrf(TestSupport.TempDir(), "PXD000001.sdrf.tsv", plexColumn: "characteristics[plex]");
-
-        var rec = DesignStage.PrepareIsobaric(spectra, files, curated, null, "TMT10", "mouse", "PXD000001", files.ToDictionary(Path.GetFileName, _ => (IReadOnlyList<string>)Tmt10Channels.Where(c => c != "130C").ToList())!);
-
-        Assert.That(rec["source"]!.GetValue<string>(), Is.EqualTo("question"));
-        Assert.That(File.ReadAllLines(Path.Combine(spectra, DesignStage.TmtFileName)), Has.Length.EqualTo(1 + 4 * 10));
-        Assert.That(rec["channels_without_sample"], Is.Null);
+        var rec = DesignStage.PrepareIsobaric(spectra, files, curated, null, "TMT10");
+        Assert.That(rec["plexes"]!.AsArray().Select(x => x!.GetValue<string>()), Is.EqualTo(new[] { "plex1", "plex2" }));
+        Assert.That(rec["flag"], Is.Null);
+        Assert.Throws<SearchSetupException>(() => DesignStage.FindIsobaric(spectra, files, null, null, "TMT99", out _), "an unknown kit is a wrong call");
     }
 
     // As for label-free: a curated design MetaMorpheus would not accept is fixed, not searched around.

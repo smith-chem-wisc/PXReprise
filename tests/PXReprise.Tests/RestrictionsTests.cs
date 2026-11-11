@@ -96,6 +96,36 @@ public class RestrictionsTests
         Assert.That(File.GetLastWriteTimeUtc(mf), Is.EqualTo(stamp.AddMinutes(-5)), "an unchanged manifest is not rewritten");
     }
 
+    // v0.4.46 (G69; the user and QuantProject 120, 2026-11-11): the 47 isobaric deposits searched on the default design
+    // (each file its own plex) are restricted for quantitation, found from each search's own provenance, never by hand.
+    [Test]
+    public void AnIsobaricEntrySearchedOnTheDefaultDesignIsRestrictedForQuantitation()
+    {
+        string work = TestSupport.TempDir();
+        void Provenance(string run, string? flag) => TestSupport.WriteFile(Directory.CreateDirectory(Path.Combine(work, run, "04_search")).FullName, "provenance.json",
+            flag is null ? "{\"experimental_design\":{\"source\":\"question\"}}" : $"{{\"experimental_design\":{{\"source\":\"pxreprise_default\",\"flag\":\"{flag}\"}}}}");
+        Provenance("run_1/PXD034564", Search.DesignStage.NoChannelDesign);   // one TMT10 plex in 32 files, searched as 32
+        Provenance("run_1/PXD000002", null);                                  // a TMT deposit whose SDRF stated its plexes
+        Provenance("run_1/PXD000003", Search.DesignStage.NoChannelDesign);   // label-free: never judged, whatever its file says
+        string Tmt(string acc, string enrichment) => Entry(acc, $"    run: run_1/{acc}\n    quant_method: TMT\n    labelling: TMT\n    labelling_plex: 10\n    enrichment: [{enrichment}]\n    notes: n\n\n");
+        string text = "datasets:\n\n" + Tmt("PXD034564", "none") + Tmt("PXD000002", "none")
+            + Entry("PXD000003", "    run: run_1/PXD000003\n    quant_method: label-free\n    enrichment: [none]\n\n")
+            + Tmt("PXD000004", "phospho");                                     // its search folder is gone
+        var keys = Restrictions.NoChannelDesignKeys(text, work, out var unread);
+        Assert.That(keys, Is.EquivalentTo(new[] { "PXD034564" }));
+        Assert.That(unread, Is.EqualTo(new[] { "PXD000004" }), "an isobaric entry whose provenance does not read is said, not guessed");
+
+        var (synced, r) = Restrictions.SyncText(text, null, keys);
+        Assert.That(synced, Does.Contain($"    enrichment: [none]\n    restrictions:\n      quantitation: \"{Restrictions.NoChannelDesignReason}\"\n    notes: n\n"));
+        Assert.That(Restrictions.NoChannelDesignReason, Does.Contain("A sample here is one file's channel, not a biological sample")
+            .And.Contain("fractions and repeat injections of one plex appear as separate samples"), "QuantProject 120's wording");
+        Assert.That(r.Changed.Keys, Is.EqualTo(new[] { "PXD000004", "PXD034564" }), "PXD000004 for its enrichment only");
+        Assert.That(Restrictions.Of(new[] { "phospho" }, null, noChannelDesign: true).Keys, Is.EqualTo(new[] { "occupancy", "quantitation" }));
+        var declared = new Dictionary<string, string> { ["quantitation"] = "re-searched with its SDRF on 2026-12-01: the question says so" };
+        Assert.That(Restrictions.Of(new[] { "none" }, declared, noChannelDesign: true)["quantitation"], Does.StartWith("re-searched"), "the question's reason wins, as for occupancy");
+        Assert.That(Restrictions.SyncText(synced, null, keys).Result.Changed, Is.Empty, "a second sync changes nothing");
+    }
+
     [Test]
     public void TheQuestionsRestrictionsAreCheckedAgainstDataReposUses()
     {

@@ -54,6 +54,23 @@ mid-batch?** Yes: swap the pin as usual.
     of them served), every one for `occupancy`. A restriction written into the manifest by hand is replaced.
   - `pxreprise batch restrictions <question>` shows what a start would write; `--manifest` and `--write` write a copy.
   - The repository needs a rebuild only; no bundle id moves.
+- **No default isobaric design: a TMT or iTRAQ deposit is searched only with an SDRF that states its plexes, fractions and
+  technical replicates** (the user, 2026-11-11; G69; QuantProject 120).
+  - Since 0.4.34, a deposit no SDRF described was searched with each file its own plex and each channel its own sample,
+    and flagged `no_channel_design`. A fraction or a repeat injection of one plex then became a new plex, and its channels
+    new samples. PXD034564, one TMT10 plex run as 32 files, came out as 32 plexes and 320 samples. All 47 isobaric
+    deposits in aging's manifest were searched that way. The user: "These are definitely not plexes ... These fractions
+    also must correctly be collapsed ... I think this must be in SDRF."
+  - Now such a deposit waits after its probe, before the whole download, as `waiting_isobaric_design`. It is a capability
+    wait, so no decisions row is written: its SDRF is made for it. It gets one more look when the question's design SDRF
+    for it is added or changed. A deposit that reaches its search without a design (fetched before this release) waits the
+    same way, with its raw files kept.
+  - The 47 already delivered are restricted for `quantitation` in the catalog, from each search's provenance. The note
+    says what QuantProject asked: a sample there is one file's channel, not a biological sample, so the reporter values
+    compare only within a file. On aging's manifest that makes 119 restricted entries (74 for `occupancy`, 47 for
+    `quantitation`, two for both); datarepo 1.4.5 reads them all. Each comes off when the deposit is re-searched with an
+    SDRF that states its design.
+  - Every PSM's reporter values are the same under any grouping (QuantProject 120); only the grouping was wrong.
 
 ## 0.4.45 (2026-11-11)
 
