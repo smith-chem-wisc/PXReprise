@@ -34,6 +34,13 @@ takes the new release (`worker release`): it probes too, and the change is in th
   - Now the pass is screened for its chemistry here too, as the deposit's own probe would be. A chemistry no profile of
     this release searches (iodoTMT, SILAC, a chemistry park) waits as the screen makes it wait, before anything is
     downloaded. Under the release that made the pass, the screen gives the pass's own answer again.
+- **A search that fails while adding to a spectral library switches off that library only** (PXD025746, 2026-11-11).
+  - A failure while a search reads and extends a library may be the library's fault, so the batch stops using it until
+    someone looks (G46). It stopped using every library: after PXD025746 failed on the mouse TMT6 library, PXD027232
+    (human) and PXD034029 (mouse TMT11, 240 files) were searched without theirs.
+  - Now only the library chain that search read is off, for the rest of that driver; `batch.log` names it, and so does
+    the search's provenance when it skips one. As before, a timeout never switches a library off, and a new driver
+    starts with every library on.
 - **A raw file with no MS2 at all is set aside as a failed injection** (PXD023647, 2026-11-10).
   - PXD023647 has 11 TMTpro files of about 800 MB and one of 1 MB, `..._90C_10B_12.raw`: a re-injection that recorded no
     scans (the 90C sample's real run is `90C_10`). A blank or failed injection (`too_few_ms2`) may be excluded with a record,

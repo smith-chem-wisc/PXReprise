@@ -153,6 +153,30 @@ public class SearchStageTests
     private static SearchRequest Req(Rig r, string outName, string acc = "PXD000301") =>
         new(r.Profile, "human", r.Machine, r.Spectra, Path.Combine(r.Root, "run", outName), r.Qc, Array.Empty<string>(), Array.Empty<string>(), "2026-09-28", acc);
 
+    // v0.4.45 (PXD025746, 2026-11-11): its iodoTMT search failed while updating mouse_tmt6plex, and the batch then searched
+    // every deposit without a library: PXD027232 (human) and PXD034029 (mouse TMT11) too. Only the chain that failed is off.
+    [Test]
+    public async Task AChainTheBatchSwitchedOffIsNotReadAndEveryOtherChainIs()
+    {
+        var rig = Setup();
+        Assume.That((await SearchStage.RunAsync(Req(rig, "04_search"), CancellationToken.None)).Success, "the first search writes human v1");
+
+        var off = await SearchStage.RunAsync(Req(rig, "04_search_2", "PXD000302") with { LibraryChainsOff = new[] { "human" } }, CancellationToken.None);
+        var other = await SearchStage.RunAsync(Req(rig, "04_search_3", "PXD000303") with { LibraryChainsOff = new[] { "mouse_tmt6plex" } }, CancellationToken.None);
+
+        var pOff = JsonNode.Parse(File.ReadAllText(off.ProvenanceFile))!;
+        var pOther = JsonNode.Parse(File.ReadAllText(other.ProvenanceFile))!;
+        Assert.Multiple(() =>
+        {
+            Assert.That((off.Success, other.Success), Is.EqualTo((true, true)));
+            Assert.That(pOff["spectral_library"], Is.Null, "the chain that failed is not read");
+            Assert.That(pOff["notes"]!.AsArray().Select(n => n!.GetValue<string>()),
+                Has.Some.Contains("spectral library human switched OFF for this search by the batch"));
+            Assert.That(pOther["spectral_library"]!["organism"]!.GetValue<string>(), Is.EqualTo("human"));
+            Assert.That(pOther["spectral_library"]!["mode"]!.GetValue<string>(), Is.EqualTo("update"), "another chain's failure leaves this one on");
+        });
+    }
+
     [Test]
     public async Task ASearchWritesTheLibraryAndTheNextOneUpdatesItWithTheRecordIntact()
     {

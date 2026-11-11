@@ -25,7 +25,8 @@ public sealed record SearchRequest(
     IReadOnlyList<string>? DesignConditionColumns = null,
     Discovery.DepositChemistry? Chemistry = null,   // G19: required by a profile with [engine] chemistry = "deposit"
     IReadOnlyDictionary<string, double>? ProbePrecursorOffsets = null,   // [engine] precursor_window = "probe": each probe run's offset, ppm
-    IReadOnlyList<string>? LibraryRouteClasses = null);   // v0.4.38: PTM classes the deposit enriches; their spectra go to class chains (LibraryRouting)
+    IReadOnlyList<string>? LibraryRouteClasses = null,   // v0.4.38: PTM classes the deposit enriches; their spectra go to class chains (LibraryRouting)
+    IReadOnlyCollection<string>? LibraryChainsOff = null);   // v0.4.45: library chains the batch switched off (G46); the others stay on
 
 public sealed record SearchOutcome(bool Success, int ExitCode, bool TimedOut, int? Psms1Pct, IReadOnlyList<string> Flags, string ProvenanceFile);
 
@@ -271,6 +272,14 @@ public static class SearchStage
         LibraryPlan? lib = p.SpectralLibrary && r.UseLibrary ? SpectralLibrary.Plan(m.SpectralLibraryRoot, r.Organism, kit) : null;
         if (p.SpectralLibrary && !r.UseLibrary)
             prov.Note("spectral library switched OFF for this search by the batch (a previous update-mode search failed)");
+        // v0.4.45 (PXD025746, 2026-11-11): only the chain an earlier failed update-mode search read is off. Its iodoTMT search
+        // failed on mouse_tmt6plex, and the whole batch lost every chain: PXD027232 (human) and PXD034029 (mouse TMT11) were
+        // searched without theirs.
+        if (lib is not null && r.LibraryChainsOff?.Contains(lib.Organism) == true)
+        {
+            prov.Note($"spectral library {lib.Organism} switched OFF for this search by the batch (a previous update-mode search of that chain failed)");
+            lib = null;
+        }
         if (lib is not null)
             prov.Set("spectral_library", new JsonObject
             {

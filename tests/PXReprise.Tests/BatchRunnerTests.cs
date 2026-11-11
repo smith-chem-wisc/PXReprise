@@ -1552,6 +1552,31 @@ public class BatchRunnerTests
         });
     }
 
+    // v0.4.45 (PXD025746, 2026-11-11): its iodoTMT search failed while updating mouse_tmt6plex (G46), and every later search of
+    // the driver ran without any library, human and mouse TMT11 alike. Only the chain the failed search read is switched off.
+    [Test]
+    public void AFailedUpdateModeSearchSwitchesOffOnlyTheLibraryChainItRead()
+    {
+        var (runner, _, _, dir) = DepositChemistryRunner();
+        JsonNode Lib(string mode, string chain) => new JsonObject { ["mode"] = mode, ["organism"] = chain };
+        var failed = new PXReprise.Search.SearchOutcome(false, 0, false, 18, Array.Empty<string>(), "");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(runner.SwitchOffLibraryAfterFailure("PXD000416", failed with { TimedOut = true }, Lib("update", "human")), Is.Null, "a timeout is no evidence against the library (S60)");
+            Assert.That(runner.SwitchOffLibraryAfterFailure("PXD000416", failed, Lib("write", "human_tmt10")), Is.Null, "a new chain: nothing was read");
+            Assert.That(runner.SwitchOffLibraryAfterFailure("PXD000416", failed with { Success = true }, Lib("update", "human")), Is.Null, "a success");
+            Assert.That(runner.SwitchOffLibraryAfterFailure("PXD000416", failed, null), Is.Null, "no library");
+            Assert.That(runner.LibraryChainsOff, Is.Empty);
+
+            Assert.That(runner.SwitchOffLibraryAfterFailure("PXD025746", failed, Lib("update", "mouse_tmt6plex")), Is.EqualTo("mouse_tmt6plex"));
+            Assert.That(runner.LibraryChainsOff, Is.EqualTo(new[] { "mouse_tmt6plex" }), "human, mouse and the other TMT chains stay on");
+            Assert.That(runner.State()["datasets"]!["PXD025746"]!["library_disabled_after_failure"]!.GetValue<string>(), Is.EqualTo("mouse_tmt6plex"));
+            Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")),
+                Does.Contain("PXD025746 SEARCH FAILED IN UPDATE MODE - disabling the spectral library mouse_tmt6plex for the rest of this batch (other chains stay on)"));
+        });
+    }
+
     // v0.4.45 (PXD032900-lfq, 2026-11-10): PRIDE says "Label free; TMT" for a deposit aging split by label. The label-free
     // group was routed to the TMT profile by those words and refused at its probe, none of KMS_1Y, KMS_4Ag, KMS_6Ag carrying
     // reporters. When PRIDE names label-free too and no probe file carries reporters, the spectra decide (D34): label-free.

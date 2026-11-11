@@ -38,7 +38,8 @@ public sealed class BatchRunner
     private readonly string _runDate;
     private readonly string _stateDir, _runRoot;
     private readonly object _gate = new();
-    private bool _libraryOk = true;
+    // G46, per chain since v0.4.45: the library chains an update-mode search failure switched off for this driver (under _gate).
+    private readonly HashSet<string> _libraryChainsOff = new(StringComparer.Ordinal);
     private readonly HashSet<string> _searching = new(StringComparer.Ordinal);
     private int _started;
 
@@ -1529,8 +1530,8 @@ public sealed class BatchRunner
             Record(acc, ("qc_excluded", new JsonArray(excl.Select(n => (JsonNode?)n).ToArray())), ("qc_excluded_of", report.Count));
         }
 
-        bool library = _libraryOk;
-        Log($"{acc} SEARCH starting (profile={profile.Key}, organism={e.Organism}, library={library})");
+        var chainsOff = LibraryChainsOff;
+        Log($"{acc} SEARCH starting (profile={profile.Key}, organism={e.Organism}, library=True{(chainsOff.Count == 0 ? "" : $" except {string.Join(", ", chainsOff)}")})");
         Record(acc, ("status", "searching"));
         var overlays = _q.Overlays.TryGetValue(e.Organism, out var ov) ? ov : Array.Empty<string>();
         string? curated = _q.Designs?.For(acc);
@@ -1555,7 +1556,7 @@ public sealed class BatchRunner
         // The limits as the machine file says now (v0.4.21), so provenance records the ones this deposit was admitted under.
         var req = new SearchRequest(profile, e.Organism, _m with { DepositLimits = Limits, ProbeSearchMinutes = ProbeMinutes },
             Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "04_search"),
-            Path.Combine(d, "02b_qc"), overlays, excl, _runDate, acc, UseLibrary: library,
+            Path.Combine(d, "02b_qc"), overlays, excl, _runDate, acc, LibraryChainsOff: chainsOff,
             CuratedDesign: curated, DesignConditionColumns: _q.Designs is { ConditionColumns.Count: > 0 } ds ? ds.ConditionColumns : null, Chemistry: chemistry,
             ProbePrecursorOffsets: profile.PrecursorWindow == "probe" ? ProbeOffsets(acc) : null,
             LibraryRouteClasses: LibraryRouteClasses(acc));
@@ -1588,15 +1589,29 @@ public sealed class BatchRunner
             Cleanup(acc);
             await DeliverAsync(e, profile, ct).ConfigureAwait(false);
         }
-        else if (library && lib?["mode"]?.GetValue<string>() == "update" && !outcome.TimedOut)
-        {
-            // A failure while updating the library may be the library's fault; stop feeding it until someone looks (G46).
-            // A timeout is not evidence against the library (S60), so it never disables it.
-            _libraryOk = false;
-            Log($"{acc} SEARCH FAILED IN UPDATE MODE - disabling the spectral library for the rest of this batch. Raw files kept. INVESTIGATE.");
-            Record(acc, ("library_disabled_after_failure", true));
-        }
+        else SwitchOffLibraryAfterFailure(acc, outcome, lib);
     }
+
+    /// <summary>
+    /// G46: a search that failed while updating a library may be the library's fault, so this driver stops reading that
+    /// library chain until someone looks. A timeout is not evidence against the library (S60), and a search that wrote a
+    /// new chain read none. Returns the chain switched off, or null.
+    /// </summary>
+    /// <remarks>v0.4.45 (PXD025746, 2026-11-11): one chain, not all. PXD025746's iodoTMT search failed on mouse_tmt6plex for
+    /// its labelling, not its library, and every later search of driver 69324 ran without one: PXD027232 (human) and PXD034029
+    /// (mouse TMT11, 240 files). The list lives in memory only, as before: a new driver starts with every chain on.</remarks>
+    internal string? SwitchOffLibraryAfterFailure(string acc, SearchOutcome outcome, JsonNode? lib)
+    {
+        if (outcome.Success || outcome.TimedOut || lib?["mode"]?.GetValue<string>() != "update" || lib["organism"]?.GetValue<string>() is not { } chain)
+            return null;
+        lock (_gate) _libraryChainsOff.Add(chain);
+        Log($"{acc} SEARCH FAILED IN UPDATE MODE - disabling the spectral library {chain} for the rest of this batch (other chains stay on). Raw files kept. INVESTIGATE.");
+        Record(acc, ("library_disabled_after_failure", chain));
+        return chain;
+    }
+
+    /// <summary>The library chains this driver has switched off (G46).</summary>
+    internal IReadOnlyList<string> LibraryChainsOff { get { lock (_gate) return _libraryChainsOff.Order(StringComparer.Ordinal).ToList(); } }
 
     /// <summary>
     /// qc's payload for the search (stage 05_qc), and qc's validate + render when the machine names a qc_python. Never
