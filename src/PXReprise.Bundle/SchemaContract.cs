@@ -80,6 +80,18 @@ public static class SchemaContract
         ("0.0.16", "assays", "run_id"),
     ];
 
+    /// <summary>Every core column removed since Python 0.32.0's schema 0.0.13: the version that removed it, the column it
+    /// followed, and its storage type. A parity bundle still writes it, where Python wrote it (as NULL in every row).</summary>
+    /// <remarks>psms.matched_ion_series and matched_ion_count (D56, schema 0.0.17): reserved for fragment ions and never
+    /// filled by any ingest, Python's or ours; the ions are in <c>peptidoform_ions</c> from 0.0.17. MetaMorpheus does
+    /// write its matched-ion columns: the empty cells were ours. Add a column's entry in the commit that removes it; the
+    /// parity tests fail on any one left out.</remarks>
+    public static readonly IReadOnlyList<(string Version, string Table, string After, ColumnSpec Column)> RemovedColumns =
+    [
+        ("0.0.17", "psms", "end_residue", new ColumnSpec("matched_ion_series", ColumnType.String, IsList: false, Nullable: true)),
+        ("0.0.17", "psms", "matched_ion_series", new ColumnSpec("matched_ion_count", ColumnType.Int64, IsList: false, Nullable: true)),
+    ];
+
     /// <summary>The table's columns as schema <paramref name="version"/> has them, in the schema's order.</summary>
     public static IReadOnlyList<ColumnSpec> ColumnsAt(TableSpec spec, string version)
     {
@@ -92,11 +104,20 @@ public static class SchemaContract
             .Where(r => r.Table == spec.Name && System.Version.Parse(r.Version) > at)
             .Select(r => r.Column)
             .ToHashSet(StringComparer.Ordinal);
-        if (later.Count == 0 && stillRequired.Count == 0) return spec.Columns;
-        return spec.Columns
+        var stillThere = RemovedColumns.Where(r => r.Table == spec.Name && System.Version.Parse(r.Version) > at).ToList();
+        if (later.Count == 0 && stillRequired.Count == 0 && stillThere.Count == 0) return spec.Columns;
+        var columns = spec.Columns
             .Where(c => !later.Contains(c.Name))
             .Select(c => stillRequired.Contains(c.Name) ? c with { Nullable = false } : c)
             .ToList();
+        // In the order removed, each after the column it followed, which may itself be one put back here.
+        foreach (var (_, _, after, column) in stillThere)
+        {
+            var index = columns.FindIndex(c => c.Name == after);
+            if (index < 0) throw new InvalidOperationException($"{spec.Name}.{column.Name} followed {after}, which schema {version} does not have");
+            columns.Insert(index + 1, column);
+        }
+        return columns;
     }
 
     /// <summary>The table's columns under the schema version in force here (<see cref="Version"/>).</summary>

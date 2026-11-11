@@ -302,6 +302,12 @@ public class McpParityTests
             ("matched_ion_count", "Number of matched fragment ions."),
             ("matched_ion_count", "Reserved for the number of matched fragment ions. NOT FILLED: null in every row of every bundle, as `matched_ion_series` says; never read a null as zero matched ions."),
         }.Select(d => (new Regex(Regex.Escape(d.Item2), RegexOptions.CultureInvariant), $"<{d.Item1}: rewritten for PXR-R44>")),
+        // 1.5.0 (D56, schema 0.0.17) removes those two columns from the schema. A parity catalog still holds them (Python
+        // wrote them, SchemaContract.RemovedColumns), but the schema has no description left to give, so only the
+        // placeholder above is removed from the Python answer, from the column line and from the detailed answer; the
+        // columns themselves and their NULL notices are still compared.
+        (new Regex(@" -- <matched_ion_(?:series|count): rewritten for PXR-R44>", RegexOptions.CultureInvariant), ""),
+        (new Regex(@",\s*""means"": ""<matched_ion_(?:series|count): rewritten for PXR-R44>""", RegexOptions.CultureInvariant), ""),
         // 1.4.5 (PXR-R32, catalog format 16): the indexes count DEPOSITS, so their dataset columns are reworded; old and new
         // texts mask to one placeholder per column. dataset_overview gains one sentence, and peptide_index.n_datasets a
         // description Python never had: only those are removed, so the text both answers share is still compared.

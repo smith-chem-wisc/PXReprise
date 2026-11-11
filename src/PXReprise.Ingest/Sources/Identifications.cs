@@ -166,6 +166,9 @@ public static class Identifications
 
         var seen = new Dictionary<(string, long?), long>();
         var rows = new List<Row>(n);
+        // Schema 0.0.17 removed the two reserved matched-ion columns (D56); a parity ingest of Python 0.32.0's schema
+        // still writes them, as NULL, as Python did (SchemaContract.RemovedColumns).
+        var reservedIonColumns = SchemaContract.Columns(Tables.ByName["psms"]).Any(c => c.Name == "matched_ion_series");
         for (var i = 0; i < n; i++)
         {
             var reportedRun = IsFalsy(files[i]) ? "" : PyFormat.Str(files[i]!);
@@ -182,7 +185,7 @@ public static class Identifications
                 ? Usi.Mint(datasetId, deposited, scan.Value, parsed.Proforma, charge.Value)
                 : null;
             var level = First(levels[i]);
-            rows.Add(new Row
+            var row = new Row
             {
                 ["psm_id"] = $"{runId}:{(scan is null ? "None" : scan.Value.ToString())}:{rank}",
                 ["run_id"] = runId,
@@ -213,10 +216,14 @@ public static class Identifications
                 ["nonspecific_termini"] = null,
                 ["start_residue"] = start,
                 ["end_residue"] = end,
-                // The matched-ion fields are composite and were never projected as columns (DATAREPO-13).
-                ["matched_ion_series"] = null,
-                ["matched_ion_count"] = null,
-            });
+            };
+            if (reservedIonColumns)
+            {
+                // Never filled: mzLib's projection leaves the composite matched-ion fields out (DATAREPO-13).
+                row["matched_ion_series"] = null;
+                row["matched_ion_count"] = null;
+            }
+            rows.Add(row);
         }
         return rows;
     }

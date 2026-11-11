@@ -159,8 +159,6 @@ public static partial class Tables
             new ColumnSpec("nonspecific_termini", ColumnType.Int64, IsList: false, Nullable: true),
             new ColumnSpec("start_residue", ColumnType.Int64, IsList: false, Nullable: true),
             new ColumnSpec("end_residue", ColumnType.Int64, IsList: false, Nullable: true),
-            new ColumnSpec("matched_ion_series", ColumnType.String, IsList: false, Nullable: true),
-            new ColumnSpec("matched_ion_count", ColumnType.Int64, IsList: false, Nullable: true),
         ]),
         new TableSpec("peptidoforms", "Peptidoform",
         [
