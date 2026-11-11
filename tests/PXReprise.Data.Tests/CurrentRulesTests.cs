@@ -977,8 +977,10 @@ public class CurrentRulesTests
         string Entry(string id, string formula, string mass, string psimod, string extra = "") =>
             $"ID   {id}\nAC   PTM-9{psimod[^1]}\nFT   MOD_RES\nTG   Lysine.\nPA   Amino acid side chain.\nPP   Anywhere.\n"
             + $"CF   {formula}\nMM   {mass}\nDR   PSI-MOD; {psimod}.\n{extra}//\n";
+        // Each MM is its CF's own ion mass, as UniProt writes it: since mzLib #1415 (1.0.597) a charged entry's neutral
+        // mass is computed from the formula, so an MM that disagreed with its CF would test a file UniProt never writes.
         File.WriteAllText(Path.Combine(dir, "Data", "ptmlist.txt"),
-            Entry("Minus thing", "C2 H1 O2", "57.000000", "MOD:90001")
+            Entry("Minus thing", "C2 H1 O2", "56.998203", "MOD:90001")
             + Entry("Plus thing", "C3 H7", "43.054227", "MOD:90002", "DR   Unimod; 37.\n"));
         if (withOwnMzLib)
             File.Copy(typeof(UsefulProteomicsDatabases.Loaders).Assembly.Location, Path.Combine(dir, "UsefulProteomicsDatabases.dll"));
@@ -1002,7 +1004,7 @@ public class CurrentRulesTests
             Assert.That(minus, Is.Not.Null, "the token still resolves");
             if (withOwnMzLib)
             {
-                Assert.That(minus!.MonoisotopicMass, Is.EqualTo(57.000000 + proton).Within(1e-6), "-1, read with its sign");
+                Assert.That(minus!.MonoisotopicMass, Is.EqualTo(56.998203 + proton).Within(1e-6), "-1, read with its sign");
                 Assert.That(registry.MassesWithheld, Is.Empty);
             }
             else
