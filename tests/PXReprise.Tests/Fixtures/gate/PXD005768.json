@@ -1,0 +1,13 @@
+{
+  "accession": "PXD005768",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "Proteogenomic characterization of developmental defects in the forebrain resulting from hyperactivated mTOR signaling",
+    "description": "Hyperactivated mTOR signaling in the developing brain by mutation of TSC1 genes has multiple forms of pathology including tuberous sclerosis complex (TSC). To examine the downstream networks affected in the developing brain by hyperactivated mTOR signaling, we performed an integrated analysis of transcriptomic and proteomic analysis of forebrain of wild-type and TSC1/Emx1-Cre mouse. Our results provide novel and fundamental molecular bases for understanding hyperactivaed mTOR signaling-induced brain defects which can in turn facilitate identification of potential diagnostic markers and therapeutic targets for mTOR signaling-related neurological disorders.",
+    "sample_protocol": "",
+    "keywords": "LC-MSMS,Mouse, Brain, forebrain; Biological; Biomedical",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": "Characterization of developmental defects in the forebrain resulting from hyperactivated mTOR signaling by integrative analysis of transcriptomic and proteomic data"
+  }
+}

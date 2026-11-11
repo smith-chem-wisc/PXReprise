@@ -1,0 +1,13 @@
+{
+  "accession": "PXD025321",
+  "source": "pride_project",
+  "fields": {
+    "title": "Integrated molecular landscape perturbations underlie cellular responses during hyperammonemia",
+    "description": "Ammonia is a cytotoxic molecule generated during cellular functions and by the gut microbiome. Dysregulated ammonia metabolism initiates a hyperammonemic stress response (HASR). Hyperammonemia occurs in many chronic diseases but there is limited understanding of the overall consequences of HASR. A comprehensive array of unbiased approaches was used to identify global responses during hyperammonemia with experimental validation of critical findings. Protein/gene expression and chromatin accessibility in hyperammonemic murine myotubes and mouse skeletal muscle tissue were analyzed by quantitative proteomics, RNA sequencing (RNAseq), and Assay for Transposase Accessible Chromatin Sequencing (ATACseq). Unique clusters of expression/accessibility changes were identified in hyperammonemic myotubes. In hyperammonemic mouse muscle and myotubes, we identified enrichment of pathways involved in oxidative phosphorylation, calcium signaling, hypoxia inducible factor-1, and apoptosis and regulation of protein synthesis were altered during HASR and were experimentally validated. Enrichment of senescence signaling and glycosylation pathways during HASR were novel observations. Comparisons with RNAseq data from skeletal muscle from human patients with cirrhosis revealed similar perturbations, demonstrating the translational relevance of our observations. We identified several novel regulatory pathways during HASR that are conserved in different models and across species, and whose dysregulation could significantly impact skeletal muscle structure and function.",
+    "sample_protocol": "Global proteomics analyses were performed in myotubes and muscle tissue using a homogenization method on a Barocycler. In brief, UnT and Am treated myotube samples were homogenized using a cell disruptor and digested with trypsin. Mouse tissue were flash frozen and were then homogenized in a Barocycler using 30 \u00B5L lying buffer consisting of 4M urea in 0.1M ammonium bicarbonate with Complete\u2122 Mini Protease Inhibitor Cocktail (ROCHE) added freshly. The homogenizing temperature was set at 35\u00B0C, 90 cycles with 20 second at 45 PSI and 10 second at 0 PSI per cycle. After homogenization the tissue was centrifuged and the supernatant was transferred to a new Eppendorf tube. Proteins were digested using trypsin and digested peptides were analyzed using mass spectrometry.",
+    "keywords": "C2c12 myotubes; Skeletal muscle; Hyperammonemia",
+    "organism_parts": "Skeletal muscle; Myotube",
+    "diseases": "",
+    "reference_titles": ""
+  }
+}

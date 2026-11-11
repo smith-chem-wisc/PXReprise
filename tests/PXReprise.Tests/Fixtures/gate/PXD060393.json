@@ -1,0 +1,13 @@
+{
+  "accession": "PXD060393",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "Nano-omics Enables Plasma-to-Tumour Tissue Integrated Proteomics for Biomarker Discovery in Glioblastoma",
+    "description": "The dismal survival of patients with glioblastoma (GB) has only marginally improved over the past two decades, underscoring the urgent need for new technologies to advance early detection and disease monitoring strategies. Despite the promise of \u0027liquid biopsies\u2019, no blood-based biomarkers have yet been approved for clinical use in GB. In this work, we developed a nanotechnology-enabled workflow to correlate systemic (plasma) and localized (tumour tissue) protein changes associated with GB progression in the brain. We exploited the formation of the biomolecule corona onto blood-circulating liposome nanoparticles (NPs) to uncover longitudinal alterations in the plasma proteome of GL261-bearing female mice across different stages of GB progression. Our results revealed plasma protein changes even at low tumour burden, demonstrating a notable overlap (\u003E30%) between the GB-specific plasma and tumour tissue proteomes, and highlighting a dynamic transition of molecular mechanisms with GB development. Subsequent analysis of matched plasma and surgically resected tumour samples obtained from human high-grade gliomas patients (n=6 male and n=4 female) provided pilot data to demonstrate the applicability of the Nano-omics integrative pipeline in clinical biomarker discovery studies. Furthermore, proof-of-concept cross-species correlation analysis identified a panel of 48 GB biomarker candidates implicated in actin cytoskeleton, focal adhesion, platelet activation, leukocyte migration, amino acid biosynthesis, carbon metabolism, and phagosome pathways. The proposed Nano-omics approach, holds promise for a wide range of conditions affecting the central nervous system, facilitating the discovery of early detection and disease monitoring blood-based biomarkers for subsequent clinical validation.",
+    "sample_protocol": "",
+    "keywords": "protein corona, proteomics, neuro-oncology, early detection, liquid-biopsy,brain cancer, biomarkers",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": ""
+  }
+}

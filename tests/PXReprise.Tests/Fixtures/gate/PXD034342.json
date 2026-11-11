@@ -1,0 +1,13 @@
+{
+  "accession": "PXD034342",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "Human mitochondria require mtRF1 for translation termination at non-canonical stop codons",
+    "description": "Mitochondrial translation system highly diverged from its bacterial counterpart. This includes deviation from the universal genetic code, with AGA and AGG having no cognate tRNAs in human mitochondria. Their locations at the end of COX1 and ND6 open reading frames, respectively, suggests they function as stop codons. However, while\u202Fcanonical stop codons,\u202FUAA and UAG,\u202Fare recognized by\u202FmtRF1a in mitochondria, the release mechanism at\u202FAGA\u202Fand AGG remains a debated\u202Fissue. Here, we show that upon the loss of another member of the mitochondrial release factor family, mtRF1, mitoribosomes accumulate specifically at AGA and AGG codons. Stalling of mitoribosomes alters COX1 transcript and protein levels, but not ND6 production. Finally, we set up an in vitro reconstituted mitochondrial translation system, which confirms the specific release activity of mtRF1 on AGA and AGG codons. Together, our study uncovers the mechanism of translation termination in mitochondria and provides first insights into the consequences of its failure.",
+    "sample_protocol": "",
+    "keywords": "mtRF1, TMT, mitochondria, translation",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": ""
+  }
+}

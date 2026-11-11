@@ -1,0 +1,13 @@
+{
+  "accession": "PXD022694",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "A genetic platform to delineate tissue-specific in vivo secretion",
+    "description": "At present, it remains difficult to deconvolute serum in order to identify the cell or tissue origin of a given circulating protein. Here, by exploiting the properties of proximity biotinylation, we describe a mouse model that enables the elucidation of the in vivo tissue-specific secretome. As an example, we demonstrate how we can readily identify in vivo endothelial-specific secretion, as well as how this model allows for the characterization of muscle-derived serum proteins that either increase or decrease with exercise. This genetic platform should therefore be of wide utility in understanding normal and disease physiology and for the rational design of tissue-specific disease biomarkers.",
+    "sample_protocol": "",
+    "keywords": "Secretome, biotinylation, ER-BioIDHA, serum, endothelial cells, muscle",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": "The secretome mouse provides a genetic platform to delineate tissue-specific in vivo secretion"
+  }
+}

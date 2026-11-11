@@ -13,7 +13,7 @@ namespace PXReprise;
 public static class Program
 {
     /// <summary>The verbs, listed by the <c>version</c> verb. Keep in step with <see cref="Dispatch"/>.</summary>
-    public static readonly string[] Verbs = { "version", "profiles", "validate", "census", "rank", "chemistry", "fetch", "qc", "search", "qc-payload", "batch", "library", "worker" };
+    public static readonly string[] Verbs = { "version", "profiles", "validate", "census", "gate", "rank", "chemistry", "fetch", "qc", "search", "qc-payload", "batch", "library", "worker" };
 
     /// <summary>Where profiles are read from when --profiles is not given: beside the executable.</summary>
     public static string DefaultProfilesDir => Path.Combine(AppContext.BaseDirectory, "profiles");
@@ -181,6 +181,60 @@ public static class Program
                     }
                     record.Write(outDir);
                     return summary with { QueueInstalled = installQueue };
+                }
+                finally
+                {
+                    client?.Dispose();
+                }
+            }
+
+            case "gate":
+            {
+                // v0.4.46 (aging PXR-A179, part A5): the question's gate over a list of accessions (one a line, or a queue.json),
+                // writing the census's gate.tsv rows and changing nothing.
+                string file = Positional(args, 1)[0];
+                args.AllowOnly("list", "out");
+                var q = QuestionLoader.Load(file);
+                var terms = q.Gate ?? throw new UsageException($"{q.SourceFile} has no [gate] table");
+                string listFile = args.Required("list");
+                string listText = await File.ReadAllTextAsync(listFile, ct).ConfigureAwait(false);
+                var accessions = listText.TrimStart().StartsWith('[')
+                    ? System.Text.Json.Nodes.JsonNode.Parse(listText)!.AsArray().Select(e => e?["accession"]?.GetValue<string>()).OfType<string>().ToList()
+                    : listText.Split('\n').Select(l => l.Split('#')[0].Trim()).Where(l => l.Length > 0).ToList();
+                string outDir = args.Option("out") ?? Path.Combine(Path.GetDirectoryName(q.SourceFile)!, "gate", DateTime.UtcNow.ToString("yyyy-MM-dd"));
+                Directory.CreateDirectory(outDir);
+                var record = new RunRecord("gate");
+                record.Input(q.SourceFile);
+                record.Input(listFile);
+                record.Note("report mode: nothing queued, removed or changed; PRIDE and ProteomeXchange are live, so this is a dated reading");
+                IProjectSearch search;
+                PrideArchiveClient? client = null;
+                if (searchFactory is not null) search = searchFactory();
+                else search = new PrideProjectSearch(client = new PrideArchiveClient());
+                try
+                {
+                    var rows = new List<(string, IReadOnlyCollection<string>, GateDecision)>();
+                    foreach (string acc in accessions.Distinct(StringComparer.Ordinal))
+                    {
+                        GateText text;
+                        PrideProject? project = null;
+                        try { project = await search.TryGetProjectAsync(acc, ct).ConfigureAwait(false); }
+                        catch (Exception e) when (Envelope.IsUnavailable(e) && !ct.IsCancellationRequested) { record.Note($"{acc} PRIDE unavailable: {e.Message}"); }
+                        if (project is not null) text = GateText.From(project);
+                        else if (await search.TryGetProteomeXchangeXmlAsync(acc, ct).ConfigureAwait(false) is { } xml) text = GateText.FromProteomeXchange(xml);
+                        else { text = new GateText(GateTextSource.None, Array.Empty<(string, string)>()); record.Note($"{acc}: no text from PRIDE or ProteomeXchange"); }
+                        var kws = Gate.KeywordsIn(q, text);
+                        rows.Add((acc, kws.ToList(), Gate.Evaluate(terms, text, Gate.NoReferenceGroup(q, kws, text))));
+                    }
+                    string gateFile = Path.Combine(outDir, "gate.tsv");
+                    Gate.WriteTsv(gateFile, rows);
+                    record.Output(gateFile);
+                    record.Write(outDir);
+                    return new
+                    {
+                        deposits = rows.Count, file = Path.GetFullPath(gateFile),
+                        outcomes = rows.GroupBy(r => r.Item3.Outcome).OrderBy(g => g.Key, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count()),
+                    };
                 }
                 finally
                 {

@@ -1,0 +1,13 @@
+{
+  "accession": "PXD027195",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "Conserved exchange of paralog proteins during neuronal differentiation",
+    "description": "Gene duplication enables the emergence of new functions by lowering the general evolutionary pressure. Previous studies have highlighted the role of specific paralog genes during cell differentiation, e.g., in chromatin remodeling complexes. It remains unexplored whether similar mechanisms extend to other biological functions and whether the regulation of paralog genes is conserved across species. Here, we analyze the expression of paralogs across human tissues, during development and neuronal differentiation in fish, rodents and humans. While ~80% of paralog genes are co-regulated, a subset of paralogs shows divergent expression profiles, contributing to variability of protein complexes. We identify 78 substitutions of paralog eggNOG pairs that occur during neuronal differentiation and are conserved across species. Among these, we highlight a substitution between the paralogs Sec23a and Sec23b subunits of the COPII complex. Altering the ratio between these two genes via silencing-RNA knockdown was able to influence neuronal differentiation in different ways. We propose that remodeling of the vesicular transport system via paralog substitutions is an evolutionary conserved mechanism enabling neuronal differentiation.",
+    "sample_protocol": "",
+    "keywords": "paralogs, neuronal differentiation, protein complexes, mouse",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": ""
+  }
+}

@@ -1,0 +1,60 @@
+accession	expected	source_list
+PXD060393	not_queue	remove35
+PXD022694	not_queue	remove35
+PXD038601	not_queue	remove35
+PXD057020	not_queue	remove35
+PXD005768	not_queue	remove35
+PXD007738	not_queue	remove35
+PXD011750	not_queue	remove35
+PXD013398	not_queue	remove35
+PXD013738	not_queue	remove35
+PXD014260	not_queue	remove35
+PXD018223	not_queue	remove35
+PXD018426	not_queue	remove35
+PXD021799	not_queue	remove35
+PXD022392	not_queue	remove35
+PXD022723	not_queue	remove35
+PXD023050	not_queue	remove35
+PXD024491	not_queue	remove35
+PXD024999	not_queue	remove35
+PXD025024	not_queue	remove35
+PXD026481	not_queue	remove35
+PXD027195	not_queue	remove35
+PXD028303	not_queue	remove35
+PXD029296	not_queue	remove35
+PXD030995	not_queue	remove35
+PXD031324	not_queue	remove35
+PXD031641	not_queue	remove35
+PXD034342	not_queue	remove35
+PXD034410	not_queue	remove35
+PXD034934	not_queue	remove35
+PXD042800	not_queue	remove35
+PXD051417	not_queue	remove35
+PXD054629	not_queue	remove35
+PXD059735	not_queue	remove35
+PXD061134	not_queue	remove35
+PXD076790	not_queue	remove35
+PXD006023	not_queue	exclude13
+PXD016793	not_queue	exclude13
+PXD022393	not_queue	exclude13
+PXD049957	not_queue	exclude13
+PXD044227	not_queue	exclude13
+PXD082596	not_queue	exclude13
+PXD014098	not_queue	exclude13
+PXD022227	not_queue	exclude13
+PXD022363	not_queue	exclude13
+PXD026934	not_queue	exclude13
+PXD030939	not_queue	exclude13
+PXD030773	not_queue	exclude13
+PXD042428	not_queue	exclude13
+PXD035412	not_queue	aging 230 part C
+PXD026035	not_queue	aging 230 part C
+PXD005753	watch	aging 230 part C
+PXD062476	watch	aging 230 part C
+PXD021788	watch	aging 230 part C
+PXD067622	watch	aging 230 part C
+PXD034029	queue	aging 230 part C
+PXD057407	queue	aging 230 part C
+PXD047288	queue	aging 230 part C
+PXD027971	queue	aging 230 part C
+PXD025321	queue	aging 230 part C

@@ -1,0 +1,13 @@
+{
+  "accession": "PXD031641",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "Mouse heart proteomics in Oma1 and Cox10 deficient mice",
+    "description": "Cardiomyopathy and heart failure are common manifestations in mitochondrial disease caused by deficiencies in the oxidative phosphorylation system of mitochondria (OXPHOS). Here, we demonstrate that the cardiac-specific loss of the assembly factor Cox10 of the cytochrome c oxidase causes mitochondrial cardiomyopathy in mice, which is associated with OXPHOS deficiency, lysosomal defects and an aberrant mitochondrial morphology and ultrastructure. We demonstrate activation of the mitochondrial peptidase Oma1 in Cox10-/- mice, which results in mitochondrial fragmentation and induction of the integrated stress response (ISR) along the Oma1-Dele1-Atf4 signalling axis. Ablation of Oma1 or Dele1 in Cox10-/- mice aggravates cardiomyopathy. ISR inhibition impairs the cardiac glutathione metabolism, decreases the levels of the glutathione peroxidase Gpx4 and increases lipid peroxidation in the heart, ultimately culminating in ferroptosis. Our results demonstrate a protective role of the Oma1-mediated ISR in mitochondrial cardiomyopathy and link ferroptosis to OXPHOS deficiency and mitochondrial disease.",
+    "sample_protocol": "",
+    "keywords": "Mouse, Heart, Oma, Cox10, Cardiomyopathy",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": ""
+  }
+}

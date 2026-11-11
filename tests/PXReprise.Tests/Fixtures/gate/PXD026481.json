@@ -1,0 +1,13 @@
+{
+  "accession": "PXD026481",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "Metabolic resistance to the inhibition of mitochondrial transcription revealed by CRISPR-Cas9 screen",
+    "description": "Cancer cells depend on mitochondria to sustain their increased metabolic needs therefore, mitochondria constitute an interesting target for cancer treatment. We recently developed novel small-molecule inhibitors of mitochondrial transcription (IMTs) that selectively target mitochondrial gene expression. IMTs showed potent antitumor properties in vitro and in vivo, without affecting normal tissues. Because therapy-induced resistance is a major constraint to successful cancer therapy, we investigated mechanisms involved in resistance to IMTs. We employed a CRISPR-Cas9 whole genome screen to determine pathways responsible for resistance to acute IMT1 treatment. Loss of genes belonging to VHL and mTORC1 pathways caused IMT1 resistance. The relevance of these pathways was then validated by chemical modulation of these processes in cancer cells. We also generated IMT1-resistant cells to dissect responses to chronic mitochondrial gene expression impairment. We report that acquired resistance to IMT1 occurs through compensatory increase of mtDNA levels, transcripts and proteins. We found that chloramphenicol-mediated inhibition of mitochondrial translation impaired resistant cells\u2019 survival. The identified susceptibility and resistance mechanisms to IMTs are important for future pharmacological interventions with mitochondria-targeted therapies.",
+    "sample_protocol": "",
+    "keywords": "inhibitor of mitochondrial transcription, CRISPR-Cas9 genetic screen, chemoresistance, cancer, mtDNA",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": ""
+  }
+}

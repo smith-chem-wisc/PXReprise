@@ -12,6 +12,20 @@ A new version of the engine never changes a finished result. Methods live in ver
 **MetaMorpheus** unchanged. **Machine file:** no change needed (`output_sdrf_read_only` is new, default `true`). **Safe
 mid-batch?** Yes: swap the pin as usual.
 
+- **A question can gate its deposits on their own text: `[gate]`, and `pxreprise gate`** (aging PXR-A179, 2026-11-11).
+  - The census finds deposits with PRIDE's text search, which matches anywhere in a record, a lab's name included. Aging
+    checked their queue and catalog on 2026-11-09 and found 87 deposits that should never have been queued or served. 19 of
+    40 queued ones had the word "ageing" only in their lab's institute.
+  - A question may now name a `[gate]`: `strong` and `weak` terms, terms used in another sense, cancer-model terms, and
+    later-disease terms. Every deposit the census would queue passes it first. Only the deposit's own text is read: title,
+    description, sample protocol, keywords, PRIDE's organism parts and diseases, and its references' titles. Submitters,
+    lab heads, affiliations and countries are never read, and neither are reference authors.
+  - The outcome is `queue`, `watch` (to the watch list, for a person) or `not_queued`. Every decision goes to the census's
+    `gate.tsv`, with each matched term, its field and the text around it.
+  - When PRIDE's project record cannot be had, the text comes from ProteomeXchange's record, else PRIDE's search index.
+  - `pxreprise gate <question> --list <file>` writes the same rows for any list of deposits (a queue, a catalog) and
+    changes nothing.
+  - The terms are the question's (a question is data). A question without `[gate]` is unchanged.
 - **The SDRF a search writes is read-only** (the user, 2026-11-11: "make the output sdrf read-only by default"; dataRepo
   PXR-R58).
   - Every current profile writes the search's own SDRF beside its results. That file states the facts the search's

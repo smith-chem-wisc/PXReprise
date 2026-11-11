@@ -1,0 +1,13 @@
+{
+  "accession": "PXD057020",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "BONCAT Model Comparison in Camk2a\u002B Neurons",
+    "description": "Comparison of three different BONCAT models (MetRS, PheRS, TyrRS) driven by Camk2a promoter to drive BONCAT machinery in excitatory neurons.",
+    "sample_protocol": "",
+    "keywords": "BONCAT, MetRS, PheRS, TyrRS",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": ""
+  }
+}

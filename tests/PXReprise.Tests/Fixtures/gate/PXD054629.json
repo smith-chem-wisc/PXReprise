@@ -1,0 +1,13 @@
+{
+  "accession": "PXD054629",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "Immunocompatible Elastomer with increased resistance to the foreign body response",
+    "description": "Polymeric elastomers are extensively employed to fabricate implants intended for prolonged implantation. However, implantation of the elastomers can induce strong immune rejection reaction known as foreign body response (FBR), resulting in the rejection of foreign implants and thereby diminishing their in vivo efficacy. Herein, we present a group of immunocompatible elastomers, termed easy-to-synthesize vinyl-based anti-FBR dense elastomers (EVADE), synthesized via a straightforward and scalable method. In contrast to the pronounced immune reaction triggered by the commonly used implantable elastomers, EVADE materials effectively suppress the inflammation and long-term capsule formation in subcutaneous models of rodents and non-human primates for at least one year and two months, respectively. Implantation of EVADE materials significantly reduces the expression of inflammation-related proteins S100A8/A9 in adjacent tissues compared to polydimethylsiloxane (PDMS). We also show that inhibition or knockout of S100A8/A9 leads to substantial attenuation of fibrosis in mice, suggesting a target for fibrosis inhibition. Continuous subcutaneous insulin infusion (CSII) catheters constructed from EVADE elastomers demonstrate significantly improved longevity and performance compared to commercial catheters. The EVADE materials reported here may enhance and extend function in various medical devices by resisting local immune responses to implanted biomaterials.",
+    "sample_protocol": "",
+    "keywords": "foreign body response",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": "Immunocompatible elastomer with increased resistance to the foreign body response"
+  }
+}

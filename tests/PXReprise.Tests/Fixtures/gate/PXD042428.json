@@ -1,0 +1,13 @@
+{
+  "accession": "PXD042428",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "Macrophage regulation by the Pentose Phosphate Pathway in the TME",
+    "description": "Macrophages in the B-cell lymphoma microenvironment represent a functional node in progression and therapeutic response. We assessed metabolic regulation of macrophages in the context of therapeutic antibody mediated phagocytosis. Pentose phosphate pathway (PPP) inhibition by specific inhibitors and genetic targeting induced increased phagocytic lymphoma cell clearance. Moreover, macrophages provided decreased support for survival of lymphoma cells. PPP inhibition induced metabolic activation, cytoskeletal re-modelling and pro-inflammatory polarization of macrophages. A connection between PPP and immune regulation was identified as mechanism of macrophage repolarization. PPP inhibition causes suppression of glycogen synthesis and subsequent modulation of the immune modulatory STAT1-IRG1-itaconate axis. PPP inhibition rewired macrophage activation in vivo. Addition of the PPP inhibitor S3 to antibody therapy achieved significant increased overall survival in an aggressive B cell lymphoma mouse model. We hypothesize the PPP as key regulator and targetable modulator of macrophage activity in lymphoma to improve efficacy of immunotherapies.",
+    "sample_protocol": "",
+    "keywords": "B-cell lymphoma, Pentose phosphate pathway,Macrophage",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": ""
+  }
+}

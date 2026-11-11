@@ -1,0 +1,13 @@
+{
+  "accession": "PXD021788",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "Human vitreous TMT labelled LC-MS/MS",
+    "description": "Proliferative diabetic retinopathy (PDR) is a severe complication of diabetes and can cause blindness. However, the available therapeutic modalities to PDR have unsatisfactory efficacies and incur adverse effects, which is due to the paucity in the understanding of pathogenic mechanisms responsible for the disease. In this study, tandem mass tag labeling technology combined with liquid chromatography and tandem mass spectrometry were utilized to identify differentially expressed proteins in vitreous humor of patients with rhegmatogenous retinal detachment and PDR.",
+    "sample_protocol": "",
+    "keywords": "proliferative diabetic retinopathy, LC-MS/MS, proteomics, CTSB, CTSD",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": "Tandem mass tag-based proteomic analysis reveals cathepsin-mediated anti-autophagic and pro-apoptotic effects under proliferative diabetic retinopathy"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "accession": "PXD034934",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "Investigating proteome remodeling as a function of mammalian cell size",
+    "description": "Investigating proteome remodeling as a function of mammalian cell size  Experiment design: Condition1: RPE1 cells treated with palbociclib (2days) Condition 2: RPE1 cells treated with palbociclib (6days) Condition 3: RPE1 cells treated with palbociclib (6days) \u002BTorin1 Condition 4: RPE1 cells treated with palbociclib (6days) contact inhibited",
+    "sample_protocol": "",
+    "keywords": "TMT; cell size",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": "Genome homeostasis defects drive enlarged cells into senescence"
+  }
+}

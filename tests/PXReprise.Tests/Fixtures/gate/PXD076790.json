@@ -1,0 +1,13 @@
+{
+  "accession": "PXD076790",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "Loss of mitochondrial complex II causes severe respiratory chain dysfunction",
+    "description": "Mitochondrial complex II (succinate dehydrogenase, SDH) links the tricarboxylic acid cycle to the respiratory chain. To investigate how disruption of complex II affects mitochondrial respiratory organization, we generated cell lines lacking either SDHA or SDHB and systematically characterized the activity and organization of mitochondrial respiratory complexes, as well as mitochondrial architecture. Loss of either subunit abolished complex II activity and induced extensive remodeling of the respiratory chain, including a marked reduction in the abundance of the respirasome and other complex I\u2013containing supercomplexes. These changes were accompanied by impaired mitochondrial respiration, altered mitochondrial morphology and a pronounced reduction in cristae number. Quantitative proteomic analysis of respiratory chain complexes revealed coordinated changes in the abundance and organization of OXPHOS components. Together, these findings demonstrate that disruption of complex II drives large-scale remodeling of respiratory chain organization and mitochondrial architecture",
+    "sample_protocol": "",
+    "keywords": "respiratory chain,complex II",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": ""
+  }
+}

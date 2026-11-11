@@ -1,0 +1,13 @@
+{
+  "accession": "PXD007738",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "A post-transcriptional program coordinated by CSDE1 prevents intrinsic neural differentiation of human embryonic stem cells",
+    "description": "We compared hESCs with their neuronal counterpart to quantify differences in the expression of cold-shock domain containing proteins. While the transcriptional network of human embryonic stem cells (hESCs) has been extensively studied, relatively little is known about how post-transcriptional modulations determine hESC function. RNA-binding proteins play central roles in RNA regulation, including translation and turnover. Here we show that the RNA-binding protein CSDE1 is highly expressed in hESCs to maintain their undifferentiated state and prevent default neural fate. Notably, loss of CSDE1 accelerates neural differentiation and potentiates neurogenesis. Conversely, ectopic expression of CSDE1 impairs neural differentiation. We find that CSDE1 post-transcriptionally modulates core components of multiple regulatory nodes of hESC identity, neuroectoderm commitment and neurogenesis. Among these key pro-neural/neuronal factors, CSDE1 binds fatty acid binding protein 7 (FABP7) and vimentin (VIM) mRNAs as well as transcripts involved in neuron projection development regulating their stability and translation. Thus, our results uncover CSDE1 as a central post-transcriptional regulator of hESC identity and neurogenesis.",
+    "sample_protocol": "",
+    "keywords": "Comparison hESCs versus their differentiated counterparts; Biological",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": "A post-transcriptional program coordinated by CSDE1 prevents intrinsic neural differentiation of human embryonic stem cells"
+  }
+}

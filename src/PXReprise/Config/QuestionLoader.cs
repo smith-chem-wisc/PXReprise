@@ -165,12 +165,39 @@ public static class QuestionLoader
             sx.RefuseUnknownKeys();
         }
 
+        // v0.4.46 (aging PXR-A179, their D171): [gate], rules over a deposit's own text before the census queues it.
+        GateTerms? gate = null;
+        if (root.OptionalTable("gate") is { } gt)
+        {
+            IReadOnlyList<GateTerm> Terms(string key) => gt.StringList(key).Select(t => Term(file, $"gate.{key}", t)).ToList();
+            var strong = Terms("strong");
+            if (strong.Count == 0) throw new ConfigException(file, "gate.strong names no term: the gate would queue nothing");
+            string referenceGroup = gt.OptionalString("reference_group") ?? "required";
+            if (referenceGroup is not ("required" or "off"))
+                throw new ConfigException(file, $"gate.reference_group must be \"required\" or \"off\" (got '{referenceGroup}')");
+            gate = new GateTerms(strong, Terms("weak"), Terms("other_sense"), Terms("watch_if_any"), Terms("watch_without_strong"),
+                referenceGroup == "required");
+            gt.RefuseUnknownKeys();
+        }
+
         root.RefuseUnknownKeys();
         return new Question(name, description, file, profiles, keywords, organisms,
             new RelevanceRules(require, exclude, unless, decisions), overlays, requiredTraits, optionalTraits,
             traitsSource, holds, studyLayer, batch,
             new PublishSettings(manifest is null ? null : Abs(dir, manifest), command, everyHours, publishTimeout), designs,
-            new DiscoverLists(diseaseKeywords, watchKeywords), exceptions, splits);
+            new DiscoverLists(diseaseKeywords, watchKeywords), exceptions, splits, gate);
+    }
+
+    /// <summary>
+    /// A gate term, matched case-insensitively on word boundaries: no letter, digit or underscore just before or after it, so
+    /// "old" does not match "threshold" and a term may itself start or end with punctuation. The text it is matched against
+    /// has every Unicode dash read as a hyphen and runs of whitespace as one space (Census.Gate.Normalize).
+    /// </summary>
+    internal static GateTerm Term(string file, string key, string term)
+    {
+        if (string.IsNullOrWhiteSpace(term)) throw new ConfigException(file, $"'{key}' holds an empty term");
+        try { return new GateTerm(term, new Regex($@"(?<![\p{{L}}\p{{N}}_])(?:{term})(?![\p{{L}}\p{{N}}_])", Opt)); }
+        catch (ArgumentException e) { throw new ConfigException(file, $"'{key}' term '{term}' is not a valid regular expression: {e.Message}"); }
     }
 
     /// <summary>The keys an <c>[exceptions]</c> entry and a <c>[splits]</c> group both take, read from <paramref name="t"/>.</summary>

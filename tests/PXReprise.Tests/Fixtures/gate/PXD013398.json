@@ -1,0 +1,13 @@
+{
+  "accession": "PXD013398",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "TEFM regulates both transcription elongation and RNA processing in mitochondria",
+    "description": "Regulation of replication and expression of mitochondrial DNA (mtDNA) is essential for cellular energy conversion via oxidative phosphorylation. The mitochondrial transcription elongation factor (TEFM) has been proposed to regulate the switch between transcription termination for replication primer formation and processive, near-genome length transcription for mtDNA gene expression. Here, we report that Tefm is essential for mouse embryogenesis and that levels of promoter-distal mitochondrial transcripts are drastically reduced in conditional Tefm-knockout hearts. In contrast, the promoter-proximal transcripts are much increased in Tefm knockouts, but they mostly terminate before the region where the switch from transcription to replication occurs, and consequently de novo mtDNA replication is profoundly reduced. Unexpectedly, deep sequencing of RNA from Tefm knockouts revealed accumulation of unprocessed transcripts in addition to defective transcription elongation. Furthermore, a proximity labelling (BioID) assay showed that TEFM interacts with multiple RNA processing factors. Our data demonstrate that TEFM acts as a general transcription elongation factor, necessary for both gene transcription and replication primer formation, and loss of TEFM affects RNA processing in mammalian mitochondria.",
+    "sample_protocol": "",
+    "keywords": "mtDNA replication, RNA processing, transcription elongation",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": "TEFM regulates both transcription elongation and RNA processing in mitochondria"
+  }
+}

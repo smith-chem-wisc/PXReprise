@@ -1,0 +1,13 @@
+{
+  "accession": "PXD034410",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "UBR4 KO analysis with TMT labeling",
+    "description": "The impact of NatC and UBR4 on the human proteome (protein abundance). Analysis of HAP1 WT siCtr, HAP1 WT siUBR4, HAP1 NAA30 KO siCtr, and HAP1 NAA30 KO siUBR4 cells.",
+    "sample_protocol": "",
+    "keywords": "HAP1 KO cells, TMT, UBR4, LC-MS/MS",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": ""
+  }
+}

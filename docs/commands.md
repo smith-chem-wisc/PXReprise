@@ -60,11 +60,23 @@ profile, or records why not. Writes to `--out` (default: `census/<today>` beside
 | `review.md` | **Read this first.** The census made readable: how much each keyword and rule contributed, a sample of relevant deposits and of keyword hits no rule matched, and every exclusion, each quoting the text that decided it. See the [tutorial](tutorial.md). |
 | `summary.json` | The counts: deposits found, relevant, searchable per profile, and what the rest wait on; `queued_by_keyword` (how many deposits each keyword would queue, after every screen) and `watched`. |
 | `queue.json` | The deposits the batch would search, in order. |
-| `watch.tsv` | Only when the question has `disease_keywords` or `watch_keywords`: the deposits found and screened but never queued, with the reason (`watch_list`, `no_reference_group_found`). |
+| `gate.tsv` | Only when the question has a `[gate]` ([questions](questions.md)): every deposit routed to a search, with the gate's outcome (`queue`, `watch`, `not_queued`) and why, where its text came from, the keywords that found it, and every matched term with its field and the text around it. |
+| `watch.tsv` | Only when the question has `disease_keywords`, `watch_keywords` or a `[gate]`: the deposits found and screened but never queued, with the reason (`watch_list`, `no_reference_group_found`, `gate_watch`). |
 | `provenance.json` | When the census ran and with which versions. PRIDE changes daily, so a census is a dated snapshot. |
 
 `--queue` also copies `queue.json` to the question's `[batch] queue` path, where `batch run` reads it. It refuses to
 replace a queue that already exists, because a running batch may be using it. Delete or rename the old one first.
+
+### `gate`
+
+```
+pxreprise gate question.toml --list accessions.txt [--out folder]
+```
+
+Since 0.4.46. Runs the question's `[gate]` over a list of deposits and writes the same `gate.tsv` rows as the census,
+changing nothing: no queue is written or edited. The list is one accession a line (`#` starts a comment), or a
+`queue.json`. Use it to see which deposits already queued or delivered the gate would have kept out. Each deposit's
+text is PRIDE's project record, else ProteomeXchange's; with neither, its row says `none`.
 
 ### `rank`
 

@@ -1,0 +1,13 @@
+{
+  "accession": "PXD011750",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "YME1L1 KO Hypoxia Proteome -  Lipid signalling drives proteolytic rewiring of mitochondria by YME1L",
+    "description": "Mitochondria are central metabolic hubs whose structure and function dynamically adapt to changing metabolic demands and environmental challenges. Metabolic reprogramming of mitochondria occurs during development, cell differentiation and in disease and is coupled to changes in mitochondrial mass and shape. Here, we demonstrate that the i-AAA protease YME1L rewires the proteome of pre-existing mitochondria in response to hypoxia or nutrient starvation. Inhibition of mTORC1 induces a lipid signalling cascade via the phosphatidic acid phosphatase LIPIN1, which decreases phosphatidylethanolamine levels in mitochondrial membranes and promotes proteolysis. YME1L degrades mitochondrial protein translocases, lipid transfer proteins and metabolic enzymes to acutely limit mitochondrial biogenesis and support cell growth. Similar mitochondrial proteome changes in tumor tissues of pancreatic ductal adenocarcinoma patients suggest that YME1L is relevant to the pathophysiology of hypoxic solid tumors. Our results identify the mTORC1-LIPIN1-YME1L axis as a novel post-translational regulator of mitochondrial proteostasis at the interface of metabolism and mitochondrial dynamics.",
+    "sample_protocol": "",
+    "keywords": "MEFS,Mouse, HELA, YME1L1, Hypoxia; Biological",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": "Lipid signalling drives proteolytic rewiring of mitochondria by YME1L"
+  }
+}

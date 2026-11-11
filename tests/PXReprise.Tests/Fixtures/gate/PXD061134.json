@@ -1,0 +1,13 @@
+{
+  "accession": "PXD061134",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "Neo N termiome of Oma1 and WT knockout HeLa cells",
+    "description": "To understand how OMA1 affects mitochondrial proteostasis and stress responses, we performed a proteomic survey of OMA1-deficient cells for proteolytic substrates. We demonstrate that OMA1 cleaves the mitochondrial chaperone DNAJC15 facilitating its degradation by the mitochondrial m-AAA protease. The loss of DNAJC15 alters protein import by TIM23 protein translocases in the IM and limits the accumulation of OXPHOS-related mitochondrial matrix and IM proteins. Non-imported mitochondrial preproteins accumulate at the endoplasmic reticulum (ER) and trigger an ATF6-related unfolded protein response. These results demonstrate that OMA1 allows to adapt mitochondrial protein biogenesis to stress and reveal an intricate network of cellular stress responses to proteostasis disturbances.  In this dataset, we investigated the Neo-N terminal of proteins dependent on Oma1. In the original publication, only Oma1 and WT were utilized, while this dataset also contains MICS1 knockout and Oligomycin treatment.",
+    "sample_protocol": "",
+    "keywords": "NeoN, HeLa,Oma1",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": ""
+  }
+}

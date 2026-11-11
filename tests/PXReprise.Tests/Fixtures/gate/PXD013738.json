@@ -1,0 +1,13 @@
+{
+  "accession": "PXD013738",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "Striatal micro-punches of Ftofl/fl and FtoDeltaA2a mice.",
+    "description": "Variations in the human FTO gene have been linked to obesity and altered connectivity and function of the dopaminergic neurocircuitry. Here we report that FTO in D2 medium spiny neurons (MSNs) of mice regulates the excitability of these cells in vitro and in vivo as well as controls D2 MSN globus pallidus external projections. Lack of FTO in D2 MSNs translates into increased locomotor responses to novelty, associated with altered timing behavior without affecting reward responses to drugs of abuse and highly palatable food, or the ability to discount rewards. Pharmacological manipulation of D1R- and D2R-dependent pathways in these animals reveals an altered balance between D1 MSN- and D2 MSN-mediated control of motor output. These findings hold the potential to target a novel avenue for control of basal ganglia motor function, where modulation of FTO-dependent signaling in D2 MSNs may promote D1 MSN regulated locomotor behavior without altering reward signaling or inciting impulsivity.",
+    "sample_protocol": "",
+    "keywords": "Striatum, FTO, LC-MS/MS",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": ""
+  }
+}

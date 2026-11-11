@@ -1,0 +1,13 @@
+{
+  "accession": "PXD024491",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "Mitochondria shed large SPOTs during infection-induced import stress to remodel their outer membrane",
+    "description": "Despite the essential role of the outer mitochondrial membrane (OMM) in cellular homeostasis, little is known of the mechanisms that remodel it during naturally occurring stresses. Here, we report a previously undescribed structure we term SPOT (structure positive for outer mitochondrial membrane) that is up to 10 \uF06Dm in diameter and emerges from the OMM during infection with the human parasite Toxoplasma gondii. SPOTs are distinct from mitochondria-derived vesicles and compartments, and mediate the depletion of the OMM proteins MFN1 and MFN2 that restrict parasite growth. The formation of SPOTs depends on the parasite effector protein TgMAF1 and the host mitochondrial import receptor TOM70, which is required for optimal parasite proliferation. TOM70 enables TgMAF1 to interact with host SAM50, a major translocase of the OMM, and SAM50 inhibition or acute mitochondrial import stress are sufficient to promote SPOT formation independently of infection. We propose that Toxoplasma exploits SPOTs, a cellular response to OMM import stress, to promote its growth.",
+    "sample_protocol": "",
+    "keywords": "Mitochondria, Toxoplasma, label-free, TMT",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": "Mitochondria shed their outer membrane in response to infection-induced stress"
+  }
+}

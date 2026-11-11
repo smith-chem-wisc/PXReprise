@@ -1,0 +1,13 @@
+{
+  "accession": "PXD034029",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "Global and tissue-specific aging effects on murine proteomes",
+    "description": "Maintenance of protein homeostasis degrades with age, contributing to aging-related decline and disease. Previous studies have primarily surveyed transcriptional aging changes. To define the effects of age directly at the protein level, we perform discovery-based proteomics in 10 tissues from 20 C57BL/6J mice, representing both sexes at adult and late midlife ages (8 and 18 months). Consistent with previous studies, age-related changes in protein abundance often have no corresponding transcriptional change. Aging results in increases in immune proteins across all tissues, consistent with a global pattern of immune infiltration with age. Our protein-centric data reveal tissue-specific aging changes with functional consequences, including altered endoplasmic reticulum and protein trafficking in the spleen. We further observe changes in the stoichiometry of protein complexes with important roles in protein homeostasis, including the CCT/TriC complex and large ribosomal subunit. These data provide a foundation for understanding how proteins contribute to systemic aging across tissues.",
+    "sample_protocol": "",
+    "keywords": "mouse, TMT, multiplexed proteomics, tissue proteomics, real-time search, aging",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": ""
+  }
+}

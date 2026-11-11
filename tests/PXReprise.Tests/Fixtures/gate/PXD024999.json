@@ -1,0 +1,13 @@
+{
+  "accession": "PXD024999",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "Characterization of novel a-Mangostin and Paeonol derivatives with cancer-selective cytotoxicity",
+    "description": "a-Mangostin and Paeonol have shown anti-cancer and anti-inflammatory properties, however these two natural compounds have no clinical value because of their low solubility and low membrane permeability. In this study, we screened chemically synthesized derivatives from these two natural compounds as potential novel chemicals that increase cancer cell cytotoxicity over non-transformed human cells. We found the two derivative compounds, named a-Mangostin-1 (aMan1) and Paeonol-1 (Pae1) more efficiently and specifically induced cytotoxicity in HCT116, HT-29, and SW48 colorectal cancer cell lines than the parental compounds. Both, aMan1 and Pae1 arrested HCT116 cells in G1 and HT-29 and SW48 cells in G2/M phase of the cell cycle. Both aMan1 and Pae1 induced apoptosis in human cancer cells, through a Caspase-dependent mechanism. aMan1 and Pae1 induced selective transcriptional responses in CRC cells involving genes related to metabolic stress and DNA damage response signaling pathways. Finally, experiments on primary colon organoids showed that both the novel derivatives kill organoids derived from cancer without affecting the viability of organoids derived from healthy tissue, where the parental compounds and the currently-used chemotherapeutic drug Irinotecan failed in. In conclusion, our findings increase the knowledge about natural compound derivatives as anticancer compounds and open new research options on the derivation of lead compounds aimed to the development of novel CRC chemotherapeutic drugs that selectively target cancer, but not healthy cells.",
+    "sample_protocol": "",
+    "keywords": "Colorectal cancer; anti-cancer drugs; cancer-selective compounds; natural compound derivatives; colon cancer organoids; Paeonol; a-Mangostin",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": "Characterization of Novel \u03B1-Mangostin and Paeonol Derivatives With Cancer-Selective Cytotoxicity"
+  }
+}

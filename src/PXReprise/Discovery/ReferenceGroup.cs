@@ -22,9 +22,11 @@ public static class ReferenceGroup
     }), Opt);
 
     /// <summary>A snippet around the first reference-group word, or null when the record names none.</summary>
-    public static string? Find(PrideProjectSearchResult r)
+    public static string? Find(PrideProjectSearchResult r) => FindIn(AcquisitionClassifier.Text(r));
+
+    /// <summary>The same over any text: the gate's report mode reads a project record or ProteomeXchange's XML (v0.4.46).</summary>
+    public static string? FindIn(string text)
     {
-        string text = AcquisitionClassifier.Text(r);
         var m = Pattern.Match(text);
         return m.Success ? AcquisitionClassifier.Snippet(text, m) : null;
     }

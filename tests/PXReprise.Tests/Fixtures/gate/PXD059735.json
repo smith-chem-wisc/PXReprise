@@ -1,0 +1,13 @@
+{
+  "accession": "PXD059735",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "Proteomic analysis of C2C12 myoblasts treated with Tunicamycin",
+    "description": "Label free proteomic analysis of C2C12 myoblasts treated with either Tunicamycin (0.2ug/ml) alone or with PERK AMG44 (2uM) for 8h and followed by 16h recovery.",
+    "sample_protocol": "",
+    "keywords": "Tunicamycin, ER stress,skeletal muscle,  PERK AMG44",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": "Adaptive ER stress promotes mitochondrial remodelling and longevity through PERK-dependent MERCS assembly"
+  }
+}
