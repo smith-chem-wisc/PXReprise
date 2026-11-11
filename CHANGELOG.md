@@ -7,6 +7,22 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.46 (unreleased)
+
+**MetaMorpheus** unchanged. **Machine file:** no change needed (`output_sdrf_read_only` is new, default `true`). **Safe
+mid-batch?** Yes: swap the pin as usual.
+
+- **The SDRF a search writes is read-only** (the user, 2026-11-11: "make the output sdrf read-only by default"; dataRepo
+  PXR-R58).
+  - Every current profile writes the search's own SDRF beside its results. That file states the facts the search's
+    quantities came from: which file is which sample, the fractions and conditions, the enzyme and the labels.
+  - A sample fact that is corrected later is never edited into a search's files. The correction is a new search, with
+    its own input and output SDRF, delivered as a new bundle; the old bundle stays as it was.
+  - The search now marks its output SDRF read-only (not the copies under `Individual File Results`, which the prune stage
+    deletes), and its provenance says so. `output_sdrf_read_only = false` in the machine file turns this off.
+  - Deleting a search folder by hand now needs `Remove-Item -Recurse -Force` (or clearing the flag first); a plain
+    recursive delete stops at the read-only file.
+
 ## 0.4.45 (2026-11-11)
 
 **MetaMorpheus** unchanged. **Machine file:** no change needed. **Safe mid-batch?** Yes: swap the pin as usual. A probe worker

@@ -743,7 +743,20 @@ public static class SearchStage
             flags.Add(p.WriteSdrf ? "no_output_sdrf: the profile asked for the search's SDRF and none was written"
                                   : "no_output_sdrf: no reanalysis SDRF written (the profile does not set write_sdrf)");
         else
-            foreach (string sdrf in Directory.EnumerateFiles(mm, "*.sdrf.tsv", SearchOption.AllDirectories)) prov.Output(sdrf);
+        {
+            var written = Directory.EnumerateFiles(mm, "*.sdrf.tsv", SearchOption.AllDirectories).Order(StringComparer.Ordinal).ToList();
+            foreach (string sdrf in written) prov.Output(sdrf);
+            // v0.4.46 (the user, 2026-11-11: "make the output sdrf read-only by default"): the SDRF a search writes states the
+            // facts its quantities came from. A corrected fact is a new search, never an edit of this file (dataRepo PXR-R58).
+            // Not under Individual File Results, which the prune stage deletes.
+            if (m.OutputSdrfReadOnly)
+            {
+                var locked = written.Where(f => !f.Contains($"{Path.DirectorySeparatorChar}Individual File Results{Path.DirectorySeparatorChar}", StringComparison.Ordinal)).ToList();
+                foreach (string sdrf in locked) File.SetAttributes(sdrf, File.GetAttributes(sdrf) | FileAttributes.ReadOnly);
+                if (locked.Count > 0)
+                    prov.Note($"output SDRF made read-only ({string.Join(", ", locked.Select(f => Path.GetRelativePath(outDir, f)))}; machine output_sdrf_read_only): a corrected sample fact is a new search, never an edit of this file");
+            }
+        }
         // aging 043 (PXR-A37): a whole proteome runs 12-26% cysteine-containing target peptides at 1%; every chemistry
         // mismatch found so far (NEM, MMTS searched as carbamidomethyl) sat below 5%. A measurement and a flag, never a gate:
         // an enrichment is cysteine-poor by design, so the manifest keeps the flag only for non-enriched deposits.

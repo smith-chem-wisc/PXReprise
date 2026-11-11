@@ -101,7 +101,7 @@ public class SearchStageTests
 
     private sealed record Rig(string Root, Machine Machine, Profile Profile, string Spectra, string Qc);
 
-    private static Rig Setup(bool library = true, string machineExtra = "", bool depositChemistry = false, string mm = "1.1.11", bool design = false)
+    private static Rig Setup(bool library = true, string machineExtra = "", bool depositChemistry = false, string mm = "1.1.11", bool design = false, bool writeSdrf = false)
     {
         string root = TestSupport.TempDir();
         // A MetaMorpheus "install": the fake CMD, and the Mods and Contaminants folders the engine reads beside it.
@@ -128,6 +128,7 @@ public class SearchStageTests
             gptmd_extra_mods = ["Trypsin Digested\tGG (Ubiquitination Site) on K"]
             spectral_library = {(library ? "true" : "false")}
             {(depositChemistry ? "chemistry = \"deposit\"" : "")}
+            {(writeSdrf ? "write_sdrf = true" : "")}
             [databases.human]
             proteome = "proteome.xml"
             taxon = 9606
@@ -624,6 +625,27 @@ public class SearchStageTests
             Environment.SetEnvironmentVariable("FAKE_MM_CALIBRATE", null);
             Environment.SetEnvironmentVariable("FAKE_MM_ARGS_LOG", null);
         }
+    }
+
+    // v0.4.46 (the user, 2026-11-11: "make the output sdrf read-only by default"): the SDRF a search writes is the record of the
+    // facts its quantities came from; a corrected fact is a new search (dataRepo PXR-R58), so nobody edits this file by hand.
+    [Test]
+    public async Task TheSearchsOwnSdrfIsReadOnlyUnlessTheMachineSaysOtherwise()
+    {
+        static string OutputSdrf(Rig r) =>
+            Directory.EnumerateFiles(Path.Combine(r.Root, "run", "04_search", "mm"), "*.sdrf.tsv", SearchOption.AllDirectories).Single();
+
+        var rig = Setup(library: false, writeSdrf: true);
+        var o = await SearchStage.RunAsync(Req(rig, "04_search"), CancellationToken.None);
+        Assert.That(o.Success, Is.True);
+        string sdrf = OutputSdrf(rig);
+        Assert.That(File.GetAttributes(sdrf).HasFlag(FileAttributes.ReadOnly), Is.True);
+        Assert.Throws<UnauthorizedAccessException>(() => File.AppendAllText(sdrf, "an edit after the fact\n"));
+        Assert.That(File.ReadAllText(o.ProvenanceFile), Does.Contain("output SDRF made read-only"));
+
+        var open = Setup(library: false, writeSdrf: true, machineExtra: "output_sdrf_read_only = false\n");
+        Assume.That((await SearchStage.RunAsync(Req(open, "04_search"), CancellationToken.None)).Success);
+        Assert.That(File.GetAttributes(OutputSdrf(open)).HasFlag(FileAttributes.ReadOnly), Is.False, "the machine file can turn it off");
     }
 
     // A stand-in made under other settings is never searched: with its raw here the raw is calibrated in one run as before;
