@@ -343,6 +343,7 @@ public static partial class Tables
             new ColumnSpec("ensembl_xref_agrees", ColumnType.Boolean, IsList: false, Nullable: true),
             new ColumnSpec("ensembl_xref_info_type", ColumnType.String, IsList: false, Nullable: true),
             new ColumnSpec("ensembl_xref_sha256", ColumnType.String, IsList: false, Nullable: false),
+            new ColumnSpec("ensembl_xref_agreement", ColumnType.String, IsList: false, Nullable: true),
         ]),
         new TableSpec("protein_annotations", "ProteinAnnotation",
         [
