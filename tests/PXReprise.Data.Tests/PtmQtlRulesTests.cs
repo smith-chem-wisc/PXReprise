@@ -82,9 +82,11 @@ public class PtmQtlRulesTests
     [TestCase("UniProt:N6-propionyllysine on K", PtmQtlRules.BlockingByMzLib)]
     [TestCase("UniProt:N6-benzoyllysine on K", PtmQtlRules.BlockingByMzLib)]
     [TestCase("Common Artifact:Carbamyl on K", PtmQtlRules.BlockingByMzLib)]
-    [TestCase("UniProt:N6-isonicotinyllysine on K", PtmQtlRules.BlockingByPtmQtl)]
-    [TestCase("UniProt:N6-methacryllysine on K", PtmQtlRules.BlockingByPtmQtl)]
-    [TestCase("UniProt:N6-palmitoyl lysine on K", PtmQtlRules.BlockingByPtmQtl)]
+    // ptmQtl's five acyl amides (S2c v3) are on mzLib's own list since #1513 (mzLib 1.0.597), which ptmQtl asked for as
+    // CLEAVAGERULES-P3; so are three more (decanoyl, lactoyl, stearoyl). BlockingByPtmQtl no longer fires on any of them.
+    [TestCase("UniProt:N6-isonicotinyllysine on K", PtmQtlRules.BlockingByMzLib)]
+    [TestCase("UniProt:N6-methacryllysine on K", PtmQtlRules.BlockingByMzLib)]
+    [TestCase("UniProt:N6-palmitoyl lysine on K", PtmQtlRules.BlockingByMzLib)]
     [TestCase("Common Biological:Methylation on K", null)]
     [TestCase("UniProt:N6,N6,N6-trimethyllysine on K", null)]
     [TestCase("Common Biological:Phosphorylation on S", null)]
@@ -102,12 +104,12 @@ public class PtmQtlRulesTests
             O("r1", "PEK[Common Biological:Acetylation on K]TIDEAR", 30),    // internal: K32 stays
             O("r1", "PEPTIDEAR[Common Biological:Citrullination on R]", 50), // R58 out
             O("r1", "PEPTIDEAK[Common Biological:Methylation on K]", 70),     // not blocking
-            O("r1", "PEPTIDEAK[UniProt:N6-methacryllysine on K]", 90),        // K98 out, by ptmQtl's addition
+            O("r1", "PEPTIDEAK[UniProt:N6-methacryllysine on K]", 90),        // K98 out: ptmQtl's addition, on mzLib's list since #1513
         ]);
         Assert.That(sites.Select(s => $"{s.Protein}:{s.Residue}{s.Position}:{s.Modification}"),
             Is.EqualTo(new[] { "P1:K18:Acetylation on K", "P1:R58:Citrullination on R", "P1:K98:N6-methacryllysine on K" }));
         Assert.That(sites.All(s => s.Rule == "S2c" && s.Reason.StartsWith("S2c:", StringComparison.Ordinal)));
-        Assert.That(sites.Select(s => s.Reason.EndsWith("(mzLib's list)", StringComparison.Ordinal)), Is.EqualTo(new[] { true, true, false }));
+        Assert.That(sites.Select(s => s.Reason.EndsWith("(mzLib's list)", StringComparison.Ordinal)), Is.EqualTo(new[] { true, true, true }));
     }
 
     // ---------------------------------------------------------------- S2e
