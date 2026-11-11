@@ -500,6 +500,8 @@ public static class Ingester
 
         var psmColumns = Readers.ReadPsmtsv(allPsmsPath, log);
         var psmRows = Identifications.PsmRows(psmColumns, datasetId, proforma, runNames, searchLabel);
+        // D55 (schema 0.0.17): which q-value this search's 1% rule reads, decided once for the whole search.
+        var confidence = rules == IngestRules.Current ? Identifications.ChooseConfidence(psmRows) : null;
         // Sites are placed by finding each peptide in the searched proteins, because the producer's spans cannot
         // be paired with its accessions (aging 043, DATAREPO-32). The databases are inputs to every ptm_sites
         // row, so they are in the content hash; they are not copied.
@@ -535,7 +537,8 @@ public static class Ingester
         var peptidoforms = Identifications.PeptidoformRows(
             peptideColumns.Count > 0 ? peptideColumns : psmColumns, datasetId, proforma,
             Identifications.PsmCountsByPeptidoform(psmRows),
-            proteinGroups.Select(g => (string)g["protein_group_id"]!).ToHashSet(StringComparer.Ordinal));
+            proteinGroups.Select(g => (string)g["protein_group_id"]!).ToHashSet(StringComparer.Ordinal),
+            pepQValue: rules == IngestRules.Current);
         if (rules == IngestRules.Current)
         {
             // G76 (D40): specificity from the searched sequences, by mzLib's classifier, replacing parsimony-unique.
@@ -701,6 +704,7 @@ public static class Ingester
             ["first_release_id"] = null,
             ["latest_release_id"] = null,
         };
+        if (confidence is not null) datasetRow["confidence_rule"] = confidence.Rule;
 
         // --- exact duplicates the producer wrote ----------------------------------------------------------
         // MetaMorpheus can write one row twice, identical in every column (aging 015). Collapsing is lossless and
@@ -731,6 +735,8 @@ public static class Ingester
             proteinGroupCount = Quant.AcceptedGroupCount(proteinGroups);
             findings.AddRange(DuplicateFindings(collapsed, datasetId));
         }
+        // After the collapse, so the counts describe the rows the bundle holds.
+        if (confidence is not null) findings.AddRange(ConfidenceRuleFindings(confidence, peptidoforms, datasetId));
 
         // --- PTM site occupancy (D29) ---------------------------------------------------------------------
         // After the collapse, so it keys on the sites and groups the bundle will hold. Label-free only:
@@ -931,6 +937,51 @@ public static class Ingester
         System.Collections.ICollection c => c.Count == 0,
         _ => false,
     };
+
+    /// <summary>What a search's confidence rule (D55) does to its 1% peptidoforms, said where a reader would otherwise
+    /// misread it. Neither changes a row.</summary>
+    /// <remarks>
+    /// <para><c>confidence_rule_fallback</c>: the search trained no PEP, so its 1% set is read on another q-value than
+    /// every search on <c>pep_q_value</c>. Today one served deposit, PXD058775.</para>
+    /// <para><c>confidence_rule_fewer_peptides</c>: the rule passes fewer target peptidoforms than the q-value rule
+    /// <c>peptidoforms_1pct</c> held up to 1.4.5, with both counts. On 21 served deposits, mostly low-resolution, the PEP
+    /// rule passes 0 to 0.88 of the q-value rule's rows (PXD057502: 0), and without this a reader takes them for small
+    /// studies (the user, 2026-11-11).</para>
+    /// </remarks>
+    public static IEnumerable<Row> ConfidenceRuleFindings(Identifications.ConfidenceChoice choice, IReadOnlyList<Row> peptidoforms, string datasetId)
+    {
+        if (choice.Tier != Quantification.QuantifiedPsmTier.PepQValue)
+        {
+            var why = !choice.PepQValueInRange
+                ? "no target PSM has a PEP q-value between 0 and 1"
+                : $"all {choice.TargetPsms} target PSMs carry one PEP value ({PyFormat.Str(choice.SolePep!.Value)}), as MetaMorpheus leaves them when PEP training fails, so they cannot show that it trained";
+            var fallback = choice.Tier == Quantification.QuantifiedPsmTier.QValueNotch
+                ? "its notch q-value: `peptidoforms_1pct` takes target peptidoforms whose `best_q_value_notch` is strictly below 0.01"
+                : "its plain q-value, since no target PSM has a notch q-value between 0 and 1 either: `peptidoforms_1pct` takes target "
+                  + "peptidoforms whose `best_q_value` is strictly below 0.01";
+            yield return Finding(datasetId, "confidence_rule_fallback", "warning",
+                $"PEP was not trained for this search: {why} (mzLib's `QuantifiedPsmRule.ChooseTier`, over the search's target PSMs). "
+                + $"So its confidence rule (`datasets.confidence_rule` = `{choice.Rule}`) reads {fallback}, where a search with "
+                + "trained PEP reads `best_pep_q_value` (D55). The search still wrote numbers in `PEP_QValue`; they are stored as "
+                + "written and are not read here. Compare this deposit's 1% counts with others' knowing they rest on another q-value.");
+        }
+        long passes = 0, qValueRule = 0;
+        foreach (var row in peptidoforms)
+        {
+            if (!Equals(row.GetValueOrDefault("target_decoy"), "target")) continue;
+            if (Identifications.PassesConfidence(choice.Tier, row)) passes++;
+            if (Identifications.PassesQValueRule(row)) qValueRule++;
+        }
+        if (passes < qValueRule)
+            yield return Finding(datasetId, "confidence_rule_fewer_peptides", "warning",
+                $"This search's confidence rule (`{choice.Rule}`, strictly below 0.01) passes {passes} target peptidoform(s); the "
+                + "q-value rule `peptidoforms_1pct` held up to datarepo 1.4.5 (`best_q_value`, and `best_q_value_notch` where "
+                + $"there is one, at or below 0.01) passed {qValueRule}. `peptidoforms_1pct` follows the confidence rule (D55), so "
+                + "this deposit's 1% peptide count is lower than its search's q-value count: the rule did that, not a small study. "
+                + "results.txt's own peptide count, where the search wrote one, is in `metrics` (`name = 'peptides'`, "
+                + "`scope = 'dataset'`). Whether peptide-level PEP q-value is rightly this strict on such a search is pep's to say "
+                + "(DATAREPO-89).");
+    }
 
     private static Row Finding(string datasetId, string code, string severity, string message, string? runId = null, string source = "datarepo ingest") => new()
     {

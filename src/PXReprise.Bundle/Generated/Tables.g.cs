@@ -5,7 +5,7 @@ namespace PXReprise.Bundle;
 public static partial class Tables
 {
     /// <summary>The core schema's version.</summary>
-    public const string SchemaVersion = "0.0.16";
+    public const string SchemaVersion = "0.0.17";
 
     /// <summary>The core tables, in the schema's order.</summary>
     public static readonly IReadOnlyList<TableSpec> Core =
@@ -58,6 +58,7 @@ public static partial class Tables
             new ColumnSpec("pipeline_repo", ColumnType.String, IsList: false, Nullable: true),
             new ColumnSpec("pipeline_commit", ColumnType.String, IsList: false, Nullable: true),
             new ColumnSpec("searches", ColumnType.String, IsList: true, Nullable: true),
+            new ColumnSpec("confidence_rule", ColumnType.String, IsList: false, Nullable: false),
             new ColumnSpec("first_release_id", ColumnType.String, IsList: false, Nullable: true),
             new ColumnSpec("latest_release_id", ColumnType.String, IsList: false, Nullable: true),
         ]),
@@ -170,6 +171,7 @@ public static partial class Tables
             new ColumnSpec("best_q_value", ColumnType.Float64, IsList: false, Nullable: true),
             new ColumnSpec("best_q_value_notch", ColumnType.Float64, IsList: false, Nullable: true),
             new ColumnSpec("best_pep", ColumnType.Float64, IsList: false, Nullable: true),
+            new ColumnSpec("best_pep_q_value", ColumnType.Float64, IsList: false, Nullable: true),
             new ColumnSpec("target_decoy", ColumnType.String, IsList: false, Nullable: false),
             new ColumnSpec("n_psms", ColumnType.Int64, IsList: false, Nullable: true),
             new ColumnSpec("protein_group_id", ColumnType.String, IsList: false, Nullable: true),

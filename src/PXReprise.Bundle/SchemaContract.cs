@@ -38,6 +38,8 @@ public static class SchemaContract
         ("0.0.16", "assays", "assay_kind"),
         ("0.0.16", "assays", "design_label"),
         ("0.0.16", "ptm_sites", "sequence_window"),
+        ("0.0.17", "datasets", "confidence_rule"),
+        ("0.0.17", "peptidoforms", "best_pep_q_value"),
     ];
 
     /// <summary>Every core table added after Python 0.32.0's schema 0.0.13, with the version that added it.</summary>
