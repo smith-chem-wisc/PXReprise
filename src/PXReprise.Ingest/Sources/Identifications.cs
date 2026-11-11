@@ -34,7 +34,7 @@ public static class Identifications
     private static string PyStr(object? value) => value is null ? "None" : PyFormat.Str(value);
 
     /// <summary>One producer cell exactly as written, or null when it is absent.</summary>
-    private static string? Verbatim(object? value)
+    internal static string? Verbatim(object? value)
     {
         if (value is null) return null;
         var text = PyFormat.Str(value).Trim();
@@ -42,7 +42,7 @@ public static class Identifications
     }
 
     /// <summary>MetaMorpheus separates alternatives with <c>|</c>; take the first and keep the level column.</summary>
-    private static string First(object? value) =>
+    internal static string First(object? value) =>
         (value is null ? "" : PyFormat.Str(value)).Split('|', 2)[0].Trim();
 
     private static long? Int(object? value)
@@ -58,7 +58,7 @@ public static class Identifications
     /// <summary><c>D</c>, <c>C</c>, <c>T</c> (possibly <c>|</c>-joined) to the schema's TargetDecoy.</summary>
     /// <remarks>Decoy wins over contaminant, and contaminant over target: the least trustworthy label on an
     /// ambiguous match is the one a reader needs to see.</remarks>
-    private static string TargetDecoy(object? value)
+    internal static string TargetDecoy(object? value)
     {
         var text = (value is null ? "" : PyFormat.Str(value)).ToUpperInvariant();
         if (text.Contains('D')) return "decoy";

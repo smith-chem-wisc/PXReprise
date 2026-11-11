@@ -552,6 +552,13 @@ public static class Ingester
                 row["is_isoform_specific"] = isIsoformSpecific;
             }
         }
+        // 1.5.0 item 3 (schema 0.0.17): the matched fragment ions of every AllPeptides.psmtsv row the search's confidence
+        // rule passes, verbatim, joined to the peptidoforms just built.
+        var ionRows = new List<Row>();
+        PeptidoformIons.Report? ionReport = null;
+        if (confidence is not null && File.Exists(allPeptidesPath))
+            (ionRows, ionReport) = PeptidoformIons.Read(allPeptidesPath, datasetId, proforma, confidence,
+                peptidoforms.Select(p => (string)p["peptidoform_id"]!).ToHashSet(StringComparer.Ordinal), log);
         // A protein's contaminant label comes from the database it was read from, not from the PSM row it shares
         // with a contaminant (G66). An accession in BOTH is whatever the search's TCAmbiguity made it.
         bool? ContaminantOf(string accession)
@@ -715,6 +722,7 @@ public static class Ingester
             ["runs"] = runRows.Cast<IReadOnlyDictionary<string, object?>>().ToList(),
             ["assays"] = assays.Cast<IReadOnlyDictionary<string, object?>>().ToList(),
             ["peptidoforms"] = peptidoforms.Cast<IReadOnlyDictionary<string, object?>>().ToList(),
+            ["peptidoform_ions"] = ionRows.Cast<IReadOnlyDictionary<string, object?>>().ToList(),
             ["protein_groups"] = proteinGroups.Cast<IReadOnlyDictionary<string, object?>>().ToList(),
             ["proteins"] = proteins.Cast<IReadOnlyDictionary<string, object?>>().ToList(),
             ["ptm_sites"] = ptmSites.Cast<IReadOnlyDictionary<string, object?>>().ToList(),
@@ -725,6 +733,7 @@ public static class Ingester
         runRows = collapsible["runs"].Cast<Row>().ToList();
         assays = collapsible["assays"].Cast<Row>().ToList();
         peptidoforms = collapsible["peptidoforms"].Cast<Row>().ToList();
+        ionRows = collapsible["peptidoform_ions"].Cast<Row>().ToList();
         proteinGroups = collapsible["protein_groups"].Cast<Row>().ToList();
         proteins = collapsible["proteins"].Cast<Row>().ToList();
         ptmSites = collapsible["ptm_sites"].Cast<Row>().ToList();
@@ -736,7 +745,25 @@ public static class Ingester
             findings.AddRange(DuplicateFindings(collapsed, datasetId));
         }
         // After the collapse, so the counts describe the rows the bundle holds.
-        if (confidence is not null) findings.AddRange(ConfidenceRuleFindings(confidence, peptidoforms, datasetId));
+        if (confidence is not null)
+        {
+            findings.AddRange(ConfidenceRuleFindings(confidence, peptidoforms, datasetId));
+            findings.AddRange(PeptidoformIonFindings(ionReport, datasetId));
+            writer.Notes["peptidoform_ions"] = ionReport is null
+                ? new OrderedDictionary<string, object?> { ["read"] = false, ["reason"] = "no AllPeptides.psmtsv" }
+                : new OrderedDictionary<string, object?>
+                {
+                    ["read"] = ionReport.MissingHeaders.Count == 0,
+                    ["source"] = "AllPeptides.psmtsv",
+                    ["rule"] = confidence.Rule,
+                    ["rows_read"] = ionReport.Rows,
+                    ["passed"] = ionReport.Passed,
+                    ["written"] = (long)ionRows.Count,
+                    ["left_out_no_ion_series"] = ionReport.NoIonSeries,
+                    ["left_out_no_peptidoform"] = ionReport.NoPeptidoform,
+                    ["missing_headers"] = ionReport.MissingHeaders.Cast<object?>().ToList(),
+                };
+        }
 
         // --- PTM site occupancy (D29) ---------------------------------------------------------------------
         // After the collapse, so it keys on the sites and groups the bundle will hold. Label-free only:
@@ -823,6 +850,7 @@ public static class Ingester
         if (rules == IngestRules.Current) writer.Add("assay_runs", pooledRunRows);
         writer.Add("psms", psmRows);
         writer.Add("peptidoforms", peptidoforms);
+        if (rules == IngestRules.Current) writer.Add("peptidoform_ions", ionRows);
         writer.Add("protein_groups", proteinGroups);
         writer.Add("proteins", proteins);
         writer.Add("ptm_sites", ptmSites);
@@ -981,6 +1009,34 @@ public static class Ingester
                 + "results.txt's own peptide count, where the search wrote one, is in `metrics` (`name = 'peptides'`, "
                 + "`scope = 'dataset'`). Whether peptide-level PEP q-value is rightly this strict on such a search is pep's to say "
                 + "(DATAREPO-89).");
+    }
+
+    /// <summary>Where <c>peptidoform_ions</c> (schema 0.0.17) is short of what the confidence rule passes, why: no rows
+    /// read at all is unknown, never "no ion matched", and a row left out is counted. A table that is empty because
+    /// nothing passes the rule (PXD057502) needs none: <c>confidence_rule_fewer_peptides</c> says that.</summary>
+    /// <param name="report">The read, or null when the search left no AllPeptides.psmtsv.</param>
+    public static IEnumerable<Row> PeptidoformIonFindings(PeptidoformIons.Report? report, string datasetId)
+    {
+        if (report is null)
+        {
+            yield return Finding(datasetId, "peptidoform_ions_not_read", "warning",
+                "This search left no AllPeptides.psmtsv, the only file whose rows are each peptide's best spectrum, so "
+                + "`peptidoform_ions` has no rows. That is not 'no fragment ion matched': the ions were not read.");
+            yield break;
+        }
+        if (report.MissingHeaders.Count > 0)
+        {
+            yield return Finding(datasetId, "peptidoform_ions_not_read", "warning",
+                "AllPeptides.psmtsv has no " + string.Join(", ", report.MissingHeaders.Select(h => $"`{h}`")) + " column, so "
+                + "`peptidoform_ions` has no rows. That is not 'no fragment ion matched': the ions were not read.");
+            yield break;
+        }
+        if (report.NoIonSeries + report.NoPeptidoform > 0)
+            yield return Finding(datasetId, "peptidoform_ions_left_out", "warning",
+                $"Of {report.Passed} AllPeptides.psmtsv target row(s) that pass this search's confidence rule, "
+                + $"{report.NoIonSeries + report.NoPeptidoform} have no row in `peptidoform_ions`: {report.NoIonSeries} with a "
+                + $"blank `Matched Ion Series` (MetaMorpheus writes one for a match with no ion list; it is not 'no ion "
+                + $"matched'), and {report.NoPeptidoform} whose full sequence gives no peptidoform of this bundle.");
     }
 
     private static Row Finding(string datasetId, string code, string severity, string message, string? runId = null, string source = "datarepo ingest") => new()

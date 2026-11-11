@@ -48,6 +48,7 @@ public static class SchemaContract
     public static readonly IReadOnlyList<(string Version, string Table)> AddedTables =
     [
         ("0.0.16", "assay_runs"),
+        ("0.0.17", "peptidoform_ions"),
     ];
 
     /// <summary>False for a core table added after the schema version in force here; true for any other name.</summary>
