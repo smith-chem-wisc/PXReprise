@@ -7,7 +7,7 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
-## 0.4.45 (unreleased)
+## 0.4.45 (2026-11-11)
 
 **MetaMorpheus** unchanged. **Machine file:** no change needed. **Safe mid-batch?** Yes: swap the pin as usual. A probe worker
 takes the new release (`worker release`): it probes too, and the change is in the probe.
