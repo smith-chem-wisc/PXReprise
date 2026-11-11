@@ -188,6 +188,7 @@ public sealed class OccupancyRecords
 /// | File | Parsed by | Why |
 /// |---|---|---|
 /// | <c>AllPSMs.psmtsv</c>, <c>AllPeptides.psmtsv</c> | mzLib (pyMzLib <c>read_records</c>) | covered, typed |
+/// | <c>AllPeptides.psmtsv</c>'s six <c>Matched Ion *</c> columns | in-house TSV, <c>Sources/PeptidoformIons</c> | mzLib's projection leaves the composite matched-ion fields out; the cells are stored verbatim (schema 0.0.17) |
 /// | <c>AllQuantifiedPeaks.tsv</c> | in-house TSV | pyMzLib's reader wants an <c>MBR Score</c> column MetaMorpheus 1.1.11 does not write (DATAREPO-13) |
 /// | <c>AllQuantifiedPeptides.tsv</c>, <c>AllQuantifiedProteinGroups.tsv</c> | in-house TSV | no pyMzLib reader (aging 006; asked as pyMzLib 005) |
 /// | <c>*.sdrf.tsv</c> | mzLib <c>SdrfDocument</c> (pyMzLib <c>sdrf.read</c>) | covered since 0.1.1 |

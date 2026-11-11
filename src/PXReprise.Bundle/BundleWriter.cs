@@ -38,7 +38,8 @@ public sealed class BundleWriter(string store, string datasetId, string? ingestP
     /// localization-ambiguous peptide row is left out with a finding, never stored under its first full sequence.
     /// cs-1.3.0 (1.5.0, one re-ingest; <c>design/RELEASE_1.5.0.md</c>'s build list): mzLib 1.0.597, which moves
     /// peptidoform keys (#1416, #1524); schema 0.0.17: each search's confidence rule (D55) in
-    /// <c>datasets.confidence_rule</c>, <c>peptidoforms.best_pep_q_value</c>, and two findings on the rule.
+    /// <c>datasets.confidence_rule</c>, <c>peptidoforms.best_pep_q_value</c>, and two findings on the rule; the
+    /// <c>peptidoform_ions</c> table, each passing AllPeptides.psmtsv row's matched fragment ions, verbatim (D53).
     /// </remarks>
     public const string IngesterVersion = "cs-1.3.0";
 

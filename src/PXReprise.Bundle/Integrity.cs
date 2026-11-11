@@ -41,6 +41,8 @@ public static class Integrity
         ("peptidoforms", "dataset_id", "datasets", "dataset_id"),
         ("peptidoforms", "protein_group_id", "protein_groups", "protein_group_id"),
         ("peptidoforms", "protein_accessions[]", "proteins", "protein_accession"),
+        ("peptidoform_ions", "dataset_id", "datasets", "dataset_id"),
+        ("peptidoform_ions", "peptidoform_id", "peptidoforms", "peptidoform_id"),
         ("protein_groups", "dataset_id", "datasets", "dataset_id"),
         ("protein_groups", "protein_accessions[]", "proteins", "protein_accession"),
         ("ptm_sites", "dataset_id", "datasets", "dataset_id"),
@@ -95,6 +97,8 @@ public static class Integrity
         ("quant_values", ["assay_id", "feature_type", "feature_id", "definition_id"]),
         ("ptm_stoichiometry", ["ptm_site_id", "assay_id"]),
         ("assay_runs", ["assay_id", "run_id"]),
+        // Two engine names can resolve to one ProForma, so a peptidoform can have several ion rows (schema 0.0.17).
+        ("peptidoform_ions", ["peptidoform_id", "full_sequence"]),
         ("organelle_term_categories", ["compartment", "category_map_name", "organelle_map_version", "go_release", "organelle_category", "organelle_subcategory"]),
         ("trait_effects", ["feature_type", "feature_key", "trait_id", "response", "scope", "definition_id"]),
         ("ptm_pairs", ["result_type", "scope", "feature_type", "feature_key_a", "feature_key_b", "trait_id", "stratum", "statistic", "definition_id"]),
@@ -165,7 +169,7 @@ public static class Integrity
     /// a reported number.</summary>
     public static readonly IReadOnlySet<string> Collapsible = new HashSet<string>(StringComparer.Ordinal)
     {
-        "datasets", "samples", "runs", "assays", "peptidoforms", "protein_groups", "proteins",
+        "datasets", "samples", "runs", "assays", "peptidoforms", "peptidoform_ions", "protein_groups", "proteins",
         "ptm_sites", "definitions", "quant_values",
     };
 

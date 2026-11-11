@@ -397,7 +397,7 @@ classes:
       pipeline_repo: {description: "Repository of the pipeline that produced it."}
       pipeline_commit: {description: "Git commit of the pipeline that produced it."}
       searches: {multivalued: true, description: "Search kinds run on this dataset: standard, gptmd, glyco_N, glyco_O, glyco_NO."}
-      confidence_rule: {range: ConfidenceRule, required: true, description: "Which q-value this search's 1% rule reads (D55, schema 0.0.17): `pep_q_value` when PEP was trained for the search, whatever that accepts; `q_value_notch` when it was not. Decided once for the whole search by mzLib's `QuantifiedPsmRule.ChooseTier` over its target PSMs, never per row: a search that trained no PEP still writes numbers in `PEP_QValue` (PXD058775). A row passes when that value is strictly below 0.01, as mzLib's `PassesConfidence` has it. `peptidoforms_1pct` follows it; `psms_1pct` and `protein_groups_1pct` keep their own q-value rules. A `confidence_rule_fallback` finding marks a search not on `pep_q_value`, and a `confidence_rule_fewer_peptides` finding one where this rule passes fewer target peptidoforms than the q-value rule used before."}
+      confidence_rule: {range: ConfidenceRule, required: true, description: "Which q-value this search's 1% rule reads (D55, schema 0.0.17): `pep_q_value` when PEP was trained for the search, whatever that accepts; `q_value_notch` when it was not. Decided once for the whole search by mzLib's `QuantifiedPsmRule.ChooseTier` over its target PSMs, never per row: a search that trained no PEP still writes numbers in `PEP_QValue` (PXD058775). A row passes when that value is strictly below 0.01, as mzLib's `PassesConfidence` has it. `peptidoforms_1pct` and `peptidoform_ions` follow it; `psms_1pct` and `protein_groups_1pct` keep their own q-value rules. A `confidence_rule_fallback` finding marks a search not on `pep_q_value`, and a `confidence_rule_fewer_peptides` finding one where this rule passes fewer target peptidoforms than the q-value rule used before."}
       first_release_id: {range: Release, description: "Release in which the dataset first appeared."}
       latest_release_id: {range: Release, description: "Most recent release that changed the dataset."}
 
@@ -544,6 +544,33 @@ classes:
       is_unique: {range: boolean, description: "GENE-unique, from the SEARCHED sequences (G76, D40; mzLib `PeptideUniquenessClassifier`): every protein in the searched databases whose sequence contains the base sequence, anywhere and whatever the protease, belongs to ONE gene. I and L are one residue; decoys are ignored; contaminants count, as they are real sequences in the search space. `true` for mzLib's Unique and SharedWithinGene, `false` for SharedAcrossGenes, NULL when no searched sequence holds the peptide (NotInDatabase). Genes are grouped as mzLib groups them; a few within-gene groupings rest on a shared Ensembl id alone and can join paralogs (46 of 937 measured, pyMzLib DATAREPO-70). NOT the parsimony list: bundles written before datarepo 1.0.0 stored parsimony-uniqueness here (one accession in `protein_accessions`). (R11, mzLib REQ-MZLIB-1)"}
       is_isoform_specific: {range: boolean, description: "SEQUENCE-unique, from the searched sequences (G76, D40): exactly one protein sequence in the searched databases contains the peptide (mzLib's Unique), so it identifies one isoform. `false` for SharedWithinGene and SharedAcrossGenes; NULL when no searched sequence holds it. Never `true` where `is_unique` is not. NULL on every row of a bundle written before datarepo 1.0.0."}
       engine_full_sequences: {multivalued: true, description: "The producer's own notation for this peptidoform, VERBATIM (MetaMorpheus `Full Sequence`, engine modification names such as `[Common Biological:Phosphorylation on T]`). A set, not a pick: when two engine names resolve to one UNIMOD accession, one `peptidoform` comes from two producer strings, and both are listed. `peptidoform` is the UNIMOD-resolved ProForma key; this is the engine-name form, and it is the only place a modification with no UNIMOD accession keeps its name rather than a mass tag (ptmQtl 002, DATAREPO-P3). Not ProForma: engine names are not a ProForma controlled vocabulary."}
+
+  PeptidoformIon:
+    description: >-
+      The fragment ions matched by a peptidoform's best spectrum, as MetaMorpheus's AllPeptides.psmtsv writes them (schema
+      0.0.17; D53, PXR-R44). One row per AllPeptides.psmtsv row that is a target (`T` or `ET`) and passes the dataset's
+      `confidence_rule`, strictly below 0.01, so the peptidoforms here are those `peptidoforms_1pct` holds. Contaminant rows
+      are left out, as `peptidoforms_1pct` leaves them out (the user, 2026-11-11). Two engine names can resolve to one
+      ProForma, so one peptidoform can have several rows: the key is (`peptidoform_id`, `full_sequence`). An ambiguous row
+      (`full_sequence` naming several options joined by `|`, 138 rows on aging's store) is kept: MetaMorpheus writes the ions
+      it matched to the first option (`SpectralMatch.cs`, "the ions matched to the best peptide option"), which is the one
+      `peptidoform_id` names. The six `matched_ion_*` cells are VERBATIM, never parsed or reordered: one bracketed,
+      `, `-separated list per product type, the lists joined by `;`. A dataset with no row passing its rule has no rows here
+      (PXD057502), and that is not missing data; a bundle whose search left no AllPeptides.psmtsv has none either, and a
+      `peptidoform_ions_not_read` finding says so.
+    attributes:
+      dataset_id: {range: Dataset, required: true, description: "Dataset this row belongs to."}
+      peptidoform_id: {range: Peptidoform, required: true, description: "The peptidoform these ions identify; joins to `peptidoforms`."}
+      full_sequence: {required: true, description: "MetaMorpheus's `Full Sequence` for this row, verbatim (engine modification names), every `|`-joined option included."}
+      selected_by: {range: ConfidenceRule, required: true, description: "Which q-value let this row in: the dataset's `confidence_rule`."}
+      pep_q_value: {range: float, minimum_value: 0, description: "The row's `PEP_QValue` as written. Can exceed 1 (MetaMorpheus writes 2 where it computed none), as `peptidoforms.best_pep_q_value` says."}
+      q_value_notch: {range: float, minimum_value: 0, maximum_value: 1, description: "The row's `QValue Notch` as written."}
+      matched_ion_series: {required: true, description: "`Matched Ion Series`, verbatim: the matched ions' names with their charge, e.g. `[b2+1, b3+1];[y1+1, y2+1]`."}
+      matched_ion_mz: {description: "`Matched Ion Mass-To-Charge Ratios`, verbatim: `name:m/z` per ion."}
+      matched_ion_mass_diff_da: {description: "`Matched Ion Mass Diff (Da)`, verbatim: `name:error` per ion, in daltons."}
+      matched_ion_mass_diff_ppm: {description: "`Matched Ion Mass Diff (Ppm)`, verbatim: `name:error` per ion, in ppm."}
+      matched_ion_intensities: {description: "`Matched Ion Intensities`, verbatim: `name:intensity` per ion."}
+      matched_ion_counts: {description: "`Matched Ion Counts`, verbatim: the TOTAL number of matched ions on the row, one whole number (every passing row of aging's store, 2026-11-11), not one count per product type."}
 
   ProteinGroup:
     description: One protein group in one dataset.
@@ -962,6 +989,7 @@ classes:
       assay_runs: {range: AssayRun, multivalued: true, inlined_as_list: true, description: "Rows of the assay_runs table."}
       psms: {range: Psm, multivalued: true, inlined_as_list: true, description: "Rows of the psms table."}
       peptidoforms: {range: Peptidoform, multivalued: true, inlined_as_list: true, description: "Rows of the peptidoforms table."}
+      peptidoform_ions: {range: PeptidoformIon, multivalued: true, inlined_as_list: true, description: "Rows of the peptidoform_ions table."}
       protein_groups: {range: ProteinGroup, multivalued: true, inlined_as_list: true, description: "Rows of the protein_groups table."}
       proteins: {range: Protein, multivalued: true, inlined_as_list: true, description: "Rows of the proteins table."}
       ptm_sites: {range: PtmSite, multivalued: true, inlined_as_list: true, description: "Rows of the ptm_sites table."}

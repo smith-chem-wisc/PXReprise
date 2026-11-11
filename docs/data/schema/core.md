@@ -22,6 +22,7 @@ Generic core schema for an AI-ready repository of reanalyzed public proteomics d
 | [AssayRun](#assayrun) | The files a pooled assay (`assay_kind = design_sample`) pools: one row per (assay, run), with the design's `Fraction` and `Techrep` as the search's `ExperimentalDesign.tsv` wrote them (PXR-R23, schema 0.0.16). The design itself is a source of the bundle and in its id, so the values stay tied to the design they hold for. A `run` assay has no rows here. |
 | [Psm](#psm) | One peptide-spectrum match. |
 | [Peptidoform](#peptidoform) | One peptidoform in one dataset (best evidence across runs). |
+| [PeptidoformIon](#peptidoformion) | The fragment ions matched by a peptidoform's best spectrum, as MetaMorpheus's AllPeptides.psmtsv writes them (schema 0.0.17; D53, PXR-R44). One row per AllPeptides.psmtsv row that is a target (`T` or `ET`) and passes the dataset's `confidence_rule`, strictly below 0.01, so the peptidoforms here are those `peptidoforms_1pct` holds. Contaminant rows are left out, as `peptidoforms_1pct` leaves them out (the user, 2026-11-11). Two engine names can resolve to one ProForma, so one peptidoform can have several rows: the key is (`peptidoform_id`, `full_sequence`). An ambiguous row (`full_sequence` naming several options joined by `\|`, 138 rows on aging's store) is kept: MetaMorpheus writes the ions it matched to the first option (`SpectralMatch.cs`, "the ions matched to the best peptide option"), which is the one `peptidoform_id` names. The six `matched_ion_*` cells are VERBATIM, never parsed or reordered: one bracketed, `, `-separated list per product type, the lists joined by `;`. A dataset with no row passing its rule has no rows here (PXD057502), and that is not missing data; a bundle whose search left no AllPeptides.psmtsv has none either, and a `peptidoform_ions_not_read` finding says so. |
 | [ProteinGroup](#proteingroup) | One protein group in one dataset. |
 | [Protein](#protein) | One UniProt entry (isoforms are separate rows). |
 | [PtmSite](#ptmsite) | One modified residue on one protein in one dataset, from PSM evidence. |
@@ -65,6 +66,8 @@ erDiagram
     Peptidoform }o--|| Dataset : "dataset_id"
     Peptidoform }o--|| ProteinGroup : "protein_group_id"
     Peptidoform }o--|| Protein : "protein_accessions"
+    PeptidoformIon }o--|| Dataset : "dataset_id"
+    PeptidoformIon }o--|| Peptidoform : "peptidoform_id"
     ProteinGroup }o--|| Dataset : "dataset_id"
     ProteinGroup }o--|| Protein : "protein_accessions"
     Protein }o--|| Protein : "canonical_accession"
@@ -167,7 +170,7 @@ QPX view: `dataset` (table-level; column mapping not yet verified).
 | `pipeline_repo` | `string` |  | Repository of the pipeline that produced it. |
 | `pipeline_commit` | `string` |  | Git commit of the pipeline that produced it. |
 | `searches` | `string` [ ] |  | Search kinds run on this dataset: standard, gptmd, glyco_N, glyco_O, glyco_NO. |
-| `confidence_rule` | [ConfidenceRule](#confidencerule) | yes | Which q-value this search's 1% rule reads (D55, schema 0.0.17): `pep_q_value` when PEP was trained for the search, whatever that accepts; `q_value_notch` when it was not. Decided once for the whole search by mzLib's `QuantifiedPsmRule.ChooseTier` over its target PSMs, never per row: a search that trained no PEP still writes numbers in `PEP_QValue` (PXD058775). A row passes when that value is strictly below 0.01, as mzLib's `PassesConfidence` has it. `peptidoforms_1pct` follows it; `psms_1pct` and `protein_groups_1pct` keep their own q-value rules. A `confidence_rule_fallback` finding marks a search not on `pep_q_value`, and a `confidence_rule_fewer_peptides` finding one where this rule passes fewer target peptidoforms than the q-value rule used before. |
+| `confidence_rule` | [ConfidenceRule](#confidencerule) | yes | Which q-value this search's 1% rule reads (D55, schema 0.0.17): `pep_q_value` when PEP was trained for the search, whatever that accepts; `q_value_notch` when it was not. Decided once for the whole search by mzLib's `QuantifiedPsmRule.ChooseTier` over its target PSMs, never per row: a search that trained no PEP still writes numbers in `PEP_QValue` (PXD058775). A row passes when that value is strictly below 0.01, as mzLib's `PassesConfidence` has it. `peptidoforms_1pct` and `peptidoform_ions` follow it; `psms_1pct` and `protein_groups_1pct` keep their own q-value rules. A `confidence_rule_fallback` finding marks a search not on `pep_q_value`, and a `confidence_rule_fewer_peptides` finding one where this rule passes fewer target peptidoforms than the q-value rule used before. |
 | `first_release_id` | [Release](#release) |  | Release in which the dataset first appeared. |
 | `latest_release_id` | [Release](#release) |  | Most recent release that changed the dataset. |
 
@@ -324,6 +327,25 @@ QPX view: `feature` (table-level; column mapping not yet verified).
 | `is_unique` | `boolean` |  | GENE-unique, from the SEARCHED sequences (G76, D40; mzLib `PeptideUniquenessClassifier`): every protein in the searched databases whose sequence contains the base sequence, anywhere and whatever the protease, belongs to ONE gene. I and L are one residue; decoys are ignored; contaminants count, as they are real sequences in the search space. `true` for mzLib's Unique and SharedWithinGene, `false` for SharedAcrossGenes, NULL when no searched sequence holds the peptide (NotInDatabase). Genes are grouped as mzLib groups them; a few within-gene groupings rest on a shared Ensembl id alone and can join paralogs (46 of 937 measured, pyMzLib DATAREPO-70). NOT the parsimony list: bundles written before datarepo 1.0.0 stored parsimony-uniqueness here (one accession in `protein_accessions`). (R11, mzLib REQ-MZLIB-1) |
 | `is_isoform_specific` | `boolean` |  | SEQUENCE-unique, from the searched sequences (G76, D40): exactly one protein sequence in the searched databases contains the peptide (mzLib's Unique), so it identifies one isoform. `false` for SharedWithinGene and SharedAcrossGenes; NULL when no searched sequence holds it. Never `true` where `is_unique` is not. NULL on every row of a bundle written before datarepo 1.0.0. |
 | `engine_full_sequences` | `string` [ ] |  | The producer's own notation for this peptidoform, VERBATIM (MetaMorpheus `Full Sequence`, engine modification names such as `[Common Biological:Phosphorylation on T]`). A set, not a pick: when two engine names resolve to one UNIMOD accession, one `peptidoform` comes from two producer strings, and both are listed. `peptidoform` is the UNIMOD-resolved ProForma key; this is the engine-name form, and it is the only place a modification with no UNIMOD accession keeps its name rather than a mass tag (ptmQtl 002, DATAREPO-P3). Not ProForma: engine names are not a ProForma controlled vocabulary. |
+
+## PeptidoformIon
+
+The fragment ions matched by a peptidoform's best spectrum, as MetaMorpheus's AllPeptides.psmtsv writes them (schema 0.0.17; D53, PXR-R44). One row per AllPeptides.psmtsv row that is a target (`T` or `ET`) and passes the dataset's `confidence_rule`, strictly below 0.01, so the peptidoforms here are those `peptidoforms_1pct` holds. Contaminant rows are left out, as `peptidoforms_1pct` leaves them out (the user, 2026-11-11). Two engine names can resolve to one ProForma, so one peptidoform can have several rows: the key is (`peptidoform_id`, `full_sequence`). An ambiguous row (`full_sequence` naming several options joined by `\|`, 138 rows on aging's store) is kept: MetaMorpheus writes the ions it matched to the first option (`SpectralMatch.cs`, "the ions matched to the best peptide option"), which is the one `peptidoform_id` names. The six `matched_ion_*` cells are VERBATIM, never parsed or reordered: one bracketed, `, `-separated list per product type, the lists joined by `;`. A dataset with no row passing its rule has no rows here (PXD057502), and that is not missing data; a bundle whose search left no AllPeptides.psmtsv has none either, and a `peptidoform_ions_not_read` finding says so.
+
+| Column | Type | Req | Meaning |
+|---|---|---|---|
+| `dataset_id` | [Dataset](#dataset) | yes | Dataset this row belongs to. |
+| `peptidoform_id` | [Peptidoform](#peptidoform) | yes | The peptidoform these ions identify; joins to `peptidoforms`. |
+| `full_sequence` | `string` | yes | MetaMorpheus's `Full Sequence` for this row, verbatim (engine modification names), every `\|`-joined option included. |
+| `selected_by` | [ConfidenceRule](#confidencerule) | yes | Which q-value let this row in: the dataset's `confidence_rule`. |
+| `pep_q_value` | `float` |  | The row's `PEP_QValue` as written. Can exceed 1 (MetaMorpheus writes 2 where it computed none), as `peptidoforms.best_pep_q_value` says. (range 0..None) |
+| `q_value_notch` | `float` |  | The row's `QValue Notch` as written. (range 0..1) |
+| `matched_ion_series` | `string` | yes | `Matched Ion Series`, verbatim: the matched ions' names with their charge, e.g. `[b2+1, b3+1];[y1+1, y2+1]`. |
+| `matched_ion_mz` | `string` |  | `Matched Ion Mass-To-Charge Ratios`, verbatim: `name:m/z` per ion. |
+| `matched_ion_mass_diff_da` | `string` |  | `Matched Ion Mass Diff (Da)`, verbatim: `name:error` per ion, in daltons. |
+| `matched_ion_mass_diff_ppm` | `string` |  | `Matched Ion Mass Diff (Ppm)`, verbatim: `name:error` per ion, in ppm. |
+| `matched_ion_intensities` | `string` |  | `Matched Ion Intensities`, verbatim: `name:intensity` per ion. |
+| `matched_ion_counts` | `string` |  | `Matched Ion Counts`, verbatim: the TOTAL number of matched ions on the row, one whole number (every passing row of aging's store, 2026-11-11), not one count per product type. |
 
 ## ProteinGroup
 
