@@ -429,6 +429,28 @@ public class FolderCatalogTests
         });
     }
 
+    /// <summary>DATAREPO-88 b: a label-free search is <c>label_free_apex</c>, and keeps no reporter level whatever its QC report
+    /// says about MS3 scans; it has no isobaric channels.</summary>
+    [Test]
+    public void ALabelFreeSearchIsLabelFreeApexAndHasNoReporterLevel()
+    {
+        var qc = Path.Combine(_root, "data", "work_root", "run_test", "PXD999999", "02b_qc", "qc_report.json");
+        var doc = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(qc))!.AsObject();
+        foreach (var (_, entry) in doc) entry!["sps_ms3"] = true;
+        File.WriteAllText(qc, doc.ToJsonString(), new System.Text.UTF8Encoding(false));
+        Ingester.Ingest(ManifestPath, "PXD999999", Store, overwrite: true, rules: IngestRules.Current);
+        // The QC report is a hashed source, so this is a new bundle beside the first: take the newest.
+        var manifest = Manifest.Load(ManifestPath);
+        var built = CatalogBuilder.BuildCatalog(CatalogBuilder.SelectBundles(manifest, ["PXD999999"], Store, latest: true),
+            Path.Combine(_root, "catalog.duckdb"), manifest: manifest);
+        Assert.Multiple(() =>
+        {
+            Assert.That(CatalogBuilder.RunQuery(built.Path, "SELECT quant_scale FROM dataset_overview").Rows.Single()[0], Is.EqualTo("label_free_apex"));
+            Assert.That(CatalogBuilder.RunQuery(built.Path, "SELECT count(*), count(reporter_level) FROM runs").Rows.Single(), Is.EqualTo(new object?[] { 2L, 0L }));
+            Assert.That(CatalogBuilder.RunQuery(built.Path, "SELECT count(*) FROM isobaric_channels").Rows.Single()[0], Is.EqualTo(0L));
+        });
+    }
+
     [Test]
     public void AParityBuildWritesOneFileOnly()
     {

@@ -264,6 +264,12 @@ tables, one column per file and channel. When the search wrote them:
   `-averaged` stripped from the file to reach the run. Each sits on the SDRF sample whose row names that file and
   label (PRIDE's `TMT131` is TMT10's `131N` where the plex has no `131C`), or else on the design's own sample, its
   `Sample Name`. The design is hashed and copied into `sources/`.
+- **Each assay keeps the design's `Plex` and `Sample Type`** verbatim (`assays.plex`, `assays.design_sample_type`, from
+  1.5.0; DATAREPO-88 a). A channel the design marks `empty` (no sample was put in it) is an assay with its values and **no
+  sample**: `assays.sample_id` is NULL unless an SDRF names one (PXR-R54). Its values are isotope spill-over from a
+  neighbouring channel, kept as measured; a count of samples never counts it.
+- **Each run keeps where its reporters were read**, `runs.reporter_level` (`ms2` or `ms3`), from the QC report's `sps_ms3`
+  (from 1.5.0; DATAREPO-88 b); NULL where the report says nothing, and for any search that is not isobaric.
 - **A column is placed by its label**, `{sample name}_{file}_{channel}`, on the design row that gives it, never by
   position. A column that no design row labels refuses the ingest, by name.
 - **A 0 is no value: no row.** Nothing is summed, normalized or combined; a plex's fractions stay separate assays.
@@ -589,7 +595,7 @@ It exits 1 on any failure. Against aging's 0.9.0 bundles it fails (PXD036557: 29
 | `metric_conflict` | warning | One metric reached the bundle from two sources under one definition, and they disagree. |
 | `isobaric_channels_not_in_sdrf` | warning | Channels of the search's `TmtDesign.txt` that no SDRF row names by file and label; their assays sit on the design's own sample. |
 | `isobaric_files_uncalibrated` | info | Files an isobaric search read as acquired, not calibrated (no `-calib` in their searched name). |
-| `isobaric_reference_channels` | info | Channels whose design `Sample Type` is not `study sample`: their values measure that reference. |
+| `isobaric_reference_channels` | info | Channels whose design `Sample Type` is not `study sample`: their values measure that reference; an `empty` channel's assay has no sample (from 1.5.0). |
 | `isobaric_plex_exceeded` | warning | A file of the design has more channels than the manifest's `labelling_plex`. |
 | `isobaric_unlabelled_peptides` | warning | Rows of `PeptideQuantification.tsv` with no multiplex label, stored as written: co-isolated interference (QuantProject 066, rule 4). |
 | `isobaric_rows_ambiguous_*`, `isobaric_rows_repeated_*`, `isobaric_rows_unplaced_*`, `isobaric_columns_missing_*` | warning | Rows of an isobaric table (`_peptides`, `_protein_groups`) not stored: a `|`-joined key, a key on several rows, a key naming no feature of the bundle; or design channels with no column. |

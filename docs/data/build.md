@@ -176,7 +176,7 @@ protein", which is the question the repository exists for.
 
 | Table | Grain | For |
 |---|---|---|
-| `dataset_overview` | 1/dataset | axes, run and sample counts, accepted identification counts, open findings; from 1.4.5 the deposit each dataset was searched from (`accession`, and for a split's part `split_group` and `split_reason`) |
+| `dataset_overview` | 1/dataset | axes, run and sample counts, accepted identification counts, open findings; from 1.4.5 the deposit each dataset was searched from (`accession`, and for a split's part `split_group` and `split_reason`); from 1.5.0 `confidence_rule` beside `n_peptidoforms_1pct`, and `quant_scale` (`label_free_apex`, `reporter_ms2`, `reporter_ms3`, `reporter_level_mixed`, `reporter_level_not_recorded`): never pool values across it |
 | `deposits` | 1/deposit | each ProteomeXchange accession's datasets: one for a deposit searched whole, one per part for a split (1.4.5) |
 | `protein_index` | 1/accession | gene, organism, how many deposits have it, and how many have **accepted** evidence for it |
 | `protein_datasets` | 1/accession/dataset | accepted protein groups and peptidoforms, best group q-value |
@@ -187,6 +187,7 @@ protein", which is the question the repository exists for.
 | `deposit_records` | 1/deposit fetched | from 1.5.0: whether PRIDE had a record (`found`), when it was fetched, its sha256 and the mzLib that read it; no row means never fetched |
 | `deposit_contacts` | 1/person/role | PRIDE's lab heads and submitters, every value as PRIDE wrote it, e-mail included (an empty string is NULL) |
 | `deposit_references` | 1/paper | PRIDE's citation line, PubMed id (NULL for PRIDE's 0) and DOI |
+| `isobaric_channels` (view) | 1/run/channel | from 1.5.0: each isobaric search's design: plex, run, channel, sample (NULL for an `empty` channel), the design's `Sample Type` verbatim, and the run's `reporter_level` (DATAREPO-88 a) |
 | `shared_raw_files` (view) | 1/run | runs whose raw file is served more than once, found by `runs.sha256`, never by name: how many copies, which runs, and whether a copy is in the same deposit or another |
 
 The three `deposit_*` tables are read at **build** from the records `datarepo pride` kept beside the bundles

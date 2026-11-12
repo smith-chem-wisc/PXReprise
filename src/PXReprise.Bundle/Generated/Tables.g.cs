@@ -113,6 +113,7 @@ public static partial class Tables
             new ColumnSpec("acquisition_start_local", ColumnType.String, IsList: false, Nullable: true),
             new ColumnSpec("enrichment", ColumnType.String, IsList: true, Nullable: true),
             new ColumnSpec("enrichment_source", ColumnType.String, IsList: false, Nullable: true),
+            new ColumnSpec("reporter_level", ColumnType.String, IsList: false, Nullable: true),
         ]),
         new TableSpec("assays", "Assay",
         [
@@ -120,8 +121,10 @@ public static partial class Tables
             new ColumnSpec("assay_kind", ColumnType.String, IsList: false, Nullable: false),
             new ColumnSpec("run_id", ColumnType.String, IsList: false, Nullable: true),
             new ColumnSpec("channel", ColumnType.String, IsList: false, Nullable: false),
-            new ColumnSpec("sample_id", ColumnType.String, IsList: false, Nullable: false),
+            new ColumnSpec("sample_id", ColumnType.String, IsList: false, Nullable: true),
             new ColumnSpec("design_label", ColumnType.String, IsList: false, Nullable: true),
+            new ColumnSpec("plex", ColumnType.String, IsList: false, Nullable: true),
+            new ColumnSpec("design_sample_type", ColumnType.String, IsList: false, Nullable: true),
         ]),
         new TableSpec("assay_runs", "AssayRun",
         [

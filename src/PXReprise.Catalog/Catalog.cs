@@ -301,6 +301,9 @@ public static partial class CatalogBuilder
     /// <summary>The view of runs whose raw file is in the catalog more than once, by sha256 (ptmQtl 062).</summary>
     public const string SharedRawFilesView = "shared_raw_files";
 
+    /// <summary>The view of every isobaric search's design, one row per (run, channel) (DATAREPO-88 a).</summary>
+    public const string IsobaricChannelsView = "isobaric_channels";
+
     /// <summary>The PRIDE tables, which a Python 0.32.0 parity build does not write.</summary>
     private static readonly IReadOnlySet<string> PrideTables =
         new HashSet<string>([DepositRecordsTable, DepositContactsTable, DepositReferencesTable], StringComparer.Ordinal);
@@ -326,6 +329,11 @@ public static partial class CatalogBuilder
             + "EXISTS (SELECT 1 FROM runs o WHERE o.sha256 = r.sha256 "
             + "AND split_part(o.dataset_id, '-', 1) <> split_part(r.dataset_id, '-', 1)) AS in_other_accession "
             + "FROM runs r JOIN copies c ON c.sha256 = r.sha256"),
+        new(IsobaricChannelsView,
+            "SELECT a.dataset_id, split_part(a.dataset_id, '-', 1) AS accession, a.plex, a.run_id, r.file_name, r.reporter_level, "
+            + "a.channel, a.assay_id, a.sample_id, a.design_sample_type "
+            + "FROM assays a JOIN runs r ON r.run_id = a.run_id JOIN datasets d ON d.dataset_id = a.dataset_id "
+            + "WHERE d.quant_method = 'isobaric' AND a.assay_kind = 'run'"),
     ];
 
     /// <summary>The derived table of runs the build's manifest excludes from analysis (G85).</summary>
@@ -585,6 +593,12 @@ public static partial class CatalogBuilder
                 ["n_psms_all"] = "Every PSM row the dataset's bundle holds, decoys and above-threshold matches included "
                     + "(`bundle.json`'s `psms` count).",
                 ["n_peptidoforms_1pct"] = OverviewPeptidoformsDoc,
+                ["quant_scale"] = "The scale this dataset's quantities are on (DATAREPO-88 b): `label_free_apex`; for an isobaric "
+                    + "search `reporter_ms2` or `reporter_ms3` (where every run's `runs.reporter_level` agrees), "
+                    + "`reporter_level_mixed` (they differ) or `reporter_level_not_recorded` (any run's is unknown); NULL for any "
+                    + "other method. **Never pool values across `quant_scale`**; effects may be combined under "
+                    + "`aging:DEF-AGE-EFFECT-META` v1.4, TMT read at MS3 only, with one method term per dataset. A dataset "
+                    + "`reporter_level_mixed` or `reporter_level_not_recorded` is on neither track.",
                 ["confidence_rule"] = "The search's confidence rule, as `datasets.confidence_rule` records it: which "
                     + "q-value `n_peptidoforms_1pct` counted on. `pep_q_value` where the search trained PEP, "
                     + "`q_value_notch` or `q_value` where it did not (D55). Two datasets' peptide counts on different rules "
@@ -877,6 +891,22 @@ public static partial class CatalogBuilder
                 ["other_run_ids"] = "The other runs with the same file, sorted.",
                 ["in_same_accession"] = "Another copy is in the same deposit (in this search, or another search of a split deposit).",
                 ["in_other_accession"] = "A copy is in another deposit. Both columns can be true.",
+            }),
+        [IsobaricChannelsView] = new(
+            "Every isobaric (TMT, iTRAQ) search's design, one row per (run, channel): which plex (mixture) the channel was "
+            + "labelled in, which sample it holds, and the role its design gives it, as the search's TmtDesign.txt wrote them "
+            + "(DATAREPO-88 a). The runs that share a dataset and a `plex` are that mixture's fractions, so one sample appears on "
+            + "every fraction of its plex. `design_sample_type` is carried verbatim; what each role means is QuantProject's to "
+            + "define (REQ-QP-15 d). A channel marked `empty` had no sample put in it: its `sample_id` is NULL, and its values "
+            + "in `quant_values` are isotope spill-over from a neighbour, never a sample's. Never pool these values with a "
+            + "label-free dataset's (`dataset_overview.quant_scale`).",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["plex"] = "The design's `Plex`, verbatim. NULL where the design gives none.",
+                ["reporter_level"] = "Where this run's reporters were read: `ms2` or `ms3` (`runs.reporter_level`).",
+                ["sample_id"] = "The sample in this channel: the SDRF's where it names one, else the design's `Sample Name`. NULL "
+                    + "for an `empty` channel.",
+                ["design_sample_type"] = "The design's `Sample Type`, verbatim (e.g. `study sample`, a reference, `empty`).",
             }),
         ["ptm_sites_by_chemistry"] = new(
             "`ptm_sites` regrouped so one chemistry reaching a dataset under two engine names "
@@ -2517,6 +2547,21 @@ public static partial class CatalogBuilder
             CASE WHEN contains(d.dataset_id, '-') THEN substr(d.dataset_id, strpos(d.dataset_id, '-') + 1) END AS split_group,
             ";
 
+    /// <summary>The scale a dataset's quantities are on (DATAREPO-88 b, catalog format 17), beside its <c>quant_method</c>:
+    /// <c>label_free_apex</c>; for an isobaric search <c>reporter_ms2</c> or <c>reporter_ms3</c> when every run's
+    /// <c>reporter_level</c> says one, <c>reporter_level_mixed</c> when they differ, <c>reporter_level_not_recorded</c>
+    /// when any run's is unknown; NULL for any other method. Never a guess: aging's pooling admits MS3 only (aging 135).
+    /// Python 0.32.0's overview had no such column.</summary>
+    internal static string QuantScaleColumn => SchemaContract.IsPython0320 ? "" : @"CASE d.quant_method
+                WHEN 'label_free' THEN 'label_free_apex'
+                WHEN 'isobaric' THEN (SELECT CASE
+                    WHEN count(*) = 0 OR count(*) FILTER (WHERE r.reporter_level IS NULL) > 0 THEN 'reporter_level_not_recorded'
+                    WHEN count(DISTINCT r.reporter_level) > 1 THEN 'reporter_level_mixed'
+                    ELSE 'reporter_' || min(r.reporter_level) END
+                  FROM runs r WHERE r.dataset_id = d.dataset_id)
+                END AS quant_scale,
+            ";
+
     /// <summary>The rule <c>n_peptidoforms_1pct</c> counted by (D55), beside it. Python 0.32.0's schema records none, so a
     /// parity build writes no such column.</summary>
     internal static string ConfidenceRuleColumn => SchemaContract.IsPython0320 ? "" : @"d.confidence_rule,
@@ -2531,7 +2576,7 @@ public static partial class CatalogBuilder
             d.organisms,
             d.acquisition,
             d.quant_method,
-            d.labelling,
+            {QuantScaleColumn}d.labelling,
             d.enrichment,
             d.enrichment_mixed,
             d.instrument_vendor,

@@ -61,6 +61,9 @@ public static class Isobaric
     private const string ChannelColumn = "TMT Channel";
     private const string SampleTypeColumn = "Sample Type";
 
+    /// <summary>The <c>Sample Type</c> a design gives a channel no sample was put in (PXReprise v0.4.41, PXR-R54).</summary>
+    public const string EmptySampleType = "empty";
+
     // A multiplex label in a MetaMorpheus full sequence: `[Multiplex Label:TMT10 on K]`.
     private const string LabelToken = "[Multiplex Label:";
 
@@ -80,6 +83,9 @@ public static class Isobaric
         string SampleName, string? SampleType)
     {
         public string AssayId(string datasetId) => $"{datasetId}:{Run}:{Channel}";
+
+        /// <summary>The design marks the channel <c>empty</c> (PXReprise v0.4.41, PXR-R54): no sample was put in it.</summary>
+        public bool IsEmpty => string.Equals(SampleType, EmptySampleType, StringComparison.OrdinalIgnoreCase);
 
         /// <summary>Whether the search read this file calibrated (or averaged): its searched name carries the suffix.</summary>
         public bool Recalibrated => Usi.StripPipelineSuffix(File) != File;
@@ -136,7 +142,9 @@ public static class Isobaric
     }
 
     /// <summary>The design's assays, each on the SDRF sample its (run, channel) names, or else on the design's own
-    /// sample (its <c>Sample Name</c>).</summary>
+    /// sample (its <c>Sample Name</c>), or on none when the design marks the channel <c>empty</c> and no SDRF names a
+    /// sample for it (PXR-R54, the user 2026-11-12: its values are kept, and it is never a sample). Every assay keeps the
+    /// design's <c>Plex</c> and <c>Sample Type</c> verbatim (DATAREPO-88 a, schema 0.0.17).</summary>
     /// <param name="sdrfAssays">The assays the SDRF gave, after the data-file gate; their channels are the SDRF's labels.</param>
     /// <returns>The assays; the samples they name (SDRF samples kept, design samples added); the SDRF characteristics of
     /// the kept samples; and how many assays found an SDRF sample.</returns>
@@ -167,7 +175,7 @@ public static class Isobaric
         {
             var sampleId = SdrfSampleOf(c);
             if (sampleId is not null) fromSdrf++;
-            else
+            else if (!c.IsEmpty)
             {
                 var name = c.SampleName.Length > 0 ? c.SampleName : $"{c.File} {c.Tag}";
                 sampleId = $"{datasetId}:{name}";
@@ -175,9 +183,13 @@ public static class Isobaric
                 if (!designSamples.ContainsKey(sampleId))
                     designSamples[sampleId] = new Row { ["sample_id"] = sampleId, ["dataset_id"] = datasetId, ["source_name"] = name, ["organism"] = organism };
             }
-            assays.Add(new Row { ["assay_id"] = c.AssayId(datasetId), ["run_id"] = $"{datasetId}:{c.Run}", ["channel"] = c.Channel, ["sample_id"] = sampleId });
+            assays.Add(new Row
+            {
+                ["assay_id"] = c.AssayId(datasetId), ["run_id"] = $"{datasetId}:{c.Run}", ["channel"] = c.Channel, ["sample_id"] = sampleId,
+                ["plex"] = c.Plex.Length > 0 ? c.Plex : null, ["design_sample_type"] = c.SampleType,
+            });
         }
-        var used = assays.Select(a => (string)a["sample_id"]!).ToHashSet(StringComparer.Ordinal);
+        var used = assays.Where(a => a["sample_id"] is not null).Select(a => (string)a["sample_id"]!).ToHashSet(StringComparer.Ordinal);
         var kept = samples.Where(s => used.Contains((string)s["sample_id"]!)).Concat(designSamples.Values).ToList();
         var keptCharacteristics = characteristics.Where(c => used.Contains((string)c["sample_id"]!)).ToList();
         return (assays, kept, keptCharacteristics, fromSdrf);

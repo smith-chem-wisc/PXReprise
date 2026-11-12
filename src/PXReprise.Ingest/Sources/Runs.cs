@@ -220,6 +220,9 @@ public static class Runs
         var (utc, local) = StartTime(HeaderText(qcEntry, "start_time", fileName), fileName);
         run["acquisition_datetime"] = utc;
         run["acquisition_start_local"] = local;
+        // 1.5.0 (DATAREPO-88 b; PXReprise 098, PXR-R50): whether this file's reporters were read at MS2 or MS3, as the QC
+        // report's `sps_ms3` says; NULL where it says nothing. The ingest clears it for a search that is not isobaric.
+        run["reporter_level"] = Get(qcEntry, "sps_ms3") switch { true => "ms3", false => "ms2", _ => null };
     }
 
     /// <summary>A QC report's <c>start_time</c> split by whether it carries a zone.</summary>

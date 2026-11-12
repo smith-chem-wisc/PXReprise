@@ -41,6 +41,9 @@ public static class SchemaContract
         ("0.0.17", "datasets", "confidence_rule"),
         ("0.0.17", "peptidoforms", "best_pep_q_value"),
         ("0.0.17", "gene_resolutions", "ensembl_xref_agreement"),
+        ("0.0.17", "runs", "reporter_level"),
+        ("0.0.17", "assays", "plex"),
+        ("0.0.17", "assays", "design_sample_type"),
     ];
 
     /// <summary>Every core table added after Python 0.32.0's schema 0.0.13, with the version that added it.</summary>
@@ -74,11 +77,13 @@ public static class SchemaContract
     /// <summary>Every core column that was required in Python 0.32.0's schema and is optional since, with the version
     /// that relaxed it. A parity bundle writes it as required, as Python did (the Parquet field's nullability).</summary>
     /// <remarks>provenance_schema: a record stating no schema was stored as the text "None", a value it never wrote
-    /// (G83 item 16); from 0.0.15 it is NULL. assays.run_id: NULL from 0.0.16 for a pooled design sample (PXR-R23).</remarks>
+    /// (G83 item 16); from 0.0.15 it is NULL. assays.run_id: NULL from 0.0.16 for a pooled design sample (PXR-R23).
+    /// assays.sample_id: NULL from 0.0.17 for a TMT channel the design marks `empty` (PXR-R54).</remarks>
     public static readonly IReadOnlyList<(string Version, string Table, string Column)> RelaxedColumns =
     [
         ("0.0.15", "provenance_records", "provenance_schema"),
         ("0.0.16", "assays", "run_id"),
+        ("0.0.17", "assays", "sample_id"),
     ];
 
     /// <summary>Every core column removed since Python 0.32.0's schema 0.0.13: the version that removed it, the column it
