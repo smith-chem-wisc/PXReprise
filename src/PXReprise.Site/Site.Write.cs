@@ -47,6 +47,14 @@ public static partial class SiteGenerator
             "MetaMorpheus writes it alphabetically. The first accession is not a leading or razor " +
             "protein, and nothing in this repository names one.",
         };
+        // D55 (catalog format 17): only when the catalog records each search's rule, so an older catalog writes the file it
+        // always wrote. After the bullet on the *_1pct views, which it qualifies.
+        if (facts.Datasets.Any(ds => ds.ContainsKey("confidence_rule")))
+            lines.Insert(lines.IndexOf("Before you answer from this data:") + 3,
+                "- `peptidoforms_1pct` follows each search's own rule (`dataset_overview.confidence_rule`): the PEP q-value " +
+                "where the search trained PEP, otherwise its notch q-value. So its counts are not the search engine's own " +
+                "peptide count, which is in `metrics` (`name = 'peptides'`), and two datasets on different rules rest on " +
+                "different q-values.");
         // PXR-R32: only when something is split, so a catalog with no split writes the file it always wrote.
         if (facts.SplitDeposits.Count > 0)
             lines.Add(
@@ -141,6 +149,8 @@ public static partial class SiteGenerator
             entry[k] = ds.GetValueOrDefault(k);
             if (k == "dataset_id")
                 foreach (var d in DepositIndexKeys.Where(ds.ContainsKey)) entry[d] = ds[d];
+            // D55 (catalog format 17): the rule the count was taken on, beside it. A catalog before it has none.
+            if (k == "n_peptidoforms_1pct" && ds.ContainsKey("confidence_rule")) entry["confidence_rule"] = ds["confidence_rule"];
         }
         entry["summary"] = Summary(ds);
         foreach (var (k, v) in Links(Id(ds), baseUrl)) entry[k] = v;

@@ -71,20 +71,29 @@ own columns. `dataset_id` is taken from the bundle rather than from the row, so 
 no `dataset_id` of their own — `proteins`, `definitions` — get one too. Without it the same UniProt
 accession from two datasets would be indistinguishable.
 
-### Views that apply the producer's acceptance rule
+### Views that apply a 1% rule
 
 | View | Rule |
 |---|---|
-| `peptidoforms_1pct` | target, `best_q_value` ≤ 0.01, `best_q_value_notch` ≤ 0.01 where there is one |
+| `peptidoforms_1pct` | target, and the q-value the search's `datasets.confidence_rule` names strictly below 0.01: `best_pep_q_value` under `pep_q_value`, `best_q_value_notch` under `q_value_notch`, `best_q_value` under `q_value`; any other rule passes nothing (catalog format 17, D55) |
 | `protein_groups_1pct` | anything not a decoy — **contaminants count** — with `q_value` ≤ 0.01 |
 
-The rule is MetaMorpheus's and it is not guessable, so it is applied once here rather than restated
-in every query. It is the same rule the ingester counts by when a bundle reconciles itself against
-`results.txt`, and a test asserts the SQL and the ingester's count agree, so the two cannot drift. Counting
-through these views is what makes the catalog's headline numbers the same numbers the bundle
-reconciled: 5,541 peptides and 1,652 protein groups for PXD036557.
+A rule is not guessable, so it is applied once here rather than restated in every query.
+`protein_groups_1pct` is MetaMorpheus's own rule, the one the ingester counts by when a bundle reconciles
+itself against `results.txt`, and a test asserts the SQL and the ingester's count agree, so the two cannot
+drift: 1,652 protein groups for PXD036557.
 
-PSMs follow the same rule, with one more clause: a notch that resolved. A search that cannot settle on
+`peptidoforms_1pct` is each search's own confidence rule, chosen once per search at ingest by mzLib's
+`QuantifiedPsmRule.ChooseTier` (the PEP q-value when the search trained PEP, otherwise its notch q-value)
+and recorded in `datasets.confidence_rule`. It is the test the ingester applied when it kept
+`peptidoform_ions`, and a test runs every combination of rule, status and value through the view's SQL and
+through the ingester's test and asserts the same rows pass. It is **not** MetaMorpheus's own peptide count,
+which counts on the q-value: that count stays in `metrics` and the reconciliation still compares on the
+q-value rule, or nearly every deposit would read `count_mismatch`. `dataset_overview.confidence_rule`
+names the rule beside `n_peptidoforms_1pct`, and the site says it beside the count. Up to catalog format 16
+the view applied the q-value rule (`best_q_value` and `best_q_value_notch` at or below 0.01) to every search.
+
+PSMs keep the q-value rule (target, `q_value` and `q_value_notch` at or below 0.01), with one more clause: a notch that resolved. A search that cannot settle on
 one notch reports its candidates separated by `|`, and the producer excludes such a match from its
 headline count even though both q-values pass. The ingester counts by it, and that count is
 `dataset_overview.n_psms_1pct` (26,582 for PXD036557). In a bundle's `psms.parquet`, `notch` holds the

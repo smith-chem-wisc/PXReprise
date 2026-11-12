@@ -164,7 +164,7 @@ public class SplitDepositTests
         Assert.Multiple(() =>
         {
             Assert.That(split.FailedChecks, Is.Empty);
-            Assert.That(Rows(split, "SELECT catalog_version FROM catalog_meta").Single()[0], Is.EqualTo("16"));
+            Assert.That(Rows(split, "SELECT catalog_version FROM catalog_meta").Single()[0], Is.EqualTo("17"));
             Assert.That(Rows(split, "SELECT dataset_id, accession, split_group, split_reason FROM dataset_overview ORDER BY dataset_id"),
                 Is.EqualTo(new[]
                 {

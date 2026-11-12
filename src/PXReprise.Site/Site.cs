@@ -159,6 +159,19 @@ public static partial class SiteGenerator
 
     private static string Title(Dict ds) => Or(ds, "title", Id(ds));
 
+    /// <summary>The q-value a dataset's 1% peptidoforms were counted on (D55, catalog format 17), in words; null in a
+    /// catalog before it, whose <c>peptidoforms_1pct</c> read the q-value rule for every search.</summary>
+    /// <remarks>Said beside the count, because two datasets' counts on different rules rest on different q-values, and
+    /// none of them is the producer's own peptide count.</remarks>
+    private static string? RuleWords(Dict ds) => ds.GetValueOrDefault("confidence_rule") switch
+    {
+        "pep_q_value" => "PEP q-value",
+        "q_value_notch" => "notch q-value",
+        "q_value" => "q-value",
+        string other => other,
+        _ => null,
+    };
+
     /// <summary>The dataset's summary sentence, filled only from catalog fields (D17).</summary>
     /// <remarks>Every clause is a field or a count the page also shows, so a reader can check the sentence
     /// against the table below it. Nothing about what the study found biologically can appear here, because
@@ -179,10 +192,13 @@ public static partial class SiteGenerator
         };
         var engine = string.Join(" ", new[] { S(ds, "search_engine"), S(ds, "search_engine_version") }.Where(x => !string.IsNullOrEmpty(x)));
         if (engine.Length > 0) parts.Add($"It was reanalysed with {engine}.");
-        parts.Add(
-            $"At 1% FDR the search reports {N(ds["n_psms_1pct"])} PSMs, " +
-            $"{N(ds["n_peptidoforms_1pct"])} peptidoforms and {N(ds["n_protein_groups_1pct"])} " +
-            $"protein groups, and the repository holds {N(ds["n_ptm_sites"])} PTM sites for it.");
+        parts.Add(RuleWords(ds) is { } rule
+            ? $"At 1% FDR the search reports {N(ds["n_psms_1pct"])} PSMs and {N(ds["n_protein_groups_1pct"])} protein groups; " +
+              $"{N(ds["n_peptidoforms_1pct"])} peptidoforms pass 1% on its {rule}, and the repository holds " +
+              $"{N(ds["n_ptm_sites"])} PTM sites for it."
+            : $"At 1% FDR the search reports {N(ds["n_psms_1pct"])} PSMs, " +
+              $"{N(ds["n_peptidoforms_1pct"])} peptidoforms and {N(ds["n_protein_groups_1pct"])} " +
+              $"protein groups, and the repository holds {N(ds["n_ptm_sites"])} PTM sites for it.");
         var warnings = (long)Findings(ds).Count(f => f["severity"] is "warning" or "error");
         if (warnings != 0) parts.Add($"{Plural(warnings, "open warning")} about it are recorded.");
         if (IsSplitSearch(ds)) parts.Add(SplitSentence(ds));
@@ -699,7 +715,7 @@ public static partial class SiteGenerator
         var counts = new (string Label, object? Value)[]
         {
             ("PSMs at 1% FDR", ds["n_psms_1pct"]),
-            ("Peptidoforms at 1% FDR", ds["n_peptidoforms_1pct"]),
+            (RuleWords(ds) is { } rule ? $"Peptidoforms at 1% ({rule})" : "Peptidoforms at 1% FDR", ds["n_peptidoforms_1pct"]),
             ("Protein groups at 1% FDR", ds["n_protein_groups_1pct"]),
             ("PTM sites", ds["n_ptm_sites"]),
             ("Quantitative values", ds["n_quant_values"]),

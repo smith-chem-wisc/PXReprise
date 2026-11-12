@@ -98,7 +98,7 @@ These recur in every page, so they are worth reading once here.
 | **engine** | Code another project owns that runs on stored results (logs' gene resolution, go's annotation). Its output is an **artefact** beside the bundles. |
 | **finding** | A recorded fact about what is wrong or limited in a dataset (a low identification rate, a skeleton SDRF). Shown before the counts it qualifies. |
 | **definition id** | `owner:DEF-NAME`: which project defined a number and where its text is. Every stored number carries one. |
-| **acceptance view** | `peptidoforms_1pct`, `protein_groups_1pct`: the search engine's own 1% FDR rule, applied once so no query restates it. Catalogs before format 13 also had `psms_1pct`. |
+| **acceptance view** | `peptidoforms_1pct`, `protein_groups_1pct`: a 1% rule applied once so no query restates it. Protein groups use the search engine's own q-value rule; from format 17, peptidoforms use each search's own confidence rule (`datasets.confidence_rule`: the PEP q-value where the search trained PEP), so their count is not the engine's. Catalogs before format 13 also had `psms_1pct`. |
 
 ## Conventions in these files
 
