@@ -7,6 +7,28 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## Unreleased
+
+**MetaMorpheus** unchanged. **Machine file:** no change needed (`spectral_library_remote` is new; unset means no sync, as
+before). **Safe mid-batch?** Yes, while no remote is named. Naming one on a machine whose chains were built before needs
+the chains seeded or pulled first (below).
+
+- **Spectral library chains can be shared through the cloud** (Alex and the user, 2026-11-11; thread diabetes 004,
+  PXR-D3 and PXR-D4), so every machine searches with the same library.
+  - The machine file's `spectral_library_remote` names a folder (a share) or `s3://bucket/prefix` (credentials from
+    `AWS_PROFILE`). The cloud copy is add-only: per chain, each library named by its sha256 and one record per version
+    (`v<NNN>.json`), each written once. Claiming a version number is writing its record; S3 refuses a second writer.
+  - Before a search, newer versions are fetched and the newest becomes current. When the search registers, a chain another
+    machine moved meanwhile is no longer refused: the search's own changes (entries it added, or changed relative to the
+    version it read) go onto the newest version, and an entry both changed keeps the newest version's spectrum. The record
+    says `merged_onto`, with counts, and provenance notes it. Routed class chains append onto their newest version.
+  - `pxreprise library seed <chain>` starts the cloud's copy from this machine (every version's record, the current
+    library only); `pxreprise library pull <chain>` fetches. A local chain that differs from the cloud's is refused, never
+    overwritten. `library repair` claims its version too; `library rollback` is refused on a synced chain.
+  - The store layer (`Storage/`, write-once to a folder or S3) is dataRepo's draft for `push`/`pull`, moved here because
+    dataRepo folds into PXReprise.
+  - Not yet: `.msl` libraries (MSL 003-007).
+
 ## 0.4.47 (2026-11-13)
 
 **MetaMorpheus** unchanged. **Machine file:** no change needed. **Safe mid-batch?** Yes: swap the pin as usual. A probe worker

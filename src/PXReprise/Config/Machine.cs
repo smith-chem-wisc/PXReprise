@@ -40,7 +40,8 @@ public sealed record Machine(
     WorkersConfig? Workers = null,
     bool DeleteRawAfterCalibration = true,
     bool DeliverSplitDeposits = false,
-    bool OutputSdrfReadOnly = true)
+    bool OutputSdrfReadOnly = true,
+    string? SpectralLibraryRemote = null)
 {
     public static Machine Load(string file)
     {
@@ -128,6 +129,9 @@ public sealed record Machine(
         // v0.4.46 (the user, 2026-11-11: "make the output sdrf read-only by default"): the SDRF a search writes is the record of the
         // facts its quantities came from; a correction is a new search, never an edit (dataRepo PXR-R58).
         bool sdrfReadOnly = root.OptionalBool("output_sdrf_read_only") ?? true;
+        // 2026-11-11 (Alex and the user): the spectral library chains are shared through the cloud, so every machine searches
+        // with the same library. A folder (a share) or s3://bucket/prefix; credentials from AWS_PROFILE. Unset: no sync.
+        string? libraryRemote = root.OptionalString("spectral_library_remote");
         root.RefuseUnknownKeys();
         if (worker is not null && workers is not null) throw new ConfigException(file, "[worker] and [workers] do not go together: a machine probes for a controller, or controls workers");
         if (worker is not null && datarepo is not null) throw new ConfigException(file, "a probe worker ([worker]) never ingests: remove 'datarepo'");
@@ -150,7 +154,7 @@ public sealed record Machine(
         if (passWait < 0) throw new ConfigException(file, "'pass_wait_minutes' must not be negative");
         if (searchTimeout <= 0) throw new ConfigException(file, "'search_timeout_h' must be positive");
         if (stall < 0) throw new ConfigException(file, "'search_stall_minutes' must not be negative (0 turns the stall check off)");
-        return new Machine(file, workRoot, dbDir, mm, settings, threads, dotnet, licence, libraries, minFree, datarepo, attempts, parallel, qcPython, passes, passWait, searchTimeout, stall, dotnetRoot, fetchStall, slots, catchUp, ascp, asperaKey, asperaAttempts, prideHttps, limits, probeMinutes, worker, workers, deleteCalibrated, deliverSplits, sdrfReadOnly);
+        return new Machine(file, workRoot, dbDir, mm, settings, threads, dotnet, licence, libraries, minFree, datarepo, attempts, parallel, qcPython, passes, passWait, searchTimeout, stall, dotnetRoot, fetchStall, slots, catchUp, ascp, asperaKey, asperaAttempts, prideHttps, limits, probeMinutes, worker, workers, deleteCalibrated, deliverSplits, sdrfReadOnly, libraryRemote);
     }
 
     public string CmdFor(string release) =>
