@@ -100,8 +100,8 @@ public static partial class CatalogBuilder
     /// ambiguous], both terms exact.</para>
     /// <para><c>peptidoforms_target_1pct</c>: the observed count stays the ingest's (from the peptide file, which the
     /// bundle does not keep), and the bound is [count - ambiguous estimate - rounding, count]: an over-wide bound, said so
-    /// in <c>basis</c>. For an isobaric search by MetaMorpheus up to 1.1.13 the two counts are at different FDR levels
-    /// (MetaMorpheus #2941), so a difference is <c>explained</c> with no bound.</para>
+    /// in <c>basis</c>. (An isobaric search by MetaMorpheus up to 1.1.13, whose peptide file is PSM-level, MetaMorpheus
+    /// #2941, is refused at ingest from schema 0.0.17, so no bound or exception is needed for one here.)</para>
     /// <para>Every other check has no bound: it agrees or it is unexplained, as its ingest recorded.</para>
     /// </remarks>
     internal static List<ReconciliationRow> JudgeReconciliation(BundleRef r, ReconciliationTerms? terms)
@@ -118,16 +118,7 @@ public static partial class CatalogBuilder
             var observed = recordedObserved;
             long? lower = null, upper = null;
             string? basis = null;
-            var explainedWithoutBound = false;
-            if (name == "peptidoforms_target_1pct" && PsmLevelPeptideFile(r))
-            {
-                // The file's count and results.txt's are taken at two FDR levels, so no bound relates them.
-                basis = "MetaMorpheus #2941 (QuantProject 071): this multiplex search's AllPeptides.psmtsv carries each "
-                    + "peptide's best PSM's PSM-level q-values, so the count is a PSM-level filter and results.txt's is "
-                    + "peptide-level; no bound is computed";
-                explainedWithoutBound = true;
-            }
-            else if (terms is not null && name == "psms_target_1pct")
+            if (terms is not null && name == "psms_target_1pct")
             {
                 observed = terms.PsmsRecount;
                 (lower, upper) = (terms.PsmsRecount - terms.PsmsRounding, terms.PsmsRecount + terms.PsmsAmbiguous);
@@ -155,7 +146,6 @@ public static partial class CatalogBuilder
             }
             string status;
             if (observed is null || expected is null) status = "not_compared";
-            else if (explainedWithoutBound) status = observed.Value == expected.Value ? "agrees" : "explained";
             else if (lower is null) status = recordedOk ? "agrees" : "unexplained";
             else if (observed.Value == expected.Value) status = "agrees";
             else status = lower <= expected && expected <= upper ? "explained" : "unexplained";
@@ -164,12 +154,6 @@ public static partial class CatalogBuilder
         }
         return rows;
     }
-
-    /// <summary>An isobaric bundle (its <c>bundle.json</c> has an <c>isobaric</c> block) from a MetaMorpheus whose
-    /// multiplex peptide file carries PSM-level q-values (<see cref="PXReprise.Ingest.Sources.Isobaric.PeptideQIsPsmLevel"/>).</summary>
-    private static bool PsmLevelPeptideFile(BundleRef r) =>
-        SourcesPy.Get(r.Manifest, "isobaric") is not null
-        && PXReprise.Ingest.Sources.Isobaric.PeptideQIsPsmLevel(SourcesPy.Str(SourcesPy.Get(r.Manifest, "metamorpheus", "")));
 
     /// <summary>Rows of <paramref name="table"/> the ingest dropped as exact duplicates of a row it kept.</summary>
     private static long DroppedDuplicates(BundleRef r, string table) =>

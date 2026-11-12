@@ -33,16 +33,21 @@ public static class Isobaric
     /// <summary>The isobaric reader's version, declared into every isobaric bundle's id and no other bundle's. Bump it in
     /// the same commit as any change to what this reader reads or writes. "2" (feat/1.4.2 at <c>c834cce</c>, pushed, never
     /// released): <c>DEF-TMT-*</c> at QuantProject's v3.19, and the <c>isobaric_peptide_q_psm_level</c> finding. "3"
-    /// (1.4.2): the same at v3.22, which retracts v3.14's per-file claim (QuantProject 073), in the texts and the finding.</summary>
-    public const string ReaderVersion = "3";
+    /// (1.4.2): the same at v3.22, which retracts v3.14's per-file claim (QuantProject 073), in the texts and the finding.
+    /// "4" (1.5.0): a multiplex search by MetaMorpheus up to 1.1.13 is refused, not ingested with a finding (the user,
+    /// 2026-11-12: re-search it), so the finding is gone and dataRepo's note in the texts says so.</summary>
+    public const string ReaderVersion = "4";
 
     /// <summary>The last MetaMorpheus release known to write a multiplex search's <c>AllPeptides.psmtsv</c> with each
     /// peptide's best PSM's PSM-level q-values instead of peptide-level ones (MetaMorpheus #2941, QuantProject 071).</summary>
     public static readonly Version LastPsmLevelPeptideQ = new(1, 1, 13);
 
+    /// <summary>The first MetaMorpheus release that carries #2941 (merged 2026-11-04; released 2026-11-06).</summary>
+    public static readonly Version FirstPeptideLevelPeptideQ = new(1, 1, 14);
+
     /// <summary>Whether a multiplex search by <paramref name="metamorpheus"/> wrote PSM-level q-values into its peptide
-    /// file: up to <see cref="LastPsmLevelPeptideQ"/>, or when the release is unknown (no release that carries #2941 is
-    /// named yet, so an unreadable one is not assumed fixed).</summary>
+    /// file: up to <see cref="LastPsmLevelPeptideQ"/>, or when the release is unknown (an unreadable release is not
+    /// assumed fixed). The ingest refuses such a search.</summary>
     public static bool PeptideQIsPsmLevel(string? metamorpheus) =>
         !Version.TryParse(metamorpheus, out var v) || v <= LastPsmLevelPeptideQ;
 

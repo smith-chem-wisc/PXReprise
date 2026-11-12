@@ -6,8 +6,9 @@ namespace PXReprise.Data.Tests;
 
 /// <summary>G105: a TMT search's tables (QuantProject DEF-TMT-*) ingest as one assay per (file, channel) of the search's
 /// design, with values placed by column label, groups from AllProteinGroups.tsv and the raw table copied verbatim.</summary>
-/// <remarks>The fixture's label-free search is turned into a two-file TMT10 search as MetaMorpheus 1.1.13 writes one: no
-/// FlashLFQ tables, a calibrated and an uncalibrated file, and columns <c>{sample name}_{file}_{channel}</c>.</remarks>
+/// <remarks>The fixture's label-free search is turned into a two-file TMT10 search as MetaMorpheus 1.1.14 writes one: no
+/// FlashLFQ tables, a calibrated and an uncalibrated file, and columns <c>{sample name}_{file}_{channel}</c>. Its declared
+/// release moves from 1.1.11 to 1.1.14, because a multiplex search up to 1.1.13 is refused (MetaMorpheus #2941).</remarks>
 public class IsobaricIngestTests
 {
     private const string Accession = "PXD999999";
@@ -51,6 +52,7 @@ public class IsobaricIngestTests
         Assert.That(text, Does.Contain("    quant_method: label-free\n"));
         File.WriteAllText(Manifest, text.Replace("    quant_method: label-free\n",
             "    quant_method: TMT\n    labelling: TMT\n    labelling_plex: 10\n"), new System.Text.UTF8Encoding(false));
+        SetRelease("1.1.14");
 
         // A TMT search writes groups to AllProteinGroups.tsv and no FlashLFQ table.
         File.Move(Path.Combine(Results, "AllQuantifiedProteinGroups.tsv"), Path.Combine(Results, "AllProteinGroups.tsv"));
@@ -85,6 +87,23 @@ public class IsobaricIngestTests
     }
 
     private IngestResult Ingest() => Ingester.Ingest(Manifest, Accession, Path.Combine(_root, "store"), overwrite: true);
+
+    private string SearchProvenance => Path.Combine(_root, "work_root", "run_test", Accession, "04_search", "provenance.json");
+
+    /// <summary>Declares the search's MetaMorpheus release in its provenance and in the manifest entry (the ingest reads
+    /// the provenance first, the entry when the provenance names none); null removes both.</summary>
+    private void SetRelease(string? release)
+    {
+        var provenance = File.ReadAllText(SearchProvenance);
+        var manifest = File.ReadAllText(Manifest);
+        var inProvenance = new System.Text.RegularExpressions.Regex(@"(""MetaMorpheus"":\s*\{\s*""release"":\s*)""[^""]*""");
+        var inManifest = new System.Text.RegularExpressions.Regex(@"(?m)^    metamorpheus: ""[^""]*""\n");
+        Assert.That(inProvenance.IsMatch(provenance) && inManifest.IsMatch(manifest), "the fixture declares its release in both");
+        File.WriteAllText(SearchProvenance, inProvenance.Replace(provenance, release is null ? "$1null" : $"$1\"{release}\""),
+            new System.Text.UTF8Encoding(false));
+        File.WriteAllText(Manifest, inManifest.Replace(manifest, release is null ? "" : $"    metamorpheus: \"{release}\"\n"),
+            new System.Text.UTF8Encoding(false));
+    }
 
     private static List<Row> Table(IngestResult result, string table) =>
         ArrowTables.ReadParquet(Path.Combine(result.BundlePath, table + ".parquet")).Rows;
@@ -189,15 +208,19 @@ public class IsobaricIngestTests
     }
 
     [Test]
-    public void APeptideFilesQValuesAreSaidToBePsmLevelForAMultiplexSearchUpTo1113()
+    public void AMultiplexSearchUpTo1113IsRefused()
     {
-        // MetaMorpheus #2941 (QuantProject 071). The fixture's search is MetaMorpheus 1.1.11.
+        // MetaMorpheus #2941 (QuantProject 071): up to 1.1.13 a multiplex AllPeptides.psmtsv is PSM-level. The user,
+        // 2026-11-12: re-search such a deposit rather than carry a warning for it.
+        SetRelease("1.1.13");
+        Assert.That(() => Ingest(), Throws.TypeOf<IngestException>().With.Message.Contains("MetaMorpheus 1.1.13")
+            .And.Message.Contains("#2941").And.Message.Contains("Re-search the deposit on MetaMorpheus 1.1.14 or later."));
+        SetRelease("1.1.14");
         var result = Ingest();
-        var finding = Table(result, "findings").Single(r => (string)r["code"]! == "isobaric_peptide_q_psm_level");
         var definitions = Table(result, "definitions").ToDictionary(d => (string)d["definition_id"]!);
         Assert.Multiple(() =>
         {
-            Assert.That((string)finding["message"]!, Does.Contain("MetaMorpheus 1.1.11").And.Contain("`peptidoforms_1pct` is a PSM-level filter"));
+            Assert.That(Codes(result), Has.No.Member("isobaric_peptide_q_psm_level"));
             Assert.That(Isobaric.PeptideQIsPsmLevel("1.1.13"), Is.True);
             Assert.That(Isobaric.PeptideQIsPsmLevel("1.1.9"), Is.True);
             Assert.That(Isobaric.PeptideQIsPsmLevel(null), Is.True, "an unknown release is not assumed to carry the fix");
@@ -209,15 +232,21 @@ public class IsobaricIngestTests
             Assert.That((string)definitions[Definitions.TmtProtein.DefinitionId]["text"]!,
                 Does.Contain("MetaMorpheus #2940").And.Contain("#2941").And.Contain("at 9478315")
                     .And.Contain("Each per-file `_Peptides.psmtsv` is peptide-level")
-                    .And.Not.Contain("and each per-file `_Peptides.psmtsv`, with the best PSM's PSM-level FDR columns"));
-            Assert.That((string)finding["message"]!, Does.Not.Contain("No file of this search gives a peptide-level q-value"));
+                    .And.Not.Contain("and each per-file `_Peptides.psmtsv`, with the best PSM's PSM-level FDR columns")
+                    // dataRepo's own note, not QuantProject's text: the refusal, and no finding named.
+                    .And.Contain("It refuses a multiplex search by MetaMorpheus up to and including 1.1.13")
+                    .And.Not.Contain("isobaric_peptide_q_psm_level"));
         });
+        // Last, because it removes the release the other two set: an unknown release is not assumed to carry the fix.
+        SetRelease(null);
+        Assert.That(() => Ingest(), Throws.TypeOf<IngestException>().With.Message.Contains("of unknown release")
+            .And.Message.Contains("record the release in the search's provenance"));
     }
 
     [Test]
-    public void AnUnlabelledSearchHasNoPsmLevelFinding()
+    public void AnUnlabelledSearchUpTo1113IsNotRefused()
     {
-        // The label-free fixture, unchanged: the finding belongs to multiplex searches alone.
+        // The label-free fixture, unchanged (MetaMorpheus 1.1.11): the refusal belongs to multiplex searches alone.
         var root = Path.Combine(Path.GetTempPath(), "datarepo-labelfree-" + Guid.NewGuid().ToString("N"));
         try
         {
@@ -226,8 +255,9 @@ public class IsobaricIngestTests
                 Directory.CreateDirectory(Path.Combine(root, Path.GetRelativePath(from, dir)));
             foreach (var file in Directory.EnumerateFiles(from, "*", SearchOption.AllDirectories))
                 File.Copy(file, Path.Combine(root, Path.GetRelativePath(from, file)));
+            Assert.That(File.ReadAllText(Path.Combine(root, "manifest.yaml")), Does.Contain("    metamorpheus: \"1.1.11\"\n"));
             var result = Ingester.Ingest(Path.Combine(root, "manifest.yaml"), Accession, Path.Combine(root, "store"), overwrite: true);
-            Assert.That(Codes(result), Has.No.Member("isobaric_peptide_q_psm_level"));
+            Assert.That(Directory.Exists(result.BundlePath));
         }
         finally
         {
