@@ -138,7 +138,7 @@ public class FolderCatalogTests
 
         using var con = CatalogBuilder.Open(folder.Path, readOnly: true);
         var meta = Rows(con, "SELECT catalog_version, release_id, layout, data_root FROM catalog_meta").Single();
-        Assert.That(meta, Is.EqualTo(new object?[] { "16", folder.ReleaseId, "views", CatalogBuilder.AsPosix(Path.GetFullPath(Store)) + "/" }));
+        Assert.That(meta, Is.EqualTo(new object?[] { "17", folder.ReleaseId, "views", CatalogBuilder.AsPosix(Path.GetFullPath(Store)) + "/" }));
         Assert.That(Rows(con, "SELECT ok FROM catalog_checks WHERE kind = 'integrity'").Single()[0], Is.EqualTo(true),
             "the per-bundle integrity checks are not re-run, and the catalog says so");
     }
@@ -323,6 +323,54 @@ public class FolderCatalogTests
         var site = PXReprise.Site.SiteGenerator.BuildSite(Folder, Path.Combine(_root, "site"));
         Assert.That(site.CatalogId, Is.EqualTo(built.CatalogId));
         Assert.That(CatalogBuilder.RunQuery(Path.Combine(Folder, CatalogPointer.FileName), "SELECT n_psms_all FROM dataset_overview").Rows.Single()[0], Is.EqualTo(60L));
+    }
+
+    /// <summary>1.5.0 item 11 (D55): on a real ingest, in either layout, <c>peptidoforms_1pct</c> holds exactly the target
+    /// rows the ingest's own test passes under the bundle's recorded rule, and the overview counts them beside that rule;
+    /// the site and the MCP overview name it.</summary>
+    [Test]
+    public void PeptidoformsAtOnePercentAreTheRowsTheIngestPassesUnderTheRecordedRule()
+    {
+        var file = Build(Path.Combine(_root, "catalog.duckdb"));
+        var folder = Build(Folder);
+        var bundle = CatalogBuilder.SelectBundles(Manifest.Load(ManifestPath), ["PXD999999"], Store).Single();
+        using var raw = new DuckDBConnection("DataSource=:memory:");
+        raw.Open();
+        var rule = (string)Rows(raw, $"SELECT confidence_rule FROM read_parquet('{CatalogBuilder.AsPosix(bundle.TablePath("datasets")!)}')").Single()[0]!;
+        var tier = rule switch
+        {
+            "pep_q_value" => Quantification.QuantifiedPsmTier.PepQValue,
+            "q_value_notch" => Quantification.QuantifiedPsmTier.QValueNotch,
+            _ => Quantification.QuantifiedPsmTier.QValue,
+        };
+        var expected = Rows(raw, "SELECT peptidoform_id, target_decoy, best_q_value, best_q_value_notch, best_pep_q_value "
+                                 + $"FROM read_parquet('{CatalogBuilder.AsPosix(bundle.TablePath("peptidoforms")!)}')")
+            .Where(r => Equals(r[1], "target") && PXReprise.Ingest.Sources.Identifications.PassesConfidence(tier, new Row
+            {
+                ["best_q_value"] = r[2], ["best_q_value_notch"] = r[3], ["best_pep_q_value"] = r[4],
+            }))
+            .Select(r => (string)r[0]!).Order(StringComparer.Ordinal).ToList();
+        Assert.That(expected, Is.Not.Empty, "the fixture has passing peptidoforms");
+        foreach (var catalog in new[] { file.Path, folder.Path })
+        {
+            using var con = CatalogBuilder.Open(catalog, readOnly: true);
+            Assert.Multiple(() =>
+            {
+                Assert.That(Rows(con, "SELECT peptidoform_id FROM peptidoforms_1pct ORDER BY peptidoform_id").Select(r => (string)r[0]!),
+                    Is.EqualTo(expected), catalog);
+                Assert.That(Rows(con, "SELECT n_peptidoforms_1pct, confidence_rule FROM dataset_overview").Single(),
+                    Is.EqualTo(new object?[] { (long)expected.Count, rule }), catalog);
+            });
+        }
+        var site = PXReprise.Site.SiteGenerator.BuildSite(Folder, Path.Combine(_root, "site"));
+        var words = rule == "pep_q_value" ? "PEP q-value" : rule == "q_value_notch" ? "notch q-value" : "q-value";
+        var page = File.ReadAllText(Path.Combine(_root, "site", "datasets", "PXD999999.html"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(page, Does.Contain($"Peptidoforms at 1% ({words})"));
+            Assert.That(page, Does.Contain($"{expected.Count.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)} peptidoforms pass 1% on its {words}"));
+            Assert.That(File.ReadAllText(Path.Combine(_root, "site", "llms.txt")), Does.Contain("`peptidoforms_1pct` follows each search's own rule"));
+        });
     }
 
     [Test]

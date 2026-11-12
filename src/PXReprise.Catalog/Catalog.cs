@@ -257,8 +257,10 @@ public static partial class CatalogBuilder
     /// <c>dataset_overview.accession</c>, <c>split_group</c> and <c>split_reason</c> (the manifest's, also in
     /// <c>dataset_annotations</c>), the <c>deposits</c> table, <c>protein_index</c>'s and <c>peptide_index</c>'s
     /// <c>n_datasets*</c> counting deposits, the census matched by accession, and a <c>split</c> check refusing a deposit
-    /// served both whole and in parts.</remarks>
-    public static string CatalogVersion => SchemaContract.IsPython0320 ? "8" : "16";
+    /// served both whole and in parts. "17" (1.5.0, D55) makes <c>peptidoforms_1pct</c> follow each search's
+    /// <c>datasets.confidence_rule</c>, so every count built from it moves, and adds <c>dataset_overview.confidence_rule</c>
+    /// beside <c>n_peptidoforms_1pct</c>.</remarks>
+    public static string CatalogVersion => SchemaContract.IsPython0320 ? "8" : "17";
 
     /// <summary>Bundle tables a catalog does not hold. PSMs are archived per deposit, never in a catalog (PXReprise's
     /// public-data contract, rule 3; D48 step 2): they are 82% of a store's bytes, and nothing served from a catalog
@@ -378,19 +380,41 @@ public static partial class CatalogBuilder
     /// reconciliation compares against; these views are how the catalog selects <i>rows</i>, and on a dataset
     /// where the predicate is imperfect they will differ from the canonical count by a small margin and the
     /// <c>count_mismatch</c> finding will say by how much.</para>
+    /// <para><b>From catalog format 17, <c>peptidoforms_1pct</c> follows each search's own confidence rule instead</b>
+    /// (D55, <see cref="PeptidoformsConfidenceRule"/>), so it no longer restates the producer's acceptance rule and stops
+    /// matching its <c>results.txt</c> peptide count. The reconciliation keeps the q-value rule for peptidoforms
+    /// (<c>CatalogReconciliation</c>), or nearly every deposit would read <c>count_mismatch</c>.</para>
     /// </remarks>
-    public static readonly IReadOnlyList<KeyValuePair<string, string>> AcceptedViews =
+    public static IReadOnlyList<KeyValuePair<string, string>> AcceptedViews =>
     [
         new("psms_1pct",
             "SELECT * FROM psms WHERE target_decoy = 'target' AND q_value <= {t} "
             + "AND (q_value_notch IS NULL OR q_value_notch <= {t}) "
             + "AND coalesce(notch_ambiguous, false) = false"),
-        new("peptidoforms_1pct",
-            "SELECT * FROM peptidoforms WHERE target_decoy = 'target' AND best_q_value <= {t} "
-            + "AND (best_q_value_notch IS NULL OR best_q_value_notch <= {t})"),
+        new("peptidoforms_1pct", SchemaContract.IsPython0320 ? PeptidoformsQValueRule : PeptidoformsConfidenceRule),
         new("protein_groups_1pct",
             "SELECT * FROM protein_groups WHERE target_decoy <> 'decoy' AND q_value <= {t}"),
     ];
+
+    /// <summary><c>peptidoforms_1pct</c> up to catalog format 16 (datarepo 1.4.5), and in a parity catalog of Python
+    /// 0.32.0's schema, which records no rule: the q-value rule for every search.</summary>
+    private const string PeptidoformsQValueRule =
+        "SELECT * FROM peptidoforms WHERE target_decoy = 'target' AND best_q_value <= {t} "
+        + "AND (best_q_value_notch IS NULL OR best_q_value_notch <= {t})";
+
+    /// <summary><c>peptidoforms_1pct</c> from catalog format 17 (D55): each search's own confidence rule, as the ingest
+    /// recorded it in <c>datasets.confidence_rule</c> and applied it to <c>peptidoform_ions</c>
+    /// (<see cref="Identifications.PassesConfidence"/>, which is mzLib's <c>QuantifiedPsmRule.PassesConfidence</c>): a
+    /// target, and the value the rule names strictly below the threshold.</summary>
+    /// <remarks>A NULL value fails, as mzLib has it. So does a rule this text does not name: it passes nothing rather than
+    /// falling back on another column, since a fallback would read a q-value the search's rule did not choose.</remarks>
+    private const string PeptidoformsConfidenceRule =
+        "SELECT p.* FROM peptidoforms p JOIN datasets d ON d.dataset_id = p.dataset_id "
+        + "WHERE p.target_decoy = 'target' AND CASE d.confidence_rule "
+        + "WHEN 'pep_q_value' THEN p.best_pep_q_value < {t} "
+        + "WHEN 'q_value_notch' THEN p.best_q_value_notch < {t} "
+        + "WHEN 'q_value' THEN p.best_q_value < {t} "
+        + "ELSE false END";
 
     /// <summary>The <see cref="AcceptedViews"/> this build creates: those over a table it holds. <c>psms_1pct</c>'s rule
     /// stays written above, as the specification the ingest's own count is tested against.</summary>
@@ -455,6 +479,34 @@ public static partial class CatalogBuilder
         ("peptide_index", "base_sequence"),
     ];
 
+    /// <summary><c>peptidoforms_1pct</c>'s description: its rule (D55, <see cref="PeptidoformsConfidenceRule"/>), and that
+    /// it is not the producer's peptide count.</summary>
+    private const string PeptidoformsOnePercentDoc =
+        "`peptidoforms` at 1% under each search's own confidence rule (D55): target only, and the q-value its "
+          + "`datasets.confidence_rule` names strictly below 0.01: `best_pep_q_value` under `pep_q_value` (the search "
+          + "trained PEP), `best_q_value_notch` under `q_value_notch`, `best_q_value` under `q_value`. A row with no value "
+          + "for its rule fails. It is the test the ingest applied to `peptidoform_ions`, so the two hold the same "
+          + "peptidoforms wherever the search left the AllPeptides.psmtsv the ions are read from. Contaminants are left out. **It is NOT the producer's own peptide count:** MetaMorpheus "
+          + "counts on the q-value, and its count is in `metrics` (`name = 'peptides'`, `scope = 'dataset'`); "
+          + "`dataset_overview.n_peptidoforms_1pct` counts this view. Up to datarepo 1.4.5 this view read "
+          + "`best_q_value` (and `best_q_value_notch`) at or below 0.01 for every search. The PEP q-value passes "
+          + "more peptidoforms than that on most deposits and far fewer on some low-resolution ones, where a "
+          + "`confidence_rule_fewer_peptides` finding gives both counts. PEP is trained afresh by every search and "
+          + "its training changed between MetaMorpheus releases, so compare counts across datasets on one rule and "
+          + "one release (`datasets.search_engine_version`).";
+
+    /// <summary>The sentence <c>dataset_overview</c>'s description gains at catalog format 17 (D55): one count is not
+    /// reconciled against the producer.</summary>
+    internal const string OverviewPeptidoformException =
+        "`n_peptidoforms_1pct` is the exception from catalog format 17: it counts `peptidoforms_1pct`, which follows "
+        + "each search's own confidence rule (`confidence_rule`), not the producer's q-value count. ";
+
+    /// <summary><c>dataset_overview.n_peptidoforms_1pct</c>'s description, which Python 0.32.0 never gave it.</summary>
+    internal const string OverviewPeptidoformsDoc =
+        "Target peptidoforms in `peptidoforms_1pct`: those whose q-value named by `confidence_rule` is strictly below "
+        + "0.01 (D55). NOT the producer's peptide count, which counts on the q-value and is in `metrics` "
+        + "(`name = 'peptides'`, `scope = 'dataset'`): compare the two to see what the rule did.";
+
     /// <summary>What the derived tables and views MEAN, for <c>datarepo mcp</c>'s describe tool.</summary>
     /// <remarks>
     /// These tables exist in no LinkML schema -- <c>build</c> invents them -- so the schema docs cannot describe
@@ -472,7 +524,8 @@ public static partial class CatalogBuilder
             "One row per dataset: its axes and its headline counts. The counts are the numbers the "
             + "bundle reconciled against the producer's own summary, so they agree with the bundle "
             + "by construction -- where they disagree with the PRODUCER, a `count_mismatch` finding "
-            + "says by how much, and the producer's number stays canonical. A dataset is one SEARCH: a "
+            + "says by how much, and the producer's number stays canonical. " + OverviewPeptidoformException
+            + "A dataset is one SEARCH: a "
             + "deposit searched in parts (a split, e.g. one search per species) has a row per part, so count "
             + "DEPOSITS by `accession` (or read `deposits`), never by counting rows.",
             new Dictionary<string, string>(StringComparer.Ordinal)
@@ -492,6 +545,11 @@ public static partial class CatalogBuilder
                     + "(`psms.parquet`), not in the catalog. NULL when the bundle recorded no such count.",
                 ["n_psms_all"] = "Every PSM row the dataset's bundle holds, decoys and above-threshold matches included "
                     + "(`bundle.json`'s `psms` count).",
+                ["n_peptidoforms_1pct"] = OverviewPeptidoformsDoc,
+                ["confidence_rule"] = "The search's confidence rule, as `datasets.confidence_rule` records it: which "
+                    + "q-value `n_peptidoforms_1pct` counted on. `pep_q_value` where the search trained PEP, "
+                    + "`q_value_notch` or `q_value` where it did not (D55). Two datasets' peptide counts on different rules "
+                    + "rest on different q-values.",
                 ["n_protein_groups_1pct"] = "Protein groups at 1% group-level FDR, contaminants included.",
                 ["unique_peptides_scope"] = "What `protein_groups.unique_peptides` and `shared_peptides` count in this dataset, "
                     + "decided by the MetaMorpheus release that searched it: `database` before 1.1.13 (a peptide no other "
@@ -712,13 +770,7 @@ public static partial class CatalogBuilder
             + "where the `count_mismatch` finding says so. The producer's `results.txt` number, in "
             + "`metrics`, stays canonical.",
             new Dictionary<string, string>(StringComparer.Ordinal)),
-        ["peptidoforms_1pct"] = new(
-            "`peptidoforms` with the acceptance rule applied: target, `best_q_value <= 0.01` and "
-            + "`best_q_value_notch <= 0.01` where there is one. **No notch-resolution clause** -- "
-            + "that is a PSM rule, and applying it here cost exactly 3 rows on each of aging's two "
-            + "larger datasets and produced a `count_mismatch` against a dataset that matched the "
-            + "producer perfectly (fixed in ingester 0.8.0).",
-            new Dictionary<string, string>(StringComparer.Ordinal)),
+        ["peptidoforms_1pct"] = new(PeptidoformsOnePercentDoc, new Dictionary<string, string>(StringComparer.Ordinal)),
         ["protein_groups_1pct"] = new(
             "`protein_groups` at 1% group-level FDR: anything not a decoy -- CONTAMINANTS ARE "
             + "INCLUDED, because the producer counts them and they are real measurements of real "
@@ -2352,6 +2404,11 @@ public static partial class CatalogBuilder
             CASE WHEN contains(d.dataset_id, '-') THEN substr(d.dataset_id, strpos(d.dataset_id, '-') + 1) END AS split_group,
             ";
 
+    /// <summary>The rule <c>n_peptidoforms_1pct</c> counted by (D55), beside it. Python 0.32.0's schema records none, so a
+    /// parity build writes no such column.</summary>
+    internal static string ConfidenceRuleColumn => SchemaContract.IsPython0320 ? "" : @"d.confidence_rule,
+            ";
+
     /// <summary><c>dataset_overview</c>: one row per dataset. <paramref name="psmCounts"/> names the table of each bundle's
     /// own PSM counts when the catalog holds no PSMs (<see cref="PsmCountsFromBundles"/>).</summary>
     private static string OverviewSelect(string? psmCounts) => $@"        SELECT
@@ -2374,7 +2431,7 @@ public static partial class CatalogBuilder
                 : $"(SELECT c.n_psms_1pct FROM {psmCounts} c WHERE c.dataset_id = d.dataset_id)")} AS n_psms_1pct,
             (SELECT count(*) FROM peptidoforms_1pct pf
               WHERE pf.dataset_id = d.dataset_id) AS n_peptidoforms_1pct,
-            (SELECT count(*) FROM protein_groups_1pct pg
+            {ConfidenceRuleColumn}(SELECT count(*) FROM protein_groups_1pct pg
               WHERE pg.dataset_id = d.dataset_id) AS n_protein_groups_1pct,
             {(psmCounts is null
                 ? "(SELECT count(*) FROM psms p WHERE p.dataset_id = d.dataset_id)"

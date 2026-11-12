@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using PXReprise.Bundle;
+using PXReprise.Catalog;
 using PXReprise.Ingest.Sources;
 using PXReprise.Mcp;
 
@@ -339,7 +340,23 @@ public class McpParityTests
         (new Regex(@" A dataset is one SEARCH: a deposit searched in parts(?:[^""\\]|\\.)*?never by counting rows\.", RegexOptions.CultureInvariant), ""),
         (new Regex(@" -- DEPOSITS \(`dataset_overview\.accession`\) with an accepted peptidoform(?:(?! \[\d)[^""\\]|\\.)*", RegexOptions.CultureInvariant), ""),
         (new Regex(@",\s*""means"": ""DEPOSITS \(`dataset_overview\.accession`\) with an accepted peptidoform(?:[^""\\]|\\.)*""", RegexOptions.CultureInvariant), ""),
+        // 1.5.0 (D55, catalog format 17): peptidoforms_1pct follows each search's confidence rule. Its description, old and
+        // new, masks to one placeholder. dataset_overview gains one sentence, and n_peptidoforms_1pct a description Python
+        // never gave it: only those are removed, so the text both answers share is still compared.
+        .. new[]
+        {
+            "`peptidoforms` with the acceptance rule applied: target, `best_q_value <= 0.01` and `best_q_value_notch <= 0.01` "
+            + "where there is one. **No notch-resolution clause** -- that is a PSM rule, and applying it here cost exactly 3 "
+            + "rows on each of aging's two larger datasets and produced a `count_mismatch` against a dataset that matched "
+            + "the producer perfectly (fixed in ingester 0.8.0).",
+            CatalogDescription("peptidoforms_1pct"),
+        }.Select(text => (new Regex(Regex.Escape(text), RegexOptions.CultureInvariant), "<peptidoforms_1pct: rewritten for D55>")),
+        (new Regex(Regex.Escape(" " + CatalogBuilder.OverviewPeptidoformException.TrimEnd()), RegexOptions.CultureInvariant), ""),
+        (new Regex(" -- " + Regex.Escape(CatalogBuilder.OverviewPeptidoformsDoc), RegexOptions.CultureInvariant), ""),
+        (new Regex(@",\s*""means"": """ + Regex.Escape(CatalogBuilder.OverviewPeptidoformsDoc) + @"""", RegexOptions.CultureInvariant), ""),
     ];
+
+    private static string CatalogDescription(string table) => CatalogBuilder.DerivedDocs[table].Description;
 
     public static string Normalise(string text, string catalogPath)
     {

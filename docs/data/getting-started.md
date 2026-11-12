@@ -233,8 +233,8 @@ PXD999999   58           3                      5
 ```
 
 58 of the 60 PSMs pass 1% FDR. The other two are kept, not deleted: the bundle's `psms.parquet` holds
-every match (PSMs stay in the bundle, not in the catalog), and views such as `peptidoforms_1pct` apply the
-search engine's threshold for you.
+every match (PSMs stay in the bundle, not in the catalog), and views such as `peptidoforms_1pct` apply a
+1% threshold for you.
 
 Before you trust a number, read its dataset's findings, most serious first:
 
