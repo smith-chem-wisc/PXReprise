@@ -110,6 +110,84 @@ public class IsobaricIngestTests
 
     private static List<string> Codes(IngestResult result) => Table(result, "findings").Select(r => (string)r["code"]!).ToList();
 
+    private string QcReport => Path.Combine(_root, "work_root", "run_test", Accession, "02b_qc", "qc_report.json");
+
+    /// <summary>Gives each searched file's QC entry an <c>sps_ms3</c>, as PXReprise's QC stage writes one (their 098).</summary>
+    private void SetSpsMs3(bool? a, bool? b)
+    {
+        var doc = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(QcReport))!.AsObject();
+        foreach (var (file, value) in new[] { ($"{FileA}.raw", a), ($"{FileB}.raw", b) })
+            if (value is { } v) doc[file]!["sps_ms3"] = v;
+        File.WriteAllText(QcReport, doc.ToJsonString(), new System.Text.UTF8Encoding(false));
+    }
+
+    /// <summary>Turns the reference channel into one the design marks <c>empty</c>, as PXReprise's default design writes
+    /// it from v0.4.41: no sample name, so MetaMorpheus labels its columns <c>{file}_{channel}</c> (PXReprise 098).</summary>
+    private void MarkTheReferenceEmpty()
+    {
+        var design = Path.Combine(Results, Isobaric.DesignFileName);
+        File.WriteAllText(design, File.ReadAllText(design).Replace("\tref\t131N\t", "\t\t131N\t").Replace("\treference\n", "\tempty\n"),
+            new System.Text.UTF8Encoding(false));
+        foreach (var table in new[] { Isobaric.PeptideFileName, Isobaric.ProteinFileName })
+        {
+            var path = Path.Combine(Results, table);
+            File.WriteAllText(path, File.ReadAllText(path).Replace("\tref_", "\t"), new System.Text.UTF8Encoding(false));
+        }
+    }
+
+    /// <summary>DATAREPO-88 a and PXR-R54 (the user, 2026-11-12): every assay keeps its design's plex and sample type; a
+    /// channel marked <c>empty</c> is an assay with its values and no sample.</summary>
+    [Test]
+    public void AnEmptyChannelKeepsItsValuesAndIsNoSample()
+    {
+        MarkTheReferenceEmpty();
+        var result = Ingest();
+        var assays = Table(result, "assays");
+        var empty = assays.Where(a => Equals(a["channel"], "TMT131N")).ToList();
+        var emptyIds = empty.Select(a => (string)a["assay_id"]!).ToHashSet();
+        var finding = Table(result, "findings").Single(f => Equals(f["code"], "isobaric_reference_channels"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(empty, Has.Count.EqualTo(2));
+            Assert.That(empty.Select(a => a["sample_id"]), Is.All.Null, "no sample was put in it");
+            Assert.That(empty.Select(a => a["design_sample_type"]), Is.All.EqualTo("empty"));
+            Assert.That(assays.Select(a => a["plex"]), Is.All.EqualTo("P1"));
+            Assert.That(assays.Where(a => !emptyIds.Contains((string)a["assay_id"]!)).Select(a => a["design_sample_type"]), Is.All.EqualTo("study sample"));
+            Assert.That(Table(result, "samples").Select(s => (string)s["sample_id"]!), Is.EquivalentTo(new[] { $"{Accession}:s1", $"{Accession}:s2" }));
+            Assert.That(Table(result, "quant_values").Count(v => emptyIds.Contains((string)v["assay_id"]!)), Is.GreaterThan(0), "its values are kept");
+            Assert.That((string)finding["message"]!, Does.Contain("`Sample Type` empty").And.Contain("its assay has no `sample_id`"));
+        });
+    }
+
+    /// <summary>DATAREPO-88 b: each run's reporter level from its QC entry's <c>sps_ms3</c>, and the dataset's scale from
+    /// its runs: one level is that scale, two are mixed, an unknown run makes it not recorded; a label-free search is
+    /// <c>label_free_apex</c>. With the channel view (DATAREPO-88 a) in the catalog.</summary>
+    [TestCase(true, true, "ms3", "ms3", "reporter_ms3")]
+    [TestCase(false, false, "ms2", "ms2", "reporter_ms2")]
+    [TestCase(true, false, "ms3", "ms2", "reporter_level_mixed")]
+    [TestCase(true, null, "ms3", null, "reporter_level_not_recorded")]
+    public void EachRunSaysWhereItsReportersWereReadAndTheDatasetItsScale(bool? a, bool? b, string? levelA, string? levelB, string scale)
+    {
+        SetSpsMs3(a, b);
+        MarkTheReferenceEmpty();
+        var result = Ingest();
+        var levels = Table(result, "runs").ToDictionary(r => (string)r["file_name"]!, r => r["reporter_level"]);
+        var manifest = PXReprise.Ingest.Manifest.Load(Manifest);
+        var bundles = PXReprise.Catalog.CatalogBuilder.SelectBundles(manifest, [Accession], Path.Combine(_root, "store"));
+        var catalog = PXReprise.Catalog.CatalogBuilder.BuildCatalog(bundles, Path.Combine(_root, "catalog.duckdb"), manifest: manifest);
+        Assert.Multiple(() =>
+        {
+            Assert.That((levels[$"{FileA}.raw"], levels[$"{FileB}.raw"]), Is.EqualTo((levelA, levelB)));
+            Assert.That(PXReprise.Catalog.CatalogBuilder.RunQuery(catalog.Path, "SELECT quant_scale FROM dataset_overview").Rows.Single()[0], Is.EqualTo(scale));
+            var channels = PXReprise.Catalog.CatalogBuilder.RunQuery(catalog.Path,
+                "SELECT plex, channel, sample_id, design_sample_type FROM isobaric_channels ORDER BY run_id, channel").Rows;
+            Assert.That(channels, Has.Count.EqualTo(6));
+            Assert.That(channels.Where(c => Equals(c[1], "TMT131N")).Select(c => (c[2], c[3])), Is.All.EqualTo(((object?)null, (object?)"empty")));
+            Assert.That(channels.Where(c => Equals(c[1], "TMT126")).Select(c => c[2]), Is.All.EqualTo($"{Accession}:s1"),
+                "one sample on every fraction of its plex");
+        });
+    }
+
     [Test]
     public void EachFileAndChannelOfTheDesignIsAnAssayOnTheDesignsSample()
     {

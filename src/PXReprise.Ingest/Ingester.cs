@@ -432,6 +432,10 @@ public static class Ingester
             (assays, samples, characteristics, fromSdrf) = Isobaric.PlaceAssays(isobaric, datasetId, assays, samples, characteristics, DatasetEntry.Text(entry.Organism));
             findings.AddRange(IsobaricDesignFindings(isobaric, fromSdrf, sdrfPath is not null, entry.LabellingPlex, datasetId));
         }
+        // runs.reporter_level (1.5.0, DATAREPO-88 b) is a fact about reporter ions: a search that read none has none, whatever
+        // its QC report says about MS3 scans.
+        if (isobaric is null && rules == IngestRules.Current)
+            foreach (var run in runRows) run["reporter_level"] = null;
 
         if (samples.Count == 0) Synthetic(runRows);
         findings.AddRange(SdrfConflictFindings(sdrf.Conflicts, samples, datasetId));
@@ -1200,7 +1204,14 @@ public static class Ingester
                 $"{references.Count} channel(s) of the search's {Isobaric.DesignFileName} are not study samples: "
                 + string.Join("; ", references.GroupBy(c => c.SampleType!, StringComparer.Ordinal)
                     .Select(g => $"`Sample Type` {g.Key}: {Examples(g.Select(c => c.AssayId(datasetId)), 5)}"))
-                + ". Their values measure that reference, not a sample of the question. The design is copied in `sources/`."));
+                + ". Their values measure that reference, not a sample of the question. The design is copied in `sources/`, and "
+                + "each assay keeps its `Sample Type` (`assays.design_sample_type`)."
+                + (references.Any(c => c.IsEmpty)
+                    ? " A channel marked `empty` had no sample put in it: unless the SDRF names one for it, its assay has no "
+                      + "`sample_id`, and its values are kept as "
+                      + "measured (isotope spill-over from a neighbouring channel, PXReprise 098), so a count of samples never counts it "
+                      + "and a median across a run's channels must leave it out."
+                    : "")));
         if (labellingPlex is not null && long.TryParse(PyFormat.Str(labellingPlex), out var plex))
         {
             var wider = design.Channels.GroupBy(c => (c.Plex, c.File)).Where(g => g.Count() > plex).Select(g => g.Key.File).ToList();

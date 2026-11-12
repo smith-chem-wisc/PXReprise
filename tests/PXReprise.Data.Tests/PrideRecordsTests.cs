@@ -146,7 +146,7 @@ public class PrideRecordsTests
             + "('PXD000009', 'PXD000009:alone', 'alone.raw', 'ddd'), "
             + "('PXD000009', 'PXD000009:unhashed', 'unhashed.raw', NULL), "
             + "('PXD000010', 'PXD000010:unhashed', 'unhashed.raw', NULL)");
-        var (name, body) = CatalogBuilder.RunViews.Single();
+        var (name, body) = CatalogBuilder.RunViews.Single(kv => kv.Key == CatalogBuilder.SharedRawFilesView);
         Exec(con, $"CREATE VIEW {name} AS {body}");
         using var c = con.CreateCommand();
         c.CommandText = "SELECT run_id, accession, n_copies, other_run_ids, in_same_accession, in_other_accession FROM shared_raw_files ORDER BY run_id";

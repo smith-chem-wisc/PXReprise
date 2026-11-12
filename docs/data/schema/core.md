@@ -241,6 +241,7 @@ QPX view: `run` (table-level; column mapping not yet verified).
 | `acquisition_start_local` | `string` |  | When acquisition started, on the instrument's LOCAL clock with the zone unknown: the producer's value VERBATIM, an ISO 8601 time with no zone (e.g. `2021-03-16T12:09:07.375`), as its raw-file reader gave it (PXReprise: mzLib's ThermoRawFileReader, `FileHeader.CreationDate`). Never shifted or converted. ORDER-SAFE ONLY within one deposit and one raw format: two deposits' instruments can sit in different zones, and an mzML's time is in the converting machine's zone (aging 055, mzLib #1349), so never compare it across deposits or formats, and never as UTC. It sorts correctly as text; `CAST(acquisition_start_local AS TIMESTAMP)` gives a zone-less timestamp. NULL when the value carried a zone (it is then in `acquisition_datetime`) or was not read. Added in schema 0.0.15. |
 | `enrichment` | [Enrichment](#enrichment) [ ] |  | Enrichment steps before MS for THIS run (G63): an enrichment is done to what was injected, so it belongs on the run. [none] means whole proteome. NULL means unknown -- a dataset the producer flagged `mixed_enrichment` with no per-run source gets NULL on every run, never the dataset value, which is only true of some of them. Every value other than `none` appears in the dataset's `enrichment` declaration, or the ingest refuses. |
 | `enrichment_source` | [RunEnrichmentSource](#runenrichmentsource) |  | Where `enrichment` came from. NULL exactly when `enrichment` is NULL. |
+| `reporter_level` | [ReporterLevel](#reporterlevel) |  | Where this run's reporter ions were read: `ms2` or `ms3`, as the producer's spectra QC report gives it (`sps_ms3`; PXReprise 098). NULL for a search that is not isobaric, and for an isobaric run the QC report says nothing about, which is not recorded, never a guess. `dataset_overview.quant_scale` is built from it. Added in schema 0.0.17 (DATAREPO-88 b). |
 
 ## Assay
 
@@ -252,8 +253,10 @@ The unit every quantity attaches to (D5). Of two kinds (`assay_kind`, schema 0.0
 | `assay_kind` | [AssayKind](#assaykind) | yes | `run` or `design_sample`. Added in schema 0.0.16; every assay written before is a `run`. |
 | `run_id` | [Run](#run) |  | Raw file this assay belongs to. NULL exactly when `assay_kind = design_sample`: a pooled sample has no single run, so a true value does not exist (relaxed from required in schema 0.0.16). |
 | `channel` | `string` | yes | label_free, or the reporter / label channel (e.g. TMT126). |
-| `sample_id` | [Sample](#sample) | yes | Sample measured in this assay: the SDRF sample, for both kinds. A pooled assay is written only when its design sample's files are exactly one SDRF sample's files, so this is that sample. |
+| `sample_id` | [Sample](#sample) |  | Sample measured in this assay: the SDRF sample, for both kinds. A pooled assay is written only when its design sample's files are exactly one SDRF sample's files, so this is that sample. NULL exactly when the search's isobaric design marks the channel `empty` (`design_sample_type`) and no SDRF names a sample for it: no sample was put in that channel, so a true value does not exist. Its values are kept as measured (isotope spill-over from a neighbouring channel, PXReprise 098, PXR-R54), so a count of samples never counts it and a median across a run's channels must leave it out (relaxed from required in schema 0.0.17). |
 | `design_label` | `string` |  | MetaMorpheus's column label `{condition}_{biorep}`, verbatim, for every assay whose protein-group values were placed through the search's experimental design: a pooled sample, or a sample of one file, which stays on its run's assay. Its protein-group values are then that search's SAMPLE values: they come out of one median polish over the design's samples, so a search of the same files without a design could give another number (QuantProject 048). NULL when the protein-group table was per run. Added in schema 0.0.16. |
+| `plex` | `string` |  | The isobaric design's `Plex` for this channel, verbatim: the mixture it was labelled in. The runs whose assays share a dataset and a plex are that mixture's fractions. NULL for a label-free or pooled assay. Added in schema 0.0.17 (DATAREPO-88 a); the catalog's `isobaric_channels` view lays the design out. |
+| `design_sample_type` | `string` |  | The isobaric design's `Sample Type` for this channel, verbatim (`study sample`, a reference, `empty`, as the search's TmtDesign.txt writes it); NULL when the design gives none, and for a label-free or pooled assay. What each role means is QuantProject's to define (REQ-QP-15 d); until it is, the word is carried as written. `empty` means no sample was put in the channel: such an assay has no `sample_id`. Added in schema 0.0.17 (DATAREPO-88 a, PXR-R54). |
 
 ## AssayRun
 
@@ -902,6 +905,15 @@ What a QuantValue or effect row is about.
 | `glycopeptide` |  |
 | `proteoform` |  |
 | `protein` |  |
+
+### ReporterLevel
+
+Where an isobaric run's reporter ions were read (DATAREPO-88 b, schema 0.0.17), as the producer's QC report says (`sps_ms3`, PXReprise 098).
+
+| Value | Meaning |
+|---|---|
+| `ms2` | In the MS2 scans that identified the peptides. Co-isolated peptides add their reporters, which compresses fold changes. |
+| `ms3` | In a synchronous-precursor-selection (or real-time-search) MS3 scan, which removes most co-isolated reporters. |
 
 ### AssayKind
 
