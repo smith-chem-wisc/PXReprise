@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\DataRepo.Bundle\DataRepo.Bundle.csproj" />
@@ -8,6 +8,7 @@
     <ProjectReference Include="..\DataRepo.Catalog\DataRepo.Catalog.csproj" />
     <ProjectReference Include="..\DataRepo.Runner\DataRepo.Runner.csproj" />
     <ProjectReference Include="..\DataRepo.Mcp\DataRepo.Mcp.csproj" />
+    <ProjectReference Include="..\DataRepo.Storage\DataRepo.Storage.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

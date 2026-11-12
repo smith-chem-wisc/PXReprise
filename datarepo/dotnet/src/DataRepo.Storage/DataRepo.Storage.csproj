@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DataRepo.Bundle\DataRepo.Bundle.csproj" />
+  </ItemGroup>
+
+  <!-- S3 is one of the two backends. SSO and SSOOIDC let the default credential chain use an `aws configure sso`
+       profile (AWS_PROFILE), which is how lab members sign in; no key is ever stored by dataRepo. -->
+  <ItemGroup>
+    <PackageReference Include="AWSSDK.S3" Version="4.0.104.12" />
+    <PackageReference Include="AWSSDK.SSO" Version="4.0.100.27" />
+    <PackageReference Include="AWSSDK.SSOOIDC" Version="4.0.100.26" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="DataRepo.Tests" />
+  </ItemGroup>
+
+</Project>

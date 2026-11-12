@@ -9,6 +9,7 @@
     <Project Path="src/DataRepo.SchemaGen/DataRepo.SchemaGen.csproj" />
     <Project Path="src/DataRepo.Study/DataRepo.Study.csproj" />
     <Project Path="src/DataRepo.Site/DataRepo.Site.csproj" />
+    <Project Path="src/DataRepo.Storage/DataRepo.Storage.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/DataRepo.Tests/DataRepo.Tests.csproj" />

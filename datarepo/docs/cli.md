@@ -18,6 +18,8 @@ New here? Start with [getting-started.md](getting-started.md), which runs the ma
 | [`build`](#datarepo-build) | load bundles into one DuckDB catalog |
 | [`site`](#datarepo-site) | write the public static site for one catalog |
 | [`catalog`](#datarepo-catalog) | summarise a built catalog |
+| [`push`](#datarepo-push) | copy bundles from this machine's store to a shared one (a folder or S3), each written once |
+| [`pull`](#datarepo-pull) | copy bundles from a shared store (a folder or S3) to this machine's store |
 | [`query`](#datarepo-query) | run one read-only SQL query against a catalog |
 | [`mcp`](#datarepo-mcp) | serve one catalog to an agent over stdio (MCP) |
 
@@ -248,6 +250,50 @@ positional arguments:
 options:
   -h, --help             show this help message and exit
   --json                 print the catalog's own tables verbatim
+```
+
+## Share: bundles between machines
+
+Ingest and build work on a local folder; these copy whole bundles to and from a shared store (a folder or S3). See [storage.md](storage.md).
+
+### `datarepo push`
+
+Copy bundles from this machine's store to a shared one (a folder or S3), each written once.
+
+```text
+usage: datarepo push [-h] --store STORE [--dry-run] [--verbose] destination [accession ...]
+
+copy bundles from this machine's store to a shared one (a folder or S3), each written once
+
+positional arguments:
+  destination            the shared store: a folder, or s3://bucket/prefix (credentials from AWS_PROFILE)
+  accession              datasets whose bundles to push; default is everything in --store: every bundle, engine output and study delivery (zero or more)
+
+options:
+  -h, --help             show this help message and exit
+  --store STORE          this machine's store, where ingest wrote the bundles (required)
+  --dry-run              list what would be copied, and check each bundle has its tables, without writing
+  --verbose              name every file written
+```
+
+### `datarepo pull`
+
+Copy bundles from a shared store (a folder or S3) to this machine's store.
+
+```text
+usage: datarepo pull [-h] --store STORE [--dry-run] [--verbose] source [accession ...]
+
+copy bundles from a shared store (a folder or S3) to this machine's store
+
+positional arguments:
+  source                 the shared store: a folder, or s3://bucket/prefix (credentials from AWS_PROFILE)
+  accession              datasets whose bundles to pull; default is everything in the source: every bundle, engine output and study delivery (zero or more)
+
+options:
+  -h, --help             show this help message and exit
+  --store STORE          this machine's store, where the bundles are written (required)
+  --dry-run              list what would be copied, and check each bundle has its tables, without writing
+  --verbose              name every file written
 ```
 
 ## Ask: read a catalog

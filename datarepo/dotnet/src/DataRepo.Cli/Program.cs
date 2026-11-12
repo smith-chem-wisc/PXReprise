@@ -22,6 +22,9 @@ using DataRepo.Study;
 //   datarepo query <catalog.duckdb> <sql>        run one read-only query against a catalog
 //   datarepo publish <manifest.yaml> --site <d>  build, then site
 //
+//   datarepo push <s3://...> --store <dir>       copy bundles to the shared store, each written once
+//   datarepo pull <s3://...> --store <dir>       copy bundles from it
+//
 //   datarepo run <engine> <PXD...> --store ...   run a released engine on stored data
 //
 // Every command of the Python release is here (D41).
@@ -34,7 +37,7 @@ namespace DataRepo.Cli
     {
         private const string Prog = "datarepo";
 
-        private static readonly string[] Commands = ["ingest", "study", "manifest", "inspect", "build", "catalog", "query", "site", "publish", "run", "mcp", "doctor"];
+        private static readonly string[] Commands = ["ingest", "study", "manifest", "inspect", "build", "catalog", "query", "site", "publish", "push", "pull", "run", "mcp", "doctor"];
         private static readonly string[] Pending = [];
 
         /// <summary>Each command's one line, as <c>datarepo -h</c> lists it and as its own <c>-h</c> prints it
@@ -50,6 +53,8 @@ namespace DataRepo.Cli
             ["query"] = "run one read-only SQL query against a catalog",
             ["site"] = DataRepo.Site.SiteCommand.Summary,
             ["publish"] = "build the catalog from every ingested dataset, then write the static site",
+            ["push"] = "copy bundles from this machine's store to a shared one (a folder or S3), each written once",
+            ["pull"] = "copy bundles from a shared store (a folder or S3) to this machine's store",
             ["run"] = "run a released engine on stored data (the instance operator's step)",
             ["mcp"] = DataRepo.Mcp.McpCommand.Summary,
             ["doctor"] = "report this build's version, schema and components, and any registered MCP servers",
@@ -109,6 +114,8 @@ namespace DataRepo.Cli
                     "catalog" => CatalogCommands.CatalogSummary(rest),
                     "query" => CatalogCommands.Query(rest),
                     "publish" => CatalogCommands.Publish(rest),
+                    "push" => StoreCommands.Push(rest),
+                    "pull" => StoreCommands.Pull(rest),
                     "run" => RunCommand.Run(rest),
                     "mcp" => DataRepo.Mcp.McpCommand.Run(rest, Console.Out, Console.Error),
                     "site" => DataRepo.Site.SiteCommand.Run(rest, Console.Out, Console.Error),
