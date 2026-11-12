@@ -184,6 +184,16 @@ protein", which is the question the repository exists for.
 | `dataset_annotations` | 1/dataset | the producer's notes, flags, status and reason, its declared `sdrf`, the `operator_sdrf` the ingest read in place of any other SDRF (G107) and a split's `split_reason`, from the manifest `build` was given |
 | `run_exclusions` | 1/excluded run | runs the manifest's `excluded_runs` leaves out of analysis, with the reason; `run_id` joins `runs` |
 | `dataset_restrictions` | 1/dataset/use | uses the manifest's `restrictions` says the whole dataset is unfit for, with the reason; the same uses are listed on `dataset_overview.restrictions` (NULL when the manifest has no entry for the dataset) |
+| `deposit_records` | 1/deposit fetched | from 1.5.0: whether PRIDE had a record (`found`), when it was fetched, its sha256 and the mzLib that read it; no row means never fetched |
+| `deposit_contacts` | 1/person/role | PRIDE's lab heads and submitters, every value as PRIDE wrote it (an empty string is NULL), never an e-mail |
+| `deposit_references` | 1/paper | PRIDE's citation line, PubMed id (NULL for PRIDE's 0) and DOI |
+| `shared_raw_files` (view) | 1/run | runs whose raw file is served more than once, found by `runs.sha256`, never by name: how many copies, which runs, and whether a copy is in the same deposit or another |
+
+The three `deposit_*` tables are read at **build** from the records `datarepo pride` kept beside the bundles
+([operating.md](operating.md#4-optional-engines-and-study-results)); `build` itself fetches nothing. They are
+keyed by the bare accession, so a split deposit's parts share them. Each record's sha256 goes into the catalog id
+but not the release id: like the manifest's prose, a record describes the deposit, not the search, and PRIDE edits
+it after deposit. A record whose `record.json` no longer hashes to what its fetch recorded is refused.
 
 `dataset_annotations` is taken from the manifest at **build**, not from the bundle. These fields are not
 identity (rewording a note must not re-id a bundle), so they never reach a bundle at all; a reworded

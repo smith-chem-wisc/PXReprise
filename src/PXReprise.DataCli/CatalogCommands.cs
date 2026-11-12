@@ -91,12 +91,15 @@ internal static class CatalogCommands
         }
         var studyBundles = CatalogBuilder.SelectStudyBundles(store, Pins(studyPins, "--study", "layer"), studyLatest, release);
         var (artefacts, engineChecks) = CatalogBuilder.SelectArtefacts(store, bundles);
+        // 1.5.0 item 12: each deposit's newest PRIDE record, as `datarepo pride` kept it. Reading them fetches nothing.
+        var prideRecords = PrideRecords.Select(store, bundles);
 
         var notes = new Dictionary<string, object?>(StringComparer.Ordinal) { ["manifest"] = BundleWriter.PathText(manifest.Path) };
         if (release is not null) notes["release"] = release;
         if (studyBundles.Count > 0) notes["study"] = studyBundles.ToDictionary(r => r.Layer, r => (object?)r.BundleId);
 
-        var result = CatalogBuilder.BuildCatalog(bundles, output, overwrite, manifest.Instance, notes, studyBundles, artefacts, engineChecks, manifest, keep);
+        var result = CatalogBuilder.BuildCatalog(bundles, output, overwrite, manifest.Instance, notes, studyBundles, artefacts, engineChecks, manifest, keep,
+            prideRecords);
         Console.WriteLine($"catalog  {result.Path}");
         Console.WriteLine($"  id       {result.CatalogId}");
         if (result.Pointer is not null)
@@ -119,6 +122,9 @@ internal static class CatalogCommands
         foreach (var r in result.Bundles) Console.WriteLine($"  dataset  {r.DatasetId,-12} bundle {r.BundleId}");
         foreach (var r in result.StudyBundles) Console.WriteLine($"  study    {r.Layer,-12} bundle {r.BundleId}  ({r.LayerVersion})");
         foreach (var r in result.Artefacts) Console.WriteLine($"  engine   {r.Engine,-20} artefact {r.ArtefactId}");
+        var deposits = bundles.Select(r => Usi.DepositAccession(r.DatasetId)).Distinct(StringComparer.Ordinal).Count();
+        Console.WriteLine($"  pride    {prideRecords.Count} of {deposits} deposit(s) have a fetched PRIDE record"
+            + (prideRecords.Count < deposits ? $"; `{Prog} pride --store {store}` fetches the rest" : ""));
         foreach (var check in engineChecks)
             if (!string.IsNullOrEmpty(check.Detail))
                 Console.WriteLine($"  note     {check.Name}: {Cell(check.Observed)} of {Cell(check.Expected)}; {check.Detail}");

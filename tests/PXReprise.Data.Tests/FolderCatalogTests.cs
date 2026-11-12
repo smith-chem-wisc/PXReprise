@@ -60,7 +60,63 @@ public class FolderCatalogTests
         var study = CatalogBuilder.SelectStudyBundles(Store, latest: ["aging"]);
         var (artefacts, checks) = CatalogBuilder.SelectArtefacts(Store, bundles);
         return CatalogBuilder.BuildCatalog(bundles, output, instance: manifest.Instance, studyBundles: study,
-            artefacts: artefacts, engineChecks: checks, manifest: manifest, keep: keep);
+            artefacts: artefacts, engineChecks: checks, manifest: manifest, keep: keep, prideRecords: PrideRecords.Select(Store, bundles));
+    }
+
+    /// <summary>1.5.0 item 12: the fixture deposit's PRIDE record, fetched into the store by <c>datarepo pride</c> with a
+    /// stand-in for PRIDE, reaches the three tables in either layout; PRIDE's empty strings and PubMed 0 are NULL; a changed
+    /// record moves the catalog id and not the release id; and a catalog built before any fetch has the tables, empty.</summary>
+    [Test]
+    public void APrideRecordReachesTheDepositTablesAndTheCatalogId()
+    {
+        var before = Build(Path.Combine(_root, "before.duckdb"));
+        var labHead = "Smith";
+        OrderedDictionary<string, object?> Fetch(string accession) => PrideRecords.RecordOf(accession, true, new UsefulProteomicsDatabases.PrideProject
+        {
+            Accession = accession,
+            LabPIs = [new UsefulProteomicsDatabases.PrideContact { Name = $"Ann {labHead}", FirstName = "Ann", LastName = labHead, Title = "", Affiliation = "", Email = "ann@example.org", Id = "7" }],
+            Submitters = [new UsefulProteomicsDatabases.PrideContact { Name = "Bo Lee", LastName = "Lee", Orcid = "0000-0001", Id = "2254706" }],
+            References = [new UsefulProteomicsDatabases.PrideReference { ReferenceLine = "Smith A. 2026", PubmedId = 0, Doi = "" }],
+        });
+        var output = new StringWriter();
+        Assert.That(PXReprise.DataCli.Cli.Pride(["--store", Store], output, Fetch), Is.EqualTo(0), output.ToString());
+        Assert.That(output.ToString(), Does.Contain("written    PXD999999").And.Contain("1 written, 0 unchanged, 0 failed"));
+        var file = Build(Path.Combine(_root, "catalog.duckdb"));
+        var folder = Build(Folder);
+        labHead = "Smith-Lee";
+        PXReprise.DataCli.Cli.Pride(["--store", Store, "PXD999999"], new StringWriter(), Fetch);
+        var refetched = Build(Path.Combine(_root, "refetched.duckdb"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(CatalogBuilder.RunQuery(before.Path, "SELECT count(*) FROM deposit_records").Rows.Single()[0], Is.EqualTo(0L),
+                "built before any fetch: the table is there, and empty");
+            Assert.That(file.CatalogId, Is.Not.EqualTo(before.CatalogId), "the record is part of the catalog");
+            Assert.That(file.ReleaseId, Is.EqualTo(before.ReleaseId), "and not of the release: it describes the deposit, not the search");
+            Assert.That(refetched.CatalogId, Is.Not.EqualTo(file.CatalogId), "a changed record is a new catalog");
+            foreach (var catalog in new[] { file.Path, folder.Path })
+            {
+                Assert.That(CatalogBuilder.RunQuery(catalog, "SELECT accession, archive, found, mzlib_version FROM deposit_records").Rows.Single(),
+                    Is.EqualTo(new object?[] { "PXD999999", "PRIDE", true, PrideRecords.MzLibVersion }), catalog);
+                Assert.That(CatalogBuilder.RunQuery(catalog,
+                        "SELECT role, ordinal, name, title, last_name, affiliation, orcid, pride_contact_id FROM deposit_contacts ORDER BY role").Rows,
+                    Is.EqualTo(new[]
+                    {
+                        new object?[] { "lab_head", 1L, "Ann Smith", null, "Smith", null, null, "7" },
+                        new object?[] { "submitter", 1L, "Bo Lee", null, "Lee", null, "0000-0001", "2254706" },
+                    }), catalog);
+                Assert.That(CatalogBuilder.RunQuery(catalog, "SELECT ordinal, reference_line, pubmed_id, doi FROM deposit_references").Rows.Single(),
+                    Is.EqualTo(new object?[] { 1L, "Smith A. 2026", null, null }), "PubMed 0 and an empty DOI are NULL");
+                Assert.That(CatalogBuilder.RunQuery(catalog,
+                        "SELECT table_name, kind FROM catalog_tables WHERE table_name IN ('deposit_records', 'deposit_contacts', 'deposit_references', 'shared_raw_files') ORDER BY 1").Rows,
+                    Is.EqualTo(new[]
+                    {
+                        new object?[] { "deposit_contacts", "derived" }, new object?[] { "deposit_records", "derived" },
+                        new object?[] { "deposit_references", "derived" }, new object?[] { "shared_raw_files", "view" },
+                    }), catalog);
+            }
+            Assert.That(CatalogBuilder.RunQuery(refetched.Path, "SELECT last_name FROM deposit_contacts WHERE role = 'lab_head'").Rows.Single()[0],
+                Is.EqualTo("Smith-Lee"), "the newest record is served");
+        });
     }
 
     private static List<object?[]> Rows(DuckDBConnection con, string sql)

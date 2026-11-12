@@ -277,6 +277,13 @@ and any dataset the census does not include, in `catalog_checks` (kind `census`)
 - **`datarepo study`** delivers a study layer's rows, such as age effects, sample ages, or curated
   tissue and cell type. They go into a separately hashed study bundle, so delivering a model result
   never re-identifies a search bundle. See [study.md](study.md).
+- **`datarepo pride --store <store> [PXD...]`** (from 1.5.0) fetches each deposit's PRIDE record (lab head,
+  submitter, papers) through mzLib's PRIDE client and keeps it beside the bundles, under
+  `<store>/_companion/pride/<accession>/`. With no accessions it fetches every deposit the store holds a bundle
+  for. It is the only command that reaches PRIDE: `build` reads the newest record kept for each deposit into
+  `deposit_records`, `deposit_contacts` and `deposit_references` and fetches nothing. Run it again when you want
+  newer records (PRIDE adds a paper when it is published): an unchanged record writes nothing, and a changed one
+  moves the catalog id at the next build, never a bundle id. E-mail is never stored.
 
 ## 5. Publish
 
