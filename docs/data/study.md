@@ -219,6 +219,22 @@ The build adds the two checks that need the catalog (above): every run is a run 
 of one sample carry the same factor rows. An aging study bundle written before 1.3.4 is layer 0.5.0,
 and a 1.3.4 build refuses it, so run `datarepo study` again before the first 1.3.4 publish.
 
+## Label-free and TMT effects with a method term (layer 0.7.0)
+
+From datarepo 1.5.0 (aging's DATAREPO-88 c, `aging:DEF-AGE-EFFECT-META v1.4`): **never pool values across
+`dataset_overview.quant_scale`; effects may be combined under `aging:DEF-AGE-EFFECT-META` v1.4, TMT read at MS3
+only, with one method term per dataset.**
+
+- `age_effect_meta` is keyed by `method_scope` (`all`, `label_free`, `isobaric`) in place of `quant_method`, and
+  carries `n_datasets_label_free`, `n_datasets_isobaric` and `method_term_ids` (a list: in a text file, split on `;`).
+  An `all` row is on the label-free scale.
+- `age_effect_method_terms`: one row per (isobaric dataset, response), the key: the term's value and 90% interval,
+  its estimator (QuantProject's `DEF-METHOD-TERM`), the label-free datasets it was estimated against, how many
+  features they share, and a status carried as aging writes it.
+- `age_effect_refusals.fit_refused` gains `no_channel_design` and `method_term_not_estimable`.
+- Nothing converts: the three age-effect tables held no rows when the layer moved. A 0.6.0 study bundle is refused
+  by a 1.5.0 build, so deliver again with `datarepo study`.
+
 ## Not in the study path yet
 
 - **`sample_ages` has no producer.** The three ingested SDRFs carry no age column, and parsing an age

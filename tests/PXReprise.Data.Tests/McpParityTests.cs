@@ -367,6 +367,31 @@ public class McpParityTests
         (new Regex(@",\s*""means"": """ + Regex.Escape(CatalogBuilder.OverviewPeptidoformsDoc) + @"""", RegexOptions.CultureInvariant), ""),
     ];
 
+    /// <summary>Aging layer 0.7.0 (1.5.0 item 14 c, DEF-AGE-EFFECT-META v1.4): <c>age_effect_meta</c>'s description is
+    /// rewritten (from its opening words, old and new, to the string's end), and <c>FitRefusal</c> gains two values, which
+    /// are removed from the C# answer's lists so the six both answers share are still compared.</summary>
+    private static readonly (Regex Pattern, string Mask)[] AgingLayer070 =
+    [
+        (new Regex(Regex.Escape("The pooled age effect for one feature ACROSS datasets. Content is `aging:DEF-AGE-EFFECT-META v1")
+            + @"(?:[^""\\]|\\.)*", RegexOptions.CultureInvariant), "<age_effect_meta: rewritten in aging layer 0.7.0>"),
+        (new Regex(Regex.Escape("no_age_metadata, no_channel_design, method_term_not_estimable"), RegexOptions.CultureInvariant), "no_age_metadata"),
+        (new Regex(@"""no_age_metadata"",\s*""no_channel_design"",\s*""method_term_not_estimable""", RegexOptions.CultureInvariant), "\"no_age_metadata\""),
+        // age_effect_meta.quant_method left the layer at 0.7.0 (method_scope took its place), so the C# server, describing a
+        // Python catalog that still has the column, has no prose for it: only Python's description is removed.
+        (new Regex(Regex.Escape(" -- Part of the key, and a hard stratification: label-free and TMT are never pooled. One of: label_free, isobaric, metabolic, none."),
+            RegexOptions.CultureInvariant), ""),
+        (new Regex(@",\s*""means"": ""Part of the key, and a hard stratification: label-free and TMT are never pooled\.(?:[^""\\]|\\.)*""",
+            RegexOptions.CultureInvariant), ""),
+        .. new[]
+        {
+            "`aging:DEF-AGE-EFFECT-META v1.2` (v1.2 added `organism` to the key and the never-pool-across-organism rule).",
+            StudyColumn("aging", "age_effect_meta", "definition_id"),
+        }.Select(text => (new Regex(Regex.Escape(text), RegexOptions.CultureInvariant), "<age_effect_meta.definition_id: rewritten in aging layer 0.7.0>")),
+    ];
+
+    private static string StudyColumn(string layer, string table, string column) =>
+        SchemaDocs.StudyTables[layer][table].Columns.Single(c => c.Name == column).Description;
+
     private static string CatalogDescription(string table) => CatalogBuilder.DerivedDocs[table].Description;
 
     private static string SchemaColumn(string table, string column) =>
@@ -375,6 +400,7 @@ public class McpParityTests
     public static string Normalise(string text, string catalogPath)
     {
         foreach (var (pattern, mask) in SchemaDelta) text = pattern.Replace(text, mask);
+        foreach (var (pattern, mask) in AgingLayer070) text = pattern.Replace(text, mask);
         text = Threads.Replace(text, "$1\"<cores>\"");
         text = Elapsed.Replace(text, "\"elapsed_seconds\": \"<elapsed>\"");
         text = ServedBy.Replace(text, "\"served_by\": \"datarepo <version>\"");
