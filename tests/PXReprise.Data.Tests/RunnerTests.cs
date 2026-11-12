@@ -37,7 +37,7 @@ public class RunnerTests
     {
         Assert.That(() => LogsEngine.Run(Path.GetTempPath(), [], new Dictionary<string, string> { ["gene_set"] = "x" }, StandInInstall),
             Throws.TypeOf<RunnerException>().With.Message.Contains("needs --input xref=<path>, --input logs_manifest=<path>")
-                .And.Message.Contains("not logs:DEF-GENE-RESOLUTION v1"));
+                .And.Message.Contains("not logs:DEF-GENE-RESOLUTION v2"));
     }
 
     /// <summary>Re-runs a resolution Python stored in aging's store, with its own recorded inputs, and compares rows.</summary>
@@ -67,14 +67,17 @@ public class RunnerTests
             var mine = result.Written.Single(w => w.Inputs["search_database"] == ((IReadOnlyDictionary<string, object?>)record["inputs"]!)["search_database"] as string);
             var (_, expected) = ArrowTables.ReadParquet(Path.Combine(stored, "gene_resolutions.parquet"));
             var (_, actual) = ArrowTables.ReadParquet(mine.TablePath("gene_resolutions")!);
-            // A column added since Python wrote its rows is compared as empty, then set aside (schema 0.0.17's
-            // ensembl_xref_agreement: NULL on every v1 row).
-            foreach (var (_, table, column) in SchemaContract.AddedColumns.Where(a => a.Table == "gene_resolutions"))
-                foreach (var row in actual)
-                {
-                    Assert.That(row.GetValueOrDefault(column), Is.Null, column);
-                    row.Remove(column);
-                }
+            // Python wrote v1 rows; this runner writes v2 (logs 034): the same rows, with ensembl_xref_agreement filled.
+            // The new column is checked against ensembl_xref_agrees as logs 034 pairs them, then set aside with the id.
+            foreach (var row in actual)
+            {
+                var agrees = row.GetValueOrDefault("ensembl_xref_agrees");
+                Assert.That(row.GetValueOrDefault("ensembl_xref_agreement"),
+                    agrees is null ? Is.Null : (bool)agrees ? Is.EqualTo("agrees") : (NUnit.Framework.Constraints.IResolveConstraint)Is.AnyOf("silent", "disagrees"));
+                Assert.That(row["definition_id"], Is.EqualTo(LogsEngine.DefinitionId));
+                row.Remove("ensembl_xref_agreement");
+                row["definition_id"] = LogsEngine.DefinitionIdV1;
+            }
             Assert.That(RoundTrip.FirstDifference(expected, actual), Is.Null);
         }
         finally
@@ -83,15 +86,16 @@ public class RunnerTests
         }
     }
 
-    /// <summary>A resolver's table of one row, as <see cref="LogsEngine.RowsFrom"/> takes it; with
-    /// <c>ensembl_xref_agreement</c> when <paramref name="agreement"/> is given, as mzLib #1578 would write it.</summary>
-    private static ResolveResult OneRow(object? agreement = null, bool withAgreement = false)
+    /// <summary>A resolver's table of one row, as <see cref="LogsEngine.RowsFrom"/> takes it: with
+    /// <c>ensembl_xref_agrees</c> and, unless <paramref name="withAgreement"/> is false, <c>ensembl_xref_agreement</c>, as
+    /// mzLib #1578 writes them.</summary>
+    private static ResolveResult OneRow(string? agreement = "agrees", bool? agrees = true, bool withAgreement = true)
     {
         var cells = new Dictionary<string, object?>
         {
             ["source_index"] = 0L, ["source_path"] = "db.xml", ["accession"] = "P12345", ["outcome"] = SchemaDocs.Enums["GeneResolutionOutcome"].Values[0],
             ["gene_id"] = "ENSG00000000001", ["search_database_sha256"] = "dbsha", ["gene_set_sha256"] = "gs", ["gene_set_release"] = "114",
-            ["ensembl_xref_sha256"] = "xr",
+            ["ensembl_xref_agrees"] = agrees, ["ensembl_xref_sha256"] = "xr",
         };
         if (withAgreement) cells["ensembl_xref_agreement"] = agreement;
         return new ResolveResult
@@ -103,35 +107,45 @@ public class RunnerTests
 
     private static readonly Dictionary<string, object?> Expected = new() { ["gene_set_sha256"] = "gs", ["ensembl_xref_sha256"] = "xr", ["gene_set_release"] = "114" };
 
-    /// <summary>Schema 0.0.17 (logs 034/035, D59): until our mzLib carries #1578, the resolver writes no
-    /// <c>ensembl_xref_agreement</c>, so the column is empty and every row is v1.</summary>
+    /// <summary>Schema 0.0.17 with mzLib 1.0.598 (logs 034/035, D59): every row is v2 and carries
+    /// <c>ensembl_xref_agreement</c>, NULL only on a row with no gene; a resolver that writes no such column is refused,
+    /// so a v1 row is never labelled v2.</summary>
     [Test]
-    public void TodaysRowsAreV1AndCarryNoXrefAgreement()
+    public void RowsAreV2AndCarryTheXrefAgreement()
     {
         var row = LogsEngine.RowsFrom(OneRow(), "dbsha", Expected).Single();
-        var empty = LogsEngine.RowsFrom(OneRow(null, withAgreement: true), "dbsha", Expected).Single();
+        var noGene = LogsEngine.RowsFrom(OneRow(null, agrees: null), "dbsha", Expected).Single();
         Assert.Multiple(() =>
         {
-            Assert.That(row["definition_id"], Is.EqualTo("logs:DEF-GENE-RESOLUTION v1"));
-            Assert.That(row.ContainsKey("ensembl_xref_agreement"), Is.False, "the writer stores it as NULL");
-            Assert.That(empty["ensembl_xref_agreement"], Is.Null);
+            Assert.That(LogsEngine.DefinitionId, Is.EqualTo("logs:DEF-GENE-RESOLUTION v2"));
+            Assert.That(row["definition_id"], Is.EqualTo("logs:DEF-GENE-RESOLUTION v2"));
+            Assert.That(row["ensembl_xref_agreement"], Is.EqualTo("agrees"));
+            Assert.That(noGene["ensembl_xref_agreement"], Is.Null);
             Assert.That(Tables.ByName["gene_resolutions"].Columns.Single(c => c.Name == "ensembl_xref_agreement").Nullable, Is.True);
+            Assert.That(LogsEngine.GeneResolutionColumns[^1], Is.EqualTo("ensembl_xref_agreement"), "mzLib #1578's last column");
+            Assert.That(() => LogsEngine.RowsFrom(OneRow(withAgreement: false), "dbsha", Expected),
+                Throws.TypeOf<RunnerException>().With.Message.Contains("wrote no ensembl_xref_agreement")
+                    .And.Message.Contains("not logs:DEF-GENE-RESOLUTION v2"));
         });
     }
 
-    /// <summary>A filled value is one of the schema's three words, and never sits on a v1 row: filling it is the runner
-    /// change that labels rows v2.</summary>
+    /// <summary>A value is one of the schema's three words and pairs with <c>ensembl_xref_agrees</c> as logs 034's table
+    /// says: <c>agrees</c> exactly where that is true, <c>silent</c> or <c>disagrees</c> where it is false, nothing where it
+    /// has nothing.</summary>
     [Test]
-    public void AnXrefAgreementIsOneOfThreeWordsAndNeverOnAV1Row()
+    public void AnXrefAgreementIsOneOfThreeWordsAndPairsWithAgrees()
     {
         Assert.Multiple(() =>
         {
             Assert.That(SchemaDocs.Enums["XrefAgreement"].Values, Is.EqualTo(new[] { "agrees", "silent", "disagrees" }));
-            Assert.That(() => LogsEngine.RowsFrom(OneRow("agree", withAgreement: true), "dbsha", Expected),
+            Assert.That(() => LogsEngine.RowsFrom(OneRow("agree"), "dbsha", Expected),
                 Throws.TypeOf<RunnerException>().With.Message.Contains("ensembl_xref_agreement 'agree' is not one of ['agrees', 'silent', 'disagrees']"));
-            foreach (var word in new[] { "agrees", "silent", "disagrees" })
-                Assert.That(() => LogsEngine.RowsFrom(OneRow(word, withAgreement: true), "dbsha", Expected),
-                    Throws.TypeOf<RunnerException>().With.Message.Contains("is logs:DEF-GENE-RESOLUTION v2's column"), word);
+            foreach (var (word, agrees) in new (string?, bool?)[] { ("agrees", true), ("silent", false), ("disagrees", false), (null, null) })
+                Assert.That(LogsEngine.RowsFrom(OneRow(word, agrees), "dbsha", Expected).Single()["ensembl_xref_agreement"], Is.EqualTo(word),
+                    $"{word} beside {agrees}");
+            foreach (var (word, agrees) in new (string?, bool?)[] { ("agrees", false), ("silent", true), ("disagrees", true), (null, true), (null, false), ("agrees", null), ("silent", null) })
+                Assert.That(() => LogsEngine.RowsFrom(OneRow(word, agrees), "dbsha", Expected),
+                    Throws.TypeOf<RunnerException>().With.Message.Contains("logs 034 has `agrees` exactly where"), $"{word} beside {agrees}");
         });
     }
 }
