@@ -315,6 +315,15 @@ public class McpParityTests
             "`logs:DEF-GENE-RESOLUTION v1`. A run without Ensembl's xref is not v1 and is refused by the runner (logs 017 section 3).",
             "`logs:DEF-GENE-RESOLUTION v1`, or `v2` on a row that fills `ensembl_xref_agreement` (logs 034, schema 0.0.17). A v1 row never carries the v2 column, so never read a v1 row's NULL there as a v2 answer. A run without Ensembl's xref is neither and is refused by the runner (logs 017 section 3).",
         }.Select(text => (new Regex(Regex.Escape(text), RegexOptions.CultureInvariant), "<definition_id: rewritten for logs 034>")),
+        // 1.5.0 (G127, schema 0.0.17) rewrites samples.condition's description: it holds only the disease's name. The old and
+        // the new text each mask to one placeholder; the column line around them is still compared.
+        .. new[]
+        {
+            "Free-text condition, e.g. HGPS, caloric restriction (B7, I4).",
+            "The disease's name as the SDRF's `characteristics[disease]` gives it, without its ontology term (that is `disease`). Nothing else is read into this column: a treatment, diet or other intervention is never here, whatever the column's name suggests. Look for those in `sample_characteristics` (e.g. `name = 'characteristics[treatment]'`). NULL when the SDRF read gives no disease (B7, I4; G127).",
+        }.Select(text => (new Regex(Regex.Escape(text), RegexOptions.CultureInvariant), "<condition: rewritten for G127>")),
+        // 1.5.0 also adds sdrf's word `community sdrf` to sample_characteristics.source and runs.fraction_source. Both
+        // descriptions are already masked whole since schema 0.0.16 (above), so no mask is added for it.
         // 1.4.5 (PXR-R32, catalog format 16): the indexes count DEPOSITS, so their dataset columns are reworded; old and new
         // texts mask to one placeholder per column. dataset_overview gains one sentence, and peptide_index.n_datasets a
         // description Python never had: only those are removed, so the text both answers share is still compared.
