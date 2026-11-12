@@ -242,10 +242,9 @@ ingested again. `catalog_reconciliation.status` is one of:
   which the bundle does not keep. The bound is [count - estimated unresolved-notch rows - rows at the
   threshold, count]. The estimate counts each passing peptidoform whose best-scoring PSM's notch did
   not resolve, which is wider than the exact term. `basis` says so.
-  - **An isobaric search by MetaMorpheus up to 1.1.13** (from 1.4.2): its peptide file carries
-    PSM-level q-values and `results.txt` a peptide-level count (MetaMorpheus #2941, QuantProject 071),
-    so the two are at different FDR levels and no bound relates them. A difference is `explained`,
-    with no bound, and `basis` names #2941.
+  - **An isobaric search by MetaMorpheus up to 1.1.13** had its difference `explained` by #2941, with
+    no bound, from 1.4.2 to 1.4.5. From 1.5.0 the ingest refuses such a search (it is re-searched on
+    1.1.14 or later), so an isobaric bundle is judged as a label-free one is.
 - **Protein groups** (`protein_groups_1pct`): when the ingest dropped exact duplicate group rows
   (`bundle.json` `collapsed_duplicates`), the bound is [count, count + those rows]. MetaMorpheus
   before 1.1.13 (#2923) could write one group twice and count it twice (PXD027971: 1,184 against 1,185).

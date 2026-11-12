@@ -314,8 +314,8 @@ QPX view: `feature` (table-level; column mapping not yet verified).
 | `dataset_id` | [Dataset](#dataset) | yes | Dataset this row belongs to (ProteomeXchange accession). |
 | `peptidoform` | `string` | yes | ProForma 2 string with UNIMOD accessions. |
 | `base_sequence` | `string` | yes | Unmodified amino-acid sequence. |
-| `best_q_value` | `float` |  | Lowest q-value among the supporting PSMs. For a multiplex (TMT, iTRAQ) search by MetaMorpheus up to 1.1.13 it is the best PSM's PSM-level q-value, not a peptide-level one, as that search's AllPeptides.psmtsv writes it (MetaMorpheus #2941, QuantProject 071), so `peptidoforms_1pct` is a PSM-level filter there; the bundle's `isobaric_peptide_q_psm_level` finding says so. (range 0..1) |
-| `best_q_value_notch` | `float` |  | Lowest notch q-value among the supporting PSMs. PSM-level for a multiplex search by MetaMorpheus up to 1.1.13, as `best_q_value` says. (range 0..1) |
+| `best_q_value` | `float` |  | Lowest q-value among the supporting PSMs. (range 0..1) |
+| `best_q_value_notch` | `float` |  | Lowest notch q-value among the supporting PSMs. (range 0..1) |
 | `best_pep` | `float` |  | Lowest `pep` among the supporting PSMs. RUN-RELATIVE, like `Psm.pep`: rank or threshold within the dataset, never compare values across datasets or releases (definition pep:DEF-PEP). (range 0..1) |
 | `best_pep_q_value` | `float` |  | Lowest PEP q-value (`PEP_QValue`) among the supporting rows, as AllPeptides.psmtsv writes it (schema 0.0.17). `peptidoforms_1pct` reads it when the dataset's `confidence_rule` is `pep_q_value`. It moves whenever PEP does, so a count at a threshold compares within one MetaMorpheus release only (pep 002). It can exceed 1 because MetaMorpheus writes it so: 2 is its value for a row it computed none for, and some searches write real values just above 1 (PXD020462). Read it only under a `pep_q_value` rule. (range 0..None) |
 | `target_decoy` | [TargetDecoy](#targetdecoy) | yes | Target, decoy or contaminant. Decoy peptidoforms are kept so a caller can recompute FDR. |

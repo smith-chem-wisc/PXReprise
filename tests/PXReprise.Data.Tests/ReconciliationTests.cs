@@ -102,30 +102,24 @@ public class ReconciliationTests
     }
 
     [Test]
-    public void AMultiplexSearchsPeptideCountUpTo1113IsExplainedByTheFilesPsmLevelQValues()
+    public void AnIsobaricBundleIsJudgedAsALabelFreeOneIs()
     {
-        // PXD034564 (QuantProject 071, MetaMorpheus #2941): 44,037 from the file's PSM-level q-values, 43,114 in
-        // results.txt at peptide level. Two FDR levels, so no bound: explained, with the PR as its basis.
+        // Until 1.5.0 a multiplex search up to MetaMorpheus 1.1.13 had its peptide gap explained by #2941. Such a search
+        // is now refused at ingest (the user, 2026-11-12: re-search it), so an isobaric bundle has no exception here.
         BundleRef Isobaric(string metamorpheus) => new("unused", new Dictionary<string, object?>
         {
             ["dataset_id"] = "PXD034564",
             ["bundle_id"] = "b1",
             ["metamorpheus"] = metamorpheus,
-            ["isobaric"] = new Dictionary<string, object?> { ["reader"] = "2" },
+            ["isobaric"] = new Dictionary<string, object?> { ["reader"] = "4" },
             ["reconciliation"] = new List<object?> { Check("peptidoforms_target_1pct", 44037, 43114) },
         });
         var terms = new ReconciliationTerms(0, 0, 0, 0, 0);
-        var row = CatalogBuilder.JudgeReconciliation(Isobaric("1.1.13"), terms).Single();
         Assert.Multiple(() =>
         {
-            Assert.That(row.Status, Is.EqualTo("explained"));
-            Assert.That((row.ExplainedLower, row.ExplainedUpper), Is.EqualTo(((long?)null, (long?)null)));
-            Assert.That(row.Basis, Does.Contain("#2941"));
-            // A release after 1.1.13 is judged as label-free is: the gap is unexplained again.
+            Assert.That(Status(Isobaric("1.1.13"), terms, "peptidoforms_target_1pct"), Is.EqualTo("unexplained"));
+            Assert.That(CatalogBuilder.JudgeReconciliation(Isobaric("1.1.13"), terms).Single().Basis ?? "", Does.Not.Contain("#2941"));
             Assert.That(Status(Isobaric("1.1.14"), terms, "peptidoforms_target_1pct"), Is.EqualTo("unexplained"));
-            // A label-free bundle of the same release is not affected.
-            Assert.That(Status(Bundle(Check("peptidoforms_target_1pct", 44037, 43114)), terms, "peptidoforms_target_1pct"),
-                Is.EqualTo("unexplained"));
         });
     }
 

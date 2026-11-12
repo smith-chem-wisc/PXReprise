@@ -400,6 +400,9 @@ public static class Ingester
         // --- an isobaric search: one assay per (file, channel) of its design (G105, QuantProject DEF-TMT-*) -------
         // The design the search read places every column, so it gives the assays; each sits on the SDRF sample its
         // (run, channel) names, or else on the design's own sample. Its own id component moves isobaric bundles alone.
+        var tools = Map(Get(searchProvenance, "tools"));
+        var mmRelease = Get(Map(Get(tools, "MetaMorpheus")), "release");
+        var engineVersion = !IsFalsy(mmRelease) ? S(mmRelease) : DatasetEntry.Text(entry.Metamorpheus);
         Isobaric.Design? isobaric = null;
         if (rules == IngestRules.Current && Isobaric.Wrote(resultsDir))
         {
@@ -408,6 +411,15 @@ public static class Ingester
                 throw new IngestException(
                     $"{datasetId}: the search wrote isobaric quantification tables, and the manifest's labelling is '{reagent}'. "
                     + $"Name the reagent ({string.Join(" or ", Isobaric.Reagents)}) and its plex (labelling_plex) in the entry: the channels are named by it.");
+            // The user, 2026-11-12: re-search such a deposit rather than carry a warning and an exception for it.
+            if (Isobaric.PeptideQIsPsmLevel(engineVersion))
+                throw new IngestException(
+                    $"{datasetId}: this is a multiplex ({reagent}) search by MetaMorpheus "
+                    + $"{(string.IsNullOrEmpty(engineVersion) ? "of unknown release" : engineVersion)}. Up to and including "
+                    + $"{Isobaric.LastPsmLevelPeptideQ}, such a search writes its AllPeptides.psmtsv with each peptide's best PSM's "
+                    + "PSM-level q-values, not peptide-level ones (MetaMorpheus #2941), so its peptide confidence cannot be stored "
+                    + $"as what it claims to be. Re-search the deposit on MetaMorpheus {Isobaric.FirstPeptideLevelPeptideQ} or "
+                    + "later" + (string.IsNullOrEmpty(engineVersion) ? ", or record the release in the search's provenance." : "."));
             var designPath = Join(resultsDir, Isobaric.DesignFileName);
             if (!File.Exists(designPath))
                 throw new IngestException(
@@ -687,19 +699,6 @@ public static class Ingester
             .Select(f => f.GetValueOrDefault("instrument_model"))
             .Where(v => !IsFalsy(v)).Select(v => PyFormat.Str(v!)).Distinct().Order(StringComparer.Ordinal).ToList();
         var (databaseName, databaseSha) = SearchParams.SearchedDatabase(searchProvenance);
-        var tools = Map(Get(searchProvenance, "tools"));
-        var mmRelease = Get(Map(Get(tools, "MetaMorpheus")), "release");
-        var engineVersion = !IsFalsy(mmRelease) ? S(mmRelease) : DatasetEntry.Text(entry.Metamorpheus);
-        if (isobaric is not null && Isobaric.PeptideQIsPsmLevel(engineVersion))
-            findings.Add(Finding(datasetId, "isobaric_peptide_q_psm_level", "warning",
-                $"This multiplex search (MetaMorpheus {(string.IsNullOrEmpty(engineVersion) ? "of unknown release" : engineVersion)}) "
-                + "wrote its combined AllPeptides.psmtsv with each peptide's best PSM's PSM-level q-values, not peptide-level ones "
-                + "(MetaMorpheus #2941; QuantProject 071, corrected by v3.22). So `peptidoforms.best_q_value` and "
-                + "`best_q_value_notch` are PSM-level here, stored as written, and `peptidoforms_1pct` is a PSM-level filter: it "
-                + "passes more peptidoforms than results.txt's peptide-level count. The search's per-file _Peptides.psmtsv "
-                + "tables carry each file's own peptide-level q-values, which this bundle does not read; no file of this search "
-                + "gives a search-wide peptide-level q-value per peptide. "
-                + "`PeptideQuantification.tsv`'s values (DEF-TMT-PEP) are unaffected."));
         var pipeline = Map(Get(searchProvenance, "pipeline"));
         var quantMethod = DatasetEntry.Text(entry.QuantMethod);
         var datasetRow = new Row
