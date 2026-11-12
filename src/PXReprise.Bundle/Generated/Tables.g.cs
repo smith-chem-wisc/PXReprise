@@ -486,7 +486,7 @@ public static partial class Tables
     /// <summary>Each study layer's version, by layer name.</summary>
     public static readonly IReadOnlyDictionary<string, string> StudyVersions = new Dictionary<string, string>
     {
-        ["aging"] = "0.6.0",
+        ["aging"] = "0.7.0",
     };
 
     /// <summary>Each study layer's tables, by layer name. Not part of <see cref="Core"/>.</summary>
@@ -613,7 +613,7 @@ public static partial class Tables
                 new ColumnSpec("stratum", ColumnType.String, IsList: false, Nullable: false),
                 new ColumnSpec("tissue", ColumnType.String, IsList: false, Nullable: false),
                 new ColumnSpec("acquisition", ColumnType.String, IsList: false, Nullable: false),
-                new ColumnSpec("quant_method", ColumnType.String, IsList: false, Nullable: false),
+                new ColumnSpec("method_scope", ColumnType.String, IsList: false, Nullable: false),
                 new ColumnSpec("beta_meta", ColumnType.Float64, IsList: false, Nullable: false),
                 new ColumnSpec("se_meta", ColumnType.Float64, IsList: false, Nullable: false),
                 new ColumnSpec("ci_low", ColumnType.Float64, IsList: false, Nullable: true),
@@ -621,11 +621,29 @@ public static partial class Tables
                 new ColumnSpec("q_meta", ColumnType.Float64, IsList: false, Nullable: true),
                 new ColumnSpec("n_datasets", ColumnType.Int64, IsList: false, Nullable: false),
                 new ColumnSpec("dataset_ids", ColumnType.String, IsList: true, Nullable: false),
+                new ColumnSpec("n_datasets_label_free", ColumnType.Int64, IsList: false, Nullable: false),
+                new ColumnSpec("n_datasets_isobaric", ColumnType.Int64, IsList: false, Nullable: false),
+                new ColumnSpec("method_term_ids", ColumnType.String, IsList: true, Nullable: true),
                 new ColumnSpec("i_squared", ColumnType.Float64, IsList: false, Nullable: true),
                 new ColumnSpec("tau2", ColumnType.Float64, IsList: false, Nullable: true),
                 new ColumnSpec("n_direction_agree", ColumnType.Int64, IsList: false, Nullable: true),
                 new ColumnSpec("n_direction_disagree", ColumnType.Int64, IsList: false, Nullable: true),
                 new ColumnSpec("leave_one_out_max_delta", ColumnType.Float64, IsList: false, Nullable: true),
+                new ColumnSpec("definition_id", ColumnType.String, IsList: false, Nullable: false),
+            ]),
+            new TableSpec("age_effect_method_terms", "AgeEffectMethodTerm",
+            [
+                new ColumnSpec("method_term_id", ColumnType.String, IsList: false, Nullable: false),
+                new ColumnSpec("dataset_id", ColumnType.String, IsList: false, Nullable: false),
+                new ColumnSpec("response", ColumnType.String, IsList: false, Nullable: false),
+                new ColumnSpec("method", ColumnType.String, IsList: false, Nullable: false),
+                new ColumnSpec("value", ColumnType.Float64, IsList: false, Nullable: true),
+                new ColumnSpec("ci90_low", ColumnType.Float64, IsList: false, Nullable: true),
+                new ColumnSpec("ci90_high", ColumnType.Float64, IsList: false, Nullable: true),
+                new ColumnSpec("estimator", ColumnType.String, IsList: false, Nullable: false),
+                new ColumnSpec("label_free_dataset_ids", ColumnType.String, IsList: true, Nullable: true),
+                new ColumnSpec("n_shared_features", ColumnType.Int64, IsList: false, Nullable: true),
+                new ColumnSpec("status", ColumnType.String, IsList: false, Nullable: false),
                 new ColumnSpec("definition_id", ColumnType.String, IsList: false, Nullable: false),
             ]),
             new TableSpec("organelle_age_summaries", "OrganelleAgeSummary",

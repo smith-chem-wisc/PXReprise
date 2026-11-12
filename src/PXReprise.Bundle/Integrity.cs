@@ -117,8 +117,11 @@ public static class Integrity
     /// <c>feature_id</c> is nullable and part of the key anyway, because a dataset-level refusal such as
     /// <c>no_age_metadata</c> is one row with no feature. <c>age_effect_meta</c> starts with <c>organism</c>
     /// (aging DEF-AGE-EFFECT-META v1.2 section 6.4, G40): never pool across it.
+    /// <para>From layer 0.7.0 (DATAREPO-88 c) <c>age_effect_meta</c> is keyed by <c>method_scope</c> where it was keyed by
+    /// <c>quant_method</c>, and <c>age_effect_method_terms</c> by (<c>dataset_id</c>, <c>response</c>): one term per isobaric
+    /// dataset and response (aging DEF-AGE-EFFECT-META v1.4). The keys follow the layer version in force.</para>
     /// </remarks>
-    public static readonly IReadOnlyDictionary<string, IReadOnlyDictionary<string, string[]>> StudyCompositeIdentifiers =
+    public static IReadOnlyDictionary<string, IReadOnlyDictionary<string, string[]>> StudyCompositeIdentifiers =>
         new Dictionary<string, IReadOnlyDictionary<string, string[]>>(StringComparer.Ordinal)
         {
             ["aging"] = new Dictionary<string, string[]>(StringComparer.Ordinal)
@@ -131,7 +134,9 @@ public static class Integrity
                 ["curated_design_factors"] = ["run_id", "factor"],
                 ["age_effects"] = ["dataset_id", "feature_id", "response", "estimator", "quant_basis", "model_form", "stratum"],
                 ["age_effect_refusals"] = ["dataset_id", "feature_id", "response", "estimator", "quant_basis", "model_form", "stratum"],
-                ["age_effect_meta"] = ["organism", "feature_id", "response", "estimator", "quant_basis", "stratum", "tissue", "acquisition", "quant_method"],
+                ["age_effect_meta"] = ["organism", "feature_id", "response", "estimator", "quant_basis", "stratum", "tissue", "acquisition",
+                    System.Version.Parse(SchemaContract.StudyVersion("aging")) >= new System.Version(0, 7, 0) ? "method_scope" : "quant_method"],
+                ["age_effect_method_terms"] = ["dataset_id", "response"],
                 ["organelle_age_summaries"] = ["compartment", "organism", "organism_part", "response"],
                 ["clock_features"] = ["clock_id", "feature_type", "feature_id"],
                 ["age_mappings"] = ["organism", "age_from", "age_to"],
@@ -160,6 +165,7 @@ public static class Integrity
                 ("curated_design_factors", "run_id", "curated_run_design", "run_id"),
                 ("age_effects", "dataset_id", "datasets", "dataset_id"),
                 ("age_effect_refusals", "dataset_id", "datasets", "dataset_id"),
+                ("age_effect_method_terms", "dataset_id", "datasets", "dataset_id"),
                 ("clock_features", "clock_id", "clock_models", "clock_id"),
             ],
         };

@@ -140,6 +140,26 @@ public static class SchemaContract
     [
         ("aging", "0.6.0", "curated_run_design"),
         ("aging", "0.6.0", "curated_design_factors"),
+        ("aging", "0.7.0", "age_effect_method_terms"),
+    ];
+
+    /// <summary>Every study column added to a table that already existed, with the layer version that added it.</summary>
+    /// <remarks>Layer 0.7.0 (DATAREPO-88 c, aging DEF-AGE-EFFECT-META v1.4) keys <c>age_effect_meta</c> by
+    /// <c>method_scope</c> in place of <c>quant_method</c>, with two counts per method and the method terms used. A table
+    /// at an earlier layer version has the columns it had then (<see cref="RemovedStudyColumns"/>).</remarks>
+    public static readonly IReadOnlyList<(string Layer, string Version, string Table, string Column)> AddedStudyColumns =
+    [
+        ("aging", "0.7.0", "age_effect_meta", "method_scope"),
+        ("aging", "0.7.0", "age_effect_meta", "n_datasets_label_free"),
+        ("aging", "0.7.0", "age_effect_meta", "n_datasets_isobaric"),
+        ("aging", "0.7.0", "age_effect_meta", "method_term_ids"),
+    ];
+
+    /// <summary>Every study column removed from a table, with the layer version that removed it, the column it followed and
+    /// its storage type: a table at an earlier version still has it there.</summary>
+    public static readonly IReadOnlyList<(string Layer, string Version, string Table, string After, ColumnSpec Column)> RemovedStudyColumns =
+    [
+        ("aging", "0.7.0", "age_effect_meta", "acquisition", new ColumnSpec("quant_method", ColumnType.String, IsList: false, Nullable: false)),
     ];
 
     /// <summary>The layer's version in force here: <see cref="Tables.StudyVersions"/>, or Python 0.32.0's inside a
@@ -155,7 +175,25 @@ public static class SchemaContract
             .Where(a => a.Layer == layer && System.Version.Parse(a.Version) > at)
             .Select(a => a.Table)
             .ToHashSet(StringComparer.Ordinal);
-        return later.Count == 0 ? Tables.Study[layer] : Tables.Study[layer].Where(t => !later.Contains(t.Name)).ToList();
+        return Tables.Study[layer].Where(t => !later.Contains(t.Name)).Select(t => StudyTableAt(layer, t, at)).ToList();
+    }
+
+    /// <summary>A study table's columns at layer version <paramref name="at"/>: those added since left out, those removed
+    /// since put back after the column they followed.</summary>
+    private static TableSpec StudyTableAt(string layer, TableSpec table, System.Version at)
+    {
+        var added = AddedStudyColumns.Where(a => a.Layer == layer && a.Table == table.Name && System.Version.Parse(a.Version) > at)
+            .Select(a => a.Column).ToHashSet(StringComparer.Ordinal);
+        var removed = RemovedStudyColumns.Where(r => r.Layer == layer && r.Table == table.Name && System.Version.Parse(r.Version) > at).ToList();
+        if (added.Count == 0 && removed.Count == 0) return table;
+        var columns = table.Columns.Where(c => !added.Contains(c.Name)).ToList();
+        foreach (var (_, _, _, after, column) in removed)
+        {
+            var index = columns.FindIndex(c => c.Name == after);
+            if (index < 0) throw new InvalidOperationException($"{table.Name}.{column.Name} followed {after}, which layer {layer} {at} does not have");
+            columns.Insert(index + 1, column);
+        }
+        return table with { Columns = columns };
     }
 
     /// <summary>Every study layer with its tables at the version in force here, in <see cref="Tables.Study"/>'s order.</summary>

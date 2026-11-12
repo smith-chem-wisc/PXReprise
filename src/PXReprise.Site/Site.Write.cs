@@ -55,6 +55,12 @@ public static partial class SiteGenerator
                 "where the search trained PEP, otherwise its notch q-value. So its counts are not the search engine's own " +
                 "peptide count, which is in `metrics` (`name = 'peptides'`), and two datasets on different rules rest on " +
                 "different q-values.");
+        // DATAREPO-88 d (aging 135): only when the catalog labels each dataset's value scale (format 17).
+        if (facts.Datasets.Any(ds => ds.ContainsKey("quant_scale")))
+            lines.Insert(lines.IndexOf("Before you answer from this data:") + 3,
+                "- Never pool values across `dataset_overview.quant_scale` (label-free, TMT read at MS2, TMT read at MS3); " +
+                "effects may be combined under `aging:DEF-AGE-EFFECT-META` v1.4, TMT read at MS3 only, with one method term " +
+                "per dataset (`age_effect_method_terms`).");
         // PXR-R32: only when something is split, so a catalog with no split writes the file it always wrote.
         if (facts.SplitDeposits.Count > 0)
             lines.Add(

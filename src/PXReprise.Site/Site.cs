@@ -841,7 +841,7 @@ public static partial class SiteGenerator
             <dl>
             <dt>Organism searched</dt><dd>{E(organismSearched)} <span class="note">(the protein database's organism, not a statement about the samples)</span></dd>
             <dt>Acquisition</dt><dd>{E(ds.GetValueOrDefault("acquisition"))}</dd>
-            <dt>Quantification</dt><dd>{E(ds.GetValueOrDefault("quant_method"))}</dd>
+            <dt>Quantification</dt><dd>{E(ds.GetValueOrDefault("quant_method"))}{(ds.GetValueOrDefault("quant_scale") is string scale ? $" <span class=\"note\">(value scale {E(scale)}: never pool values across scales)</span>" : "")}</dd>
             <dt>Labelling</dt><dd>{E(ds.GetValueOrDefault("labelling"))}</dd>
             <dt>Enrichment</dt><dd>{E(EnrichmentCell(ds))}</dd>
             <dt>Instrument vendor</dt><dd>{E(Or(ds, "instrument_vendor", "not recorded"))}</dd>

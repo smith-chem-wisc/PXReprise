@@ -1,4 +1,5 @@
-# aging study layer, v0.6.0 (2026-10-19: `CuratedRunDesign` and `CuratedDesignFactor`, aging 102
+# aging study layer, v0.7.0 (2026-11-12: `age_effect_meta` keyed by `method_scope` and `age_effect_method_terms`,
+# aging 126/135 DATAREPO-88 c, `aging:DEF-AGE-EFFECT-META v1.4`; v0.6.0 2026-10-19: `CuratedRunDesign` and `CuratedDesignFactor`, aging 102
 # DATAREPO-79 as amended by DATAREPO-82 (aging 108), with ptmQtl's A1-A4; v0.5.0 2026-09-29:
 # `CuratedSampleCharacteristic`, aging 078 REQ-DATAREPO-6; v0.4.0 2026-09-26: `SampleAge.age_source`,
 # aging 071 DATAREPO-59; v0.3.0 2026-09-22; v0.2.0 earlier the same day; v0.1.0 2026-09-20).
@@ -26,7 +27,7 @@ description: >-
   effects and their refusals, the cross-dataset pooled effect, organelle-level summaries, age clocks
   and cross-species age mapping. aging owns the content; every table is keyed on core identifiers and
   no core table is altered.
-version: 0.6.0
+version: 0.7.0
 license: https://creativecommons.org/licenses/by/4.0/
 
 prefixes:
@@ -142,6 +143,37 @@ enums:
         description: Batch is confounded with age and the dataset carries no batch term.
       no_age_metadata:
         description: The dataset carries no donor ages at all. This is the value that answers trap J6.
+      no_channel_design:
+        description: >-
+          An isobaric dataset with no curated channel design, so it stays out of every pool (`aging:DEF-AGE-EFFECT-META
+          v1.4` section 6.5 item 2). Added in layer 0.7.0.
+      method_term_not_estimable:
+        description: >-
+          An isobaric dataset kept out of the `method_scope = all` row: its method term could not be estimated or failed
+          QuantProject's entry check, or it was read at MS2, whose correction has not passed (`aging:DEF-AGE-EFFECT-META
+          v1.4` section 6.5 items 2-3). It stays in the `isobaric` row. Added in layer 0.7.0.
+
+  MethodScope:
+    description: >-
+      Which methods a pooled `age_effect_meta` row combines (`aging:DEF-AGE-EFFECT-META v1.4` section 6.5 item 4).
+      Added in layer 0.7.0.
+    permissible_values:
+      all:
+        description: Label-free and isobaric effects together, on the label-free scale, each isobaric one rescaled by its own method term.
+      label_free:
+        description: Label-free datasets only.
+      isobaric:
+        description: Isobaric datasets only.
+
+  IsobaricMethod:
+    description: >-
+      How an isobaric dataset read its reporter ions (`aging:DEF-AGE-EFFECT-META v1.4` section 6.5 item 3), as
+      `dataset_overview.quant_scale` records it. Added in layer 0.7.0.
+    permissible_values:
+      isobaric_ms2:
+        description: Reporters read at MS2.
+      isobaric_ms3:
+        description: Reporters read at MS3 (SPS-MS3 or RTS-MS3).
 
 classes:
 
@@ -320,13 +352,13 @@ classes:
   AgeEffectMeta:
     description: >-
       The pooled age effect for one feature ACROSS datasets. Content is
-      `aging:DEF-AGE-EFFECT-META v1`; a separate table from AgeEffect because combining datasets is a
+      `aging:DEF-AGE-EFFECT-META v1.4`; a separate table from AgeEffect because combining datasets is a
       different operation with different failure modes.
       The pooling is RANDOM-EFFECTS (DerSimonian-Laird), not fixed: these are different cohorts,
       tissues and instruments, and a fixed-effect model would assert one true effect. The
       stratification columns are refusals in disguise -- never pool across acquisition (DDA with
-      DIA), across quant_method (label-free with TMT) or across tissue, because H6, I3 and D4 ask
-      whether those AGREE and a pooled estimate would destroy the question -- and NEVER ACROSS
+      DIA) or across tissue, because H6 and D4 ask whether those AGREE and a pooled estimate would
+      destroy the question -- and NEVER ACROSS
       ORGANISM (`aging:DEF-AGE-EFFECT-META v1.2` section 6.4, our G40), the strongest member of that
       family and the one first left unwritten because every dataset was human. It is a key column,
       not a stated invariant, because an invariant cannot be checked: today a UniProt accession is
@@ -336,6 +368,12 @@ classes:
       `n_datasets = 1` is a legitimate row carrying a null `i_squared`. It is not a meta-analysis; it
       is an honest statement that one dataset exists, which is the state of this repository for every
       tissue it holds.
+      LABEL-FREE AND ISOBARIC (layer 0.7.0, `aging:DEF-AGE-EFFECT-META v1.4` section 6.5): never pool
+      values across `quant_scale`; effects may be combined under `aging:DEF-AGE-EFFECT-META` v1.4, TMT
+      read at MS3 only, with one method term per dataset (`age_effect_method_terms`). `method_scope`
+      says which: `all` is on the label-free scale; `label_free` and `isobaric` keep H6 and I3
+      answerable. Quote an `all` row with its `n_datasets_label_free` and `n_datasets_isobaric`; when
+      the `label_free` and `isobaric` rows disagree in sign, report both and not the `all` row.
     attributes:
       organism: {range: uriorcurie, required: true, description: "NCBITaxon term. FIRST component of the key and a hard stratification (`aging:DEF-AGE-EFFECT-META v1.2` section 6.4): every contributing `age_effects` row carries this organism, and a pooled estimate over two organisms is not written. Pooling across species on purpose is a different, named operation that does not exist yet."}
       feature_type: {range: FeatureType, required: true, description: "Which kind of feature this row pools. ASK (DATAREPO-20): the definition's section 6 key omits feature_type, but without it `feature_id` cannot be interpreted -- and a dataset-scoped identifier such as a protein_group_id cannot be a cross-dataset key at all, so the cross-dataset identity of a feature is itself the question."}
@@ -346,7 +384,7 @@ classes:
       stratum: {required: true, description: "Part of the key."}
       tissue: {range: uriorcurie, required: true, description: "UBERON term. Part of the key, and a hard stratification: D4 asks whether the lysosome shows the same trend in brain as in muscle, which is two rows."}
       acquisition: {range: Acquisition, required: true, description: "Part of the key, and a hard stratification: H6 and I3 ask whether DDA and DIA agree."}
-      quant_method: {range: QuantMethod, required: true, description: "Part of the key, and a hard stratification: label-free and TMT are never pooled."}
+      method_scope: {range: MethodScope, required: true, description: "Part of the key (layer 0.7.0, replacing `quant_method`): `all`, `label_free` or `isobaric`, the methods this row combines. An isobaric dataset enters `all` only when read at MS3 and its method term passes QuantProject's entry check; otherwise it is in `isobaric` alone, with a `method_term_not_estimable` refusal row."}
       beta_meta: {range: float, required: true, description: "Random-effects (DerSimonian-Laird) pooled effect, per decade, in the response's transform units."}
       se_meta: {range: float, required: true, description: "Standard error of the pooled effect. Required for the same reason `se` is on AgeEffect."}
       ci_low: {range: float, description: "Lower bound of the confidence interval on `beta_meta`."}
@@ -354,12 +392,39 @@ classes:
       q_meta: {range: float, minimum_value: 0, maximum_value: 1, description: "Benjamini-Hochberg across features within the same stratum."}
       n_datasets: {range: integer, required: true, description: "How many datasets contributed."}
       dataset_ids: {range: Dataset, multivalued: true, required: true, description: "WHICH datasets contributed. C3 and D1 ask for an effect seen in at least three datasets and need the list, not the count."}
+      n_datasets_label_free: {range: integer, required: true, minimum_value: 0, description: "How many of `n_datasets` are label-free (layer 0.7.0). 0 on an `all` row says it equals the `isobaric` row."}
+      n_datasets_isobaric: {range: integer, required: true, minimum_value: 0, description: "How many of `n_datasets` are isobaric (layer 0.7.0). 0 on an `all` row says it equals the `label_free` row."}
+      method_term_ids: {multivalued: true, description: "The `age_effect_method_terms` rows this pooled estimate used, one per isobaric dataset it rescaled (layer 0.7.0); empty when it rescaled none."}
       i_squared: {range: float, minimum_value: 0, maximum_value: 1, description: "I-squared heterogeneity across datasets. Null when n_datasets = 1, which is not a defect."}
       tau2: {range: float, description: "Between-dataset variance. H1's forest plot is made of this and i_squared."}
       n_direction_agree: {range: integer, description: "Contributing datasets whose effect has the same sign as the pooled one. H6 and I3 want direction agreement rather than a pooled p-value."}
       n_direction_disagree: {range: integer, description: "Contributing datasets whose effect has the opposite sign."}
       leave_one_out_max_delta: {range: float, description: "The largest change in `beta_meta` from dropping any single dataset. C2 asks whether the age effect is driven by one dataset, and this answers it as a number rather than a judgement. Null when n_datasets = 1."}
-      definition_id: {range: Definition, required: true, description: "`aging:DEF-AGE-EFFECT-META v1.2` (v1.2 added `organism` to the key and the never-pool-across-organism rule)."}
+      definition_id: {range: Definition, required: true, description: "`aging:DEF-AGE-EFFECT-META v1.4` (v1.2 added `organism` to the key and the never-pool-across-organism rule; v1.3 the method term; v1.4 one term per isobaric dataset, and MS3 only in `all`)."}
+
+  AgeEffectMethodTerm:
+    description: >-
+      One isobaric dataset's method term for one response (`aging:DEF-AGE-EFFECT-META v1.4` section 6.5
+      item 3; layer 0.7.0): how much this dataset's effects differ from the label-free datasets' for
+      the same features. One term per isobaric dataset, never one per method: the shrinkage comes from
+      co-isolated peptides, which change with each lab's isolation width, fractionation, load and
+      gradient. Read at MS3 the term is a scale factor `c` (this dataset's effects about c times the
+      label-free ones), estimated by QuantProject's `DEF-METHOD-TERM` (MR-RAPS, mzLib `EffectScale`);
+      a pooled `all` row rescales the dataset's `beta` and `se` by it. Read at MS2 no term is applied
+      yet. The form and the estimator are QuantProject's; aging owns the content; dataRepo stores it.
+    attributes:
+      method_term_id: {identifier: true, description: "The term's id, as `age_effect_meta.method_term_ids` names it."}
+      dataset_id: {range: Dataset, required: true, description: "The isobaric dataset the term is for."}
+      response: {range: AgeResponse, required: true, description: "The response the term was estimated on."}
+      method: {range: IsobaricMethod, required: true, description: "`isobaric_ms2` or `isobaric_ms3`, as the dataset's `quant_scale` records it."}
+      value: {range: float, description: "The term: for MS3, the scale factor `c`. NULL when it could not be estimated (`status`)."}
+      ci90_low: {range: float, description: "Lower bound of the term's 90% interval, the interval QuantProject's entry check reads."}
+      ci90_high: {range: float, description: "Upper bound of the term's 90% interval."}
+      estimator: {required: true, description: "How the term was estimated, e.g. `MR-RAPS` (QuantProject `DEF-METHOD-TERM`)."}
+      label_free_dataset_ids: {range: Dataset, multivalued: true, description: "The label-free datasets of the same organism and tissue the term was estimated against. The entry check needs at least 3."}
+      n_shared_features: {range: integer, minimum_value: 0, description: "How many features the dataset shares with those label-free datasets: the evidence behind the term."}
+      status: {required: true, description: "What became of the term, in aging's words: entered `all` after passing the entry check, or `method_term_not_estimable` (too few label-free datasets, no overlap, or read at MS2 before its correction passes). The vocabulary is the definition's and is carried as written."}
+      definition_id: {range: Definition, required: true, description: "The term's definition, e.g. QuantProject's `DEF-METHOD-TERM` at a version."}
 
   OrganelleAgeSummary:
     description: >-
@@ -436,6 +501,7 @@ classes:
       age_effects: {range: AgeEffect, multivalued: true, inlined_as_list: true, description: "Rows of the age_effects table."}
       age_effect_refusals: {range: AgeEffectRefusal, multivalued: true, inlined_as_list: true, description: "Rows of the age_effect_refusals table."}
       age_effect_meta: {range: AgeEffectMeta, multivalued: true, inlined_as_list: true, description: "Rows of the age_effect_meta table."}
+      age_effect_method_terms: {range: AgeEffectMethodTerm, multivalued: true, inlined_as_list: true, description: "Rows of the age_effect_method_terms table (layer 0.7.0)."}
       organelle_age_summaries: {range: OrganelleAgeSummary, multivalued: true, inlined_as_list: true, description: "Rows of the organelle_age_summaries table."}
       clock_models: {range: ClockModel, multivalued: true, inlined_as_list: true, description: "Rows of the clock_models table."}
       clock_features: {range: ClockFeature, multivalued: true, inlined_as_list: true, description: "Rows of the clock_features table."}
