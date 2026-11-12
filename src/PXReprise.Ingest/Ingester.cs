@@ -269,6 +269,7 @@ public static class Ingester
         var (lineage, lineageMismatches) = Lineage(manifest.WorkRoot, searchProvenancePath, searchProvenance);
         findings.AddRange(LineageFindings(lineageMismatches, datasetId));
         var namespaceByStageDir = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var searchProvenanceSha256 = "";
         foreach (var path in lineage)
         {
             var doc = Provenance.Load(path);
@@ -277,7 +278,10 @@ public static class Ingester
             var source = writer.AddSource(path, $"provenance:{stageName}", $"provenance_{stageName}.json");
             provenanceRows.Add(Provenance.RecordRow(doc, datasetId, stageName, (string)source["bundle_path"]!, (string)source["sha256"]!, rules));
             if (path == searchProvenancePath)
+            {
                 findings.AddRange(Provenance.FindingRows(doc, datasetId, $"provenance.json flags ({stageName})"));
+                searchProvenanceSha256 = (string)source["sha256"]!;
+            }
         }
 
         var metrics = Provenance.MetricRows(searchProvenance, datasetId, provenanceVersion, searchNamespace, rules);
@@ -656,11 +660,27 @@ public static class Ingester
         {
             writer.AddSource(resultsPath, "results_txt", "results.txt");
             results = Readers.ReadResultsTxt(resultsPath, log);
-            metrics.AddRange(ResultsMetrics(results, datasetId, runNames, searchNamespace));
+            metrics.AddRange(ResultsMetrics(results, datasetId, runNames, searchNamespace, rules));
         }
         // Here rather than with the other provenance metrics because the per-run rows need the deposited run
         // names, which only exist once the runs are built (aging 014 section 3).
         metrics.AddRange(Provenance.ContaminationMetricRows(searchProvenance, datasetId, runNames, searchNamespace));
+        if (rules == IngestRules.Current)
+        {
+            // 1.5.0 item 7: PXReprise's per-run counts over the whole search's 1% set. The payload and the record that
+            // ties it to this search are sources only when a count of theirs is stored: nothing else reaches a row.
+            var payload = QcPayload.Read(QcPayload.Find(runDir, searchProvenanceSha256),
+                runRows.Select(r => (string)r["run_id"]!).ToHashSet(StringComparer.Ordinal), datasetId);
+            if (payload.Read is { } stage && payload.Metrics.Count > 0)
+            {
+                var record = writer.AddSource(stage.ProvenancePath, $"provenance:{stage.StageDir}", $"provenance_{stage.StageDir}.json");
+                provenanceRows.Add(Provenance.RecordRow(stage.Provenance, datasetId, stage.StageDir, (string)record["bundle_path"]!, (string)record["sha256"]!, rules));
+                writer.AddSource(stage.PayloadPath, "qc_payload", QcPayload.FileName);
+                metrics.AddRange(payload.Metrics);
+            }
+            findings.AddRange(QcPayloadFindings(payload, datasetId));
+            findings.AddRange(RunCountFindings(runRows, metrics, File.Exists(resultsPath), SearchParams.WriteIndividualFiles(taskFiles), datasetId));
+        }
 
         // --- the dataset row ------------------------------------------------------------------------------
         var instruments = sdrf.RunFacts.Values
@@ -1039,6 +1059,108 @@ public static class Ingester
                 + $"matched'), and {report.NoPeptidoform} whose full sequence gives no peptidoform of this bundle.");
     }
 
+    /// <summary>The per-run counts results.txt gives (<see cref="ResultsMetrics"/>), in the order a finding names them.</summary>
+    public static readonly IReadOnlyList<string> RunCountNames = ["psms_1pct", "peptides", "protein_groups", "precursors", "ms2_scans"];
+
+    /// <summary>Which per-run counts results.txt did not give, and why, so a run with no such row reads as "not
+    /// written", never as "none" (1.5.0 build list item 7).</summary>
+    /// <remarks>MetaMorpheus writes a file's PSM, peptide and protein-group lines (and, before 1.1.14, MetaMorpheus #2955,
+    /// its precursor and MS2 lines) only when the search task's <c>WriteIndividualFiles</c> is true and two or more
+    /// files were searched (<c>PostSearchAnalysisTask.cs:91-101</c>, <c>:1221</c> at <c>6e152da70</c>). PXReprise's @14
+    /// profiles set it false, and 43 of the 187 deposits aging served on 2026-11-11 had none of these rows, with nothing
+    /// saying so. The QC report counts every run's MS2 spectra (<c>runs.ms2_spectra</c>, <c>metrics</c> <c>ms2</c>), so
+    /// the finding says how many runs it covers when <c>ms2_scans</c> is missing.</remarks>
+    /// <param name="writeIndividualFiles">The search task's setting (<see cref="SearchParams.WriteIndividualFiles"/>).</param>
+    public static IEnumerable<Row> RunCountFindings(IReadOnlyList<Row> runRows, IReadOnlyList<Row> metrics, bool resultsTxtRead,
+        bool? writeIndividualFiles, string datasetId)
+    {
+        var runIds = runRows.Select(r => (string)r["run_id"]!).ToHashSet(StringComparer.Ordinal);
+        if (runIds.Count == 0) yield break;
+        var given = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        foreach (var m in metrics)
+        {
+            if (!Equals(m.GetValueOrDefault("scope"), "run") || m.GetValueOrDefault("scope_id") is not string runId || !runIds.Contains(runId))
+                continue;
+            var name = m.GetValueOrDefault("name") as string;
+            var key = m.GetValueOrDefault("source") switch
+            {
+                "results.txt" => name,
+                "qc_report.json" when name == "ms2" => "qc_report:ms2",
+                QcPayload.FileName => $"qc_payload:{name}",
+                _ => null,
+            };
+            if (key is null) continue;
+            if (!given.TryGetValue(key, out var runs)) given[key] = runs = new HashSet<string>(StringComparer.Ordinal);
+            runs.Add(runId);
+        }
+        int Given(string key) => given.TryGetValue(key, out var runs) ? runs.Count : 0;
+        var n = runIds.Count;
+        var missing = RunCountNames.Where(c => Given(c) < n).ToList();
+        if (missing.Count == 0) yield break;
+
+        var why = !resultsTxtRead
+            ? "The search left no results.txt."
+            : n == 1
+                ? "MetaMorpheus writes results.txt's per-file lines only for a search of two or more files, and this deposit has "
+                  + "one run, so its deposit-wide rows (`scope = 'dataset'`) count that run."
+                : writeIndividualFiles == false
+                    ? "The search task sets `WriteIndividualFiles = false`, and MetaMorpheus writes results.txt's per-file PSM, "
+                      + "peptide and protein-group lines only when it is true (before 1.1.14, MetaMorpheus #2955, its per-file "
+                      + "precursor and MS2 lines too)."
+                    : "results.txt has no per-file line naming these runs.";
+        var qcMs2 = Given("qc_report:ms2");
+        var ms2 = !missing.Contains("ms2_scans") ? ""
+            : qcMs2 > 0
+                ? $" Each run's MS2 spectra are also counted by the QC report, in `runs.ms2_spectra` and `metrics` (`name = 'ms2'`, "
+                  + $"`source = 'qc_report.json'`), for {qcMs2} of the {n} runs."
+                : " The QC report gives these runs no MS2 count either.";
+        // results.txt's name -> the payload's count of the same thing over the whole search's 1% set.
+        var wholeSearch = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["psms_1pct"] = QcPayload.Counts[0].Name, ["peptides"] = QcPayload.Counts[1].Name, ["protein_groups"] = QcPayload.Counts[2].Name,
+        };
+        var instead = missing.Where(wholeSearch.ContainsKey).Select(c => wholeSearch[c]).ToList();
+        var payload = instead.Count == 0 ? ""
+            : QcPayload.Counts.Any(c => Given($"qc_payload:{c.Name}") > 0)
+                ? " PXReprise's QC payload counts each run's share of the whole search's 1% set instead, a different number (the "
+                  + "FDR is the whole search's, not recomputed on each file), under names of its own (`source = 'qc_payload.json'`): "
+                  + string.Join(", ", instead.Select(c => $"`{c}` for {(Given($"qc_payload:{c}") is var k && k > 0 ? $"{k} of the {n} runs" : "none of them")}"))
+                  + "."
+                : " No QC payload of this search gives these runs a whole-search count either.";
+        yield return Finding(datasetId, "run_counts_missing", "info",
+            "No per-run `metrics` row from results.txt for "
+            + string.Join(", ", missing.Select(c => $"`{c}` ({n - Given(c)} of {n} runs)"))
+            + $". These counts were not written, which is not a count of zero. {why}{ms2}{payload}");
+    }
+
+    /// <summary>What reading PXReprise's QC payload left out, and why (<see cref="QcPayload"/>).</summary>
+    public static IEnumerable<Row> QcPayloadFindings(QcPayload.Reading reading, string datasetId)
+    {
+        var notRead = reading.Changed.Select(s => $"`{s}` (its {QcPayload.FileName} is missing, or is not the file its stage record wrote)")
+            .Concat(reading.Unreadable.Select(u => $"`{u.StageDir}` ({u.Why})"))
+            .ToList();
+        if (reading.Ambiguous.Count > 0)
+            notRead.Add(string.Join(" and ", reading.Ambiguous.Select(s => $"`{s}`"))
+                + " (each names this search and gives counts, and which one is the search's is not ours to choose)");
+        if (notRead.Count > 0)
+            yield return Finding(datasetId, "qc_payload_not_read", "warning",
+                "A QC payload stage names this search by its provenance's sha256, and no count of it is stored: "
+                + string.Join("; ", notRead) + ".");
+        var stage = reading.Read is { } read ? $"`{read.StageDir}`" : "the";
+        if (reading.UnknownDefinitions.Count > 0)
+            yield return Finding(datasetId, "qc_payload_definition_unknown", "warning",
+                $"The QC payload in {stage} counts " + string.Join(", ", reading.UnknownDefinitions) + ". This ingester carries no "
+                + "text for that definition at that version, so those counts are not stored: a number is stored only beside its owner's definition.");
+        if (reading.UnplacedFiles.Count > 0)
+            yield return Finding(datasetId, "qc_payload_files_unplaced", "warning",
+                $"{reading.UnplacedFiles.Count} file(s) of the QC payload in {stage} carry counts and name no run of this bundle, so their "
+                + "counts are not stored: " + Examples(reading.UnplacedFiles, 5) + ".");
+        if (reading.NotWholeNumbers.Count > 0)
+            yield return Finding(datasetId, "qc_payload_counts_not_whole", "warning",
+                $"{reading.NotWholeNumbers.Count} count(s) of the QC payload in {stage} are not whole numbers, so they are not stored: "
+                + Examples(reading.NotWholeNumbers, 5) + ".");
+    }
+
     private static Row Finding(string datasetId, string code, string severity, string message, string? runId = null, string source = "datarepo ingest") => new()
     {
         ["finding_id"] = $"{datasetId}:{code}",
@@ -1140,7 +1262,11 @@ public static class Ingester
     };
 
     /// <summary>Metric rows for every total MetaMorpheus's results.txt reports.</summary>
-    private static List<Row> ResultsMetrics(Dictionary<string, Dictionary<string, long>> results, string datasetId, RunNameMap runNames, string ns)
+    /// <remarks>A per-file PSM, peptide or protein-group line recomputes the FDR on that file alone, so under
+    /// <see cref="IngestRules.Current"/> it cites aging's per-file definition (1.5.0 item 7), which has no pxreprise twin;
+    /// before, it cited the deposit-wide one. A scan or precursor count partitions, so one definition serves both grains.</remarks>
+    private static List<Row> ResultsMetrics(Dictionary<string, Dictionary<string, long>> results, string datasetId, RunNameMap runNames, string ns,
+        IngestRules rules = IngestRules.Current)
     {
         var definitionFor = new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -1149,6 +1275,12 @@ public static class Ingester
             ["protein_groups"] = Definitions.Cite(Definitions.ProteinGroupCount1pct, ns),
             ["ms2_scans"] = Definitions.Cite(Definitions.Ms2Count, ns),
             ["precursors"] = Definitions.Cite(Definitions.PrecursorCount, ns),
+        };
+        var runDefinitionFor = rules != IngestRules.Current ? definitionFor : new Dictionary<string, string>(definitionFor, StringComparer.Ordinal)
+        {
+            ["psms"] = Definitions.Cite(Definitions.Psm1pctRun, ns),
+            ["peptides"] = Definitions.Cite(Definitions.PeptideCount1pctRun, ns),
+            ["protein_groups"] = Definitions.Cite(Definitions.ProteinGroupCount1pctRun, ns),
         };
         var rows = new List<Row>();
         foreach (var (scope, counts) in results)
@@ -1163,7 +1295,7 @@ public static class Ingester
             else (scopeKind, scopeId) = ("dataset", datasetId);
             foreach (var (name, value) in counts)
             {
-                if (!definitionFor.TryGetValue(name, out var definition)) continue;
+                if (!(scopeKind == "run" ? runDefinitionFor : definitionFor).TryGetValue(name, out var definition)) continue;
                 rows.Add(new Row
                 {
                     ["scope"] = scopeKind,
