@@ -7,6 +7,15 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.47 (unreleased)
+
+- **A TMT or iTRAQ search's QC payload counts each run's protein groups** (dataRepo 110, PXR-R60). The `qc-payload/2`
+  per-run `protein_groups` were read only from `AllQuantifiedProteinGroups.tsv`, which an isobaric search does not write,
+  so 43 of the 68 `/2` payloads aging serves had none, with a note that wrongly blamed missing columns. The payload now
+  reads `AllProteinGroups.tsv` when there is no quantified table (it has the same `Unique Peptides` and `Shared Peptides`
+  columns), records it as an input, and says "the search wrote no protein-group table" when there is neither. Label-free
+  payloads are unchanged.
+
 ## 0.4.46 (2026-11-12)
 
 **MetaMorpheus** unchanged. **Machine file:** no change needed (`output_sdrf_read_only` is new, default `true`). **Safe

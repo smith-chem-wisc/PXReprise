@@ -336,6 +336,7 @@ public static class QcPayloadBuilder
     /// </summary>
     public static List<HashSet<string>>? ParseProteinGroupPeptides(string path)
     {
+        // Both tables carry Unique Peptides, Shared Peptides, Protein QValue and the decoy column.
         if (!File.Exists(path)) return null;
         var head = Tsv.Header(path);
         if (!head.Contains("Unique Peptides") || !head.Contains("Shared Peptides")) return null;
@@ -352,6 +353,18 @@ public static class QcPayloadBuilder
             groups.Add(peptides);
         }
         return groups;
+    }
+
+    /// <summary>
+    /// The search's protein-group table: <c>AllQuantifiedProteinGroups.tsv</c> when label-free quantification wrote it,
+    /// else <c>AllProteinGroups.tsv</c>, the only one an isobaric search writes (dataRepo 110, PXR-R60: 43 TMT and iTRAQ
+    /// payloads had no per-run protein_groups). Null when the search wrote neither.
+    /// </summary>
+    public static string? ProteinGroupTable(string task)
+    {
+        foreach (string name in new[] { "AllQuantifiedProteinGroups.tsv", "AllProteinGroups.tsv" })
+            if (File.Exists(Path.Combine(task, name))) return Path.Combine(task, name);
+        return null;
     }
 
     /// <summary>
@@ -649,7 +662,8 @@ public static class QcPayloadBuilder
         var pg = ParseProteinGroups(Path.Combine(task, "AllQuantifiedProteinGroups.tsv"));
         // /2: the whole search's 1% peptide and group sets, each run's share of them taken from its own 1% PSMs.
         var peptideSet = v2 ? ParsePeptideSet(Path.Combine(task, "AllPeptides.psmtsv")) : null;
-        var groups = v2 ? ParseProteinGroupPeptides(Path.Combine(task, "AllQuantifiedProteinGroups.tsv")) : null;
+        string? groupTable = v2 ? ProteinGroupTable(task) : null;
+        var groups = groupTable is null ? null : ParseProteinGroupPeptides(groupTable);
         var groupsByPeptide = groups is null ? null : IndexGroups(groups);
         string provFile = Path.Combine(searchDir, "provenance.json");
         var searchProvenance = File.Exists(provFile) ? JsonNode.Parse(File.ReadAllText(provFile, Encoding.UTF8)) : null;
@@ -715,8 +729,10 @@ public static class QcPayloadBuilder
         if (v2 && peptideSet is null)
             notes.Add("peptides is NOT REPORTED per file: the search has no AllPeptides.psmtsv. Absent means not measured.");
         if (v2 && groups is null)
-            notes.Add("protein_groups is NOT REPORTED per file: the protein-group table has no Unique Peptides and Shared "
-                      + "Peptides columns. Absent means not measured.");
+            notes.Add(groupTable is null
+                ? "protein_groups is NOT REPORTED per file: the search wrote no protein-group table. Absent means not measured."
+                : "protein_groups is NOT REPORTED per file: the protein-group table has no Unique Peptides and Shared "
+                  + "Peptides columns. Absent means not measured.");
         notes.Add(pg.Quantified is > 0
             ? "pg_missing_frac_msms is DEF-QC-13's _msms variant (SpectralCount_ > 0). The _any variant "
               + "(pg_missing_frac) is not computed and is absent: MBR is on in every run, so an "

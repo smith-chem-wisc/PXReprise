@@ -52,8 +52,8 @@ public static class QcPayloadStage
         prov.Input(Path.Combine(task, "results.txt"));
         prov.Input(Path.Combine(task, "AllPSMs.psmtsv"));
         // qc-payload/2: the whole search's 1% peptides and protein groups the per-file counts are shares of.
-        foreach (string t in new[] { "AllPeptides.psmtsv", "AllQuantifiedProteinGroups.tsv" })
-            if (File.Exists(Path.Combine(task, t))) prov.Input(Path.Combine(task, t));
+        if (File.Exists(Path.Combine(task, "AllPeptides.psmtsv"))) prov.Input(Path.Combine(task, "AllPeptides.psmtsv"));
+        if (QcPayloadBuilder.ProteinGroupTable(task) is { } groupTable) prov.Input(groupTable);
 
         string payloadFile = Path.Combine(outDir, "qc_payload.json");
         File.WriteAllText(payloadFile, result.Payload.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = Envelope.Json.Encoder }), new UTF8Encoding(false));
