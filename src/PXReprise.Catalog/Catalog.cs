@@ -835,8 +835,8 @@ public static partial class CatalogBuilder
             }),
         [DepositContactsTable] = new(
             "The people PRIDE's record names for a deposit, one row per person per role, every value as PRIDE wrote it "
-            + "(untrimmed; PRIDE's empty string is NULL here). E-mail is never stored: PRIDE's e-mail field is left out, and an "
-            + "address a submitter typed into another field reads `[e-mail removed]`. **None of these columns identifies a "
+            + "(untrimmed; PRIDE's empty string is NULL here), e-mail included: PRIDE publishes all of it (D65). **None of these "
+            + "columns identifies a "
             + "person or a lab on its own** (measured on 193 records, ptmQtl 061): a lab head's `pride_contact_id` is a fresh "
             + "copy per deposit, no lab head had an ORCID, a submitter account can be a core facility serving several labs, "
             + "the lab head can be the mass-spectrometry collaborator, and names vary (`last_name` `PhD`; one lab head spelled "
@@ -850,6 +850,8 @@ public static partial class CatalogBuilder
                 ["pride_contact_id"] = "PRIDE's internal id for this contact entry. NOT a person: a lab head's id is a new "
                     + "copy on every deposit, and a submitter's is an account, which can be a facility's.",
                 ["orcid"] = "The ORCID iD, where the person published one.",
+                ["email"] = "The contact e-mail as PRIDE publishes it; NULL where the person published none. Free-text fields "
+                    + "such as `affiliation` can hold an address or a telephone number too, kept as written.",
             }),
         [DepositReferencesTable] = new(
             "The papers PRIDE's record lists for a deposit, one row each, in PRIDE's order. A deposit can list none (22 of "

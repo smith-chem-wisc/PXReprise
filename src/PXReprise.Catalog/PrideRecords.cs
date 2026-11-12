@@ -34,8 +34,9 @@ public sealed record PrideFetchResult(string Accession, string Outcome, bool? Fo
 /// <c>PrideArchiveClient.TryGetProjectAsync</c> reads them, and <c>fetch.json</c>, when and with what. Add-only: a fetch
 /// that finds the record unchanged writes nothing, one that finds it changed writes a new directory, and <c>build</c> serves
 /// the newest. Its sha256 is part of the catalog id, never a bundle id.</para>
-/// <para><b>E-mail is never stored</b>: it is personal contact data, and the lab rule does not need it (ptmQtl 062).
-/// Everything else is kept as mzLib read it, PRIDE's empty strings included; the catalog makes an empty string NULL.</para>
+/// <para><b>Everything is kept as mzLib read it</b>, e-mail included, and nothing is redacted: PRIDE publishes it, and the
+/// user's group writes to depositors and lab heads (D65, reversing the exclusion of our ptmQtl 061). PRIDE's empty strings
+/// are kept too; the catalog makes an empty string NULL.</para>
 /// <para><b>Only this command reaches the network.</b> <c>build</c> reads what was fetched and fetches nothing, and the
 /// runner fetches nothing (U14).</para>
 /// </remarks>
@@ -67,29 +68,16 @@ public static class PrideRecords
                 .Select(Usi.DepositAccession).Distinct(StringComparer.Ordinal).Order(SourcesPy.CodePointOrder).ToList()
             : [];
 
-    /// <summary>What an e-mail address in a kept text is replaced with.</summary>
-    public const string EmailRemoved = "[e-mail removed]";
-
-    /// <summary>An e-mail address anywhere in a text: a local part, <c>@</c>, and a domain with a dot.</summary>
-    private static readonly System.Text.RegularExpressions.Regex EmailAddress =
-        new(@"[A-Za-z0-9._%+'-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
-
-    /// <summary>A text as kept: verbatim, but for any e-mail address in it, which is replaced by <see cref="EmailRemoved"/>.</summary>
-    /// <remarks>PRIDE's own e-mail field is left out, and that is not enough: submitters type addresses into free text.
-    /// Of the 194 records fetched on 2026-11-12, two affiliations held one ("... | Email: ...", "[Data also submitted and owned
-    /// by Dr ... (...@...)]"). An <c>@</c> with no dotted domain after it (<c>BayBioMS@MRI</c>) is a name, and is kept.</remarks>
-    public static string? WithoutEmail(string? text) => text is null ? null : EmailAddress.Replace(text, EmailRemoved);
-
-    /// <summary>A PRIDE project as kept: the fields the three tables read, as mzLib read them, with no e-mail address
-    /// (<see cref="WithoutEmail"/>). A project PRIDE has no record of is kept too (<c>found = false</c>), so "no record" is
-    /// never confused with "not fetched".</summary>
+    /// <summary>A PRIDE project as kept: the fields the three tables read, every value as mzLib read it, e-mail included
+    /// (D65). A project PRIDE has no record of is kept too (<c>found = false</c>), so "no record" is never confused with
+    /// "not fetched".</summary>
     public static OrderedDictionary<string, object?> RecordOf(string accession, bool found, PrideProject? project)
     {
         static OrderedDictionary<string, object?> Contact(PrideContact c) => new(StringComparer.Ordinal)
         {
-            ["name"] = WithoutEmail(c.Name), ["title"] = WithoutEmail(c.Title), ["first_name"] = WithoutEmail(c.FirstName),
-            ["last_name"] = WithoutEmail(c.LastName), ["affiliation"] = WithoutEmail(c.Affiliation), ["country"] = WithoutEmail(c.Country),
-            ["orcid"] = WithoutEmail(c.Orcid), ["pride_contact_id"] = WithoutEmail(Convert.ToString(c.Id, CultureInfo.InvariantCulture)),
+            ["name"] = c.Name, ["title"] = c.Title, ["first_name"] = c.FirstName, ["last_name"] = c.LastName,
+            ["affiliation"] = c.Affiliation, ["country"] = c.Country, ["email"] = c.Email, ["orcid"] = c.Orcid,
+            ["pride_contact_id"] = Convert.ToString(c.Id, CultureInfo.InvariantCulture),
         };
         var record = new OrderedDictionary<string, object?>(StringComparer.Ordinal)
         {
@@ -100,9 +88,9 @@ public static class PrideRecords
         record["submitters"] = (project.Submitters ?? []).Select(c => (object?)Contact(c)).ToList();
         record["references"] = (project.References ?? []).Select(r => (object?)new OrderedDictionary<string, object?>(StringComparer.Ordinal)
         {
-            ["reference_line"] = WithoutEmail(r.ReferenceLine),
+            ["reference_line"] = r.ReferenceLine,
             ["pubmed_id"] = Convert.ToInt64(r.PubmedId, CultureInfo.InvariantCulture),
-            ["doi"] = WithoutEmail(r.Doi),
+            ["doi"] = r.Doi,
         }).ToList();
         return record;
     }
@@ -229,7 +217,7 @@ public static class PrideRecords
         CatalogBuilder.Exec(con, $@"
         CREATE TABLE ""{CatalogBuilder.DepositContactsTable}"" (
             accession VARCHAR, role VARCHAR, ordinal BIGINT, name VARCHAR, title VARCHAR, first_name VARCHAR,
-            last_name VARCHAR, affiliation VARCHAR, country VARCHAR, orcid VARCHAR, pride_contact_id VARCHAR
+            last_name VARCHAR, affiliation VARCHAR, country VARCHAR, email VARCHAR, orcid VARCHAR, pride_contact_id VARCHAR
         )");
         CatalogBuilder.Exec(con, $@"
         CREATE TABLE ""{CatalogBuilder.DepositReferencesTable}"" (
@@ -247,10 +235,10 @@ public static class PrideRecords
                 foreach (var c in r.Record.GetValueOrDefault(key) as IEnumerable<object?> ?? [])
                 {
                     var contact = (IReadOnlyDictionary<string, object?>)c!;
-                    CatalogBuilder.Exec(con, $"INSERT INTO \"{CatalogBuilder.DepositContactsTable}\" VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    CatalogBuilder.Exec(con, $"INSERT INTO \"{CatalogBuilder.DepositContactsTable}\" VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         r.Accession, role, ++ordinal, Text(contact.GetValueOrDefault("name")), Text(contact.GetValueOrDefault("title")),
                         Text(contact.GetValueOrDefault("first_name")), Text(contact.GetValueOrDefault("last_name")),
-                        Text(contact.GetValueOrDefault("affiliation")), Text(contact.GetValueOrDefault("country")),
+                        Text(contact.GetValueOrDefault("affiliation")), Text(contact.GetValueOrDefault("country")), Text(contact.GetValueOrDefault("email")),
                         Text(contact.GetValueOrDefault("orcid")), Text(contact.GetValueOrDefault("pride_contact_id")));
                 }
             }

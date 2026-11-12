@@ -39,39 +39,26 @@ public class PrideRecordsTests
 
     private static DateTime At(int minute) => new(2026, 11, 12, 20, minute, 0, DateTimeKind.Utc);
 
+    /// <summary>Every value as mzLib read it, e-mail included, and free text untouched (D65: PRIDE is public, and the user's
+    /// group writes to depositors and lab heads).</summary>
     [Test]
-    public void ARecordKeepsWhatMzLibReadAndNeverTheEmail()
+    public void ARecordKeepsWhatMzLibReadEmailIncluded()
     {
-        var record = PrideRecords.RecordOf("PXD000001", true, Project());
-        var text = PXReprise.Bundle.PyFormat.JsonIndented(record);
+        var project = Project();
+        project.LabPIs[0].Affiliation = "Some Institute, Rm 1 | Tel: 555-0100 | Email: a.person@example.org";
+        var record = PrideRecords.RecordOf("PXD000001", true, project);
         Assert.Multiple(() =>
         {
-            Assert.That(text, Does.Not.Contain("example.org").And.Not.Contain("email"), "e-mail is never kept (ptmQtl 062)");
             Assert.That(record["found"], Is.EqualTo(true));
             var head = (IReadOnlyDictionary<string, object?>)((List<object?>)record["lab_heads"]!).Single()!;
-            Assert.That(head["affiliation"], Is.EqualTo(""), "PRIDE's empty string is kept as written; the catalog makes it NULL");
+            var submitter = (IReadOnlyDictionary<string, object?>)((List<object?>)record["submitters"]!).Single()!;
+            Assert.That(head["email"], Is.EqualTo("someone@example.org"));
+            Assert.That(head["affiliation"], Is.EqualTo("Some Institute, Rm 1 | Tel: 555-0100 | Email: a.person@example.org"), "free text verbatim");
+            Assert.That(submitter["affiliation"], Is.EqualTo(""), "PRIDE's empty string is kept as written; the catalog makes it NULL");
             Assert.That(head["pride_contact_id"], Is.EqualTo("101"));
             Assert.That(((List<object?>)record["references"]!).Count, Is.EqualTo(2));
             Assert.That(PrideRecords.RecordOf("PXD000002", false, null).Keys, Is.EqualTo(new[] { "accession", "archive", "found" }),
                 "no project: kept as found = false, with nothing else");
-        });
-    }
-
-    /// <summary>Submitters type addresses into free text (2 of 194 affiliations on 2026-11-12), so leaving PRIDE's e-mail
-    /// field out is not enough: an address anywhere is replaced. A name with an <c>@</c> and no dotted domain is kept.</summary>
-    [Test]
-    public void AnEmailAddressInFreeTextIsNotKeptEither()
-    {
-        var project = Project();
-        project.LabPIs[0].Affiliation = "Some Institute, Rm 1 | Email: a.person@example.org Lab website: http://lab.example.org/";
-        project.Submitters[0].Affiliation = "BayBioMS@MRI - a facility [Data also owned by Dr X (x.y+z@dept.example.ac.uk)]";
-        var text = PXReprise.Bundle.PyFormat.JsonIndented(PrideRecords.RecordOf("PXD000001", true, project));
-        Assert.Multiple(() =>
-        {
-            Assert.That(text, Does.Not.Contain("a.person@").And.Not.Contain("x.y+z@"));
-            Assert.That(text, Does.Contain("| Email: [e-mail removed] Lab website: http://lab.example.org/"));
-            Assert.That(text, Does.Contain("BayBioMS@MRI - a facility [Data also owned by Dr X ([e-mail removed])]"));
-            Assert.That(text, Does.Contain("\"doi\": \"10.1021/x\""), "a DOI is not an address");
         });
     }
 

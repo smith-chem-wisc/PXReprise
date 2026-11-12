@@ -185,7 +185,7 @@ protein", which is the question the repository exists for.
 | `run_exclusions` | 1/excluded run | runs the manifest's `excluded_runs` leaves out of analysis, with the reason; `run_id` joins `runs` |
 | `dataset_restrictions` | 1/dataset/use | uses the manifest's `restrictions` says the whole dataset is unfit for, with the reason; the same uses are listed on `dataset_overview.restrictions` (NULL when the manifest has no entry for the dataset) |
 | `deposit_records` | 1/deposit fetched | from 1.5.0: whether PRIDE had a record (`found`), when it was fetched, its sha256 and the mzLib that read it; no row means never fetched |
-| `deposit_contacts` | 1/person/role | PRIDE's lab heads and submitters, every value as PRIDE wrote it (an empty string is NULL), never an e-mail |
+| `deposit_contacts` | 1/person/role | PRIDE's lab heads and submitters, every value as PRIDE wrote it, e-mail included (an empty string is NULL) |
 | `deposit_references` | 1/paper | PRIDE's citation line, PubMed id (NULL for PRIDE's 0) and DOI |
 | `shared_raw_files` (view) | 1/run | runs whose raw file is served more than once, found by `runs.sha256`, never by name: how many copies, which runs, and whether a copy is in the same deposit or another |
 
