@@ -165,12 +165,68 @@ public static class QuestionLoader
             sx.RefuseUnknownKeys();
         }
 
+        // v0.4.46 (aging PXR-A179, their D171): [gate], rules over a deposit's own text before the census queues it.
+        GateTerms? gate = null;
+        if (root.OptionalTable("gate") is { } gt)
+        {
+            IReadOnlyList<GateTerm> Terms(string key) => gt.StringList(key).Select(t => Term(file, $"gate.{key}", t)).ToList();
+            var strong = Terms("strong");
+            if (strong.Count == 0) throw new ConfigException(file, "gate.strong names no term: the gate would queue nothing");
+            string referenceGroup = gt.OptionalString("reference_group") ?? "required";
+            if (referenceGroup is not ("required" or "off"))
+                throw new ConfigException(file, $"gate.reference_group must be \"required\" or \"off\" (got '{referenceGroup}')");
+            gate = new GateTerms(strong, Terms("weak"), Terms("other_sense"), Terms("watch_if_any"), Terms("watch_without_strong"),
+                referenceGroup == "required");
+            gt.RefuseUnknownKeys();
+        }
+
+        // v0.4.46 (aging PXR-A51, DATAREPO-74; the user, 2026-11-11, chose that the engine writes them, not a hand edit of
+        // the manifest): [restrictions.<key>] use = "reason", the uses a whole delivered dataset is unfit for that no fact the
+        // engine records can show (an immunopeptidome searched as tryptic, too few PSMs for protein statistics). The engine
+        // adds its own rule (Batch.Restrictions: any enrichment restricts occupancy) and writes both into the manifest.
+        var restrictions = new SortedDictionary<string, IReadOnlyDictionary<string, string>>(StringComparer.Ordinal);
+        if (root.OptionalTable("restrictions") is { } rx)
+        {
+            foreach (string key in rx.Keys.ToList())
+            {
+                if (!IsAccession(SearchKey.Accession(key)))
+                    throw new ConfigException(file, $"'restrictions' key '{key}' is not a PXD accession or a split search's key (PXD027754-rat)");
+                var t = rx.RequiredTable(key);
+                var uses = new SortedDictionary<string, string>(StringComparer.Ordinal);
+                foreach (string use in t.Keys.ToList())
+                {
+                    if (!Question.RestrictionUses.Contains(use))
+                        throw new ConfigException(file, $"restrictions.{key}.{use} is not a use dataRepo knows ({string.Join(", ", Question.RestrictionUses)}): "
+                            + "dataRepo refuses the whole manifest over it, and a use no filter knows leaves the dataset looking unrestricted");
+                    string reason = t.RequiredString(use).Trim();
+                    if (reason.Length == 0) throw new ConfigException(file, $"restrictions.{key}.{use} gives no reason: a reader is owed why the dataset is unfit for it");
+                    uses[use] = reason;
+                }
+                if (uses.Count == 0) throw new ConfigException(file, $"restrictions.{key} names no use");
+                t.RefuseUnknownKeys();
+                restrictions[key] = uses;
+            }
+            rx.RefuseUnknownKeys();
+        }
+
         root.RefuseUnknownKeys();
         return new Question(name, description, file, profiles, keywords, organisms,
             new RelevanceRules(require, exclude, unless, decisions), overlays, requiredTraits, optionalTraits,
             traitsSource, holds, studyLayer, batch,
             new PublishSettings(manifest is null ? null : Abs(dir, manifest), command, everyHours, publishTimeout), designs,
-            new DiscoverLists(diseaseKeywords, watchKeywords), exceptions, splits);
+            new DiscoverLists(diseaseKeywords, watchKeywords), exceptions, splits, gate, restrictions);
+    }
+
+    /// <summary>
+    /// A gate term, matched case-insensitively on word boundaries: no letter, digit or underscore just before or after it, so
+    /// "old" does not match "threshold" and a term may itself start or end with punctuation. The text it is matched against
+    /// has every Unicode dash read as a hyphen and runs of whitespace as one space (Census.Gate.Normalize).
+    /// </summary>
+    internal static GateTerm Term(string file, string key, string term)
+    {
+        if (string.IsNullOrWhiteSpace(term)) throw new ConfigException(file, $"'{key}' holds an empty term");
+        try { return new GateTerm(term, new Regex($@"(?<![\p{{L}}\p{{N}}_])(?:{term})(?![\p{{L}}\p{{N}}_])", Opt)); }
+        catch (ArgumentException e) { throw new ConfigException(file, $"'{key}' term '{term}' is not a valid regular expression: {e.Message}"); }
     }
 
     /// <summary>The keys an <c>[exceptions]</c> entry and a <c>[splits]</c> group both take, read from <paramref name="t"/>.</summary>

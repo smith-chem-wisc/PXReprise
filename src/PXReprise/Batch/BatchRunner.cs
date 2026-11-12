@@ -412,6 +412,10 @@ public sealed class BatchRunner
         if (s is not null && Limits is { } lim && entry0 is { } entry
             && entry["machine_limits"]?.GetValue<string>() != lim.Describe() && lim.Admits(s, entry))
             return "";
+        // v0.4.46 (G69): an isobaric deposit waiting for its design gets ONE more look when the question's design SDRF for it
+        // is added or changed; the look records the new stamp, so a design that still gives none settles it again.
+        if (s == IsobaricDesignStatus && entry0?["design_stamp"]?.GetValue<string>() != DesignStamp(acc))
+            return "";
         return s is not null && (s is "fetch_failed" or "probe_fetch_failed" or "search_failed"
                                  || s.StartsWith("deferred_", StringComparison.Ordinal) || s.StartsWith("skipped_", StringComparison.Ordinal)
                                  || s.StartsWith("excluded_", StringComparison.Ordinal) || s.StartsWith("waiting_", StringComparison.Ordinal))
@@ -504,6 +508,7 @@ public sealed class BatchRunner
                 _ingestJson = vrc == 0 && TakesIngestJson(version);
                 Log($"  datarepo version: {(version.Length > 0 ? version : $"unknown (rc {vrc})")}; ingest reads {(_ingestJson ? "the --json envelope" : "the exit code")}");
             }
+            SyncRestrictions();
             await ReconcileAsync(queue, ct).ConfigureAwait(false);
             if (Publishes)
             {
@@ -1284,7 +1289,13 @@ public sealed class BatchRunner
             Experiment(acc, xr, "waiting_isobaric_enriched", held);
             return null;
         }
-        if (profile.QuantMethod == "reporter_ion") LogIsobaricDesign(acc, report, listing.Select(f => f.FileName).ToList());
+        if (profile.QuantMethod == "reporter_ion" && IsobaricDesignHold(acc, report, listing.Select(f => f.FileName).ToList()) is { } noDesign)
+        {
+            Log($"{acc} WAITING ({IsobaricDesignStatus}): {noDesign}");
+            Record(acc, ("status", IsobaricDesignStatus), ("detail", noDesign), ("design_stamp", DesignStamp(acc)));
+            Experiment(acc, xr, IsobaricDesignStatus, noDesign);
+            return null;
+        }
         Experiment(acc, xr, "probed", $"to be searched under {profile.Key}");
         return profile;
     }
@@ -1427,24 +1438,36 @@ public sealed class BatchRunner
     /// Never fails the batch: a record that cannot be written is logged.
     /// </summary>
     /// <summary>
-    /// v0.4.34 (PLAN_tmt-dda-2 stage 6): says, before the full download, which channel design an isobaric deposit will be
-    /// searched with (<see cref="Search.DesignStage.FindIsobaric"/> against the selection). With no SDRF that gives one, it
-    /// is searched on PXReprise's default design and delivered flagged <see cref="Search.DesignStage.NoChannelDesign"/>
-    /// (QuantProject 079), never parked: the identifications are as good as any deposit's, and the values become usable
-    /// when a design is curated and the deposit re-searched.
+    /// v0.4.46 (G69; the user, 2026-11-11): an isobaric deposit's park when no SDRF states its files' plexes, fractions and
+    /// technical replicates. A capability wait, not a person's decision: the SDRF is made for the deposit (D65; sdrf PXR-F15),
+    /// and the deposit gets one more look when the question's design for it changes (<see cref="DesignStamp"/>).
     /// </summary>
-    private void LogIsobaricDesign(string acc, JsonObject probeQc, IReadOnlyList<string> selection)
+    internal const string IsobaricDesignStatus = "waiting_isobaric_design";
+
+    /// <summary>
+    /// v0.4.34 (PLAN_tmt-dda-2 stage 6): which channel design an isobaric deposit will be searched with, said before the full
+    /// download (<see cref="Search.DesignStage.FindIsobaric"/> against the selection). v0.4.46 (G69): with no SDRF that gives
+    /// one, why the deposit waits, else null. Until v0.4.45 it was searched on a default design that made each file its own
+    /// plex, so a fraction or a repeat injection became a new plex and its channels new samples. The user, 2026-11-11: "These
+    /// are definitely not plexes ... These fractions also must correctly be collapsed ... I think this must be in SDRF."
+    /// Null also when the probe read no single kit: the search refuses that with its own reason.
+    /// </summary>
+    internal string? IsobaricDesignHold(string acc, JsonObject probeQc, IReadOnlyList<string> selection)
     {
         if (Qc.IsobaricReporters.DepositKit(probeQc.Select(kv => kv.Value?["isobaric_kit"]?.GetValue<string>())) is not { } kit)
-            return;   // the search refuses it, with its own reason
+            return null;
         string? curated = _q.Designs?.For(acc);
         var columns = _q.Designs is { ConditionColumns.Count: > 0 } ds ? ds.ConditionColumns : null;
-        if (Search.DesignStage.FindIsobaric(Path.Combine(Run(acc), "02_fetch", "metadata"), selection, curated, columns, kit, out var rec) is not null)
-            Log($"{acc} PROBE isobaric design: {kit}, the {rec["source"]} SDRF ({rec["plex_rule"]}; {rec["files"]} files)");
-        else
-            Log($"{acc} PROBE isobaric design: {kit}, none in any SDRF ({rec["reason"]}): searched on PXReprise's default design, "
-                + $"delivered flagged {Search.DesignStage.NoChannelDesign}");
+        if (Search.DesignStage.FindIsobaric(Path.Combine(Run(acc), "02_fetch", "metadata"), selection, curated, columns, kit, out var rec) is null)
+            return Search.DesignStage.MissingDesign(rec);
+        Log($"{acc} PROBE isobaric design: {kit}, the {rec["source"]} SDRF ({rec["plex_rule"]}; {rec["files"]} files)");
+        return null;
     }
+
+    /// <summary>The sha256 of the question's design SDRF for <paramref name="acc"/>, or <c>none</c>: recorded with an
+    /// <see cref="IsobaricDesignStatus"/> park, so a design added or changed later gives the deposit one more look.</summary>
+    internal string DesignStamp(string acc) =>
+        _q.Designs?.For(acc) is { } path && File.Exists(path) ? Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(path))) : "none";
 
     private void Experiment(string acc, ExperimentRecord xr, string outcome, string? detail, string? park = null)
     {
@@ -1617,6 +1640,14 @@ public sealed class BatchRunner
         try
         {
             outcome = await SearchStage.RunAsync(req, ct).ConfigureAwait(false);
+        }
+        catch (Search.IsobaricDesignMissingException ex)
+        {
+            // v0.4.46 (G69): nothing ran. A deposit probed before this build, or one whose SDRF changed since its probe, waits
+            // here as the probe would have parked it; its raws stay for the search its design makes possible.
+            Log($"{acc} SEARCH NOT STARTED, WAITING ({IsobaricDesignStatus}): {ex.Message}");
+            Record(acc, ("status", IsobaricDesignStatus), ("detail", ex.Message), ("design_stamp", DesignStamp(acc)));
+            return;
         }
         catch (Search.CalibrationNotCarriedException ex)
         {
@@ -1834,7 +1865,7 @@ public sealed class BatchRunner
         {
             ManifestEntry.EnsureExists(manifest, _q.Name, _runRoot);
             var split = _q.ExceptionFor(e.Accession)?.Split;
-            ManifestEntry.Append(manifest, e, profile, Run(e.Accession), Entry(e.Accession), _m.WorkRoot, split);
+            ManifestEntry.Append(manifest, e, profile, Run(e.Accession), Entry(e.Accession), _m.WorkRoot, split, _q.RestrictionsFor(e.Accession));
             Log($"{e.Accession} MANIFEST entry appended" + (split is null ? "" : $" (split by {split.By}; {split.Accession}'s own entry, if served, retired as superseded)"));
             var qcNames = JsonNode.Parse(File.ReadAllText(Path.Combine(Run(e.Accession), "02b_qc", "qc_report.json")))!.AsObject().Select(kv => kv.Key);
             if (MixedSamples.Detect(qcNames) is { } mixed)
@@ -1906,6 +1937,31 @@ public sealed class BatchRunner
             : "within a minute";
 
     private bool Publishes => _q.Publish is { Manifest: not null, Command.Count: > 0 } && _m.DataRepo is not null;
+
+    /// <summary>
+    /// v0.4.46 (aging PXR-A51): at each start, every manifest entry's <c>restrictions</c> is brought to the rule and the
+    /// question's <c>[restrictions]</c> (<see cref="Restrictions"/>). The driver reads the question only at start, so a start
+    /// is when a changed declaration can take effect; the first start of v0.4.46 writes them for every delivered entry. A
+    /// failure is logged and the batch goes on: a restriction is the catalog's annotation, not a delivery.
+    /// </summary>
+    private void SyncRestrictions()
+    {
+        if (_q.Publish?.Manifest is not { } mf || !File.Exists(mf)) return;
+        try
+        {
+            // v0.4.46 (G69): the isobaric entries searched on the default design, from their searches' provenance.
+            var noDesign = Restrictions.NoChannelDesignKeys(ManifestEntry.ReadLf(mf), _m.WorkRoot, out var unread);
+            var r = Restrictions.Sync(mf, _q.Restrictions, noChannelDesign: noDesign);
+            Log($"  restrictions {r.Restricted} entr{(r.Restricted == 1 ? "y" : "ies")} restricted ({noDesign.Count} for no stated isobaric design); {r.Changed.Count} rewritten"
+                + (r.Changed.Count > 0 ? $" ({string.Join(", ", r.Changed.Keys.Take(12))}{(r.Changed.Count > 12 ? ", ..." : "")})" : "")
+                + (r.Waiting.Count > 0 ? $"; the question's {string.Join(", ", r.Waiting)} wait for their delivery" : "")
+                + (unread.Count > 0 ? $"; WARNING: the search provenance of {unread.Count} isobaric entr{(unread.Count == 1 ? "y" : "ies")} did not read ({string.Join(", ", unread.Take(8))}), so their design is not judged" : ""));
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            Log($"  restrictions NOT synced: {ex.Message}");
+        }
+    }
 
     private volatile bool _publishRunning;
 
@@ -2674,16 +2730,45 @@ public sealed class BatchRunner
         if (_q.ExceptionFor(acc) is { SelectsFiles: true } exception) listing = listing.Where(f => exception.Keeps(f.FileName)).ToList();
         Log($"{acc} probe passed on {Entry(acc)?["probed_by"]} under {Entry(acc)?["profile"]}: duplicate and chemistry screen here, then the whole fetch");
         if (ExcludedAsDuplicate(acc, listing, null)) return false;
-        if (passed.Chemistry != "deposit") return true;
-        DepositChemistry chem;
-        try { chem = await ChemistryAsync(acc, all, listing.Select(f => f.FileName).ToList(), passed, ct).ConfigureAwait(false); }
-        catch (Exception ex) when (Envelope.IsUnavailable(ex) || FetchStage.IsTransient(ex)) { Log($"{acc} chemistry: PRIDE unavailable ({ex.Message}); retry next pass"); return false; }
-        if (UnsearchableChemistry(chem) is not { } wait) return true;
-        Log($"{acc} SCREENED OUT ({wait}): the worker's pass (package {Entry(acc)?["probe_package_utc"]}) is not searched; chemistry {Describe(chem)}");
-        Record(acc, ("status", wait), ("detail", Describe(chem)));
-        if (DecisionsNeeded.Announce(_runRoot, acc, wait, Describe(chem)) is { } d)
-            Log($"{acc} DECISION NEEDED ({wait}): {d.Question} Listed in {DecisionsNeeded.FileName}.");
-        return false;
+        if (passed.Chemistry == "deposit")
+        {
+            DepositChemistry chem;
+            try { chem = await ChemistryAsync(acc, all, listing.Select(f => f.FileName).ToList(), passed, ct).ConfigureAwait(false); }
+            catch (Exception ex) when (Envelope.IsUnavailable(ex) || FetchStage.IsTransient(ex)) { Log($"{acc} chemistry: PRIDE unavailable ({ex.Message}); retry next pass"); return false; }
+            if (UnsearchableChemistry(chem) is { } wait)
+            {
+                Log($"{acc} SCREENED OUT ({wait}): the worker's pass (package {Entry(acc)?["probe_package_utc"]}) is not searched; chemistry {Describe(chem)}");
+                Record(acc, ("status", wait), ("detail", Describe(chem)));
+                if (DecisionsNeeded.Announce(_runRoot, acc, wait, Describe(chem)) is { } d)
+                    Log($"{acc} DECISION NEEDED ({wait}): {d.Question} Listed in {DecisionsNeeded.FileName}.");
+                return false;
+            }
+        }
+        // v0.4.46 (G69, 2026-11-11): a pass made under v0.4.45 or before never met the isobaric design rule, and 71 TMT passes
+        // waited here at the release. Without this they would be fetched whole and refused only by the search, raws kept: the
+        // rule is the probe's, before the whole download, so it is asked here with the worker's probe QC.
+        if (passed.QuantMethod == "reporter_ion" && WorkerProbeQc(acc) is { } probeQc
+            && IsobaricDesignHold(acc, probeQc, listing.Select(f => f.FileName).ToList()) is { } noDesign)
+        {
+            Log($"{acc} SCREENED OUT ({IsobaricDesignStatus}): the worker's pass (package {Entry(acc)?["probe_package_utc"]}) is not fetched whole; {noDesign}");
+            Record(acc, ("status", IsobaricDesignStatus), ("detail", noDesign), ("design_stamp", DesignStamp(acc)));
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>The probe QC report a worker's package brought (<c>02b_qc_probe/qc_report.json</c>), or null when it has none
+    /// or it cannot be read; then the search's own refusal stands behind the isobaric design rule.</summary>
+    private JsonObject? WorkerProbeQc(string acc)
+    {
+        string f = Path.Combine(Run(acc), "02b_qc_probe", "qc_report.json");
+        if (!File.Exists(f)) return null;
+        try { return JsonNode.Parse(File.ReadAllText(f)) as JsonObject; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            Log($"{acc} probe QC report not read ({ex.Message}); the isobaric design is checked by the search");
+            return null;
+        }
     }
 
     /// <summary>

@@ -1,0 +1,13 @@
+{
+  "accession": "PXD025024",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "Human tRNAs with inosine 34 are essential to efficiently translate eukarya-specific low-complexity proteins",
+    "description": "The modification of adenosine to inosine at the wobble position (I34) of tRNA anticodons is an abundant and essential feature of eukaryotic tRNAs. The expansion of inosine-containing tRNAs in eukaryotes followed the transformation of the homodimeric bacterial enzyme TadA, which generates I34 in tRNAArg and tRNALeu, into the heterodimeric eukaryotic enzyme ADAT, which modifies up to eight different tRNAs. The emergence of ADAT and its larger set of substrates, strongly influenced the tRNA composition and codon usage of eukaryotic genomes. However, the selective advantages that drove the expansion of I34-tRNAs remain unknown. Here we investigate the functional relevance of I34-tRNAs in human cells and show that a full complement of these tRNAs is necessary for the translation of low-complexity protein domains enriched in amino acids cognate for I34-tRNAs. The coding sequences for these domains require codons translated by I34-tRNAs, in detriment of synonymous codons that use other tRNAs. I34-tRNA-dependent low-complexity proteins are enriched in functional categories related to cell adhesion, and depletion in I34-tRNAs leads to cellular phenotypes consistent with these roles. We show that the distribution of these low-complexity proteins mirrors the distribution of I34-tRNAs in the phylogenetic tree.",
+    "sample_protocol": "",
+    "keywords": "Transfer RNA; Inosine; low-complexity proteins; mucin-like domain; cell adhesion",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": "Human tRNAs with inosine 34 are essential to efficiently translate eukarya-specific low-complexity proteins"
+  }
+}

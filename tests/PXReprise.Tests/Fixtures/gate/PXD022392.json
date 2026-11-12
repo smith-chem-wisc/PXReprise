@@ -1,0 +1,13 @@
+{
+  "accession": "PXD022392",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "Col4a3 mouse glomerular datasets",
+    "description": "Glomeruli were isolated from Col4a3-/- and Ctrl mice. The extracellular matrix was enriched and both cellular and matrix fraction were analysed by mass spectrometry.",
+    "sample_protocol": "",
+    "keywords": "kidney, glomerulus, extracellular matrix, Col4a3, mouse",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": "Identification of an Altered Matrix Signature in Kidney Aging and Disease"
+  }
+}

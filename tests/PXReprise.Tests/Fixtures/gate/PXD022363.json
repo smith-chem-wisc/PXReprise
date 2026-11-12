@@ -1,0 +1,13 @@
+{
+  "accession": "PXD022363",
+  "source": "pride_project",
+  "fields": {
+    "title": "Col4a1 mouse glomerular datasets",
+    "description": "Glomeruli were isolated from Col4a1\u002B/SVC and Ctrl mice. Samples were enriched for extracellular matrix. Glomerular extracellular matrix and cellular fractions were analysed by mass spectrometry.",
+    "sample_protocol": "Following SDS\u2013PAGE, gel lanes were sliced and subjected to in-gel digestion with trypsin (20) with modifications (21). Peptide samples were analysed by liquid chromatography (LC)-tandem MS using a nanoACQUITY UltraPerformance LC system (Waters) coupled online to an LTQ Velos mass spectrometer (Thermo Fisher Scientific) or using an UltiMate 3000 Rapid Separation LC system (Thermo Fisher Scientific) coupled online to an Orbitrap Elite mass spectrometer (Thermo Fisher Scientific). Peptides were concentrated and desalted on a Symmetry C18 preparative column (20 mm \u00D7 180 \u03BCm, 5-\u03BCm particle size; Waters) and separated on a bridged ethyl hybrid C18 analytical column (250 mm \u00D7 75 \u03BCm, 1.7-\u03BCm particle size; Waters) using a 45-min linear gradient from 1% to 25% or 8%\u201333% (v/v) acetonitrile in 0.1% (v/v) formic acid at a flow rate of 200 nl min\u22121. Peptides were selected for fragmentation automatically by data-dependent analysis.",
+    "keywords": "Matrix fraction; Glomerulus; Mouse; Kidney; Col4a1; Cellular fraction",
+    "organism_parts": "Kidney",
+    "diseases": "",
+    "reference_titles": "Identification of an Altered Matrix Signature in Kidney Aging and Disease"
+  }
+}

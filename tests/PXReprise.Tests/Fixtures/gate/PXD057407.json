@@ -1,0 +1,13 @@
+{
+  "accession": "PXD057407",
+  "source": "pride_project",
+  "fields": {
+    "title": "Proteomic and Phosphoproteomic Signatures of Aging Mouse Liver",
+    "description": "We conducted a comparative proteomic and phosphoproteomic analysis of aging mice livers from young adults (3-4 months) and old (19-21 months) mice to identify age-related changes of liver proteins and phosphosites linked to various metabolic pathways.",
+    "sample_protocol": "Livers from adult and old mice (5 replicates/group) were homogenized and 500ug were used for reduction (using dithiothreitol), alkylation (using iodoacetamide) and digested (using trypisn). 20ug of desalted samples were then used for global analysis and the remainder was used for phospho enrichemnt using the Polymac enrichmnet kit (Tymora analytical). Raw LC-MS/MS data was acquired with an Orbitrap Fusion Lumos",
+    "keywords": "Phosphoproteomics; Kinases; Aging; Oxidative phosphorylation; Proteomics; Liver; Phosphosites",
+    "organism_parts": "Liver",
+    "diseases": "",
+    "reference_titles": "Proteomic and phosphoproteomic signatures of aging mouse liver"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "accession": "PXD021799",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "The mitochondrial single-stranded DNA binding protein directs RNA primer formation for mtDNA replication",
+    "description": "Single-stranded DNA (ssDNA) binding proteins protect regions of ssDNA formed during processes such as DNA replication and repair. We here devise a genetic screen and identify the mitochondrial ssDNA-binding protein (mtSSB) as a key regulator of mtDNA levels. In mitochondria, RNA synthesis from the light-strand promoter (LSP) is required for transcription as well as for generating the primers for initiation of mtDNA synthesis. We find that mtSSB is essential for mtDNA replication initiation, as transcription is strongly upregulated from the LSP in an mtSSB knockout mouse model, but cannot support the switch to replication. Using deep sequencing as well as biochemical reconstitution experiments, we find that mtSSB is also necessary to restrict transcription initiation and primer formation to specific promoters and origins of replication both in vitro and in vivo. Pathological mutations in human mtSSB cannot efficiently support primer maturation and origin specific initiation of mtDNA replication in vitro.",
+    "sample_protocol": "",
+    "keywords": "mtSSB, mtDNA, replication, TMT",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": ""
+  }
+}

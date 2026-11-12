@@ -1,0 +1,13 @@
+{
+  "accession": "PXD047288",
+  "source": "pride_project",
+  "fields": {
+    "title": "Protein degradation targets in hippocampus and retrosplenial cortex of the aged brain",
+    "description": "This project examined changes in degradation-specific K48 polyubiquitination in the hippocampus across the lifespan and during memory formation in old age in rats.",
+    "sample_protocol": "Samples were the dorsal CA1 region of the hippocampus or retrosplenial cortex tissue dissected from male and female (CA1 only) Fischer F344 rats that were 3-, 12-, or 23-24 months old. Additional 24-month old male rats were trained to contextual fear conditioning, euthanized 1 hour later and the dorsal CA1 region of the hippocampus collected; for these na\u00EFve 24-month old animals were the baseline control. Samples were homogenized in denaturing lysis buffer (0.05% SDS) with 70mM NEM, briefly centrifuged and supernatant collected. Normalized samples were mixed with a K48 polyubiquitin-specific Tandem Ubiquitin Binding Entity (TUBE; Life Sensors) bound to magnetic streptavidin beads and incubated at 4C. Samples were then washed and protein eluted in 1x sample buffer at 95C, 800 rpm for 5 minutes. Samples were then washed and protein eluted in 1x sample buffer at 95C, 800 rpm for 5 minutes. Samples were processed utilizing S-Trap micro columns (Protofi) and trypsin. Recovered peptides were analyzed via LC-ESI-MS/MS on an Orbitrap Fusion Lumos Tribid instrument (Thermo) running each sample in duplicate.",
+    "keywords": "Hippocampus; Memory; Ubiquitin; K48; Aging",
+    "organism_parts": "Brain",
+    "diseases": "",
+    "reference_titles": "Dysregulation of baseline and learning-dependent protein degradation in the aged hippocampus"
+  }
+}

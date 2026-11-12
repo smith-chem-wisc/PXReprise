@@ -7,6 +7,75 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## 0.4.46 (2026-11-12)
+
+**MetaMorpheus** unchanged. **Machine file:** no change needed (`output_sdrf_read_only` is new, default `true`). **Safe
+mid-batch?** Yes: swap the pin as usual. A probe worker takes the new release (`worker release`): the isobaric design rule
+is the probe's.
+
+- **A question can gate its deposits on their own text: `[gate]`, and `pxreprise gate`** (aging PXR-A179, 2026-11-11).
+  - The census finds deposits with PRIDE's text search, which matches anywhere in a record, a lab's name included. Aging
+    checked their queue and catalog on 2026-11-09 and found 87 deposits that should never have been queued or served. 19 of
+    40 queued ones had the word "ageing" only in their lab's institute.
+  - A question may now name a `[gate]`: `strong` and `weak` terms, terms used in another sense, cancer-model terms, and
+    later-disease terms. Every deposit the census would queue passes it first. Only the deposit's own text is read: title,
+    description, sample protocol, keywords, PRIDE's organism parts and diseases, and its references' titles. Submitters,
+    lab heads, affiliations and countries are never read, and neither are reference authors.
+  - The outcome is `queue`, `watch` (to the watch list, for a person) or `not_queued`. Every decision goes to the census's
+    `gate.tsv`, with each matched term, its field and the text around it.
+  - When PRIDE's project record cannot be had, the text comes from ProteomeXchange's record, else PRIDE's search index.
+  - `pxreprise gate <question> --list <file>` writes the same rows for any list of deposits (a queue, a catalog) and
+    changes nothing.
+  - The terms are the question's (a question is data). A question without `[gate]` is unchanged.
+  - A deposit the question's decisions file includes has been read by a person, so it is queued without the gate, and its
+    `gate.tsv` row says so (aging PXR-A180). A word in passing, such as a cancer named as an age-related disease, cannot then
+    send a hand-approved deposit to the watch list.
+- **The SDRF a search writes is read-only** (the user, 2026-11-11: "make the output sdrf read-only by default"; dataRepo
+  PXR-R58).
+  - Every current profile writes the search's own SDRF beside its results. That file states the facts the search's
+    quantities came from: which file is which sample, the fractions and conditions, the enzyme and the labels.
+  - A sample fact that is corrected later is never edited into a search's files. The correction is a new search, with
+    its own input and output SDRF, delivered as a new bundle; the old bundle stays as it was.
+  - The search now marks its output SDRF read-only (not the copies under `Individual File Results`, which the prune stage
+    deletes), and its provenance says so. `output_sdrf_read_only = false` in the machine file turns this off.
+  - Deleting a search folder by hand now needs `Remove-Item -Recurse -Force` (or clearing the flag first); a plain
+    recursive delete stops at the read-only file.
+- **The batch writes each manifest entry's `restrictions`, and a question declares its own in `[restrictions]`** (aging
+  PXR-A51, DATAREPO-74; the user, 2026-11-11).
+  - Since datarepo 1.3.4 the catalog shows, for each dataset, the uses it is unfit for (`dataset_restrictions`), read from
+    the manifest's `restrictions`. None was ever written: aging's list of 41 from 2026-10-07 waited to be typed in, and a
+    month later 15 of its rows no longer held (those deposits had been re-searched with their own cysteine reagent), and it
+    missed every deposit delivered since.
+  - Now the batch writes them, from two sources only. Its rule: an entry whose `enrichment` or `run_enrichment` names
+    anything but `none` is restricted for `occupancy`. And the question's `[restrictions.<key>]`, for the judgments no
+    recorded fact shows (an immunopeptidome searched as tryptic, too few PSMs for protein statistics). Uses and reasons
+    are checked when the question is loaded, against dataRepo's list.
+  - They are written at delivery, in the same write as the entry, and brought up to date at every start of the batch.
+    The first start of this release writes them for every entry delivered before it: on aging's manifest, 74 entries (47
+    of them served), every one for `occupancy`. A restriction written into the manifest by hand is replaced.
+  - `pxreprise batch restrictions <question>` shows what a start would write; `--manifest` and `--write` write a copy.
+  - The repository needs a rebuild only; no bundle id moves.
+- **No default isobaric design: a TMT or iTRAQ deposit is searched only with an SDRF that states its plexes, fractions and
+  technical replicates** (the user, 2026-11-11; G69; QuantProject 120).
+  - Since 0.4.34, a deposit no SDRF described was searched with each file its own plex and each channel its own sample,
+    and flagged `no_channel_design`. A fraction or a repeat injection of one plex then became a new plex, and its channels
+    new samples. PXD034564, one TMT10 plex run as 32 files, came out as 32 plexes and 320 samples. All 47 isobaric
+    deposits in aging's manifest were searched that way. The user: "These are definitely not plexes ... These fractions
+    also must correctly be collapsed ... I think this must be in SDRF."
+  - Now such a deposit waits after its probe, before the whole download, as `waiting_isobaric_design`. It is a capability
+    wait, so no decisions row is written: its SDRF is made for it. It gets one more look when the question's design SDRF
+    for it is added or changed. A deposit that reaches its search without a design (fetched before this release) waits the
+    same way, with its raw files kept.
+  - A deposit the probe worker passed before this release meets the same rule before its whole download, read from the
+    probe QC report in the worker's package. At this release 71 TMT passes waited on aging's delivering machine; without
+    this each would have been downloaded whole and refused only by its search.
+  - The 47 already delivered are restricted for `quantitation` in the catalog, from each search's provenance. The note
+    says what QuantProject asked: a sample there is one file's channel, not a biological sample, so the reporter values
+    compare only within a file. On aging's manifest that makes 119 restricted entries (74 for `occupancy`, 47 for
+    `quantitation`, two for both); datarepo 1.4.5 reads them all. Each comes off when the deposit is re-searched with an
+    SDRF that states its design.
+  - Every PSM's reporter values are the same under any grouping (QuantProject 120); only the grouping was wrong.
+
 ## 0.4.45 (2026-11-11)
 
 **MetaMorpheus** unchanged. **Machine file:** no change needed. **Safe mid-batch?** Yes: swap the pin as usual. A probe worker

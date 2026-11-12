@@ -13,6 +13,12 @@ public interface IProjectSearch
     /// metadata fields can disagree with it (PXD043476, pride 001), so values the engine acts on come from here.
     /// </summary>
     Task<PrideProject?> TryGetProjectAsync(string accession, CancellationToken ct);
+
+    /// <summary>
+    /// v0.4.46 (aging PXR-A179, part A1): ProteomeXchange's GetDataset XML for the gate when PRIDE's project record cannot be
+    /// had, or null when there is none. The default has none (offline fakes).
+    /// </summary>
+    Task<string?> TryGetProteomeXchangeXmlAsync(string accession, CancellationToken ct) => Task.FromResult<string?>(null);
 }
 
 /// <summary>
@@ -32,6 +38,25 @@ public sealed class PrideProjectSearch(PrideArchiveClient client, int attempts =
         var (found, project) = await RetryAsync($"pride project {accession}", () => client.TryGetProjectAsync(accession, ct), ct)
             .ConfigureAwait(false);
         return found ? project : null;
+    }
+
+    private static readonly HttpClient ProteomeCentral = new() { Timeout = TimeSpan.FromSeconds(90) };
+
+    /// <summary>
+    /// ProteomeXchange's GetDataset XML (<c>proteomecentral.proteomexchange.org/cgi/GetDataset?ID=..&amp;outputMode=XML</c>), with the
+    /// same retry policy; null when its answer holds no DatasetSummary (no such dataset).
+    /// </summary>
+    public async Task<string?> TryGetProteomeXchangeXmlAsync(string accession, CancellationToken ct)
+    {
+        string url = $"https://proteomecentral.proteomexchange.org/cgi/GetDataset?ID={Uri.EscapeDataString(accession)}&outputMode=XML";
+        string xml = await RetryAsync($"proteomexchange {accession}", async () =>
+        {
+            using var response = await ProteomeCentral.GetAsync(url, ct).ConfigureAwait(false);
+            if ((int)response.StatusCode is 408 or 429 || (int)response.StatusCode >= 500)
+                throw new HttpRequestException($"ProteomeXchange answered {(int)response.StatusCode} for {accession}", null, response.StatusCode);
+            return response.IsSuccessStatusCode ? await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false) : "";
+        }, ct).ConfigureAwait(false);
+        return xml.Contains("<DatasetSummary", StringComparison.Ordinal) ? xml : null;
     }
 
     private async Task<T> RetryAsync<T>(string what, Func<Task<T>> call, CancellationToken ct)

@@ -60,7 +60,10 @@ public static class ManifestEntry
     /// is keyed by the search key and carries <c>split_reason</c> (dataRepo 093: the one fact the key cannot carry), and the
     /// deposit's own entry, if still served, is retired in the same write (<c>status: superseded</c>), because the store
     /// serves the bare bundle and both halves side by side, silently, while it is not (dataRepo 093, R31).</param>
-    public static void Append(string manifestPath, QueueEntry e, Profile profile, string runDir, JsonObject? state, string workRoot, SplitGroup? split = null)
+    /// <param name="restrictions">v0.4.46: the uses the question declares for this entry (<c>[restrictions.&lt;key&gt;]</c>);
+    /// <see cref="Restrictions"/> adds its rule and writes the key in the same write as the entry.</param>
+    public static void Append(string manifestPath, QueueEntry e, Profile profile, string runDir, JsonObject? state, string workRoot, SplitGroup? split = null,
+        IReadOnlyDictionary<string, string>? restrictions = null)
     {
         workRoot = WorkRootOf(manifestPath) ?? workRoot;
         // Parsed as LF, written back in the file's own line ends (aging's is CRLF).
@@ -240,6 +243,8 @@ public static class ManifestEntry
         if (split is not null) text = RetireSplitDeposit(text, split);
         string tmp = manifestPath + ".pxreprise-tmp";
         string written = text.TrimEnd('\n') + "\n" + entry.ReplaceLineEndings("\n").TrimEnd('\n') + "\n";
+        written = Restrictions.ApplyTo(written, e.Accession, restrictions,
+            search["experimental_design"]?["flag"]?.GetValue<string>() == Search.DesignStage.NoChannelDesign);
         File.WriteAllText(tmp, crlf ? written.ReplaceLineEndings("\r\n") : written);
         File.Move(tmp, manifestPath, overwrite: true);
     }
@@ -352,11 +357,12 @@ public static class ManifestEntry
     }
 
     /// <summary>The keys this writer produces; any other key of an entry belongs to its owner (aging's `excluded_runs`,
-    /// `run_enrichment`, `restrictions`, ...) and survives a re-search verbatim.</summary>
+    /// `run_enrichment`, ...) and survives a re-search verbatim. v0.4.46: `restrictions` is the engine's
+    /// (<see cref="Restrictions"/>), written from the entry and the question, so a re-search writes it afresh.</summary>
     private static readonly HashSet<string> Owned = new(StringComparer.Ordinal)
     {
         "accession", "status", "title", "run", "stages", "search_results", "files", "organism", "acquisition", "quant_method",
-        "metamorpheus", "provenance_schema", "enrichment", "flags", "notes", "labelling", "labelling_plex",
+        "metamorpheus", "provenance_schema", "enrichment", "flags", "notes", "labelling", "labelling_plex", "restrictions",
     };
 
     /// <summary>Every key of the entry this writer does not own, with its nested lines, as written (LF line ends).</summary>

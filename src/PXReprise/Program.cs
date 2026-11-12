@@ -13,7 +13,7 @@ namespace PXReprise;
 public static class Program
 {
     /// <summary>The verbs, listed by the <c>version</c> verb. Keep in step with <see cref="Dispatch"/>.</summary>
-    public static readonly string[] Verbs = { "version", "profiles", "validate", "census", "rank", "chemistry", "fetch", "qc", "search", "qc-payload", "batch", "library", "worker" };
+    public static readonly string[] Verbs = { "version", "profiles", "validate", "census", "gate", "rank", "chemistry", "fetch", "qc", "search", "qc-payload", "batch", "library", "worker" };
 
     /// <summary>Where profiles are read from when --profiles is not given: beside the executable.</summary>
     public static string DefaultProfilesDir => Path.Combine(AppContext.BaseDirectory, "profiles");
@@ -25,7 +25,7 @@ public static class Program
     {
         try
         {
-            var args = new Arguments(argv, new HashSet<string>(StringComparer.Ordinal) { "queue" });
+            var args = new Arguments(argv, new HashSet<string>(StringComparer.Ordinal) { "queue", "write" });
             if (args.Words.Count == 0) throw new UsageException($"a verb is required: {string.Join(", ", Verbs)}");
             object? data = await Dispatch(args, ct, searchFactory, rankSource).ConfigureAwait(false);
             return Envelope.Ok(stdout, data);
@@ -188,6 +188,61 @@ public static class Program
                 }
             }
 
+            case "gate":
+            {
+                // v0.4.46 (aging PXR-A179, part A5): the question's gate over a list of accessions (one a line, or a queue.json),
+                // writing the census's gate.tsv rows and changing nothing.
+                string file = Positional(args, 1)[0];
+                args.AllowOnly("list", "out");
+                var q = QuestionLoader.Load(file);
+                var terms = q.Gate ?? throw new UsageException($"{q.SourceFile} has no [gate] table");
+                string listFile = args.Required("list");
+                string listText = await File.ReadAllTextAsync(listFile, ct).ConfigureAwait(false);
+                var accessions = listText.TrimStart().StartsWith('[')
+                    ? System.Text.Json.Nodes.JsonNode.Parse(listText)!.AsArray().Select(e => e?["accession"]?.GetValue<string>()).OfType<string>().ToList()
+                    : listText.Split('\n').Select(l => l.Split('#')[0].Trim()).Where(l => l.Length > 0).ToList();
+                string outDir = args.Option("out") ?? Path.Combine(Path.GetDirectoryName(q.SourceFile)!, "gate", DateTime.UtcNow.ToString("yyyy-MM-dd"));
+                Directory.CreateDirectory(outDir);
+                var record = new RunRecord("gate");
+                record.Input(q.SourceFile);
+                record.Input(listFile);
+                record.Note("report mode: nothing queued, removed or changed; PRIDE and ProteomeXchange are live, so this is a dated reading");
+                IProjectSearch search;
+                PrideArchiveClient? client = null;
+                if (searchFactory is not null) search = searchFactory();
+                else search = new PrideProjectSearch(client = new PrideArchiveClient());
+                try
+                {
+                    var rows = new List<(string, IReadOnlyCollection<string>, GateDecision)>();
+                    foreach (string acc in accessions.Distinct(StringComparer.Ordinal))
+                    {
+                        if (Gate.Decided(q, acc) is { } decided) { rows.Add((acc, Array.Empty<string>(), decided)); continue; }
+                        GateText text;
+                        PrideProject? project = null;
+                        try { project = await search.TryGetProjectAsync(acc, ct).ConfigureAwait(false); }
+                        catch (Exception e) when (Envelope.IsUnavailable(e) && !ct.IsCancellationRequested) { record.Note($"{acc} PRIDE unavailable: {e.Message}"); }
+                        if (project is not null) text = GateText.From(project);
+                        else if (await search.TryGetProteomeXchangeXmlAsync(acc, ct).ConfigureAwait(false) is { } xml) text = GateText.FromProteomeXchange(xml);
+                        else { text = new GateText(GateTextSource.None, Array.Empty<(string, string)>()); record.Note($"{acc}: no text from PRIDE or ProteomeXchange"); }
+                        var kws = Gate.KeywordsIn(q, text);
+                        rows.Add((acc, kws.ToList(), Gate.Evaluate(terms, text, Gate.NoReferenceGroup(q, kws, text))));
+                    }
+                    string gateFile = Path.Combine(outDir, "gate.tsv");
+                    Gate.WriteTsv(gateFile, rows);
+                    record.Output(gateFile);
+                    record.Write(outDir);
+                    return new
+                    {
+                        deposits = rows.Count, file = Path.GetFullPath(gateFile),
+                        outcomes = rows.GroupBy(r => r.Item3.Outcome).OrderBy(g => g.Key, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count()),
+                    };
+                }
+                finally
+                {
+                    client?.Dispose();
+                }
+            }
+
             case "fetch":
             {
                 string accession = Positional(args, 1)[0];
@@ -278,9 +333,11 @@ public static class Program
                 // pxreprise batch retry <question.toml> <PXD> --reason "..."
                 var rest = args.Words.Skip(1).ToList();
                 // pxreprise batch research <question.toml> <PXD> --reason "..." [--profile key@n]
-                if (!(rest.Count == 2 && rest[0] is ("run" or "status" or "stop")) && !(rest.Count == 3 && rest[0] is ("retry" or "research")))
-                    throw new UsageException("usage: pxreprise batch run|status|stop <question.toml> --machine m.toml, batch retry <question.toml> <PXD> --reason \"...\", or batch research <question.toml> <PXD> --reason \"...\" [--profile key@n]");
-                args.AllowOnly("machine", "profiles", "run-date", "reason", "profile");
+                // pxreprise batch restrictions <question.toml> [--manifest copy.yaml] [--write]
+                if (!(rest.Count == 2 && rest[0] is ("run" or "status" or "stop" or "restrictions")) && !(rest.Count == 3 && rest[0] is ("retry" or "research")))
+                    throw new UsageException("usage: pxreprise batch run|status|stop <question.toml> --machine m.toml, batch retry <question.toml> <PXD> --reason \"...\", batch research <question.toml> <PXD> --reason \"...\" [--profile key@n], or batch restrictions <question.toml> [--manifest file] [--write]");
+                args.AllowOnly("machine", "profiles", "run-date", "reason", "profile", "manifest", "write");
+                if ((args.Has("manifest") || args.Has("write")) && rest[0] != "restrictions") throw new UsageException("--manifest and --write are for batch restrictions only");
                 if (args.Option("profile") is not null && rest[0] != "research") throw new UsageException("--profile is for batch research only");
                 var q = QuestionLoader.Load(rest[1]);
                 var b = q.Batch ?? throw new ConfigException(q.SourceFile, "a batch needs a [batch] table");
@@ -301,6 +358,34 @@ public static class Program
                         if (key is not null && !q.Profiles.Contains(key))
                             throw new UsageException($"--profile {key} is not among the question's profiles ({string.Join(", ", q.Profiles)}); add it to the question first");
                         return Batch.BatchRunner.Research(b.StateDir, b.RunRoot, rest[2], args.Required("reason"), key, q.Publish?.Manifest);
+                    }
+                    case "restrictions":
+                    {
+                        // v0.4.46 (aging PXR-A51): what the driver's start writes into the manifest's `restrictions`, shown
+                        // without writing; --write writes it, refused on the live manifest while a driver runs (it is the
+                        // manifest's writer, and syncs at its own start anyway). --manifest points at a copy, e.g. to check it
+                        // with `datarepo manifest` first.
+                        string mf = args.Option("manifest") ?? q.Publish?.Manifest
+                                    ?? throw new ConfigException(q.SourceFile, "the question names no [publish] manifest; give --manifest");
+                        if (!File.Exists(mf)) throw new UsageException($"no manifest at {mf}");
+                        bool write = args.Has("write");
+                        if (write && args.Option("manifest") is null && Batch.BatchRunner.LiveDriver(Path.Combine(b.StateDir, "driver.pid")) is { } live)
+                            throw new UsageException($"driver {live} is running and writes this manifest; it syncs restrictions at its next start (or give --manifest for a copy)");
+                        // v0.4.46 (G69): an entry's `run` is relative to the machine's work root; without --machine, the run
+                        // root's parent, where the batch puts it.
+                        string workRoot = args.Option("machine") is { } restrictionsMachine ? Machine.Load(restrictionsMachine).WorkRoot : Path.GetDirectoryName(Path.GetFullPath(b.RunRoot))!;
+                        var noDesign = Batch.Restrictions.NoChannelDesignKeys(Batch.ManifestEntry.ReadLf(mf), workRoot, out var unread);
+                        var r = Batch.Restrictions.Sync(mf, q.Restrictions, write, noDesign);
+                        return new
+                        {
+                            manifest = mf,
+                            written = write && r.Changed.Count > 0,
+                            restricted = r.Restricted,
+                            no_stated_isobaric_design = noDesign.Order(StringComparer.Ordinal).ToList(),
+                            isobaric_provenance_unread = unread,
+                            changed = r.Changed,
+                            waiting_for_delivery = r.Waiting,
+                        };
                     }
                     case "stop":
                         // Taken at the top of the loop: the search in flight, its cleanup and delivery finish first.

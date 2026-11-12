@@ -1,0 +1,13 @@
+{
+  "accession": "PXD030995",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "Metabolic control of adult neural stem cell self-renewal by the mitochondrial protease YME1L",
+    "description": "The transition between quiescence and activation in neural stem and progenitor cells (NSPCs) is coupled to reversible changes in energy metabolism with key implications for life-long NSPC self-renewal and neurogenesis. How this metabolic plasticity is ensured between NSPC activity states is unclear. We find that a state-specific rewiring of the mitochondrial proteome by the i-AAA peptidase YME1L is required to preserve NSPC self-renewal. YME1L controls the abundance of numerous mitochondrial substrates in quiescent NSPCs, and its deletion activates a differentiation program characterized by broad metabolic changes causing the irreversible shift away from a fatty acid oxidation-dependent state. Conditional Yme1l deletion in adult NSPCs in vivo results in defective self-renewal and premature differentiation, ultimately leading to NSPC pool depletion. Our results disclose an important role for YME1L in coordinating the switch between metabolic states of NSPCs and suggest that NSPC fate is regulated by compartmentalized changes in protein network dynamics.",
+    "sample_protocol": "",
+    "keywords": "neural stem cells; Mitochondria; metabolic rewiring; mitochondrial proteome; mitochondrial dynamics; adult neurogenesis; Self-renewal; YME1L; OMA1",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": ""
+  }
+}

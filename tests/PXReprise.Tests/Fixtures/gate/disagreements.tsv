@@ -1,0 +1,5 @@
+accession	outcome_now	aging_expects	why (reported to aging; they adjust the terms, not the code)
+PXD034934	queue	not_queue	'senescen\w*' matches only in a reference title (Genome homeostasis defects drive enlarged cells into senescence); the deposit is about cell size
+PXD059735	queue	not_queue	'longevity' matches only in a reference title (Adaptive ER stress promotes mitochondrial remodelling and longevity ...); the deposit is ER stress in C2C12 myoblasts
+PXD054629	queue	watch	'catheters ... demonstrate significantly improved longevity': other_sense wants the device word next to longevity
+PXD062476	not_queued	watch	the text says only 'OA' (osteoarthritis), never a watch_without_strong term

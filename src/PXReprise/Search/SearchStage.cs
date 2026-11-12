@@ -161,18 +161,15 @@ public static class SearchStage
         // v0.4.34 (PLAN_tmt-dda-2 stage 5): an isobaric search's kit is the one QC read from every searched file's spectra
         // (stage 4), never a text's word; files that disagree, or a file with none, refuse the search.
         string? kit = null;
-        IReadOnlyDictionary<string, IReadOnlyList<string>>? channelsWithSample = null;
         if (p.QuantMethod == "reporter_ion")
         {
             var kits = files.Select(f => qc[Path.GetFileName(f)]?["isobaric_kit"]?.GetValue<string>()).Distinct().ToList();
             kit = Qc.IsobaricReporters.DepositKit(kits)
                   ?? throw new SearchSetupException($"an isobaric search needs one kit read from every file's spectra; QC read {string.Join(", ", kits.Select(k => k ?? "none"))}");
-            channelsWithSample = Qc.IsobaricReporters.ChannelsByFile(files.Select(f => (Path.GetFileName(f),
-                (IReadOnlyList<string>?)qc[Path.GetFileName(f)]?["isobaric_channels"]?.AsArray().Select(c => c!.GetValue<string>()).ToList())));
         }
-        // MetaMorpheus reads ExperimentalDesign.tsv (label-free) or TmtDesign.txt (isobaric, stage 6: from an SDRF, always)
-        // from beside the first spectra file; written here, before any task runs.
-        var design = kit is not null ? DesignStage.PrepareIsobaric(r.SpectraDir, files, r.CuratedDesign, r.DesignConditionColumns, kit, r.Organism, r.Accession, channelsWithSample)
+        // MetaMorpheus reads ExperimentalDesign.tsv (label-free) or TmtDesign.txt (isobaric, stage 6: from an SDRF, always;
+        // v0.4.46: no SDRF, no isobaric search) from beside the first spectra file; written here, before any task runs.
+        var design = kit is not null ? DesignStage.PrepareIsobaric(r.SpectraDir, files, r.CuratedDesign, r.DesignConditionColumns, kit)
             : p.Design == "sdrf" ? DesignStage.Prepare(r.SpectraDir, files, r.CuratedDesign, r.DesignConditionColumns, r.Organism, r.Accession) : null;
         // v0.4.27 (dataRepo 052, PXR-R28): the SDRF the design came from is kept in the search's own output, and the record
         // names that copy. A question's SDRF can be edited after its search (seven of aging's were), and the record must
@@ -723,14 +720,9 @@ public static class SearchStage
             if (c.IntensityShareMax > FlagMaxContaminantIntensityShare)
                 flags.Add($"high_contamination: {Pct(c.IntensityShareMax)} of protein intensity in the worst file, {Pct(c.IntensityShareMedian)} median across {c.IntensitySharePerFile.Count} files (DEF-QC-9 v3.5)");
         }
-        // An isobaric search's design is TmtDesign.txt, always written (stage 6); without a channel design in any SDRF it is
-        // PXReprise's default, and the values compare nothing until one is curated (QuantProject 079).
-        if (kit is not null)
-        {
-            if (design?["flag"]?.GetValue<string>() == DesignStage.NoChannelDesign)
-                flags.Add($"{DesignStage.NoChannelDesign}: no SDRF says which sample is in which channel ({design["reason"]}); PXReprise's default design makes each file its own plex and each channel that shows a sample its own sample{(design["channels_without_sample"] is JsonObject none ? $" (marked empty, holding none: {string.Join(", ", none.Select(kv => $"{kv.Key} in {kv.Value} file(s)"))})" : "")}; the reporter values compare nothing until a design is curated (QuantProject 079)");
-        }
-        else if (!hasDesign)
+        // An isobaric search's design is TmtDesign.txt, always from an SDRF that states it (stage 6; v0.4.46, G69: no
+        // default), so it has no design flag. Until v0.4.45 a default gave `no_channel_design` here.
+        if (kit is null && !hasDesign)
             flags.Add("no_design_file: FlashLFQ treated each file as its own biorep under one blank condition; no normalization; not usable for condition comparisons (owner: QuantProject projection)");
         // MetaMorpheus #2816: a failed SDRF write never fails the search; it leaves SdrfWriter_crash.txt (sdrf PXR-E1).
         string? sdrfCrash = Directory.Exists(mm) ? Directory.EnumerateFiles(mm, "SdrfWriter_crash.txt", SearchOption.AllDirectories).FirstOrDefault() : null;
@@ -743,7 +735,20 @@ public static class SearchStage
             flags.Add(p.WriteSdrf ? "no_output_sdrf: the profile asked for the search's SDRF and none was written"
                                   : "no_output_sdrf: no reanalysis SDRF written (the profile does not set write_sdrf)");
         else
-            foreach (string sdrf in Directory.EnumerateFiles(mm, "*.sdrf.tsv", SearchOption.AllDirectories)) prov.Output(sdrf);
+        {
+            var written = Directory.EnumerateFiles(mm, "*.sdrf.tsv", SearchOption.AllDirectories).Order(StringComparer.Ordinal).ToList();
+            foreach (string sdrf in written) prov.Output(sdrf);
+            // v0.4.46 (the user, 2026-11-11: "make the output sdrf read-only by default"): the SDRF a search writes states the
+            // facts its quantities came from. A corrected fact is a new search, never an edit of this file (dataRepo PXR-R58).
+            // Not under Individual File Results, which the prune stage deletes.
+            if (m.OutputSdrfReadOnly)
+            {
+                var locked = written.Where(f => !f.Contains($"{Path.DirectorySeparatorChar}Individual File Results{Path.DirectorySeparatorChar}", StringComparison.Ordinal)).ToList();
+                foreach (string sdrf in locked) File.SetAttributes(sdrf, File.GetAttributes(sdrf) | FileAttributes.ReadOnly);
+                if (locked.Count > 0)
+                    prov.Note($"output SDRF made read-only ({string.Join(", ", locked.Select(f => Path.GetRelativePath(outDir, f)))}; machine output_sdrf_read_only): a corrected sample fact is a new search, never an edit of this file");
+            }
+        }
         // aging 043 (PXR-A37): a whole proteome runs 12-26% cysteine-containing target peptides at 1%; every chemistry
         // mismatch found so far (NEM, MMTS searched as carbamidomethyl) sat below 5%. A measurement and a flag, never a gate:
         // an enrichment is cysteine-poor by design, so the manifest keeps the flag only for non-enriched deposits.

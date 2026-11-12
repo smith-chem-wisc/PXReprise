@@ -1,0 +1,13 @@
+{
+  "accession": "PXD026035",
+  "source": "pride_project",
+  "fields": {
+    "title": "Proteomics analysis of cellular nucleic acid binding proteins",
+    "description": "Organic solvents and Ti4\u002B-IMAC capture of formaldehyde (FA) cross-linked cells followed by mass spectrometry analysis to identify nucleic acid binding proteins in human cells.",
+    "sample_protocol": "Cells were washed two times with PBS and cross-linked by formaldehyde, then lysate by TRIZOL regent. Organic solvent was used to precipitate NAs-protein complex crude, and Ti4\u002B-IMAC was used to capture NAs-protein complex. Proteins were de-cross-linked from NAs-protein complexes by heat at 65 \u00B0C for 6 h. Then digested by using Filter-aided sample preparation (FASP) approach. Proteins obtained from formaldehyde cross-linking and Organic solvent extraction optimized process was analyzed by Easy-nLC 1000 coupled with an LTQ Orbitrap XL mass spectrometer (Thermo Fisher Scientific, USA).  Proteins obtained from method comparation (293T total cell lysate, organic solvent extraction, Ti4\u002B-IMAC capture) and method application (95C, 95D, total cell lysate and Ti4\u002B-IMAC capture) were analyzed by Easy-nanoLC1000 coupled with an Obitrap Q-Exactive Plus mass spectrometer (Thermo Fisher Scientific, USA).",
+    "keywords": "Nucleic acid binding protemoics; Lc/ms-ms; Human lung cancer",
+    "organism_parts": "Cell culture",
+    "diseases": "",
+    "reference_titles": "Deciphering Nucleic Acid Binding Proteome of Mouse Immune Organs Reveals Hub Proteins for Aging"
+  }
+}

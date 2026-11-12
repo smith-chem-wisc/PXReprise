@@ -41,8 +41,21 @@ public sealed record Question(
     DesignSettings? Designs = null,
     DiscoverLists? Lists = null,
     IReadOnlyDictionary<string, DepositException>? Exceptions = null,
-    IReadOnlyDictionary<string, IReadOnlyList<string>>? Splits = null)
+    IReadOnlyDictionary<string, IReadOnlyList<string>>? Splits = null,
+    GateTerms? Gate = null,
+    IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? Restrictions = null)
 {
+    /// <summary>
+    /// v0.4.46 (aging PXR-A51, DATAREPO-74): the uses a manifest <c>restrictions</c> entry may name, as datarepo 1.3.4+
+    /// reads them (<c>DatasetEntry.RestrictionUses</c>). dataRepo refuses the whole manifest over any other key, so the
+    /// question's <c>[restrictions]</c> is checked against this list when it is loaded, not at the next build.
+    /// </summary>
+    public static readonly IReadOnlyList<string> RestrictionUses =
+        new[] { "protein_statistics", "quantitation", "age_analysis", "any_analysis", "occupancy", "cysteine" };
+
+    /// <summary>The uses the question itself declares for one manifest key (<c>[restrictions.&lt;key&gt;]</c>), or null.</summary>
+    public IReadOnlyDictionary<string, string>? RestrictionsFor(string key) => Restrictions?.GetValueOrDefault(key);
+
     /// <summary>
     /// The question's exception for one search key, or null: a deposit's <c>[exceptions]</c> entry, or for a split search
     /// (<c>PXD027754-mouse</c>) its group's settings, which take the same keys.
@@ -194,3 +207,25 @@ public sealed record BatchSettings(string RunRoot, string StateDir, string Queue
 /// was delivered since the last successful publish, and killed after <paramref name="TimeoutHours"/>.
 /// </summary>
 public sealed record PublishSettings(string? Manifest, IReadOnlyList<string> Command, double EveryHours = 6, double TimeoutHours = 4);
+
+/// <summary>
+/// v0.4.46 (aging PXR-A179, their D171; their user: "it should be part of the code, not part of the project AI"): the
+/// question's <c>[gate]</c>, rules over a deposit's own text that every deposit passes before the census queues it
+/// (<see cref="Census.Gate"/>). The terms are the question's, never the engine's: a question is data.
+/// </summary>
+/// <param name="Strong">A match queues the deposit, unless a watch condition holds.</param>
+/// <param name="Weak">Matches alone send it to the watch list.</param>
+/// <param name="OtherSense">A strong term used in another sense (an implant's longevity): watch.</param>
+/// <param name="WatchIfAny">Any match sends it to the watch list (a cancer model).</param>
+/// <param name="WatchWithoutStrong">A match with no strong term sends it to the watch list (a later disease).</param>
+/// <param name="ReferenceGroupRequired">A deposit found only by <c>disease_keywords</c> must name a reference group (PXR-A27).</param>
+public sealed record GateTerms(
+    IReadOnlyList<GateTerm> Strong,
+    IReadOnlyList<GateTerm> Weak,
+    IReadOnlyList<GateTerm> OtherSense,
+    IReadOnlyList<GateTerm> WatchIfAny,
+    IReadOnlyList<GateTerm> WatchWithoutStrong,
+    bool ReferenceGroupRequired);
+
+/// <summary>One gate term as the question wrote it (a phrase or a regular expression), and its pattern on word boundaries.</summary>
+public sealed record GateTerm(string Text, Regex Pattern);

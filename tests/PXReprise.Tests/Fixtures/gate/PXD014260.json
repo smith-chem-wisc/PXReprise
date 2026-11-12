@@ -1,0 +1,13 @@
+{
+  "accession": "PXD014260",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "Gmppa defects result in a treatable syndromic myopathy with \u03B1-Dystroglycan hyperglycosylation",
+    "description": "Mutations in GDP-mannose-pyrophosphorylase-A (Gmppa) are associated with a syndromic disorder with deficits such as muscular hypotonia and weakness, achalasia, alacrima, and mental retardation (AAMR-syndrome). Gmppa is catalytically inactive, while its homolog Gmppb converts GTP and mannose-1-phosphate into GDP-mannose, which is a substrate for protein glycosylation. Suggesting that Gmppa is an allosteric inhibitor of Gmppb, Gmppa and Gmppb interact and disruption of Gmppa in mice increases GDP-mannose tissue levels. KO mice develop a myopathic disorder characterized by hyperglycosylation of the sarcolemma-associated protein \u03B1-Dystroglycan (\u03B1-Dg), while the overall abundance of \u03B1-Dg is reduced. This reduction is also observed in skeletal muscle biopsies of AAMR patients and in myoblasts upon knockdown of Gmppa. The knockdown does not impair myoblast differentiation but compromises myotube maintenance. Dietary mannose depletion prevents \u03B1-Dg hyperglycosylation and the deterioration of motor functions in mice. Thus our data suggest that the disorder is at least in part preventable.",
+    "sample_protocol": "",
+    "keywords": "Therapy, Congenital Disorder of Glycosylation, Gmppa, Myopathy,Skeletal muscle, Dystroglycan",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": ""
+  }
+}

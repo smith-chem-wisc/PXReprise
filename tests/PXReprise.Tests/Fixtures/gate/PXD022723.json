@@ -1,0 +1,13 @@
+{
+  "accession": "PXD022723",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "Fasting reverses drug-resistance in hepatocellular carcinoma through p53-dependent metabolic synergism",
+    "description": "Cancer cells voraciously consume nutrients to support their growth, exposing a metabolic vulnerability that can be therapeutically exploited. Here we show in hepatocellular carcinoma (HCC) cells, xenografts, and in patient-derived HCC organoids that fasting can synergistically sensitise resistant HCC to sorafenib. Mechanistically, sorafenib acts non-canonically as inhibitor of mitochondrial respiration, causing resistant cells to depend on glycolysis for survival. Fasting, through reduction in glucose and impeded AKT/mTOR-signalling, prevents this Warburg shift. p53 is necessary and sufficient for the sorafenib-sensitizing effect of nutrient restriction and crucial for improvement of sorafenib efficacy through intermittent fasting (IF) in an orthotopic HCC mouse model. Together, our data indicate IF and sorafenib as clinically actionable, rational combination therapy for HCC with intact p53 signalling. As HCC therapy is currently severely limited by resistance, these results should instigate clinical studies with the goal of improving therapy response in advanced-stage, and possibly even early-stage, HCC.",
+    "sample_protocol": "",
+    "keywords": "TP53, HCC, HepG2, xenografts, sorafenib, starvation; EPIC-XS",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": "Fasting improves therapeutic response in hepatocellular carcinoma through p53-dependent metabolic synergism"
+  }
+}

@@ -16,10 +16,14 @@ public sealed record CensusRow(
     IReadOnlyList<string> Organisms,
     string OrganismSource,
     string? Watch = null,
-    string? ReferenceGroupEvidence = null)
+    string? ReferenceGroupEvidence = null,
+    GateDecision? Gate = null)
 {
-    /// <summary>Queued by <c>census --queue</c>: routed to search, and not on the watch list.</summary>
-    public bool Queueable => Route.Kind == RouteKind.Search && Watch is null;
+    /// <summary>
+    /// Queued by <c>census --queue</c>: routed to search, not on the watch list, and (v0.4.46) let through by the question's
+    /// gate when it has one.
+    /// </summary>
+    public bool Queueable => Route.Kind == RouteKind.Search && Watch is null && Gate is null or { Outcome: GateOutcome.Queue };
 }
 
 /// <summary>Why a deposit is on the census's watch list (<c>watch.tsv</c>) and never queued.</summary>
@@ -29,6 +33,8 @@ public static class WatchReason
     public const string WatchList = "watch_list";
     /// <summary>Found only by <c>disease_keywords</c>, and its record names no reference group (PXR-A27).</summary>
     public const string NoReferenceGroup = "no_reference_group_found";
+    /// <summary>v0.4.46: the question's gate sent it to the watch list; <c>gate.tsv</c> says why.</summary>
+    public const string Gate = "gate_watch";
 }
 
 /// <summary>Where a row's <see cref="CensusRow.Organisms"/> came from: the census acts on these, so it says which.</summary>
@@ -59,7 +65,8 @@ public sealed record CensusSummary(
     string? QueueInstalled = null,
     IReadOnlyDictionary<string, int>? OrganismSources = null,
     IReadOnlyDictionary<string, int>? QueuedByKeyword = null,
-    IReadOnlyDictionary<string, int>? Watched = null);
+    IReadOnlyDictionary<string, int>? Watched = null,
+    IReadOnlyDictionary<string, int>? Gate = null);
 
 /// <summary>
 /// Discovery and routing only, with no downloads: which deposits a question would take, which profile would search
@@ -105,15 +112,31 @@ public sealed class CensusRunner(IProjectSearch search)
             // The search index is for discovery only: its metadata fields can carry SDRF column headers as terms
             // (PXD043476, pride 001). A deposit the census acts on takes its organisms from the project record,
             // fetched only for those, so a census stays one search per keyword plus one record per in-scope deposit.
-            var (organisms, source) = relevance.IsIn
+            var (organisms, source, project) = relevance.IsIn
                 ? await OrganismsOfRecordAsync(acc, r, record, ct).ConfigureAwait(false)
-                : (r.Organisms, OrganismSource.Search);
+                : (r.Organisms, OrganismSource.Search, null);
             if (relevance.IsIn && q.Organisms.Count > 0 && !organisms.Any(o => q.Organisms.Contains(o))
                 && relevance.Verdict != RelevanceVerdict.DecidedInclude)
                 relevance = new RelevanceResult(RelevanceVerdict.NotRelevant, "organism: " + string.Join("; ", organisms));
             var route = Router.Assign(acc, acquisition, relevance, q, profiles);
             var (watch, reference) = Watch(q, kws, route, r);
-            rows.Add(new CensusRow(acc, relevance, acquisition, route, r, kws.ToList(), organisms, source, watch, reference));
+            GateDecision? gate = null;
+            if (q.Gate is { } terms && route.Kind == RouteKind.Search)
+            {
+                // v0.4.46 (aging PXR-A179): the question's gate decides, with the reference-group rule inside it (its
+                // reference_group key), on the deposit's own text: the project record, else ProteomeXchange's, else the index's.
+                bool noReference = watch == WatchReason.NoReferenceGroup;
+                if (noReference) watch = null;
+                // A hand include in the decisions file is a person's reading: queued without the gate (aging PXR-A180).
+                gate = Gate.Decided(q, acc);
+                if (gate is null)
+                {
+                    var text = await GateTextAsync(acc, project, r, record, ct).ConfigureAwait(false);
+                    gate = Gate.Evaluate(terms, text, noReference);
+                }
+                if (gate.Outcome == GateOutcome.Watch) watch ??= WatchReason.Gate;
+            }
+            rows.Add(new CensusRow(acc, relevance, acquisition, route, r, kws.ToList(), organisms, source, watch, reference, gate));
         }
 
         Directory.CreateDirectory(outDir);
@@ -128,7 +151,14 @@ public sealed class CensusRunner(IProjectSearch search)
         File.WriteAllText(queueFile, queue.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }), new UTF8Encoding(false));
         record.Output(queueFile);
         var watched = rows.Where(x => x.Watch is not null).ToList();
-        if (q.More.Disease.Count > 0 || q.More.Watch.Count > 0)
+        if (q.Gate is not null)
+        {
+            // v0.4.46 (aging PXR-A179, part A4): every gate decision, with the keywords that brought the deposit in and each match.
+            string gateFile = Path.Combine(outDir, "gate.tsv");
+            Gate.WriteTsv(gateFile, rows.Where(x => x.Gate is not null).Select(x => (x.Accession, (IReadOnlyCollection<string>)x.KeywordsHit, x.Gate!)));
+            record.Output(gateFile);
+        }
+        if (q.More.Disease.Count > 0 || q.More.Watch.Count > 0 || q.Gate is not null)
         {
             // PXR-A26: the watch list is its own table: discovered and screened, never queued.
             string watchFile = Path.Combine(outDir, "watch.tsv");
@@ -151,8 +181,31 @@ public sealed class CensusRunner(IProjectSearch search)
             // Per keyword, the deposits the queue would hold: after every screen and the reference-group rule (PXR-A25).
             QueuedByKeyword: q.Keywords.Concat(q.More.Disease).ToDictionary(k => k,
                 k => rows.Count(x => queued.Contains(x.Accession) && x.KeywordsHit.Contains(k))),
-            Watched: Count(watched, x => x.Watch!));
+            Watched: Count(watched, x => x.Watch!),
+            Gate: q.Gate is null ? null : Count(rows.Where(x => x.Gate is not null), x => x.Gate!.Outcome));
         return (summary, rows);
+    }
+
+    /// <summary>
+    /// v0.4.46: the text the gate reads. PRIDE's project record when the census has it; else ProteomeXchange's GetDataset XML
+    /// (it answered all 278 aging asked for on 2026-11-09 while PRIDE's API was down); else PRIDE's search index. Each fallback is
+    /// noted in the run record.
+    /// </summary>
+    private async Task<GateText> GateTextAsync(string accession, PrideProject? project, PrideProjectSearchResult hit, RunRecord record, CancellationToken ct)
+    {
+        if (project is not null) return GateText.From(project);
+        string? xml = null;
+        try { xml = await search.TryGetProteomeXchangeXmlAsync(accession, ct).ConfigureAwait(false); }
+        catch (Exception e) when (Cli.Envelope.IsUnavailable(e) && !ct.IsCancellationRequested) { record.Note($"{accession} gate: ProteomeXchange unavailable: {e.Message}"); }
+        if (xml is not null)
+            try
+            {
+                record.Note($"{accession} gate text from ProteomeXchange (no PRIDE project record)");
+                return GateText.FromProteomeXchange(xml);
+            }
+            catch (System.Xml.XmlException e) { record.Note($"{accession} gate: ProteomeXchange's XML did not parse: {e.Message}"); }
+        record.Note($"{accession} gate text from PRIDE's search index (no project record, no ProteomeXchange record)");
+        return GateText.From(hit);
     }
 
     /// <summary>
@@ -177,15 +230,16 @@ public sealed class CensusRunner(IProjectSearch search)
     /// census.tsv, and the reason is noted in the run record. A broken answer (<c>MzLibException</c>) fails the census,
     /// as it does for a keyword: it is a contract break, not an outage.
     /// </summary>
-    private async Task<(IReadOnlyList<string> Organisms, string Source)> OrganismsOfRecordAsync(
+    private async Task<(IReadOnlyList<string> Organisms, string Source, PrideProject? Project)> OrganismsOfRecordAsync(
         string accession, PrideProjectSearchResult hit, RunRecord record, CancellationToken ct)
     {
         string why;
+        PrideProject? project = null;
         try
         {
-            var project = await search.TryGetProjectAsync(accession, ct).ConfigureAwait(false);
+            project = await search.TryGetProjectAsync(accession, ct).ConfigureAwait(false);
             var names = project?.Organisms.Select(o => o.Name).Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
-            if (names is { Count: > 0 }) return (names, OrganismSource.Project);
+            if (names is { Count: > 0 }) return (names, OrganismSource.Project, project);
             why = project is null ? "PRIDE has no project record" : "the project record lists no organism";
         }
         catch (Exception e) when (Cli.Envelope.IsUnavailable(e) && !ct.IsCancellationRequested)
@@ -193,7 +247,7 @@ public sealed class CensusRunner(IProjectSearch search)
             why = $"project record unavailable: {e.Message}";
         }
         record.Note($"{accession} organisms from the search index ({why})");
-        return (hit.Organisms.Where(o => !IsSdrfHeader(o)).ToList(), OrganismSource.SearchFallback);
+        return (hit.Organisms.Where(o => !IsSdrfHeader(o)).ToList(), OrganismSource.SearchFallback, project);
     }
 
     /// <summary>An SDRF column header, e.g. "Characteristics[organism]" or "Comment[technical replicate]".</summary>

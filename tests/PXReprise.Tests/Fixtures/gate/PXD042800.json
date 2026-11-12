@@ -1,0 +1,13 @@
+{
+  "accession": "PXD042800",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "The let-7 family of miRNA mediates paternal intergenerational inheritance of metabolic disorders via post-transcriptional regulation of mitochondrial dynamics.",
+    "description": "This study aims to investigate the molecular mechanisms and nature of impaired soma-germline crosstalk in IEI by focusing on the miRNA regulations in soma and sperm of obese male mice. We found that F0 HFD deteriorated glucose metabolism in F0 and F1, whereas F0 weight loss largely corrected glucose metabolism in both generations. F0 and F1 mice from HFD and REV group exhibited eWAT hypertrophy, and increased Leptin and insulin levels. Transcriptomics and proteomics revealed metabolic dysfunction in F0 and F1 eWAT which correlated with dysregulation of mitochondrial genes. Notably, miRNA Let-7 was obesity-induced in eWAT and sperm, and mice sired from Let-7d/e-microinjected embryos showed impaired glucose metabolism, suggesting Let-7 participated in IEI of metabolic disorders.  Our data demonstrated that paternal obesity-induced pre-diabetes and mitochondrial dysfunction in eWAT correlated with similar observations in offspring and the phenomena could be partially precluded by paternal weight-loss before conception.",
+    "sample_protocol": "",
+    "keywords": "metabolic diseases, mitochondrial dysfunction,microRNA, intergenerational epigenetic inheritance, Let-7",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": ""
+  }
+}

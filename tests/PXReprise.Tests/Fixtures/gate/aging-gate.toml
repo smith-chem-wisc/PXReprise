@@ -1,0 +1,48 @@
+# The gate terms aging proposed in their 230 (PXR-A179, part B), as they would write them in their question.toml; the
+# smallest question around them. Fixtures: expected.tsv (part C) and one <accession>.json of gate text each (MakeFixtures.cs).
+question = "aging-gate-test"
+profiles = ["label-free-dda@14"]
+
+[discover]
+keywords = ["aging", "ageing", "senescence", "longevity"]
+disease_keywords = ["alzheimer", "dementia", "tauopathy"]
+
+[gate]
+# aging's user (D171): a deposit is queued only if its own text directly addresses an aging factor.
+strong = [
+  # age groups and ages
+  "young", "old", "older", "aged", "elderly", "middle-aged", "geriatric", "centenarians?",
+  "\\d+(\\.\\d+)? ?-?(month|week|year|day)s?[- ]old", "aged \\d+", "age of \\d+",
+  # age-related phrasing
+  "age-related", "age-associated", "age-dependent", "with age", "chronological age", "biological age", "age groups?",
+  # lifespan
+  "life ?span", "longevity", "health ?span", "long-lived", "aging clock", "ageing clock",
+  # senescence and progeroid
+  "senescen\\w*", "SASP", "progeri\\w*", "progeroid", "Hutchinson-Gilford", "Werner syndrome",
+  "premature(ly)? ag(e|ing|eing)", "accelerated ag(e|ing|eing)",
+  # age-related phenotypes in scope now (D70 A and B1, D138)
+  "sarcopeni\\w*", "frailty", "menopaus\\w*", "inflammaging", "immunosenescence",
+  "Alzheimer\\w*", "Parkinson\\w*", "dementia", "tauopath\\w*", "frontotemporal dementia", "amyotrophic lateral sclerosis",
+  # aging interventions
+  "caloric restriction", "calorie restriction", "dietary restriction", "intermittent fasting", "senolytic\\w*", "parabiosis",
+]
+weak = ["aging", "ageing"]
+
+# A strong term used in another sense sends the deposit to watch, not to the queue.
+other_sense = [
+  "(longevity|life ?span) of (the |an? )?(graft|allograft|implant|catheter|device|battery|material|column|reagent)s?",
+  "(graft|allograft|implant|catheter|device|battery|material) (longevity|life ?span)",
+  "(KEGG|GO|pathways?)[^.]{0,80}senescence",
+]
+# D82: senescence or an aging phenotype in a cancer model goes to watch.
+watch_if_any = [
+  "cancer", "tumou?r\\w*", "carcinoma", "melanoma", "glioblastoma", "glioma", "leuka?emia", "lymphoma", "sarcoma", "adenoma",
+  "HeLa", "MCF-?7", "U87", "A375",
+]
+# D70: later diseases and open mechanism terms go to watch when no strong term matches.
+watch_without_strong = [
+  "Huntington\\w*", "osteoarthritis", "osteoporo\\w*", "macular degeneration", "cataracts?", "atherosclero\\w*",
+  "heart failure", "pulmonary fibrosis", "chronic kidney disease", "type 2 diabetes",
+  "oxidative stress", "autophag\\w*", "proteostasis", "mitochondrial dysfunction", "protein aggregation", "rapamycin",
+]
+reference_group = "required"   # D71, as your PXR-A27 rule reads it

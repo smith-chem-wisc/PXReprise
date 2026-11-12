@@ -1,0 +1,13 @@
+{
+  "accession": "PXD018223",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "Quantitative Proteomics of Mouse Liver (FTO-KO,WT) in response to DEN injection",
+    "description": "Single nucleotide polymorphisms in the FTO gene encoding a m6A demthylase are associated with obesity and cancer development. However, the functional role of FTO in the developemnt of progression of hepatocellular carcinoma (HCC) as a proteotypic obesity-associated cancer remains unclear. Here, we have generated mice with hepatic FTO deficiency (FTOL-KO) and subjected them to DEN induced HCC-development. FTOL-KO mice exhibit increased HCC burden. While control mice exhibit a dynamic regulation of FTO upon induction of liver damage, this response is abrogated in mice lacking FTO. Proteomic analyses revealed that liver damage-induced increases in FTO expression promotes m6A-demethylation of  CUL4A reducing its protein expression. Functionally, knockdown of CUL4A restores the increased hepatocyte proliferation observed upon loss of FTO. Collectively, our study reveals a protective role for FTO-dependent dynamic m6A mRNA demethylation of CUL4A in the initiation of HCC development.",
+    "sample_protocol": "",
+    "keywords": "FTO, DEN, CUL4A, liver",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": "Hepatic FTO is dispensable for the regulation of metabolism but counteracts HCC development in vivo"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "accession": "PXD051417",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "Quantitative proteomics analysis of UBR4 knockout A549 cell line",
+    "description": "UBR4 was identified as a potential oncogene in lung adenocarcinoma (LUAD). In this study, we performed a quantitative proteomics analysis using tandem mass tag (TMT) 6-plex technology in UBR4 knockout A549 cell lines to discover an essential role of UBR4 in tumor growth and metastasis.",
+    "sample_protocol": "",
+    "keywords": "Human, UBR4, Knockout, A549",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": ""
+  }
+}

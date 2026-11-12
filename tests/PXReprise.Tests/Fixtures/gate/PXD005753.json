@@ -1,0 +1,13 @@
+{
+  "accession": "PXD005753",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "PTMs of HTT protein -  Post-translational modifications (PTMs), identified on endogenous huntingtin, cluster within proteolytic domains between HEAT repeats",
+    "description": "Post-translational modifications (PTMs) of proteins regulate various cellular processes. PTMs of polyglutamine-expanded huntingtin (Htt) protein, causative of Huntington\u2019s disease (HD), are likely modulators of HD pathogenesis.   Previous studies have identified and characterized several PTMs on exogenously expressed Htt fragments, however none of these studies were designed to systematically characterize PTMs on the endogenous full-length Htt protein.We found that full-length endogenous Htt, immunoprecipitated from HD knock-in mouse and human post mortem brain, is suitable for detection of PTMs by mass spectrometry. Using label-free mass spectrometry, we identified around 40 PTMs, of which half are novel. These findings will be instrumental in the further assembling the Htt PTM framework, and validate PTMs of Htt as promising therapeutic targets for HD.",
+    "sample_protocol": "",
+    "keywords": "Huntingtin, HD, human and mouse brain; Biological; Biomedical",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": "Post-Translational Modifications (PTMs), Identified on Endogenous Huntingtin, Cluster within Proteolytic Domains between HEAT Repeats"
+  }
+}

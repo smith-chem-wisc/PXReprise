@@ -1,0 +1,13 @@
+{
+  "accession": "PXD023050",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "High levels of TFAM repress in vivo transcription of mitochondrial DNA",
+    "description": "Mammalian mitochondrial DNA (mtDNA) is coated with mitochondrial transcription factor A (TFAM) and compacted into nucleoids. TFAM is not only the main component of mitochondrial nucleoids but its levels can also control mtDNA copy number. Here we show that the TFAM-to-mtDNA ratio is critical for maintaining normal mtDNA expression in different tissues of the mouse. BAC transgenic mice with a 1.5-fold increase in TFAM protein levels maintain a normal TFAM-to-mtDNA ratio in different tissues and as a consequence mitochondrial gene expression, nucleoid distribution and whole animal metabolism are all unaltered. In contrast, mice expressing TFAM from the CAG promoter in the ROSA26 locus have 4.5-fold increase of TFAM protein levels in heart and skeletal muscle and develop pathology leading to early postnatal lethality. The TFAM-to-mtDNA ratio varies widely between tissues in these mice and is very high in skeletal muscle where it causes strong repression of mtDNA expression and deficient oxidative phosphorylation (OXPHOS) despite normal mtDNA levels. In heart, mtDNA copy number is increased leading to a near normal TFAM-to-mtDNA ratio and maintained OXPHOS capacity. In the liver, mtDNA expression is maintained despite increased TFAM levels and normal mtDNA levels. Here, tissue-specific induction of the LONP1 protease and mitochondrial RNA polymerase (POLRMT) expression counteracts the silencing effect of high TFAM levels. We conclude that the TFAM-to-mtDNA ratio has an important role in maintaining mtDNA expression in vivo. TFAM acts as a general repressor of mtDNA expression and this effect can be counterbalance by tissue-specific expression of regulatory factors.",
+    "sample_protocol": "",
+    "keywords": "TFAM, transcription, mitochondria, DNA, TMT",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": ""
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "accession": "PXD028303",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "proteome analysis of the antitumor activity of maslinic acid against pancreatic cancer cells",
+    "description": "Maslinic acid (MA) is a triterpenoid compound of natural abundance in olive plants possessing numerous biological activities. The effect and molecular mechanism of MA on pancreatic cancer cells remain elusive. Here, we explored the anti-tumor activity of MA on human pancreatic cancer cells and the potential underlying molecular mechanism.The search for potential therapeutic targets was achieved via  proteomics analyses.",
+    "sample_protocol": "",
+    "keywords": "human,pancreatic cancer cells,maslinic acid,LC-MS/MS",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": "Transcriptome and proteome analysis of the antitumor activity of maslinic acid against pancreatic cancer cells"
+  }
+}

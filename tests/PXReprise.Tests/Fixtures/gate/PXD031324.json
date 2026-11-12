@@ -1,0 +1,13 @@
+{
+  "accession": "PXD031324",
+  "source": "proteomexchange",
+  "fields": {
+    "title": "FGF21 modulates mitochondrial stress response in cardiomyocytes only under mild mitochondrial dysfunction",
+    "description": "Mitochondrial integrated stress response emerged as a major adaptive pathway to respiratory chain deficiency, but tissue-specifics of its regulation or how it adapts to different levels of mitochondrial dysfunction are largely unknown. Here we report that diverse levels of mitochondrial cardiomyopathy activate mitoISR, including high production of FGF21, a cytokine with both paracrine and endocrine function, shown to be induced by respiratory chain dysfunction. Remarkably, although being fully dispensable for the cell-autonomous and systemic responses to severe mitochondrial cardiomyopathy, in the conditions of mild-to-moderate cardiac OXPHOS dysfunction, FGF21 regulates a portion of the mitoISR. In the absence of FGF21, a large part of the metabolic adaptation to mitochondrial dysfunction (one-carbon metabolism, transsulfuration and serine and proline biosynthesis) is strongly blunted, independent of the primary mitoISR activator ATF4. Collectively, our work highlights the complexity of mitochondrial stress responses by revealing the importance of the tissue-specificity and dose-dependency of the mitoISR.",
+    "sample_protocol": "",
+    "keywords": "Mitochondria, Cardiomyopathy, FGF21, CLPP, OXPHOS",
+    "organism_parts": "",
+    "diseases": "",
+    "reference_titles": "FGF21 modulates mitochondrial stress response in cardiomyocytes only under mild mitochondrial dysfunction"
+  }
+}

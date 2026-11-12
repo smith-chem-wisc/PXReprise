@@ -1,0 +1,13 @@
+{
+  "accession": "PXD035412",
+  "source": "pride_project",
+  "fields": {
+    "title": "Proteomics analysis of tissue aging nucleic acid binding proteins",
+    "description": "The landscape of NABPs in different mouse stage will assist in the greater understanding of the cellular and molecular mechanisms which control immune system development and aging.",
+    "sample_protocol": "NABPs were isolated by using Ti4\u002B-IMAC Capture approach. Briefly, the prepared single cells were washed two times with PBS and cross-linked by formaldehyde (FA) at room temperature for 10 mins. After cross-linking, cells were lysed by 1 mL TRIZOL reagent and incubated at room temperature for 5 mins. 200 \u00B5L of chloroform was then added and vortexed at maximum speed for 15 s. The interphase and organic phase containing NAs-protein complexes were precipitated by isopropanol at room temperature for 10 mins. The precipitated NAs-protein complexes were further resuspended in 100 \u00B5L 0.1% SDS with proteinase cocktail and RNase inhibitor, then incubated at 55 \u00B0C for 20 mins and sonicated for 2 mins (250 w, working for 2 s and pausing for 10 s). The cross-links were then mixed with Ti4\u002B-IMAC material, followed by vortex for 1 h. In order to remove nonspecific binding proteins, the pellet was washed with washing buffer (200 mM NaCl, 0.1% TFA, 0.1% NP-40, 10 mM EDTA) twice. The enriched NAs-protein complexes were eluted from Ti4\u002B-IMAC with 10% ammonium hydroxide (NH3\u00B7H2O) by vortex and ultrasonication, then de-crosslinked by incubating at 65 \u00B0C for 6 h.Then proteins were digested by using Filter-aided sample preparation (FASP) approach. Proteins obtained from formaldehyde cross-linking and Organic solvent extraction optimized process was analyzed by Easy-nLC 1000 coupled with an LTQ Orbitrap XL mass spectrometer (Thermo Fisher Scientific, USA).  Proteins were analyzed by Easy-nanoLC1000 coupled with an Obitrap Q-Exactive Plus mass spectrometer (Thermo Fisher Scientific, USA).",
+    "keywords": "Nucleic acid binding protemoics; Aging; Lc/ms-ms",
+    "organism_parts": "Lung",
+    "diseases": "",
+    "reference_titles": "Deciphering Nucleic Acid Binding Proteome of Mouse Immune Organs Reveals Hub Proteins for Aging"
+  }
+}
