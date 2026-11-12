@@ -254,6 +254,25 @@ public static class SearchParams
         return answers.Count == 1 ? answers.First() : "not recorded";
     }
 
+    /// <summary>The search task's <c>SearchParameters.WriteIndividualFiles</c>: whether MetaMorpheus wrote its per-file
+    /// results, and with them results.txt's per-file count lines (<c>PostSearchAnalysisTask.cs:91-101</c> and
+    /// <c>:1221</c> at <c>6e152da70</c>, which also need two or more files).</summary>
+    /// <returns>The one value every <c>Search</c> task that states it agrees on; null when no search task states it
+    /// (the release's default is not assumed) or two disagree.</returns>
+    public static bool? WriteIndividualFiles(IEnumerable<string> taskFiles)
+    {
+        var values = new HashSet<bool>();
+        var unstated = false;
+        foreach (var path in taskFiles)
+        {
+            var doc = ReadTask(path);
+            if (doc is null || TaskType(doc) != "Search") continue;
+            if (Get(Section(doc, "SearchParameters"), "WriteIndividualFiles") is bool value) values.Add(value);
+            else unstated = true;
+        }
+        return !unstated && values.Count == 1 ? values.First() : null;
+    }
+
     /// <summary>How the search resolved an accession present in both a target and a contaminant database.</summary>
     /// <remarks>
     /// <c>SearchParameters.TCAmbiguity</c> in the search task's <c>.toml</c>: <c>RemoveContaminant</c> (the default)

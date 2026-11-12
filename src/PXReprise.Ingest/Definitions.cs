@@ -40,7 +40,12 @@ public static partial class Definitions
         ProteinSpectralCount, Occupancy, PeptideCount1pct, ProteinGroupCount1pct, Ms2Count, RunMinutes,
         PrecursorCount, ContamPsmShare, ContamIntensityShare, TmtPeptide, TmtProtein,
         .. PxrepriseTwins.Values,
+        Psm1pctRun, PeptideCount1pctRun, ProteinGroupCount1pctRun, .. PxrepriseRunCounts,
     ]);
+
+    /// <summary>PXReprise's per-run counts over the whole search's 1% set, the ones its QC payload reports (1.5.0 item
+    /// 7). Not twins of aging's per-run definitions: those describe results.txt's per-file lines, a different number.</summary>
+    public static IReadOnlyList<Def> PxrepriseRunCounts => [PxrPsm1pctRun, PxrPeptideCount1pctRun, PxrProteinGroupCount1pctRun];
 
     /// <summary>Every definition a bundle can carry, in the order bundles list them.</summary>
     public static IReadOnlyList<Def> All => AllLazy.Value;
