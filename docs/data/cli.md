@@ -185,7 +185,7 @@ options:
   --store STORE          the store to keep the records in, under <store>/_companion/pride/<accession>/
 ```
 
-The only command that reaches PRIDE: `build` reads the records it kept and fetches nothing. Each record is kept under `<store>/_companion/pride/<accession>/<record id>/` (`record.json`, `fetch.json`), never in a bundle, and a record unchanged since the last fetch writes nothing. E-mail is never stored. A deposit PRIDE has no record of is kept as `found = false`; a failed fetch keeps nothing, is printed as `failed`, and makes the command exit `1` after the rest are fetched.
+The only command that reaches PRIDE: `build` reads the records it kept and fetches nothing. Each record is kept under `<store>/_companion/pride/<accession>/<record id>/` (`record.json`, `fetch.json`), never in a bundle, and a record unchanged since the last fetch writes nothing. Every value PRIDE publishes is kept, e-mail included. A deposit PRIDE has no record of is kept as `found = false`; a failed fetch keeps nothing, is printed as `failed`, and makes the command exit `1` after the rest are fetched.
 
 ## Build and publish: bundles become a catalog and a site
 

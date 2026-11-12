@@ -98,11 +98,11 @@ public class FolderCatalogTests
                 Assert.That(CatalogBuilder.RunQuery(catalog, "SELECT accession, archive, found, mzlib_version FROM deposit_records").Rows.Single(),
                     Is.EqualTo(new object?[] { "PXD999999", "PRIDE", true, PrideRecords.MzLibVersion }), catalog);
                 Assert.That(CatalogBuilder.RunQuery(catalog,
-                        "SELECT role, ordinal, name, title, last_name, affiliation, orcid, pride_contact_id FROM deposit_contacts ORDER BY role").Rows,
+                        "SELECT role, ordinal, name, title, last_name, affiliation, email, orcid, pride_contact_id FROM deposit_contacts ORDER BY role").Rows,
                     Is.EqualTo(new[]
                     {
-                        new object?[] { "lab_head", 1L, "Ann Smith", null, "Smith", null, null, "7" },
-                        new object?[] { "submitter", 1L, "Bo Lee", null, "Lee", null, "0000-0001", "2254706" },
+                        new object?[] { "lab_head", 1L, "Ann Smith", null, "Smith", null, "ann@example.org", null, "7" },
+                        new object?[] { "submitter", 1L, "Bo Lee", null, "Lee", null, null, "0000-0001", "2254706" },
                     }), catalog);
                 Assert.That(CatalogBuilder.RunQuery(catalog, "SELECT ordinal, reference_line, pubmed_id, doi FROM deposit_references").Rows.Single(),
                     Is.EqualTo(new object?[] { 1L, "Smith A. 2026", null, null }), "PubMed 0 and an empty DOI are NULL");
