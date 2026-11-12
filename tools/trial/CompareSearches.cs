@@ -40,7 +40,7 @@ md.AppendLine($"| set | {lo} | {ln} | shared | Jaccard |\n|---|---:|---:|---:|--
 Overlap(md, "PSMs (file, scan)", O.PsmKeys, N.PsmKeys);
 Overlap(md, "peptidoforms (Full Sequence)", O.Peptidoforms, N.Peptidoforms);
 Overlap(md, "base sequences", O.BaseSeqs, N.BaseSeqs);
-Overlap(md, "protein groups (AllQuantifiedProteinGroups, T, q <= 0.01)", O.Groups, N.Groups);
+Overlap(md, "protein groups (AllQuantifiedProteinGroups, else AllProteinGroups; T, q <= 0.01)", O.Groups, N.Groups);
 
 md.AppendLine("\n## PEP of the 1% target PSMs\n");
 md.AppendLine($"| | {lo} | {ln} |\n|---|---:|---:|");
@@ -111,7 +111,10 @@ static Run Load(string searchDir)
     }
     var bases = r.BaseSeqs.Where(s => !s.Contains('|')).ToList();
     r.CysShare = bases.Count == 0 ? double.NaN : (double)bases.Count(s => s.Contains('C')) / bases.Count;
+    // An isobaric search writes no AllQuantifiedProteinGroups.tsv, only AllProteinGroups.tsv with the same Protein QValue and
+    // target columns (dataRepo 110, PXR-R60): take that one, or a TMT search's groups would read as none.
     string pg = Path.Combine(task, "AllQuantifiedProteinGroups.tsv");
+    if (!File.Exists(pg)) pg = Path.Combine(task, "AllProteinGroups.tsv");
     if (File.Exists(pg))
         foreach (var row in Read(pg))
         {
