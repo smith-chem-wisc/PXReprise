@@ -1615,6 +1615,49 @@ public class BatchRunnerTests
         });
     }
 
+    // v0.4.46 (G69, 2026-11-11): 71 TMT passes made under v0.4.45 waited for their whole fetch at the release. The design rule
+    // is the probe's, so a pass never met it: each would have been fetched whole and refused only by the search, its raws kept
+    // (F: had 335 GB free). A pass with no stated design now waits before the whole fetch; one whose SDRF states the plexes,
+    // or that brought no probe QC to read a kit from, goes on as before.
+    [Test]
+    public async Task AWorkersIsobaricPassWithNoStatedDesignWaitsBeforeTheWholeFetch()
+    {
+        var (runner, search, files, dir) = DepositChemistryRunner("\"label-free-dda@3\", \"tmt-dda@2\"", designs: true);
+        var selection = new[] { "a.raw", "b.raw", "c.raw", "d.raw" };
+        files.Listing = selection.Select(f => new PrideArchiveFile { FileName = f, FileSizeBytes = 500_000_000 }).ToList();
+        var tmt = new List<MzLibUtil.CvParam> { new() { Name = "TMT intensity 126" }, new() { Name = "TMT intensity 127" } };
+        var probeQc = new JsonObject(selection.Select(f => KeyValuePair.Create(f, (JsonNode?)new JsonObject { ["isobaric_kit"] = "TMT10" })));
+        foreach (string acc in new[] { "PXD000433", "PXD000434", "PXD000435" })
+        {
+            search.Projects[acc] = new PrideProject { Accession = acc, Title = "t", SampleProcessingProtocol = "Peptides were labelled with TMT10plex.", QuantificationMethods = tmt };
+            runner.Record(acc, ("status", BatchRunner.ProbedByWorkerStatus), ("profile", "tmt-dda@2"), ("title", "t"), ("organism", "human"),
+                ("probed_by", "WORKER"), ("probe_package_utc", "2026-11-11T19:51:28Z"));
+            if (acc == "PXD000435") continue;   // no probe QC in its package
+            Directory.CreateDirectory(Path.Combine(dir, "runs", acc, "02b_qc_probe"));
+            TestSupport.WriteFile(Path.Combine(dir, "runs", acc, "02b_qc_probe"), "qc_report.json", probeQc.ToJsonString());
+        }
+        DesignStageTests.TmtSdrf(Path.Combine(dir, "designs"), "PXD000434.sdrf.tsv", plexColumn: "characteristics[plex]");
+        var fetched = new List<string>();
+        runner.ProbeForTest = (e, ct) => throw new AssertionException("a worker's pass is not probed again");
+        runner.FetchWholeForTest = (e, p, ct) => { lock (fetched) fetched.Add(e.Accession); runner.Record(e.Accession, ("status", "fetched")); return Task.FromResult(true); };
+        runner.SearchForTest = (e, p, ct) => { runner.Record(e.Accession, ("status", "searched")); return Task.CompletedTask; };
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+        await runner.RunAsync(new[] { "PXD000433", "PXD000434", "PXD000435" }.Select(a => new QueueEntry(a, "t", "human")).ToArray(), cts.Token);
+
+        string log = File.ReadAllText(Path.Combine(dir, "state", "batch.log"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(runner.Settled("PXD000433"), Is.EqualTo(BatchRunner.IsobaricDesignStatus));
+            Assert.That(JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "state", "state.json")))!["datasets"]!["PXD000433"]!["design_stamp"]?.GetValue<string>(),
+                Is.EqualTo("none"), "it gets one more look when a design arrives");
+            Assert.That(fetched, Is.EquivalentTo(new[] { "PXD000434", "PXD000435" }), "the pass with no stated design is not fetched whole");
+            Assert.That(log, Does.Contain("PXD000433 SCREENED OUT (waiting_isobaric_design): the worker's pass (package 2026-11-11T19:51:28Z) is not fetched whole")
+                .And.Contain("PXD000434 PROBE isobaric design: TMT10, the question SDRF"));
+            Assert.That(File.Exists(Path.Combine(dir, "runs", DecisionsNeeded.FileName)), Is.False, "a capability wait, not a person's decision");
+        });
+    }
+
     // v0.4.45 (PXD025746, 2026-11-11): its iodoTMT search failed while updating mouse_tmt6plex (G46), and every later search of
     // the driver ran without any library, human and mouse TMT11 alike. Only the chain the failed search read is switched off.
     [Test]

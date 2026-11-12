@@ -2730,16 +2730,45 @@ public sealed class BatchRunner
         if (_q.ExceptionFor(acc) is { SelectsFiles: true } exception) listing = listing.Where(f => exception.Keeps(f.FileName)).ToList();
         Log($"{acc} probe passed on {Entry(acc)?["probed_by"]} under {Entry(acc)?["profile"]}: duplicate and chemistry screen here, then the whole fetch");
         if (ExcludedAsDuplicate(acc, listing, null)) return false;
-        if (passed.Chemistry != "deposit") return true;
-        DepositChemistry chem;
-        try { chem = await ChemistryAsync(acc, all, listing.Select(f => f.FileName).ToList(), passed, ct).ConfigureAwait(false); }
-        catch (Exception ex) when (Envelope.IsUnavailable(ex) || FetchStage.IsTransient(ex)) { Log($"{acc} chemistry: PRIDE unavailable ({ex.Message}); retry next pass"); return false; }
-        if (UnsearchableChemistry(chem) is not { } wait) return true;
-        Log($"{acc} SCREENED OUT ({wait}): the worker's pass (package {Entry(acc)?["probe_package_utc"]}) is not searched; chemistry {Describe(chem)}");
-        Record(acc, ("status", wait), ("detail", Describe(chem)));
-        if (DecisionsNeeded.Announce(_runRoot, acc, wait, Describe(chem)) is { } d)
-            Log($"{acc} DECISION NEEDED ({wait}): {d.Question} Listed in {DecisionsNeeded.FileName}.");
-        return false;
+        if (passed.Chemistry == "deposit")
+        {
+            DepositChemistry chem;
+            try { chem = await ChemistryAsync(acc, all, listing.Select(f => f.FileName).ToList(), passed, ct).ConfigureAwait(false); }
+            catch (Exception ex) when (Envelope.IsUnavailable(ex) || FetchStage.IsTransient(ex)) { Log($"{acc} chemistry: PRIDE unavailable ({ex.Message}); retry next pass"); return false; }
+            if (UnsearchableChemistry(chem) is { } wait)
+            {
+                Log($"{acc} SCREENED OUT ({wait}): the worker's pass (package {Entry(acc)?["probe_package_utc"]}) is not searched; chemistry {Describe(chem)}");
+                Record(acc, ("status", wait), ("detail", Describe(chem)));
+                if (DecisionsNeeded.Announce(_runRoot, acc, wait, Describe(chem)) is { } d)
+                    Log($"{acc} DECISION NEEDED ({wait}): {d.Question} Listed in {DecisionsNeeded.FileName}.");
+                return false;
+            }
+        }
+        // v0.4.46 (G69, 2026-11-11): a pass made under v0.4.45 or before never met the isobaric design rule, and 71 TMT passes
+        // waited here at the release. Without this they would be fetched whole and refused only by the search, raws kept: the
+        // rule is the probe's, before the whole download, so it is asked here with the worker's probe QC.
+        if (passed.QuantMethod == "reporter_ion" && WorkerProbeQc(acc) is { } probeQc
+            && IsobaricDesignHold(acc, probeQc, listing.Select(f => f.FileName).ToList()) is { } noDesign)
+        {
+            Log($"{acc} SCREENED OUT ({IsobaricDesignStatus}): the worker's pass (package {Entry(acc)?["probe_package_utc"]}) is not fetched whole; {noDesign}");
+            Record(acc, ("status", IsobaricDesignStatus), ("detail", noDesign), ("design_stamp", DesignStamp(acc)));
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>The probe QC report a worker's package brought (<c>02b_qc_probe/qc_report.json</c>), or null when it has none
+    /// or it cannot be read; then the search's own refusal stands behind the isobaric design rule.</summary>
+    private JsonObject? WorkerProbeQc(string acc)
+    {
+        string f = Path.Combine(Run(acc), "02b_qc_probe", "qc_report.json");
+        if (!File.Exists(f)) return null;
+        try { return JsonNode.Parse(File.ReadAllText(f)) as JsonObject; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            Log($"{acc} probe QC report not read ({ex.Message}); the isobaric design is checked by the search");
+            return null;
+        }
     }
 
     /// <summary>

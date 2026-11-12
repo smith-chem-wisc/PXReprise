@@ -7,10 +7,11 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
-## 0.4.46 (unreleased)
+## 0.4.46 (2026-11-12)
 
 **MetaMorpheus** unchanged. **Machine file:** no change needed (`output_sdrf_read_only` is new, default `true`). **Safe
-mid-batch?** Yes: swap the pin as usual.
+mid-batch?** Yes: swap the pin as usual. A probe worker takes the new release (`worker release`): the isobaric design rule
+is the probe's.
 
 - **A question can gate its deposits on their own text: `[gate]`, and `pxreprise gate`** (aging PXR-A179, 2026-11-11).
   - The census finds deposits with PRIDE's text search, which matches anywhere in a record, a lab's name included. Aging
@@ -65,6 +66,9 @@ mid-batch?** Yes: swap the pin as usual.
     wait, so no decisions row is written: its SDRF is made for it. It gets one more look when the question's design SDRF
     for it is added or changed. A deposit that reaches its search without a design (fetched before this release) waits the
     same way, with its raw files kept.
+  - A deposit the probe worker passed before this release meets the same rule before its whole download, read from the
+    probe QC report in the worker's package. At this release 71 TMT passes waited on aging's delivering machine; without
+    this each would have been downloaded whole and refused only by its search.
   - The 47 already delivered are restricted for `quantitation` in the catalog, from each search's provenance. The note
     says what QuantProject asked: a sample there is one file's channel, not a biological sample, so the reporter values
     compare only within a file. On aging's manifest that makes 119 restricted entries (74 for `occupancy`, 47 for
