@@ -292,6 +292,42 @@ public static partial class CatalogBuilder
     /// <c>&lt;accession&gt;-&lt;group&gt;</c> (G95); every other deposit is one dataset under its bare accession.</summary>
     public const string DepositsTable = "deposits";
 
+    /// <summary>The PRIDE record tables, read at build from the records the operator fetched beside the bundles
+    /// (<see cref="PrideRecords"/>; 1.5.0 item 12, ptmQtl's DATAREPO-P35). Keyed by the bare accession.</summary>
+    public const string DepositRecordsTable = "deposit_records";
+    public const string DepositContactsTable = "deposit_contacts";
+    public const string DepositReferencesTable = "deposit_references";
+
+    /// <summary>The view of runs whose raw file is in the catalog more than once, by sha256 (ptmQtl 062).</summary>
+    public const string SharedRawFilesView = "shared_raw_files";
+
+    /// <summary>The PRIDE tables, which a Python 0.32.0 parity build does not write.</summary>
+    private static readonly IReadOnlySet<string> PrideTables =
+        new HashSet<string>([DepositRecordsTable, DepositContactsTable, DepositReferencesTable], StringComparer.Ordinal);
+
+    /// <summary>Views over the runs (ptmQtl 062), created after the bundles are loaded; none in a Python 0.32.0 parity build.</summary>
+    /// <remarks>One row per run whose raw file (<c>runs.sha256</c>) is in the catalog under another run too. A raw file's
+    /// name is not its identity: one pair of deposits shares three renamed files, and PXD006815 holds one run under two
+    /// animals' names (our 061). Pooling across deposits counts the same raw data once only if it can see this, and a
+    /// view is computed at every read, so no one has to remember to run a query.</remarks>
+    public static IReadOnlyList<KeyValuePair<string, string>> RunViews => AnnotationsActive ? RunViewBodies : [];
+
+    /// <summary>The names of <see cref="RunViews"/>, whatever the scope: what a catalog of the current rules holds.</summary>
+    public static IReadOnlyList<string> RunViewNames => RunViewBodies.Select(kv => kv.Key).ToList();
+
+    private static readonly IReadOnlyList<KeyValuePair<string, string>> RunViewBodies =
+    [
+        new(SharedRawFilesView,
+            "WITH copies AS (SELECT sha256, count(*) AS n_copies FROM runs WHERE sha256 IS NOT NULL GROUP BY sha256 HAVING count(*) > 1) "
+            + "SELECT r.sha256, r.dataset_id, split_part(r.dataset_id, '-', 1) AS accession, r.run_id, r.file_name, c.n_copies, "
+            + "(SELECT list_sort(list(o.run_id)) FROM runs o WHERE o.sha256 = r.sha256 AND o.run_id <> r.run_id) AS other_run_ids, "
+            + "EXISTS (SELECT 1 FROM runs o WHERE o.sha256 = r.sha256 AND o.run_id <> r.run_id "
+            + "AND split_part(o.dataset_id, '-', 1) = split_part(r.dataset_id, '-', 1)) AS in_same_accession, "
+            + "EXISTS (SELECT 1 FROM runs o WHERE o.sha256 = r.sha256 "
+            + "AND split_part(o.dataset_id, '-', 1) <> split_part(r.dataset_id, '-', 1)) AS in_other_accession "
+            + "FROM runs r JOIN copies c ON c.sha256 = r.sha256"),
+    ];
+
     /// <summary>The derived table of runs the build's manifest excludes from analysis (G85).</summary>
     public const string RunExclusionsTable = "run_exclusions";
 
@@ -363,6 +399,9 @@ public static partial class CatalogBuilder
         RunExclusionsTable,
         RestrictionsTable,
         DepositsTable,
+        DepositRecordsTable,
+        DepositContactsTable,
+        DepositReferencesTable,
     ];
 
     /// <summary>Views that apply the producing search engine's acceptance rule, so no caller has to restate
@@ -777,6 +816,66 @@ public static partial class CatalogBuilder
             + "molecules. Filter `target_decoy` yourself if you want them out. This is the table to "
             + "query for protein-level identification; `protein_index.n_datasets_1pct` is looser.",
             new Dictionary<string, string>(StringComparer.Ordinal)),
+        [DepositRecordsTable] = new(
+            "One row per deposit whose PRIDE record the operator fetched (`datarepo pride`), keyed by the bare accession: "
+            + "a split deposit's searches share it (join `dataset_overview.accession`). The record describes the DEPOSIT, "
+            + "not our search, and PRIDE edits it after deposit (a paper is added when it is published), so it is kept beside "
+            + "the bundles, never in one: a refetch that finds it changed moves the catalog id, never a bundle id. The newest "
+            + "fetch is served. A deposit with NO row here was never fetched, which says nothing about PRIDE; `found = false` "
+            + "means PRIDE answered that it has no such project.",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["found"] = "False when PRIDE answered that it has no record of the accession (its 404); such a deposit has no "
+                    + "rows in `deposit_contacts` or `deposit_references`. An outage is never stored as false.",
+                ["fetched_utc"] = "When this record was fetched. A later fetch that found it unchanged wrote nothing, so this is "
+                    + "when it was first seen as it is.",
+                ["record_id"] = "The directory it is kept in, `<store>/_companion/pride/<accession>/<record_id>/`.",
+                ["record_sha256"] = "sha256 of the kept `record.json`; the catalog id covers it.",
+                ["mzlib_version"] = "The mzLib whose `PrideArchiveClient` read it. Every value is as mzLib read it.",
+            }),
+        [DepositContactsTable] = new(
+            "The people PRIDE's record names for a deposit, one row per person per role, every value as PRIDE wrote it "
+            + "(untrimmed; PRIDE's empty string is NULL here). E-mail is never stored: PRIDE's e-mail field is left out, and an "
+            + "address a submitter typed into another field reads `[e-mail removed]`. **None of these columns identifies a "
+            + "person or a lab on its own** (measured on 193 records, ptmQtl 061): a lab head's `pride_contact_id` is a fresh "
+            + "copy per deposit, no lab head had an ORCID, a submitter account can be a core facility serving several labs, "
+            + "the lab head can be the mass-spectrometry collaborator, and names vary (`last_name` `PhD`; one lab head spelled "
+            + "three ways). A rule that groups deposits by lab is the consumer's to write and combine evidence for (ptmQtl's "
+            + "is names, shared papers and `shared_raw_files`).",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["role"] = "`lab_head` (PRIDE's `labPIs`) or `submitter` (`submitters`).",
+                ["ordinal"] = "The person's place in PRIDE's list for that role, from 1. A place, not a rank.",
+                ["name"] = "The full name as PRIDE composes it.",
+                ["pride_contact_id"] = "PRIDE's internal id for this contact entry. NOT a person: a lab head's id is a new "
+                    + "copy on every deposit, and a submitter's is an account, which can be a facility's.",
+                ["orcid"] = "The ORCID iD, where the person published one.",
+            }),
+        [DepositReferencesTable] = new(
+            "The papers PRIDE's record lists for a deposit, one row each, in PRIDE's order. A deposit can list none (22 of "
+            + "193 on 2026-11-04), and one paper can sit on several deposits, which is evidence they are one lab's work. The "
+            + "deposit's own DOI (`10.6019/PXD...`) names the deposit, not a paper, and is not here.",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["ordinal"] = "The paper's place in PRIDE's list, from 1.",
+                ["reference_line"] = "The citation exactly as PRIDE formats it, never parsed.",
+                ["pubmed_id"] = "The PubMed id. NULL where PRIDE writes 0, which it does for a paper registered without one.",
+                ["doi"] = "The paper's DOI. NULL where PRIDE gives none.",
+            }),
+        [SharedRawFilesView] = new(
+            "Runs whose raw file is in this catalog more than once, found by `runs.sha256`, one row per such run. A raw file's "
+            + "NAME is not its identity: one pair of deposits shares three files under different names, and PXD006815 holds "
+            + "one run under two animals' names (ptmQtl 061). Pooling across deposits, or across samples in one, must count "
+            + "such data once. Only runs that were searched and are served here are compared; a deposited file nobody "
+            + "searched is not.",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["accession"] = "The deposit the run belongs to: the bare accession of its `dataset_id`.",
+                ["n_copies"] = "How many runs in the catalog carry this file, this one included (at least 2).",
+                ["other_run_ids"] = "The other runs with the same file, sorted.",
+                ["in_same_accession"] = "Another copy is in the same deposit (in this search, or another search of a split deposit).",
+                ["in_other_accession"] = "A copy is in another deposit. Both columns can be true.",
+            }),
         ["ptm_sites_by_chemistry"] = new(
             "`ptm_sites` regrouped so one chemistry reaching a dataset under two engine names "
             + "becomes one row ('Phosphorylation on S' and 'Phosphoserine on S' are the same thing). "
@@ -1041,9 +1140,10 @@ public static partial class CatalogBuilder
         IReadOnlyList<StudyBundleRef>? studyBundles = null,
         IReadOnlyList<ArtefactRef>? artefacts = null,
         string? packageVersion = null,
-        Manifest? manifest = null) =>
+        Manifest? manifest = null,
+        IReadOnlyList<PrideRecordRef>? prideRecords = null) =>
         CatalogIdOf(bundles, studyBundles, artefacts, packageVersion, Annotations(bundles, manifest), RunExclusions(bundles, manifest),
-            Restrictions(bundles, manifest), Census(manifest));
+            Restrictions(bundles, manifest), Census(manifest), prideRecords: prideRecords);
 
     /// <summary>Each bundle's dataset restrictions from <paramref name="manifest"/> (DATAREPO-74), in dataset then use
     /// order. A dataset the manifest does not list, or lists without restrictions, has none.</summary>
@@ -1103,7 +1203,8 @@ public static partial class CatalogBuilder
         IReadOnlyList<DatasetRestriction> restrictions,
         CandidateCensus? census,
         string? dataRoot = null,
-        string? derivedRoot = null)
+        string? derivedRoot = null,
+        IReadOnlyList<PrideRecordRef>? prideRecords = null)
     {
         var text = new StringBuilder();
         text.Append($"datarepo/{packageVersion ?? PackageVersion}\ncatalog/{CatalogVersion}\nschema/{SchemaContract.Version}\n");
@@ -1146,6 +1247,11 @@ public static partial class CatalogBuilder
         // manifest naming no census keeps the id it had.
         if (AnnotationsActive && census is not null)
             text.Append($"candidates/{census.Sha256}\n");
+        // And each deposit's PRIDE record (1.5.0 item 12): a refetch that finds a paper added answers "which papers" differently.
+        // Not the release id: like the manifest's prose, a record describes the deposit, not the search. None without one.
+        if (AnnotationsActive)
+            foreach (var p in (prideRecords ?? []).OrderBy(p => p.Accession, SourcesPy.CodePointOrder))
+                text.Append($"pride/{p.Accession}\t{p.Sha256}\n");
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text.ToString())))[..16];
     }
 
@@ -1495,9 +1601,11 @@ public static partial class CatalogBuilder
         IReadOnlyList<ArtefactRef>? artefacts = null,
         IReadOnlyList<CatalogCheck>? engineChecks = null,
         Manifest? manifest = null,
-        int? keep = null)
+        int? keep = null,
+        IReadOnlyList<PrideRecordRef>? prideRecords = null)
     {
         if (bundles.Count == 0) throw new CatalogException("no bundles to build a catalog from");
+        var pride = AnnotationsActive ? (prideRecords ?? []).ToList() : [];
         var layout = LayoutOf(@out);
         if (layout == CatalogLayout.Folder && SchemaContract.IsPython0320)
             throw new CatalogException("a Python 0.32.0 parity build writes one .duckdb file: name one with --out");
@@ -1565,7 +1673,7 @@ public static partial class CatalogBuilder
         var census = Census(manifest);
         var dataRoot = views ? DataRoot(bundles, study, engines) : null;
         var derivedRoot = views ? DerivedRootOf(System.IO.Path.GetFullPath(@out)) : null;
-        var cid = CatalogIdOf(bundles, study, engines, null, annotations, exclusions, restrictions, census, dataRoot, derivedRoot);
+        var cid = CatalogIdOf(bundles, study, engines, null, annotations, exclusions, restrictions, census, dataRoot, derivedRoot, pride);
         var rid = ReleaseId(bundles, study, engines);
         if (census is not null)
         {
@@ -1637,6 +1745,8 @@ public static partial class CatalogBuilder
                     CreateRunExclusions(con, exclusions);
                     CreateRestrictions(con, restrictions);
                     CreateDeposits(con);
+                    PrideRecords.CreateTables(con, pride);
+                    foreach (var (name, body) in RunViews) Exec(con, $"CREATE VIEW \"{name}\" AS {body}");
                 }
                 if (census is not null) rowCounts[CandidateCensus.Table] = LoadCandidates(con, census, bundles);
                 Lap("manifest");
@@ -2118,6 +2228,7 @@ public static partial class CatalogBuilder
         taken.UnionWith(DerivedTables);
         taken.UnionWith(AcceptedViews.Select(kv => kv.Key));
         taken.UnionWith(GrainViews.Select(kv => kv.Key));
+        taken.UnionWith(RunViews.Select(kv => kv.Key));
         foreach (var (layer, tables) in SchemaContract.StudyLayers)
         {
             var r = byLayer.GetValueOrDefault(layer);
@@ -2907,10 +3018,11 @@ public static partial class CatalogBuilder
                 : "bundle";
             Exec(con, "INSERT INTO catalog_tables VALUES (?, ?, ?)", name, rowCounts.GetValueOrDefault(name, 0), kind);
         }
-        var views = CatalogedAcceptedViews.Select(kv => kv.Key).Concat(GrainViews.Select(kv => kv.Key)).ToHashSet(StringComparer.Ordinal);
-        foreach (var name in DerivedTables.Concat(CatalogedAcceptedViews.Select(kv => kv.Key)).Concat(GrainViews.Select(kv => kv.Key)))
+        var views = CatalogedAcceptedViews.Select(kv => kv.Key).Concat(GrainViews.Select(kv => kv.Key)).Concat(RunViews.Select(kv => kv.Key))
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var name in DerivedTables.Concat(CatalogedAcceptedViews.Select(kv => kv.Key)).Concat(GrainViews.Select(kv => kv.Key)).Concat(RunViews.Select(kv => kv.Key)))
         {
-            if (name is AnnotationsTable or RunExclusionsTable or RestrictionsTable or DepositsTable && !AnnotationsActive) continue;
+            if ((name is AnnotationsTable or RunExclusionsTable or RestrictionsTable or DepositsTable || PrideTables.Contains(name)) && !AnnotationsActive) continue;
             var rows = Count(con, $"SELECT count(*) FROM \"{name}\"");
             Exec(con, "INSERT INTO catalog_tables VALUES (?, ?, ?)", name, rows, views.Contains(name) ? "view" : "derived");
         }

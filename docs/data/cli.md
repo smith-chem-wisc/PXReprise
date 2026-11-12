@@ -15,6 +15,7 @@ New here? Start with [getting-started.md](getting-started.md), which runs the ma
 | [`verify`](#datarepo-verify) | re-hash bundles' table files and copied sources against what each bundle.json recorded |
 | [`study`](#datarepo-study) | write a study layer's delivered rows as a study bundle |
 | [`run`](#datarepo-run) | run a released engine on stored data (the instance operator's step) |
+| [`pride`](#datarepo-pride) | fetch each deposit's PRIDE record into the store, beside its bundles (the instance operator's step) |
 | [`publish`](#datarepo-publish) | build the catalog from every ingested dataset, then write the static site |
 | [`build`](#datarepo-build) | load bundles into one DuckDB catalog |
 | [`site`](#datarepo-site) | write the public static site for one catalog |
@@ -166,6 +167,25 @@ options:
 ```
 
 A development build (version `0.0.0-dev`, or no recorded commit) is refused: see [operating.md](operating.md#1-install-one-released-version).
+
+### `datarepo pride`
+
+Fetch each deposit's PRIDE record into the store, beside its bundles (the instance operator's step).
+
+```text
+usage: datarepo pride [-h] [--store STORE] [accession ...]
+
+fetch each deposit's PRIDE record into the store, beside its bundles (the instance operator's step)
+
+positional arguments:
+  accession              deposits to fetch; default is every deposit with a bundle in the store (zero or more)
+
+options:
+  -h, --help             show this help message and exit
+  --store STORE          the store to keep the records in, under <store>/_companion/pride/<accession>/
+```
+
+The only command that reaches PRIDE: `build` reads the records it kept and fetches nothing. Each record is kept under `<store>/_companion/pride/<accession>/<record id>/` (`record.json`, `fetch.json`), never in a bundle, and a record unchanged since the last fetch writes nothing. E-mail is never stored. A deposit PRIDE has no record of is kept as `found = false`; a failed fetch keeps nothing, is printed as `failed`, and makes the command exit `1` after the rest are fetched.
 
 ## Build and publish: bundles become a catalog and a site
 
