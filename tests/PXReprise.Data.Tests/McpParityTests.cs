@@ -305,13 +305,24 @@ public class McpParityTests
         // columns themselves and their NULL notices are still compared.
         (new Regex(@" -- <matched_ion_(?:series|count): rewritten for PXR-R44>", RegexOptions.CultureInvariant), ""),
         (new Regex(@",\s*""means"": ""<matched_ion_(?:series|count): rewritten for PXR-R44>""", RegexOptions.CultureInvariant), ""),
-        // 1.5.0 (logs 034/035, D59, schema 0.0.17) rewrites gene_resolutions.definition_id's description for v2. The old and
-        // the new text each mask to one placeholder; the column line around them is still compared.
+        // 1.5.0 (logs 034/035, D59, schema 0.0.17, mzLib 1.0.598) makes every gene-resolution run v2: definition_id's
+        // description, the table's producer sentence and ensembl_xref_sha256's last sentence are rewritten. Each old and new
+        // text masks to one placeholder; everything around them is still compared.
         .. new[]
         {
             "`logs:DEF-GENE-RESOLUTION v1`. A run without Ensembl's xref is not v1 and is refused by the runner (logs 017 section 3).",
-            "`logs:DEF-GENE-RESOLUTION v1`, or `v2` on a row that fills `ensembl_xref_agreement` (logs 034, schema 0.0.17). A v1 row never carries the v2 column, so never read a v1 row's NULL there as a v2 answer. A run without Ensembl's xref is neither and is refused by the runner (logs 017 section 3).",
+            SchemaColumn("gene_resolutions", "definition_id"),
         }.Select(text => (new Regex(Regex.Escape(text), RegexOptions.CultureInvariant), "<definition_id: rewritten for logs 034>")),
+        .. new[]
+        {
+            "Producer: logs (the method, `logs:DEF-GENE-RESOLUTION v1`); the rows' inputs are the operator's.",
+            "Producer: logs (the method, `logs:DEF-GENE-RESOLUTION v2` from datarepo 1.5.0, v1 before; `definition_id` says which); the rows' inputs are the operator's.",
+        }.Select(text => (new Regex(Regex.Escape(text), RegexOptions.CultureInvariant), "<gene_resolutions producer: rewritten for logs 034>")),
+        .. new[]
+        {
+            "Always present: v1 requires the xref.",
+            "Always present: v1 and v2 both require the xref.",
+        }.Select(text => (new Regex(Regex.Escape(text), RegexOptions.CultureInvariant), "<ensembl_xref_sha256: rewritten for logs 034>")),
         // 1.5.0 (G127, schema 0.0.17) rewrites samples.condition's description: it holds only the disease's name. The old and
         // the new text each mask to one placeholder; the column line around them is still compared.
         .. new[]
@@ -357,6 +368,9 @@ public class McpParityTests
     ];
 
     private static string CatalogDescription(string table) => CatalogBuilder.DerivedDocs[table].Description;
+
+    private static string SchemaColumn(string table, string column) =>
+        SchemaDocs.Tables[table].Columns.Single(c => c.Name == column).Description;
 
     public static string Normalise(string text, string catalogPath)
     {

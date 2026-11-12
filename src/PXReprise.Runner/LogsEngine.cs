@@ -35,7 +35,7 @@ public sealed class RunResult
 
 /// <summary><c>logs.resolve_genes</c>: protein to Ensembl gene, per searched database (G64, D28 U15).</summary>
 /// <remarks>
-/// <para>The method is logs' (<c>logs:DEF-GENE-RESOLUTION v1</c>, logs 017); the code is mzLib's
+/// <para>The method is logs' (<c>logs:DEF-GENE-RESOLUTION v2</c>, logs 034; v1 was logs 017); the code is mzLib's
 /// <see cref="EnsemblGeneResolver"/>, called directly (the Python called it through pyMzLib's
 /// <c>proteins.resolve_genes</c>, whose projection is reproduced here column for column). This computes nothing
 /// about genes: it decides WHAT to run on, checks every input, calls the resolver, and refuses rows that do not
@@ -54,11 +54,14 @@ public sealed class RunResult
 public static class LogsEngine
 {
     public const string Engine = "logs.resolve_genes";
-    public const string DefinitionId = "logs:DEF-GENE-RESOLUTION v1";
+    /// <summary>The definition every run writes from datarepo 1.5.0 (logs 034/035, D59): v1's rows, with
+    /// <c>ensembl_xref_agreement</c> filled from mzLib's <c>GeneResolution.EnsemblXrefAgreement</c> (#1578, mzLib 1.0.598).
+    /// It is hashed into the artefact id, so a v1 and a v2 run of one database never share an id.</summary>
+    public const string DefinitionId = "logs:DEF-GENE-RESOLUTION v2";
 
-    /// <summary>The definition a run writes once it fills <c>ensembl_xref_agreement</c> (logs 034, mzLib #1578). Not yet
-    /// written: our mzLib does not carry #1578, so every row is v1 and the column is empty (schema 0.0.17, D59).</summary>
-    public const string DefinitionIdV2 = "logs:DEF-GENE-RESOLUTION v2";
+    /// <summary>The definition runs wrote up to datarepo 1.4.5, with no <c>ensembl_xref_agreement</c> (logs 017). No run
+    /// writes it any more; a v1 row is never read as a v2 one.</summary>
+    public const string DefinitionIdV1 = "logs:DEF-GENE-RESOLUTION v1";
     public const string Table = "gene_resolutions";
     public static readonly IReadOnlyList<string> Roles = ["gene_set", "xref", "logs_manifest"];
 
@@ -66,13 +69,13 @@ public static class LogsEngine
     private static readonly HashSet<string> NotStored = new(StringComparer.Ordinal) { "source_index", "source_path" };
 
     /// <summary>The resolution table's columns, as the bridge projects them (mzLib's GeneResolutionTsv headers
-    /// after the two source columns).</summary>
+    /// after the two source columns). <c>ensembl_xref_agreement</c> is mzLib #1578's last column (logs 034).</summary>
     public static readonly IReadOnlyList<string> GeneResolutionColumns =
     [
         "source_index", "source_path", "accession", "entry_accession", "isoform", "namespace", "outcome",
         "n_genes", "gene_id", "versioned_gene_id", "gene_symbol", "gene_biotype", "off_primary_genes",
         "uniprot_gene_name", "source", "search_database_sha256", "gene_set_release", "gene_set_sha256",
-        "ensembl_xref_agrees", "ensembl_xref_info_type", "ensembl_xref_sha256",
+        "ensembl_xref_agrees", "ensembl_xref_info_type", "ensembl_xref_sha256", "ensembl_xref_agreement",
     ];
 
     private static string S(object? v) => v is null ? "None" : PyFormat.Str(v);
@@ -186,7 +189,7 @@ public static class LogsEngine
                     GeneResolutionTsv.OutcomeName(row.Outcome), (long)row.GeneCount, row.GeneId, row.VersionedGeneId,
                     row.GeneSymbol, row.GeneBiotype, row.OffPrimaryGenes, row.UniProtGeneName, row.Source,
                     row.SearchDatabaseSha256, row.GeneSetRelease, row.GeneSetSha256, row.EnsemblXrefAgrees,
-                    row.EnsemblXrefInfoType, row.EnsemblXrefSha256,
+                    row.EnsemblXrefInfoType, row.EnsemblXrefSha256, GeneResolutionTsv.AgreementName(row.EnsemblXrefAgreement),
                 ];
                 for (var c = 0; c < cells.Length; c++) columns[GeneResolutionColumns[c]].Add(Wire(cells[c]));
             }
@@ -251,6 +254,11 @@ public static class LogsEngine
             ["gene_set_release"] = S(rowValues["gene_set_release"]),
         };
         var stored = names.Where(c => !NotStored.Contains(c)).ToList();
+        // A v2 row without the column would read as "no gene" (logs 034): a resolver that writes none is not v2's.
+        if (!stored.Contains("ensembl_xref_agreement"))
+            throw new RunnerException(
+                $"the resolver wrote no ensembl_xref_agreement, so its rows are not {DefinitionId} (logs 034). It needs an "
+                + "mzLib that carries #1578 (1.0.598 or later).");
         var known = Tables.ByName[Table].Columns.Select(c => c.Name).ToHashSet(StringComparer.Ordinal);
         var unknown = stored.Where(c => !known.Contains(c)).Order(StringComparer.Ordinal).ToList();
         if (unknown.Count > 0)
@@ -274,16 +282,16 @@ public static class LogsEngine
             if (row.GetValueOrDefault("outcome") is not string outcome || !outcomes.Contains(outcome))
                 throw new RunnerException($"{where}: outcome {PyFormat.Repr(row.GetValueOrDefault("outcome"))} is not one of mzLib's [{string.Join(", ", outcomes.Order(StringComparer.Ordinal).Select(o => $"'{o}'"))}]");
             // Schema 0.0.17 (logs 034/035, D59): the column is checked against the schema's three words, since the writer
-            // checks no enum, and a value can never sit on a v1 row. It stays empty until our mzLib carries #1578.
-            if (row.GetValueOrDefault("ensembl_xref_agreement") is { } agreement)
-            {
-                if (agreement is not string word || !agreements.Contains(word))
-                    throw new RunnerException($"{where}: ensembl_xref_agreement {PyFormat.Repr(agreement)} is not one of [{string.Join(", ", agreements.Select(a => $"'{a}'"))}]");
-                if (DefinitionId != DefinitionIdV2)
-                    throw new RunnerException(
-                        $"{where}: ensembl_xref_agreement is {DefinitionIdV2}'s column, and this runner writes {DefinitionId} rows. "
-                        + "Fill it only with the runner change that labels the rows v2.");
-            }
+            // checks no enum, and against ensembl_xref_agrees as logs' table pairs them: `agrees` exactly where that is
+            // true, empty exactly where that is empty.
+            var agreement = row.GetValueOrDefault("ensembl_xref_agreement");
+            if (agreement is not null && (agreement is not string word || !agreements.Contains(word)))
+                throw new RunnerException($"{where}: ensembl_xref_agreement {PyFormat.Repr(agreement)} is not one of [{string.Join(", ", agreements.Select(a => $"'{a}'"))}]");
+            var agrees = row.GetValueOrDefault("ensembl_xref_agrees");
+            if ((agreement is null) != (agrees is null) || (agrees is bool b && b != Equals(agreement, "agrees")))
+                throw new RunnerException(
+                    $"{where}: ensembl_xref_agreement {PyFormat.Repr(agreement)} beside ensembl_xref_agrees {PyFormat.Repr(agrees)}: "
+                    + "logs 034 has `agrees` exactly where ensembl_xref_agrees is true, and no value exactly where it has none");
             row["definition_id"] = DefinitionId;
             rows.Add(row);
         }
@@ -303,7 +311,7 @@ public static class LogsEngine
         var missing = Roles.Where(r => !inputs.ContainsKey(r)).ToList();
         if (missing.Count > 0)
         {
-            var extra = missing.Contains("xref") ? " Without `xref`, the rows are not logs:DEF-GENE-RESOLUTION v1 (logs 017)." : "";
+            var extra = missing.Contains("xref") ? $" Without `xref`, the rows are not {DefinitionId} (logs 017, 034)." : "";
             throw new RunnerException($"{Engine} needs --input {string.Join("=<path>, --input ", missing)}=<path>.{extra}");
         }
         var unknown = inputs.Keys.Where(k => !Roles.Contains(k)).Order(StringComparer.Ordinal).ToList();
