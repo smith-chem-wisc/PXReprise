@@ -58,6 +58,24 @@ foreach (var (acc, node) in state.OrderBy(kv => kv.Key, StringComparer.Ordinal))
             var col = claims.TryGetValue(c[1], out var m) ? m : claims[c[1]] = new(StringComparer.OrdinalIgnoreCase);
             (col.TryGetValue(stem, out var v) ? v : col[stem] = new(StringComparer.OrdinalIgnoreCase)).Add(c[3].Trim());
         }
+    // The controls rule: the paper often names every group but the controls (PXD033430: "6h AmAc", "24h AmAc", and nothing for
+    // Control-1..3). A column whose claims cover some files, with one agreeing value each, is completed when the files it does
+    // not cover share one name once their replicate number is taken off ("Control"), and no covered file has that name: those
+    // files are one more group, named from their file names. Anything less clean is left alone.
+    var completedByName = new List<string>();
+    foreach (var (column, byStem) in claims)
+    {
+        if (byStem.Values.Any(v => v.Count != 1)) continue;
+        var uncovered = stems.Where(s => !byStem.ContainsKey(s)).ToList();
+        // At least two files: one leftover run is usually a QC or blank run (PXD027734's HeLa QC), not a group.
+        if (uncovered.Count < 2 || uncovered.Count == stems.Count) continue;
+        var names = uncovered.Select(GroupName).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (names.Count != 1 || names[0].Length < 2) continue;
+        if (byStem.Keys.Any(s => GroupName(s).Equals(names[0], StringComparison.OrdinalIgnoreCase))) continue;
+        if (byStem.Values.Any(v => v.First().Equals(names[0], StringComparison.OrdinalIgnoreCase))) continue;
+        foreach (var s in uncovered) byStem[s] = new(StringComparer.OrdinalIgnoreCase) { names[0] };
+        completedByName.Add(column);
+    }
     var complete = claims.Where(kv => stems.All(s => kv.Value.TryGetValue(s, out var v) && v.Count == 1)).Select(kv => kv.Key).Order(StringComparer.Ordinal).ToList();
     string incomplete = string.Join("; ", claims.Where(kv => !complete.Contains(kv.Key)).Select(kv =>
         $"{kv.Key}: {kv.Value.Count(x => x.Value.Count == 1)} of {stems.Count} files, {kv.Value.Count(x => x.Value.Count > 1)} disagree"));
@@ -72,7 +90,8 @@ foreach (var (acc, node) in state.OrderBy(kv => kv.Key, StringComparer.Ordinal))
         detailAfter = after.IsValid ? "" : Clean(after.Refusals.FirstOrDefault() ?? "");
         condsAfter = after.LabelFree is { } lf ? string.Join(" | ", lf.Files.Select(f => f.Condition).Distinct().Order(StringComparer.Ordinal).Take(8)) : "";
     }
-    rows.Add(new[] { acc, files.Count.ToString(inv), before.IsValid ? "usable" : "refused", string.Join(", ", complete), outcomeAfter, condsAfter,
+    rows.Add(new[] { acc, files.Count.ToString(inv), before.IsValid ? "usable" : "refused",
+        string.Join(", ", complete.Select(c => completedByName.Contains(c) ? c + " (+ group from file names)" : c)), outcomeAfter, condsAfter,
         before.IsValid ? "" : Clean(before.Refusals.FirstOrDefault() ?? ""), detailAfter, incomplete });
 }
 
@@ -98,6 +117,14 @@ foreach (var g in rows.Where(r => (r[4].Length > 0 ? r[4] : r[2]) == "refused").
 File.WriteAllText(Path.Combine(outDir, "resolved.md"), md.ToString(), new UTF8Encoding(false));
 Console.WriteLine(md.ToString());
 return 0;
+
+// A file's group name: its stem without a trailing replicate number ("Control-1" -> "Control", "1_t3t_4" -> "1_t3t",
+// "WT_rep2" -> "WT", "Con3" -> "Con").
+static string GroupName(string stem)
+{
+    string g = System.Text.RegularExpressions.Regex.Replace(stem, @"([_\-. ]?(rep|r|n|s|bio|br|tr)?\d+)$", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+    return g.TrimEnd('_', '-', '.', ' ');
+}
 
 static string Stem(string file)
 {
