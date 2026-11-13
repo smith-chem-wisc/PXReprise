@@ -7,7 +7,11 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
-## 0.4.47 (unreleased)
+## 0.4.47 (2026-11-13)
+
+**MetaMorpheus** unchanged. **Machine file:** no change needed. **Safe mid-batch?** Yes: swap the pin as usual. A probe worker
+takes the new release (`worker release`) so that its packages carry the driver's version. A TMT or iTRAQ deposit searched under
+v0.4.46 whose SDRF left a channel of the kit unused was refused at ingest; `batch research` it after the swap.
 
 - **A TMT or iTRAQ design made from an SDRF has a row for every channel of the kit** (2026-11-13). An SDRF names only the
   channels that hold the study's samples, but MetaMorpheus writes a quantity column for every channel of the kit, and datarepo
