@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The one store layer (2026-11-13): a local folder or an S3 prefix, every object written once. Used by the engine
+       (spectral library sync) and by `datarepo push` / `pull`. It references nothing else of ours, so both sides can
+       take it without taking each other. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>PXReprise.Storage</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- SSO and SSOOIDC let the default credential chain use an `aws configure sso` profile (AWS_PROFILE); no key is
+         ever stored. -->
+    <PackageReference Include="AWSSDK.S3" Version="4.0.104.12" />
+    <PackageReference Include="AWSSDK.SSO" Version="4.0.100.27" />
+    <PackageReference Include="AWSSDK.SSOOIDC" Version="4.0.100.26" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PXReprise.Tests" />
+    <InternalsVisibleTo Include="DataRepo.Tests" />
+  </ItemGroup>
+
+</Project>

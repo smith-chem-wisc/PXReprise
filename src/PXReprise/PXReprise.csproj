@@ -17,11 +17,12 @@
          Rejoin MetaMorpheus's pin at its next release. -->
     <PackageReference Include="mzLib" Version="1.0.596" />
     <PackageReference Include="Tomlyn" Version="2.10.1" />
-    <!-- 2026-11-11: the spectral library chains shared through S3 (Storage/S3Store.cs). SSO and SSOOIDC let the default
-         credential chain use an `aws configure sso` profile (AWS_PROFILE); no key is ever stored. -->
-    <PackageReference Include="AWSSDK.S3" Version="4.0.104.12" />
-    <PackageReference Include="AWSSDK.SSO" Version="4.0.100.27" />
-    <PackageReference Include="AWSSDK.SSOOIDC" Version="4.0.100.26" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 2026-11-11: the spectral library chains shared through a folder or S3. The store layer is its own project
+         since 2026-11-13, shared with `datarepo push` / `pull`. -->
+    <ProjectReference Include="..\PXReprise.Storage\PXReprise.Storage.csproj" />
   </ItemGroup>
 
   <ItemGroup>

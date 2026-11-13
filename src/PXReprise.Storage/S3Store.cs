@@ -2,24 +2,23 @@ using System.Net;
 using System.Runtime.CompilerServices;
 using Amazon.S3;
 using Amazon.S3.Model;
-using DataRepo.Bundle;
 
-namespace DataRepo.Storage;
+namespace PXReprise.Storage;
 
 /// <summary>A store that is a prefix in an S3 bucket.</summary>
 /// <remarks>
 /// <para>Write-once is S3's conditional write: <c>If-None-Match: *</c> on PutObject and on CompleteMultipartUpload, so
-/// S3 itself refuses a second writer; no listing races. Every object carries its sha256 twice: as S3's own checksum
-/// (S3 checks the bytes it received against it) and as <c>x-amz-meta-sha256</c>, which is what a later writer of the
-/// same key is compared with. A multipart object's S3 checksum is a checksum of parts, so the metadata is the one that
-/// names the whole file.</para>
+/// S3 itself refuses a second writer. Every object carries its sha256 twice: as S3's own checksum (S3 checks the bytes
+/// it received against it) and as <c>x-amz-meta-sha256</c>, which is what a later writer of the same key is compared
+/// with. A multipart object's S3 checksum is a checksum of parts, so the metadata is the one that names the whole
+/// file.</para>
 /// <para>Credentials come from the SDK's default chain (for the lab: <c>AWS_PROFILE</c> naming an SSO profile). The
-/// bucket name is never written into code or docs; operators pass it on the command line or read it from their own
-/// environment.</para>
+/// bucket name is never written into code, docs or a committed machine file's comments; it comes from the machine
+/// file or the operator's own environment.</para>
 /// </remarks>
 public sealed class S3Store : IStore
 {
-    /// <summary>Objects above this are uploaded in parts.</summary>
+    /// <summary>Objects above this are uploaded in parts (a mouse library is about 1.2 GB).</summary>
     internal static long MultipartThreshold { get; set; } = 256L * 1024 * 1024;
 
     internal static long PartSize { get; set; } = 64L * 1024 * 1024;
@@ -43,15 +42,14 @@ public sealed class S3Store : IStore
         Prefix = prefix.Length == 0 ? "" : StoreKey.CheckPrefix(prefix + "/");
     }
 
-    /// <summary>Opens <c>s3://bucket[/prefix]</c> with a client from the default credential chain and region
-    /// (<c>AWS_REGION</c> or the profile's region).</summary>
+    /// <summary>Opens <c>s3://bucket[/prefix]</c> with a client from the default credential chain and region.</summary>
     public static S3Store Open(string location)
     {
         var rest = location["s3://".Length..];
         var slash = rest.IndexOf('/');
         var bucket = slash < 0 ? rest : rest[..slash];
         var prefix = slash < 0 ? "" : rest[(slash + 1)..];
-        if (bucket.Length == 0) throw new DataRepoException($"'{location}': no bucket (expected s3://bucket/prefix)");
+        if (bucket.Length == 0) throw new ArgumentException($"'{location}': no bucket (expected s3://bucket/prefix)", nameof(location));
         return new S3Store(new AmazonS3Client(), bucket, prefix, ownsClient: true);
     }
 
@@ -63,7 +61,7 @@ public sealed class S3Store : IStore
     {
         try
         {
-            await _client.GetObjectMetadataAsync(new GetObjectMetadataRequest { BucketName = Bucket, Key = Full(key) }, ct);
+            await _client.GetObjectMetadataAsync(new GetObjectMetadataRequest { BucketName = Bucket, Key = Full(key) }, ct).ConfigureAwait(false);
             return true;
         }
         catch (AmazonS3Exception e) when (e.StatusCode == HttpStatusCode.NotFound)
@@ -78,7 +76,7 @@ public sealed class S3Store : IStore
         var request = new ListObjectsV2Request { BucketName = Bucket, Prefix = Prefix + prefix };
         do
         {
-            var page = await _client.ListObjectsV2Async(request, ct);
+            var page = await _client.ListObjectsV2Async(request, ct).ConfigureAwait(false);
             foreach (var o in page.S3Objects ?? [])
                 yield return new StoreEntry(o.Key[Prefix.Length..], o.Size ?? 0);
             request.ContinuationToken = page.NextContinuationToken;
@@ -86,13 +84,11 @@ public sealed class S3Store : IStore
         } while (true);
     }
 
-    public string? LocalFile(string key) => null;
-
     public async Task DownloadAsync(string key, string localPath, CancellationToken ct = default)
     {
-        using var response = await _client.GetObjectAsync(new GetObjectRequest { BucketName = Bucket, Key = Full(key) }, ct);
+        using var response = await _client.GetObjectAsync(new GetObjectRequest { BucketName = Bucket, Key = Full(key) }, ct).ConfigureAwait(false);
         await using var target = new FileStream(localPath, FileMode.CreateNew, FileAccess.Write);
-        await response.ResponseStream.CopyToAsync(target, ct);
+        await response.ResponseStream.CopyToAsync(target, ct).ConfigureAwait(false);
     }
 
     public async Task<WriteOutcome> WriteOnceAsync(string key, string localPath, string sha256, CancellationToken ct = default)
@@ -100,14 +96,14 @@ public sealed class S3Store : IStore
         var full = Full(key);
         try
         {
-            if (new FileInfo(localPath).Length <= MultipartThreshold) await PutAsync(full, localPath, sha256, ct);
-            else await PutInPartsAsync(full, localPath, sha256, ct);
+            if (new FileInfo(localPath).Length <= MultipartThreshold) await PutAsync(full, localPath, sha256, ct).ConfigureAwait(false);
+            else await PutInPartsAsync(full, localPath, sha256, ct).ConfigureAwait(false);
             return WriteOutcome.Written;
         }
         catch (AmazonS3Exception e) when (e.StatusCode is HttpStatusCode.PreconditionFailed or HttpStatusCode.Conflict)
         {
             // 412: the key exists. 409: another conditional write to it was in flight; it exists now or will.
-            return await CompareAsync(key, full, sha256, ct);
+            return await CompareAsync(key, full, sha256, ct).ConfigureAwait(false);
         }
     }
 
@@ -123,14 +119,14 @@ public sealed class S3Store : IStore
             ChecksumSHA256 = Convert.ToBase64String(Convert.FromHexString(sha256)),
         };
         request.Metadata.Add(ShaMetadata, sha256);
-        await _client.PutObjectAsync(request, ct);
+        await _client.PutObjectAsync(request, ct).ConfigureAwait(false);
     }
 
     private async Task PutInPartsAsync(string full, string localPath, string sha256, CancellationToken ct)
     {
         var start = new InitiateMultipartUploadRequest { BucketName = Bucket, Key = full, ChecksumAlgorithm = ChecksumAlgorithm.SHA256 };
         start.Metadata.Add(ShaMetadata, sha256);
-        var upload = await _client.InitiateMultipartUploadAsync(start, ct);
+        var upload = await _client.InitiateMultipartUploadAsync(start, ct).ConfigureAwait(false);
         try
         {
             var parts = new List<PartETag>();
@@ -148,7 +144,7 @@ public sealed class S3Store : IStore
                     FilePosition = offset,
                     PartSize = Math.Min(PartSize, length - offset),
                     ChecksumAlgorithm = ChecksumAlgorithm.SHA256,
-                }, ct);
+                }, ct).ConfigureAwait(false);
                 parts.Add(new PartETag { PartNumber = number, ETag = part.ETag, ChecksumSHA256 = part.ChecksumSHA256 });
             }
             await _client.CompleteMultipartUploadAsync(new CompleteMultipartUploadRequest
@@ -158,27 +154,27 @@ public sealed class S3Store : IStore
                 UploadId = upload.UploadId,
                 PartETags = parts,
                 IfNoneMatch = "*",
-            }, ct);
+            }, ct).ConfigureAwait(false);
         }
         catch
         {
-            await _client.AbortMultipartUploadAsync(new AbortMultipartUploadRequest { BucketName = Bucket, Key = full, UploadId = upload.UploadId }, CancellationToken.None);
+            await _client.AbortMultipartUploadAsync(new AbortMultipartUploadRequest { BucketName = Bucket, Key = full, UploadId = upload.UploadId }, CancellationToken.None).ConfigureAwait(false);
             throw;
         }
     }
 
     private async Task<WriteOutcome> CompareAsync(string key, string full, string sha256, CancellationToken ct)
     {
-        var meta = await _client.GetObjectMetadataAsync(new GetObjectMetadataRequest { BucketName = Bucket, Key = full }, ct);
+        var meta = await _client.GetObjectMetadataAsync(new GetObjectMetadataRequest { BucketName = Bucket, Key = full }, ct).ConfigureAwait(false);
         var existing = meta.Metadata["x-amz-meta-" + ShaMetadata];
         if (string.IsNullOrEmpty(existing))
         {
             // Written by something other than this class (no sha256 recorded): hash the bytes themselves.
-            var temp = Path.Combine(Path.GetTempPath(), "datarepo-compare-" + Guid.NewGuid().ToString("N"));
+            var temp = Path.Combine(Path.GetTempPath(), "pxreprise-compare-" + Guid.NewGuid().ToString("N"));
             try
             {
-                await DownloadAsync(key, temp, ct);
-                existing = BundleWriter.Sha256File(temp);
+                await DownloadAsync(key, temp, ct).ConfigureAwait(false);
+                existing = Stores.Sha256File(temp);
             }
             finally
             {
@@ -189,6 +185,8 @@ public sealed class S3Store : IStore
         throw new StoreConflictException($"{Location}: {key} already exists with sha256 {existing}, not {sha256}; nothing in a store is replaced");
     }
 
+    public string? LocalFile(string key) => null;
+
     public async Task ReplaceAsync(string key, byte[] content, CancellationToken ct = default)
     {
         using var body = new MemoryStream(content);
@@ -198,7 +196,7 @@ public sealed class S3Store : IStore
             Key = Full(key),
             InputStream = body,
             ChecksumAlgorithm = ChecksumAlgorithm.SHA256,
-        }, ct);
+        }, ct).ConfigureAwait(false);
     }
 
     public void Dispose()

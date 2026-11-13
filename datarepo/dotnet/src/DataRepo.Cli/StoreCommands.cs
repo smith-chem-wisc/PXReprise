@@ -1,5 +1,6 @@
 using DataRepo.Bundle;
 using DataRepo.Storage;
+using PXReprise.Storage;
 
 namespace DataRepo.Cli;
 
@@ -22,9 +23,12 @@ internal static class StoreCommands
             .Option("--dry-run", Args.Kind.Flag, "list what would be copied, and check each bundle has its tables, without writing")
             .Option("--verbose", Args.Kind.Flag, "name every file written")
             .Parse(argv);
-        using var from = new LocalStore(a.Value("--store")!);
-        using var to = Stores.Open(a.Positional("destination"));
-        return Copy(from, to, a.Positionals("accession"), a.Flag("--dry-run"), a.Flag("--verbose"));
+        return Refusing(() =>
+        {
+            using var from = new LocalStore(a.Value("--store")!);
+            using var to = Stores.Open(a.Positional("destination"));
+            return Copy(from, to, a.Positionals("accession"), a.Flag("--dry-run"), a.Flag("--verbose"));
+        });
     }
 
     public static int Pull(string[] argv)
@@ -36,9 +40,21 @@ internal static class StoreCommands
             .Option("--dry-run", Args.Kind.Flag, "list what would be copied, and check each bundle has its tables, without writing")
             .Option("--verbose", Args.Kind.Flag, "name every file written")
             .Parse(argv);
-        using var from = Stores.Open(a.Positional("source"));
-        using var to = new LocalStore(a.Value("--store")!);
-        return Copy(from, to, a.Positionals("accession"), a.Flag("--dry-run"), a.Flag("--verbose"));
+        return Refusing(() =>
+        {
+            using var from = Stores.Open(a.Positional("source"));
+            using var to = new LocalStore(a.Value("--store")!);
+            return Copy(from, to, a.Positionals("accession"), a.Flag("--dry-run"), a.Flag("--verbose"));
+        });
+    }
+
+    /// <summary>The store layer is PXReprise's (PXReprise.Storage) and throws its own types. A refused overwrite or a
+    /// location that is not a store is a refusal here (exit 1), never a defect (exit 70).</summary>
+    private static int Refusing(Func<int> run)
+    {
+        try { return run(); }
+        catch (StoreConflictException e) { throw new DataRepoException(e.Message); }
+        catch (ArgumentException e) { throw new DataRepoException(e.Message); }
     }
 
     private static int Copy(IStore from, IStore to, IReadOnlyList<string> accessions, bool dryRun, bool verbose)
