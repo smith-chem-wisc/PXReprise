@@ -1,0 +1,146 @@
+# Self-contained C# `datarepo` executables, one per platform (D41; meets PXReprise PXR-D1 with no Python).
+#
+# Every run builds and VERIFIES: each platform's published binary, with no .NET SDK on PATH for the run,
+# ingests the fixture dataset, builds a catalog, answers a query and writes the site. The folders are uploaded
+# as workflow artifacts.
+#
+# Only a datarepo release tag (datarepo-v1.5.0 and later) goes further, and only to a DRAFT release: the version is
+# stamped from the tag (a build that is not a release says 0.0.0-dev and `datarepo run` refuses it), each binary
+# must report exactly that version, and nothing is public until a person publishes the draft.
+#
+# Since 2026-11-13 dataRepo lives in PXReprise (this workflow was dataRepo's dotnet-binaries.yml). datarepo keeps its
+# own version line (src/Data.Build.props), so its release tags are datarepo-v<version>; the engine's are v<version>.
+name: datarepo-binaries
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - "src/PXReprise.Bundle/**"
+      - "src/PXReprise.Catalog/**"
+      - "src/PXReprise.DataCli/**"
+      - "src/PXReprise.Ingest/**"
+      - "src/PXReprise.Mcp/**"
+      - "src/PXReprise.Runner/**"
+      - "src/PXReprise.SchemaGen/**"
+      - "src/PXReprise.Site/**"
+      - "src/PXReprise.Storage/**"
+      - "src/PXReprise.Study/**"
+      - "src/Data.Build.props"
+      - "tests/datarepo-instance/**"
+      - "schemas/datarepo/**"
+      - ".github/workflows/datarepo-binaries.yml"
+    tags: ["datarepo-v[1-9]*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+            exe: datarepo.exe
+          - os: ubuntu-latest
+            rid: linux-x64
+            exe: datarepo
+          - os: macos-latest       # arm64
+            rid: osx-arm64
+            exe: datarepo
+          - os: macos-15-intel     # x64
+            rid: osx-x64
+            exe: datarepo
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: The version, from the tag on a release
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/datarepo-v* ]]; then
+            echo "version=${GITHUB_REF_NAME#datarepo-v}" >> "$GITHUB_OUTPUT"
+            echo "args=-p:Version=${GITHUB_REF_NAME#datarepo-v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-dev" >> "$GITHUB_OUTPUT"
+            echo "args=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish self-contained
+        shell: bash
+        run: |
+          dotnet publish src/PXReprise.DataCli -c Release -r ${{ matrix.rid }} --self-contained \
+            ${{ steps.version.outputs.args }} -p:SourceRevisionId=${{ github.sha }} \
+            -o "$RUNNER_TEMP/datarepo-${{ matrix.rid }}"
+
+      - name: Run it end to end, with no .NET on PATH
+        shell: bash
+        run: |
+          DR="$RUNNER_TEMP/datarepo-${{ matrix.rid }}/${{ matrix.exe }}"
+          export PATH="/usr/bin:/bin"
+          export DOTNET_ROOT=""
+          test "$("$DR" --version | tr -d '\r')" = "datarepo ${{ steps.version.outputs.version }}"
+          "$DR" doctor
+          "$DR" manifest tests/datarepo-instance/manifest.yaml
+          "$DR" ingest tests/datarepo-instance/manifest.yaml PXD999999 --store "$RUNNER_TEMP/store" \
+            --mm-settings tests/datarepo-instance/work_root/mm_settings/1.1.11
+          "$DR" build tests/datarepo-instance/manifest.yaml PXD999999 --store "$RUNNER_TEMP/store" --out "$RUNNER_TEMP/catalog.duckdb"
+          "$DR" query "$RUNNER_TEMP/catalog.duckdb" "SELECT dataset_id, n_psms_1pct FROM dataset_overview"
+          "$DR" site "$RUNNER_TEMP/catalog.duckdb" --out "$RUNNER_TEMP/site"
+          test -f "$RUNNER_TEMP/site/datasets/PXD999999.html"
+
+      # One archive per platform holding a `datarepo/` folder. Unix builds ship .tar.gz, because a zip loses the
+      # executable bit (it did once, with the Python binaries).
+      - name: Package
+        shell: bash
+        run: |
+          name="datarepo-${{ steps.version.outputs.version }}-${{ matrix.rid }}"
+          mkdir -p "$RUNNER_TEMP/pkg" dist
+          cp -R "$RUNNER_TEMP/datarepo-${{ matrix.rid }}" "$RUNNER_TEMP/pkg/datarepo"
+          if [ "${{ matrix.rid }}" = "win-x64" ]; then
+            (cd "$RUNNER_TEMP/pkg" && 7z a -tzip "$GITHUB_WORKSPACE/dist/$name.zip" datarepo > /dev/null)
+          else
+            tar -czf "dist/$name.tar.gz" -C "$RUNNER_TEMP/pkg" datarepo
+          fi
+
+      # Unpack as a user would, with no chmod, and run the unpacked binary: a lost executable bit fails here.
+      - name: Unpack and run the archive
+        shell: bash
+        run: |
+          mkdir unpacked
+          if ls dist/*.zip > /dev/null 2>&1; then (cd unpacked && 7z x ../dist/*.zip > /dev/null); else tar -xzf dist/*.tar.gz -C unpacked; fi
+          test "$(unpacked/datarepo/${{ matrix.exe }} --version | tr -d '\r')" = "datarepo ${{ steps.version.outputs.version }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: datarepo-${{ matrix.rid }}
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+          if-no-files-found: error
+
+  draft-release:
+    if: startsWith(github.ref, 'refs/tags/datarepo-v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Attach to a draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* --draft --verify-tag \
+            --repo "${GITHUB_REPOSITORY}" --title "datarepo ${GITHUB_REF_NAME#datarepo-v}" \
+            --notes "Self-contained C# executables, built and verified by the datarepo-binaries workflow. See docs/data/CHANGELOG.md."

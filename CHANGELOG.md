@@ -7,6 +7,48 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## Unreleased
+
+**MetaMorpheus** unchanged. **Machine file:** no change needed (`spectral_library_remote` is new; unset means no sync, as
+before). **Safe mid-batch?** Yes, while no remote is named. Naming one on a machine whose chains were built before needs
+the chains seeded or pulled first (below).
+
+- **Spectral library chains can be shared through the cloud** (Alex and the user, 2026-11-11; thread diabetes 004,
+  PXR-D3 and PXR-D4), so every machine searches with the same library.
+  - The machine file's `spectral_library_remote` names a folder (a share) or `s3://bucket/prefix` (credentials from
+    `AWS_PROFILE`). Write `s3://$PXR_S3_BUCKET/libraries` to keep the bucket's name out of a committed machine file: it
+    is read from this machine's `PXR_S3_BUCKET`, and refused when that is unset. The cloud copy is add-only: per chain, each library named by its sha256 and one record per version
+    (`v<NNN>.json`), each written once. Claiming a version number is writing its record; S3 refuses a second writer.
+  - Before a search, newer versions are fetched and the newest becomes current. When the search registers, a chain another
+    machine moved meanwhile is no longer refused: the search's own changes (entries it added, or changed relative to the
+    version it read) go onto the newest version, and an entry both changed keeps the newest version's spectrum. The record
+    says `merged_onto`, with counts, and provenance notes it. Routed class chains append onto their newest version.
+  - `pxreprise library seed <chain>` starts the cloud's copy from this machine (every version's record, the current
+    library only); `pxreprise library pull <chain>` fetches. A local chain that differs from the cloud's is refused, never
+    overwritten. `library repair` claims its version too; `library rollback` is refused on a synced chain.
+  - The store layer is its own project, `src/PXReprise.Storage` (write-once to a folder or S3), shared with
+    `datarepo push` / `pull`.
+  - Not yet: `.msl` libraries (MSL 003-007).
+- **dataRepo moves into this repository** (diabetes 004; dataRepo D62), from smith-chem-wisc/dataRepo `d8978d5` (its
+  v1.4.5 code). Its C# only: the frozen Python, its tests and tools stay in dataRepo. Its projects are PXReprise
+  projects now:
+  - `src/PXReprise.Bundle`, `.Ingest`, `.Catalog`, `.Study`, `.Site`, `.Runner`, `.Mcp` and `.SchemaGen` (namespaces
+    `PXReprise.*`, were `DataRepo.*`); the command line is `src/PXReprise.DataCli` and still builds `datarepo`;
+    `src/Data.Build.props` holds their version line.
+  - Tests: `tests/PXReprise.Data.Tests`, and the fixture instance `tests/datarepo-instance`. Schema and examples:
+    `schemas/datarepo/`. Docs: `docs/data/` (dataRepo's README as `datarepo.md`, its CHANGELOG beside it).
+  - `PXReprise.slnx` builds and tests everything. The machine file's `datarepo` still names a released datarepo
+    install, so nothing a machine delivers changes until a pin names a datarepo built here.
+  - **datarepo 1.5.0's code is in** (dataRepo `feat/1.5.0`, `91901d0`, replayed commit by commit; not yet released by
+    dataRepo). A `datarepo` built here is 1.5.0: ingest path `cs-1.3.0`, schema 0.0.17, mzLib 1.0.598,
+    `peptidoform_ions`, per-search confidence rules, `table_sha256` and `datarepo verify`, `datarepo pride`, TMT channel
+    tables, and a multiplex search by MetaMorpheus 1.1.13 or earlier refused. **Every bundle id moves at a re-ingest
+    with it**, and a catalog refuses to mix 0.0.16 and 0.0.17 bundles: the store moves to it whole, at the swap dataRepo
+    116 describes.
+  - `datarepo push <store> --store <local>` and `datarepo pull` (dataRepo's draft, `feat/storage-push-pull`) copy bundles,
+    engine outputs and study deliveries between a local store and a shared one, write-once, each folder's record file
+    last, every file checked against `bundle.json` first. Not for real bundles before the 1.5.0 re-ingest.
+
 ## 0.4.47 (2026-11-13)
 
 **MetaMorpheus** unchanged. **Machine file:** no change needed. **Safe mid-batch?** Yes: swap the pin as usual. A probe worker

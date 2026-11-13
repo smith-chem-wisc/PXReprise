@@ -1,0 +1,23 @@
+dataset	species	run	combine_to	replicate	age_months
+D1	mouse	S1_F1	S1	S1	3
+D1	mouse	S1_F2	S1	S1	3
+D1	mouse	S2	S2	S2	3
+D1	mouse	S3	S3	S3	12
+D1	mouse	S4	S4	S4	12
+D1	mouse	S5	S5	S5	24
+D1	mouse	S6	S6	S6	24
+D1	mouse	S7	S7	S7	24
+D1	mouse	S8_1	S8_1	S8	3
+D1	mouse	S8_2	S8_2	S8	3
+D2	mouse	R1	R1	R1	
+D2	mouse	R2	R2	R2	
+D2	mouse	R3	R3	R3	
+D2	mouse	R4	R4	R4	
+D2	mouse	R5	R5	R5	
+D2	mouse	R6	R6	R6	
+D2	mouse	R7	R7	R7	
+D2	mouse	R8	R8	R8	
+D3	mouse	Q1	Q1	Q1	
+D3	mouse	Q2	Q2	Q2	
+D3	mouse	Q3	Q3	Q3	
+D3	mouse	Q4	Q4	Q4	

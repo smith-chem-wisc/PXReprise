@@ -1,0 +1,28 @@
+{
+ "QE-002106_GM1_a.raw": {
+  "pass": true,
+  "scans": 400,
+  "ms2": 150,
+  "ms2_analyzer_dissociation": {
+   "Orbitrap/HCD": 150
+  },
+  "run_minutes": 90.0,
+  "charge_states": {
+   "2": 100,
+   "3": 50
+  }
+ },
+ "QE-002107_GM1_b.raw": {
+  "pass": true,
+  "scans": 400,
+  "ms2": 150,
+  "ms2_analyzer_dissociation": {
+   "Orbitrap/HCD": 150
+  },
+  "run_minutes": 90.0,
+  "charge_states": {
+   "2": 100,
+   "3": 50
+  }
+ }
+}

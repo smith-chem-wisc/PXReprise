@@ -273,7 +273,10 @@ public static class SearchStage
 
         // The organism's spectral library, resolved before the task files because it decides two of their values. An
         // isobaric kit has a chain of its own, which starts blank (the user, 2026-10-29).
-        LibraryPlan? lib = p.SpectralLibrary && r.UseLibrary ? SpectralLibrary.Plan(m.SpectralLibraryRoot, r.Organism, kit) : null;
+        // 2026-11-11: with the machine's spectral_library_remote, the chain is fetched from the cloud first and the new version
+        // is claimed there (LibraryCloud); a chain another machine moved meanwhile is merged, not refused.
+        using var libraryCloud = p.SpectralLibrary && r.UseLibrary ? LibraryCloud.Open(m.SpectralLibraryRemote) : null;
+        LibraryPlan? lib = p.SpectralLibrary && r.UseLibrary ? SpectralLibrary.Plan(m.SpectralLibraryRoot, r.Organism, kit, libraryCloud) : null;
         if (p.SpectralLibrary && !r.UseLibrary)
             prov.Note("spectral library switched OFF for this search by the batch (a previous update-mode search failed)");
         // v0.4.45 (PXD025746, 2026-11-11): only the chain an earlier failed update-mode search read is off. Its iodoTMT search
@@ -289,6 +292,7 @@ public static class SearchStage
             {
                 ["organism"] = lib.Organism, ["mode"] = lib.Mode, ["library_in"] = lib.LibraryIn,
                 ["parent_version"] = lib.ParentVersion, ["registry"] = SpectralLibrary.RegistryPath(lib.Root),
+                ["remote"] = libraryCloud?.Remote.Location,
                 ["route_classes"] = new JsonArray((r.LibraryRouteClasses ?? Array.Empty<string>()).Select(c => (JsonNode)c).ToArray()),
             });
 
@@ -646,7 +650,7 @@ public static class SearchStage
                         new[] { proteome }.Concat(extras),
                         blockedCTerm: !p.SearchRespectsCleavageBlocking);
                     var route = r.LibraryRouteClasses is { Count: > 0 } rc ? rc : null;
-                    var written = SpectralLibrary.Register(lib, sd, $"{r.RunDate}/{r.Accession}".Trim('/'), r.Accession ?? "", release, cleaning, route);
+                    var written = SpectralLibrary.Register(lib, sd, $"{r.RunDate}/{r.Accession}".Trim('/'), r.Accession ?? "", release, cleaning, route, libraryCloud);
                     // A copy: the registry's own node already has a parent there.
                     libRec["written"] = written.DeepClone();
                     prov.Output(Path.Combine(lib.Root, written["path"]!.GetValue<string>()));
@@ -659,6 +663,8 @@ public static class SearchStage
                         foreach (var v in written["routed_versions"]!.AsArray())
                             prov.Output(Path.Combine(lib.Root, v!["path"]!.GetValue<string>()));
                     }
+                    if (written["merged_onto"] is JsonObject mo)
+                        prov.Note($"spectral library {lib.Organism}: another machine registered v{(int)mo["version"]!:000} while this search ran (it read v{lib.ParentVersion:000}); this search's changes were merged onto it: {(int)mo["added"]!:N0} added, {(int)mo["replaced"]!:N0} replaced, {(int)mo["kept_newer"]!:N0} kept the newer spectrum");
                     if (written["dropped_unreadable"] is { } dropped)
                         prov.Note($"spectral library: {(int)dropped:N0} spectra left out of v{(int)written["version"]!:000}: their modification names hold a count in parentheses, such as NEM:2H(5), which mzLib's reader takes for a crosslink; MetaMorpheus's whole file stays in this run's folder");
                     if (written["cleaning"] is JsonObject cleaned && ((int)cleaned["dropped_blocked_cterm"]! + (int)cleaned["dropped_doubtful_class"]!) > 0)

@@ -1,0 +1,30 @@
+{
+ "artefact_id": "c13935d24453e173",
+ "datarepo_install": {
+  "distribution": "datarepo",
+  "source": "fixture",
+  "version": "0.32.0"
+ },
+ "datarepo_version": "0.32.0",
+ "definition_id": "logs:DEF-GENE-RESOLUTION",
+ "engine": "logs.resolve_genes",
+ "engine_summary": {
+  "note": "caf\u00e9",
+  "proteins": 5
+ },
+ "inputs": {
+  "gene_set": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "search_database": "89fb8c7a1140939de96ca740ab818deedd70063d00ac3789976908eec8d8ad6d",
+  "xref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+ },
+ "release": {
+  "logs": "0.0.0-fixture",
+  "pymzlib": "0.0.0-fixture"
+ },
+ "runner_version": "1",
+ "schema_version": "0.0.13",
+ "tables": {
+  "gene_resolutions": 5
+ },
+ "written_utc": "2026-10-04T16:25:29Z"
+}

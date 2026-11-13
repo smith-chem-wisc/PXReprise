@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- datarepo's version line (stamped by a datarepo release build), shared by every data project. -->
+  <Import Project="..\Data.Build.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Apache.Arrow" Version="23.0.0" />
+    <PackageReference Include="ParquetSharp" Version="24.0.0" />
+  </ItemGroup>
+
+</Project>

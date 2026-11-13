@@ -1,0 +1,508 @@
+# aging study layer, v0.7.0 (2026-11-12: `age_effect_meta` keyed by `method_scope` and `age_effect_method_terms`,
+# aging 126/135 DATAREPO-88 c, `aging:DEF-AGE-EFFECT-META v1.4`; v0.6.0 2026-10-19: `CuratedRunDesign` and `CuratedDesignFactor`, aging 102
+# DATAREPO-79 as amended by DATAREPO-82 (aging 108), with ptmQtl's A1-A4; v0.5.0 2026-09-29:
+# `CuratedSampleCharacteristic`, aging 078 REQ-DATAREPO-6; v0.4.0 2026-09-26: `SampleAge.age_source`,
+# aging 071 DATAREPO-59; v0.3.0 2026-09-22; v0.2.0 earlier the same day; v0.1.0 2026-09-20).
+#
+# The rule (U5): a study layer ADDS tables keyed on core identifiers and never alters a core table.
+# Everything the core stores stays usable by a non-aging consumer, and a second study layer can sit
+# beside this one.
+#
+# WHO OWNS WHAT. aging owns the CONTENT of `age_effect`, `age_effect_meta` and `age_effect_refusals`
+# -- their columns are transcribed from `aging:DEF-AGE-EFFECT v1` (aging/design/DEF_AGE_EFFECT.md,
+# published 2026-09-20) and none of them is dataRepo's invention. dataRepo owns the SHAPE: which
+# table a column lives in, what is nullable, and what is a key. Where the definition does not name a
+# column this schema does not add one; where it names a thing this schema cannot express, the
+# question is asked in `design/OPEN_QUESTIONS.md` rather than guessed (D7). Every such place is
+# marked ASK below.
+#
+# `SampleAge`, `ClockModel`, `ClockFeature`, `AgeMapping` and `OrganelleAgeSummary` are NOT yet
+# definition-backed. They are the shapes proposed in DATAREPO-5 and still carry that status.
+
+id: https://w3id.org/datarepo/study/aging
+name: datarepo_aging
+title: dataRepo aging study layer
+description: >-
+  Tables the aging project adds on top of the generic core: normalized sample age, per-dataset age
+  effects and their refusals, the cross-dataset pooled effect, organelle-level summaries, age clocks
+  and cross-species age mapping. aging owns the content; every table is keyed on core identifiers and
+  no core table is altered.
+version: 0.7.0
+license: https://creativecommons.org/licenses/by/4.0/
+
+prefixes:
+  linkml: https://w3id.org/linkml/
+  datarepo: https://w3id.org/datarepo/core/
+  aging: https://w3id.org/datarepo/study/aging/
+  UBERON: http://purl.obolibrary.org/obo/UBERON_
+  GO: http://purl.obolibrary.org/obo/GO_
+
+default_prefix: aging
+default_range: string
+
+imports:
+  - linkml:types
+  - ../datarepo
+
+enums:
+
+  AgeResponse:
+    description: >-
+      What changes with age. `aging:DEF-AGE-EFFECT v1` section 1: an age effect is always OF a named
+      response, because a protein's abundance and a site's modified fraction are different age
+      effects on the same molecule and the point of this repository is that they can disagree.
+      Never one column.
+    permissible_values:
+      abundance:
+        description: log2 intensity. Benchmark D1, K1.
+      modified_fraction:
+        description: PTM occupancy, logit-transformed. Benchmark K1, K13.
+      isoform_ratio:
+        description: log2 ratio between isoforms. Benchmark O4.
+      glycoform_fraction:
+        description: logit-transformed glycoform share. Benchmark T3.
+
+  AgeSource:
+    description: >-
+      Where a sample's `age_raw` came from (aging 071, DATAREPO-59). Kept apart from
+      `normalizer_version`, which names software: putting a curation label there would give one
+      column two meanings, and a caller comparing normalizer versions would compare a label.
+    permissible_values:
+      sdrf:
+        description: >-
+          Read from the dataset's SDRF (deposited or drafted) and normalized by SdrfAge.
+          `normalizer_version` is the SdrfAge version.
+      curated:
+        description: >-
+          Entered by the study owner from a named source such as the deposit's PRIDE record or its
+          paper. `age_source_reference` says which, and a curated row whose source cannot be named
+          should not be delivered.
+
+  DesignFactorRole:
+    description: >-
+      What a design factor does in the design (QuantProject AGING-D1, their 052; aging 108). The
+      two are analysed differently, so a factor is always one or the other.
+    permissible_values:
+      condition:
+        description: >-
+          A comparison the design makes, such as age group or genotype. It has a reference level
+          (`is_reference = true`) and at least one other level.
+      stratum:
+        description: >-
+          What a sample IS, such as an organism part, a cell type, a preparation or a separate
+          experiment. Each stratum is analysed apart and never compared with another, so it has no
+          reference level: PXD021762's liver and heart mitochondria are two strata, and neither is a
+          control.
+
+  AgeEstimator:
+    description: >-
+      Which estimator produced the response, where a response has more than one. QuantProject 017:
+      count-based and intensity-based stoichiometry differ about threefold and MUST NEVER be
+      averaged, so they are separate rows rather than one number.
+    permissible_values:
+      count:
+        description: QuantProject:DEF-OCC-COUNT.
+      intensity:
+        description: QuantProject:DEF-OCC-INT.
+      n/a:
+        description: The response has only one estimator, e.g. abundance.
+
+  QuantBasis:
+    description: >-
+      Whether a match-between-runs transferred peak was counted as present. `DEF-Q4` asks which is
+      right and the user has not ruled; the definition's answer is to compute both and store both
+      rows, so the unanswered question becomes a column the repository can be queried on (H8+).
+    permissible_values:
+      msms_only:
+        description: Only peaks with an MS2 identification in that run.
+      mbr_kept:
+        description: Transferred peaks counted as present.
+
+  ModelForm:
+    description: The shape fitted in age. H7+ asks whether the trend is linear or has a breakpoint.
+    permissible_values:
+      linear:
+      spline:
+      breakpoint:
+
+  FitRefusal:
+    description: >-
+      Why a fit was not performed. Closed list, from `aging:DEF-AGE-EFFECT v1` section 5. When a
+      minimum-evidence requirement fails, NO row is written to `age_effect` -- not a row with a null
+      beta -- because an absent age effect and an age effect of zero are different facts.
+    permissible_values:
+      n_too_small:
+        description: Fewer than 8 samples in the fit.
+      age_span_too_narrow:
+        description: Age span under 10 years; a per-decade coefficient from less than a decade is fiction.
+      too_few_distinct_ages:
+        description: Fewer than 5 distinct ages; a group comparison wearing a regression's clothes.
+      too_missing:
+        description: Non-missing values under 60% of samples, or under 6.
+      batch_confounded:
+        description: Batch is confounded with age and the dataset carries no batch term.
+      no_age_metadata:
+        description: The dataset carries no donor ages at all. This is the value that answers trap J6.
+      no_channel_design:
+        description: >-
+          An isobaric dataset with no curated channel design, so it stays out of every pool (`aging:DEF-AGE-EFFECT-META
+          v1.4` section 6.5 item 2). Added in layer 0.7.0.
+      method_term_not_estimable:
+        description: >-
+          An isobaric dataset kept out of the `method_scope = all` row: its method term could not be estimated or failed
+          QuantProject's entry check, or it was read at MS2, whose correction has not passed (`aging:DEF-AGE-EFFECT-META
+          v1.4` section 6.5 items 2-3). It stays in the `isobaric` row. Added in layer 0.7.0.
+
+  MethodScope:
+    description: >-
+      Which methods a pooled `age_effect_meta` row combines (`aging:DEF-AGE-EFFECT-META v1.4` section 6.5 item 4).
+      Added in layer 0.7.0.
+    permissible_values:
+      all:
+        description: Label-free and isobaric effects together, on the label-free scale, each isobaric one rescaled by its own method term.
+      label_free:
+        description: Label-free datasets only.
+      isobaric:
+        description: Isobaric datasets only.
+
+  IsobaricMethod:
+    description: >-
+      How an isobaric dataset read its reporter ions (`aging:DEF-AGE-EFFECT-META v1.4` section 6.5 item 3), as
+      `dataset_overview.quant_scale` records it. Added in layer 0.7.0.
+    permissible_values:
+      isobaric_ms2:
+        description: Reporters read at MS2.
+      isobaric_ms3:
+        description: Reporters read at MS3 (SPS-MS3 or RTS-MS3).
+
+classes:
+
+  SampleAge:
+    description: >-
+      Normalized age of one sample. NOT YET DEFINITION-BACKED (DATAREPO-5). The normalizer is
+      SdrfAge (sdrf/mzLib #1326) and dataRepo only stores what it returns -- parsing an age string
+      is not this repository's job (D1). Only about 160 of 1,236 curated SDRFs carry a real age
+      (aging G12), so absence is common and is NA. No dataset in the instance populates this table
+      today: the three ingested SDRFs carry only organism and biological replicate.
+    attributes:
+      sample_id: {range: Sample, required: true, description: "Sample this row describes."}
+      age_raw: {required: true, description: "The SDRF value verbatim, so a normalizer change can be re-run against the source rather than against a previous normalization."}
+      age_years: {range: float, description: "Normalized to years. NA when not parseable, which is not the same as no age being recorded -- `age_raw` distinguishes them."}
+      age_is_lower_bound: {range: boolean, description: "True for a right-censored age such as '65+' or '>=90Y'. `aging:DEF-AGE-EFFECT v1` section 5 EXCLUDES these from a primary fit and counts them in `n_age_lower_bound`; they are never silently treated as the bound value, because the datasets most likely to carry them are the ones with the oldest donors."}
+      age_is_range: {range: boolean, description: "True if the SDRF gives a range (e.g. 60-69Y)."}
+      age_source: {range: AgeSource, required: true, description: "Where `age_raw` came from: an SDRF cell, or the study owner's curation from a named source."}
+      age_source_reference: {description: "For a curated age, the source it was read from (for example 'PMID 40544948' or 'PRIDE PXD056433 project record'). NULL for an SDRF age, whose source is the SDRF."}
+      normalizer_version: {description: "Version of the software that turned `age_raw` into `age_years` (SdrfAge). Two rows normalized by different versions are not comparable and this is how a caller can tell. NULL when no normalizer ran, e.g. a curated age converted by hand; never a curation label (that is `age_source`)."}
+
+  CuratedSampleCharacteristic:
+    description: >-
+      One characteristic of one sample, as aging CURATED it (aging 078, REQ-DATAREPO-6). The values
+      come from the PRIDE record, the deposit's own files and the paper, not from an SDRF cell. That
+      is the whole reason this is a study table and not a core one. The core `samples` and
+      `sample_characteristics` hold only what an SDRF wrote, and a curated value never enters them,
+      so "the depositor said" and "aging read it from the paper" can never be confused. Being in
+      this table is the mark that a value is aging's. The same rule as `sample_ages.age_source =
+      curated`, except that here every row is curated.
+      A NULL `samples.organism_part` / `cell_type` / `cell_line` / `disease` does not mean nothing
+      is known about the sample. It means no SDRF term was written. Read this table before reporting
+      a sample's tissue, cell type, cell line or disease as unknown. It is keyed per sample, so a
+      value that holds for a whole dataset is one row per sample, and a per-run condition (control
+      vs progeria on the same deposit) needs no extra table.
+    attributes:
+      sample_id: {range: Sample, required: true, description: "Sample this row describes. Must be a sample the catalog holds."}
+      name: {required: true, description: "The characteristic, written the way an SDRF column header is, e.g. `characteristics[organism part]`, `characteristics[cell type]`, `characteristics[cell line]`, `characteristics[disease]`. Any SDRF header is taken verbatim, `comment[...]` included, so aging's protocol fields arrive as rows such as `comment[alkylation reagent]` (aging DATAREPO-80); nothing checks the header's form. It is the same vocabulary as `sample_characteristics.name`, so the two can be read side by side on one filter. Part of the key: one curated value per characteristic per sample."}
+      value: {required: true, description: "The curated value as a name, e.g. `SH-SY5Y`, `brain`, `Hutchinson-Gilford progeria syndrome`, `normal`, or an SDRF reserved word the curator wrote: `not applicable` (the characteristic does not apply, e.g. the tissue of a cell line) or `not available` (the sources were read and do not say). No row means the characteristic was not curated at all. Those are three different answers (G42), so filter on `value_reserved` before counting values."}
+      value_reserved: {range: boolean, required: true, description: "True when `value` is an SDRF reserved word (`not available`, `not applicable`, `unknown`, `none`, `na`, `n/a`), the same list and meaning as `sample_characteristics.value_reserved`: the curator looked and there is no value. Computed by `datarepo study` from `value`. A delivered value that disagrees is refused. A reserved row is not an annotation."}
+      term: {range: uriorcurie, description: "The ontology term for `value` where the curator gave one: UBERON (organism part), CL (cell type), Cellosaurus `CVCL_` (cell line), MONDO or DOID (disease; PATO:0000461 for normal)."}
+      source_reference: {required: true, description: "What the value was read from, e.g. `PMID 40544948`, `PRIDE PXD050351 project record`, `PXD036557 samples_names.docx`. REQUIRED, as for a curated age: a curated value whose source cannot be named is not delivered."}
+      evidence: {description: "The curator's note: the sentence, table cell or mapping the value rests on. Verbatim, and free text."}
+      confidence: {description: "aging's own rating of the row, verbatim (`high`, `medium`, `low` in `aging-curation/1`). It is aging's vocabulary, so it is not an enum here. Filter on it before trusting a `low` row like the others."}
+      curation_version: {required: true, description: "The curation that produced the row, e.g. `aging-curation/1`. Two rows from different curation versions may disagree by design, and this is how a caller can tell. It is a curation label, not software. It is never written into `sample_ages.normalizer_version`, which names software."}
+
+  CuratedRunDesign:
+    description: >-
+      How one run sits in its deposit's design, as aging CURATED it (aging 102, DATAREPO-79): which
+      individual it came from, which injection and fraction it is, how many individuals were pooled,
+      and its acquisition batch. Keyed per RUN, not per sample, because technical replicates and
+      fractions are runs of one sample and a design is about telling them apart. Like
+      `curated_sample_characteristics`, every row is aging's reading of the deposit, never an SDRF
+      cell. An empty cell means not known. A curator's reserved word (`not applicable`, `not
+      available`) is an answer and is kept apart from it: in `individual` the word stays and
+      `individual_reserved` marks it, and in a number column the number is empty and the word is in
+      the column's `_reserved` companion (ptmQtl A4).
+    attributes:
+      run_id: {range: Run, required: true, description: "The run, as `runs.run_id` spells it: `<dataset_id>:<run base name>`. A run the catalog does not hold is refused at build."}
+      individual: {required: true, description: "The animal, donor or culture the run's sample came from, as the curation names it. Every run of one individual repeats it: its technical replicates and its fractions. For a POOL it is the pool's own label, and `pool_size` > 1 says it is a pool; it is never `not applicable` for a pool, because PXD058082's five pools, each injected three times, would then read as fifteen (aging 108 c). It may be an SDRF reserved word, which `individual_reserved` marks."}
+      individual_reserved: {range: boolean, required: true, description: "True when `individual` is an SDRF reserved word (`not available`, `not applicable`, `unknown`, `none`, `na`, `n/a`), the list `sample_characteristics.value_reserved` uses. Computed by `datarepo study` from `individual`; a delivered value that disagrees is refused."}
+      injection: {range: integer, minimum_value: 1, description: "Which injection of the same sample this run is (1, 2, ...): the technical replicate. Empty when not known. When the curator wrote a reserved word it is in `injection_reserved` and this is empty."}
+      injection_reserved: {description: "The SDRF reserved word the curator wrote for `injection`, verbatim. Set only when `injection` is empty: `datarepo study` refuses a row with both, and a word that is not reserved."}
+      fraction: {range: integer, minimum_value: 1, description: "Which fraction of the sample this run is (1, 2, ...). Empty when not known. An unfractionated run carries `not applicable` in `fraction_reserved` and nothing here."}
+      fraction_reserved: {description: "The SDRF reserved word the curator wrote for `fraction`, verbatim, e.g. `not applicable` for an unfractionated run. Set only when `fraction` is empty; `datarepo study` refuses a row with both, and a word that is not reserved."}
+      pool_size: {range: integer, minimum_value: 1, description: "How many individuals were pooled into the run's sample: 1 for one individual, more for a pool, whose `individual` is then the pool's label. When the source gives only a range (PXD035446: \"2-3 mice per sample\"), this and `pool_size_reserved` are both empty and the range is quoted in `evidence`: the exact number is not known."}
+      pool_size_reserved: {description: "The SDRF reserved word the curator wrote for `pool_size`, verbatim. Set only when `pool_size` is empty; `datarepo study` refuses a row with both, and a word that is not reserved."}
+      acquisition_batch: {description: "The acquisition batch the curation assigns to the run, verbatim, so runs acquired together can be told from runs acquired apart. Empty when not known."}
+      source_reference: {required: true, description: "What the row was read from, e.g. `PMID 40544948` or `PXD058082 sample table`. REQUIRED: a curated row whose source cannot be named is not delivered."}
+      evidence: {description: "The curator's note: the sentence, table cell or mapping the row rests on. Verbatim, and free text."}
+      confidence: {description: "aging's own rating of the row, verbatim (`high`, `medium`, `low` in `aging-curation/1`). aging's vocabulary, so not an enum here."}
+      curation_version: {required: true, description: "The curation that produced the row, e.g. `aging-curation/1`. A curation label, not software."}
+
+  CuratedDesignFactor:
+    description: >-
+      One design factor's level on one run, as aging CURATED it (aging 102, DATAREPO-79, amended by
+      DATAREPO-82 in aging 108). A factor is a `condition` (a comparison with a reference level) or a
+      `stratum` (what a sample is, analysed apart). A run the factor does not concern has NO row,
+      and `level` never holds a reserved word, so no row means "this factor does not apply to this
+      run": PXD017475's nine secretome runs have no `pulldown` row, while its ten pulldown runs carry
+      `bait` or `control`. `datarepo study` refuses a delivery that breaks the rules on `role`,
+      `is_reference` and `level`, and `build` refuses a run the catalog does not hold, a run missing
+      from `curated_run_design`, and two runs of one sample with different factor rows.
+    attributes:
+      run_id: {range: Run, required: true, description: "The run, as `runs.run_id` spells it. Must also be a run of `curated_run_design`."}
+      factor: {required: true, description: "The design factor, named by the curator, e.g. `age group`, `genotype`, `organism part`, `pulldown`. Part of the key: one level per factor per run."}
+      role: {range: DesignFactorRole, required: true, description: "`condition` or `stratum`. Every row of one factor in one dataset has the same role."}
+      level: {required: true, description: "The level as the depositor or the paper writes it, e.g. `24 months`, `KO`, `liver`. Never an SDRF reserved word: a run whose level is `not applicable` or `not available` has no row for the factor (aging 108 b), and `datarepo study` refuses a reserved word here."}
+      level_value: {range: float, description: "The level as a number, for an ordered factor (age, dose, time, passage), in `level_unit` (ptmQtl A1). An `age group` is in years (UO:0000036), months / 12 to 4 places, as `sample_ages.age_years` has it. A range or a bound (\"3 to 6 months\", \"Age < 28\") has no number. Named `level_value`, not `value`, because `value` is text in `curated_sample_characteristics`, and a number of the same name one table over invites a wrong join."}
+      level_unit: {range: uriorcurie, description: "The unit of `level_value`, one UO term: so far year (UO:0000036), week (UO:0000034) and gray (UO:0000134). Set exactly when `level_value` is."}
+      is_reference: {range: boolean, description: "For a condition: true for the reference level (the control), false for the others. Within a dataset each condition has at least one reference level and at least one other level, and no level is both. EMPTY on every row of a stratum, which has no reference."}
+      is_primary: {range: boolean, description: "True when this factor is the authors' own comparison (ptmQtl A2). Empty means not stated."}
+      term: {range: uriorcurie, description: "The ontology term for `level` where the curator gave one."}
+      source_reference: {required: true, description: "What the row was read from, e.g. `PMID 40544948`. REQUIRED: a curated row whose source cannot be named is not delivered."}
+      evidence: {description: "The curator's note: the sentence, table cell or mapping the row rests on. Verbatim, and free text."}
+      confidence: {description: "aging's own rating of the row, verbatim (`high`, `medium`, `low` in `aging-curation/1`)."}
+      curation_version: {required: true, description: "The curation that produced the row, e.g. `aging-curation/1`. A curation label, not software."}
+
+  AgeEffect:
+    description: >-
+      The estimated change in one measured quantity, for one feature, per DECADE of donor age,
+      fitted WITHIN a single dataset, with its uncertainty and the evidence behind it. Content is
+      `aging:DEF-AGE-EFFECT v1`; every column below is named by that definition.
+      Four rules the shape enforces. PER DECADE, not per year: the datasets span 30-70 years and a
+      per-year coefficient invites multiplication by a lifetime it was never fitted over. WITHIN ONE
+      DATASET: raw intensities are not comparable across datasets (trap J3), so pooling happens in
+      `age_effect_meta` over effect sizes only. AND A FIT THAT FAILED WRITES NO ROW: the reason goes
+      to `age_effect_refusals`, because a null beta would make "no evidence" and "no effect" look
+      the same.
+      ONE ORGANISM, and never corrected for it (`aging:DEF-AGE-EFFECT v1.1`, aging 039/040): `beta`
+      is per decade of chronological age within one organism. It is never expressed in lifespan
+      fractions, life stages or human-equivalent years, and the decade is ten years for every
+      organism -- a per-organism denominator is a lifespan correction wearing a different hat. Any
+      cross-species comparison is a separate, named quantity computed at read time from `beta` and
+      `age_mappings`, never a different meaning for this column.
+    attributes:
+      dataset_id: {range: Dataset, required: true, description: "Dataset the fit was performed within."}
+      organism: {range: uriorcurie, required: true, description: "NCBITaxon term of the organism the fit ran over. REQUIRED and denormalised (`aging:DEF-AGE-EFFECT v1.1` section 6.4): a dataset has one organism, so this is functionally dependent on `dataset_id`, but the pooling guard in `age_effect_meta` has to be checkable without a join, and a guard that needs a join is a guard somebody will skip. Not part of this table's key, because `dataset_id` already is (G40)."}
+      age_centre_years: {range: float, required: true, description: "The age the model was centred on, in years: `age_decades = (age_years - age_centre_years) / 10`. REQUIRED, with no n/a (`aging:DEF-AGE-EFFECT v1.1`, aging 040 section 3). It was a literal 50 in the model formula, a human constant that put every mouse observation near -4.8 decades. Centring does not change `beta`, only the intercept -- but the intercept and the knots of a `spline` or `breakpoint` fit are expressed relative to it, so a row with no centre cannot have either interpreted. 50 for human."}
+      feature_type: {range: FeatureType, required: true, description: "Which table feature_id points into. ASK: the definition's section 4 writes `glycosite`, which the core FeatureType enum does not have -- it has `glycopeptide`. Using the core enum rather than forking it, and asked as DATAREPO-20."}
+      feature_id: {required: true, description: "Identifier of the feature in the table named by feature_type."}
+      response: {range: AgeResponse, required: true, description: "What changes with age. Part of the key."}
+      estimator: {range: AgeEstimator, required: true, description: "Which estimator produced the response. Part of the key, because count- and intensity-based occupancy must never be averaged."}
+      quant_basis: {range: QuantBasis, required: true, description: "Whether MBR-transferred peaks counted as present. Part of the key: both are computed and both are stored, so DEF-Q4 being open does not block the fit."}
+      model_form: {range: ModelForm, required: true, description: "Linear, spline or breakpoint. Part of the key."}
+      stratum: {required: true, description: "Which samples the fit ran over: `all`, `sex=female`, `sex=male` (D13), or `incl_censored` for the sensitivity fit that includes right-censored ages at face value (definition section 5). ASK: left as a string rather than an enum because the definition's own section 5 adds a value its section 2 table does not list, so the vocabulary is demonstrably open. DATAREPO-20 asks whether to close it."}
+      beta: {range: float, required: true, description: "The coefficient on `age_decades = (age_years - age_centre_years) / 10`: change PER DECADE of chronological age, within one organism, in the units of the response's transform -- log2 fold change for abundance and isoform_ratio, logit change for the fractions. Required, because a row exists only when a fit succeeded."}
+      se: {range: float, required: true, description: "Standard error of `beta`. REQUIRED: the definition's section 4 says a beta without an se is not an age effect."}
+      ci_low: {range: float, description: "Lower bound of the confidence interval on `beta`."}
+      ci_high: {range: float, description: "Upper bound of the confidence interval on `beta`."}
+      p_value: {range: float, minimum_value: 0, maximum_value: 1, description: "Unadjusted p-value for `beta`."}
+      q_value: {range: float, minimum_value: 0, maximum_value: 1, description: "Benjamini-Hochberg q-value WITHIN (dataset_id, response, estimator, quant_basis, model_form, stratum). The family is the set of features tested together and nothing else, so a q-value here may not be compared with one from another family."}
+      n_samples: {range: integer, required: true, description: "Samples that entered the fit. At least 8, or no row was written."}
+      n_observed: {range: integer, description: "Samples with a non-missing value for this feature."}
+      n_missing: {range: integer, description: "Samples with a missing value. Missing is NA and is OMITTED from the fit, never imputed -- imputation is a modelling choice with its own definition and it is not this one."}
+      age_min: {range: float, description: "Youngest donor age in the fit, in years."}
+      age_max: {range: float, description: "Oldest donor age in the fit, in years."}
+      age_span_years: {range: float, required: true, description: "The span the effect was fitted over. REQUIRED, and it is the column that stops a reader treating a per-decade effect from a 12-year span as evidence about a lifetime."}
+      n_age_lower_bound: {range: integer, description: "How many donor ages were right-censored. Excluded from a primary fit; see `stratum = incl_censored` for the sensitivity fit."}
+      covariates: {range: string, required: true, description: "The terms ACTUALLY FITTED, semicolon-separated. REQUIRED, and read strictly: a row whose covariates do not list a term did not adjust for it, whatever the protocol said. `sex` is not optional where the dataset has two levels with at least two samples each, and a dataset with more than one condition must carry a disease/condition term or the age effect absorbs the group difference."}
+      normalization: {required: true, description: "What was applied before fitting, e.g. `median_log2_per_run`. Required because `DEF-PROT-INT` is un-normalized when FlashLFQ's Normalize is off, which is what every run in the instance used, so a fit that does not say what it normalized cannot be read."}
+      method: {required: true, description: "The engine that fitted the model, e.g. `msqrob2`."}
+      method_version: {required: true, description: "Version of that engine. Two rows fitted by different engines are not comparable, and this is how a caller can tell."}
+      n_covering_psms_median: {range: float, description: "modified_fraction rows only. Median PSM depth covering the site across samples -- QuantProject's own recommended filter, and what separates a real occupancy change from a depth artifact."}
+      intensity_is_floor_frac: {range: float, minimum_value: 0, maximum_value: 1, description: "modified_fraction + estimator=intensity only. Fraction of the observations that were DEF-OCC-INT-ZERO floors rather than measured values. A row where this is high is mostly censored data."}
+      mbr_kept_frac: {range: float, minimum_value: 0, maximum_value: 1, description: "Fraction of the values that came from a match-between-runs transferred peak."}
+      definition_id: {range: Definition, required: true, description: "`aging:DEF-AGE-EFFECT v1.1` (v1.1 added `organism` and `age_centre_years`). A change to the model, the covariate rule, the transform or the section 5 thresholds is a new version, not an edit."}
+
+  AgeEffectRefusal:
+    description: >-
+      One fit that was NOT performed, and why. This table is what answers trap J6: "give me the age
+      effect for X in liver" is answered from here -- no liver dataset carries donor ages -- rather
+      than by borrowing a number from another tissue. A refusal is a statement, not an absence, which
+      is why it is a row.
+      ASK: `aging:DEF-AGE-EFFECT v1` names this table and its `fit_refused` vocabulary but does not
+      enumerate its columns, so the shape below is dataRepo's and is asked as DATAREPO-20. Its key
+      mirrors AgeEffect's so a caller can look up the refusal for the exact fit they asked for; the
+      feature columns are nullable because a `no_age_metadata` refusal is dataset-level and has no
+      feature to name.
+    attributes:
+      dataset_id: {range: Dataset, required: true, description: "Dataset the fit would have run within."}
+      organism: {range: uriorcurie, required: true, description: "NCBITaxon term of the organism the fit would have run over. REQUIRED and denormalised, as on `age_effects` (aging 042 section 2): a refusal row is what someone reads when asking why there is no mouse estimate for a feature, and if answering that needs a join back to `datasets` it will sometimes be answered wrongly. Not part of the key, because `dataset_id` already is."}
+      feature_type: {range: FeatureType, description: "Null for a dataset-level refusal such as no_age_metadata."}
+      feature_id: {description: "Null for a dataset-level refusal such as no_age_metadata."}
+      response: {range: AgeResponse, required: true, description: "The response that was not fitted."}
+      estimator: {range: AgeEstimator, required: true, description: "The estimator that was not used."}
+      quant_basis: {range: QuantBasis, required: true, description: "The quantification basis that was not used."}
+      model_form: {range: ModelForm, required: true, description: "The model form that was not fitted."}
+      stratum: {required: true, description: "The stratum that was not fitted."}
+      fit_refused: {range: FitRefusal, required: true, description: "Why. Closed list from the definition's section 5."}
+      n_samples: {range: integer, description: "Samples available, where that is what failed."}
+      n_observed: {range: integer, description: "Non-missing values available, where that is what failed."}
+      n_distinct_ages: {range: integer, description: "Distinct donor ages available, where that is what failed."}
+      age_span_years: {range: float, description: "Age span available, where that is what failed."}
+      definition_id: {range: Definition, required: true, description: "`aging:DEF-AGE-EFFECT v1`, whose section 5 sets the thresholds this row failed."}
+
+  AgeEffectMeta:
+    description: >-
+      The pooled age effect for one feature ACROSS datasets. Content is
+      `aging:DEF-AGE-EFFECT-META v1.4`; a separate table from AgeEffect because combining datasets is a
+      different operation with different failure modes.
+      The pooling is RANDOM-EFFECTS (DerSimonian-Laird), not fixed: these are different cohorts,
+      tissues and instruments, and a fixed-effect model would assert one true effect. The
+      stratification columns are refusals in disguise -- never pool across acquisition (DDA with
+      DIA) or across tissue, because H6 and D4 ask whether those AGREE and a pooled estimate would
+      destroy the question -- and NEVER ACROSS
+      ORGANISM (`aging:DEF-AGE-EFFECT-META v1.2` section 6.4, our G40), the strongest member of that
+      family and the one first left unwritten because every dataset was human. It is a key column,
+      not a stated invariant, because an invariant cannot be checked: today a UniProt accession is
+      species-specific and happens to keep a human and a mouse effect apart, but an
+      orthology-resolved feature id (`logs`) spans species by construction, and the moment one
+      enters this table the accession stops being the guard.
+      `n_datasets = 1` is a legitimate row carrying a null `i_squared`. It is not a meta-analysis; it
+      is an honest statement that one dataset exists, which is the state of this repository for every
+      tissue it holds.
+      LABEL-FREE AND ISOBARIC (layer 0.7.0, `aging:DEF-AGE-EFFECT-META v1.4` section 6.5): never pool
+      values across `quant_scale`; effects may be combined under `aging:DEF-AGE-EFFECT-META` v1.4, TMT
+      read at MS3 only, with one method term per dataset (`age_effect_method_terms`). `method_scope`
+      says which: `all` is on the label-free scale; `label_free` and `isobaric` keep H6 and I3
+      answerable. Quote an `all` row with its `n_datasets_label_free` and `n_datasets_isobaric`; when
+      the `label_free` and `isobaric` rows disagree in sign, report both and not the `all` row.
+    attributes:
+      organism: {range: uriorcurie, required: true, description: "NCBITaxon term. FIRST component of the key and a hard stratification (`aging:DEF-AGE-EFFECT-META v1.2` section 6.4): every contributing `age_effects` row carries this organism, and a pooled estimate over two organisms is not written. Pooling across species on purpose is a different, named operation that does not exist yet."}
+      feature_type: {range: FeatureType, required: true, description: "Which kind of feature this row pools. ASK (DATAREPO-20): the definition's section 6 key omits feature_type, but without it `feature_id` cannot be interpreted -- and a dataset-scoped identifier such as a protein_group_id cannot be a cross-dataset key at all, so the cross-dataset identity of a feature is itself the question."}
+      feature_id: {required: true, description: "Identifier of the feature, in whatever vocabulary is cross-dataset for its type. ASK (DATAREPO-20): see feature_type."}
+      response: {range: AgeResponse, required: true, description: "What changes with age. Part of the key."}
+      estimator: {range: AgeEstimator, required: true, description: "Part of the key."}
+      quant_basis: {range: QuantBasis, required: true, description: "Part of the key."}
+      stratum: {required: true, description: "Part of the key."}
+      tissue: {range: uriorcurie, required: true, description: "UBERON term. Part of the key, and a hard stratification: D4 asks whether the lysosome shows the same trend in brain as in muscle, which is two rows."}
+      acquisition: {range: Acquisition, required: true, description: "Part of the key, and a hard stratification: H6 and I3 ask whether DDA and DIA agree."}
+      method_scope: {range: MethodScope, required: true, description: "Part of the key (layer 0.7.0, replacing `quant_method`): `all`, `label_free` or `isobaric`, the methods this row combines. An isobaric dataset enters `all` only when read at MS3 and its method term passes QuantProject's entry check; otherwise it is in `isobaric` alone, with a `method_term_not_estimable` refusal row."}
+      beta_meta: {range: float, required: true, description: "Random-effects (DerSimonian-Laird) pooled effect, per decade, in the response's transform units."}
+      se_meta: {range: float, required: true, description: "Standard error of the pooled effect. Required for the same reason `se` is on AgeEffect."}
+      ci_low: {range: float, description: "Lower bound of the confidence interval on `beta_meta`."}
+      ci_high: {range: float, description: "Upper bound of the confidence interval on `beta_meta`."}
+      q_meta: {range: float, minimum_value: 0, maximum_value: 1, description: "Benjamini-Hochberg across features within the same stratum."}
+      n_datasets: {range: integer, required: true, description: "How many datasets contributed."}
+      dataset_ids: {range: Dataset, multivalued: true, required: true, description: "WHICH datasets contributed. C3 and D1 ask for an effect seen in at least three datasets and need the list, not the count."}
+      n_datasets_label_free: {range: integer, required: true, minimum_value: 0, description: "How many of `n_datasets` are label-free (layer 0.7.0). 0 on an `all` row says it equals the `isobaric` row."}
+      n_datasets_isobaric: {range: integer, required: true, minimum_value: 0, description: "How many of `n_datasets` are isobaric (layer 0.7.0). 0 on an `all` row says it equals the `label_free` row."}
+      method_term_ids: {multivalued: true, description: "The `age_effect_method_terms` rows this pooled estimate used, one per isobaric dataset it rescaled (layer 0.7.0); empty when it rescaled none."}
+      i_squared: {range: float, minimum_value: 0, maximum_value: 1, description: "I-squared heterogeneity across datasets. Null when n_datasets = 1, which is not a defect."}
+      tau2: {range: float, description: "Between-dataset variance. H1's forest plot is made of this and i_squared."}
+      n_direction_agree: {range: integer, description: "Contributing datasets whose effect has the same sign as the pooled one. H6 and I3 want direction agreement rather than a pooled p-value."}
+      n_direction_disagree: {range: integer, description: "Contributing datasets whose effect has the opposite sign."}
+      leave_one_out_max_delta: {range: float, description: "The largest change in `beta_meta` from dropping any single dataset. C2 asks whether the age effect is driven by one dataset, and this answers it as a number rather than a judgement. Null when n_datasets = 1."}
+      definition_id: {range: Definition, required: true, description: "`aging:DEF-AGE-EFFECT-META v1.4` (v1.2 added `organism` to the key and the never-pool-across-organism rule; v1.3 the method term; v1.4 one term per isobaric dataset, and MS3 only in `all`)."}
+
+  AgeEffectMethodTerm:
+    description: >-
+      One isobaric dataset's method term for one response (`aging:DEF-AGE-EFFECT-META v1.4` section 6.5
+      item 3; layer 0.7.0): how much this dataset's effects differ from the label-free datasets' for
+      the same features. One term per isobaric dataset, never one per method: the shrinkage comes from
+      co-isolated peptides, which change with each lab's isolation width, fractionation, load and
+      gradient. Read at MS3 the term is a scale factor `c` (this dataset's effects about c times the
+      label-free ones), estimated by QuantProject's `DEF-METHOD-TERM` (MR-RAPS, mzLib `EffectScale`);
+      a pooled `all` row rescales the dataset's `beta` and `se` by it. Read at MS2 no term is applied
+      yet. The form and the estimator are QuantProject's; aging owns the content; dataRepo stores it.
+    attributes:
+      method_term_id: {identifier: true, description: "The term's id, as `age_effect_meta.method_term_ids` names it."}
+      dataset_id: {range: Dataset, required: true, description: "The isobaric dataset the term is for."}
+      response: {range: AgeResponse, required: true, description: "The response the term was estimated on."}
+      method: {range: IsobaricMethod, required: true, description: "`isobaric_ms2` or `isobaric_ms3`, as the dataset's `quant_scale` records it."}
+      value: {range: float, description: "The term: for MS3, the scale factor `c`. NULL when it could not be estimated (`status`)."}
+      ci90_low: {range: float, description: "Lower bound of the term's 90% interval, the interval QuantProject's entry check reads."}
+      ci90_high: {range: float, description: "Upper bound of the term's 90% interval."}
+      estimator: {required: true, description: "How the term was estimated, e.g. `MR-RAPS` (QuantProject `DEF-METHOD-TERM`)."}
+      label_free_dataset_ids: {range: Dataset, multivalued: true, description: "The label-free datasets of the same organism and tissue the term was estimated against. The entry check needs at least 3."}
+      n_shared_features: {range: integer, minimum_value: 0, description: "How many features the dataset shares with those label-free datasets: the evidence behind the term."}
+      status: {required: true, description: "What became of the term, in aging's words: entered `all` after passing the entry check, or `method_term_not_estimable` (too few label-free datasets, no overlap, or read at MS2 before its correction passes). The vocabulary is the definition's and is carried as written."}
+      definition_id: {range: Definition, required: true, description: "The term's definition, e.g. QuantProject's `DEF-METHOD-TERM` at a version."}
+
+  OrganelleAgeSummary:
+    description: >-
+      Meta-analytic age effect per COMPARTMENT across datasets. NOT YET DEFINITION-BACKED
+      (DATAREPO-5): `aging:DEF-AGE-EFFECT-META v1` pools per feature, and rolling features up to a
+      compartment is a further operation nobody has defined -- in particular how a protein in two
+      compartments is counted. The shape is kept because it is the table section D's question ("do
+      organelles age at different rates") reads, and it should be confirmed or replaced before it is
+      filled.
+    attributes:
+      compartment: {range: uriorcurie, required: true, description: "GO-CC term, from go's map. The organelle map belongs to `go` (D1)."}
+      organism: {range: uriorcurie, required: true, description: "NCBITaxon term."}
+      organism_part: {range: uriorcurie, description: "UBERON; NA = all tissues."}
+      response: {range: AgeResponse, required: true, description: "What changes with age."}
+      definition_id: {range: Definition, required: true, description: "Definition ID of the roll-up that produced the estimate. There is not one yet."}
+      n_datasets: {range: integer, required: true, description: "Datasets contributing to the summary."}
+      n_proteins: {range: integer, description: "Proteins contributing to the summary."}
+      estimate: {range: float, description: "Effect estimate (units set by the definition)."}
+      standard_error: {range: float, description: "Standard error of the estimate."}
+      q_value: {range: float, minimum_value: 0, maximum_value: 1, description: "Adjusted p-value across compartments."}
+      heterogeneity_i2: {range: float, minimum_value: 0, maximum_value: 1, description: "I-squared heterogeneity across datasets (0-1)."}
+
+  ClockModel:
+    description: >-
+      A trained age clock (R9). NOT YET DEFINITION-BACKED (DATAREPO-5); the shape is dataRepo's and
+      the definition is aging's. An age clock is NOT an age effect: an effect is per feature, a clock
+      is a model over many features (benchmark N1), and the definition is explicit that they are
+      different tables for that reason.
+    attributes:
+      clock_id: {identifier: true, description: "Stable ID of the clock."}
+      definition_id: {range: Definition, required: true, description: "Owner's definition ID giving this model its meaning."}
+      feature_level: {description: "protein, ptm_site, proteoform or mixed (N1)."}
+      training_datasets: {range: Dataset, multivalued: true, description: "Datasets used to train the clock."}
+      cv_mae_years: {range: float, description: "Cross-validated mean absolute error in years."}
+      heldout_mae_years: {range: float, description: "Mean absolute error on held-out datasets, in years. A clock with no held-out error has not been validated, and the two columns are separate so that cannot be hidden."}
+      heldout_datasets: {range: Dataset, multivalued: true, description: "Datasets held out for validation."}
+
+  ClockFeature:
+    description: "One feature of a ClockModel with its weight. NOT YET DEFINITION-BACKED (DATAREPO-5)."
+    attributes:
+      clock_id: {range: ClockModel, required: true, description: "Clock this feature belongs to."}
+      feature_type: {range: FeatureType, required: true, description: "Which table feature_id points into."}
+      feature_id: {required: true, description: "Identifier of the feature in the table named by feature_type."}
+      weight: {range: float, required: true, description: "Model weight of the feature."}
+
+  AgeMapping:
+    description: >-
+      Cross-species age to life stage (R4). NOT YET DEFINITION-BACKED and NOT STARTED: rodent is in
+      scope (D5) and has no age mapping. aging's, confirmed in their 039 (their requirement R4 assigned
+      it to their stage 7 before rodents were in scope): an ANALYSIS CHOICE, not a fact about a
+      sample, which is why it is neither sdrf's to curate nor ours to derive. dataRepo stores it as a
+      versioned, definition-backed lookup. aging have said on the record that they will not publish a
+      single scalar conversion: a mapping carries its source and its disagreement, or it is a refusal.
+    attributes:
+      organism: {range: uriorcurie, required: true, description: "NCBITaxon term the mapping applies to."}
+      age_from: {range: float, required: true, description: "Start of the age band (inclusive)."}
+      age_to: {range: float, required: true, description: "End of the age band (exclusive)."}
+      age_unit: {required: true, description: "Unit of age_from and age_to (days, weeks, months, years)."}
+      life_stage: {required: true, description: "Life-stage label, e.g. young adult, middle age, old."}
+      human_equivalent_years: {range: float, description: "Approximate human-equivalent age in years."}
+      definition_id: {range: Definition, required: true, description: "Owner's definition ID giving this mapping its meaning."}
+
+  StudyBundle:
+    tree_root: true
+    description: >-
+      The study layer's tables, named the same way `Bundle` names the core's. This is what
+      `tools/build_tables.py` reads to generate `STUDY_TABLES`, so the layer's Parquet columns are
+      the schema's and never a second hand-written copy.
+    attributes:
+      sample_ages: {range: SampleAge, multivalued: true, inlined_as_list: true, description: "Rows of the sample_ages table."}
+      curated_sample_characteristics: {range: CuratedSampleCharacteristic, multivalued: true, inlined_as_list: true, description: "Rows of the curated_sample_characteristics table."}
+      curated_run_design: {range: CuratedRunDesign, multivalued: true, inlined_as_list: true, description: "Rows of the curated_run_design table."}
+      curated_design_factors: {range: CuratedDesignFactor, multivalued: true, inlined_as_list: true, description: "Rows of the curated_design_factors table."}
+      age_effects: {range: AgeEffect, multivalued: true, inlined_as_list: true, description: "Rows of the age_effects table."}
+      age_effect_refusals: {range: AgeEffectRefusal, multivalued: true, inlined_as_list: true, description: "Rows of the age_effect_refusals table."}
+      age_effect_meta: {range: AgeEffectMeta, multivalued: true, inlined_as_list: true, description: "Rows of the age_effect_meta table."}
+      age_effect_method_terms: {range: AgeEffectMethodTerm, multivalued: true, inlined_as_list: true, description: "Rows of the age_effect_method_terms table (layer 0.7.0)."}
+      organelle_age_summaries: {range: OrganelleAgeSummary, multivalued: true, inlined_as_list: true, description: "Rows of the organelle_age_summaries table."}
+      clock_models: {range: ClockModel, multivalued: true, inlined_as_list: true, description: "Rows of the clock_models table."}
+      clock_features: {range: ClockFeature, multivalued: true, inlined_as_list: true, description: "Rows of the clock_features table."}
+      age_mappings: {range: AgeMapping, multivalued: true, inlined_as_list: true, description: "Rows of the age_mappings table."}

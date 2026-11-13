@@ -1,0 +1,4 @@
+sample_id	age_raw	age_years	age_is_lower_bound	age_is_range	age_source
+S1	34Y	34	yes	Y	sdrf
+S2	75Y	 75.5 	t	maybe	sdrf
+S3	été 😀	1e2		0	curated

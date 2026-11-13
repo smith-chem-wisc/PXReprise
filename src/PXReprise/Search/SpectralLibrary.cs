@@ -62,11 +62,14 @@ public static class SpectralLibrary
     /// differently, so its spectra get a chain of their own (<c>mouse_tmt10</c>), which starts blank and never reads or
     /// extends the label-free one (the user, 2026-10-29: "tmt will have to start with a blank spectrum library ... tmt
     /// modified peptides are all shifted"). Null is label-free: the organism's own chain.</param>
-    public static LibraryPlan Plan(string root, string organism, string? label = null)
+    /// <param name="cloud">The machine's <c>spectral_library_remote</c> (2026-11-11): newer versions other machines
+    /// registered are fetched first, so the search reads the newest library.</param>
+    public static LibraryPlan Plan(string root, string organism, string? label = null, LibraryCloud? cloud = null)
     {
         string key = organism.Trim().ToLowerInvariant().Replace(' ', '_');
         if (key.Length == 0) throw new UsageException("a spectral library needs an organism");
         if (label is { Length: > 0 }) key += "_" + new string(label.ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray());
+        if (cloud is not null) Pull(root, key, cloud);
         var entry = ReadRegistry(root)["organisms"]![key]?.AsObject();
         string? current = entry?["current"]?.GetValue<string>();
         if (current is null) return new LibraryPlan(key, "write", null, null, root);
@@ -88,8 +91,12 @@ public static class SpectralLibrary
     /// the parent version already holds its name ("PEPT[...]IDE/2"): then the parent's spectrum is kept, so an enriched
     /// deposit neither adds to nor replaces the regular chain's spectra of the class it enriches. Every other spectrum is
     /// registered here as before. Needs <paramref name="cleaning"/>, which resolves the modification names.</param>
+    /// <param name="cloud">2026-11-11: with a remote, a chain that moved while this search ran is no longer refused. This
+    /// search's own changes are merged onto the newest version (<see cref="LibraryMerge"/>), and each new version is
+    /// claimed in the cloud before it is registered here; a machine that loses the claim fetches, merges and tries
+    /// again.</param>
     public static JsonObject Register(LibraryPlan plan, string searchTaskDir, string runLabel, string accession, string metamorpheus,
-        LibraryCleaning? cleaning = null, IReadOnlyCollection<string>? routeClasses = null)
+        LibraryCleaning? cleaning = null, IReadOnlyCollection<string>? routeClasses = null, LibraryCloud? cloud = null)
     {
         if (routeClasses is { Count: > 0 } && cleaning is null)
             throw new ArgumentException("routing a library by class needs the cleaning rules, which resolve modification names", nameof(cleaning));
@@ -101,66 +108,121 @@ public static class SpectralLibrary
         string src = Path.Combine(searchTaskDir, produced[^1]!);
         // Two searches can finish together (search_slots > 1): one registers at a time, and the second then sees the
         // first's version and is refused below rather than overwriting it.
-        lock (RegistryGate) return RegisterLocked(plan, src, runLabel, accession, metamorpheus, cleaning, routeClasses);
+        lock (RegistryGate) return RegisterLocked(plan, src, runLabel, accession, metamorpheus, cleaning, routeClasses, cloud);
     }
+
+    /// <summary>A claim lost this many times in a row is reported, not retried for ever.</summary>
+    internal const int MaxClaimAttempts = 10;
 
     private static readonly object RegistryGate = new();
 
     private static JsonObject RegisterLocked(LibraryPlan plan, string src, string runLabel, string accession, string metamorpheus,
-        LibraryCleaning? cleaning, IReadOnlyCollection<string>? routeClasses)
+        LibraryCleaning? cleaning, IReadOnlyCollection<string>? routeClasses, LibraryCloud? cloud)
     {
-        var reg = ReadRegistry(plan.Root);
-        var organisms = reg["organisms"]!.AsObject();
-        if (organisms[plan.Organism] is not JsonObject entry)
-            organisms[plan.Organism] = entry = new JsonObject { ["current"] = null, ["versions"] = new JsonArray() };
-        string? current = entry["current"]?.GetValue<string>();
-        if (current is not null || plan.ParentVersion is not null)
-        {
-            int? live = current is null ? null : VersionOf(entry, current);
-            if (live != plan.ParentVersion)
-                throw new SearchSetupException($"spectral_library: {plan.Organism}'s current library moved from version {plan.ParentVersion} to {live} while this search was running. This run's library is at {src} and has NOT been registered, so nothing was lost; merge it deliberately.");
-        }
-
-        var (version, rel, dest) = NextVersion(plan.Root, plan.Organism, entry);
         JsonObject ProducedBy() => new()
         {
             ["run"] = runLabel, ["accession"] = accession, ["metamorpheus"] = metamorpheus,
             ["metamorpheus_path"] = src, ["metamorpheus_filename"] = Path.GetFileName(src),
         };
-        // COPY, not move: a search that is not delivered keeps what MetaMorpheus wrote. After delivery the run folder's copy
-        // is deleted when its bytes still match this version's sha256 (PruneStage, v0.4.18); a copy that lost unreadable
-        // entries never matches, so MetaMorpheus's whole file stays in the run folder.
-        if (routeClasses is not { Count: > 0 })
+        for (int attempt = 1; ; attempt++)
         {
-            var dropped = CopyClean(src, dest, cleaning);
-            var rec = VersionRecord(version, rel, plan.Mode, plan.ParentVersion, dest, dropped, cleaning, ProducedBy());
-            entry["versions"]!.AsArray().Add(rec);
-            entry["current"] = rel;
-            WriteRegistry(plan.Root, reg);
-            return rec;
-        }
+            if (cloud is not null) Pull(plan.Root, plan.Organism, cloud);
+            var reg = ReadRegistry(plan.Root);
+            var organisms = reg["organisms"]!.AsObject();
+            if (organisms[plan.Organism] is not JsonObject entry)
+                organisms[plan.Organism] = entry = new JsonObject { ["current"] = null, ["versions"] = new JsonArray() };
+            string? current = entry["current"]?.GetValue<string>();
+            int? live = current is null ? null : VersionOf(entry, current);
+            string? currentPath = current is null ? null : Path.Combine(plan.Root, current);
 
-        // v0.4.38: route the enriched-for classes. The regular version first, then one new version per class chain that
-        // received spectra, all in one registry write.
-        var routed = CopyRouted(src, dest, cleaning!, routeClasses, plan.LibraryIn);
-        var regular = VersionRecord(version, rel, plan.Mode, plan.ParentVersion, dest, routed.Dropped, cleaning, ProducedBy());
-        var routing = new JsonObject
+            // The chain moved while this search ran. Without a cloud that is refused, as before. With one it is the normal
+            // case for two machines: this search's own changes go onto the newest version (LibraryMerge).
+            string input = src;
+            string? mergeFile = null;
+            LibraryMerge.Counts? merged = null;
+            if ((current is not null || plan.ParentVersion is not null) && live != plan.ParentVersion)
+            {
+                if (cloud is null)
+                    throw new SearchSetupException($"spectral_library: {plan.Organism}'s current library moved from version {plan.ParentVersion} to {live} while this search was running. This run's library is at {src} and has NOT been registered, so nothing was lost; merge it deliberately.");
+                mergeFile = Path.Combine(plan.Root, plan.Organism, $".merge-{Guid.NewGuid():N}.msp");
+                Directory.CreateDirectory(Path.GetDirectoryName(mergeFile)!);
+                merged = LibraryMerge.Onto(plan.LibraryIn, src, currentPath!, mergeFile);
+                input = mergeFile;
+            }
+            try
+            {
+                var (version, rel, dest) = NextVersion(plan.Root, plan.Organism, entry);
+                // COPY, not move: a search that is not delivered keeps what MetaMorpheus wrote. After delivery the run
+                // folder's copy is deleted when its bytes still match this version's sha256 (PruneStage, v0.4.18); a copy that
+                // lost unreadable entries, or was merged, never matches, so MetaMorpheus's whole file stays in the run folder.
+                Routed? routed = null;
+                Dropped dropped;
+                if (routeClasses is { Count: > 0 })
+                {
+                    // v0.4.38: route the enriched-for classes. "The parent" for routing is the version this one is written
+                    // onto: the search's own parent, or the newest version after a merge.
+                    routed = CopyRouted(input, dest, cleaning!, routeClasses, currentPath);
+                    dropped = routed.Dropped;
+                }
+                else dropped = CopyClean(input, dest, cleaning);
+                var rec = VersionRecord(version, rel, plan.Mode, plan.ParentVersion, dest, dropped, cleaning, ProducedBy());
+                if (merged is not null)
+                    rec["merged_onto"] = new JsonObject
+                    {
+                        ["version"] = live, ["rule"] = LibraryMerge.Rule,
+                        ["added"] = merged.Added, ["replaced"] = merged.Replaced, ["kept_newer"] = merged.KeptNewer,
+                    };
+                if (routed is not null)
+                {
+                    var to = new JsonObject();
+                    foreach (var (cls, blocks) in routed.ByClass) to[LibraryRouting.ChainOf(plan.Organism, cls)] = blocks.Count;
+                    rec["routing"] = new JsonObject
+                    {
+                        ["rule"] = "pxreprise-library-routing/1: a spectrum carrying a PTM class the deposit enriches goes to that class's chain, unless the parent version holds its name (then the parent's spectrum stays); classes by modification mass and residue",
+                        ["classes"] = new JsonArray(routeClasses!.Select(c => (JsonNode)c).ToArray()),
+                        ["kept_parent_spectrum"] = routed.KeptParent,
+                        ["routed"] = to,
+                    };
+                }
+                if (cloud is not null && !cloud.Claim(plan.Organism, rec, dest))
+                {
+                    File.Delete(dest);
+                    if (attempt >= MaxClaimAttempts)
+                        throw new SearchSetupException($"spectral_library: {plan.Organism} v{version:000} was claimed by another machine {attempt} times in a row in {cloud.Remote.Location}. This run's library is at {src} and has NOT been registered.");
+                    continue;
+                }
+                entry["versions"]!.AsArray().Add(rec);
+                entry["current"] = rel;
+                WriteRegistry(plan.Root, reg);
+                if (routed is null) return rec;
+
+                // Then one new version per class chain that received spectra, each written onto that chain's newest.
+                var chains = new JsonArray();
+                foreach (var (cls, blocks) in routed.ByClass)
+                    if (blocks.Count > 0)
+                        chains.Add(RegisterClassChain(plan, cls, blocks, NewLineOf(input), version, ProducedBy, cloud));
+                var result = (JsonObject)rec.DeepClone();
+                result["routed_versions"] = chains;
+                return result;
+            }
+            finally
+            {
+                if (mergeFile is not null && File.Exists(mergeFile)) File.Delete(mergeFile);
+            }
+        }
+    }
+
+    /// <summary>One routed class chain's next version: its newest library plus <paramref name="blocks"/>, claimed in the
+    /// cloud first when there is one. Appending onto whatever is newest is already a merge, so a lost claim just retries.</summary>
+    private static JsonObject RegisterClassChain(LibraryPlan plan, string cls, List<List<string>> blocks, string nl, int regularVersion,
+        Func<JsonObject> producedBy, LibraryCloud? cloud)
+    {
+        string chain = LibraryRouting.ChainOf(plan.Organism, cls);
+        for (int attempt = 1; ; attempt++)
         {
-            ["rule"] = "pxreprise-library-routing/1: a spectrum carrying a PTM class the deposit enriches goes to that class's chain, unless the parent version holds its name (then the parent's spectrum stays); classes by modification mass and residue",
-            ["classes"] = new JsonArray(routeClasses.Select(c => (JsonNode)c).ToArray()),
-            ["kept_parent_spectrum"] = routed.KeptParent,
-        };
-        var to = new JsonObject();
-        foreach (var (cls, blocks) in routed.ByClass) to[LibraryRouting.ChainOf(plan.Organism, cls)] = blocks.Count;
-        routing["routed"] = to;
-        regular["routing"] = routing;
-        entry["versions"]!.AsArray().Add(regular);
-        entry["current"] = rel;
-        var chains = new JsonArray();
-        foreach (var (cls, blocks) in routed.ByClass)
-        {
-            if (blocks.Count == 0) continue;
-            string chain = LibraryRouting.ChainOf(plan.Organism, cls);
+            if (cloud is not null) Pull(plan.Root, chain, cloud);
+            var reg = ReadRegistry(plan.Root);
+            var organisms = reg["organisms"]!.AsObject();
             if (organisms[chain] is not JsonObject ce)
                 organisms[chain] = ce = new JsonObject { ["current"] = null, ["versions"] = new JsonArray() };
             string? parentRel = ce["current"]?.GetValue<string>();
@@ -168,19 +230,107 @@ public static class SpectralLibrary
             if (parentPath is not null && !File.Exists(parentPath))
                 throw new SearchSetupException($"spectral_library: the registry says {chain}'s current library is {parentRel}, but {parentPath} does not exist. Nothing was registered.");
             var (cv, crel, cdest) = NextVersion(plan.Root, chain, ce);
-            AppendBlocks(parentPath, blocks, cdest, NewLineOf(src));
-            var produced = ProducedBy();
-            produced["routed_from"] = new JsonObject { ["chain"] = plan.Organism, ["version"] = version, ["class"] = cls, ["spectra"] = blocks.Count };
+            AppendBlocks(parentPath, blocks, cdest, nl);
+            var produced = producedBy();
+            produced["routed_from"] = new JsonObject { ["chain"] = plan.Organism, ["version"] = regularVersion, ["class"] = cls, ["spectra"] = blocks.Count };
             var crec = VersionRecord(cv, crel, parentRel is null ? "write" : "update", parentRel is null ? null : VersionOf(ce, parentRel),
                 cdest, Dropped.None, null, produced);
+            if (cloud is not null && !cloud.Claim(chain, crec, cdest))
+            {
+                File.Delete(cdest);
+                if (attempt >= MaxClaimAttempts)
+                    throw new SearchSetupException($"spectral_library: {chain} v{cv:000} was claimed by another machine {attempt} times in a row in {cloud.Remote.Location}; its {blocks.Count} routed spectra were NOT registered.");
+                continue;
+            }
             ce["versions"]!.AsArray().Add(crec);
             ce["current"] = crel;
-            chains.Add(new JsonObject { ["chain"] = chain, ["version"] = cv, ["path"] = crel, ["n_spectra"] = crec["n_spectra"]!.DeepClone() });
+            WriteRegistry(plan.Root, reg);
+            return new JsonObject { ["chain"] = chain, ["version"] = cv, ["path"] = crel, ["n_spectra"] = crec["n_spectra"]!.DeepClone() };
         }
-        WriteRegistry(plan.Root, reg);
-        var result = (JsonObject)regular.DeepClone();
-        result["routed_versions"] = chains;
-        return result;
+    }
+
+    /// <summary>
+    /// Brings <paramref name="chain"/> in the local registry up to the cloud: adds every version record it lacks, fetches the
+    /// newest version's library, and makes it current. A local version whose library differs from the cloud's version of the
+    /// same number is refused: the two chains diverged (a machine that searched before it synced), and which one is kept is a
+    /// person's decision (PXReprise thread diabetes 004, PXR-D4).
+    /// </summary>
+    public static JsonObject Pull(string root, string chain, LibraryCloud cloud)
+    {
+        lock (RegistryGate)
+        {
+            var records = cloud.Records(chain);
+            var result = new JsonObject { ["chain"] = chain, ["cloud_versions"] = records.Count, ["added"] = 0, ["fetched"] = null };
+            if (records.Count == 0) return result;
+            var reg = ReadRegistry(root);
+            var organisms = reg["organisms"]!.AsObject();
+            if (organisms[chain] is not JsonObject entry)
+                organisms[chain] = entry = new JsonObject { ["current"] = null, ["versions"] = new JsonArray() };
+            var versions = entry["versions"]!.AsArray();
+            var local = versions.ToDictionary(v => (int)v!["version"]!, v => v!.AsObject());
+            int newest = records.Keys.Max();
+            foreach (var (v, rec) in local)
+                if (!records.ContainsKey(v) && v < newest)
+                    throw new SearchSetupException($"spectral_library: {chain} v{v:000} exists here but not in {cloud.Remote.Location}, which is at v{newest:000}. The chains diverged; move this machine's {chain} chain aside or seed the cloud from it (PXR-D4).");
+            int added = 0;
+            foreach (var (v, rec) in records)
+            {
+                if (local.TryGetValue(v, out var mine))
+                {
+                    if (mine["sha256"]?.GetValue<string>() != rec["sha256"]?.GetValue<string>())
+                        throw new SearchSetupException($"spectral_library: {chain} v{v:000} here has sha256 {mine["sha256"]}, and in {cloud.Remote.Location} {rec["sha256"]} (written on {rec["machine"]}). The chains diverged; move this machine's {chain} chain aside or seed the cloud from it (PXR-D4).");
+                    continue;
+                }
+                var copy = (JsonObject)rec.DeepClone();
+                copy.Remove("file");
+                copy["synced_from"] = new JsonObject { ["remote"] = cloud.Remote.Location, ["machine"] = rec["machine"]?.DeepClone() };
+                copy.Remove("machine");
+                copy["path"] = $"{chain}/{chain}.v{v:000}.msp";
+                versions.Add(copy);
+                added++;
+            }
+            result["added"] = added;
+            var top = versions.Select(x => x!.AsObject()).First(x => (int)x["version"]! == newest);
+            string rel = top["path"]!.GetValue<string>();
+            string dest = Path.Combine(root, rel);
+            int? currentVersion = entry["current"]?.GetValue<string>() is { } cur ? VersionOf(entry, cur) : null;
+            if (currentVersion is null || currentVersion < newest)
+            {
+                if (!File.Exists(dest))
+                {
+                    cloud.Download(chain, records[newest], dest);
+                    result["fetched"] = rel;
+                }
+                entry["current"] = rel;
+            }
+            if (added > 0 || result["fetched"] is not null) WriteRegistry(root, reg);
+            result["current"] = entry["current"]?.DeepClone();
+            return result;
+        }
+    }
+
+    /// <summary>
+    /// Starts the cloud copy of <paramref name="chain"/> from this machine's registry (PXR-D4): every version's record,
+    /// and the current version's library. Refused when the cloud already holds the chain.
+    /// </summary>
+    public static JsonObject Seed(string root, string chain, LibraryCloud cloud)
+    {
+        lock (RegistryGate)
+        {
+            if (cloud.Records(chain).Count > 0)
+                throw new UsageException($"{cloud.Remote.Location} already holds {chain}; pull it instead");
+            var entry = ReadRegistry(root)["organisms"]![chain]?.AsObject() ?? throw new UsageException($"no libraries registered for '{chain}'");
+            string current = entry["current"]?.GetValue<string>() ?? throw new UsageException($"{chain} has no current library");
+            int seeded = 0;
+            foreach (var rec in entry["versions"]!.AsArray().Select(v => v!.AsObject()).OrderBy(v => (int)v["version"]!))
+            {
+                string? file = rec["path"]!.GetValue<string>() == current ? Path.Combine(root, current) : null;
+                if (!cloud.Claim(chain, rec, file))
+                    throw new SearchSetupException($"spectral_library: {chain} v{(int)rec["version"]!:000} appeared in {cloud.Remote.Location} while seeding; another machine is seeding the same chain");
+                seeded++;
+            }
+            return new JsonObject { ["chain"] = chain, ["seeded_versions"] = seeded, ["current"] = current, ["remote"] = cloud.Remote.Location };
+        }
     }
 
     /// <summary>What <see cref="CopyRouted"/> did: the regular copy's drops, how many class spectra kept the parent's
@@ -270,11 +420,11 @@ public static class SpectralLibrary
     }
 
     /// <summary>A library entry's name: its "Name:" line's text, charge included ("PEPT[...]IDE/2").</summary>
-    private static string NameOf(string nameLine) => nameLine[5..].Trim();
+    internal static string NameOf(string nameLine) => nameLine[5..].Trim();
 
     /// <summary>A library's entries, each from its "Name:" line to the next; with <paramref name="keepPreamble"/>, any lines
     /// before the first entry come first as a block of their own.</summary>
-    private static IEnumerable<List<string>> Entries(string path, bool keepPreamble = false)
+    internal static IEnumerable<List<string>> Entries(string path, bool keepPreamble = false)
     {
         List<string>? current = null;
         foreach (string line in File.ReadLines(path))
@@ -296,10 +446,11 @@ public static class SpectralLibrary
     /// entries (mouse v065, human v057: Unimod <c>NEM:2H(5)</c>), and before v0.4.32 cleaned them. Run it with no driver
     /// running: a search that planned on the old current would then be refused at registration (nothing lost).
     /// </summary>
-    public static JsonObject Repair(string root, string organism, string reason, LibraryCleaning? cleaning = null)
+    public static JsonObject Repair(string root, string organism, string reason, LibraryCleaning? cleaning = null, LibraryCloud? cloud = null)
     {
         lock (RegistryGate)
         {
+            if (cloud is not null) Pull(root, organism, cloud);
             var reg = ReadRegistry(root);
             var entry = reg["organisms"]![organism]?.AsObject() ?? throw new UsageException($"no libraries registered for '{organism}'");
             string current = entry["current"]?.GetValue<string>() ?? throw new UsageException($"{organism} has no current library");
@@ -316,6 +467,11 @@ public static class SpectralLibrary
             {
                 ["repair_of"] = current, ["reason"] = reason, ["pxreprise"] = RunRecord.Versions()["pxreprise"],
             });
+            if (cloud is not null && !cloud.Claim(organism, rec, dest))
+            {
+                File.Delete(dest);
+                throw new SearchSetupException($"spectral_library: another machine registered {organism} v{version:000} in {cloud.Remote.Location} during the repair; nothing was registered. Run the repair again.");
+            }
             entry["versions"]!.AsArray().Add(rec);
             entry["current"] = rel;
             WriteRegistry(root, reg);
@@ -397,7 +553,7 @@ public static class SpectralLibrary
         return new Dropped(unreadable, blocked, doubtful, byMod);
     }
 
-    private static string NewLineOf(string path)
+    internal static string NewLineOf(string path)
     {
         using var s = File.OpenRead(path);
         var buf = new byte[64 * 1024];
@@ -444,8 +600,12 @@ public static class SpectralLibrary
     /// Points <c>current</c> at an earlier version. Versions are never removed, so searching again appends a NEW version
     /// whose parent is the one rolled back to: the chain records the decision.
     /// </summary>
-    public static JsonObject Rollback(string root, string organism, int version)
+    public static JsonObject Rollback(string root, string organism, int version, LibraryCloud? cloud = null)
     {
+        // In the cloud the newest version is current on every machine, so a rollback here would be undone by the next pull.
+        // A shared rollback is a new version holding the old library: not built yet.
+        if (cloud is not null)
+            throw new UsageException($"{organism} is synced with {cloud.Remote.Location}; a rollback on one machine is not shared, so it is refused");
         var reg = ReadRegistry(root);
         var entry = reg["organisms"]![organism]?.AsObject() ?? throw new UsageException($"no libraries registered for '{organism}'");
         var rec = entry["versions"]!.AsArray().FirstOrDefault(v => v!["version"]!.GetValue<int>() == version)?.AsObject()

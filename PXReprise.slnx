@@ -1,9 +1,22 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/PXReprise/PXReprise.csproj" />
+    <Project Path="src/PXReprise.Storage/PXReprise.Storage.csproj" />
+  </Folder>
+  <Folder Name="/src/data/">
+    <Project Path="src/PXReprise.Bundle/PXReprise.Bundle.csproj" />
+    <Project Path="src/PXReprise.Catalog/PXReprise.Catalog.csproj" />
+    <Project Path="src/PXReprise.DataCli/PXReprise.DataCli.csproj" />
+    <Project Path="src/PXReprise.Ingest/PXReprise.Ingest.csproj" />
+    <Project Path="src/PXReprise.Mcp/PXReprise.Mcp.csproj" />
+    <Project Path="src/PXReprise.Runner/PXReprise.Runner.csproj" />
+    <Project Path="src/PXReprise.SchemaGen/PXReprise.SchemaGen.csproj" />
+    <Project Path="src/PXReprise.Site/PXReprise.Site.csproj" />
+    <Project Path="src/PXReprise.Study/PXReprise.Study.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/FakeMetaMorpheus/FakeMetaMorpheus.csproj" />
     <Project Path="tests/PXReprise.Tests/PXReprise.Tests.csproj" />
+    <Project Path="tests/PXReprise.Data.Tests/PXReprise.Data.Tests.csproj" />
   </Folder>
 </Solution>

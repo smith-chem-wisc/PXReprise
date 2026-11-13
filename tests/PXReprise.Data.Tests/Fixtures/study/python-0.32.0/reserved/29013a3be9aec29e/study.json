@@ -1,0 +1,40 @@
+{
+  "bundle_id": "29013a3be9aec29e",
+  "kind": "study",
+  "layer": "aging",
+  "layer_version": "0.5.0",
+  "schema_version": "0.0.13",
+  "instance": null,
+  "delivery": null,
+  "ingester": {
+    "name": "datarepo",
+    "version": "0.32.0",
+    "study_ingest_path": "0.6.0"
+  },
+  "written_utc": "2026-10-04T16:07:42+00:00",
+  "tables": {
+    "curated_sample_characteristics": 6,
+    "sample_ages": 3
+  },
+  "sources": [
+    {
+      "role": "table:curated_sample_characteristics",
+      "path": "E:\\CodeReview\\dataRepo\\.claude\\worktrees\\agent-a3e22cde33ad2ea8c\\dotnet\\tests\\DataRepo.Tests\\Fixtures\\study\\cases\\reserved\\curated.tsv",
+      "size_bytes": 366,
+      "sha256": "dbe9a667f320aa08594bb445782c25c142eaaf8672076002a4623dd1d43dc5b4"
+    },
+    {
+      "role": "table:sample_ages",
+      "path": "E:\\CodeReview\\dataRepo\\.claude\\worktrees\\agent-a3e22cde33ad2ea8c\\dotnet\\tests\\DataRepo.Tests\\Fixtures\\study\\cases\\reserved\\ages.tsv",
+      "size_bytes": 148,
+      "sha256": "f857d2b4bf7237a972c8e6028c3389c24e99928f2a5d53a8cac92c16c4061e01"
+    },
+    {
+      "role": "declaration:study",
+      "path": "<declaration:study>",
+      "kind": "declaration",
+      "sha256": "613264abe2163b2408f1e14a22283a3a601b71d091ee2c135154ef57caee195a"
+    }
+  ],
+  "notes": null
+}

@@ -4,3 +4,13 @@
 profiles/lists/** -text
 *.mzML -text
 results/designs_*/** -text
+
+# dataRepo's code (moved in 2026-11-13). Fixture bytes are hashed into expected bundle ids, so they are never converted.
+docs/data/schema/*.md text eol=lf
+schemas/datarepo/**/*.yaml text eol=lf
+tests/datarepo-instance/** -text
+tests/PXReprise.Data.Tests/Fixtures/study/** -text
+tests/PXReprise.Data.Tests/Fixtures/site/** -text
+tests/PXReprise.Data.Tests/Fixtures/go-engine/** -text
+tests/PXReprise.Data.Tests/Fixtures/design-labels/** -text
+*.parquet binary

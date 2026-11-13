@@ -1,0 +1,35 @@
+# Fixture instance manifest. Roots are relative, so the tree travels with the repository.
+manifest_version: 1
+instance: test
+work_root: work_root
+store: store
+licence: CC-BY-4.0
+credit: Test Working Group
+
+datasets:
+  - accession: PXD999999
+    status: include
+    run: run_test/PXD999999
+    stages:
+      qc: 02b_qc
+      search: 04_search
+    search_results: 04_search/mm/Task3SearchTask
+    files: 2
+    organism: NCBITaxon:9606
+    acquisition: DDA
+    quant_method: label-free
+    metamorpheus: "1.1.11"
+    provenance_schema: aging-provenance/2
+    flags: [low_id_rate, no_design_file]
+
+  - accession: PXD000000
+    status: exclude
+    reason: >
+      A fixture for the refusal path: the producer judged this run unfit, so ingesting it must fail
+      with an explanation rather than load invalid quantities.
+    run: run_test/PXD000000
+
+  - accession: PXD111111
+    status: hold
+    reason: Not yet reviewed by the producer.
+    run: run_test/PXD111111

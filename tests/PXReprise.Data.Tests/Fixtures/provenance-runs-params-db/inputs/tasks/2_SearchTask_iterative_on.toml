@@ -1,0 +1,8 @@
+TaskType = "Search"
+
+[SearchParameters]
+SearchType = "Classic"
+IterativePepTraining = true
+
+[CommonParameters]
+ListOfModsVariable = "Common Variable\tOxidation on M"
