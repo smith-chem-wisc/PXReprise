@@ -14,9 +14,9 @@ public class ModListProformaTests
     private static string RepoRoot()
     {
         for (var dir = new DirectoryInfo(TestContext.CurrentContext.TestDirectory); dir is not null; dir = dir.Parent)
-            if (File.Exists(Path.Combine(dir.FullName, "pyproject.toml")) && Directory.Exists(Path.Combine(dir.FullName, "tests", "data")))
+            if (File.Exists(Path.Combine(dir.FullName, "schema", "datarepo.yaml")) && Directory.Exists(Path.Combine(dir.FullName, "tests", "data")))
                 return dir.FullName;
-        throw new DirectoryNotFoundException("repository root (pyproject.toml beside tests/data) not found");
+        throw new DirectoryNotFoundException("datarepo root (schema/datarepo.yaml beside tests/data) not found");
     }
 
     private static JsonElement Load(string path) =>

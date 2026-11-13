@@ -262,7 +262,7 @@ and any dataset the census does not include, in `catalog_checks` (kind `census`)
 
 - **`datarepo run`** runs a released engine on stored data and writes its output beside the
   bundles, never into one. See
-  [the charter](../design/CHARTER.md#the-runner-datarepo-ships-it-built-in-datarepo-0200). Three engines:
+  [the charter](https://github.com/smith-chem-wisc/dataRepo/blob/master/design/CHARTER.md#the-runner-datarepo-ships-it-built-in-datarepo-0200). Three engines:
   - `logs.resolve_genes <PXD...> --input gene_set=... --input xref=... --input logs_manifest=...`: protein to
     Ensembl gene, one artefact per searched database (`gene_resolutions`).
   - `go.annotate_groups <PXD...> --input ontology=<go.obo> --input category_map=<map.tsv>`: GO-CC terms and

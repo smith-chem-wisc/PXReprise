@@ -207,7 +207,8 @@ public class DocsTests
     {
         var root = RepoRoot();
         yield return "README.md";
-        yield return "CONTRIBUTING.md";
+        // CONTRIBUTING.md stayed in smith-chem-wisc/dataRepo with the Python tooling it describes (moved into
+        // PXReprise 2026-11-13); README links to it there.
         foreach (var page in Directory.EnumerateFiles(Path.Combine(root, "docs"), "*.md", SearchOption.AllDirectories).Order(StringComparer.Ordinal))
             yield return Path.GetRelativePath(root, page).Replace('\\', '/');
     }
