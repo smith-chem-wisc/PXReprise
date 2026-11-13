@@ -43,10 +43,10 @@ installed, and no .NET or Python is needed.
 | macOS, Intel | `datarepo-<version>-osx-x64.tar.gz` |
 
 ```bash
-mkdir -p /opt/datarepo-1.4.5 && cd /opt/datarepo-1.4.5
-curl -LO https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.4.5/datarepo-1.4.5-linux-x64.tar.gz
-tar -xzf datarepo-1.4.5-linux-x64.tar.gz          # tar keeps the executable bit; a zip would lose it
-/opt/datarepo-1.4.5/datarepo/datarepo doctor
+mkdir -p /opt/datarepo-1.5.0 && cd /opt/datarepo-1.5.0
+curl -LO https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.5.0/datarepo-1.5.0-linux-x64.tar.gz
+tar -xzf datarepo-1.5.0-linux-x64.tar.gz          # tar keeps the executable bit; a zip would lose it
+/opt/datarepo-1.5.0/datarepo/datarepo doctor
 ```
 
 Call the program by its path, put its folder on `PATH`, or point a tool at it (PXReprise's machine
@@ -86,6 +86,16 @@ swap the binary and retry any ingest that failed with `OutOfMemoryException` in 
 it closes the MCP server's routes to writing (see the CHANGELOG), so swap the binary and restart every `datarepo mcp`.
 1.4.5 moves no bundle: it serves a deposit searched in parts as one deposit (catalog format 16; `split_reason`, below).
 Swap the binary and build. The first folder publish recomputes every deposit's derived rows (686 s on 205 bundles).
+
+1.5.0 moves the ingest path to `cs-1.3.0` and the schema to 0.0.17 (fragment ions in every bundle), so every bundle is
+re-ingested once, and a catalog that mixes 0.0.16 and 0.0.17 bundles or engine artefacts is refused. In order:
+re-ingest every dataset; run every engine again on every re-ingested dataset (`logs.register_orthology`,
+`logs.resolve_genes` for each species over all of that species' datasets, `go.annotate_groups`); `datarepo pride
+--store <store>` for the PRIDE record tables; `datarepo study` again for an aging study bundle (layer 0.7.0); then
+build. Read the build's `note` lines before serving it: a `logs.resolve_genes coverage` note means a database has no
+gene resolution, and the build still passes. A multiplex search by MetaMorpheus 1.1.13 or earlier is refused; re-search
+it on 1.1.14. On aging's store the re-ingest took 6 h 14 min at three at a time, about 7 h with the engines and the
+first build (`results/reingest_150_2026-11-12/`).
 
 ### Building from source
 

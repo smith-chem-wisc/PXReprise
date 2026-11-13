@@ -30,9 +30,9 @@ datarepo doctor                # what this build is, and whether an MCP server i
 `doctor` is the first thing to run on a new machine:
 
 ```
-datarepo 1.4.5  schema 0.0.16
+datarepo 1.5.0  schema 0.0.17
   runtime          .NET 10.0.10
-  mzLib            1.0.595.0
+  mzLib            1.0.598.0
   parquet          ParquetSharp 24.0.0.0
   mcp SDK          ModelContextProtocol 2.2.0.0
 …
