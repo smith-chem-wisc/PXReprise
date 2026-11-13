@@ -16,7 +16,8 @@ the chains seeded or pulled first (below).
 - **Spectral library chains can be shared through the cloud** (Alex and the user, 2026-11-11; thread diabetes 004,
   PXR-D3 and PXR-D4), so every machine searches with the same library.
   - The machine file's `spectral_library_remote` names a folder (a share) or `s3://bucket/prefix` (credentials from
-    `AWS_PROFILE`). The cloud copy is add-only: per chain, each library named by its sha256 and one record per version
+    `AWS_PROFILE`). Write `s3://$PXR_S3_BUCKET/libraries` to keep the bucket's name out of a committed machine file: it
+    is read from this machine's `PXR_S3_BUCKET`, and refused when that is unset. The cloud copy is add-only: per chain, each library named by its sha256 and one record per version
     (`v<NNN>.json`), each written once. Claiming a version number is writing its record; S3 refuses a second writer.
   - Before a search, newer versions are fetched and the newest becomes current. When the search registers, a chain another
     machine moved meanwhile is no longer refused: the search's own changes (entries it added, or changed relative to the
@@ -25,9 +26,16 @@ the chains seeded or pulled first (below).
   - `pxreprise library seed <chain>` starts the cloud's copy from this machine (every version's record, the current
     library only); `pxreprise library pull <chain>` fetches. A local chain that differs from the cloud's is refused, never
     overwritten. `library repair` claims its version too; `library rollback` is refused on a synced chain.
-  - The store layer (`Storage/`, write-once to a folder or S3) is dataRepo's draft for `push`/`pull`, moved here because
-    dataRepo folds into PXReprise.
+  - The store layer is its own project, `src/PXReprise.Storage` (write-once to a folder or S3), shared with
+    `datarepo push` / `pull`.
   - Not yet: `.msl` libraries (MSL 003-007).
+- **dataRepo moves into this repository** (diabetes 004; dataRepo D62), under `datarepo/`, from smith-chem-wisc/dataRepo
+  `d8978d5` (its v1.4.5 code). Its C# only: the frozen Python, its tests and tools stay in dataRepo. `PXReprise.slnx`
+  builds and tests both. The `datarepo` program, its verbs, ingest path and schema are unchanged, so no bundle id moves;
+  the machine file's `datarepo` still names a released datarepo install.
+  - `datarepo push <store> --store <local>` and `datarepo pull` (dataRepo's draft, `feat/storage-push-pull`) copy bundles,
+    engine outputs and study deliveries between a local store and a shared one, write-once, each folder's record file
+    last, every file checked against `bundle.json` first. Not for real bundles before the 1.5.0 re-ingest.
 
 ## 0.4.47 (2026-11-13)
 

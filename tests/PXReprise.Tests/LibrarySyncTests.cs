@@ -150,4 +150,16 @@ public class LibrarySyncTests
             "work_root = \"" + d.Replace('\\', '/') + "\"\nspectral_library_remote = \"s3://some-bucket/libraries\"\n[metamorpheus]\n\"1.1.13\" = \"x/CMD.dll\"\n");
         Assert.That(PXReprise.Config.Machine.Load(file).SpectralLibraryRemote, Is.EqualTo("s3://some-bucket/libraries"));
     }
+
+    [Test]
+    public void TheBucketNameComesFromTheEnvironment()
+    {
+        Assert.That(PXReprise.Config.Machine.ExpandBucket("m.toml", "s3://$PXR_S3_BUCKET/libraries", "lab-bucket"),
+            Is.EqualTo("s3://lab-bucket/libraries"));
+        Assert.That(PXReprise.Config.Machine.ExpandBucket("m.toml", "//share/libraries", null), Is.EqualTo("//share/libraries"),
+            "a remote without the variable is taken as written");
+        Assert.That(PXReprise.Config.Machine.ExpandBucket("m.toml", null, "lab-bucket"), Is.Null);
+        Assert.Throws<PXReprise.Config.ConfigException>(() => PXReprise.Config.Machine.ExpandBucket("m.toml", "s3://$PXR_S3_BUCKET/libraries", null),
+            "the variable named but unset is refused, never sent to S3 as text");
+    }
 }

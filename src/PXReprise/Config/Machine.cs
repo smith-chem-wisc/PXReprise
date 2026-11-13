@@ -43,6 +43,21 @@ public sealed record Machine(
     bool OutputSdrfReadOnly = true,
     string? SpectralLibraryRemote = null)
 {
+    /// <summary>The environment variable that holds the shared bucket's name (2026-11-13).</summary>
+    public const string BucketVariable = "PXR_S3_BUCKET";
+
+    /// <summary>Replaces <c>$PXR_S3_BUCKET</c> in a remote with <paramref name="bucket"/>, so a committed machine file never
+    /// holds the bucket's name. A remote that uses the variable while it is unset is refused; one that does not use it is
+    /// returned as written.</summary>
+    internal static string? ExpandBucket(string file, string? remote, string? bucket)
+    {
+        const string token = "$" + BucketVariable;
+        if (remote is null || !remote.Contains(token, StringComparison.Ordinal)) return remote;
+        if (string.IsNullOrWhiteSpace(bucket))
+            throw new ConfigException(file, $"'spectral_library_remote' names ${BucketVariable}, which is not set on this machine");
+        return remote.Replace(token, bucket.Trim(), StringComparison.Ordinal);
+    }
+
     public static Machine Load(string file)
     {
         file = Path.GetFullPath(file);
@@ -131,7 +146,9 @@ public sealed record Machine(
         bool sdrfReadOnly = root.OptionalBool("output_sdrf_read_only") ?? true;
         // 2026-11-11 (Alex and the user): the spectral library chains are shared through the cloud, so every machine searches
         // with the same library. A folder (a share) or s3://bucket/prefix; credentials from AWS_PROFILE. Unset: no sync.
-        string? libraryRemote = root.OptionalString("spectral_library_remote");
+        // 2026-11-13: a machine file is often committed (machines/), and the lab's bucket name must never be, so the file
+        // may say s3://$PXR_S3_BUCKET/libraries and the name comes from this machine's environment.
+        string? libraryRemote = ExpandBucket(file, root.OptionalString("spectral_library_remote"), Environment.GetEnvironmentVariable(BucketVariable));
         root.RefuseUnknownKeys();
         if (worker is not null && workers is not null) throw new ConfigException(file, "[worker] and [workers] do not go together: a machine probes for a controller, or controls workers");
         if (worker is not null && datarepo is not null) throw new ConfigException(file, "a probe worker ([worker]) never ingests: remove 'datarepo'");
