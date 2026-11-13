@@ -37,8 +37,14 @@ the chains seeded or pulled first (below).
     `src/Data.Build.props` holds their version line.
   - Tests: `tests/PXReprise.Data.Tests`, and the fixture instance `tests/datarepo-instance`. Schema and examples:
     `schemas/datarepo/`. Docs: `docs/data/` (dataRepo's README as `datarepo.md`, its CHANGELOG beside it).
-  - `PXReprise.slnx` builds and tests everything. The `datarepo` program, its verbs, ingest path and schema are
-    unchanged, so no bundle id moves; the machine file's `datarepo` still names a released datarepo install.
+  - `PXReprise.slnx` builds and tests everything. The machine file's `datarepo` still names a released datarepo
+    install, so nothing a machine delivers changes until a pin names a datarepo built here.
+  - **datarepo 1.5.0's code is in** (dataRepo `feat/1.5.0`, `91901d0`, replayed commit by commit; not yet released by
+    dataRepo). A `datarepo` built here is 1.5.0: ingest path `cs-1.3.0`, schema 0.0.17, mzLib 1.0.598,
+    `peptidoform_ions`, per-search confidence rules, `table_sha256` and `datarepo verify`, `datarepo pride`, TMT channel
+    tables, and a multiplex search by MetaMorpheus 1.1.13 or earlier refused. **Every bundle id moves at a re-ingest
+    with it**, and a catalog refuses to mix 0.0.16 and 0.0.17 bundles: the store moves to it whole, at the swap dataRepo
+    116 describes.
   - `datarepo push <store> --store <local>` and `datarepo pull` (dataRepo's draft, `feat/storage-push-pull`) copy bundles,
     engine outputs and study deliveries between a local store and a shared one, write-once, each folder's record file
     last, every file checked against `bundle.json` first. Not for real bundles before the 1.5.0 re-ingest.
