@@ -9,6 +9,15 @@ A new version of the engine never changes a finished result. Methods live in ver
 
 ## 0.4.47 (unreleased)
 
+- **A TMT or iTRAQ design made from an SDRF has a row for every channel of the kit** (2026-11-13). An SDRF names only the
+  channels that hold the study's samples, but MetaMorpheus writes a quantity column for every channel of the kit, and datarepo
+  refuses a column that no design row labels. So every SDRF design that left a channel unused was searched and then refused at
+  ingest: PXD060120 (12 of TMTpro's 18 channels) from 2026-11-12, PXD035689 (one TMT10 plex without 131) on 2026-11-13. Each
+  file's design now gives such a channel a row of its own, with no sample, no condition and `Sample Type` `empty`, as v0.4.41
+  did for the default design that v0.4.46 retired. The search record lists them (`channels_without_sample`). A design that names
+  every channel is written as before. Deposits searched under v0.4.46 with such a gap need `batch research`.
+- **The search no longer says "does not use designs" for a TMT or iTRAQ deposit with a question design.** An isobaric search
+  always takes its channel design from the SDRF; the note was meant for label-free profiles only.
 - **A TMT or iTRAQ search's QC payload counts each run's protein groups** (dataRepo 110, PXR-R60). The `qc-payload/2`
   per-run `protein_groups` were read only from `AllQuantifiedProteinGroups.tsv`, which an isobaric search does not write,
   so 43 of the 68 `/2` payloads aging serves had none, with a note that wrongly blamed missing columns. The payload now

@@ -187,6 +187,56 @@ public class DesignStageTests
         Assert.Throws<SearchSetupException>(() => DesignStage.FindIsobaric(spectra, files, null, null, "TMT99", out _), "an unknown kit is a wrong call");
     }
 
+    // v0.4.47 (2026-11-13): an SDRF names only the channels that hold the study's samples, but MetaMorpheus writes a quantity
+    // column for every channel of the kit, and datarepo refuses a column no design row labels. PXD060120 (12 of TMTpro's 18
+    // named) was refused at ingest from 2026-11-12 05:14 UTC, PXD035689 (one TMT10 plex without 131) on 2026-11-13. G84 gave
+    // such a channel an `empty` row only in the default design, which v0.4.46 retired. Every file of an SDRF design now has a
+    // row for every channel of the kit; the ones the SDRF leaves out are Sample Type `empty`, with no sample and no condition.
+    [Test]
+    public void ChannelsAnSdrfLeavesOutGetEmptyRowsInEveryFile()
+    {
+        var (spectra, _, files) = Run();
+        string curated = TmtSdrf(TestSupport.TempDir(), "PXD000001.sdrf.tsv", plexColumn: "characteristics[plex]");
+        // plex 2 (c.raw, d.raw) uses 8 of TMT10's channels: no sample in 130C or 131.
+        File.WriteAllLines(curated, File.ReadAllLines(curated).Where(l => !(l.Contains("\tc.raw\t") || l.Contains("\td.raw\t"))
+            || !(l.Contains("\tTMT130C\t") || l.Contains("\tTMT131\t"))));
+        var rec = DesignStage.PrepareIsobaric(spectra, files, curated, null, "TMT10");
+
+        var tsv = File.ReadAllLines(Path.Combine(spectra, DesignStage.TmtFileName)).Select(l => l.Split('\t')).ToList();
+        var h = tsv[0].ToList();
+        Assert.That(h, Does.Contain("Sample Type"));
+        int file = h.IndexOf("File"), channel = h.IndexOf("TMT Channel"), type = h.IndexOf("Sample Type");
+        int sample = h.IndexOf("Sample Name"), condition = h.IndexOf("Condition"), biorep = h.IndexOf("Biological Replicate");
+        var rows = tsv.Skip(1).ToList();
+        Assert.That(rows, Has.Count.EqualTo(4 * 10), "every file has a row for every channel of the kit");
+        foreach (var g in rows.GroupBy(r => Path.GetFileName(r[file])))
+            Assert.That(g.Select(r => r[channel]), Is.EquivalentTo(new[] { "126", "127N", "127C", "128N", "128C", "129N", "129C", "130N", "130C", "131N" }), g.Key);
+        var empty = rows.Where(r => r[type] == "empty").ToList();
+        Assert.That(empty.Select(r => (Path.GetFileName(r[file]), r[channel])), Is.EquivalentTo(new[] { ("c.raw", "130C"), ("c.raw", "131N"), ("d.raw", "130C"), ("d.raw", "131N") }));
+        Assert.That(empty.All(r => r[sample] == "" && r[condition] == ""), "an empty channel holds no sample");
+        Assert.That(rows.Where(r => r[type] != "empty").All(r => r[type] == "study sample"));
+        // MetaMorpheus wants a biological replicate of at least 1 on every row: an empty row takes a number after its file's samples.
+        foreach (var r in empty)
+            Assert.That(int.Parse(r[biorep]), Is.GreaterThan(rows.Where(x => x[file] == r[file] && x[type] != "empty").Max(x => int.Parse(x[biorep]))));
+        Assert.That(rec["channels_without_sample"]!.AsObject().Select(kv => (kv.Key, string.Join(",", kv.Value!.AsArray().Select(x => x!.GetValue<string>())))),
+            Is.EquivalentTo(new[] { ("c.raw", "130C,131N"), ("d.raw", "130C,131N") }));
+        Assert.That(File.ReadAllText(Path.Combine(spectra, DesignStage.TmtMarkerName)), Is.EqualTo(rec["design_sha256"]!.GetValue<string>()),
+            "the marker and the record name the design as written, empty rows included");
+    }
+
+    // A design that names every channel of the kit is written as before: no Sample Type column, nothing recorded.
+    [Test]
+    public void AnSdrfThatNamesEveryChannelIsWrittenAsBefore()
+    {
+        var (spectra, _, files) = Run();
+        string curated = TmtSdrf(TestSupport.TempDir(), "PXD000001.sdrf.tsv", plexColumn: "characteristics[plex]");
+        var rec = DesignStage.PrepareIsobaric(spectra, files, curated, null, "TMT10");
+        var tsv = File.ReadAllLines(Path.Combine(spectra, DesignStage.TmtFileName));
+        Assert.That(tsv[0].Split('\t'), Does.Not.Contain("Sample Type"));
+        Assert.That(tsv, Has.Length.EqualTo(1 + 4 * 10));
+        Assert.That(rec["channels_without_sample"], Is.Null);
+    }
+
     // As for label-free: a curated design MetaMorpheus would not accept is fixed, not searched around.
     [Test]
     public void ARefusedCuratedIsobaricDesignStopsTheSearch()

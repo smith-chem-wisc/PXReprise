@@ -1609,7 +1609,9 @@ public sealed class BatchRunner
         Record(acc, ("status", "searching"));
         var overlays = _q.Overlays.TryGetValue(e.Organism, out var ov) ? ov : Array.Empty<string>();
         string? curated = _q.Designs?.For(acc);
-        if (curated is not null && File.Exists(curated) && profile.Design != "sdrf")
+        // An isobaric search always takes its channel design from an SDRF (SearchStage, DesignStage.PrepareIsobaric), whatever
+        // the profile's label-free `design` says; v0.4.46 logged this note for those too, wrongly (PXD035689, 2026-11-13).
+        if (curated is not null && File.Exists(curated) && profile.Design != "sdrf" && profile.QuantMethod != "reporter_ion")
             Log($"{acc} note: the question has a design for it ({curated}), but {profile.Key} does not use designs; searching without it");
         DepositChemistry? chemistry = null;
         if (profile.Chemistry == "deposit" && !_chemistry.TryGetValue(acc, out chemistry))
