@@ -1,0 +1,1 @@
+{"catalog":{"catalog_id":"153cf55067d58441","catalog_version":"8","schema_version":"0.0.13","builder_version":"0.32.0","built_utc":"2026-10-04T16:03:54+00:00","instance":"test","base_url":null},"genes_are":"Gene symbol (upper-cased) -> accessions, from the producer's display symbol. Look each accession up in its proteins/ shard.","genes":{"MYH1":["P12882"],"MYH6":["P13533"]}}

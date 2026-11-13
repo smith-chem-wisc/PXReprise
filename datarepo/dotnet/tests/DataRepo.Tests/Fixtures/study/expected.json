@@ -1,0 +1,473 @@
+{
+  "datarepo": "0.32.0",
+  "study_ingest_path": "0.6.0",
+  "cases": {
+    "example": {
+      "ok": true,
+      "bundle_id": "8297c0972abd0358",
+      "row_counts": {
+        "age_effect_refusals": 1,
+        "age_effects": 2,
+        "sample_ages": 2
+      },
+      "study_json": {
+        "bundle_id": "8297c0972abd0358",
+        "kind": "study",
+        "layer": "aging",
+        "layer_version": "0.5.0",
+        "schema_version": "0.0.13",
+        "instance": "ncems-aging",
+        "delivery": "stage7-example",
+        "ingester": {
+          "name": "datarepo",
+          "study_ingest_path": "0.6.0"
+        },
+        "tables": {
+          "age_effect_refusals": 1,
+          "age_effects": 2,
+          "sample_ages": 2
+        },
+        "sources": [
+          {
+            "role": "table:age_effect_refusals",
+            "path": "<dir>/age_effect_refusals.tsv",
+            "size_bytes": 311,
+            "sha256": "f6a5bd828d624b89e33db79c0c9f7967deecbca15a5f0ab6094e3cfea92e3de4"
+          },
+          {
+            "role": "table:age_effects",
+            "path": "<dir>/age_effects.tsv",
+            "size_bytes": 708,
+            "sha256": "333d75873b9695e1115c3e3440e0162eb279918ef3d2063991a42e74ce7c9537"
+          },
+          {
+            "role": "table:sample_ages",
+            "path": "<dir>/sample_ages.tsv",
+            "size_bytes": 206,
+            "sha256": "577c7c7595d1a62e5aa29f78fbb4734d59fd6df3a0a487cda534653267845915"
+          },
+          {
+            "role": "declaration:study",
+            "path": "<declaration:study>",
+            "kind": "declaration",
+            "sha256": "dba0ec39decb9b697d3cf3f508f85007109ef8b646213caf8491208dbfbe90d6"
+          }
+        ],
+        "notes": "Two protein-group abundance effects and one refused fit, plus the two sample ages that would have supported them. The refusal is `too_few_distinct_ages`, which is DEF-AGE-EFFECT v1 section 5's rule working as intended: no row in age_effects, and nowhere to write a null beta.\n"
+      }
+    },
+    "csv_lists": {
+      "ok": true,
+      "bundle_id": "d768b520d76c3042",
+      "row_counts": {
+        "age_effect_meta": 3,
+        "clock_features": 2,
+        "clock_models": 2
+      },
+      "study_json": {
+        "bundle_id": "d768b520d76c3042",
+        "kind": "study",
+        "layer": "aging",
+        "layer_version": "0.5.0",
+        "schema_version": "0.0.13",
+        "instance": null,
+        "delivery": null,
+        "ingester": {
+          "name": "datarepo",
+          "study_ingest_path": "0.6.0"
+        },
+        "tables": {
+          "age_effect_meta": 3,
+          "clock_features": 2,
+          "clock_models": 2
+        },
+        "sources": [
+          {
+            "role": "table:age_effect_meta",
+            "path": "<dir>/age_effect_meta.csv",
+            "size_bytes": 758,
+            "sha256": "834f8c56905d87cdc673dd85fb5b3f2faed41a4ee946ae0f0a66bc5096670517"
+          },
+          {
+            "role": "table:clock_features",
+            "path": "<dir>/clock_features.tsv",
+            "size_bytes": 98,
+            "sha256": "e8b5cfe0be770ce42e0a1a465c6929667ef97a4add2333237ee050662f0aaeec"
+          },
+          {
+            "role": "table:clock_models",
+            "path": "<dir>/clock_models.tsv",
+            "size_bytes": 169,
+            "sha256": "9553c71a915b4656b9e2fdcdd482f90d3a8261acbe7a7161aeeb461f8afd8509"
+          },
+          {
+            "role": "declaration:study",
+            "path": "<declaration:study>",
+            "kind": "declaration",
+            "sha256": "79909a9d6a8278bbc893775405a0f87a9628a3b6448b2f8dbd5133ff3f26c882"
+          }
+        ],
+        "notes": null
+      }
+    },
+    "reserved": {
+      "ok": true,
+      "bundle_id": "29013a3be9aec29e",
+      "row_counts": {
+        "curated_sample_characteristics": 6,
+        "sample_ages": 3
+      },
+      "study_json": {
+        "bundle_id": "29013a3be9aec29e",
+        "kind": "study",
+        "layer": "aging",
+        "layer_version": "0.5.0",
+        "schema_version": "0.0.13",
+        "instance": null,
+        "delivery": null,
+        "ingester": {
+          "name": "datarepo",
+          "study_ingest_path": "0.6.0"
+        },
+        "tables": {
+          "curated_sample_characteristics": 6,
+          "sample_ages": 3
+        },
+        "sources": [
+          {
+            "role": "table:curated_sample_characteristics",
+            "path": "<dir>/curated.tsv",
+            "size_bytes": 366,
+            "sha256": "dbe9a667f320aa08594bb445782c25c142eaaf8672076002a4623dd1d43dc5b4"
+          },
+          {
+            "role": "table:sample_ages",
+            "path": "<dir>/ages.tsv",
+            "size_bytes": 148,
+            "sha256": "f857d2b4bf7237a972c8e6028c3389c24e99928f2a5d53a8cac92c16c4061e01"
+          },
+          {
+            "role": "declaration:study",
+            "path": "<declaration:study>",
+            "kind": "declaration",
+            "sha256": "613264abe2163b2408f1e14a22283a3a601b71d091ee2c135154ef57caee195a"
+          }
+        ],
+        "notes": null
+      }
+    },
+    "parquet": {
+      "ok": true,
+      "bundle_id": "40feffc1f626f6f4",
+      "row_counts": {
+        "age_mappings": 2,
+        "curated_sample_characteristics": 3,
+        "sample_ages": 3
+      },
+      "study_json": {
+        "bundle_id": "40feffc1f626f6f4",
+        "kind": "study",
+        "layer": "aging",
+        "layer_version": "0.5.0",
+        "schema_version": "0.0.13",
+        "instance": null,
+        "delivery": null,
+        "ingester": {
+          "name": "datarepo",
+          "study_ingest_path": "0.6.0"
+        },
+        "tables": {
+          "age_mappings": 2,
+          "curated_sample_characteristics": 3,
+          "sample_ages": 3
+        },
+        "sources": [
+          {
+            "role": "table:age_mappings",
+            "path": "<dir>/age_mappings.parquet",
+            "size_bytes": 2252,
+            "sha256": "c50c2fb4b10240a53175f9e05065470a2e8db9fa39b3ef626c5eaf7a90705b91"
+          },
+          {
+            "role": "table:curated_sample_characteristics",
+            "path": "<dir>/curated.parquet",
+            "size_bytes": 1659,
+            "sha256": "c45ea060d952ea03ffdfed3d525b48bd745fd1f173d4421a2ba1a1d5ee6bcf55"
+          },
+          {
+            "role": "table:sample_ages",
+            "path": "<dir>/sample_ages.parquet",
+            "size_bytes": 2029,
+            "sha256": "b229f39ee46dc4af268127e929f9d543b9f05af6d5c7cffe9bd448e2509184e1"
+          },
+          {
+            "role": "declaration:study",
+            "path": "<declaration:study>",
+            "kind": "declaration",
+            "sha256": "046770c35f8e9ea43a642a3d4e8961ec21f3cc04131f04a37de55dcbcfef1cab"
+          }
+        ],
+        "notes": null
+      }
+    },
+    "version_true_string_definitions": {
+      "ok": true,
+      "bundle_id": "9f378d7ba7cb9a98",
+      "row_counts": {
+        "age_effect_refusals": 0,
+        "age_effects": 1
+      },
+      "study_json": {
+        "bundle_id": "9f378d7ba7cb9a98",
+        "kind": "study",
+        "layer": "aging",
+        "layer_version": "0.5.0",
+        "schema_version": "0.0.13",
+        "instance": "café",
+        "delivery": 7,
+        "ingester": {
+          "name": "datarepo",
+          "study_ingest_path": "0.6.0"
+        },
+        "tables": {
+          "age_effect_refusals": 0,
+          "age_effects": 1
+        },
+        "sources": [
+          {
+            "role": "table:age_effect_refusals",
+            "path": "<dir>/refusals.tsv",
+            "size_bytes": 172,
+            "sha256": "ff4301a5d68ef791ba150ed09731bb5e26b5754c86758c0bed472727f3d4e477"
+          },
+          {
+            "role": "table:age_effects",
+            "path": "<dir>/ae.tsv",
+            "size_bytes": 531,
+            "sha256": "da7037ee8293641bdcabd857b90bb3a545ba66c0bab07aac5ff59569e4a2e223"
+          },
+          {
+            "role": "declaration:study",
+            "path": "<declaration:study>",
+            "kind": "declaration",
+            "sha256": "a3bde5769138133373c4eb70f840c2706e0de8edd2ccfc8b3252bb0b176f33c4"
+          }
+        ],
+        "notes": "line one\nline \"two\"\n"
+      }
+    },
+    "undeclared_definitions_unchecked": {
+      "ok": true,
+      "bundle_id": "a259c3a4b55dced9",
+      "row_counts": {
+        "age_effects": 1
+      },
+      "study_json": {
+        "bundle_id": "a259c3a4b55dced9",
+        "kind": "study",
+        "layer": "aging",
+        "layer_version": "0.5.0",
+        "schema_version": "0.0.13",
+        "instance": null,
+        "delivery": null,
+        "ingester": {
+          "name": "datarepo",
+          "study_ingest_path": "0.6.0"
+        },
+        "tables": {
+          "age_effects": 1
+        },
+        "sources": [
+          {
+            "role": "table:age_effects",
+            "path": "<dir>/ae.tsv",
+            "size_bytes": 526,
+            "sha256": "968d55a136c54de85ff40efd358e726c019561e63aee6338e7d6a5a3092da644"
+          },
+          {
+            "role": "declaration:study",
+            "path": "<declaration:study>",
+            "kind": "declaration",
+            "sha256": "7d4c8b59355e2be1f5d03fb027f387096dfc8638ac84117ae3bcb95c1504e63d"
+          }
+        ],
+        "notes": null
+      }
+    },
+    "no_manifest": {
+      "ok": false,
+      "type": "ManifestError",
+      "message": "no study manifest at <dir>/study.yaml"
+    },
+    "bad_yaml": {
+      "ok": false,
+      "type": "ManifestError",
+      "message": "<dir>/study.yaml is not valid YAML: while parsing a flow sequence\n  in \"<unicode string>\", line 1, column 8:\n    layer: [aging\n           ^\nexpected ',' or ']', but got '<stream end>'\n  in \"<unicode string>\", line 2, column 1:\n    \n    ^"
+    },
+    "not_mapping": {
+      "ok": false,
+      "type": "ManifestError",
+      "message": "<dir>/study.yaml must contain a mapping, found list"
+    },
+    "scalar_doc": {
+      "ok": false,
+      "type": "ManifestError",
+      "message": "<dir>/study.yaml must contain a mapping, found str"
+    },
+    "empty_doc": {
+      "ok": false,
+      "type": "ManifestError",
+      "message": "<dir>/study.yaml must contain a mapping, found NoneType"
+    },
+    "version_2": {
+      "ok": false,
+      "type": "ManifestError",
+      "message": "<dir>/study.yaml declares study_manifest_version 2; this build reads 1"
+    },
+    "version_str": {
+      "ok": false,
+      "type": "ManifestError",
+      "message": "<dir>/study.yaml declares study_manifest_version '1'; this build reads 1"
+    },
+    "version_missing": {
+      "ok": false,
+      "type": "ManifestError",
+      "message": "<dir>/study.yaml declares study_manifest_version None; this build reads 1"
+    },
+    "version_float": {
+      "ok": false,
+      "type": "ManifestError",
+      "message": "<dir>/study.yaml declares study_manifest_version 1.5; this build reads 1"
+    },
+    "no_layer": {
+      "ok": false,
+      "type": "ManifestError",
+      "message": "<dir>/study.yaml does not say which study 'layer' it delivers"
+    },
+    "layer_empty": {
+      "ok": false,
+      "type": "ManifestError",
+      "message": "<dir>/study.yaml does not say which study 'layer' it delivers"
+    },
+    "unknown_layer": {
+      "ok": false,
+      "type": "ManifestError",
+      "message": "<dir>/study.yaml delivers study layer 'mouse', which this build does not carry. Layers available: aging"
+    },
+    "layer_int": {
+      "ok": false,
+      "type": "ManifestError",
+      "message": "<dir>/study.yaml delivers study layer '7', which this build does not carry. Layers available: aging"
+    },
+    "layer_version_mismatch": {
+      "ok": false,
+      "type": "ManifestError",
+      "message": "<dir>/study.yaml declares layer_version '0.4.0' for 'aging', and this build carries 0.5.0. Deliver against the layer this build has, or build with the version the rows were written for -- a column added between the two would land silently null."
+    },
+    "layer_version_float": {
+      "ok": false,
+      "type": "ManifestError",
+      "message": "<dir>/study.yaml declares layer_version 0.5 for 'aging', and this build carries 0.5.0. Deliver against the layer this build has, or build with the version the rows were written for -- a column added between the two would land silently null."
+    },
+    "no_store": {
+      "ok": false,
+      "type": "ManifestError",
+      "message": "<dir>/study.yaml is missing 'store'"
+    },
+    "tables_missing": {
+      "ok": false,
+      "type": "ManifestError",
+      "message": "<dir>/study.yaml must declare a non-empty 'tables' mapping of <table>: <file>. A delivery that names no table is not a delivery."
+    },
+    "tables_list": {
+      "ok": false,
+      "type": "ManifestError",
+      "message": "<dir>/study.yaml must declare a non-empty 'tables' mapping of <table>: <file>. A delivery that names no table is not a delivery."
+    },
+    "tables_empty": {
+      "ok": false,
+      "type": "ManifestError",
+      "message": "<dir>/study.yaml must declare a non-empty 'tables' mapping of <table>: <file>. A delivery that names no table is not a delivery."
+    },
+    "unknown_table": {
+      "ok": false,
+      "type": "ManifestError",
+      "message": "<dir>/study.yaml: study layer 'aging' has no table 'ages'. Tables: age_effect_meta, age_effect_refusals, age_effects, age_mappings, clock_features, clock_models, curated_sample_characteristics, organelle_age_summaries, sample_ages"
+    },
+    "missing_file": {
+      "ok": false,
+      "type": "ManifestError",
+      "message": "<dir>/study.yaml: sample_ages points at <dir>/nothere.tsv, which is not a file"
+    },
+    "definitions_int": {
+      "ok": false,
+      "type": "TypeError",
+      "message": "'int' object is not iterable"
+    },
+    "bad_extension": {
+      "ok": false,
+      "type": "IngestError",
+      "message": "aging.sample_ages: sample_ages.txt has extension '.txt'. A delivered table is .parquet, .tsv or .csv -- the delimiter is taken from the extension rather than sniffed, because a guess turns one column of 'A;B' into two."
+    },
+    "no_extension": {
+      "ok": false,
+      "type": "IngestError",
+      "message": "aging.sample_ages: sample_ages has extension '(none)'. A delivered table is .parquet, .tsv or .csv -- the delimiter is taken from the extension rather than sniffed, because a guess turns one column of 'A;B' into two."
+    },
+    "dotfile": {
+      "ok": false,
+      "type": "IngestError",
+      "message": "aging.sample_ages: .tsv has extension '(none)'. A delivered table is .parquet, .tsv or .csv -- the delimiter is taken from the extension rather than sniffed, because a guess turns one column of 'A;B' into two."
+    },
+    "empty_file": {
+      "ok": false,
+      "type": "IngestError",
+      "message": "aging.sample_ages: sample_ages.tsv is empty, so it has no header row"
+    },
+    "duplicate_keys": {
+      "ok": false,
+      "type": "IngestError",
+      "message": "table aging.sample_ages: 4 duplicate key(s) on (sample_id), e.g. A, B, C. Two rows for one fit are two different answers to one question, and which is right is the producer's call, not this ingester's."
+    },
+    "flag_conflict": {
+      "ok": false,
+      "type": "IngestError",
+      "message": "table aging.curated_sample_characteristics: 3 delivered reserved-word flag(s) disagree with the value, e.g. value_reserved='yes' for value='liver', value_reserved='false' for value='not applicable', value_reserved='maybe' for value='x'. The flag is computed from the SDRF reserved-word list; leave the column empty or correct it."
+    },
+    "unknown_definitions": {
+      "ok": false,
+      "type": "IngestError",
+      "message": "table aging.age_effects: 4 definition_id(s) the delivery does not declare, e.g. aging:DEF-W, aging:DEF-X, aging:DEF-Y. Declared: aging:DEF-AGE-EFFECT, aging:DEF-B. A number whose definition id does not resolve is the failure a definition register exists to prevent, so the write fails rather than the row landing (aging 024 section 2a). Add it to `definitions:` in the study manifest, or correct the column."
+    },
+    "empty_string_definition": {
+      "ok": false,
+      "type": "IngestError",
+      "message": "table aging.age_effects: 1 definition_id(s) the delivery does not declare, e.g. aging:DEF-AGE-EFFECT. Declared: (none declared). A number whose definition id does not resolve is the failure a definition register exists to prevent, so the write fails rather than the row landing (aging 024 section 2a). Add it to `definitions:` in the study manifest, or correct the column."
+    },
+    "unknown_column": {
+      "ok": false,
+      "type": "IngestError",
+      "message": "table aging.sample_ages: row 0 has unknown columns ['beta', 'colour']"
+    },
+    "required_null": {
+      "ok": false,
+      "type": "IngestError",
+      "message": "table aging.age_effects: row 0 has no value for required 'se'"
+    },
+    "restkey": {
+      "ok": false,
+      "type": "IngestError",
+      "message": "table aging.sample_ages: row 1 has unknown columns [None]"
+    },
+    "restkey_after_required": {
+      "ok": false,
+      "type": "IngestError",
+      "message": "table aging.sample_ages: row 0 has no value for required 'age_source'"
+    },
+    "bad_number": {
+      "ok": false,
+      "type": "ValueError",
+      "message": "could not convert string to float: 'abc'"
+    }
+  }
+}

@@ -1,0 +1,3015 @@
+{
+ "annotation_refused": {
+  "error": "IngestError",
+  "message": "fixture1347_go_annotation.tsv: written by an unreleased mzLib (`#!mzlib_release none`, commit c5b16451f71d223c5165dfe5234f06146b80cd0f). A pre-release file may be used to build and test a reader, never ingested (GO-A1)."
+ },
+ "categories_refused": {
+  "error": "IngestError",
+  "message": "fixture1347_go_category_smoke.tsv: written by an unreleased mzLib (`#!mzlib_release none`, commit c5b16451f71d223c5165dfe5234f06146b80cd0f). A pre-release file may be used to build and test a reader, never ingested (GO-A1)."
+ },
+ "annotation": {
+  "header": {
+   "go_annotation_format": "1",
+   "mzlib_version": "1.0.0+c5b16451f71d223c5165dfe5234f06146b80cd0f",
+   "mzlib_release": "none",
+   "go_release": "releases/2026-07-26",
+   "go_obo_sha256": "d3593751d885ca160b2ab7baf6c7eccd88ca3c4599f79436c674bad661095ff0",
+   "annotation_db_sha256": "760984e8d402ade6b1105b811532bdd4041e33e66bb5dc204402d4d6a7be8838",
+   "source_file_sha256": "751a00c5109bdf350db75d2d4053e0fd78fea8326c5a38bce95b1ce0d8445ae6",
+   "counter_q_value_max": "0.01",
+   "n_multi_member_groups": "1",
+   "status_annotated": "4",
+   "status_no_go_terms": "0",
+   "status_no_entry": "0",
+   "status_contaminant": "1"
+  },
+  "n_rows": 563,
+  "sha256": "43ebad3d3dd76fc6df0e524758e9819dcb50636e25f2afe5061190edf04e1d92",
+  "go_release": "releases/2026-07-26",
+  "mzlib_release": "none",
+  "not_stored": {
+   "aspect molecular_function": 111,
+   "aspect biological_process": 333,
+   "no term (contaminant)": 1
+  }
+ },
+ "categories": {
+  "header": {
+   "go_category_format": "1",
+   "mzlib_version": "1.0.0+c5b16451f71d223c5165dfe5234f06146b80cd0f",
+   "mzlib_release": "none",
+   "go_release": "releases/2026-07-26",
+   "go_obo_sha256": "d3593751d885ca160b2ab7baf6c7eccd88ca3c4599f79436c674bad661095ff0",
+   "category_map": "smoke 1 1d7b437983efd665c8b3611ee2d3ce9f9e5f487e4cf50994f2ecb90f39a3b2d1"
+  },
+  "n_rows": 17,
+  "sha256": "76d336cf12846ebbd58c2b663e7f76733b7fd52fb64cf75f1bda09dd804818a0",
+  "map_name": "smoke",
+  "map_version": "1",
+  "map_sha256": "1d7b437983efd665c8b3611ee2d3ce9f9e5f487e4cf50994f2ecb90f39a3b2d1"
+ },
+ "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+ "source_row": {
+  "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+  "owner_project": "go",
+  "version": "releases/2026-07-26; mzLib 1.0.0+c5b16451f71d223c5165dfe5234f06146b80cd0f; file 43ebad3d3dd76fc6df0e524758e9819dcb50636e25f2afe5061190edf04e1d92; go.obo d3593751d885ca160b2ab7baf6c7eccd88ca3c4599f79436c674bad661095ff0; annotation db 760984e8d402ade6b1105b811532bdd4041e33e66bb5dc204402d4d6a7be8838",
+  "doi": null
+ },
+ "localization_rows": [
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0005575",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000250;ECO:0000304;ECO:0000314;ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0005622",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000250;ECO:0000314;ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0005634",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0005737",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000250;ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0005739",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000250;ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0005740",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000250",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0005743",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000250",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0005757",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000250",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0005759",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0005819",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0005856",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0005886",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000304",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0009295",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0015630",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0016020",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000250;ECO:0000304;ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0019866",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000250",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0031090",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000250",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0031966",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000250",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0031967",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000250",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0031974",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0032991",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000250;ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0042645",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0043226",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000250;ECO:0000314;ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0043227",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000250;ECO:0000314;ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0043228",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0043229",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000250;ECO:0000314;ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0043231",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000250;ECO:0000314;ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0043232",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0043233",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0046930",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000250",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0070013",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0071817",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0071944",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000304",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0098796",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000250",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0098798",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000250",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P05141",
+   "compartment": "GO:0110165",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000250;ECO:0000304;ECO:0000314;ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P05141",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P0C0S5",
+   "compartment": "GO:0000785",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000353",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P0C0S5",
+   "compartment": "GO:0000786",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000353",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "P0C0S5",
+   "compartment": "GO:0000791",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "P0C0S5",
+   "compartment": "GO:0000792",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "P0C0S5",
+   "compartment": "GO:0005575",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000353;ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P0C0S5",
+   "compartment": "GO:0005576",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P0C0S5",
+   "compartment": "GO:0005622",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000353",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P0C0S5",
+   "compartment": "GO:0005634",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "P0C0S5",
+   "compartment": "GO:0005654",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "P0C0S5",
+   "compartment": "GO:0005694",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000353",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P0C0S5",
+   "compartment": "GO:0031974",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P0C0S5",
+   "compartment": "GO:0031981",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P0C0S5",
+   "compartment": "GO:0031982",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P0C0S5",
+   "compartment": "GO:0032991",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000353",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P0C0S5",
+   "compartment": "GO:0032993",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000353",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P0C0S5",
+   "compartment": "GO:0043226",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000353;ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P0C0S5",
+   "compartment": "GO:0043227",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P0C0S5",
+   "compartment": "GO:0043228",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000353",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P0C0S5",
+   "compartment": "GO:0043229",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000353",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P0C0S5",
+   "compartment": "GO:0043230",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P0C0S5",
+   "compartment": "GO:0043231",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P0C0S5",
+   "compartment": "GO:0043232",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000353",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P0C0S5",
+   "compartment": "GO:0043233",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P0C0S5",
+   "compartment": "GO:0065010",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P0C0S5",
+   "compartment": "GO:0070013",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P0C0S5",
+   "compartment": "GO:0070062",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "P0C0S5",
+   "compartment": "GO:0110165",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000353;ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P0C0S5",
+   "compartment": "GO:1903561",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0005575",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000269;ECO:0000304;ECO:0000314;ECO:0000501;ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0005576",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0005622",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000269;ECO:0000304;ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0005634",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000304;ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0005654",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000304",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0005737",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000269;ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0005829",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0005925",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0030054",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000501;ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0030055",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0031410",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000269",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0031974",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000304",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0031981",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000304",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0031982",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000269;ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0042470",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000269",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0043226",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000269;ECO:0000304;ECO:0000314;ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0043227",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000269;ECO:0000304;ECO:0000314;ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0043229",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000269;ECO:0000304;ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0043230",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0043231",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000269;ECO:0000304;ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0043233",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000304",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0045202",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000501",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0048770",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000269",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0065010",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0070013",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000304",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0070062",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0070161",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0072562",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0097708",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000269",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0098686",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000501",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0098978",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0098984",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000501",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:0110165",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000269;ECO:0000304;ECO:0000314;ECO:0000501;ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P63104",
+   "compartment": "GO:1903561",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P63104",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P68363",
+   "compartment": "GO:0005575",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000501",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P68363",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P68363",
+   "compartment": "GO:0005622",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000501",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P68363",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P68363",
+   "compartment": "GO:0005737",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000501",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P68363",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P68363",
+   "compartment": "GO:0005856",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000501",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P68363",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P68363",
+   "compartment": "GO:0005874",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000501",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P68363",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "P68363",
+   "compartment": "GO:0005881",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000501",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P68363",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "P68363",
+   "compartment": "GO:0005929",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P68363",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "P68363",
+   "compartment": "GO:0015630",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000501",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P68363",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "P68363",
+   "compartment": "GO:0042995",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P68363",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P68363",
+   "compartment": "GO:0043226",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000501",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P68363",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P68363",
+   "compartment": "GO:0043227",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P68363",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P68363",
+   "compartment": "GO:0043228",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000501",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P68363",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P68363",
+   "compartment": "GO:0043229",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000501",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P68363",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P68363",
+   "compartment": "GO:0043232",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000501",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P68363",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P68363",
+   "compartment": "GO:0099080",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000501",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P68363",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P68363",
+   "compartment": "GO:0099081",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000501",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P68363",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P68363",
+   "compartment": "GO:0099512",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000501",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P68363",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P68363",
+   "compartment": "GO:0099513",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000501",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P68363",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P68363",
+   "compartment": "GO:0110165",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000501",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P68363",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "P68363",
+   "compartment": "GO:0120025",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P68363",
+   "q_value": 0.0,
+   "n_members": 1,
+   "n_with": 1,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "Q71UI9",
+   "compartment": "GO:0000785",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000353",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "Q71UI9",
+   "compartment": "GO:0000786",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000353",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "Q71UI9",
+   "compartment": "GO:0005575",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000353;ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "Q71UI9",
+   "compartment": "GO:0005576",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "Q71UI9",
+   "compartment": "GO:0005622",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000353",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "Q71UI9",
+   "compartment": "GO:0005634",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "Q71UI9",
+   "compartment": "GO:0005694",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000353",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "Q71UI9",
+   "compartment": "GO:0031982",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "Q71UI9",
+   "compartment": "GO:0032991",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000353",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "Q71UI9",
+   "compartment": "GO:0032993",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000353",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "Q71UI9",
+   "compartment": "GO:0043226",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000353;ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "Q71UI9",
+   "compartment": "GO:0043227",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "Q71UI9",
+   "compartment": "GO:0043228",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000353",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "Q71UI9",
+   "compartment": "GO:0043229",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000353",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "Q71UI9",
+   "compartment": "GO:0043230",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "Q71UI9",
+   "compartment": "GO:0043231",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "Q71UI9",
+   "compartment": "GO:0043232",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000353",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "Q71UI9",
+   "compartment": "GO:0065010",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "Q71UI9",
+   "compartment": "GO:0070062",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": false
+  },
+  {
+   "protein_accession": "Q71UI9",
+   "compartment": "GO:0110165",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0000314;ECO:0000353;ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  },
+  {
+   "protein_accession": "Q71UI9",
+   "compartment": "GO:1903561",
+   "go_release": "releases/2026-07-26",
+   "evidence": "ECO:0007005",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7",
+   "protein_group": "P0C0S5|Q71UI9",
+   "q_value": 0.0,
+   "n_members": 2,
+   "n_with": 2,
+   "inherited": false,
+   "propagated": true
+  }
+ ],
+ "category_rows": [
+  {
+   "compartment": "GO:0005576",
+   "category_map_name": "smoke",
+   "organelle_map_version": "1",
+   "go_release": "releases/2026-07-26",
+   "organelle_category": "extracellular",
+   "organelle_subcategory": null,
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7"
+  },
+  {
+   "compartment": "GO:0005634",
+   "category_map_name": "smoke",
+   "organelle_map_version": "1",
+   "go_release": "releases/2026-07-26",
+   "organelle_category": "nucleus",
+   "organelle_subcategory": null,
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7"
+  },
+  {
+   "compartment": "GO:0005654",
+   "category_map_name": "smoke",
+   "organelle_map_version": "1",
+   "go_release": "releases/2026-07-26",
+   "organelle_category": "nucleus",
+   "organelle_subcategory": null,
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7"
+  },
+  {
+   "compartment": "GO:0005739",
+   "category_map_name": "smoke",
+   "organelle_map_version": "1",
+   "go_release": "releases/2026-07-26",
+   "organelle_category": "mitochondrion",
+   "organelle_subcategory": null,
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7"
+  },
+  {
+   "compartment": "GO:0005740",
+   "category_map_name": "smoke",
+   "organelle_map_version": "1",
+   "go_release": "releases/2026-07-26",
+   "organelle_category": "mitochondrion",
+   "organelle_subcategory": null,
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7"
+  },
+  {
+   "compartment": "GO:0005743",
+   "category_map_name": "smoke",
+   "organelle_map_version": "1",
+   "go_release": "releases/2026-07-26",
+   "organelle_category": "mitochondrion",
+   "organelle_subcategory": "mitochondrion:inner_membrane",
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7"
+  },
+  {
+   "compartment": "GO:0005757",
+   "category_map_name": "smoke",
+   "organelle_map_version": "1",
+   "go_release": "releases/2026-07-26",
+   "organelle_category": "mitochondrion",
+   "organelle_subcategory": null,
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7"
+  },
+  {
+   "compartment": "GO:0005759",
+   "category_map_name": "smoke",
+   "organelle_map_version": "1",
+   "go_release": "releases/2026-07-26",
+   "organelle_category": "mitochondrion",
+   "organelle_subcategory": null,
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7"
+  },
+  {
+   "compartment": "GO:0031966",
+   "category_map_name": "smoke",
+   "organelle_map_version": "1",
+   "go_release": "releases/2026-07-26",
+   "organelle_category": "mitochondrion",
+   "organelle_subcategory": null,
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7"
+  },
+  {
+   "compartment": "GO:0031981",
+   "category_map_name": "smoke",
+   "organelle_map_version": "1",
+   "go_release": "releases/2026-07-26",
+   "organelle_category": "nucleus",
+   "organelle_subcategory": null,
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7"
+  },
+  {
+   "compartment": "GO:0042645",
+   "category_map_name": "smoke",
+   "organelle_map_version": "1",
+   "go_release": "releases/2026-07-26",
+   "organelle_category": "mitochondrion",
+   "organelle_subcategory": null,
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7"
+  },
+  {
+   "compartment": "GO:0043230",
+   "category_map_name": "smoke",
+   "organelle_map_version": "1",
+   "go_release": "releases/2026-07-26",
+   "organelle_category": "extracellular",
+   "organelle_subcategory": null,
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7"
+  },
+  {
+   "compartment": "GO:0065010",
+   "category_map_name": "smoke",
+   "organelle_map_version": "1",
+   "go_release": "releases/2026-07-26",
+   "organelle_category": "extracellular",
+   "organelle_subcategory": null,
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7"
+  },
+  {
+   "compartment": "GO:0070062",
+   "category_map_name": "smoke",
+   "organelle_map_version": "1",
+   "go_release": "releases/2026-07-26",
+   "organelle_category": "extracellular",
+   "organelle_subcategory": null,
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7"
+  },
+  {
+   "compartment": "GO:0072562",
+   "category_map_name": "smoke",
+   "organelle_map_version": "1",
+   "go_release": "releases/2026-07-26",
+   "organelle_category": "extracellular",
+   "organelle_subcategory": null,
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7"
+  },
+  {
+   "compartment": "GO:0098798",
+   "category_map_name": "smoke",
+   "organelle_map_version": "1",
+   "go_release": "releases/2026-07-26",
+   "organelle_category": "mitochondrion",
+   "organelle_subcategory": null,
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7"
+  },
+  {
+   "compartment": "GO:1903561",
+   "category_map_name": "smoke",
+   "organelle_map_version": "1",
+   "go_release": "releases/2026-07-26",
+   "organelle_category": "extracellular",
+   "organelle_subcategory": null,
+   "source_id": "go:releases/2026-07-26:43ebad3d3dd7"
+  }
+ ],
+ "flag": {
+  "": {
+   "value": null
+  },
+  "true": {
+   "value": true
+  },
+  "false": {
+   "value": false
+  },
+  "yes": {
+   "error": "IngestError",
+   "message": "expected `true` or `false`, found 'yes'"
+  },
+  "True": {
+   "error": "IngestError",
+   "message": "expected `true` or `false`, found 'True'"
+  },
+  " true": {
+   "error": "IngestError",
+   "message": "expected `true` or `false`, found ' true'"
+  }
+ },
+ "cases": [
+  {
+   "name": "counter_wrong",
+   "file": "annotation",
+   "edit": [
+    {
+     "op": "replace",
+     "old": "#!status_annotated 4",
+     "new": "#!status_annotated 5",
+     "count": 1
+    }
+   ],
+   "allow_prerelease": true,
+   "input_sha256": "b3ebd3bcd815f7eafd5e9ba4acba3ecbaf96c6652e28bce1f656e39ceeb61b8d",
+   "read": {
+    "error": "IngestError",
+    "message": "fixture1347_go_annotation.tsv: header counters disagree with the rows at q_value <= 0.01 (go D26, D29): status_annotated header 5 rows 4"
+   }
+  },
+  {
+   "name": "unresolved_go_ids",
+   "file": "annotation",
+   "edit": [
+    {
+     "op": "insert_before",
+     "anchor": "#!counter_q_value_max",
+     "text": "#!unresolved_go_ids 3\n"
+    }
+   ],
+   "allow_prerelease": true,
+   "input_sha256": "9f8b41318dab478d05cd5b17a5cc803b40f1977b3525b05a1a5519dd97bddaed",
+   "localization_rows": {
+    "value": {
+     "n": 139,
+     "sha256": "ee6fd981b8a9d36296c89215ca879c24e9be3605865c978fc3269cf7da8fb3e6"
+    }
+   },
+   "source_row": {
+    "source_id": "go:releases/2026-07-26:9f8b41318dab",
+    "owner_project": "go",
+    "version": "releases/2026-07-26; mzLib 1.0.0+c5b16451f71d223c5165dfe5234f06146b80cd0f; file 9f8b41318dab478d05cd5b17a5cc803b40f1977b3525b05a1a5519dd97bddaed; go.obo d3593751d885ca160b2ab7baf6c7eccd88ca3c4599f79436c674bad661095ff0; annotation db 760984e8d402ade6b1105b811532bdd4041e33e66bb5dc204402d4d6a7be8838",
+    "doi": null
+   },
+   "read": {
+    "value": {
+     "header": {
+      "go_annotation_format": "1",
+      "mzlib_version": "1.0.0+c5b16451f71d223c5165dfe5234f06146b80cd0f",
+      "mzlib_release": "none",
+      "go_release": "releases/2026-07-26",
+      "go_obo_sha256": "d3593751d885ca160b2ab7baf6c7eccd88ca3c4599f79436c674bad661095ff0",
+      "annotation_db_sha256": "760984e8d402ade6b1105b811532bdd4041e33e66bb5dc204402d4d6a7be8838",
+      "source_file_sha256": "751a00c5109bdf350db75d2d4053e0fd78fea8326c5a38bce95b1ce0d8445ae6",
+      "unresolved_go_ids": "3",
+      "counter_q_value_max": "0.01",
+      "n_multi_member_groups": "1",
+      "status_annotated": "4",
+      "status_no_go_terms": "0",
+      "status_no_entry": "0",
+      "status_contaminant": "1"
+     },
+     "n_rows": 563,
+     "sha256": "9f8b41318dab478d05cd5b17a5cc803b40f1977b3525b05a1a5519dd97bddaed",
+     "go_release": "releases/2026-07-26",
+     "mzlib_release": "none",
+     "not_stored": {
+      "aspect molecular_function": 111,
+      "aspect biological_process": 333,
+      "no term (contaminant)": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "released",
+   "file": "annotation",
+   "edit": [
+    {
+     "op": "replace",
+     "old": "#!mzlib_release none",
+     "new": "#!mzlib_release 1.0.593",
+     "count": 1
+    }
+   ],
+   "allow_prerelease": false,
+   "input_sha256": "7fe48f28c63d1b6351f5bff6ec2dcfbc1af2cf0c9853db025ddb94adfd0785e1",
+   "localization_rows": {
+    "value": {
+     "n": 139,
+     "sha256": "535a832ca1b8c2afce859822c086170465d7170dda9d9304444797b1bfa0efd7"
+    }
+   },
+   "source_row": {
+    "source_id": "go:releases/2026-07-26:7fe48f28c63d",
+    "owner_project": "go",
+    "version": "releases/2026-07-26; mzLib 1.0.0+c5b16451f71d223c5165dfe5234f06146b80cd0f; file 7fe48f28c63d1b6351f5bff6ec2dcfbc1af2cf0c9853db025ddb94adfd0785e1; go.obo d3593751d885ca160b2ab7baf6c7eccd88ca3c4599f79436c674bad661095ff0; annotation db 760984e8d402ade6b1105b811532bdd4041e33e66bb5dc204402d4d6a7be8838",
+    "doi": null
+   },
+   "read": {
+    "value": {
+     "header": {
+      "go_annotation_format": "1",
+      "mzlib_version": "1.0.0+c5b16451f71d223c5165dfe5234f06146b80cd0f",
+      "mzlib_release": "1.0.593",
+      "go_release": "releases/2026-07-26",
+      "go_obo_sha256": "d3593751d885ca160b2ab7baf6c7eccd88ca3c4599f79436c674bad661095ff0",
+      "annotation_db_sha256": "760984e8d402ade6b1105b811532bdd4041e33e66bb5dc204402d4d6a7be8838",
+      "source_file_sha256": "751a00c5109bdf350db75d2d4053e0fd78fea8326c5a38bce95b1ce0d8445ae6",
+      "counter_q_value_max": "0.01",
+      "n_multi_member_groups": "1",
+      "status_annotated": "4",
+      "status_no_go_terms": "0",
+      "status_no_entry": "0",
+      "status_contaminant": "1"
+     },
+     "n_rows": 563,
+     "sha256": "7fe48f28c63d1b6351f5bff6ec2dcfbc1af2cf0c9853db025ddb94adfd0785e1",
+     "go_release": "releases/2026-07-26",
+     "mzlib_release": "1.0.593",
+     "not_stored": {
+      "aspect molecular_function": 111,
+      "aspect biological_process": 333,
+      "no term (contaminant)": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "released_categories",
+   "file": "categories",
+   "edit": [
+    {
+     "op": "replace",
+     "old": "#!mzlib_release none",
+     "new": "#!mzlib_release 1.0.593",
+     "count": 1
+    }
+   ],
+   "allow_prerelease": false,
+   "input_sha256": "c345a58513454275fa4bff32bfee1409ee29b2a09e4c82f7ab19dcb07954648d",
+   "coverage": {
+    "value": null
+   },
+   "category_rows": {
+    "value": {
+     "n": 17,
+     "sha256": "12a384a15446fc77b5935a87cd7676279d49900ceaf6e96983e7b166aacae106"
+    }
+   },
+   "read": {
+    "value": {
+     "header": {
+      "go_category_format": "1",
+      "mzlib_version": "1.0.0+c5b16451f71d223c5165dfe5234f06146b80cd0f",
+      "mzlib_release": "1.0.593",
+      "go_release": "releases/2026-07-26",
+      "go_obo_sha256": "d3593751d885ca160b2ab7baf6c7eccd88ca3c4599f79436c674bad661095ff0",
+      "category_map": "smoke 1 1d7b437983efd665c8b3611ee2d3ce9f9e5f487e4cf50994f2ecb90f39a3b2d1"
+     },
+     "n_rows": 17,
+     "sha256": "c345a58513454275fa4bff32bfee1409ee29b2a09e4c82f7ab19dcb07954648d",
+     "map_name": "smoke",
+     "map_version": "1",
+     "map_sha256": "1d7b437983efd665c8b3611ee2d3ce9f9e5f487e4cf50994f2ecb90f39a3b2d1"
+    }
+   }
+  },
+  {
+   "name": "no_mzlib_release",
+   "file": "annotation",
+   "edit": [
+    {
+     "op": "replace",
+     "old": "#!mzlib_release none\n",
+     "new": "",
+     "count": 1
+    }
+   ],
+   "allow_prerelease": true,
+   "input_sha256": "2b9465bc5b435ec97328a73caf1777ee5d41dbf43bc079ff0aed438a635cc919",
+   "read": {
+    "error": "IngestError",
+    "message": "fixture1347_go_annotation.tsv: no `#!mzlib_release` line, so which code wrote it is unknown"
+   }
+  },
+  {
+   "name": "no_mzlib_release_no_commit",
+   "file": "annotation",
+   "edit": [
+    {
+     "op": "replace",
+     "old": "#!mzlib_version 1.0.0+c5b16451f71d223c5165dfe5234f06146b80cd0f\n",
+     "new": "",
+     "count": 1
+    }
+   ],
+   "allow_prerelease": false,
+   "input_sha256": "622075c1f7133f0d6926d8e3567f6d28489818e62cae75d2d39163dd060547ce",
+   "read": {
+    "error": "IngestError",
+    "message": "fixture1347_go_annotation.tsv: written by an unreleased mzLib (`#!mzlib_release none`, commit unknown). A pre-release file may be used to build and test a reader, never ingested (GO-A1)."
+   }
+  },
+  {
+   "name": "duplicate_header_key",
+   "file": "annotation",
+   "edit": [
+    {
+     "op": "replace",
+     "old": "#!go_obo_sha256",
+     "new": "#!go_release x\n#!go_obo_sha256",
+     "count": 1
+    }
+   ],
+   "allow_prerelease": true,
+   "input_sha256": "04c3060ae3b63438931ef49475b93e29497b7686f6916c8a280520aafeddcf3b",
+   "read": {
+    "error": "IngestError",
+    "message": "fixture1347_go_annotation.tsv: header key 'go_release' appears twice"
+   }
+  },
+  {
+   "name": "first_header_not_format",
+   "file": "annotation",
+   "edit": [
+    {
+     "op": "replace",
+     "old": "#!go_annotation_format 1\n",
+     "new": "",
+     "count": 1
+    }
+   ],
+   "allow_prerelease": true,
+   "input_sha256": "e80c50fd5bd4af8f6cf84907016dbf41f7e479042dc93962f1cc4bacd97984a6",
+   "read": {
+    "error": "IngestError",
+    "message": "fixture1347_go_annotation.tsv: the first header line must be `#!go_annotation_format`"
+   }
+  },
+  {
+   "name": "format_version_2",
+   "file": "annotation",
+   "edit": [
+    {
+     "op": "replace",
+     "old": "#!go_annotation_format 1",
+     "new": "#!go_annotation_format 2",
+     "count": 1
+    }
+   ],
+   "allow_prerelease": true,
+   "input_sha256": "29bbe839aefad5a2afe8761477fcbb0b99ff89905f1b5552ae0ca7eb1f1195f0",
+   "read": {
+    "error": "IngestError",
+    "message": "fixture1347_go_annotation.tsv: go_annotation_format '2'; this reader knows 1"
+   }
+  },
+  {
+   "name": "missing_counter_q",
+   "file": "annotation",
+   "edit": [
+    {
+     "op": "replace",
+     "old": "#!counter_q_value_max 0.01\n",
+     "new": "",
+     "count": 1
+    }
+   ],
+   "allow_prerelease": true,
+   "input_sha256": "cc01234421f34aa06e8c19a7d87535518fbd23ac0aec5626c76e325c553163cd",
+   "read": {
+    "error": "IngestError",
+    "message": "fixture1347_go_annotation.tsv: header has no `#!counter_q_value_max`"
+   }
+  },
+  {
+   "name": "missing_status_no_entry",
+   "file": "annotation",
+   "edit": [
+    {
+     "op": "replace",
+     "old": "#!status_no_entry 0\n",
+     "new": "",
+     "count": 1
+    }
+   ],
+   "allow_prerelease": true,
+   "input_sha256": "6db50529d4e0dc62b17bba58fdcc983b1983204bf4283040b842998ed378dffd",
+   "read": {
+    "error": "IngestError",
+    "message": "fixture1347_go_annotation.tsv: header has no `#!status_no_entry`"
+   }
+  },
+  {
+   "name": "row_release_differs",
+   "file": "annotation",
+   "edit": [
+    {
+     "op": "replace",
+     "old": "\treleases/2026-07-26\t",
+     "new": "\treleases/2026-01-01\t",
+     "count": 1
+    }
+   ],
+   "allow_prerelease": true,
+   "input_sha256": "81208a6f2db6d8d89e9a3fe711cb077610b1ed01eb0ba191868c74b0bfe9e352",
+   "read": {
+    "error": "IngestError",
+    "message": "fixture1347_go_annotation.tsv: row 1 (P68363, GO:0000166): go_release 'releases/2026-01-01' differs from the header's 'releases/2026-07-26'"
+   }
+  },
+  {
+   "name": "bad_status",
+   "file": "annotation",
+   "edit": [
+    {
+     "op": "replace",
+     "old": "\tcontaminant\t",
+     "new": "\tbogus\t",
+     "count": 1
+    }
+   ],
+   "allow_prerelease": true,
+   "input_sha256": "18a548b08488ae136d84e0d1993116a77a1f7dbd893867563693d0093f9cc234",
+   "read": {
+    "error": "IngestError",
+    "message": "fixture1347_go_annotation.tsv: row 358 (P02769, no term): annotation_status 'bogus' is not one of ('annotated', 'no_go_terms', 'no_entry', 'contaminant')"
+   }
+  },
+  {
+   "name": "n_with_wrong",
+   "file": "annotation",
+   "edit": [
+    {
+     "op": "replace",
+     "old": "\t1\t1\t\tannotated",
+     "new": "\t1\t2\t\tannotated",
+     "count": 1
+    }
+   ],
+   "allow_prerelease": true,
+   "input_sha256": "171b69cb43193f6809872416fc4e374230585bd7d9620d8fb865ed5b95778fdf",
+   "read": {
+    "error": "IngestError",
+    "message": "fixture1347_go_annotation.tsv: row 1 (P68363, GO:0000166): n_with 2 but 1 accession(s) used (go D22)"
+   }
+  },
+  {
+   "name": "bad_flag",
+   "file": "annotation",
+   "edit": [
+    {
+     "op": "replace",
+     "old": "\tfalse\ttrue\t",
+     "new": "\tmaybe\ttrue\t",
+     "count": -1
+    },
+    {
+     "op": "replace",
+     "old": "\tfalse\tfalse\t",
+     "new": "\tmaybe\tfalse\t",
+     "count": -1
+    }
+   ],
+   "allow_prerelease": true,
+   "input_sha256": "657a089571ddbc81e4d84c12e4951d4f9ec34abe3164e2c8a5d1c475713e3386",
+   "localization_rows": {
+    "error": "IngestError",
+    "message": "expected `true` or `false`, found 'maybe'"
+   },
+   "source_row": {
+    "source_id": "go:releases/2026-07-26:657a089571dd",
+    "owner_project": "go",
+    "version": "releases/2026-07-26; mzLib 1.0.0+c5b16451f71d223c5165dfe5234f06146b80cd0f; file 657a089571ddbc81e4d84c12e4951d4f9ec34abe3164e2c8a5d1c475713e3386; go.obo d3593751d885ca160b2ab7baf6c7eccd88ca3c4599f79436c674bad661095ff0; annotation db 760984e8d402ade6b1105b811532bdd4041e33e66bb5dc204402d4d6a7be8838",
+    "doi": null
+   },
+   "read": {
+    "value": {
+     "header": {
+      "go_annotation_format": "1",
+      "mzlib_version": "1.0.0+c5b16451f71d223c5165dfe5234f06146b80cd0f",
+      "mzlib_release": "none",
+      "go_release": "releases/2026-07-26",
+      "go_obo_sha256": "d3593751d885ca160b2ab7baf6c7eccd88ca3c4599f79436c674bad661095ff0",
+      "annotation_db_sha256": "760984e8d402ade6b1105b811532bdd4041e33e66bb5dc204402d4d6a7be8838",
+      "source_file_sha256": "751a00c5109bdf350db75d2d4053e0fd78fea8326c5a38bce95b1ce0d8445ae6",
+      "counter_q_value_max": "0.01",
+      "n_multi_member_groups": "1",
+      "status_annotated": "4",
+      "status_no_go_terms": "0",
+      "status_no_entry": "0",
+      "status_contaminant": "1"
+     },
+     "n_rows": 563,
+     "sha256": "657a089571ddbc81e4d84c12e4951d4f9ec34abe3164e2c8a5d1c475713e3386",
+     "go_release": "releases/2026-07-26",
+     "mzlib_release": "none",
+     "not_stored": {
+      "aspect molecular_function": 111,
+      "aspect biological_process": 333,
+      "no term (contaminant)": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "empty_flags",
+   "file": "annotation",
+   "edit": [
+    {
+     "op": "replace",
+     "old": "\tfalse\ttrue\t",
+     "new": "\t\ttrue\t",
+     "count": -1
+    },
+    {
+     "op": "replace",
+     "old": "\tfalse\tfalse\t",
+     "new": "\t\t\t",
+     "count": -1
+    }
+   ],
+   "allow_prerelease": true,
+   "input_sha256": "c1bf2ecefb1fef4c987a7882c65512ac8e6d6d0fb5a5215c63da7448ed591e9c",
+   "localization_rows": {
+    "value": {
+     "n": 139,
+     "sha256": "2fd63426d48668375215b78cd175bb8813b15198a53c1905f3a6c388293531f1"
+    }
+   },
+   "source_row": {
+    "source_id": "go:releases/2026-07-26:c1bf2ecefb1f",
+    "owner_project": "go",
+    "version": "releases/2026-07-26; mzLib 1.0.0+c5b16451f71d223c5165dfe5234f06146b80cd0f; file c1bf2ecefb1fef4c987a7882c65512ac8e6d6d0fb5a5215c63da7448ed591e9c; go.obo d3593751d885ca160b2ab7baf6c7eccd88ca3c4599f79436c674bad661095ff0; annotation db 760984e8d402ade6b1105b811532bdd4041e33e66bb5dc204402d4d6a7be8838",
+    "doi": null
+   },
+   "read": {
+    "value": {
+     "header": {
+      "go_annotation_format": "1",
+      "mzlib_version": "1.0.0+c5b16451f71d223c5165dfe5234f06146b80cd0f",
+      "mzlib_release": "none",
+      "go_release": "releases/2026-07-26",
+      "go_obo_sha256": "d3593751d885ca160b2ab7baf6c7eccd88ca3c4599f79436c674bad661095ff0",
+      "annotation_db_sha256": "760984e8d402ade6b1105b811532bdd4041e33e66bb5dc204402d4d6a7be8838",
+      "source_file_sha256": "751a00c5109bdf350db75d2d4053e0fd78fea8326c5a38bce95b1ce0d8445ae6",
+      "counter_q_value_max": "0.01",
+      "n_multi_member_groups": "1",
+      "status_annotated": "4",
+      "status_no_go_terms": "0",
+      "status_no_entry": "0",
+      "status_contaminant": "1"
+     },
+     "n_rows": 563,
+     "sha256": "c1bf2ecefb1fef4c987a7882c65512ac8e6d6d0fb5a5215c63da7448ed591e9c",
+     "go_release": "releases/2026-07-26",
+     "mzlib_release": "none",
+     "not_stored": {
+      "aspect molecular_function": 111,
+      "aspect biological_process": 333,
+      "no term (contaminant)": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "short_row",
+   "file": "annotation",
+   "edit": [
+    {
+     "op": "append",
+     "text": "x\ty\n"
+    }
+   ],
+   "allow_prerelease": true,
+   "input_sha256": "deccf4976ef17bdcaab466e0cfd1fc2408758f76f586a934c83dfd396cee8f9d",
+   "read": {
+    "error": "IngestError",
+    "message": "fixture1347_go_annotation.tsv: line 578 has 2 cells, not 19"
+   }
+  },
+  {
+   "name": "repeated_column",
+   "file": "annotation",
+   "edit": [
+    {
+     "op": "replace",
+     "old": "\tgo_name\t",
+     "new": "\tgo_id\t",
+     "count": 1
+    }
+   ],
+   "allow_prerelease": true,
+   "input_sha256": "94590dadfc490003ab80037a1dcb7a0c09558ba65577d063ff73f58108a6a905",
+   "read": {
+    "error": "IngestError",
+    "message": "fixture1347_go_annotation.tsv: a column name repeats in ['protein_group', 'accession_used', 'accession_direct', 'accession_inherited', 'go_id', 'go_id', 'aspect', 'evidence', 'evidence_by_member', 'inherited', 'propagated', 'n_members', 'n_with', 'entrapment_members', 'annotation_status', 'q_value', 'go_release', 'go_obo_sha256', 'annotation_db_sha256']"
+   }
+  },
+  {
+   "name": "crlf",
+   "file": "annotation",
+   "edit": [
+    {
+     "op": "replace",
+     "old": "\n",
+     "new": "\r\n",
+     "count": -1
+    }
+   ],
+   "allow_prerelease": true,
+   "input_sha256": "77192e110623c519f60fff1f588f3538da786d465ac1430d36d65b57acb0c1b9",
+   "localization_rows": {
+    "value": {
+     "n": 139,
+     "sha256": "786c12dbc438a4b1c7538bc5643af569c3a4d3e85dd89161b360019483dda284"
+    }
+   },
+   "source_row": {
+    "source_id": "go:releases/2026-07-26:77192e110623",
+    "owner_project": "go",
+    "version": "releases/2026-07-26; mzLib 1.0.0+c5b16451f71d223c5165dfe5234f06146b80cd0f; file 77192e110623c519f60fff1f588f3538da786d465ac1430d36d65b57acb0c1b9; go.obo d3593751d885ca160b2ab7baf6c7eccd88ca3c4599f79436c674bad661095ff0; annotation db 760984e8d402ade6b1105b811532bdd4041e33e66bb5dc204402d4d6a7be8838",
+    "doi": null
+   },
+   "read": {
+    "value": {
+     "header": {
+      "go_annotation_format": "1",
+      "mzlib_version": "1.0.0+c5b16451f71d223c5165dfe5234f06146b80cd0f",
+      "mzlib_release": "none",
+      "go_release": "releases/2026-07-26",
+      "go_obo_sha256": "d3593751d885ca160b2ab7baf6c7eccd88ca3c4599f79436c674bad661095ff0",
+      "annotation_db_sha256": "760984e8d402ade6b1105b811532bdd4041e33e66bb5dc204402d4d6a7be8838",
+      "source_file_sha256": "751a00c5109bdf350db75d2d4053e0fd78fea8326c5a38bce95b1ce0d8445ae6",
+      "counter_q_value_max": "0.01",
+      "n_multi_member_groups": "1",
+      "status_annotated": "4",
+      "status_no_go_terms": "0",
+      "status_no_entry": "0",
+      "status_contaminant": "1"
+     },
+     "n_rows": 563,
+     "sha256": "77192e110623c519f60fff1f588f3538da786d465ac1430d36d65b57acb0c1b9",
+     "go_release": "releases/2026-07-26",
+     "mzlib_release": "none",
+     "not_stored": {
+      "aspect molecular_function": 111,
+      "aspect biological_process": 333,
+      "no term (contaminant)": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "quoted_cell",
+   "file": "annotation",
+   "edit": [
+    {
+     "op": "replace",
+     "old": "\tnucleotide binding\t",
+     "new": "\t\"nucleotide\tbinding\"\"x\"\t",
+     "count": 1
+    }
+   ],
+   "allow_prerelease": true,
+   "input_sha256": "9387dfc0b30854918065667697b251d8564f2586aa46748153cb5899b3ae276f",
+   "localization_rows": {
+    "value": {
+     "n": 139,
+     "sha256": "cff1dc7c567c1a9e913f67535720592f0c9e42046bdd21c11372ad3f38bd65f9"
+    }
+   },
+   "source_row": {
+    "source_id": "go:releases/2026-07-26:9387dfc0b308",
+    "owner_project": "go",
+    "version": "releases/2026-07-26; mzLib 1.0.0+c5b16451f71d223c5165dfe5234f06146b80cd0f; file 9387dfc0b30854918065667697b251d8564f2586aa46748153cb5899b3ae276f; go.obo d3593751d885ca160b2ab7baf6c7eccd88ca3c4599f79436c674bad661095ff0; annotation db 760984e8d402ade6b1105b811532bdd4041e33e66bb5dc204402d4d6a7be8838",
+    "doi": null
+   },
+   "read": {
+    "value": {
+     "header": {
+      "go_annotation_format": "1",
+      "mzlib_version": "1.0.0+c5b16451f71d223c5165dfe5234f06146b80cd0f",
+      "mzlib_release": "none",
+      "go_release": "releases/2026-07-26",
+      "go_obo_sha256": "d3593751d885ca160b2ab7baf6c7eccd88ca3c4599f79436c674bad661095ff0",
+      "annotation_db_sha256": "760984e8d402ade6b1105b811532bdd4041e33e66bb5dc204402d4d6a7be8838",
+      "source_file_sha256": "751a00c5109bdf350db75d2d4053e0fd78fea8326c5a38bce95b1ce0d8445ae6",
+      "counter_q_value_max": "0.01",
+      "n_multi_member_groups": "1",
+      "status_annotated": "4",
+      "status_no_go_terms": "0",
+      "status_no_entry": "0",
+      "status_contaminant": "1"
+     },
+     "n_rows": 563,
+     "sha256": "9387dfc0b30854918065667697b251d8564f2586aa46748153cb5899b3ae276f",
+     "go_release": "releases/2026-07-26",
+     "mzlib_release": "none",
+     "not_stored": {
+      "aspect molecular_function": 111,
+      "aspect biological_process": 333,
+      "no term (contaminant)": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "blank_lines",
+   "file": "annotation",
+   "edit": [
+    {
+     "op": "replace",
+     "old": "\n",
+     "new": "\n\n",
+     "count": -1
+    }
+   ],
+   "allow_prerelease": true,
+   "input_sha256": "16d3e3f25408ae00b1959fe1f39091ca18e3acea98546134020618d24b63512a",
+   "read": {
+    "error": "IngestError",
+    "message": "fixture1347_go_annotation.tsv: columns are not go's ['protein_group', 'accession_used', 'accession_direct', 'accession_inherited', 'go_id', 'go_name', 'aspect', 'evidence', 'evidence_by_member', 'inherited', 'propagated', 'n_members', 'n_with', 'entrapment_members', 'annotation_status', 'q_value', 'go_release', 'go_obo_sha256', 'annotation_db_sha256']: missing ['protein_group', 'accession_used', 'accession_direct', 'accession_inherited', 'go_id', 'go_name', 'aspect', 'evidence', 'evidence_by_member', 'inherited', 'propagated', 'n_members', 'n_with', 'entrapment_members', 'annotation_status', 'q_value', 'go_release', 'go_obo_sha256', 'annotation_db_sha256'], unknown ['#!mzlib_version 1.0.0+c5b16451f71d223c5165dfe5234f06146b80cd0f']"
+   }
+  },
+  {
+   "name": "q_value_counter_tight",
+   "file": "annotation",
+   "edit": [
+    {
+     "op": "replace",
+     "old": "#!counter_q_value_max 0.01",
+     "new": "#!counter_q_value_max -1",
+     "count": 1
+    }
+   ],
+   "allow_prerelease": true,
+   "input_sha256": "30313d115fed1d4847258eb48ed5d111968674bccdb14541052b244c773643b4",
+   "read": {
+    "error": "IngestError",
+    "message": "fixture1347_go_annotation.tsv: header counters disagree with the rows at q_value <= -1.0 (go D26, D29): n_multi_member_groups header 1 rows 0, status_annotated header 4 rows 0, status_contaminant header 1 rows 0"
+   }
+  },
+  {
+   "name": "cat_extra_term",
+   "file": "categories",
+   "edit": [
+    {
+     "op": "append",
+     "text": "GO:9999999\tnucleus\t\n"
+    }
+   ],
+   "allow_prerelease": true,
+   "input_sha256": "94ffde4d5913165caa48ba35362141db5d0be6832cfb13b07d56d2f722c515fa",
+   "coverage": {
+    "error": "IngestError",
+    "message": "fixture1347_go_category_smoke.tsv: 1 term(s) are not in fixture1347_go_annotation.tsv, e.g. ['GO:9999999']. Stored together, they would be a join that silently drops categories."
+   },
+   "category_rows": {
+    "value": {
+     "n": 18,
+     "sha256": "641cd2928c6744fab9fbb89540f75c1f155507b008a55be11e5aa7f55b6abc9d"
+    }
+   },
+   "read": {
+    "value": {
+     "header": {
+      "go_category_format": "1",
+      "mzlib_version": "1.0.0+c5b16451f71d223c5165dfe5234f06146b80cd0f",
+      "mzlib_release": "none",
+      "go_release": "releases/2026-07-26",
+      "go_obo_sha256": "d3593751d885ca160b2ab7baf6c7eccd88ca3c4599f79436c674bad661095ff0",
+      "category_map": "smoke 1 1d7b437983efd665c8b3611ee2d3ce9f9e5f487e4cf50994f2ecb90f39a3b2d1"
+     },
+     "n_rows": 18,
+     "sha256": "94ffde4d5913165caa48ba35362141db5d0be6832cfb13b07d56d2f722c515fa",
+     "map_name": "smoke",
+     "map_version": "1",
+     "map_sha256": "1d7b437983efd665c8b3611ee2d3ce9f9e5f487e4cf50994f2ecb90f39a3b2d1"
+    }
+   }
+  },
+  {
+   "name": "cat_other_release",
+   "file": "categories",
+   "edit": [
+    {
+     "op": "replace",
+     "old": "#!go_release releases/2026-07-26",
+     "new": "#!go_release releases/2026-01-01",
+     "count": 1
+    }
+   ],
+   "allow_prerelease": true,
+   "input_sha256": "7903e7d9e8de930c8d31318ec40b0f06b11a1d7cdb6fba33832c3103fbf01fb0",
+   "coverage": {
+    "error": "IngestError",
+    "message": "fixture1347_go_category_smoke.tsv: go_release 'releases/2026-01-01' is not the annotation file's 'releases/2026-07-26'; the two files are not a pair"
+   },
+   "category_rows": {
+    "value": {
+     "n": 17,
+     "sha256": "98faaf2b8fb022de284d8d817f443a9d569a2bd1445747bd69e6ec2a4c5ddda0"
+    }
+   },
+   "read": {
+    "value": {
+     "header": {
+      "go_category_format": "1",
+      "mzlib_version": "1.0.0+c5b16451f71d223c5165dfe5234f06146b80cd0f",
+      "mzlib_release": "none",
+      "go_release": "releases/2026-01-01",
+      "go_obo_sha256": "d3593751d885ca160b2ab7baf6c7eccd88ca3c4599f79436c674bad661095ff0",
+      "category_map": "smoke 1 1d7b437983efd665c8b3611ee2d3ce9f9e5f487e4cf50994f2ecb90f39a3b2d1"
+     },
+     "n_rows": 17,
+     "sha256": "7903e7d9e8de930c8d31318ec40b0f06b11a1d7cdb6fba33832c3103fbf01fb0",
+     "map_name": "smoke",
+     "map_version": "1",
+     "map_sha256": "1d7b437983efd665c8b3611ee2d3ce9f9e5f487e4cf50994f2ecb90f39a3b2d1"
+    }
+   }
+  },
+  {
+   "name": "cat_other_obo",
+   "file": "categories",
+   "edit": [
+    {
+     "op": "replace",
+     "old": "#!go_obo_sha256 d3593751",
+     "new": "#!go_obo_sha256 e3593751",
+     "count": 1
+    }
+   ],
+   "allow_prerelease": true,
+   "input_sha256": "12e810237c893008505cb8eb12804f6326cfdfbb6e6df6ae7a52aee361539347",
+   "coverage": {
+    "error": "IngestError",
+    "message": "fixture1347_go_category_smoke.tsv: go_obo_sha256 'e3593751d885ca160b2ab7baf6c7eccd88ca3c4599f79436c674bad661095ff0' is not the annotation file's 'd3593751d885ca160b2ab7baf6c7eccd88ca3c4599f79436c674bad661095ff0'; the two files are not a pair"
+   },
+   "category_rows": {
+    "value": {
+     "n": 17,
+     "sha256": "12a384a15446fc77b5935a87cd7676279d49900ceaf6e96983e7b166aacae106"
+    }
+   },
+   "read": {
+    "value": {
+     "header": {
+      "go_category_format": "1",
+      "mzlib_version": "1.0.0+c5b16451f71d223c5165dfe5234f06146b80cd0f",
+      "mzlib_release": "none",
+      "go_release": "releases/2026-07-26",
+      "go_obo_sha256": "e3593751d885ca160b2ab7baf6c7eccd88ca3c4599f79436c674bad661095ff0",
+      "category_map": "smoke 1 1d7b437983efd665c8b3611ee2d3ce9f9e5f487e4cf50994f2ecb90f39a3b2d1"
+     },
+     "n_rows": 17,
+     "sha256": "12e810237c893008505cb8eb12804f6326cfdfbb6e6df6ae7a52aee361539347",
+     "map_name": "smoke",
+     "map_version": "1",
+     "map_sha256": "1d7b437983efd665c8b3611ee2d3ce9f9e5f487e4cf50994f2ecb90f39a3b2d1"
+    }
+   }
+  },
+  {
+   "name": "cat_bad_map",
+   "file": "categories",
+   "edit": [
+    {
+     "op": "replace",
+     "old": "#!category_map smoke 1 ",
+     "new": "#!category_map smoke ",
+     "count": 1
+    }
+   ],
+   "allow_prerelease": true,
+   "input_sha256": "dce277ca8c60105ec22b081a24fd5ed05e97f7001ae741eac6b2e4bc41344f2c",
+   "read": {
+    "error": "IngestError",
+    "message": "fixture1347_go_category_smoke.tsv: `#!category_map` must be `<name> <version> <sha256>`"
+   }
+  },
+  {
+   "name": "cat_repeat_row",
+   "file": "categories",
+   "edit": [
+    {
+     "op": "append",
+     "text": "GO:0005576\textracellular\t\n"
+    }
+   ],
+   "allow_prerelease": true,
+   "input_sha256": "f6a1cfc938c38d0e9dd7364f8978edbb98e8f116efb92832651596c745f6ae6e",
+   "read": {
+    "error": "IngestError",
+    "message": "fixture1347_go_category_smoke.tsv: 1 (term, category, subcategory) row(s) repeat, e.g. ('GO:0005576', 'extracellular', '')"
+   }
+  },
+  {
+   "name": "cat_no_category",
+   "file": "categories",
+   "edit": [
+    {
+     "op": "append",
+     "text": "GO:0005576\t\t\n"
+    }
+   ],
+   "allow_prerelease": true,
+   "input_sha256": "a8662c1ff9d83d5633f37ae4052404f5f8061504cb57955b84039a13e78cebd3",
+   "read": {
+    "error": "IngestError",
+    "message": "fixture1347_go_category_smoke.tsv: row 18 lacks a go_id or a category"
+   }
+  },
+  {
+   "name": "cat_missing_map",
+   "file": "categories",
+   "edit": [
+    {
+     "op": "replace",
+     "old": "#!category_map smoke 1 1d7b437983efd665c8b3611ee2d3ce9f9e5f487e4cf50994f2ecb90f39a3b2d1\n",
+     "new": "",
+     "count": 1
+    }
+   ],
+   "allow_prerelease": true,
+   "input_sha256": "fe700d18bccf0d7045d4688021f8333418b11577b33f0b5c690f958f4556487a",
+   "read": {
+    "error": "IngestError",
+    "message": "fixture1347_go_category_smoke.tsv: header has no `#!category_map`"
+   }
+  },
+  {
+   "name": "cat_unknown_column",
+   "file": "categories",
+   "edit": [
+    {
+     "op": "replace",
+     "old": "go_id\tcategory\tsubcategory",
+     "new": "go_id\tcategory\tsubcategory\textra",
+     "count": 1
+    },
+    {
+     "op": "replace",
+     "old": "GO:0005576\textracellular\t\n",
+     "new": "GO:0005576\textracellular\t\tx\n",
+     "count": 1
+    }
+   ],
+   "allow_prerelease": true,
+   "input_sha256": "c430ee9105f9acc4a4d9f237de10b27a7381e0a0ee31a3c6e49237c13ea33173",
+   "read": {
+    "error": "IngestError",
+    "message": "fixture1347_go_category_smoke.tsv: columns are not go's ['go_id', 'category', 'subcategory']: missing [], unknown ['extra']"
+   }
+  },
+  {
+   "name": "two_groups",
+   "file": "annotation",
+   "edit": "two_groups",
+   "allow_prerelease": true,
+   "input_sha256": "f7b267fe94cfd76f3f4b431552c01a7c003d1d605981d11840674257dc3fcb6a",
+   "read": {
+    "error": "IngestError",
+    "message": "fixture1347_go_annotation.tsv: 2 accession(s) sit in more than one group, e.g. ['P05141', 'P68363']. A per-accession row would carry two group q-values; refused until MetaMorpheus says whether parsimony can produce this (dataRepo go 011)."
+   }
+  },
+  {
+   "name": "term_not_annotated",
+   "file": "annotation",
+   "edit": "term_not_annotated",
+   "allow_prerelease": true,
+   "input_sha256": "469fb817a424823040ea296afdab74a690d921719ae21f44546c4575e7852b12",
+   "read": {
+    "error": "IngestError",
+    "message": "fixture1347_go_annotation.tsv: row 1 (P68363, GO:0000166): carries a term but reads 'no_entry'; a term means annotated (go D19)"
+   }
+  },
+  {
+   "name": "reversed",
+   "file": "annotation",
+   "edit": "reversed",
+   "allow_prerelease": true,
+   "input_sha256": "24fd530461300e2f4556e7065052efb431ed700d6d00890e3dca67a33bdf24ad",
+   "localization_rows": {
+    "value": {
+     "n": 139,
+     "sha256": "9b2805f2e1a3446f8051998c441e23e718afede8c983bcec89a15c38fd76a245"
+    }
+   },
+   "source_row": {
+    "source_id": "go:releases/2026-07-26:24fd53046130",
+    "owner_project": "go",
+    "version": "releases/2026-07-26; mzLib 1.0.0+c5b16451f71d223c5165dfe5234f06146b80cd0f; file 24fd530461300e2f4556e7065052efb431ed700d6d00890e3dca67a33bdf24ad; go.obo d3593751d885ca160b2ab7baf6c7eccd88ca3c4599f79436c674bad661095ff0; annotation db 760984e8d402ade6b1105b811532bdd4041e33e66bb5dc204402d4d6a7be8838",
+    "doi": null
+   },
+   "read": {
+    "value": {
+     "header": {
+      "go_annotation_format": "1",
+      "mzlib_version": "1.0.0+c5b16451f71d223c5165dfe5234f06146b80cd0f",
+      "mzlib_release": "none",
+      "go_release": "releases/2026-07-26",
+      "go_obo_sha256": "d3593751d885ca160b2ab7baf6c7eccd88ca3c4599f79436c674bad661095ff0",
+      "annotation_db_sha256": "760984e8d402ade6b1105b811532bdd4041e33e66bb5dc204402d4d6a7be8838",
+      "source_file_sha256": "751a00c5109bdf350db75d2d4053e0fd78fea8326c5a38bce95b1ce0d8445ae6",
+      "counter_q_value_max": "0.01",
+      "n_multi_member_groups": "1",
+      "status_annotated": "4",
+      "status_no_go_terms": "0",
+      "status_no_entry": "0",
+      "status_contaminant": "1"
+     },
+     "n_rows": 563,
+     "sha256": "24fd530461300e2f4556e7065052efb431ed700d6d00890e3dca67a33bdf24ad",
+     "go_release": "releases/2026-07-26",
+     "mzlib_release": "none",
+     "not_stored": {
+      "aspect molecular_function": 111,
+      "aspect biological_process": 333,
+      "no term (contaminant)": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "drop_evidence_by_member",
+   "file": "annotation",
+   "edit": "drop_evidence_by_member",
+   "allow_prerelease": true,
+   "input_sha256": "499f292a4253b5ad0a6108f570357379b3829000b0573721956d032d9bceff01",
+   "read": {
+    "error": "IngestError",
+    "message": "fixture1347_go_annotation.tsv: columns are not go's ['protein_group', 'accession_used', 'accession_direct', 'accession_inherited', 'go_id', 'go_name', 'aspect', 'evidence', 'evidence_by_member', 'inherited', 'propagated', 'n_members', 'n_with', 'entrapment_members', 'annotation_status', 'q_value', 'go_release', 'go_obo_sha256', 'annotation_db_sha256']: missing ['evidence_by_member'], unknown []"
+   }
+  },
+  {
+   "name": "add_new_column",
+   "file": "annotation",
+   "edit": "add_new_column",
+   "allow_prerelease": true,
+   "input_sha256": "e8d3cf1441a212d11fbbbcbb9a25220cd6bec378b63eea779f5d7a7e058d9ae8",
+   "read": {
+    "error": "IngestError",
+    "message": "fixture1347_go_annotation.tsv: columns are not go's ['protein_group', 'accession_used', 'accession_direct', 'accession_inherited', 'go_id', 'go_name', 'aspect', 'evidence', 'evidence_by_member', 'inherited', 'propagated', 'n_members', 'n_with', 'entrapment_members', 'annotation_status', 'q_value', 'go_release', 'go_obo_sha256', 'annotation_db_sha256']: missing [], unknown ['new_column']"
+   }
+  },
+  {
+   "name": "entrapment",
+   "file": "annotation",
+   "edit": "entrapment",
+   "allow_prerelease": true,
+   "input_sha256": "6e8a389f44089f5ac9c932af69394663139ab213af43a206feb2fe48fcf64952",
+   "read": {
+    "error": "IngestError",
+    "message": "fixture1347_go_annotation.tsv: row 1 (P68363, GO:0000166): entrapment members 'Random_P12345'. An entrapment protein carries its target's GO (#1271), so no file from an entrapment search is ingested until GO-E1 is answered (dataRepo go 013)."
+   }
+  },
+  {
+   "name": "headers_only",
+   "file": "annotation",
+   "edit": "headers_only",
+   "allow_prerelease": true,
+   "input_sha256": "fed2b6b62b5088e14d04866ff79e4025f9d23a4362fbe96ab83b223c04a9f309",
+   "read": {
+    "error": "IngestError",
+    "message": "fixture1347_go_annotation.tsv: no column header row"
+   }
+  }
+ ]
+}

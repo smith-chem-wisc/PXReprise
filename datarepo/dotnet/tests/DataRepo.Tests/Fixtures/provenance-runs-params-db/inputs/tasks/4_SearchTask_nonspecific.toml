@@ -1,0 +1,6 @@
+TaskType = "Search"
+
+[SearchParameters]
+SearchType = "NonSpecific"
+IterativePepTraining = true
+TCAmbiguity = "RenameProtein"

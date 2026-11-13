@@ -1,0 +1,282 @@
+{
+  "bundle_id": "aeb10630abbcaf72",
+  "dataset_id": "PXD999999",
+  "schema_version": "0.0.13",
+  "qpx_version": "unpinned",
+  "ingester": {
+    "name": "datarepo",
+    "version": "0.32.0",
+    "ingest_path": "0.22.0"
+  },
+  "written_utc": "2026-10-04T14:22:16+00:00",
+  "tables": {
+    "datasets": 1,
+    "samples": 2,
+    "sample_characteristics": 8,
+    "runs": 2,
+    "assays": 2,
+    "psms": 60,
+    "peptidoforms": 40,
+    "protein_groups": 5,
+    "proteins": 62,
+    "ptm_sites": 36,
+    "ptm_stoichiometry": 4,
+    "quant_values": 37,
+    "definitions": 14,
+    "provenance_records": 3,
+    "findings": 6,
+    "metrics": 18,
+    "search_modifications_declared": 4
+  },
+  "sources": [
+    {
+      "role": "manifest_entry",
+      "path": "<manifest_entry>",
+      "kind": "declaration",
+      "sha256": "506a4b86bd8abf6e04289abdb9ceb8ad2f2755762023fa3f3a49df167fe61d84"
+    },
+    {
+      "role": "provenance:04_search",
+      "path": "E:\\CodeReview\\dataRepo\\tests\\data\\work_root\\run_test\\PXD999999\\04_search\\provenance.json",
+      "size_bytes": 2128,
+      "sha256": "72f0043adcbfa3ca61c210f337c054384ee45d3aca21d68f913a869eeb8f099b",
+      "bundle_path": "sources/provenance_04_search.json"
+    },
+    {
+      "role": "provenance:02b_qc",
+      "path": "E:\\CodeReview\\dataRepo\\tests\\data\\work_root\\run_test\\PXD999999\\02b_qc\\provenance.json",
+      "size_bytes": 733,
+      "sha256": "fe88ca90a4dc6060b48366ce8e1427029aac8ea04086c72c7dd13930563f2466",
+      "bundle_path": "sources/provenance_02b_qc.json"
+    },
+    {
+      "role": "provenance:02_fetch",
+      "path": "E:\\CodeReview\\dataRepo\\tests\\data\\work_root\\run_test\\PXD999999\\02_fetch\\provenance.json",
+      "size_bytes": 728,
+      "sha256": "4c3bfcdff1b44fbc9afd72a4242eb3421903c8b0558ab08a119b03820a8e6e73",
+      "bundle_path": "sources/provenance_02_fetch.json"
+    },
+    {
+      "role": "fetch_manifest",
+      "path": "E:\\CodeReview\\dataRepo\\tests\\data\\work_root\\run_test\\PXD999999\\02_fetch\\fetch_manifest.json",
+      "size_bytes": 570,
+      "sha256": "e0f108fb98f0731490fb369071342a3f881fcaa6db94fe5b87e7c15f2f4714f6"
+    },
+    {
+      "role": "qc_report",
+      "path": "E:\\CodeReview\\dataRepo\\tests\\data\\work_root\\run_test\\PXD999999\\02b_qc\\qc_report.json",
+      "size_bytes": 420,
+      "sha256": "3ed29300d0389f0fc4c796cacf4924b90406b5dc4870a984af7cf35dde4d6e60",
+      "bundle_path": "sources/qc_report.json"
+    },
+    {
+      "role": "sdrf",
+      "path": "E:\\CodeReview\\dataRepo\\tests\\data\\work_root\\run_test\\PXD999999\\02_fetch\\metadata\\PXD999999.sdrf.tsv",
+      "size_bytes": 595,
+      "sha256": "fea529035960c31446538496e8a70645a2a5fa3fab760e658d67f9dffdb063b0",
+      "bundle_path": "sources/PXD999999.sdrf.tsv"
+    },
+    {
+      "role": "psms",
+      "path": "E:\\CodeReview\\dataRepo\\tests\\data\\work_root\\run_test\\PXD999999\\04_search\\mm\\Task3SearchTask\\AllPSMs.psmtsv",
+      "size_bytes": 105374,
+      "sha256": "a30f8e6853241fe5c83a31541b833b6d21c61fbd52235667aac71c61e8c361e4"
+    },
+    {
+      "role": "protein_group_quant",
+      "path": "E:\\CodeReview\\dataRepo\\tests\\data\\work_root\\run_test\\PXD999999\\04_search\\mm\\Task3SearchTask\\AllQuantifiedProteinGroups.tsv",
+      "size_bytes": 1511,
+      "sha256": "0f217e75306a82a130478c4369cba76cb7eafcdf51daa3d59951b70560bffc45"
+    },
+    {
+      "role": "protein_database:test_human.xml",
+      "path": "E:\\CodeReview\\dataRepo\\tests\\data\\work_root\\db\\test_human.xml",
+      "size_bytes": 51091,
+      "sha256": "89fb8c7a1140939de96ca740ab818deedd70063d00ac3789976908eec8d8ad6d"
+    },
+    {
+      "role": "protein_database:test_contaminants.xml",
+      "path": "E:\\CodeReview\\dataRepo\\tests\\data\\work_root\\db\\test_contaminants.xml",
+      "size_bytes": 519,
+      "sha256": "2bdb09e718a43e7dfb1123d79586fe9e84bf5197a3d20e0a27ebca0ca9073950"
+    },
+    {
+      "role": "peptides",
+      "path": "E:\\CodeReview\\dataRepo\\tests\\data\\work_root\\run_test\\PXD999999\\04_search\\mm\\Task3SearchTask\\AllPeptides.psmtsv",
+      "size_bytes": 65871,
+      "sha256": "198a6b698592f6a7739790caff734b4acbcbde2829c284a08be2cf901dafe1d1"
+    },
+    {
+      "role": "peaks",
+      "path": "E:\\CodeReview\\dataRepo\\tests\\data\\work_root\\run_test\\PXD999999\\04_search\\mm\\Task3SearchTask\\AllQuantifiedPeaks.tsv",
+      "size_bytes": 860,
+      "sha256": "83a6c96a00b51226c6666ae044a44ac30a32997dab915a092a2c0148d1169483"
+    },
+    {
+      "role": "peptide_quant",
+      "path": "E:\\CodeReview\\dataRepo\\tests\\data\\work_root\\run_test\\PXD999999\\04_search\\mm\\Task3SearchTask\\AllQuantifiedPeptides.tsv",
+      "size_bytes": 2678,
+      "sha256": "c1853d3e2930a959578716e68ab020384d7abe055e1240e079a179060421c59f"
+    },
+    {
+      "role": "task:2_GptmdTask",
+      "path": "E:\\CodeReview\\dataRepo\\tests\\data\\work_root\\run_test\\PXD999999\\04_search\\tasks\\2_GptmdTask.toml",
+      "size_bytes": 243,
+      "sha256": "2b101c26191b5c88bf6ef0c33fca97de5e37085b7c5018d45b5a3b1f75ccd108",
+      "bundle_path": "sources/2_GptmdTask.toml"
+    },
+    {
+      "role": "task:3_SearchTask",
+      "path": "E:\\CodeReview\\dataRepo\\tests\\data\\work_root\\run_test\\PXD999999\\04_search\\tasks\\3_SearchTask.toml",
+      "size_bytes": 148,
+      "sha256": "d8c46aa11880d6ec6c775a160b4b0a7b27f41ba024cf6ddc35408773b886682f",
+      "bundle_path": "sources/3_SearchTask.toml"
+    },
+    {
+      "role": "results_txt",
+      "path": "E:\\CodeReview\\dataRepo\\tests\\data\\work_root\\run_test\\PXD999999\\04_search\\mm\\Task3SearchTask\\results.txt",
+      "size_bytes": 273,
+      "sha256": "8bf7469aecbd8b4b4b774d93283a0e6bfaac35ca0d6735a627570fba6fd71fee",
+      "bundle_path": "sources/results.txt"
+    }
+  ],
+  "instance": "test",
+  "manifest": "tests\\data\\manifest.yaml",
+  "run": "run_test/PXD999999",
+  "provenance_schema": "aging-provenance/2",
+  "metamorpheus": "1.1.11",
+  "licence": "CC-BY-4.0",
+  "credit": "Test Working Group",
+  "readers": [
+    {
+      "file": "PXD999999.sdrf.tsv",
+      "backend": "pymzlib",
+      "rows": 2
+    },
+    {
+      "file": "AllQuantifiedProteinGroups.tsv",
+      "backend": "datarepo-tsv",
+      "rows": 5,
+      "note": "no pyMzLib reader for FlashLFQ's wide tables"
+    },
+    {
+      "file": "AllPSMs.psmtsv",
+      "backend": "pymzlib",
+      "rows": 60
+    },
+    {
+      "file": "AllPeptides.psmtsv",
+      "backend": "pymzlib",
+      "rows": 40
+    },
+    {
+      "file": "AllQuantifiedPeaks.tsv",
+      "backend": "datarepo-tsv",
+      "rows": 6,
+      "note": "pyMzLib's FlashLFQ peak reader requires an 'MBR Score' column MetaMorpheus 1.1.11 does not write"
+    },
+    {
+      "file": "AllQuantifiedPeptides.tsv",
+      "backend": "datarepo-tsv",
+      "rows": 12,
+      "note": "no pyMzLib reader for FlashLFQ's wide tables"
+    },
+    {
+      "file": "results.txt",
+      "backend": "datarepo-text",
+      "rows": 6
+    },
+    {
+      "file": "AllQuantifiedProteinGroups.tsv",
+      "backend": "pymzlib",
+      "rows": 8,
+      "note": "read_occupancy: one record per site entry"
+    }
+  ],
+  "modification_registry": {
+    "source": "E:\\CodeReview\\dataRepo\\tests\\data\\work_root\\mm_settings\\1.1.11",
+    "entries": 9,
+    "files": [
+      "aListOfmods.txt",
+      "ptmlist.txt"
+    ],
+    "unresolved": {
+      "UniProt:N6,N6-dimethyllysine on K": 4,
+      "UniProt:N-acetylglutamate on E": 4,
+      "UniProt:N-acetylalanine on A": 2
+    }
+  },
+  "protein_databases": {
+    "read": [
+      {
+        "path": "E:\\CodeReview\\dataRepo\\tests\\data\\work_root\\db\\test_human.xml",
+        "sha256": "89fb8c7a1140939de96ca740ab818deedd70063d00ac3789976908eec8d8ad6d",
+        "entries": 58
+      },
+      {
+        "path": "E:\\CodeReview\\dataRepo\\tests\\data\\work_root\\db\\test_contaminants.xml",
+        "sha256": "2bdb09e718a43e7dfb1123d79586fe9e84bf5197a3d20e0a27ebca0ca9073950",
+        "entries": 1
+      }
+    ],
+    "missing": [],
+    "unplaced_site_pairs": {},
+    "site_residue_check": {
+      "residue_matches": 36,
+      "wrong_residue": 0,
+      "beyond_length": 0,
+      "no_sequence": 0
+    }
+  },
+  "occupancy": {
+    "read": true,
+    "entries": 8,
+    "rows": 4,
+    "not_stored": {
+      "decoy group": 1,
+      "segment's accession not determinable from the sequences": 1
+    },
+    "truncated_cells": 0,
+    "failed_fields": [],
+    "realigned_cells": 0,
+    "differing_duplicates": []
+  },
+  "reconciliation": [
+    {
+      "name": "psms_target_1pct",
+      "observed": 58,
+      "expected": 58,
+      "source": "results.txt: All target PSMs with q-value <= 0.01 (aging:DEF-PSM-1PCT v1)",
+      "ok": true
+    },
+    {
+      "name": "peptidoforms_target_1pct",
+      "observed": 40,
+      "expected": 40,
+      "source": "results.txt: All target peptides with q-value <= 0.01",
+      "ok": true
+    },
+    {
+      "name": "protein_groups_1pct",
+      "observed": 3,
+      "expected": 3,
+      "source": "results.txt: All target protein groups with q-value <= 0.01",
+      "ok": true
+    },
+    {
+      "name": "runs",
+      "observed": 2,
+      "expected": 2,
+      "source": "ingest manifest: files",
+      "ok": true
+    },
+    {
+      "name": "ms2_spectra",
+      "observed": 300,
+      "expected": 300,
+      "source": "provenance.json id_rate.ms2 / results.txt All MS2 Scans",
+      "ok": true
+    }
+  ],
+  "collapsed_duplicates": []
+}

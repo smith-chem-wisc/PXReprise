@@ -6,4 +6,18 @@
     <Project Path="tests/FakeMetaMorpheus/FakeMetaMorpheus.csproj" />
     <Project Path="tests/PXReprise.Tests/PXReprise.Tests.csproj" />
   </Folder>
+  <Folder Name="/datarepo/src/">
+    <Project Path="datarepo/dotnet/src/DataRepo.Bundle/DataRepo.Bundle.csproj" />
+    <Project Path="datarepo/dotnet/src/DataRepo.Catalog/DataRepo.Catalog.csproj" />
+    <Project Path="datarepo/dotnet/src/DataRepo.Cli/DataRepo.Cli.csproj" />
+    <Project Path="datarepo/dotnet/src/DataRepo.Ingest/DataRepo.Ingest.csproj" />
+    <Project Path="datarepo/dotnet/src/DataRepo.Mcp/DataRepo.Mcp.csproj" />
+    <Project Path="datarepo/dotnet/src/DataRepo.Runner/DataRepo.Runner.csproj" />
+    <Project Path="datarepo/dotnet/src/DataRepo.SchemaGen/DataRepo.SchemaGen.csproj" />
+    <Project Path="datarepo/dotnet/src/DataRepo.Site/DataRepo.Site.csproj" />
+    <Project Path="datarepo/dotnet/src/DataRepo.Study/DataRepo.Study.csproj" />
+  </Folder>
+  <Folder Name="/datarepo/tests/">
+    <Project Path="datarepo/dotnet/tests/DataRepo.Tests/DataRepo.Tests.csproj" />
+  </Folder>
 </Solution>

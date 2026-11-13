@@ -1,0 +1,40 @@
+{
+  "bundle_id": "fc2561f2317e8df7",
+  "kind": "study",
+  "layer": "aging",
+  "layer_version": "0.5.0",
+  "schema_version": "0.0.13",
+  "instance": "catalog-fixture",
+  "delivery": "fixture-1",
+  "ingester": {
+    "name": "datarepo",
+    "version": "0.32.0",
+    "study_ingest_path": "0.6.0"
+  },
+  "written_utc": "2026-10-04T16:25:29+00:00",
+  "tables": {
+    "age_effects": 1,
+    "sample_ages": 2
+  },
+  "sources": [
+    {
+      "role": "table:age_effects",
+      "path": "C:\\Users\\trish\\AppData\\Local\\Temp\\claude\\E--CodeReview-dataRepo\\a65c91f8-a4c5-4af0-bab8-d14125601e3c\\scratchpad\\catalog-port\\fx\\delivery\\age_effects.tsv",
+      "size_bytes": 538,
+      "sha256": "f16130c71d344ce6edf6a871efd007001b021ed451b0715d645fa585034f07df"
+    },
+    {
+      "role": "table:sample_ages",
+      "path": "C:\\Users\\trish\\AppData\\Local\\Temp\\claude\\E--CodeReview-dataRepo\\a65c91f8-a4c5-4af0-bab8-d14125601e3c\\scratchpad\\catalog-port\\fx\\delivery\\sample_ages.tsv",
+      "size_bytes": 258,
+      "sha256": "52d344ffc8650e91b5b998187bf02ae9fa731b44670dc8f3e728a0bffbabcaa5"
+    },
+    {
+      "role": "declaration:study",
+      "path": "<declaration:study>",
+      "kind": "declaration",
+      "sha256": "735d449750729f5326e3e45cf297c0b2335137922e1f402aac67d317c7456cc1"
+    }
+  ],
+  "notes": null
+}

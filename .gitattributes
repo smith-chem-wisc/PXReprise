@@ -4,3 +4,13 @@
 profiles/lists/** -text
 *.mzML -text
 results/designs_*/** -text
+
+# dataRepo moved in under datarepo/ (2026-11-13). Its rules, prefixed: fixture bytes are hashed into expected bundle ids.
+datarepo/docs/schema/*.md text eol=lf
+datarepo/schema/**/*.yaml text eol=lf
+datarepo/**/*.yaml text eol=lf
+datarepo/tests/data/** -text
+datarepo/dotnet/tests/DataRepo.Tests/Fixtures/study/** -text
+datarepo/dotnet/tests/DataRepo.Tests/Fixtures/site/** -text
+datarepo/dotnet/tests/DataRepo.Tests/Fixtures/go-engine/** -text
+datarepo/dotnet/tests/DataRepo.Tests/Fixtures/design-labels/** -text

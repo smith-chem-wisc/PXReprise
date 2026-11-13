@@ -1,0 +1,26 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\DataRepo.Bundle\DataRepo.Bundle.csproj" />
+    <ProjectReference Include="..\DataRepo.Ingest\DataRepo.Ingest.csproj" />
+    <ProjectReference Include="..\DataRepo.Study\DataRepo.Study.csproj" />
+    <ProjectReference Include="..\DataRepo.Site\DataRepo.Site.csproj" />
+    <ProjectReference Include="..\DataRepo.Catalog\DataRepo.Catalog.csproj" />
+    <ProjectReference Include="..\DataRepo.Runner\DataRepo.Runner.csproj" />
+    <ProjectReference Include="..\DataRepo.Mcp\DataRepo.Mcp.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>datarepo</AssemblyName>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!-- DocsTests runs the tutorial's commands through Cli.Run in-process, as docs/getting-started.md shows them. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="DataRepo.Tests" />
+  </ItemGroup>
+
+</Project>

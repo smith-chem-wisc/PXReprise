@@ -1,0 +1,15 @@
+TaskType = "Search"
+
+[SearchParameters]
+SearchType = "Classic"
+TCAmbiguity = "RemoveTarget"
+
+[CommonParameters]
+ListOfModsFixed = "Common Fixed\tCarbamidomethyl on C\t\t\t\tCommon Fixed\tCarbamidomethyl on U\t\t  \t\tNo Category Here"
+ListOfModsVariable = "Common Variable\tOxidation on M\t\tCommon Biological\tAcetylation on X\t\tUniProt\tN6-acetyllysine on K\t\tCommon Biological\tPhosphorylation on S"
+
+[CommonParameters.DigestionParams]
+Protease = "trypsin"
+
+[GptmdParameters]
+ListOfModsGptmd = "Metal\tCalcium on D\t\tCommon Variable\tOxidation on M\t\tLess Common\t Deamidation on N "

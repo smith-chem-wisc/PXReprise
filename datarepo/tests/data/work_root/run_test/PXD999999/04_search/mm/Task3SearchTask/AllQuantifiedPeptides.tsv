@@ -1,0 +1,13 @@
+Sequence	Base Sequence	Protein Groups	Gene Names	Organism	Intensity_QE-002106_GM1_a-calib	Intensity_QE-002107_GM1_b-calib	Detection Type_QE-002106_GM1_a-calib	Detection Type_QE-002107_GM1_b-calib
+VGATAAVYSAAILEYLTAEVLELAGNASK	VGATAAVYSAAILEYLTAEVLELAGNASK	P0C0S5|Q71UI9	primary:H2AZ1, synonym:H2AFZ, synonym:H2AZ|primary:H2AZ2, synonym:H2AFV, synonym:H2AV	Homo sapiens	100000.0	0.0	MSMS	NotDetected
+DDEAAAVALSSLIHALDDLDMVAIVR	DDEAAAVALSSLIHALDDLDMVAIVR	P13010	primary:XRCC5, synonym:G22P2	Homo sapiens	200000.0	400000.0	MBR	MSMS
+HYAHTDC[Common Fixed:Carbamidomethyl on C]PGHADYVK	HYAHTDCPGHADYVK	P49411	primary:TUFM	Homo sapiens	300000.0	600000.0	MSMS	MSMS
+ILDDEAAQELMPVVAGAVFTLTAHLSQAVLTEQK	ILDDEAAQELMPVVAGAVFTLTAHLSQAVLTEQK	Q92621	primary:NUP205, synonym:C7orf14, synonym:KIAA0225	Homo sapiens	0.0	0.0	NotDetected	NotDetected
+MTQIMFETFNVPAMYVAIQAVLSLYASGR	MTQIMFETFNVPAMYVAIQAVLSLYASGR	P68032	primary:ACTC1, synonym:ACTC	Homo sapiens	500000.0	1000000.0	MSMS	MSMS
+GGSGGSYGGGGSGGGYGGGSGSR	GGSGGSYGGGGSGGGYGGGSGSR	P35527	primary:KRT9	Homo sapiens	600000.0	1200000.0	MBR	MSMS
+FQSSAVMALQEAC[Common Fixed:Carbamidomethyl on C]EAYLVGLFEDTNLC[Common Fixed:Carbamidomethyl on C]AIHAK	FQSSAVMALQEACEAYLVGLFEDTNLCAIHAK	P68431	primary:H3C1, synonym:H3FA, synonym:HIST1H3A, primary:H3C2, synonym:H3FL, synonym:HIST1H3B, primary:H3C3, synonym:H3FC HIST1H3C, primary:H3C4, synonym:H3FB, synonym:HIST1H3D, primary:H3C6, synonym:H3FD, synonym:HIST1H3E, primary:H3C7, synonym:H3FI, synonym:HIST1H3F, primary:H3C8, synonym:H3FH, synonym:HIST1H3G, primary:H3C10, synonym:H3FK, synonym:HIST1H3H, primary:H3C11, synonym:H3FF, synonym:HIST1H3I, primary:H3C12, synonym:H3FJ, synonym:HIST1H3J	Homo sapiens	700000.0	0.0	MSMS	NotDetected
+PLLMEEISTVLQYVVGR	PLLMEEISTVLQYVVGR	Q92621	primary:NUP205, synonym:C7orf14, synonym:KIAA0225	Homo sapiens	0.0	1600000.0	NotDetected	MSMS
+[Common Artifact:Ammonia loss on C]C[Common Fixed:Carbamidomethyl on C]TLEAGAMTFHYIIEQGVC[Common Fixed:Carbamidomethyl on C]YLVLC[Common Fixed:Carbamidomethyl on C]EAAFPK	CTLEAGAMTFHYIIEQGVCYLVLCEAAFPK	O75396	primary:SEC22B, synonym:SEC22L1	Homo sapiens	900000.0	1800000.0	MSMS	MSMS
+GISEFIVMAADAEPLEIILHLPLLC[Common Fixed:Carbamidomethyl on C]EDK	GISEFIVMAADAEPLEIILHLPLLCEDK	P55769	primary:SNU13, synonym:NHP2L1	Homo sapiens	1000000.0	0.0	MBR	NotDetected
+[UniProt:N-acetylglutamate on E]EEEIAALVIDN[Common Artifact:Deamidation on N]GSGMC[Common Fixed:Carbamidomethyl on C]K	EEEIAALVIDNGSGMCK	P63261	primary:ACTG1, synonym:ACTG	Homo sapiens	1100000.0	2200000.0	MSMS	MSMS
+GLIDGVVEADLVEALQEFGPISYVVVMPK	GLIDGVVEADLVEALQEFGPISYVVVMPK	P14866	primary:HNRNPL, synonym:HNRPL, ORF:P/OKcl.14	Homo sapiens	0.0	2400000.0	NotDetected	MSMS

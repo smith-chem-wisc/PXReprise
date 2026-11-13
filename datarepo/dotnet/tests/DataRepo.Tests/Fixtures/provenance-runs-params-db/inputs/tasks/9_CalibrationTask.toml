@@ -1,0 +1,4 @@
+TaskType = "Calibrate"
+
+[CommonParameters]
+ListOfModsFixed = "Common Fixed\tCarbamidomethyl on C"

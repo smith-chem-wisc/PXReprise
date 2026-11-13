@@ -1,0 +1,8 @@
+TaskType = "Gptmd"
+
+[GptmdParameters]
+ListOfModsGptmd = "Common Biological	Hydroxylation on K		Metal	Calcium on D"
+
+[CommonParameters]
+ListOfModsFixed = "Common Fixed	Carbamidomethyl on C"
+ListOfModsVariable = "Common Variable	Oxidation on M"

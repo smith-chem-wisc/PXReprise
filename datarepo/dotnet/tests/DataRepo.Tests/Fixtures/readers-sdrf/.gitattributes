@@ -1,0 +1,2 @@
+# The inputs test line-end handling (CR, LF, CRLF, BOM), so their bytes must not move on checkout.
+* -text

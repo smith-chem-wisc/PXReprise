@@ -1,0 +1,5 @@
+TaskType = "Search"
+
+[CommonParameters]
+ListOfModsFixed = "Common Fixed	Carbamidomethyl on C"
+ListOfModsVariable = "Common Variable	Oxidation on M"

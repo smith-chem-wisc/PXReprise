@@ -1,0 +1,39 @@
+{
+ "schema": "aging-provenance/2",
+ "stage": "qc_spectra",
+ "started_utc": "2026-09-18T00:00:00+00:00",
+ "finished_utc": "2026-09-18T00:10:00+00:00",
+ "host": {
+  "node": "test"
+ },
+ "pipeline": {
+  "repo": "trishorts/aging",
+  "commit": "0000000000000000000000000000000000000000"
+ },
+ "params_file": {
+  "path": "params.json",
+  "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+ },
+ "params": {
+  "metamorpheus_version": "1.1.11",
+  "tasks": [
+   "Calibration",
+   "Gptmd",
+   "Search"
+  ]
+ },
+ "tools": {
+  "MetaMorpheus": {
+   "release": "1.1.11"
+  }
+ },
+ "roots": {
+  "work_root": "tests\\data\\work_root"
+ },
+ "resources": {
+  "wall_s": 60.0,
+  "peak_rss_gib": 1.0
+ },
+ "inputs": [],
+ "outputs": []
+}
