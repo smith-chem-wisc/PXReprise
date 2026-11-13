@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/PXReprise/PXReprise.csproj" />
+    <Project Path="src/PXReprise.Storage/PXReprise.Storage.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/FakeMetaMorpheus/FakeMetaMorpheus.csproj" />
@@ -14,6 +15,7 @@
     <Project Path="datarepo/dotnet/src/DataRepo.Mcp/DataRepo.Mcp.csproj" />
     <Project Path="datarepo/dotnet/src/DataRepo.Runner/DataRepo.Runner.csproj" />
     <Project Path="datarepo/dotnet/src/DataRepo.SchemaGen/DataRepo.SchemaGen.csproj" />
+    <Project Path="datarepo/dotnet/src/DataRepo.Storage/DataRepo.Storage.csproj" />
     <Project Path="datarepo/dotnet/src/DataRepo.Site/DataRepo.Site.csproj" />
     <Project Path="datarepo/dotnet/src/DataRepo.Study/DataRepo.Study.csproj" />
   </Folder>

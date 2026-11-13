@@ -3,6 +3,7 @@ using System.Text.Json;
 using DataRepo.Bundle;
 using DataRepo.Storage;
 using ParquetSharp;
+using PXReprise.Storage;
 
 namespace DataRepo.Tests;
 
@@ -117,7 +118,8 @@ public class StorageTests
     {
         using var store = new LocalStore(Sub("store"));
         var a = FileWith("one");
-        Assert.ThrowsAsync<DataRepoException>(() => store.WriteOnceAsync("x.txt", a, new string('0', 64)));
+        // PXReprise.Storage reports the bytes changing under the writer as an IOException (it knows nothing of dataRepo).
+        Assert.ThrowsAsync<IOException>(() => store.WriteOnceAsync("x.txt", a, new string('0', 64)));
         Assert.That(Directory.EnumerateFiles(Sub("store"), "*", SearchOption.AllDirectories), Is.Empty, "no partial file is left");
     }
 

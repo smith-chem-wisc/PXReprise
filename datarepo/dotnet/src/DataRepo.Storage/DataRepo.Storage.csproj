@@ -8,14 +8,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DataRepo.Bundle\DataRepo.Bundle.csproj" />
-  </ItemGroup>
-
-  <!-- S3 is one of the two backends. SSO and SSOOIDC let the default credential chain use an `aws configure sso`
-       profile (AWS_PROFILE), which is how lab members sign in; no key is ever stored by dataRepo. -->
-  <ItemGroup>
-    <PackageReference Include="AWSSDK.S3" Version="4.0.104.12" />
-    <PackageReference Include="AWSSDK.SSO" Version="4.0.100.27" />
-    <PackageReference Include="AWSSDK.SSOOIDC" Version="4.0.100.26" />
+    <!-- The store itself (folder or S3, write-once) is PXReprise's, shared with the spectral library sync
+         (2026-11-13). This project keeps only what knows bundles: StoreTransfer. -->
+    <ProjectReference Include="..\..\..\..\src\PXReprise.Storage\PXReprise.Storage.csproj" />
   </ItemGroup>
 
   <ItemGroup>
