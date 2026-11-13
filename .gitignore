@@ -37,3 +37,5 @@ __pycache__/
 # Written by the examples, and each user's own machine file
 examples/*/work/
 machines/my-*.toml
+# dataRepo's test fixtures include protein databases (2026-11-13): they are inputs, not downloads.
+!tests/PXReprise.Data.Tests/Fixtures/**/*.fasta
