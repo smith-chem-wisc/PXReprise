@@ -4,6 +4,86 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
+## [1.5.0] - unreleased
+
+**One new ingest path, `cs-1.3.0`, and schema 0.0.17, so an instance re-ingests once.** Fragment ions are in every
+bundle, each search's own confidence rule decides what passes 1%, and PRIDE's records are served beside the bundles. Built
+against mzLib 1.0.598. The catalog format is 17 and the aging study layer 0.7.0. A catalog refuses to mix 0.0.16 and
+0.0.17 bundles or engine artefacts, so an instance keeps serving its last 1.4.x catalog until the whole store is
+re-ingested and every engine run again. On aging's store that is **6 h 14 min of ingest** at three at a time (192 of 197
+deposits; the other five are refused, below), about 7 h with the engines and the first build, and every difference from
+the 1.4.5 catalog is explained (`results/reingest_150_2026-11-12/`). No re-search is needed, except for a multiplex
+search by MetaMorpheus 1.1.13 or earlier.
+
+### Added (ingest, `cs-1.3.0`)
+- **`peptidoform_ions`**: the six `Matched Ion *` columns of the best PSM of each peptidoform, verbatim, with
+  `selected_by`, for the peptidoforms that pass the search's confidence rule (below). Contaminants are left out, as
+  `peptidoforms_1pct` leaves them, and an ambiguous row is kept under its first option, whose ions MetaMorpheus writes. A
+  bundle with no passing peptidoform writes none and still builds. On aging's store: 8,407,167 rows, 2.7 GB.
+- **Each search's confidence rule, recorded at ingest.** `datasets.confidence_rule` is `pep_q_value` where the search
+  computed PEP and `q_value_notch` where it did not (mzLib's `QuantifiedPsmRule`, decided from target PSMs), and
+  `peptidoforms.best_pep_q_value` is new. A value passes when strictly below 0.01. Two findings: `confidence_rule_fallback`
+  (no PEP trained) and `confidence_rule_fewer_peptides` (the rule passes fewer peptidoforms than the q-value would).
+- **Per-run counts from PXReprise's QC payload.** `metrics` rows `psms`, `peptides` and `protein_groups` per run, as
+  `*_1pct_whole_search` with `source = 'qc_payload.json'`, read only from a payload stage whose record names the bundle's
+  search by sha256. results.txt's own per-run rows now cite `aging:DEF-*-1PCT-RUN`. An info finding,
+  `run_counts_missing`, names any per-run count results.txt did not write and where it is; four `qc_payload_*` findings
+  name what a payload left out.
+- **TMT and iTRAQ channels.** `assays.plex`, `assays.design_sample_type` (the design's `Sample Type`, verbatim) and
+  `runs.reporter_level` (from the QC report's `sps_ms3`). **An `empty` channel is an assay with its values and no sample**,
+  so `assays.sample_id` can be NULL. Isobaric reader 4.
+- **`table_sha256` in `bundle.json`**, one sha256 per table file, and **`datarepo verify`**, which re-hashes a bundle's
+  tables and copied sources on demand and names each changed, missing or extra file. A bundle with no table checksums is
+  reported not verified, never passed.
+
+### Changed (ingest, `cs-1.3.0`)
+- **mzLib 1.0.598 moves some peptidoform keys.** A modification UniProt names, which mzLib now links to Unimod
+  (#1416, #1524), is keyed by its Unimod accession in place of a mass tag: 69 of 64,731 keys in PXD011740, 967 of
+  360,551 in PXD034564. Where a search wrote one peptide both ways, the two keys merge (one key each in four of aging's
+  deposits). `unresolved_modifications` no longer fires on 15 of aging's MetaMorpheus 1.1.14 deposits.
+- **A multiplex search by MetaMorpheus 1.1.13 or earlier, or of unknown release, is refused** (MetaMorpheus #2941, fixed
+  in 1.1.14): re-search it. This replaces the `isobaric_peptide_q_psm_level` warning and the build's #2941 exception.
+- `samples.condition` is described as what it holds (the disease's name from `characteristics[disease]`, nothing else),
+  `sample_characteristics.source` is described anew, and `runs.fraction_source` lists `community sdrf`.
+
+### Removed
+- `psms.matched_ion_series` and `psms.matched_ion_count`. They were never filled; the ions are in `peptidoform_ions`.
+
+### Added (catalog, format 17)
+- **`peptidoforms_1pct` follows each search's recorded rule**, with `dataset_overview.confidence_rule` beside
+  `n_peptidoforms_1pct`. A NULL value or a rule the view does not name passes nothing. It is not the producer's peptide
+  count. The reconciliation and `metrics` stay on the q-value rule. On aging's store: 6,714,143 rows become 8,407,134.
+- **PRIDE records.** `datarepo pride --store <store> [PXD...]` keeps each deposit's PRIDE record beside the bundles
+  (`<store>/_companion/pride/`), add-only. `build` reads the newest per deposit and fetches nothing. Tables
+  `deposit_records`, `deposit_contacts` (PRIDE's fields as published, e-mail included) and `deposit_references`, and the
+  view `shared_raw_files` (runs whose raw file appears more than once). Each record's sha256 is in the catalog id. `build`
+  prints a `pride` line counting the deposits with a record.
+- **`isobaric_channels`** (each channel's plex, sample and role) and **`dataset_overview.quant_scale`**
+  (`label_free_apex`, `reporter_ms2`, `reporter_ms3`; `reporter_level_mixed` or `reporter_level_not_recorded`, never a
+  guess).
+- **aging study layer 0.7.0:** `method_scope` in `age_effect_meta`'s key, `method_term_ids`, and
+  `age_effect_method_terms`, one row per (isobaric dataset, response). A study bundle written at 0.6.0 is refused by the
+  build until `datarepo study` writes it again.
+
+### Changed (engines)
+- **`logs.resolve_genes` writes `logs:DEF-GENE-RESOLUTION v2`**, on every row, in `run.json` and in the artefact id,
+  with the new column `gene_resolutions.ensembl_xref_agreement` (`agrees`, `silent` or `disagrees`, from mzLib's
+  resolver). A resolver that writes no such column is refused.
+
+### Upgrading
+- Re-ingest every dataset. Then run every engine again over every re-ingested dataset: `logs.register_orthology`,
+  `logs.resolve_genes` for each species over all of that species' datasets, and `go.annotate_groups`. Run `datarepo
+  pride` for the PRIDE tables and `datarepo study` for an aging study bundle. Then build.
+- **Read the build's `note` lines before serving the catalog.** On aging's store, a replay of each old gene artefact for
+  the datasets it was first requested for left two databases unresolved, and six deposits lost almost all their gene
+  names. The build passed every check and said so only in a `logs.resolve_genes coverage` note.
+
+### Known limits
+- **Sample sheets are not in this release.** Keeping every SDRF made for a deposit beside its bundle, and the search's own
+  SDRF in it, ships in the next release.
+- **go's annotation still skips isobaric deposits.** It reads only `AllQuantifiedProteinGroups.tsv`; reading an isobaric
+  search's `AllProteinGroups.tsv` waits on go's definition and follows in a later release.
+
 ## [1.4.5] - 2026-11-09
 
 **No row moves and no bundle id moves.** The ingest path stays `cs-1.2.0` and the schema 0.0.16; the catalog format goes
