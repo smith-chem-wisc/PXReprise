@@ -29,10 +29,16 @@ the chains seeded or pulled first (below).
   - The store layer is its own project, `src/PXReprise.Storage` (write-once to a folder or S3), shared with
     `datarepo push` / `pull`.
   - Not yet: `.msl` libraries (MSL 003-007).
-- **dataRepo moves into this repository** (diabetes 004; dataRepo D62), under `datarepo/`, from smith-chem-wisc/dataRepo
-  `d8978d5` (its v1.4.5 code). Its C# only: the frozen Python, its tests and tools stay in dataRepo. `PXReprise.slnx`
-  builds and tests both. The `datarepo` program, its verbs, ingest path and schema are unchanged, so no bundle id moves;
-  the machine file's `datarepo` still names a released datarepo install.
+- **dataRepo moves into this repository** (diabetes 004; dataRepo D62), from smith-chem-wisc/dataRepo `d8978d5` (its
+  v1.4.5 code). Its C# only: the frozen Python, its tests and tools stay in dataRepo. Its projects are PXReprise
+  projects now:
+  - `src/PXReprise.Bundle`, `.Ingest`, `.Catalog`, `.Study`, `.Site`, `.Runner`, `.Mcp` and `.SchemaGen` (namespaces
+    `PXReprise.*`, were `DataRepo.*`); the command line is `src/PXReprise.DataCli` and still builds `datarepo`;
+    `src/Data.Build.props` holds their version line.
+  - Tests: `tests/PXReprise.Data.Tests`, and the fixture instance `tests/datarepo-instance`. Schema and examples:
+    `schemas/datarepo/`. Docs: `docs/data/` (dataRepo's README as `datarepo.md`, its CHANGELOG beside it).
+  - `PXReprise.slnx` builds and tests everything. The `datarepo` program, its verbs, ingest path and schema are
+    unchanged, so no bundle id moves; the machine file's `datarepo` still names a released datarepo install.
   - `datarepo push <store> --store <local>` and `datarepo pull` (dataRepo's draft, `feat/storage-push-pull`) copy bundles,
     engine outputs and study deliveries between a local store and a shared one, write-once, each folder's record file
     last, every file checked against `bundle.json` first. Not for real bundles before the 1.5.0 re-ingest.

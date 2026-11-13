@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- datarepo's version line (stamped by a datarepo release build), shared by every data project. -->
+  <Import Project="..\Data.Build.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PXReprise.Bundle\PXReprise.Bundle.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DuckDB.NET.Data.Full" Version="1.5.5" />
+  </ItemGroup>
+
+</Project>

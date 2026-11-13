@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- datarepo's version line (stamped by a datarepo release build), shared by every data project. -->
+  <Import Project="..\Data.Build.props" />
+
+  <ItemGroup>
+    <ProjectReference Include="..\PXReprise.Catalog\PXReprise.Catalog.csproj" />
+    <ProjectReference Include="..\PXReprise.Ingest\PXReprise.Ingest.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>
