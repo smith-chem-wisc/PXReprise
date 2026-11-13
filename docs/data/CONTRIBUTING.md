@@ -63,10 +63,10 @@ python tools/build_cli_docs.py                       # after changing a command'
 that matter (a zero intensity, a `NotDetected` cell, a q-value of exactly zero, a decoy group, a
 contaminant group). Add to it rather than mocking a reader.
 
-Read [docs/ingest.md](docs/ingest.md) first; it says what each rule is for.
+Read [ingest.md](ingest.md) first; it says what each rule is for.
 
 If a change affects which benchmark questions can be answered, update
-[`design/SCHEMA_COVERAGE.md`](design/SCHEMA_COVERAGE.md).
+[`design/SCHEMA_COVERAGE.md`](https://github.com/smith-chem-wisc/dataRepo/blob/master/design/SCHEMA_COVERAGE.md).
 
 ## Style
 
@@ -78,4 +78,4 @@ If a change affects which benchmark questions can be answered, update
 ## Asking or proposing
 
 Open a GitHub issue. Requests between dataRepo and its sibling projects go through the thread folders
-([`design/threads/`](design/threads/)), whose convention is described in the aging repo.
+([`design/threads/`](https://github.com/smith-chem-wisc/dataRepo/tree/master/design/threads)), whose convention is described in the aging repo.
