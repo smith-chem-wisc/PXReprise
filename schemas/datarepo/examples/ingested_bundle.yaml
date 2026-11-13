@@ -38,6 +38,7 @@ datasets:
   pipeline_commit: '0000000000000000000000000000000000000000'
   searches:
   - gptmd
+  confidence_rule: pep_q_value
 definitions:
 - definition_id: aging:DEF-PSM-1PCT
   version: v1
@@ -100,6 +101,16 @@ findings:
     individual are all absent. Sample-level questions cannot be answered for this dataset until it is
     curated.'
   source: datarepo ingest
+- finding_id: PXD999999:run_counts_missing
+  dataset_id: PXD999999
+  code: run_counts_missing
+  severity: info
+  status: open
+  message: No per-run `metrics` row from results.txt for `psms_1pct` (2 of 2 runs), `peptides` (2 of 2
+    runs), `protein_groups` (2 of 2 runs), `precursors` (2 of 2 runs). These counts were not written,
+    which is not a count of zero. results.txt has no per-file line naming these runs. No QC payload of
+    this search gives these runs a whole-search count either.
+  source: datarepo ingest
 - finding_id: PXD999999:occupancy_not_stored
   dataset_id: PXD999999
   code: occupancy_not_stored
@@ -113,14 +124,6 @@ findings:
     that already has a row: one with identical values loses nothing; one with DIFFERENT values means MetaMorpheus
     wrote two answers and the first in file order was stored (examples in bundle.json occupancy.differing_duplicates;
     which one should be stored is QuantProject''s to define).'
-  source: datarepo ingest
-- finding_id: PXD999999:occupancy_decoy_groups
-  dataset_id: PXD999999
-  code: occupancy_decoy_groups
-  severity: info
-  status: open
-  message: '1 occupancy entries on decoy protein groups were not stored: MetaMorpheus computes them, and
-    they are FDR machinery, not biology.'
   source: datarepo ingest
 metrics:
 - scope: dataset
@@ -153,6 +156,134 @@ metrics:
   value: 4.0
   definition_id: QuantProject:DEF-QC-MBR
   source: provenance.json mbr (QuantProject DEF-QC-MBR v1)
+peptidoform_ions:
+- dataset_id: PXD999999
+  peptidoform_id: PXD999999:VGATAAVYSAAILEYLTAEVLELAGNASK
+  full_sequence: VGATAAVYSAAILEYLTAEVLELAGNASK
+  selected_by: pep_q_value
+  pep_q_value: 0.0002913752913752914
+  q_value_notch: 0.000533
+  matched_ion_series: '[y2+1, y3+1, y4+1, y5+1, y6+1, y7+1, y8+1, y9+1, y10+1, y11+1, y12+1, y13+1, y14+1,
+    y15+1];[b3+1, b4+1, b5+1, b6+1, b7+1, b8+1, b9+1, b10+1, b11+1, b12+1, b13+1, b14+1, b15+2]'
+  matched_ion_mz: '[y2+1:234.14421, y3+1:305.18131, y4+1:419.22524, y5+1:476.24507, y6+1:547.28194, y7+1:660.36489,
+    y8+1:789.40809, y9+1:902.49063, y10+1:1001.56026, y11+1:1130.60391, y12+1:1201.63918, y13+1:1302.68641,
+    y14+1:1415.76871, y15+1:1578.83861];[b3+1:228.13368, b4+1:329.18114, b5+1:400.21810, b6+1:471.25662,
+    b7+1:570.32346, b8+1:733.38879, b9+1:820.41629, b10+1:891.45424, b11+1:962.49276, b12+1:1075.57600,
+    b13+1:1188.66136, b14+1:1317.70431, b15+2:740.88861]'
+  matched_ion_mass_diff_da: '[y2+1:-0.00062, y3+1:-0.00064, y4+1:0.00037, y5+1:-0.00127, y6+1:-0.00151,
+    y7+1:-0.00262, y8+1:-0.00202, y9+1:-0.00355, y10+1:-0.00233, y11+1:-0.00127, y12+1:-0.00311, y13+1:-0.00356,
+    y14+1:-0.00533, y15+1:0.00125];[b3+1:-0.00059, b4+1:-0.00080, b5+1:-0.00096, b6+1:0.00045, b7+1:-0.00112,
+    b8+1:0.00087, b9+1:-0.00365, b10+1:-0.00282, b11+1:-0.00141, b12+1:-0.00224, b13+1:-0.00094, b14+1:-0.00058,
+    b15+2:0.00172]'
+  matched_ion_mass_diff_ppm: '[y2+1:-2.67, y3+1:-2.09, y4+1:0.87, y5+1:-2.66, y6+1:-2.77, y7+1:-3.98,
+    y8+1:-2.56, y9+1:-3.93, y10+1:-2.33, y11+1:-1.13, y12+1:-2.59, y13+1:-2.73, y14+1:-3.77, y15+1:0.79];[b3+1:-2.59,
+    b4+1:-2.44, b5+1:-2.42, b6+1:0.95, b7+1:-1.97, b8+1:1.19, b9+1:-4.46, b10+1:-3.16, b11+1:-1.47, b12+1:-2.08,
+    b13+1:-0.79, b14+1:-0.44, b15+2:1.16]'
+  matched_ion_intensities: '[y2+1:79456, y3+1:56235, y4+1:56859, y5+1:207686, y6+1:169199, y7+1:124841,
+    y8+1:113660, y9+1:127034, y10+1:61869, y11+1:67814, y12+1:58966, y13+1:74482, y14+1:20131, y15+1:13064];[b3+1:17051,
+    b4+1:16112, b5+1:32975, b6+1:96733, b7+1:63113, b8+1:33940, b9+1:15952, b10+1:23746, b11+1:100535,
+    b12+1:79995, b13+1:20307, b14+1:39393, b15+2:11435]'
+  matched_ion_counts: '27'
+- dataset_id: PXD999999
+  peptidoform_id: PXD999999:DDEAAAVALSSLIHALDDLDMVAIVR
+  full_sequence: DDEAAAVALSSLIHALDDLDMVAIVR
+  selected_by: pep_q_value
+  pep_q_value: 0.0002913752913752914
+  q_value_notch: 0.000533
+  matched_ion_series: '[b2+1, b3+1, b4+1, b5+1, b6+1, b7+1, b8+1, b9+1];[y2+1, y4+1, y5+1, y6+1, y7+1,
+    y8+1, y9+1, y10+1, y11+1, y12+1, y13+1, y14+1, y15+1, y16+1, y17+1, y18+1, y19+1]'
+  matched_ion_mz: '[b2+1:231.06037, b3+1:360.10537, b4+1:431.13974, b5+1:502.17791, b6+1:573.21357, b7+1:672.28117,
+    b8+1:743.32404, b9+1:856.41246];[y2+1:274.18811, y4+1:458.30963, y5+1:557.37755, y6+1:688.41650, y7+1:803.44197,
+    y8+1:916.52795, y9+1:1031.55704, y10+1:1146.58510, y11+1:1259.66266, y12+1:1330.69958, y13+1:1467.76176,
+    y14+1:1580.83976, y15+1:1693.89869, y16+1:1780.92654, y17+1:1867.98697, y18+1:1981.08079, y19+1:2052.11417]'
+  matched_ion_mass_diff_da: '[b2+1:-0.00079, b3+1:0.00161, b4+1:-0.00113, b5+1:-0.00007, b6+1:-0.00153,
+    b7+1:-0.00234, b8+1:0.00341, b9+1:0.00777];[y2+1:0.00075, y4+1:0.00109, y5+1:0.00059, y6+1:-0.00094,
+    y7+1:-0.00241, y8+1:-0.00050, y9+1:0.00165, y10+1:0.00277, y11+1:-0.00374, y12+1:-0.00393, y13+1:-0.00066,
+    y14+1:-0.00673, y15+1:-0.03186, y16+1:-0.03605, y17+1:-0.00764, y18+1:0.00211, y19+1:-0.00162]'
+  matched_ion_mass_diff_ppm: '[b2+1:-3.42, b3+1:4.48, b4+1:-2.63, b5+1:-0.14, b6+1:-2.67, b7+1:-3.49,
+    b8+1:4.60, b9+1:9.08];[y2+1:2.74, y4+1:2.38, y5+1:1.06, y6+1:-1.37, y7+1:-3.01, y8+1:-0.55, y9+1:1.60,
+    y10+1:2.41, y11+1:-2.97, y12+1:-2.95, y13+1:-0.45, y14+1:-4.26, y15+1:-18.82, y16+1:-20.25, y17+1:-4.09,
+    y18+1:1.07, y19+1:-0.79]'
+  matched_ion_intensities: '[b2+1:6348, b3+1:12441, b4+1:18043, b5+1:23348, b6+1:43656, b7+1:25870, b8+1:22235,
+    b9+1:10692];[y2+1:4920, y4+1:8820, y5+1:6354, y6+1:40375, y7+1:6602, y8+1:25039, y9+1:23993, y10+1:12616,
+    y11+1:22889, y12+1:33883, y13+1:48530, y14+1:21289, y15+1:8486, y16+1:12588, y17+1:21487, y18+1:10511,
+    y19+1:11845]'
+  matched_ion_counts: '25'
+- dataset_id: PXD999999
+  peptidoform_id: PXD999999:HYAHTDC[UNIMOD:4]PGHADYVK
+  full_sequence: HYAHTDC[Common Fixed:Carbamidomethyl on C]PGHADYVK
+  selected_by: pep_q_value
+  pep_q_value: 0.0002913752913752914
+  q_value_notch: 0.000533
+  matched_ion_series: '[y1+1, y2+1, y3+1, y4+1, y5+1, y6+1, y7+1, y8+1, y9+1, y10+1, y11+1, y12+1, y13+1,
+    y14+1];[b2+1, b3+1, b4+1, b5+1, b6+1, b7+1, b9+1, b10+1, b11+2, b12+2, b13+2]'
+  matched_ion_mz: '[y1+1:147.11260, y2+1:246.18140, y3+1:409.24374, y4+1:524.27324, y5+1:595.31128, y6+1:732.37090,
+    y7+1:789.38864, y8+1:886.44997, y9+1:1046.47680, y10+1:1161.49883, y11+1:1262.54910, y12+1:1399.59700,
+    y13+1:1470.64162, y14+1:1633.69151];[b2+1:301.12909, b3+1:372.16500, b4+1:509.22852, b5+1:610.26317,
+    b6+1:725.29828, b7+1:885.33888, b9+1:1039.41111, b10+1:1176.45938, b11+2:624.25397, b12+2:681.76672,
+    b13+2:763.30272]'
+  matched_ion_mass_diff_da: '[y1+1:-0.00021, y2+1:0.00018, y3+1:-0.00081, y4+1:0.00175, y5+1:0.00268,
+    y6+1:0.00339, y7+1:-0.00034, y8+1:0.00822, y9+1:0.00441, y10+1:-0.00051, y11+1:0.00209, y12+1:-0.00893,
+    y13+1:-0.00142, y14+1:-0.01485];[b2+1:-0.00043, b3+1:-0.00163, b4+1:0.00298, b5+1:-0.01005, b6+1:-0.00188,
+    b7+1:0.00807, b9+1:0.00607, b10+1:-0.00457, b11+2:-0.00039, b12+2:-0.00186, b13+2:0.00682]'
+  matched_ion_mass_diff_ppm: '[y1+1:-1.41, y2+1:0.72, y3+1:-1.98, y4+1:3.34, y5+1:4.51, y6+1:4.63, y7+1:-0.43,
+    y8+1:9.29, y9+1:4.22, y10+1:-0.44, y11+1:1.65, y12+1:-6.38, y13+1:-0.96, y14+1:-9.10];[b2+1:-1.43,
+    b3+1:-4.40, b4+1:5.86, b5+1:-16.50, b6+1:-2.60, b7+1:9.13, b9+1:5.85, b10+1:-3.89, b11+2:-0.32, b12+2:-1.36,
+    b13+2:4.47]'
+  matched_ion_intensities: '[y1+1:6857, y2+1:5715, y3+1:9022, y4+1:6805, y5+1:5168, y6+1:2944, y7+1:3018,
+    y8+1:14737, y9+1:9096, y10+1:7508, y11+1:12488, y12+1:8691, y13+1:16395, y14+1:3541];[b2+1:58076,
+    b3+1:15321, b4+1:3088, b5+1:3741, b6+1:8599, b7+1:5436, b9+1:6933, b10+1:3529, b11+2:4271, b12+2:31504,
+    b13+2:7757]'
+  matched_ion_counts: '25'
+- dataset_id: PXD999999
+  peptidoform_id: PXD999999:ILDDEAAQELMPVVAGAVFTLTAHLSQAVLTEQK
+  full_sequence: ILDDEAAQELMPVVAGAVFTLTAHLSQAVLTEQK
+  selected_by: pep_q_value
+  pep_q_value: 0.0002913752913752914
+  q_value_notch: 0.000533
+  matched_ion_series: '[y2+1, y3+1, y4+1, y5+1, y6+1, y7+1, y8+1, y9+1, y10+1, y11+1, y12+1, y13+1, y14+1,
+    y15+1, y16+1, y17+1, y18+1, y19+1, y20+1, y23+1];[b3+1, b4+1, b6+1, b8+1, b9+1]'
+  matched_ion_mz: '[y2+1:275.16997, y3+1:404.21270, y4+1:505.26199, y5+1:618.34323, y6+1:717.42004, y7+1:788.45585,
+    y8+1:916.51329, y9+1:1003.53972, y10+1:1116.62039, y11+1:1253.68251, y12+1:1324.71185, y13+1:1425.78419,
+    y14+1:1538.84385, y15+1:1639.92177, y16+1:1786.95161, y17+1:1886.03070, y18+1:1957.05491, y19+1:2014.09113,
+    y20+1:2085.13100, y23+1:2380.33485];[b3+1:342.20292, b4+1:457.23104, b6+1:657.31315, b8+1:856.40774,
+    b9+1:985.45011]'
+  matched_ion_mass_diff_da: '[y2+1:-0.00141, y3+1:-0.00128, y4+1:0.00034, y5+1:-0.00249, y6+1:0.00591,
+    y7+1:0.00460, y8+1:0.00347, y9+1:-0.00213, y10+1:-0.00552, y11+1:-0.00232, y12+1:-0.01009, y13+1:0.01457,
+    y14+1:-0.00984, y15+1:0.02041, y16+1:-0.01816, y17+1:-0.00749, y18+1:-0.02039, y19+1:-0.00564, y20+1:-0.00288,
+    y23+1:0.01138];[b3+1:0.00058, b4+1:0.00175, b6+1:0.00415, b8+1:0.00306, b9+1:0.00282]'
+  matched_ion_mass_diff_ppm: '[y2+1:-5.15, y3+1:-3.17, y4+1:0.68, y5+1:-4.03, y6+1:8.25, y7+1:5.85, y8+1:3.79,
+    y9+1:-2.13, y10+1:-4.95, y11+1:-1.85, y12+1:-7.63, y13+1:10.23, y14+1:-6.40, y15+1:12.46, y16+1:-10.17,
+    y17+1:-3.97, y18+1:-10.42, y19+1:-2.80, y20+1:-1.38, y23+1:4.78];[b3+1:1.69, b4+1:3.84, b6+1:6.33,
+    b8+1:3.57, b9+1:2.87]'
+  matched_ion_intensities: '[y2+1:3529, y3+1:3652, y4+1:11904, y5+1:11990, y6+1:4769, y7+1:4544, y8+1:3884,
+    y9+1:12718, y10+1:9635, y11+1:14414, y12+1:4460, y13+1:12839, y14+1:8296, y15+1:7665, y16+1:14986,
+    y17+1:8372, y18+1:5388, y19+1:9709, y20+1:15819, y23+1:4003];[b3+1:3537, b4+1:4395, b6+1:3102, b8+1:2682,
+    b9+1:6184]'
+  matched_ion_counts: '25'
+- dataset_id: PXD999999
+  peptidoform_id: PXD999999:MTQIMFETFNVPAMYVAIQAVLSLYASGR
+  full_sequence: MTQIMFETFNVPAMYVAIQAVLSLYASGR
+  selected_by: pep_q_value
+  pep_q_value: 0.0002913752913752914
+  q_value_notch: 0.000533
+  matched_ion_series: '[b2+1, b3+1, b4+1, b5+1, b6+1, b7+1, b8+1, b10+1, b11+1];[y2+1, y3+1, y4+1, y5+1,
+    y6+1, y7+1, y8+1, y9+1, y10+1, y11+1, y12+1, y13+1, y14+1, y15+1, y18+1]'
+  matched_ion_mz: '[b2+1:233.09520, b3+1:361.15270, b4+1:474.23760, b5+1:605.28179, b6+1:752.34852, b7+1:881.38564,
+    b8+1:982.44515, b10+1:1243.55907, b11+1:1342.60795];[y2+1:232.13980, y3+1:319.17059, y4+1:390.20718,
+    y5+1:553.27188, y6+1:666.35674, y7+1:753.38956, y8+1:866.47391, y9+1:965.54419, y10+1:1036.57901,
+    y11+1:1164.63432, y12+1:1277.72083, y13+1:1348.75649, y14+1:1447.82904, y15+1:1610.88884, y18+1:1910.01351]'
+  matched_ion_mass_diff_da: '[b2+1:-0.00024, b3+1:-0.00132, b4+1:-0.00048, b5+1:0.00322, b6+1:0.00154,
+    b7+1:-0.00393, b8+1:0.00789, b10+1:0.01048, b11+1:-0.00906];[y2+1:-0.00061, y3+1:-0.00185, y4+1:-0.00238,
+    y5+1:-0.00101, y6+1:-0.00021, y7+1:0.00059, y8+1:0.00087, y9+1:0.00273, y10+1:0.00044, y11+1:-0.00283,
+    y12+1:-0.00039, y13+1:-0.00183, y14+1:0.00230, y15+1:-0.00122, y18+1:-0.00692]'
+  matched_ion_mass_diff_ppm: '[b2+1:-1.05, b3+1:-3.66, b4+1:-1.02, b5+1:5.34, b6+1:2.05, b7+1:-4.47, b8+1:8.04,
+    b10+1:8.43, b11+1:-6.75];[y2+1:-2.66, y3+1:-5.81, y4+1:-6.10, y5+1:-1.83, y6+1:-0.32, y7+1:0.78, y8+1:1.01,
+    y9+1:2.83, y10+1:0.42, y11+1:-2.43, y12+1:-0.30, y13+1:-1.36, y14+1:1.59, y15+1:-0.76, y18+1:-3.62]'
+  matched_ion_intensities: '[b2+1:2116, b3+1:14009, b4+1:11033, b5+1:7894, b6+1:5706, b7+1:3846, b8+1:3193,
+    b10+1:3746, b11+1:15197];[y2+1:5796, y3+1:10883, y4+1:13224, y5+1:22600, y6+1:21336, y7+1:45373, y8+1:30810,
+    y9+1:30939, y10+1:32943, y11+1:28896, y12+1:13675, y13+1:19048, y14+1:6431, y15+1:3441, y18+1:9357]'
+  matched_ion_counts: '24'
 peptidoforms:
 - peptidoform_id: PXD999999:AVFVDLEPTVIDEVR
   dataset_id: PXD999999
@@ -161,6 +292,7 @@ peptidoforms:
   best_q_value: 0.000523
   best_q_value_notch: 0.000533
   best_pep: 0.0
+  best_pep_q_value: 0.0002913752913752914
   target_decoy: target
   n_psms: 1
   protein_group_id: PXD999999:P68363;Q71U36
@@ -178,6 +310,7 @@ peptidoforms:
   best_q_value: 0.000523
   best_q_value_notch: 0.000533
   best_pep: 0.0
+  best_pep_q_value: 0.0002913752913752914
   target_decoy: target
   n_psms: 1
   protein_accessions:
@@ -193,6 +326,7 @@ peptidoforms:
   best_q_value: 0.000523
   best_q_value_notch: 0.000533
   best_pep: 0.0
+  best_pep_q_value: 0.0002913752913752914
   target_decoy: target
   n_psms: 4
   protein_accessions:
@@ -208,6 +342,7 @@ peptidoforms:
   best_q_value: 0.000523
   best_q_value_notch: 0.000533
   best_pep: 0.0
+  best_pep_q_value: 0.0002913752913752914
   target_decoy: target
   n_psms: 1
   protein_accessions:
@@ -223,6 +358,7 @@ peptidoforms:
   best_q_value: 0.000523
   best_q_value_notch: 0.000533
   best_pep: 0.0
+  best_pep_q_value: 0.0002913752913752914
   target_decoy: target
   n_psms: 1
   protein_accessions:
