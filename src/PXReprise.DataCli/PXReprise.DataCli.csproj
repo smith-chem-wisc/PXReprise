@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- datarepo's version line (stamped by a datarepo release build), shared by every data project. -->
+  <Import Project="..\Data.Build.props" />
+
+  <ItemGroup>
+    <ProjectReference Include="..\PXReprise.Bundle\PXReprise.Bundle.csproj" />
+    <ProjectReference Include="..\PXReprise.Ingest\PXReprise.Ingest.csproj" />
+    <ProjectReference Include="..\PXReprise.Study\PXReprise.Study.csproj" />
+    <ProjectReference Include="..\PXReprise.Site\PXReprise.Site.csproj" />
+    <ProjectReference Include="..\PXReprise.Catalog\PXReprise.Catalog.csproj" />
+    <ProjectReference Include="..\PXReprise.Runner\PXReprise.Runner.csproj" />
+    <ProjectReference Include="..\PXReprise.Mcp\PXReprise.Mcp.csproj" />
+    <ProjectReference Include="..\PXReprise.Storage\PXReprise.Storage.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>datarepo</AssemblyName>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!-- DocsTests runs the tutorial's commands through Cli.Run in-process, as docs/getting-started.md shows them. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="PXReprise.Data.Tests" />
+  </ItemGroup>
+
+</Project>

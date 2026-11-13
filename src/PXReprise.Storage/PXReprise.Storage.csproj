@@ -21,7 +21,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="PXReprise.Tests" />
-    <InternalsVisibleTo Include="DataRepo.Tests" />
+    <InternalsVisibleTo Include="PXReprise.Data.Tests" />
   </ItemGroup>
 
 </Project>

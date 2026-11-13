@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- datarepo's version line (stamped by a datarepo release build), shared by every data project. -->
+  <Import Project="..\Data.Build.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- The package version a catalog id hashes (catalog.py's `__version__`). Set at release; the
+         commit is deliberately NOT appended, so two builds of one release share catalog ids. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PXReprise.Bundle\PXReprise.Bundle.csproj" />
+    <ProjectReference Include="..\PXReprise.Ingest\PXReprise.Ingest.csproj" />
+    <ProjectReference Include="..\PXReprise.Study\PXReprise.Study.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 1.5.5 ships DuckDB 1.5.5, the engine the Python 0.32.0 environment runs: same engine, same SQL. -->
+    <PackageReference Include="DuckDB.NET.Data.Full" Version="1.5.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PXReprise.Data.Tests" />
+  </ItemGroup>
+
+</Project>

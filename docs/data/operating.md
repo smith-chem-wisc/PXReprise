@@ -1,0 +1,356 @@
+# Operating an instance
+
+This page is for whoever runs a dataRepo **instance**: the collection of reanalysed datasets one
+project serves, with its catalog, its site and its agent server. dataRepo ships the software and
+runs nothing itself (decision D27); the **operator** runs every step below. Today that is the
+`aging` project, and [PXReprise](https://github.com/smith-chem-wisc/PXReprise) is making the same
+steps available to anyone.
+
+If you have not run dataRepo before, do [getting-started.md](getting-started.md) first. It runs this
+whole loop on a small example in ten minutes.
+
+## The loop
+
+```
+  your pipeline                 dataRepo (you run it)                       readers
+  ─────────────                 ─────────────────────                       ───────
+  search a PRIDE deposit
+  (MetaMorpheus)  ──────►  manifest.yaml says: include
+                           datarepo ingest   ──► bundle per dataset
+                           datarepo run      ──► engine outputs (optional)
+                           datarepo study    ──► study bundles (optional)
+                           datarepo publish  ──► catalog.duckdb + site/ ───► people: the site
+                                                        │
+                                                        └── datarepo mcp ─► agents
+```
+
+Each step is idempotent. Re-running it on unchanged inputs does nothing and says so, so a pipeline
+can call every step after every dataset without keeping track of what it already did.
+
+## 1. Install one released version
+
+Run every step from **one released version, unpacked once and never edited**. Each
+[release](https://github.com/smith-chem-wisc/dataRepo/releases) carries one archive per platform,
+each holding a `datarepo/` folder with the program, `datarepo` (`datarepo.exe` on Windows), and
+everything it needs: the .NET runtime, mzLib, DuckDB and the Parquet writer. Nothing else is
+installed, and no .NET or Python is needed.
+
+| Platform | Archive |
+|---|---|
+| Windows x64 | `datarepo-<version>-win-x64.zip` |
+| Linux x64 | `datarepo-<version>-linux-x64.tar.gz` |
+| macOS, Apple silicon | `datarepo-<version>-osx-arm64.tar.gz` |
+| macOS, Intel | `datarepo-<version>-osx-x64.tar.gz` |
+
+```bash
+mkdir -p /opt/datarepo-1.4.5 && cd /opt/datarepo-1.4.5
+curl -LO https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.4.5/datarepo-1.4.5-linux-x64.tar.gz
+tar -xzf datarepo-1.4.5-linux-x64.tar.gz          # tar keeps the executable bit; a zip would lose it
+/opt/datarepo-1.4.5/datarepo/datarepo doctor
+```
+
+Call the program by its path, put its folder on `PATH`, or point a tool at it (PXReprise's machine
+file: `datarepo = "…"`). On macOS, an archive downloaded with a browser is quarantined and the
+program refused as unverified: download with `curl`, or run `xattr -dr com.apple.quarantine` on the
+unpacked folder. The commands, arguments and outputs are the ones in [cli.md](cli.md).
+
+Three things depend on running a release:
+
+- **A bundle id hashes the ingest path's version** (`cs-1.1.0` in 1.1.0 to 1.3.6, `cs-1.2.0` from 1.4.0). A bundle written by code
+  nobody released cannot be reproduced by anyone, so its id means nothing.
+- **`datarepo run` refuses a development build.** It records the exact build behind every engine
+  output: the version and the commit the release was built from. A build that reports `0.0.0-dev`,
+  or carries no commit, has no fixed identity to record.
+- **Each download was verified by running it.** The `dotnet-binaries` workflow publishes each
+  platform's program, runs the example instance end to end with no .NET on the machine's `PATH`,
+  checks that it reports the tagged version, and only then attaches the archive to a draft release,
+  which a person publishes.
+
+Build the catalog and the site with **the same version** that ingested. The program's version is
+part of the catalog id, and the site's footer names it.
+
+**Moving from the Python package (0.32.0 and earlier).** The C# program writes the same tables, with
+the changes its [changelog](CHANGELOG.md) lists (among them, `peptidoforms.is_unique` now means
+one gene in the searched sequences: see [limitations.md](limitations.md#6--unique-means-one-gene-in-the-searched-sequences)).
+Its first ingest path (`cs-1.0.0`) and schema 0.0.14 give every dataset a new bundle id, so
+re-ingest each dataset once with 1.0.0. 1.1.0 moves the schema to 0.0.15 (each run's start time and instrument), so a store written by 1.0.0 is re-ingested once more; an instance still on the Python package should go straight to 1.3.6. 1.2.0, 1.3.0, 1.3.1, 1.3.2, 1.3.3, 1.3.4, 1.3.5 and 1.3.6 keep the ingest path `cs-1.1.0` and schema 0.0.15, so a store written by 1.1.0 needs no re-ingest: install 1.3.6, run the go engine (1.2.0) and register the orthology snapshot (1.3.0), and rebuild. 1.3.1 ingests the searches with an experimental design that 1.3.0 refused. 1.3.2 lets a reader of the catalog (an MCP server, a script) stay open while `build` replaces it on Windows. 1.3.3 ingests the searches 1.3.2 refused over a modification name holding `:` (Unimod's isotope labels, such as `NEM:2H(5)`), and a build removes the staged catalogs that killed builds left beside the output. 1.3.4 serves a dataset's `restrictions` from the manifest and moves the aging study layer to 0.6.0 (its design tables), so an aging study bundle written before 1.3.4 is refused by the build until `datarepo study` writes it again. 1.3.5 builds a catalog folder (`--out <folder>`: views over the store, versioned files, a `latest.json` pointer) in minutes where the one-file catalog took hours; `--out <name>.duckdb` still builds the one file. 1.3.6 leaves PSMs in the bundles (no `psms` in a catalog; each dataset's PSM counts stay in `dataset_overview`) and has a folder compute each deposit's derived rows once, so a rebuild of aging's 170 deposits takes about a minute. `build` refuses a bundle written against schema 0.0.13 and
+names it. A Python install is no longer needed for anything.
+
+1.4.0 moves the ingest path to `cs-1.2.0` and the schema to 0.0.16, so every bundle is re-ingested once, and a catalog
+that mixes 0.0.15 and 0.0.16 bundles is refused. 1.4.1 keeps both: re-ingest only the bundles written from a search
+folder that was moved after it ran (they lacked their task files; see the CHANGELOG), and ingest TMT and iTRAQ searches,
+which 1.4.0 read as label-free. Rebuild once; the first folder publish recomputes every deposit's derived rows. 1.4.2
+keeps both too and moves only isobaric bundles (QuantProject's `DEF-TMT-*` at v3.22 and one new finding): re-ingest
+each TMT or iTRAQ bundle once; label-free bundles keep their ids. 1.4.3 moves nothing: it reads a table of any size, so
+swap the binary and retry any ingest that failed with `OutOfMemoryException` in `ReadTsv`. 1.4.4 moves nothing either:
+it closes the MCP server's routes to writing (see the CHANGELOG), so swap the binary and restart every `datarepo mcp`.
+1.4.5 moves no bundle: it serves a deposit searched in parts as one deposit (catalog format 16; `split_reason`, below).
+Swap the binary and build. The first folder publish recomputes every deposit's derived rows (686 s on 205 bundles).
+
+### Building from source
+
+To build the program yourself you need the [.NET 10 SDK](https://dotnet.microsoft.com/download):
+
+```bash
+git clone https://github.com/smith-chem-wisc/dataRepo.git
+dotnet build dataRepo/dotnet/src/DataRepo.Cli -c Release -o datarepo-dev
+datarepo-dev/datarepo --version                    # datarepo 0.0.0-dev
+```
+
+A source build reports version `0.0.0-dev`, and `datarepo run` refuses it by design. It is for
+development and testing; serve an instance from a release. A self-contained folder like a release's
+comes from `dotnet publish dataRepo/dotnet/src/DataRepo.Cli -c Release -r <rid> --self-contained -o
+<dir>` (`<rid>` is `win-x64`, `linux-x64`, `osx-arm64` or `osx-x64`); a release build also passes
+`-p:Version=<version>` and `-p:SourceRevisionId=<commit>`, which is what
+`.github/workflows/dotnet-binaries.yml` does.
+
+## 2. Describe your instance: `manifest.yaml`
+
+The manifest is the contract. It lists every dataset you have searched, says which may be loaded,
+and gives each one's facts. dataRepo never scans your work folder and never decides for itself
+whether a run is fit to serve.
+
+```yaml
+manifest_version: 1
+instance: my-instance
+work_root: /data/runs            # where your pipeline writes; relative paths resolve from this file
+store: /data/repo/store          # where bundles go
+licence: CC-BY-4.0
+credit: My Working Group
+
+datasets:
+  - accession: PXD036557
+    status: include              # include | hold | exclude
+    run: run_2026-09-18/PXD036557
+    stages: {qc: 02b_qc, search: 04_search}
+    search_results: 04_search/mm/Task3SearchTask
+    files: 18
+    organism: NCBITaxon:9606
+    acquisition: DDA
+    quant_method: label-free
+    metamorpheus: "1.1.11"
+  - accession: PXD048658
+    status: exclude
+    reason: TMT data whose SDRF says label-free; its quant is invalid.
+```
+
+`hold` and `exclude` are refused, with your `reason`, whenever someone tries to load them. Every
+field is described in [ingest.md](ingest.md#the-manifest-is-the-contract).
+
+**Your pipeline's `provenance.json`.** Each search stage writes one. The ingester reads its
+`schema` field first and accepts only schemas whose field meanings it knows:
+
+| `schema` | Read as |
+|---|---|
+| `aging-provenance/2` | the older layout, in which `id_rate.psms_1pct` holds the FDR engine's count |
+| `aging-provenance/3` | the current layout, with the two PSM counts in separately named fields |
+| `pxreprise-provenance/1` | the same layout as `aging-provenance/3`, under PXReprise's neutral name |
+
+Any other schema is refused. A count read under the wrong field meaning is a wrong number that
+carries a right-looking definition id, so the ingester does not guess.
+
+## 3. Ingest each dataset
+
+```bash
+datarepo ingest manifest.yaml PXD036557           # one dataset
+datarepo ingest manifest.yaml                     # every 'include' dataset
+```
+
+Pass `--mm-settings <MetaMorpheus install>` so modification names resolve against the release that
+searched. Read the output: `WARN` lines and open findings are facts about the dataset, and they
+appear on its page. A pipeline can pass `--json` instead and read one JSON object on standard output
+(each dataset's status, bundle id, row counts, checks and open warnings) and the exit code; the
+human report then goes to standard error. See [cli.md](cli.md#datarepo-ingest).
+
+Run `datarepo manifest manifest.yaml` after editing the manifest. Besides listing the datasets, it
+checks every `run_enrichment` map the way `ingest` would, against the run folder where it can read
+it, and exits `1` on a map `ingest` would refuse, so a wrong map is found before a re-ingest.
+
+Runs that were searched but must be left out of **analysis** (a failed QC run, a blank) go in a
+dataset's `excluded_runs`, one reason per run, keyed by the raw file name without its extension:
+
+```yaml
+    excluded_runs:
+      20170317_VM_17: failed spectra QC (see DECISIONS.md D67)
+```
+
+The runs stay in the bundle, and the field is not identity, so changing it needs no re-ingest: the
+next `build` writes it to the catalog's `run_exclusions` table and moves the catalog id. `ingest`
+does not read it. `datarepo manifest` checks every name against the dataset's runs and exits `1` on
+one that is not a run, and `build` refuses such a name, so a misspelt exclusion never leaves the run
+it meant looking fit for analysis.
+
+A whole dataset that is unfit for some **use** gets a `restrictions` entry, one reason per use (aging
+DATAREPO-74):
+
+```yaml
+    restrictions:
+      protein_statistics: "5 of 10 runs under 400 PSMs; trypsin 15-35% of intensity"
+      occupancy: "a phospho pulldown inflates the modified form on purpose"
+```
+
+The uses are a fixed list: `protein_statistics`, `quantitation`, `age_analysis`, `any_analysis`,
+`occupancy` and `cysteine`. Loading the manifest refuses any other key, and a use with no reason,
+because a misspelt key would sit where no filter on the real one finds it. The dataset stays in every
+table. The next `build` writes the restrictions to `dataset_restrictions` and onto the dataset's
+`dataset_overview.restrictions`, and moves the catalog id, with no re-ingest. `datarepo manifest` lists
+them as `restricted <use>: <reason>`.
+
+A deposit whose runs differ in species, enrichment, labelling or chemistry can be **searched in parts**
+(a split, PXReprise's PXR-R30 to R32). Each part is its own entry, keyed `<accession>-<group>`, with
+`split_reason` saying why. In the same write that adds the parts, retire the whole search's entry:
+
+```yaml
+  - accession: PXD076192
+    status: superseded
+    reason: "split into PXD076192-mouse and PXD076192-human"
+    run: <the whole search's folder>
+  - accession: PXD076192-mouse
+    split_reason: species
+    run: <this part's search folder>
+    # ... the rest of the entry, as for any search
+```
+
+`split_reason` is one of `species`, `enrichment`, `label` and `chemistry`. Loading the manifest refuses
+any other value, and refuses one on a key with no `-<group>`. It is not identity, so no bundle id moves
+when it changes. Write nothing else about the split (no `split_group`, no separate accession): the key
+already says both. From 1.4.5 the catalog names each part's deposit (`dataset_overview.accession`,
+`split_group`, `split_reason`), lists every deposit in `deposits`, and counts deposits, not parts, in
+`protein_index` and `peptide_index`. **`build` refuses a catalog that serves a deposit both whole and in
+parts**, since every count for it would be counted twice: if it does, the whole entry is still
+`include`. `datarepo manifest` prints each part as `split  part of <accession>`, and names a whole entry
+still `include` beside an `include` part (`WHOLE AND PARTS`, exit `1`) before any build. USIs keep naming
+the bare accession, which is what PRIDE holds.
+
+An SDRF you **curated** for a search goes in the dataset's `operator_sdrf`, absolute or relative to the
+manifest's folder (G107):
+
+```yaml
+    operator_sdrf: ../designs/PXD012307.operator.sdrf.tsv
+```
+
+It is read in place of any other SDRF, for its characteristics only: its factor values are left out.
+Write one row per searched file, and give the files the source names that group them exactly as the
+search's `ExperimentalDesign.tsv` does. `ingest` refuses any other grouping by name. The file's bytes
+are in the bundle id and its path is not, so editing the file needs a re-ingest and moving it does not.
+Use it when the search's own design SDRF was edited after the search: `ingest` refuses that one (its
+sha256 is not the one the search recorded).
+
+The **discovery census** (every accession you screened, with its verdict) goes in a tab-separated file
+that the manifest names at the top level, relative to the manifest's folder or absolute:
+
+```yaml
+candidates: candidates.tsv
+```
+
+```text
+census_version	accession	included	exclusion_reason	definition_id
+2026-10-05	PXD036557	true		DEF-AGING-SCREEN
+2026-10-05	PXD000002	false	spectra gate: not HCD Orbitrap	DEF-AGING-SCREEN
+```
+
+The header row is required and names the schema's columns. `census_version`, `accession` and
+`included` are required, and every row must fill them. `exclusion_reason` and `definition_id` may be
+left out of the header, and an empty cell is NULL. `included` is `true` or `false`. Cells are read
+verbatim (no quoting, no trimming), and an accession listed twice is refused. Like `excluded_runs` it
+is not identity: `ingest` never reads it, and the next `build` loads it into `dataset_candidates` and
+hashes the file into the catalog id. `build` names any included accession it holds no dataset for,
+and any dataset the census does not include, in `catalog_checks` (kind `census`) without failing.
+`datarepo manifest` reads the file the way `build` does and exits `1` on a malformed one.
+
+## 4. Optional: engines and study results
+
+- **`datarepo run`** runs a released engine on stored data and writes its output beside the
+  bundles, never into one. See
+  [the charter](https://github.com/smith-chem-wisc/dataRepo/blob/master/design/CHARTER.md#the-runner-datarepo-ships-it-built-in-datarepo-0200). Three engines:
+  - `logs.resolve_genes <PXD...> --input gene_set=... --input xref=... --input logs_manifest=...`: protein to
+    Ensembl gene, one artefact per searched database (`gene_resolutions`).
+  - `go.annotate_groups <PXD...> --input ontology=<go.obo> --input category_map=<map.tsv>`: GO-CC terms and
+    organelle categories for each search's protein groups (`protein_localizations`,
+    `organelle_term_categories`). Use one go.obo and one map for every dataset of a catalog, or `build` refuses.
+  - `logs.register_orthology --input snapshot_tar=<compara-N.tar> --input snapshot_manifest=<compara-N.manifest.json>`:
+    takes no accession. It checks one of logs' released orthology snapshots against logs' file contract and
+    registers it. No rows are copied: the snapshot is read in place from
+    `<store>/_engine/logs.register_orthology/<id>/snapshot/` through its own `views.sql`, and the catalog cites it
+    in `catalog_engine_artefacts`. A catalog serves one snapshot, and `build` fails if the gene resolutions it loads
+    used other gene sets than the snapshot's.
+- **`datarepo study`** delivers a study layer's rows, such as age effects, sample ages, or curated
+  tissue and cell type. They go into a separately hashed study bundle, so delivering a model result
+  never re-identifies a search bundle. See [study.md](study.md).
+
+## 5. Publish
+
+```bash
+datarepo publish manifest.yaml --site /data/repo/site \
+    --title "My proteomics repository" \
+    --purpose "how organelle proteomes change with age" \
+    --about about.md \
+    --base-url https://example.org/repo/ \
+    --study-latest aging
+```
+
+`publish` builds the catalog from **every `include` dataset that has a bundle**, naming each one
+that has none, and then writes the site from that catalog. When nothing changed, the catalog is kept
+and the site comes out byte-identical. Every flag is in [cli.md](cli.md#datarepo-publish).
+
+| Flag | Use it to |
+|---|---|
+| `--purpose TEXT` | state the question your instance serves. It is shown in the tagline, the overview, `llms.txt` and the structured data. Without it no page claims a purpose |
+| `--about FILE` | give the front page a Markdown overview of your project |
+| `--keyword WORD` | add a schema.org keyword to every dataset page (repeatable) |
+| `--study-latest LAYER` | load that study layer's newest delivery. Study results are never loaded unless you name them |
+| `--base-url URL` | set where the site will be served. Enables the sitemap and absolute links |
+| `--data-url URL` | set where the bundle store is served. Enables download links and `croissant.json` |
+| `--notice TEXT` | put a banner on every page, e.g. "preview: data will be regenerated" |
+
+`publish` does **not** run engines, does not load a study delivery you did not name, and does not
+upload anything. Putting the site on the web is your step, because it is outward-facing.
+
+### Hosting the site on GitHub Pages
+
+Make `--site` a clone of a `gh-pages` branch. The generator deletes only the files its own
+`.datarepo-site.json` marker lists, so `.git` and `.nojekyll` survive a regeneration.
+
+```bash
+git clone --branch gh-pages https://github.com/<you>/<repo>.git /data/repo/site
+datarepo publish manifest.yaml --site /data/repo/site --base-url https://<you>.github.io/<repo>/
+git -C /data/repo/site add -A        # right here, and only here: the clone holds nothing but output
+git -C /data/repo/site commit -m "Regenerate from catalog <id>"
+git -C /data/repo/site push
+```
+
+**Read the generated front page before you push.** It is the check that catches a number rendered
+wrong.
+
+### Serving the catalog to agents
+
+```bash
+datarepo mcp --catalog /data/repo/catalog.duckdb --install
+```
+
+A running MCP server keeps the catalog it opened. After a rebuild it serves the **previous** one
+until it is reconnected, and every answer's provenance then carries `catalog_file_changed`. In Claude
+Code, run `/mcp`, select the server, and reconnect.
+
+## When a dataRepo upgrade needs a re-ingest
+
+The changelog for each release says which of these it changes. Only the first two cost a re-ingest.
+1.0.0 changes both, so moving to it from the Python package is a full re-ingest.
+
+| What changed | Effect on your instance |
+|---|---|
+| core schema version | **re-ingest every dataset.** `build` refuses a bundle written against another schema version, and names it |
+| the ingest path (`cs-1.0.0`, `BundleWriter.IngesterVersion`) | **re-ingest to pick up the change.** Old bundles still load, so a catalog can mix them, but a fixed defect stays in the old ones |
+| a study layer's version | re-deliver that layer; a stored delivery of another layer version is refused |
+| the catalog version, or the program only | rebuild the catalog (`publish` does it); no re-ingest |
+
+## Releases
+
+A release is a catalog built from **pinned** bundles, so it can be rebuilt exactly:
+
+```bash
+datarepo build manifest.yaml --release v0.1 --bundle PXD036557=<id> --bundle PXD027318=<id> …
+```
+
+`--release` refuses `--latest` and `--study-latest`: a release that could pick up a later bundle is
+not a release. A DOI for each release is the operator's to mint (Zenodo is the recommendation).
