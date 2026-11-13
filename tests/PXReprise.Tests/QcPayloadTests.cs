@@ -225,6 +225,58 @@ public class QcPayloadTests
     }
 
     /// <summary>
+    /// dataRepo 110 (PXR-R60): an isobaric search writes no AllQuantifiedProteinGroups.tsv, only AllProteinGroups.tsv, which
+    /// has the Unique and Shared Peptides columns. /2 counts each run's groups from it. A search with no group table at all
+    /// gets a note that says so, not one that blames missing columns.
+    /// </summary>
+    [Test]
+    public void SchemaTwoCountsAnIsobaricSearchsGroupsFromAllProteinGroups()
+    {
+        var (search, qc) = MiniRun(spectralCounts: true);
+        string task = Path.Combine(search, "mm", "Task3SearchTask");
+        File.Delete(Path.Combine(task, "AllQuantifiedProteinGroups.tsv"));
+        File.Delete(Path.Combine(task, "AllQuantifiedPeaks.tsv"));
+        File.WriteAllText(Path.Combine(task, "AllPSMs.psmtsv"),
+            "File Name\tDecoy/Contaminant/Target\tQValue\tQValue Notch\tNotch\tFull Sequence\tBase Sequence\tPrecursor Charge\tMissed Cleavages\tScan Retention Time\tMass Diff (ppm)\tMatched Ion Mass Diff (Ppm)\n" +
+            "a.raw\tT\t0.001\t0.001\t0\tPEPTIDEK\tPEPTIDEK\t2\t0\t10\t1.5\t\n" +
+            "b.raw\tT\t0.001\t0.001\t0\tANOTHERK\tANOTHERK\t2\t0\t30\t-1.0\t\n" +
+            "b.raw\tT\t0.001\t0.001\t0\tTHIRDK\tTHIRDK\t2\t0\t31\t0.2\t\n");
+        File.WriteAllText(Path.Combine(task, "AllPeptides.psmtsv"),
+            "File Name\tDecoy/Contaminant/Target\tQValue\tQValue Notch\tFull Sequence\n" +
+            "a.raw\tT\t0.001\t0.001\tPEPTIDEK\nb.raw\tT\t0.001\t0.001\tANOTHERK\nb.raw\tT\t0.001\t0.001\tTHIRDK\n");
+        // The isobaric table: no Intensity_ or SpectralCount_ columns per file (its reporter columns are left out here).
+        File.WriteAllText(Path.Combine(task, "AllProteinGroups.tsv"),
+            "Protein Accession\tUnique Peptides\tShared Peptides\tProtein Decoy/Contaminant/Target\tProtein QValue\n" +
+            "P1\tPEPTIDEK\t\tT\t0.001\n" +
+            "P2\tANOTHERK\tTHIRDK\tT\t0.001\n" +
+            "P3\t\tTHIRDK\tT\t0.001\n" +
+            "P4\tDECOYK\t\tD\t0.001\n");
+
+        static (Dictionary<string, JsonObject> Files, List<string> Notes) Read(QcPayloadResult r) =>
+            (r.Payload["files"]!.AsArray().ToDictionary(f => f!["file"]!.GetValue<string>(), f => f!["metrics"]!.AsObject()),
+             r.Payload["dataset"]!["notes"]!.AsArray().Select(n => n!.GetValue<string>()).ToList());
+
+        var (files, notes) = Read(QcPayloadBuilder.Build(search, qc, "PXD000001", "x", "1.1.14", QcBins.Vendored()));
+        Assert.Multiple(() =>
+        {
+            Assert.That(Path.GetFileName(QcPayloadBuilder.ProteinGroupTable(task)), Is.EqualTo("AllProteinGroups.tsv"));
+            // a supports P1; b supports P2 (unique ANOTHERK, shared THIRDK) and P3 (shared THIRDK). The decoy never counts.
+            Assert.That((files["a"]["protein_groups"]!.GetValue<int>(), files["b"]["protein_groups"]!.GetValue<int>()), Is.EqualTo((1, 2)));
+            Assert.That(notes, Has.None.Contains("protein_groups is NOT REPORTED"));
+        });
+
+        File.Delete(Path.Combine(task, "AllProteinGroups.tsv"));
+        var (bare, bareNotes) = Read(QcPayloadBuilder.Build(search, qc, "PXD000001", "x", "1.1.14", QcBins.Vendored()));
+        Assert.Multiple(() =>
+        {
+            Assert.That(QcPayloadBuilder.ProteinGroupTable(task), Is.Null);
+            Assert.That(bare["a"].ContainsKey("protein_groups"), Is.False, "absent, never zeroed");
+            Assert.That(bareNotes, Has.Some.Contains("the search wrote no protein-group table"));
+            Assert.That(bareNotes, Has.None.Contains("has no Unique Peptides"));
+        });
+    }
+
+    /// <summary>
     /// /2 without MetaMorpheus's per-file lines (WriteIndividualFiles off, label-free-dda@14, the user 2026-11-05):
     /// a searched file's ms2_scans is the spectra QC's MS2 count, and an excluded file gets none. Where the search did
     /// write a file's line, the line still wins (here it disagrees with the QC count on purpose, to show which is read).

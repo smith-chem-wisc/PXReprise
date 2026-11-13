@@ -140,12 +140,71 @@ public static class DesignStage
             throw new IsobaricDesignMissingException(MissingDesign(record), record);
         string target = Path.Combine(spectraDir, TmtFileName);
         d.WriteTmtDesign(target);
+        if (MarkUnnamedChannelsEmpty(target, kit) is { Count: > 0 } empty)
+            record["channels_without_sample"] = new JsonObject(empty.Select(kv =>
+                KeyValuePair.Create(kv.Key, (JsonNode?)new JsonArray(kv.Value.Select(c => (JsonNode?)c).ToArray()))));
         File.WriteAllText(Path.Combine(spectraDir, TmtMarkerName), Sha(target));
         record["written"] = true;
         record["design"] = target;
         record["design_sha256"] = Sha(target);
         return record;
     }
+
+    /// <summary>
+    /// v0.4.47 (2026-11-13): gives every channel of the kit that a file's rows leave out a row of its own in that file, with no
+    /// sample name, no condition and <c>Sample Type</c> <c>empty</c>, and every other row <c>study sample</c>, in the kit's channel
+    /// order. An SDRF names only the channels that hold the study's samples, but MetaMorpheus writes a quantity column for every
+    /// channel of the kit, and datarepo refuses a column no design row labels: PXD060120 (12 of TMTpro's 18 named) from
+    /// 2026-11-12, PXD035689 (one TMT10 plex without 131) on 2026-11-13. G84 (v0.4.41) did this for the default design only,
+    /// which v0.4.46 retired. mzLib's SDRF reader has no way to say empty (its MAP-08), hence here and not in the SDRF.
+    /// MetaMorpheus requires a biological replicate of at least 1 on any row, so these take the numbers after the file's samples.
+    /// A design that names every channel is left as it is (no column added). Returns the channels marked, by file name.
+    /// </summary>
+    private static SortedDictionary<string, List<string>> MarkUnnamedChannelsEmpty(string tmtDesign, string kit)
+    {
+        if (!IsobaricMassTag.TryGetIsobaricMassTag(kit, out var tag) || tag is null)
+            throw new SearchSetupException($"the kit {kit} is not one mzLib defines");
+        var lines = File.ReadAllLines(tmtDesign);
+        var header = lines[0].Split('\t');
+        int Column(string name) => Array.IndexOf(header, name);
+        int file = Column("File"), sample = Column("Sample Name"), channel = Column("TMT Channel"), condition = Column("Condition"), biorep = Column("Biological Replicate");
+        if (new[] { file, sample, channel, condition, biorep }.Any(i => i < 0) || Column(SampleTypeColumn) >= 0)
+            throw new SearchSetupException($"{tmtDesign} has not the columns mzLib writes: {lines[0]}");
+        var order = tag.ChannelLabels.Select((label, i) => (label, i)).ToDictionary(x => x.label, x => x.i, StringComparer.Ordinal);
+        var byFile = lines.Skip(1).Where(l => l.Length > 0).Select(l => l.Split('\t')).GroupBy(r => r[file], StringComparer.Ordinal).ToList();
+        var marked = new SortedDictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var rows in byFile)
+        {
+            var named = rows.Select(r => r[channel]).ToHashSet(StringComparer.Ordinal);
+            var unknown = named.Where(c => !order.ContainsKey(c)).ToList();
+            if (unknown.Count > 0)
+                throw new SearchSetupException($"{tmtDesign}: {rows.Key} names channel(s) {string.Join(", ", unknown)}, which the kit {kit} has not");
+            var missing = tag.ChannelLabels.Where(c => !named.Contains(c)).ToList();
+            if (missing.Count > 0) marked[Path.GetFileName(rows.Key)] = missing;
+        }
+        if (marked.Count == 0) return marked;
+        var output = new List<string> { string.Join('\t', header.Append(SampleTypeColumn)) };
+        foreach (var rows in byFile)
+        {
+            var samples = rows.Select(r => r.Append("study sample").ToArray()).ToList();
+            int next = samples.Max(r => int.Parse(r[biorep], CultureInfo.InvariantCulture));
+            var empties = (marked.TryGetValue(Path.GetFileName(rows.Key), out var missing) ? missing : new List<string>()).Select(c =>
+            {
+                var row = samples[0].ToArray();
+                row[sample] = "";
+                row[channel] = c;
+                row[condition] = "";
+                row[biorep] = (++next).ToString(CultureInfo.InvariantCulture);
+                row[^1] = "empty";
+                return row;
+            });
+            output.AddRange(samples.Concat(empties).OrderBy(r => order[r[channel]]).Select(r => string.Join('\t', r)));
+        }
+        File.WriteAllLines(tmtDesign, output);
+        return marked;
+    }
+
+    private const string SampleTypeColumn = "Sample Type";
 
     /// <summary>Why an isobaric deposit has no design, from <see cref="FindIsobaric"/>'s record: said in the park's detail.</summary>
     public static string MissingDesign(JsonObject record)
