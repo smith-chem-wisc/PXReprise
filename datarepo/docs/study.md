@@ -15,7 +15,7 @@ An `age_effect` is the output of a modelling stage that runs long after a search
 It is not in the folder `datarepo ingest` reads, and it is not a different view of the same
 measurements: it is a different kind of object produced at a different time. So it cannot arrive the
 way a PSM does, and giving it its own path was
-[DATAREPO-20(a)](../design/OPEN_QUESTIONS.md).
+[DATAREPO-20(a)](https://github.com/smith-chem-wisc/dataRepo/blob/master/design/OPEN_QUESTIONS.md).
 
 The path had to keep three promises.
 

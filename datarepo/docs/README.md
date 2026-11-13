@@ -110,7 +110,7 @@ These recur in every page, so they are worth reading once here.
 | `REQ-<PROJECT>-<n>` | A question another project must answer |
 | `DEF-*` | A metric definition owned by QuantProject |
 
-Cross-project correspondence lives in [`design/threads/`](../design/threads/), one directory per
+Cross-project correspondence lives in [`design/threads/`](https://github.com/smith-chem-wisc/dataRepo/tree/master/design/threads/), one directory per
 peer, mirrored byte-identically in that peer's repository. Messages are never edited after posting.
 
 ## Generated files — do not hand-edit

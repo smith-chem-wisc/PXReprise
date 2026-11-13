@@ -141,7 +141,7 @@ an owner:
 | PSM scoring, PEP, PTM stoichiometry | MetaMorpheus / mzLib, and `pep` for PEP's definition |
 | Parsing MetaMorpheus output | mzLib (read in-process; pyMzLib for Python callers) |
 
-Who does what between these projects is written down in [design/CHARTER.md](design/CHARTER.md).
+Who does what between these projects is written down in [design/CHARTER.md](https://github.com/smith-chem-wisc/dataRepo/blob/master/design/CHARTER.md).
 
 ## Roadmap
 
@@ -156,7 +156,7 @@ Who does what between these projects is written down in [design/CHARTER.md](desi
 
 ## Contributing, licence, citation
 
-- [CONTRIBUTING.md](CONTRIBUTING.md): change the schema YAML, regenerate, and let CI check the rest.
+- [CONTRIBUTING.md](https://github.com/smith-chem-wisc/dataRepo/blob/master/CONTRIBUTING.md): change the schema YAML, regenerate, and let CI check the rest.
 - **Code and schema:** [MIT](LICENSE). **Data served by an instance:** licensed by its operator (the
   aging instance uses CC BY 4.0).
 - **Citing:** [CITATION.cff](CITATION.cff). A DOI comes with the first release.

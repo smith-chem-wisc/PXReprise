@@ -1,7 +1,7 @@
 # Architecture
 
 How dataRepo is meant to work, and which parts are **decided** and which are still **proposed**. The full
-proposal, with its reasoning and the research behind it, is [`design/FRAMEWORK.md`](../design/FRAMEWORK.md).
+proposal, with its reasoning and the research behind it, is [`design/FRAMEWORK.md`](https://github.com/smith-chem-wisc/dataRepo/blob/master/design/FRAMEWORK.md).
 
 ## Decided
 
@@ -13,7 +13,7 @@ proposal, with its reasoning and the research behind it, is [`design/FRAMEWORK.m
 | D4 | **Format.** A QPX-compatible superset: QPX names and types where QPX has a matching view, plus extensions for proteoforms, USIs, organelles and study layers. Each file records the QPX version it matches. |
 | D5 | **Scope.** Human and rodent; DDA and DIA; label-free and TMT. These are real columns, and quantities are long (assay, feature, value). Ingesters are written as producers deliver each kind of data. |
 | D6 | **Benchmark.** The question set comes from the producing project (aging). dataRepo is scored against it and doesn't set the science agenda. |
-| D7 | **Open questions** are tracked with defaults in [`design/OPEN_QUESTIONS.md`](../design/OPEN_QUESTIONS.md). Work proceeds on the defaults. |
+| D7 | **Open questions** are tracked with defaults in [`design/OPEN_QUESTIONS.md`](https://github.com/smith-chem-wisc/dataRepo/blob/master/design/OPEN_QUESTIONS.md). Work proceeds on the defaults. |
 | D8 | **Code, not data.** This repo ships software. The producing project hosts the data instance: bundles, releases, DOIs and the deployed service. |
 
 ## Built
@@ -96,7 +96,7 @@ Still to build: REST and the deploy package.
   [reference docs](schema/core.md) are all generated from it.
 - The **core** is generic.
 - **Study layers** add tables keyed on core IDs and never alter core tables.
-- Coverage against the benchmark: [`design/SCHEMA_COVERAGE.md`](../design/SCHEMA_COVERAGE.md).
+- Coverage against the benchmark: [`design/SCHEMA_COVERAGE.md`](https://github.com/smith-chem-wisc/dataRepo/blob/master/design/SCHEMA_COVERAGE.md).
 
 ## Findable and citable (proposed)
 
