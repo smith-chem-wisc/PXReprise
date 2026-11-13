@@ -1,0 +1,6 @@
+study_manifest_version: 1
+layer: aging
+store: ./unused-store
+tables:
+  curated_sample_characteristics: curated.tsv
+  sample_ages: ages.tsv

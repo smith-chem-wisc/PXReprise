@@ -1,0 +1,84 @@
+{
+ "catalog": {
+  "catalog_id": "153cf55067d58441",
+  "catalog_version": "8",
+  "schema_version": "0.0.13",
+  "builder_version": "0.32.0",
+  "built_utc": "2026-10-04T16:03:54+00:00",
+  "instance": "test",
+  "base_url": null
+ },
+ "how_to_look_up": "Find the LONGEST key of `protein_shards` that the accession starts with, and fetch that shard's `file` (P02768 -> the key 'P02' or 'P0', whichever is listed). By gene symbol, fetch genes/<first letter, upper-cased>.json first. Accessions with evidence that passed acceptance (an accepted protein group OR an accepted peptidoform) in at least one dataset; decoys excluded, contaminants kept and labelled PER DATASET, because the label is: human albumin is a target in a human search and a contaminant in a rodent one. `best_protein_group_q_value` is NULL where only a peptidoform passed, so a listed dataset is not 'identified at 1% protein FDR'. An accession absent from its shard had no accepted evidence anywhere in this catalog.",
+ "protein_shards": {
+  "CO": {
+   "file": "proteins/CO.json",
+   "n": 1
+  },
+  "O7": {
+   "file": "proteins/O7.json",
+   "n": 1
+  },
+  "P0": {
+   "file": "proteins/P0.json",
+   "n": 7
+  },
+  "P1": {
+   "file": "proteins/P1.json",
+   "n": 4
+  },
+  "P2": {
+   "file": "proteins/P2.json",
+   "n": 5
+  },
+  "P3": {
+   "file": "proteins/P3.json",
+   "n": 5
+  },
+  "P4": {
+   "file": "proteins/P4.json",
+   "n": 1
+  },
+  "P5": {
+   "file": "proteins/P5.json",
+   "n": 1
+  },
+  "P6": {
+   "file": "proteins/P6.json",
+   "n": 8
+  },
+  "Q0": {
+   "file": "proteins/Q0.json",
+   "n": 1
+  },
+  "Q1": {
+   "file": "proteins/Q1.json",
+   "n": 4
+  },
+  "Q7": {
+   "file": "proteins/Q7.json",
+   "n": 3
+  },
+  "Q9": {
+   "file": "proteins/Q9.json",
+   "n": 5
+  }
+ },
+ "gene_shards": {
+  "A": 3,
+  "C": 5,
+  "D": 2,
+  "E": 1,
+  "F": 3,
+  "G": 2,
+  "H": 6,
+  "K": 3,
+  "M": 2,
+  "N": 2,
+  "P": 2,
+  "R": 3,
+  "S": 3,
+  "T": 7,
+  "U": 1,
+  "X": 1
+ }
+}

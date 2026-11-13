@@ -1,0 +1,9 @@
+MetaMorpheus: version 1.1.11
+
+All target PSMs with q-value <= 0.01: 58
+All target peptides with q-value <= 0.01: 40
+All target protein groups with q-value <= 0.01 (1% FDR): 3
+All MS2 Scans: 300
+
+QE-002106_GM1_a-calib - MS2 Scans: 150
+QE-002107_GM1_b-calib - MS2 Scans: 150

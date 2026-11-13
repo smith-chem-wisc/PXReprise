@@ -1,0 +1,11 @@
+Custom Modifications
+################################## Protein modifications you add are stored here.
+################################## Modifications added through the GUI are appended below this banner.
+################################## One entry per modification, terminated by a line containing only //
+##################################   ID   <name>            the modification's name
+##################################   TG   <residues>        target, e.g. S or T or Y
+##################################   PP   <location>        Anywhere. / N-terminal. / C-terminal. / Peptide N-terminal. / Peptide C-terminal.
+##################################   CF   <formula>         chemical formula, e.g. H1 N1 O2
+##################################   MM   <mass>            monoisotopic mass, if no formula is given
+##################################   MT   <type>            the group it is listed under
+################################## See Mods.txt in this folder for worked examples.

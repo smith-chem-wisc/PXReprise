@@ -1,0 +1,4 @@
+TaskType = "GlycoSearch"
+
+[CommonParameters]
+ListOfModsVariable = "Common Biological	Phosphorylation on S"

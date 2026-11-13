@@ -1,0 +1,235 @@
+# `datarepo study`
+
+Writes the rows a **study layer** contributes as an immutable, content-addressed **study bundle**,
+so `datarepo build` can load them beside the search bundles.
+
+```bash
+datarepo study   /path/to/stage7/study.yaml                 # write the delivery
+datarepo inspect /path/to/store/_study/aging/<bundle-id>    # what did it write?
+datarepo build   /path/to/instance/manifest.yaml --study aging=<bundle-id>
+```
+
+## Why this is a separate command
+
+An `age_effect` is the output of a modelling stage that runs long after a search — aging's stage 7.
+It is not in the folder `datarepo ingest` reads, and it is not a different view of the same
+measurements: it is a different kind of object produced at a different time. So it cannot arrive the
+way a PSM does, and giving it its own path was
+[DATAREPO-20(a)](../design/OPEN_QUESTIONS.md).
+
+The path had to keep three promises.
+
+**Delivering a model result never forces a re-ingest.** A study bundle is separately
+content-addressed. Writing one does not read, touch or re-identify a single search bundle, so a
+re-fit cannot move the id of a bundle somebody has cited. The Python release asserted exactly that,
+byte for byte, in the first test of its study suite, because it is the reason the object exists; the
+C# `StudyWriter` reproduces that release's study bundles id for id.
+
+**A study layer adds tables and never alters a core one** (U5). True of the files as well as the
+schema: the bundle holds only its layer's tables, and `build` unions it in beside the core.
+
+**The producer declares what they are handing over**, exactly as D9 makes them declare a search.
+
+## The delivery manifest
+
+`study.yaml` is deliberately the dumbest contract that works — one file per table, columns named as
+the schema names them:
+
+```yaml
+study_manifest_version: 1
+layer: aging
+instance: ncems-aging
+delivery: stage7-2026-10-02          # a label; prose, and not in the content hash
+store: F:/aging_data/repo/store      # the same store the search bundles live in
+definitions:                         # the register every definition_id must resolve against
+  - aging:DEF-AGE-EFFECT
+  - aging:DEF-AGE-EFFECT-META
+tables:
+  age_effects: age_effects.tsv
+  age_effect_refusals: refusals.tsv
+  age_effect_meta: meta.parquet
+  sample_ages: sample_ages.tsv
+```
+
+Relative paths resolve against the manifest's own directory, so a delivery folder can be moved or
+copied whole.
+
+dataRepo does not know what shape a modelling stage writes internally and does not guess. The one
+thing it insists on is that the rows land in the schema the definition was transcribed into.
+
+### File formats
+
+`.parquet`, `.tsv` and `.csv`. The delimiter comes from the extension and is never sniffed — a guess
+turns one column of `A;B` into two on somebody else's machine.
+
+In a **text** file, a list-valued column is split on `;`. Parquet carries real lists and is left
+alone. `age_effect_meta.dataset_ids` is the column that makes this matter: C3 and D1 need *which*
+datasets a pooled estimate came from, not how many.
+
+An empty cell is a null, never `0` and never `""` — the same coercion the core ingest uses, because
+it is literally the same function.
+
+## What it refuses
+
+The definition's rules are enforced **here**, on the way in, not documented beside the column:
+
+- **A `beta` without an `se` is not an age effect.** `beta`, `se`, `age_span_years`, `covariates`,
+  `normalization`, `method` and `method_version` are NOT NULL, so a missing one is a write error.
+- **A refused fit has nowhere to write a null `beta`**, because `age_effect_refusals` has no `beta`
+  column at all. That is `DEF-AGE-EFFECT v1` §5 — no row, not a row with a null — enforced by shape.
+- **A column the layer does not have** stops the write, naming it. A typo'd header is not silently
+  dropped.
+- **A `definition_id` the delivery does not declare** stops the write. `study.yaml` carries a
+  `definitions:` register, and an id not among them refuses. aging asked for this check and
+  corrected its target: their definitions are not produced by a search and have no business in a
+  search bundle, so the core `definitions` table is the wrong register (their 024 §2a). A delivery
+  declaring no register is not checked -- a producer who has not adopted it is not silently held to
+  a stricter contract than the one they agreed to, and declaring one definition opts fully in.
+- **Two rows for one fit** stop the write. The keys in `integrity.STUDY_COMPOSITE_IDENTIFIERS` were
+  declared in 0.6.0 while the tables were still empty, precisely so this check existed the moment
+  something filled them. Which of two answers is right is the producer's call, not the ingester's.
+
+## Content addressing
+
+`<store>/_study/<layer>/<bundle-id>/`, one Parquet file per delivered table plus `study.json`.
+
+The id covers the delivered files by SHA-256, which table each one fills, the layer and its version,
+the schema version and `StudyWriter.StudyIngesterVersion`. It does **not** cover `instance`, `delivery`
+or `notes`: rewording a label must not re-identify rows that are byte-identical. That is the
+over-hashing that has already bitten twice (aging thread 021 §4), and `StudyWriter.StudyContentFields` /
+`StudyNonContentFields` classify every manifest field with its reason, with a test that fails on
+an unclassified one.
+
+`StudyIngesterVersion` is separate from `BundleWriter.IngesterVersion` and from the program's version, for the
+same reason those are separate from each other: **bump it in the same commit as any change to what
+this module reads, parses, coerces or writes.** A change to how a `.psmtsv` is parsed says nothing
+about a delivered age effect, and neither says anything about the package version.
+
+Re-running an unchanged delivery is a no-op that says so. A changed row gives a new bundle **beside**
+the old one, so a catalog that cited the previous fit still resolves.
+
+## Loading it: `build --study`
+
+```bash
+datarepo build manifest.yaml --study aging=5c44672424   # pin one delivery
+datarepo build manifest.yaml --study-latest aging       # take the newest
+```
+
+**Study bundles are opt-in.** A build that names no layer gets the empty study tables it has had
+since 0.6.0. A catalog that silently picked up whichever model results happened to be in the store
+would answer a benchmark question differently from one built an hour earlier, with nothing in either
+to say why. When a delivery is on offer and none was loaded, `build` says so and prints the flag
+that would include it.
+
+`--study-latest` is refused with `--release`, for the reason D11 refuses `--latest` for datasets: a
+release that can pick up a later re-fit is not a release.
+
+### What changes in the catalog
+
+- The layer's tables hold rows, and every row carries `study_layer` and `study_bundle_id`. Those two
+  are deliberately **not** the core's `dataset_id` / `bundle_id`: a study bundle spans datasets, and
+  an `age_effect_meta` row is pooled across several by construction, so stating one dataset would be
+  false. Study tables that *are* per dataset keep their own `dataset_id`, which is a fact about the
+  row rather than about the bundle.
+- `catalog_study_bundles` records which delivery was loaded, its layer version and where it came
+  from. `catalog_tables` already labelled these tables `study:<layer>`.
+- **The catalog id moves.** A catalog built with a delivery of age effects and one built without it
+  answer 46 of aging's benchmark questions differently, so they cannot share an id.
+
+### Checks it adds
+
+Run on the union and reported in `catalog_checks`, and a failure refuses the build:
+
+| Kind | What it asserts |
+|---|---|
+| `study-unique` | no table repeats its own declared key |
+| `study-reference` | `age_effects.dataset_id` and `age_effect_refusals.dataset_id` are datasets the catalog holds; `sample_ages.sample_id` and `curated_sample_characteristics.sample_id` are samples it holds; `curated_run_design.run_id` and `curated_design_factors.run_id` are runs it holds, and every run of `curated_design_factors` is in `curated_run_design`; `clock_features.clock_id` is a clock it holds |
+| `study-design` | every run of one sample (through `assays`) carries the same `curated_design_factors` rows |
+
+An age effect naming a dataset the catalog does not hold is **refused, not dropped**. Section D's
+answer would otherwise come back smaller than the delivery supports, with nothing to say why.
+
+Unlike the core's, these reference checks are not scoped by `dataset_id`. A study layer's rows are
+not namespaced per dataset by us — the producer chose their identifiers — and `age_effect_meta` is
+cross-dataset by construction.
+
+### One thing still deliberately unchecked
+
+- **`feature_id` resolves against nothing yet.** DATAREPO-20(c) asked what a feature's cross-dataset
+  identity even *is*, and aging answered in their 024 §1: **the UniProt accession**, with the join
+  going through **membership in `protein_accessions`**, not through the id string. They measured it
+  — a membership join pools 2,608 accessions across ≥2 datasets against 2,497 for any id-based one,
+  and the 111 lost "are not a random tail, they are the paralogue families" (CALM1, VAMP2, RAB6A,
+  GLUD2, TEAD3). So the check is now buildable; it is not built yet, and that is tracked as G32
+  rather than claimed here.
+- **`definition_id` ~~is not resolved~~ now resolves against the delivery's own register.** aging
+  asked for the check and moved its target rather than accepting ours: their definitions are not
+  produced by a search, so the core `definitions` table was the wrong place to look (024 §2a). See
+  *What it refuses*, above.
+
+## Curated sample characteristics (layer 0.5.0)
+
+`curated_sample_characteristics` takes a study owner's curated tissue, cell type, cell line, disease
+and the rest, one row per (sample, characteristic), with `name` written the way an SDRF header is
+(`characteristics[organism part]`). It exists because aging curated 52 datasets from PRIDE records,
+deposit files and papers, and the only route into `samples` was an SDRF (aging 078, REQ-DATAREPO-6).
+
+- **A curated value never enters the core.** `samples` and `sample_characteristics` hold what an SDRF
+  wrote; this table holds what the study owner read elsewhere. Being here is the mark that a value is
+  the curator's, the same rule as `sample_ages.age_source = curated`.
+- **`source_reference` and `curation_version` are required.** A curated value whose source cannot be
+  named is not delivered, as for a curated age. `curation_version` is a curation label such as
+  `aging-curation/1`, never software, so it is not `normalizer_version`.
+- **A reserved word is kept and flagged.** `not applicable` (a cell line has no tissue) and
+  `not available` (the sources were read and do not say) are answers; no row means "not curated".
+  `value_reserved` is computed from `value` with the core's SDRF list, so filter on it before counting.
+- **Per sample, so per run where the deposit has one sample per run.** A dataset-level value is one
+  row per sample; a per-run condition (control and progeria in one deposit) needs nothing extra.
+- `datarepo_sql` points at the table whenever a query reads `samples` and it holds rows
+  (`study_tables_on_these_samples`).
+- **`name` takes any SDRF header verbatim**, `comment[...]` included, so protocol fields such as
+  `comment[alkylation reagent]` load as rows (aging DATAREPO-80).
+
+## Curated design (layer 0.6.0)
+
+Two tables carry how aging curated each deposit's design (aging 102, DATAREPO-79, amended by
+DATAREPO-82 in aging 108), keyed per **run** because fractions and technical replicates are runs of one
+sample:
+
+- **`curated_run_design`**, one row per run: `individual`, `injection`, `fraction`, `pool_size`,
+  `acquisition_batch`, with the curation's `source_reference`, `evidence`, `confidence` and
+  `curation_version`. A pool's `individual` is the pool's own label, and `pool_size` > 1 says it is a
+  pool. A reserved word is an answer: in `individual` it stays, and `individual_reserved` (computed)
+  marks it; in a number column the number is empty and the word is in its `_reserved` companion.
+- **`curated_design_factors`**, one row per (run, factor): `role` (`condition` or `stratum`), `level`
+  as written, `level_value` and `level_unit` for an ordered factor (an `age group` in years,
+  UO:0000036), `is_reference`, `is_primary` and `term`. A run the factor does not concern has **no
+  row**, so `level` is never a reserved word.
+
+`datarepo study` refuses a delivery that breaks any of these rules, naming the rule:
+- a `_reserved` companion holds only a reserved word, and never beside its number; numbers are at
+  least 1;
+- every factor row's run is in `curated_run_design`, delivered with it;
+- `role` is `condition` or `stratum`, the same on every row of one factor in one dataset;
+- `level` is never a reserved word, and `level_unit` is set exactly when `level_value` is;
+- a **condition** has a reference level and another level, and no level is both;
+- a **stratum** has at least two levels and no reference level (`is_reference` empty).
+
+The build adds the two checks that need the catalog (above): every run is a run it holds, and the runs
+of one sample carry the same factor rows. An aging study bundle written before 1.3.4 is layer 0.5.0,
+and a 1.3.4 build refuses it, so run `datarepo study` again before the first 1.3.4 publish.
+
+## Not in the study path yet
+
+- **`sample_ages` has no producer.** The three ingested SDRFs carry no age column, and parsing an age
+  string is sdrf/mzLib's job (D1). The table takes `age_raw` verbatim beside the normalized
+  `age_years` so that a normalizer correction can be re-run against the source rather than against a
+  previous normalization.
+- **`organelle_age_summaries` stays not-definition-backed.** Rolling per-feature effects up to a
+  compartment is an operation nobody has defined, and how a protein annotated to two compartments is
+  counted is the part that would bite.
+- **The path is now an agreed contract, not a recorded default.** aging replied in their 024 §2:
+  "you built ahead of us and the shape is right; the delay was ours." They will copy
+  `examples/study_delivery/`. Their two changes are both in: the definition register, and `delivery`
+  being advisory rather than identifying — which was already true, and
+  `test_the_producers_prose_does_not_move_the_id` already proved it.

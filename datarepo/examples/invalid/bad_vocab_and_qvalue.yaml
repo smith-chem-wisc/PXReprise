@@ -1,0 +1,19 @@
+# MUST FAIL validation: detection_type outside the vocabulary and a q-value above 1.
+# CI runs this to prove the validator actually rejects bad data.
+quant_values:
+  - assay_id: "PXD036557:file01:label_free"
+    feature_type: peptidoform
+    feature_id: "PXD036557:LQEELDLK"
+    value: 0
+    detection_type: guessed
+    definition_id: DEF-QUANT-APEX
+psms:
+  - psm_id: "PXD036557:file01:1:1"
+    run_id: "PXD036557:file01"
+    scan: 1
+    usi: "mzspec:PXD036557:file01:scan:1:PEPTIDEK/2"
+    peptidoform: PEPTIDEK
+    base_sequence: PEPTIDEK
+    precursor_charge: 2
+    q_value: 1.5
+    target_decoy: target

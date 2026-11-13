@@ -1,0 +1,3 @@
+clock_id	definition_id	feature_level	training_datasets	cv_mae_years	heldout_mae_years	heldout_datasets
+C1	aging:DEF-CLOCK	protein	A;B	1.5		
+C2	aging:DEF-CLOCK		 ; 		2	X

@@ -1,0 +1,5 @@
+TaskType = "Search"
+
+[SearchParameters]
+IterativePepTraining = false
+TCAmbiguity = "RemoveContaminant"

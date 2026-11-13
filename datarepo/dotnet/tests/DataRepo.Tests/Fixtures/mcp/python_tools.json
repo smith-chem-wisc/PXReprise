@@ -1,0 +1,124 @@
+[
+ {
+  "name": "datarepo_describe",
+  "title": "Describe the catalog, a table, an enum or a definition",
+  "description": "What this dataRepo catalog holds and what its columns mean. Call it with no target first: it returns the datasets, every table with its row count, and the open findings. Then call it with a table name for that table's columns and what each one means, an enum name for its permissible values, or a definition id (e.g. 'pep:DEF-PEP') for the published text behind a stored number. A table listed with 0 rows exists and is empty: the data has not been delivered, which is not the same as the answer being no.",
+  "inputSchema": {
+   "properties": {
+    "target": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Target"
+    },
+    "detail": {
+     "default": "concise",
+     "enum": [
+      "concise",
+      "detailed"
+     ],
+     "title": "Detail",
+     "type": "string"
+    }
+   },
+   "type": "object",
+   "title": "datarepo_describeArguments"
+  },
+  "outputSchema": {
+   "type": "object",
+   "additionalProperties": true,
+   "title": "datarepo_describeDictOutput"
+  }
+ },
+ {
+  "name": "datarepo_search",
+  "title": "Find the ids behind a name",
+  "description": "Look up a dataset accession, UniProt accession, gene symbol, peptide sequence, modification, tissue, cell type, raw file or definition and get back the ids needed to query it. Returns the hits AND the list of sources searched with the rows each one holds, so that 'no hits' can be told apart from 'that table is empty in this catalog'. Use it before writing SQL against an identifier you have not confirmed.",
+  "inputSchema": {
+   "properties": {
+    "query": {
+     "title": "Query",
+     "type": "string"
+    },
+    "kind": {
+     "anyOf": [
+      {
+       "enum": [
+        "dataset",
+        "protein",
+        "peptide",
+        "modification",
+        "sample",
+        "run",
+        "definition",
+        "localization"
+       ],
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Kind"
+    },
+    "limit": {
+     "default": 25,
+     "title": "Limit",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "query"
+   ],
+   "type": "object",
+   "title": "datarepo_searchArguments"
+  },
+  "outputSchema": {
+   "type": "object",
+   "additionalProperties": true,
+   "title": "datarepo_searchDictOutput"
+  }
+ },
+ {
+  "name": "datarepo_sql",
+  "title": "Run one read-only SQL query",
+  "description": "Run one read-only DuckDB statement against the catalog. The catalog is derived and cannot be written to. Results are capped at 1,000 rows or 50,000 characters with a 'truncated' flag, and a query still running after 30 s is stopped -- so aggregate in SQL rather than fetching rows to count them. Prefer the *_1pct views (psms_1pct, peptidoforms_1pct, protein_groups_1pct): they apply the producing search engine's acceptance rule, so you do not have to restate it. Call describe('<table>') first if you are unsure of a column.",
+  "inputSchema": {
+   "properties": {
+    "query": {
+     "title": "Query",
+     "type": "string"
+    },
+    "max_rows": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Max Rows"
+    }
+   },
+   "required": [
+    "query"
+   ],
+   "type": "object",
+   "title": "datarepo_sqlArguments"
+  },
+  "outputSchema": {
+   "type": "object",
+   "additionalProperties": true,
+   "title": "datarepo_sqlDictOutput"
+  }
+ }
+]

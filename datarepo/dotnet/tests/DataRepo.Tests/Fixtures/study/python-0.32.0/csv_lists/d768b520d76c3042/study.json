@@ -1,0 +1,47 @@
+{
+  "bundle_id": "d768b520d76c3042",
+  "kind": "study",
+  "layer": "aging",
+  "layer_version": "0.5.0",
+  "schema_version": "0.0.13",
+  "instance": null,
+  "delivery": null,
+  "ingester": {
+    "name": "datarepo",
+    "version": "0.32.0",
+    "study_ingest_path": "0.6.0"
+  },
+  "written_utc": "2026-10-04T16:07:42+00:00",
+  "tables": {
+    "age_effect_meta": 3,
+    "clock_features": 2,
+    "clock_models": 2
+  },
+  "sources": [
+    {
+      "role": "table:age_effect_meta",
+      "path": "E:\\CodeReview\\dataRepo\\.claude\\worktrees\\agent-a3e22cde33ad2ea8c\\dotnet\\tests\\DataRepo.Tests\\Fixtures\\study\\cases\\csv_lists\\age_effect_meta.csv",
+      "size_bytes": 758,
+      "sha256": "834f8c56905d87cdc673dd85fb5b3f2faed41a4ee946ae0f0a66bc5096670517"
+    },
+    {
+      "role": "table:clock_features",
+      "path": "E:\\CodeReview\\dataRepo\\.claude\\worktrees\\agent-a3e22cde33ad2ea8c\\dotnet\\tests\\DataRepo.Tests\\Fixtures\\study\\cases\\csv_lists\\clock_features.tsv",
+      "size_bytes": 98,
+      "sha256": "e8b5cfe0be770ce42e0a1a465c6929667ef97a4add2333237ee050662f0aaeec"
+    },
+    {
+      "role": "table:clock_models",
+      "path": "E:\\CodeReview\\dataRepo\\.claude\\worktrees\\agent-a3e22cde33ad2ea8c\\dotnet\\tests\\DataRepo.Tests\\Fixtures\\study\\cases\\csv_lists\\clock_models.tsv",
+      "size_bytes": 169,
+      "sha256": "9553c71a915b4656b9e2fdcdd482f90d3a8261acbe7a7161aeeb461f8afd8509"
+    },
+    {
+      "role": "declaration:study",
+      "path": "<declaration:study>",
+      "kind": "declaration",
+      "sha256": "79909a9d6a8278bbc893775405a0f87a9628a3b6448b2f8dbd5133ff3f26c882"
+    }
+  ],
+  "notes": null
+}

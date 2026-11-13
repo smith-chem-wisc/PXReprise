@@ -1,0 +1,5 @@
+sample_id	name	value	term	source_reference	evidence	confidence	curation_version	value_reserved
+S1	n	liver		r			v	yes
+S2	n	 not applicable 		r			v	false
+S3	n	x		r			v	maybe
+S4	n	y		r			v	0
