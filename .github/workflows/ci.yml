@@ -1,32 +1,18 @@
 name: CI
 
-# Runs when something the build or the tests read changes (2026-10-21): most pushes are notes and messages no test
-# reads, and each one ran both jobs. The live canaries reach PRIDE, so they run weekly and on demand only.
+# Every pull request and every push to master builds, runs the offline tests and uploads their coverage to Codecov, whose
+# patch check asks 90% of a PR's changed lines to be covered (codecov.yml). There is no path filter: the build-and-test job
+# is a required check on master, and a check skipped by a filter never reports, which would leave a PR waiting for it.
+# Actions minutes are free on a public repository. The live canaries reach PRIDE, so they run weekly and on demand only.
 on:
   push:
     branches: [master]
-    paths:
-      - "src/**"
-      - "tests/**"
-      - "profiles/**"
-      - "examples/**"
-      - "machines/**"
-      - "PXReprise.slnx"
-      - ".github/workflows/**"
   pull_request:
-    paths:
-      - "src/**"
-      - "tests/**"
-      - "profiles/**"
-      - "examples/**"
-      - "machines/**"
-      - "PXReprise.slnx"
-      - ".github/workflows/**"
   schedule:
     - cron: "17 9 * * 1"   # Mondays 09:17 UTC
   workflow_dispatch:
 
-# A newer push to the same branch stops the run it supersedes (2026-10-25, the user: CI minutes on the private repo).
+# A newer push to the same branch or PR stops the run it supersedes.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -36,14 +22,21 @@ jobs:
     name: build and offline tests (required)
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
       - run: dotnet build -c Release
-      - run: dotnet test -c Release --no-build --filter "Category!=ExternalService"
+      - run: dotnet test -c Release --no-build --filter "Category!=ExternalService" --collect:"XPlat Code Coverage" --results-directory coverage
+      # The patch check is Codecov's own status (codecov/patch). An upload that fails (an outage, no token yet) does not
+      # fail this job: build and tests are what this job reports.
+      - uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          directory: coverage
+          fail_ci_if_error: false
 
   live:
     name: live PRIDE canaries (not required; skipped on an outage)

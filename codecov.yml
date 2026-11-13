@@ -1,0 +1,22 @@
+# Coverage rules for pull requests to master (decided 2026-11-13): at least 90% of the lines a PR adds or changes must be
+# covered by the offline tests. The whole project's coverage is reported, not enforced.
+coverage:
+  status:
+    patch:
+      default:
+        target: 90%
+        threshold: 0%
+    project:
+      default:
+        informational: true
+
+# Scripts run by hand (dotnet run x.cs), examples and records are not part of the built engine.
+ignore:
+  - "tools/**"
+  - "examples/**"
+  - "data/**"
+  - "tests/**"
+
+comment:
+  layout: "diff, files"
+  require_changes: false
