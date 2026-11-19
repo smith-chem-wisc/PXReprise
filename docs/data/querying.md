@@ -193,7 +193,24 @@ arrived under several spellings** — do not group on `modification` alone.
 
 From catalog format 17, `protein_orthologs` joins every target accession that has a gene resolution to its
 orthologs in each other species of the registered orthology snapshot (Ensembl Compara, through logs), and to
-the accessions that resolve to each ortholog gene. Then the evidence is one join away:
+the accessions that resolve to each ortholog gene:
+
+```sql
+SELECT target_species, status, relationship_type, partner_gene, partner_gene_name, partner_accession,
+       partner_n_datasets_1pct
+FROM protein_orthologs WHERE protein_accession = 'P14136'   -- human GFAP
+ORDER BY target_species;
+```
+
+```
+target_species     status        relationship_type  partner_gene        partner_gene_name  partner_accession  partner_n_datasets_1pct
+-----------------  ------------  -----------------  ------------------  -----------------  -----------------  -----------------------
+mus_musculus       has_ortholog  ortholog_one2one   ENSMUSG00000020932  Gfap               P03995             59
+rattus_norvegicus  has_ortholog  ortholog_one2one   ENSRNOG00000002919  Gfap               P47819             25
+```
+
+That ran on a 1.5.0 folder catalog of aging's 192 re-ingested deposits, where `protein_orthologs` holds 182,552 rows
+for 64,198 accessions; it answers in about 0.1 s. The evidence for each ortholog is one join away:
 
 ```sql
 WITH asked AS (
@@ -242,7 +259,10 @@ not in `protein_genes`), or that the catalog serves no snapshot (`orthology_spec
 no orthologs. One-to-many orthologs give a row each
 (`relationship_type`), and isoform accessions of a partner gene each have their own row. The site rule here
 (target, `best_q_value` at most 0.01) is the reader's: `ptm_sites` holds every site, fixed modifications included.
-`best_group_coverage` is MetaMorpheus's coverage (0 to 1) of an accepted group holding the accession.
+`best_group_coverage` is MetaMorpheus's coverage (0 to 1) of an accepted group holding the accession. On the
+catalog above it gives mouse P03995 94 sequences in 56 datasets and 286 sites, and rat P47819 71 sequences in 25
+datasets and 140 sites, in 10 to 20 s: nearly all of it is the scan of `peptidoforms_1pct` (8.4 million of 82
+million peptidoforms) that `list_contains` needs, since a list column takes no index.
 
 ---
 

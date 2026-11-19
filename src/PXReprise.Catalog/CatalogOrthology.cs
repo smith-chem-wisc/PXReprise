@@ -160,7 +160,10 @@ public static partial class CatalogBuilder
     /// <remarks>Every LEFT JOIN keeps the row it starts from, so each (accession, gene, target species) gives at least one
     /// row whatever its status (<see cref="CheckOrthologyTables"/> checks it). A <c>has_ortholog</c> gene gives a row per
     /// ortholog gene (one-to-many and many-to-many kept), times each accession resolving to that gene in the target's
-    /// gene set, or one row with no accession.</remarks>
+    /// gene set, or one row with no accession. Only a <c>has_ortholog</c> row is joined to <c>gene_orthologs</c>, and that
+    /// rule sits in the join key, not as a predicate on <c>a</c> alone in the ON clause: DuckDB 1.5.5 turns a LEFT JOIN
+    /// with such a predicate into a nested-loop join (33 s on aging's 66,000 resolutions, where the hash join takes under
+    /// 1 s).</remarks>
     private const string ProteinOrthologsSelect = $@"
         WITH resolutions AS ({OrthologySources}
         ),
@@ -187,7 +190,8 @@ public static partial class CatalogBuilder
                a.definition_id, {{artefact_id}} AS artefact_id
         FROM asked a
         LEFT JOIN gene_orthologs o
-               ON a.status = 'has_ortholog' AND o.species = a.species AND o.gene = a.gene_id AND o.partner_species = a.target_species
+               ON o.species = a.species AND o.partner_species = a.target_species
+              AND o.gene = CASE WHEN a.status = 'has_ortholog' THEN a.gene_id END
         LEFT JOIN orthology_genes pg ON pg.species = o.partner_species AND pg.gene_id = o.partner_gene
         LEFT JOIN partners p ON p.species = o.partner_species AND p.gene_id = o.partner_gene
         LEFT JOIN protein_index pi ON pi.protein_accession = p.accession

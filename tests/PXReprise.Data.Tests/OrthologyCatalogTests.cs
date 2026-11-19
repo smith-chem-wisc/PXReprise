@@ -304,18 +304,22 @@ public class OrthologyCatalogTests
         Assert.That(file.Indexes, Is.EqualTo(empty.Indexes), "the orthology tables are indexed whether or not a snapshot is served");
         Assert.That(Scalar(file.Path, "SELECT count(*) FROM duckdb_indexes() WHERE table_name = 'protein_orthologs'"), Is.EqualTo(1));
 
-        // The worked query in querying.md runs, and answers one row per protein_orthologs row.
-        var documented = DocumentedQuery().Replace("'P14136'", "'P35527'");
-        Assert.That(CatalogBuilder.RunQuery(file.Path, documented).Rows, Has.Count.EqualTo(2));
-        Assert.That(CatalogBuilder.RunQuery(folder.Path, documented).Rows, Has.Count.EqualTo(2));
+        // The two worked queries in querying.md run, and answer one row per protein_orthologs row.
+        var documented = DocumentedQueries().Select(sql => sql.Replace("'P14136'", "'P35527'")).ToList();
+        Assert.That(documented, Has.Count.EqualTo(2));
+        foreach (var sql in documented)
+        {
+            Assert.That(CatalogBuilder.RunQuery(file.Path, sql).Rows, Has.Count.EqualTo(2), sql);
+            Assert.That(CatalogBuilder.RunQuery(folder.Path, sql).Rows, Has.Count.EqualTo(2), sql);
+        }
     }
 
-    /// <summary>The SQL block of <c>docs/data/querying.md</c> that reads <c>protein_orthologs</c>.</summary>
-    private static string DocumentedQuery()
+    /// <summary>The SQL blocks of <c>docs/data/querying.md</c> that read <c>protein_orthologs</c>.</summary>
+    private static List<string> DocumentedQueries()
     {
         var page = File.ReadAllText(Path.Combine(DataPaths.Docs, "querying.md")).Replace("\r\n", "\n");
         return Regex.Matches(page, "```sql\n(.*?)```", RegexOptions.Singleline).Select(m => m.Groups[1].Value)
-            .Single(sql => sql.Contains("FROM protein_orthologs", StringComparison.Ordinal));
+            .Where(sql => sql.Contains("FROM protein_orthologs", StringComparison.Ordinal)).ToList();
     }
 
     [Test]

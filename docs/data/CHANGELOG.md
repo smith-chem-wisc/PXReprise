@@ -74,7 +74,10 @@ search by MetaMorpheus 1.1.13 or earlier.
   in each other species and to the accessions resolving to them, with a `status` on every row, so an accession with no
   ortholog says why (`no_gene`, `not_in_gene_set`, `no_edge_in_shared_tree`, `tree_lacks_target_species`,
   `not_in_any_tree`). The five tables are in every catalog, empty without a snapshot. Two `engine-consistency` checks fail
-  the build if the status counts differ from the registration's, or if an accession lacks a row for some species.
+  the build if the status counts differ from the registration's, or if an accession lacks a row for some species. On
+  aging's 192 re-ingested deposits (human, mouse and rat): 200,649 genes, 171,792 ortholog rows, 401,298 statuses and
+  182,552 `protein_orthologs` rows for 64,198 accessions, about 6 s of a folder build; one protein's orthologs answer in
+  about 0.1 s.
 
 ### Changed (engines)
 - **`logs.resolve_genes` writes `logs:DEF-GENE-RESOLUTION v2`**, on every row, in `run.json` and in the artefact id,

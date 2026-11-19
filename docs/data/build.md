@@ -197,8 +197,8 @@ protein", which is the question the repository exists for.
 
 The five orthology tables are copied from the snapshot `datarepo run logs.register_orthology` registered
 ([operating.md](operating.md#4-optional-engines-and-study-results)), through the snapshot's own `views.sql`, in
-both layouts: they are small (human, mouse and rat: about 200,000 genes, 170,000 ortholog rows and 400,000 statuses),
-so neither layout reads the snapshot at query time. They are in every catalog of format 17, empty when no snapshot is
+both layouts: they are small (on aging's store, human, mouse and rat: 200,649 genes, 171,792 ortholog rows, 401,298
+statuses and 182,552 `protein_orthologs` rows, built in about 6 s), so neither layout reads the snapshot at query time. They are in every catalog of format 17, empty when no snapshot is
 registered. `catalog_tables.kind` is `engine:logs.register_orthology` for the four copied from the snapshot and
 `derived` for `protein_orthologs`. `protein_orthologs` answers for the accessions of `protein_genes` (target proteins
 a search held, no decoy or contaminant): accession to gene through `gene_resolutions` (each gene of a `multi_gene`
