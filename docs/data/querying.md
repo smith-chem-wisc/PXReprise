@@ -238,7 +238,8 @@ resolves to no gene), `not_in_gene_set`, `no_edge_in_shared_tree`, `tree_lacks_t
 `not_in_any_tree`. A `has_ortholog` row with no `partner_accession` is an ortholog no searched database holds a
 protein for. Only a row with a `partner_accession` and no evidence means the repository searched for that protein
 and accepted nothing. **No rows at all** means the accession is not one the repository resolved to a gene (it is
-not in `protein_genes`), never that it has no orthologs. One-to-many orthologs give a row each
+not in `protein_genes`), or that the catalog serves no snapshot (`orthology_species` is empty), never that it has
+no orthologs. One-to-many orthologs give a row each
 (`relationship_type`), and isoform accessions of a partner gene each have their own row. The site rule here
 (target, `best_q_value` at most 0.01) is the reader's: `ptm_sites` holds every site, fixed modifications included.
 `best_group_coverage` is MetaMorpheus's coverage (0 to 1) of an accepted group holding the accession.
