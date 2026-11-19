@@ -185,9 +185,10 @@ public class FolderCatalogTests
         }
         Assert.Multiple(() =>
         {
-            foreach (var view in new[] { "peptidoforms", "quant_values", "proteins", "runs", "gene_resolutions", "protein_localizations" })
+            foreach (var view in new[] { "peptidoforms", "quant_values", "proteins", "runs", "gene_resolutions" })
                 Assert.That(b[view].Kind, Is.EqualTo("VIEW"), $"{view} reads the store");
-            foreach (var table in new[] { "samples", "dataset_overview", "protein_index", "curated_run_design" })
+            // From catalog format 17 go's tables are copied (the reference ones) or derived at build, in both layouts.
+            foreach (var table in new[] { "samples", "dataset_overview", "protein_index", "curated_run_design", "protein_localizations", "go_accession_terms" })
                 Assert.That(b[table].Kind, Is.EqualTo("BASE TABLE"), $"{table} is materialised");
             Assert.That(new FileInfo(folder.Path).Length, Is.LessThan(new FileInfo(file.Path).Length));
         });

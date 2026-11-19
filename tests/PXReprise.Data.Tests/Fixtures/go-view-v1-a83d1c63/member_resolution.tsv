@@ -1,0 +1,26 @@
+#!member_resolution_format 1
+#!mzlib_version 1.0.0+a83d1c63a8d745af88d0f7a64e921156776476b9
+#!mzlib_release none
+#!annotation_db_sha256 0123abcd
+accession	annotated_as	resolution	entrapment	sequence_accession
+NP_000001		no_entry	false	
+P04406	P04406	self	false	P04406
+P04406-2	P04406-2	self	false	P04406-2
+P04406-2_A20T	P04406-2	inherited	false	P04406-2
+P04406-3	P04406	inherited	false	P04406-3
+P04406_A20T	P04406	inherited	false	P04406
+P11111	P11111	self	false	P11111
+P22222	P22222	self	false	P22222
+P33333	P33333	self	false	P33333
+P35908	P35908	self	false	P35908
+P55555	P55555	self	false	P55555
+P66666	P66666	self	false	P66666
+P77777	P77777	self	false	P77777
+P88888	P88888	self	false	P88888
+P99999		no_entry	false	
+Q13148-2_A20T	Q13148	inherited	false	Q13148-2
+Q13148-3_A20T	Q13148-3	inherited	false	Q13148-3
+Q9ZZZ9		no_entry	false	
+Random_P11111_f0		no_entry	true	
+Random_foreign_Q99999	Random_foreign_Q99999	self	true	Random_foreign_Q99999
+X11111	X11111	self	true	X11111

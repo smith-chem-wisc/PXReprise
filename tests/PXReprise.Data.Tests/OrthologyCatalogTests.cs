@@ -100,7 +100,7 @@ public class OrthologyCatalogTests
     {
         var all = (links ?? Resolutions).ToList();
         var bundle = CatalogBuilder.SelectBundles(Manifest.Load(ManifestPath), ["PXD999999"], Store).Single();
-        var database = CatalogBuilder.GoInputsOf(bundle).Databases.Single();
+        var database = CatalogBuilder.GoInputsOf(bundle).Targets.Single().Sha256;
         var rows = all.Select(r => (IReadOnlyDictionary<string, object?>)new Dictionary<string, object?>
         {
             ["definition_id"] = r.Definition, ["accession"] = r.Accession, ["entry_accession"] = r.Accession, ["namespace"] = "uniprot",

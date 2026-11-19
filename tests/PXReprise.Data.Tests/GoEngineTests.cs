@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using PXReprise.Bundle;
 using PXReprise.Catalog;
@@ -5,19 +6,22 @@ using PXReprise.DataCli;
 using PXReprise.Ingest;
 using PXReprise.Ingest.Sources;
 using PXReprise.Runner;
+using Readers;
+using UsefulProteomicsDatabases.GeneOntology;
 
 namespace PXReprise.Data.Tests;
 
-/// <summary>The go engine (<c>go.annotate_groups</c>, G86): mzLib's annotator on a stored search, go's files read back
-/// as the acceptance check, and the catalog loading the artefact.</summary>
+/// <summary>go's three engines (<c>go.annotate_databases</c>, <c>go.categorize_terms</c>, <c>go.resolve_members</c>) on
+/// a stored search, mzLib's files read back as the acceptance check, and the catalog joining them into the rows
+/// <c>go.annotate_groups</c> stored per bundle up to 1.4.5.</summary>
 /// <remarks>
-/// <para>The fixture dataset is PXD999999 (<c>tests/data</c>), ingested here with the current rules. Its searched
-/// database carries no GO, so each test works on a scratch copy of the fixture tree whose <c>test_human.xml</c> has
-/// GO references added to three entries (<see cref="GoReferences"/>), with the search provenance's sha256 for that
-/// file updated to match, so the ingest reads it as the database the search used. The ontology is mzLib's own
-/// trimmed go.obo and the map a three-row one (<c>Fixtures/go-engine/PROVENANCE.md</c>).</para>
-/// <para>The definition id is <see cref="FakeDefinition"/>: go has published none, and the engine refuses without
-/// one.</para>
+/// <para>The fixture dataset is PXD999999 (<c>tests/datarepo-instance</c>), ingested here with the current rules. Its
+/// searched database carries no GO, so each test works on a scratch copy of the fixture tree whose <c>test_human.xml</c>
+/// has GO references added to three entries (<see cref="GoReferences"/>), with the search provenance's sha256 for that
+/// file updated to match. The ontology is mzLib's trimmed go.obo and the map a three-row one
+/// (<c>Fixtures/go-engine/PROVENANCE.md</c>).</para>
+/// <para>The definition ids are <see cref="FakeDefinition"/>s: the engines refuse a call without one, and the CLI passes
+/// go's.</para>
 /// </remarks>
 public class GoEngineTests
 {
@@ -46,9 +50,9 @@ public class GoEngineTests
     private static string FixtureDir => Path.Combine(TestContext.CurrentContext.TestDirectory, "Fixtures", "go-engine");
     private static string Ontology => Path.Combine(FixtureDir, "go-trimmed.obo");
     private static string Map => Path.Combine(FixtureDir, "fixture_map.tsv");
-    private static Dictionary<string, string> Inputs => new() { ["ontology"] = Ontology, ["category_map"] = Map };
-
-    private static string RepoRoot() => DataPaths.Root;
+    private static Dictionary<string, string> OntologyAndMap => new() { ["ontology"] = Ontology, ["category_map"] = Map };
+    private static Dictionary<string, string> OntologyOnly => new() { ["ontology"] = Ontology };
+    private static readonly Dictionary<string, string> NoInputs = new();
 
     private string _root = "";
     private string Store => Path.Combine(_root, "store");
@@ -99,120 +103,149 @@ public class GoEngineTests
         return BundleRef.Load(result.BundlePath);
     }
 
+    /// <summary>The three engines on the bundle, under one definition id.</summary>
+    private (ArtefactRef Ontology, ArtefactRef Database, ArtefactRef Members) RunAll(BundleRef bundle, string definition = FakeDefinition) =>
+    (
+        GoReferenceEngines.CategorizeTermsRun(Store, OntologyAndMap, definition, StandInInstall).Written.Single(),
+        GoReferenceEngines.AnnotateDatabasesRun(Store, [bundle], OntologyOnly, definition, StandInInstall).Written.Single(),
+        GoReferenceEngines.ResolveMembersRun(Store, [bundle], NoInputs, definition, StandInInstall).Written.Single()
+    );
+
     private static List<Dictionary<string, object?>> Rows(ArtefactRef artefact, string table) =>
         ArrowTables.ReadParquet(artefact.TablePath(table)!).Rows.Select(r => r.ToDictionary(kv => kv.Key, kv => kv.Value)).ToList();
 
     private static IReadOnlyDictionary<string, object?> Summary(ArtefactRef artefact) =>
         (IReadOnlyDictionary<string, object?>)artefact.Record["engine_summary"]!;
 
+    private static string[] Files(ArtefactRef artefact) => Directory.EnumerateFiles(artefact.Path).Select(f => Path.GetFileName(f)!).Order(StringComparer.Ordinal).ToArray();
+
+    // --- the engines -------------------------------------------------------------------------------------
+
     [Test]
-    public void OneBundleGivesOneArtefactWithGosFilesAndTheRowsGosReaderBuilds()
+    public void EachEngineWritesMzLibsFileAndTheRowsMzLibsReaderGives()
     {
         var bundle = IngestWithGo();
-        var result = GoEngine.Run(Store, [bundle], Inputs, FakeDefinition, StandInInstall);
-        var artefact = result.Written.Single();
-        Assert.That(result.AlreadyDone, Is.Empty);
-        Assert.That(artefact.Engine, Is.EqualTo("go.annotate_groups"));
-        Assert.That(Directory.EnumerateFiles(artefact.Path).Select(Path.GetFileName).Order(),
-            Is.EqualTo(new[] { "annotation_sources.parquet", "go_category.tsv", "organelle_term_categories.parquet", "protein_localizations.parquet", "run.json" }),
-            "no go_annotation.tsv: read back as acceptance, never stored (G110)");
+        var (ontology, database, members) = RunAll(bundle);
+        var search = CatalogBuilder.GoInputsOf(bundle);
+        var human = search.Targets.Single();
+        Assert.That(human.Name, Is.EqualTo("test_human.xml"));
 
-        // The record: everything hashed, plus what was not.
-        var record = artefact.Record;
-        Assert.That(record["definition_id"], Is.EqualTo(FakeDefinition));
-        Assert.That(record["acceptance"], Is.EqualTo("passed"));
-        Assert.That(artefact.Inputs.Keys.Order(), Is.EqualTo(new[] { "annotation_database:test_human.xml", "category_map", "ontology", "protein_groups" }),
-            "the contaminant panel is not annotation input");
-        Assert.That(result.SkippedContaminant, Is.EqualTo(new[] { "test_contaminants.xml" }));
-        var summary = Summary(artefact);
-        Assert.That(summary["groups"], Is.EqualTo(4L), "every non-decoy group, the q = 0.5 one included");
-        Assert.That(PyFormat.Json(summary["group_status_counts"], sortKeys: true),
-            Is.EqualTo("{\"annotated\": 2, \"contaminant\": 1, \"no_entry\": 1, \"no_go_terms\": 0}"));
-        Assert.That((IEnumerable<object?>)summary["unresolved_go_ids"]!, Is.EqualTo(new object?[] { Unknown }), "skipped and listed (go D35)");
-        Assert.That(summary["mzlib_release"], Is.EqualTo(GoEngine.Release()["mzlib"]), "a released mzLib wrote the files");
-        Assert.That(summary["annotation_db_sha256"], Is.EqualTo(artefact.Inputs["annotation_database:test_human.xml"]),
-            "one database: its own sha256, as go's own run wrote it");
+        Assert.Multiple(() =>
+        {
+            // (b) and the ontology: once per (go.obo, map), no bundle.
+            Assert.That(ontology.Engine, Is.EqualTo("go.categorize_terms"));
+            Assert.That(Files(ontology), Is.EqualTo(new[] { "go_category.tsv", "go_closure.parquet", "go_closure.tsv", "go_term_categories.parquet", "go_terms.parquet", "go_terms.tsv", "run.json" }));
+            Assert.That(ontology.Inputs.Keys.Order(), Is.EqualTo(new[] { "category_map", "ontology" }));
+            Assert.That(Summary(ontology)["go_release"], Is.EqualTo("releases/2026-07-26"));
+            Assert.That(Summary(ontology)["terms"], Is.EqualTo(29L));
+            Assert.That(Rows(ontology, "go_closure").Count(r => Equals(r["go_id"], r["ancestor_go_id"])), Is.EqualTo(29), "the term itself is always a pair");
+            Assert.That(Rows(ontology, "go_term_categories").Single(r => Equals(r["go_id"], InnerMembrane))["subcategory"], Is.EqualTo("mitochondrion:inner_membrane"));
 
-        // The category file is kept in go's format and reads back clean; the annotation file was read back as acceptance
-        // inside the run and is not stored (G110), so the record keeps its sha256.
-        var categories = Go.ReadCategories(Path.Combine(artefact.Path, GoEngine.CategoryFile));
-        Assert.That(categories.MapName, Is.EqualTo("fixture"));
-        Assert.That(summary["annotation_file_sha256"], Does.Match("^[0-9a-f]{64}$"));
+            // (a): one per database FILE; the contaminant panel is never annotation input.
+            Assert.That(database.Engine, Is.EqualTo("go.annotate_databases"));
+            Assert.That(Files(database), Is.EqualTo(new[] { "go_accession_terms.parquet", "go_accession_terms.tsv", "run.json" }));
+            Assert.That(database.Inputs, Is.EquivalentTo(new Dictionary<string, string> { ["annotation_database"] = human.Sha256, ["ontology"] = ontology.Inputs["ontology"] }));
+            Assert.That((IEnumerable<object?>)Summary(database)["unresolved_go_ids"]!, Is.EqualTo(new object?[] { Unknown }), "skipped and listed (go D35)");
+            Assert.That(Summary(database)["mzlib_release"], Is.EqualTo(GoReferenceEngines.Release()["mzlib"]), "a released mzLib wrote the file");
+            var terms = Rows(database, "go_accession_terms");
+            Assert.That(terms.Select(r => r["accession"]).Distinct().Count(), Is.EqualTo(Summary(database)["entries"]), "every entry has a row");
+            Assert.That(terms.Where(r => Equals(r["accession"], "P05141")).Select(r => (r["go_id"], r["aspect"], r["evidence"], r["inherited"])),
+                Is.EqualTo(new[] { ((object?)Gapdh, (object?)"molecular_function", (object?)"ECO:0000250", (object?)false), (InnerMembrane, "cellular_component", "ECO:0000314", false) }),
+                "direct terms only, all aspects");
+            Assert.That(terms.Single(r => Equals(r["accession"], "Q71U36"))["go_id"], Is.Null, "its only term was unknown: one term-less row");
+            Assert.That(terms.Any(r => Equals(r["go_id"], Mitochondrion)), Is.False, "ancestors are the closure's, never rows");
+            Assert.That(GoReferenceEngines.IsoformOf("P04406-2"), Is.EqualTo("P04406"));
+            Assert.That(GoReferenceEngines.IsoformOf("P04406"), Is.Null);
+            Assert.That(GoReferenceEngines.IsoformOf("P04406-2_A20T"), Is.Null, "a variant is (c)'s to resolve");
 
-        var localizations = Rows(artefact, "protein_localizations");
-        var direct = localizations.Single(r => (string)r["protein_accession"]! == "P05141" && (string)r["compartment"]! == InnerMembrane);
-        Assert.That((direct["propagated"], direct["inherited"], direct["n_members"], direct["n_with"], direct["evidence"]),
-            Is.EqualTo(((object?)false, (object?)false, (object?)1L, (object?)1L, (object?)"ECO:0000314")));
-        var up = localizations.Single(r => (string)r["protein_accession"]! == "P05141" && (string)r["compartment"]! == Mitochondrion);
-        Assert.That(up["propagated"], Is.EqualTo(true), "mitochondrion is reached by part_of propagation");
-        var tubulin = localizations.Single(r => (string)r["protein_accession"]! == "P68363" && (string)r["compartment"]! == Cytoplasm);
-        Assert.That((tubulin["protein_group"], tubulin["n_members"], tubulin["n_with"]), Is.EqualTo(((object?)"P68363|Q71U36", (object?)2L, (object?)1L)));
-        Assert.That(localizations.Any(r => (string)r["protein_accession"]! is "Q71U36" or "P99999" or "CONTAM_P00001"), Is.False,
-            "no term, no row: a dropped unknown id, a missing entry and a contaminant");
-        Assert.That(localizations.Any(r => (string)r["compartment"]! == Gapdh), Is.False, "molecular function is not a localization");
-
-        var categoryRows = Rows(artefact, "organelle_term_categories");
-        Assert.That(categoryRows.Single(r => (string)r["compartment"]! == InnerMembrane)["organelle_subcategory"], Is.EqualTo("mitochondrion:inner_membrane"));
-        Assert.That(categoryRows.Single(r => (string)r["compartment"]! == Mitochondrion)["organelle_category"], Is.EqualTo("mitochondrion"));
-        Assert.That(categoryRows.Any(r => (string)r["compartment"]! == Cytoplasm), Is.False, "cytoplasm is under no anchor of the map");
-        var source = Rows(artefact, "annotation_sources").Single();
-        Assert.That((source["owner_project"], source["source_id"]), Is.EqualTo(((object?)"go", (object?)$"go:{summary["go_release"]}:{((string)summary["annotation_file_sha256"]!)[..12]}")),
-            "the source names the annotation file that was read and not kept, by its recorded sha256");
+            // (c): one per search, no GO.
+            Assert.That(members.Engine, Is.EqualTo("go.resolve_members"));
+            Assert.That(Files(members), Is.EqualTo(new[] { "go_group_members.parquet", "member_resolution.tsv", "run.json" }));
+            Assert.That(members.Inputs.Keys.Order(), Is.EqualTo(new[] { "annotation_database:test_human.xml", "protein_groups" }),
+                "the contaminant panel is not annotation input");
+            Assert.That(Summary(members)["annotation_db_sha256"], Is.EqualTo(human.Sha256), "one database: its own sha256 (GO-D6)");
+            var resolved = Rows(members, "go_group_members").ToDictionary(r => (string)r["accession"]!, r => (string)r["resolution"]!);
+            Assert.That(resolved["P05141"], Is.EqualTo("self"));
+            Assert.That(resolved["P99999"], Is.EqualTo("no_entry"), "in no database");
+            Assert.That(Summary(members)["groups"], Is.EqualTo(4L), "every non-decoy group, the q = 0.5 one included");
+        });
     }
 
     [Test]
-    public void TheSameInputsAreAlreadyDone()
+    public void TheSameInputsAreAlreadyDoneAndAnotherDefinitionIsAnotherArtefact()
     {
         var bundle = IngestWithGo();
-        var first = GoEngine.Run(Store, [bundle], Inputs, FakeDefinition, StandInInstall).Written.Single();
-        var again = GoEngine.Run(Store, [bundle], Inputs, FakeDefinition, StandInInstall);
-        Assert.That(again.Written, Is.Empty);
-        Assert.That(again.AlreadyDone.Single().ArtefactId, Is.EqualTo(first.ArtefactId));
-        // Another definition id is another artefact.
-        var other = GoEngine.Run(Store, [bundle], Inputs, FakeDefinition + " v2", StandInInstall).Written.Single();
-        Assert.That(other.ArtefactId, Is.Not.EqualTo(first.ArtefactId));
+        var first = RunAll(bundle);
+        Assert.That(GoReferenceEngines.CategorizeTermsRun(Store, OntologyAndMap, FakeDefinition, StandInInstall).AlreadyDone.Single().ArtefactId, Is.EqualTo(first.Ontology.ArtefactId));
+        Assert.That(GoReferenceEngines.AnnotateDatabasesRun(Store, [bundle], OntologyOnly, FakeDefinition, StandInInstall).AlreadyDone.Single().ArtefactId, Is.EqualTo(first.Database.ArtefactId));
+        Assert.That(GoReferenceEngines.ResolveMembersRun(Store, [bundle], NoInputs, FakeDefinition, StandInInstall).AlreadyDone.Single().ArtefactId, Is.EqualTo(first.Members.ArtefactId));
+        var other = RunAll(bundle, FakeDefinition + " v2");
+        Assert.That(new[] { other.Ontology, other.Database, other.Members }.Select(a => a.ArtefactId),
+            Is.Not.EquivalentTo(new[] { first.Ontology, first.Database, first.Members }.Select(a => a.ArtefactId)));
     }
 
     [Test]
     public void WithoutADefinitionIdNothingRuns()
     {
-        Assert.That(() => GoEngine.Run(Store, [], Inputs, null, StandInInstall),
-            Throws.TypeOf<RunnerException>().With.Message.Contains("no definition id was given").And.Message.Contains("could not be cited"));
-        Assert.That(() => GoEngine.Run(Store, [], Inputs, "", StandInInstall), Throws.TypeOf<RunnerException>());
+        Assert.Multiple(() =>
+        {
+            Assert.That(() => GoReferenceEngines.CategorizeTermsRun(Store, OntologyAndMap, null, StandInInstall),
+                Throws.TypeOf<RunnerException>().With.Message.Contains("no definition id was given").And.Message.Contains("could not be cited"));
+            Assert.That(() => GoReferenceEngines.AnnotateDatabasesRun(Store, [], OntologyOnly, "", StandInInstall), Throws.TypeOf<RunnerException>());
+            Assert.That(() => GoReferenceEngines.ResolveMembersRun(Store, [], NoInputs, null, StandInInstall), Throws.TypeOf<RunnerException>());
+        });
         Assert.That(Directory.Exists(Path.Combine(Store, PXReprise.Catalog.Runner.EngineDir)), Is.False, "nothing was written");
     }
 
     [Test]
-    public void TheEngineRunsUnderGosPublishedDefinition()
+    public void TheCliRunsUnderGosDefinitionsAndRefusesTheRetiredEngine()
     {
-        // go 023 (GO-D4, go D40): the id is go's, copied verbatim, never one dataRepo made up (D24).
-        Assert.That(GoEngine.DefinitionId, Is.EqualTo("go:DEF-GROUP-GO-ANNOTATION v1"));
-        // The CLI passes it; the run gets past the definition check (this tree is a development build, which the
-        // runner refuses next, by design: aging 063).
+        Assert.That(GoReferenceEngines.AccessionDefinitionId, Is.EqualTo("go:DEF-ACCESSION-GO-ANNOTATION v1"));
+        Assert.That(GoReferenceEngines.CategoryDefinitionId, Is.EqualTo("go:DEF-GROUP-GO-ANNOTATION v1"));
+        Assert.That(EngineRunner.Engines, Does.Not.Contain("go.annotate_groups"));
         IngestWithGo();
-        Assert.That(() => RunCommand.Run(["go.annotate_groups", "PXD999999", "--store", Store,
-                "--input", $"ontology={Ontology}", "--input", $"category_map={Map}"]),
-            Throws.TypeOf<RunnerException>().With.Message.Not.Contains("no definition id"));
+        Assert.That(() => RunCommand.Run(["go.annotate_groups", "PXD999999", "--store", Store]),
+            Throws.TypeOf<RunnerException>().With.Message.Contains("retired").And.Message.Contains("go.annotate_databases")
+                .And.Message.Contains("go.categorize_terms").And.Message.Contains("go.resolve_members"));
+        // The CLI passes go's ids; each run gets past the definition check (this tree is a development build, which the
+        // runner refuses next, by design: aging 063).
+        foreach (var argv in new[]
+                 {
+                     new[] { "go.categorize_terms", "--store", Store, "--input", $"ontology={Ontology}", "--input", $"category_map={Map}" },
+                     new[] { "go.annotate_databases", "PXD999999", "--store", Store, "--input", $"ontology={Ontology}" },
+                     new[] { "go.resolve_members", "PXD999999", "--store", Store },
+                 })
+            Assert.That(() => RunCommand.Run(argv), Throws.TypeOf<RunnerException>().With.Message.Contains("development build"), argv[0]);
+        Assert.That(() => RunCommand.Run(["go.categorize_terms", "PXD999999", "--store", Store, "--input", $"ontology={Ontology}", "--input", $"category_map={Map}"]),
+            Throws.TypeOf<RunnerException>().With.Message.Contains("takes no accession"));
     }
 
     [Test]
     public void AnInputThatNoLongerHashesToTheBundlesRecordIsRefused()
     {
         var bundle = IngestWithGo();
-        var groups = GoEngine.InputsOf(bundle).ProteinGroupsPath;
-        File.AppendAllText(groups, "\n");
-        Assert.That(() => GoEngine.Run(Store, [bundle], Inputs, FakeDefinition, StandInInstall),
+        var search = CatalogBuilder.GoInputsOf(bundle);
+        File.AppendAllText(search.ProteinGroupsPath!, "\n");
+        Assert.That(() => GoReferenceEngines.ResolveMembersRun(Store, [bundle], NoInputs, FakeDefinition, StandInInstall),
             Throws.TypeOf<RunnerException>().With.Message.Contains("now hashes to").And.Message.Contains("AllQuantifiedProteinGroups.tsv"));
+        File.AppendAllText(search.Targets.Single().Path, "\n");
+        Assert.That(() => GoReferenceEngines.AnnotateDatabasesRun(Store, [bundle], OntologyOnly, FakeDefinition, StandInInstall),
+            Throws.TypeOf<RunnerException>().With.Message.Contains("now hashes to").And.Message.Contains("test_human.xml"));
         Assert.That(PXReprise.Catalog.Runner.DiscoverArtefacts(Store), Is.Empty);
     }
 
     [Test]
     public void AMissingOrUnknownRoleIsRefusedBeforeAnythingRuns()
     {
-        Assert.That(() => GoEngine.Run(Store, [], new Dictionary<string, string> { ["ontology"] = Ontology }, FakeDefinition, StandInInstall),
-            Throws.TypeOf<RunnerException>().With.Message.Contains("needs --input category_map=<path>"));
-        Assert.That(() => GoEngine.Run(Store, [], new Dictionary<string, string>(Inputs) { ["protein_groups"] = Map }, FakeDefinition, StandInInstall),
-            Throws.TypeOf<RunnerException>().With.Message.Contains("not protein_groups").And.Message.Contains("each bundle's own record"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(() => GoReferenceEngines.CategorizeTermsRun(Store, OntologyOnly, FakeDefinition, StandInInstall),
+                Throws.TypeOf<RunnerException>().With.Message.Contains("needs --input category_map=<path>"));
+            Assert.That(() => GoReferenceEngines.AnnotateDatabasesRun(Store, [], OntologyAndMap, FakeDefinition, StandInInstall),
+                Throws.TypeOf<RunnerException>().With.Message.Contains("not category_map").And.Message.Contains("each bundle's own record"));
+            Assert.That(() => GoReferenceEngines.ResolveMembersRun(Store, [], OntologyOnly, FakeDefinition, StandInInstall),
+                Throws.TypeOf<RunnerException>().With.Message.Contains("takes no --input"));
+        });
     }
 
     [Test]
@@ -220,80 +253,231 @@ public class GoEngineTests
     {
         Assume.That(BundleWriter.PackageVersion, Does.Contain("-dev"));
         var bundle = IngestWithGo();
-        Assert.That(() => GoEngine.Run(Store, [bundle], Inputs, FakeDefinition),
+        Assert.That(() => GoReferenceEngines.ResolveMembersRun(Store, [bundle], NoInputs, FakeDefinition),
             Throws.TypeOf<RunnerException>().With.Message.Contains("development build"));
     }
 
-    [Test]
-    public void TheCatalogLoadsTheArtefactUnderItsBundleAndSaysWhichBundlesLackOne()
+    // --- the catalog -------------------------------------------------------------------------------------
+
+    private List<BundleRef> Bundles() => CatalogBuilder.SelectBundles(Manifest.Load(ManifestPath), ["PXD999999"], Store);
+
+    private CatalogResult Build(string output)
     {
-        var bundle = IngestWithGo();
-        var manifest = Manifest.Load(ManifestPath);
-        var bundles = CatalogBuilder.SelectBundles(manifest, ["PXD999999"], Store);
-
-        // No artefact yet: the catalog builds without go rows, and says so.
-        var (none, noneChecks) = CatalogBuilder.SelectArtefacts(Store, bundles);
-        Assert.That(none, Is.Empty);
-        var coverage = noneChecks.Single(c => c.Name.StartsWith("go.annotate_groups coverage", StringComparison.Ordinal));
-        Assert.That((coverage.Ok, coverage.Observed, coverage.Expected), Is.EqualTo((true, (long?)0, (long?)1)));
-        Assert.That(coverage.Detail, Does.Contain($"no artefact for PXD999999 ({bundle.BundleId})"));
-        var without = CatalogBuilder.BuildCatalog(bundles, Path.Combine(_root, "without.duckdb"), instance: manifest.Instance, artefacts: none, engineChecks: noneChecks);
-
-        var artefact = GoEngine.Run(Store, [bundle], Inputs, FakeDefinition, StandInInstall).Written.Single();
+        var bundles = Bundles();
         var (artefacts, checks) = CatalogBuilder.SelectArtefacts(Store, bundles);
-        Assert.That(artefacts.Single().ArtefactId, Is.EqualTo(artefact.ArtefactId));
-        var output = Path.Combine(_root, "with.duckdb");
-        var built = CatalogBuilder.BuildCatalog(bundles, output, instance: manifest.Instance, artefacts: artefacts, engineChecks: checks);
-        Assert.That(built.FailedChecks, Is.Empty);
-        Assert.That(built.CatalogId, Is.Not.EqualTo(without.CatalogId), "the catalog id names the artefact it serves");
-        Assert.That(built.Checks.Single(c => c.Name.StartsWith("go.annotate_groups coverage", StringComparison.Ordinal)).Observed, Is.EqualTo(1));
-        Assert.That(built.Checks.Count(c => c.Name.StartsWith($"go.annotate_groups/{artefact.ArtefactId}/", StringComparison.Ordinal) && c.Ok), Is.EqualTo(3));
+        return CatalogBuilder.BuildCatalog(bundles, output, instance: Manifest.Load(ManifestPath).Instance, artefacts: artefacts, engineChecks: checks);
+    }
 
-        foreach (var table in PXReprise.Catalog.Runner.GoTables)
+    private static List<string> Rows(string catalog, string sql) =>
+        CatalogBuilder.RunQuery(catalog, sql).Rows.Select(r => string.Join("|", r.Select(v => v switch
         {
-            var rows = CatalogBuilder.RunQuery(output, $"SELECT dataset_id, bundle_id, count(*) FROM \"{table}\" GROUP BY ALL").Rows;
-            Assert.That(rows.Single(), Is.EqualTo(new object?[] { "PXD999999", bundle.BundleId, artefact.RowCounts[table] }), table);
-            var kind = CatalogBuilder.RunQuery(output, $"SELECT kind, rows FROM catalog_tables WHERE table_name = '{table}'").Rows.Single();
-            Assert.That(kind, Is.EqualTo(new object?[] { "engine:go.annotate_groups", artefact.RowCounts[table] }), table);
+            null => "NULL",
+            bool b => b ? "true" : "false",
+            double d => d.ToString("R", CultureInfo.InvariantCulture),
+            _ => Convert.ToString(v, CultureInfo.InvariantCulture),
+        }))).ToList();
+
+    private static readonly string[] AllGoTables = [.. CatalogBuilder.GoReferenceTables, .. PXReprise.Catalog.Runner.GoTables];
+    private static readonly string GoTableList = string.Join(", ", AllGoTables.Select(t => $"'{t}'"));
+
+    [Test]
+    public void WithNoArtefactsTheGoTablesAreThereEmptyAndTheCoverageSaysWhy()
+    {
+        IngestWithGo();
+        foreach (var output in new[] { Path.Combine(_root, "catalog.duckdb"), Path.Combine(_root, "catalogs") })
+        {
+            var built = Build(output);
+            Assert.Multiple(() =>
+            {
+                Assert.That(Rows(built.Path, $"SELECT table_name, rows, kind FROM catalog_tables WHERE table_name IN ({GoTableList}) ORDER BY table_name"),
+                    Is.EqualTo(new[]
+                    {
+                        "annotation_sources|0|derived",
+                        "go_accession_terms|0|engine:go.annotate_databases",
+                        "go_closure|0|engine:go.categorize_terms",
+                        "go_group_members|0|engine:go.resolve_members",
+                        "go_group_status|0|derived",
+                        "go_term_categories|0|engine:go.categorize_terms",
+                        "go_terms|0|engine:go.categorize_terms",
+                        "organelle_term_categories|0|derived",
+                        "protein_localizations|0|derived",
+                    }), output);
+                foreach (var table in CatalogBuilder.GoReferenceTables)
+                    Assert.That(Rows(built.Path, $"SELECT column_name FROM information_schema.columns WHERE table_name = '{table}'"),
+                        Is.EquivalentTo(CatalogBuilder.DerivedDocs[table].Columns.Keys), $"{table}: every column is documented, and only those");
+                foreach (var table in PXReprise.Catalog.Runner.GoTables)
+                    Assert.That(Rows(built.Path, $"SELECT column_name FROM information_schema.columns WHERE table_name = '{table}'"),
+                        Is.EqualTo(new[] { "dataset_id", "bundle_id" }.Concat(SchemaContract.Columns(Tables.ByName[table]).Select(c => c.Name).Where(c => c != "dataset_id"))),
+                        $"{table}: its core columns, as up to 1.4.5");
+                var notes = built.Checks.Where(c => c.Name.StartsWith("go.", StringComparison.Ordinal)).Select(c => $"{c.Name}: {c.Observed} of {c.Expected}; {c.Detail}").ToList();
+                Assert.That(notes, Is.EqualTo(new[]
+                {
+                    "go.categorize_terms (ontology and category map served): 0 of 1; no artefact, so no GO is served",
+                    $"go.annotate_databases coverage (target databases with an artefact): 0 of 1; none served without an ontology; no artefact for {CatalogBuilder.GoInputsOf(Bundles()[0]).Targets[0].Sha256[..12]} (PXD999999)",
+                    $"go.resolve_members coverage (bundles served GO): 0 of 1; not served: PXD999999 ({Bundles()[0].BundleId}): no go.resolve_members artefact",
+                }));
+                Assert.That(built.Checks.Where(c => c.Name.StartsWith("go.", StringComparison.Ordinal)).All(c => c.Ok));
+            });
         }
-        var recorded = CatalogBuilder.RunQuery(output, "SELECT engine, artefact_id, definition_id FROM catalog_engine_artefacts").Rows.Single();
-        Assert.That(recorded, Is.EqualTo(new object?[] { "go.annotate_groups", artefact.ArtefactId, FakeDefinition }));
-        Assert.That(CatalogBuilder.RunQuery(output, "SELECT catalog_version FROM catalog_meta").Rows.Single()[0], Is.EqualTo("17"));
-        // The join a consumer makes: a protein's compartment to the map's category, within one dataset and release.
-        var joined = CatalogBuilder.RunQuery(output,
-            "SELECT DISTINCT c.organelle_category FROM protein_localizations l JOIN organelle_term_categories c "
-            + "ON c.dataset_id = l.dataset_id AND c.compartment = l.compartment AND c.go_release = l.go_release "
-            + "WHERE l.protein_accession = 'P05141' ORDER BY 1").Rows;
-        Assert.That(joined.Select(r => r[0]), Is.EqualTo(new object?[] { "mitochondrion" }));
+    }
+
+    /// <summary>The rows <c>go.annotate_groups</c> stored for this bundle: mzLib's annotator over the bundle's own files,
+    /// read back by go's reader (<see cref="Go"/>), without the source id (which named the per-bundle file).</summary>
+    private (List<string> Localizations, List<string> Categories, Dictionary<string, string> Header) V1(BundleRef bundle)
+    {
+        var search = CatalogBuilder.GoInputsOf(bundle);
+        var file = new ProteinGroupFromTsvFile(search.ProteinGroupsPath!);
+        file.LoadResults();
+        var groups = file.Results.ToGoAnnotationGroups().ToList();
+        var ontology = GeneOntologyGraph.Load(Ontology);
+        var annotator = new GoGroupAnnotator(ontology, Specificity.LoadProteins(search.Targets.Select(t => (t.Path, t.Sha256, false))),
+            search.AnnotationDbSha256!, skipUnknownGoIds: true);
+        var rows = annotator.AnnotateAll(groups);
+        var (annotationPath, categoryPath) = (Path.Combine(_root, "v1_annotation.tsv"), Path.Combine(_root, "v1_category.tsv"));
+        using (var w = new StreamWriter(annotationPath, false, new UTF8Encoding(false)))
+            GoAnnotationTsv.Write(w, rows, ontology, search.AnnotationDbSha256!, search.ProteinGroupsSha256, annotator.UnresolvedGoIds);
+        using (var w = new StreamWriter(categoryPath, false, new UTF8Encoding(false)))
+            GoCategoryTsv.Write(w, new GoCategoryResolver(GoCategoryMap.Load(Map), ontology), rows);
+        var annotation = Go.ReadAnnotation(annotationPath);
+        var categories = Go.ReadCategories(categoryPath);
+        static string Cells(IReadOnlyDictionary<string, object?> row, IEnumerable<string> columns) => string.Join("|", columns.Select(c => row.GetValueOrDefault(c) switch
+        {
+            null => "NULL",
+            bool b => b ? "true" : "false",
+            double d => d.ToString("R", CultureInfo.InvariantCulture),
+            var v => Convert.ToString(v, CultureInfo.InvariantCulture),
+        }));
+        return (Go.LocalizationRows(annotation).Select(r => Cells(r, LocalizationColumns)).Order(StringComparer.Ordinal).ToList(),
+            Go.CategoryRows(categories, annotation).Select(r => Cells(r, CategoryColumns)).Order(StringComparer.Ordinal).ToList(),
+            annotation.Header);
+    }
+
+    private static readonly string[] LocalizationColumns =
+        ["protein_accession", "compartment", "go_release", "evidence", "protein_group", "q_value", "n_members", "n_with", "inherited", "propagated"];
+
+    private static readonly string[] CategoryColumns =
+        ["compartment", "category_map_name", "organelle_map_version", "go_release", "organelle_category", "organelle_subcategory"];
+
+    [Test]
+    public void TheCatalogJoinsTheThreeEnginesIntoV1sRowsInBothLayouts()
+    {
+        var bundle = IngestWithGo();
+        var without = Build(Path.Combine(_root, "without.duckdb"));
+        var (ontology, database, members) = RunAll(bundle);
+        var (localizations, categories, header) = V1(bundle);
+        Assert.That(localizations, Has.Count.GreaterThan(5));
+        var file = Build(Path.Combine(_root, "catalog.duckdb"));
+        var folder = Build(Path.Combine(_root, "catalogs"));
+        Assert.That(folder.Layout, Is.EqualTo(CatalogLayout.Folder));
+        Assert.That(file.CatalogId, Is.Not.EqualTo(without.CatalogId), "the catalog id names the artefacts it serves");
+        foreach (var built in new[] { file, folder })
+            Assert.Multiple(() =>
+            {
+                Assert.That(built.FailedChecks, Is.Empty);
+                Assert.That(Rows(built.Path, $"SELECT {string.Join(", ", LocalizationColumns)} FROM protein_localizations ORDER BY ALL"), Is.EqualTo(localizations),
+                    "protein_localizations: go.annotate_groups' rows for this search");
+                Assert.That(Rows(built.Path, $"SELECT {string.Join(", ", CategoryColumns)} FROM organelle_term_categories ORDER BY ALL"), Is.EqualTo(categories),
+                    "organelle_term_categories: the map's rows for the terms its groups carry");
+                Assert.That(Rows(built.Path, "SELECT DISTINCT dataset_id, bundle_id FROM protein_localizations"), Is.EqualTo(new[] { $"PXD999999|{bundle.BundleId}" }));
+                var source = Rows(built.Path, "SELECT dataset_id, owner_project, source_id FROM annotation_sources").Single();
+                Assert.That(source, Does.StartWith("PXD999999|go|go:releases/2026-07-26:"));
+                Assert.That(Rows(built.Path, "SELECT DISTINCT source_id FROM protein_localizations UNION SELECT DISTINCT source_id FROM organelle_term_categories"),
+                    Is.EqualTo(new[] { source.Split('|')[2] }), "every row cites the search's source");
+                Assert.That(Rows(built.Path, "SELECT annotation_status, count(*) FROM go_group_status GROUP BY ALL ORDER BY 1"),
+                    Is.EqualTo(new[] { "annotated|2", "contaminant|1", "no_entry|1" }), "every non-decoy group once, with go's status");
+                foreach (var key in new[] { "status_annotated", "status_contaminant", "status_no_entry", "status_no_go_terms" })
+                    Assert.That(Rows(built.Path, $"SELECT count(*) FROM go_group_status WHERE q_value <= 0.01 AND annotation_status = '{key["status_".Length..]}'").Single(),
+                        Is.EqualTo(header[key]), $"go D26 counter {key}");
+                Assert.That(Rows(built.Path, "SELECT engine, artefact_id FROM catalog_engine_artefacts WHERE engine LIKE 'go.%' ORDER BY 1"), Is.EqualTo(new[]
+                {
+                    $"go.annotate_databases|{database.ArtefactId}", $"go.categorize_terms|{ontology.ArtefactId}", $"go.resolve_members|{members.ArtefactId}",
+                }));
+                Assert.That(Rows(built.Path, $"SELECT table_name, kind FROM catalog_tables WHERE table_name IN ({GoTableList}) AND rows > 0 ORDER BY 1"), Is.EqualTo(new[]
+                {
+                    "annotation_sources|derived", "go_accession_terms|engine:go.annotate_databases", "go_closure|engine:go.categorize_terms",
+                    "go_group_members|engine:go.resolve_members", "go_group_status|derived", "go_term_categories|engine:go.categorize_terms",
+                    "go_terms|engine:go.categorize_terms", "organelle_term_categories|derived", "protein_localizations|derived",
+                }));
+                Assert.That(Rows(built.Path, $"SELECT table_name, table_type FROM information_schema.tables WHERE table_name IN ({GoTableList}) AND table_type <> 'BASE TABLE'"),
+                    Is.Empty, "copied and derived in both layouts");
+                Assert.That(built.Checks.Where(c => c.Kind == "engine-consistency" && c.Name.StartsWith("go.", StringComparison.Ordinal)).Select(c => c.Name.Split(' ')[0] + " " + c.Name.Split(' ')[1]),
+                    Is.EquivalentTo(new[] { "go.annotate_databases go.obo", "go.resolve_members members", "go.resolve_members entries" }));
+                Assert.That(built.Checks.Count(c => c.Kind == "row_count" && c.Name.StartsWith("go.", StringComparison.Ordinal)), Is.EqualTo(5),
+                    "go_terms, go_closure, go_term_categories, go_accession_terms and go_group_members, each whole");
+                Assert.That(Rows(built.Path, "SELECT catalog_version FROM catalog_meta").Single(), Is.EqualTo("17"));
+                // The join a consumer makes: a protein's compartment to the map's category, within one dataset and release.
+                Assert.That(Rows(built.Path,
+                    "SELECT DISTINCT c.organelle_category FROM protein_localizations l JOIN organelle_term_categories c "
+                    + "ON c.dataset_id = l.dataset_id AND c.compartment = l.compartment AND c.go_release = l.go_release "
+                    + "WHERE l.protein_accession = 'P05141' ORDER BY 1"), Is.EqualTo(new[] { "mitochondrion" }));
+            });
+        Assert.That(Rows(file.Path, "SELECT * EXCLUDE (artefact_id) FROM go_accession_terms ORDER BY ALL"),
+            Is.EqualTo(Rows(folder.Path, "SELECT * EXCLUDE (artefact_id) FROM go_accession_terms ORDER BY ALL")));
     }
 
     [Test]
-    public void TwoArtefactsForOneBundleAreRefusedNotPicked()
+    public void TwoOntologiesOrTwoDatabaseArtefactsAreRefusedNotPicked()
     {
         var bundle = IngestWithGo();
-        GoEngine.Run(Store, [bundle], Inputs, FakeDefinition, StandInInstall);
-        GoEngine.Run(Store, [bundle], Inputs, FakeDefinition + " v2", StandInInstall);
-        var bundles = CatalogBuilder.SelectBundles(Manifest.Load(ManifestPath), ["PXD999999"], Store);
-        Assert.That(() => CatalogBuilder.SelectArtefacts(Store, bundles),
+        RunAll(bundle);
+        GoReferenceEngines.AnnotateDatabasesRun(Store, [bundle], OntologyOnly, FakeDefinition + " v2", StandInInstall);
+        Assert.That(() => CatalogBuilder.SelectArtefacts(Store, Bundles()),
             Throws.TypeOf<CatalogException>().With.Message.Contains("2 artefacts").And.Message.Contains("A catalog serves one"));
+        GoReferenceEngines.CategorizeTermsRun(Store, OntologyAndMap, FakeDefinition + " v2", StandInInstall);
+        Assert.That(() => CatalogBuilder.SelectArtefacts(Store, Bundles()),
+            Throws.TypeOf<CatalogException>().With.Message.Contains("go.categorize_terms: 2 artefacts").And.Message.Contains("GO-D9"));
     }
 
-    private static ArtefactRef Annotated(string id, string ontology, string map) => new("unused", new Dictionary<string, object?>
+    [Test]
+    public void ADatabaseAnnotatedUnderAnotherGoOboIsRefused()
     {
-        ["engine"] = GoEngine.Engine, ["artefact_id"] = id,
-        ["inputs"] = new Dictionary<string, object?> { ["ontology"] = ontology, ["category_map"] = map, ["protein_groups"] = id },
-    });
+        var bundle = IngestWithGo();
+        RunAll(bundle);
+        var engineDir = Path.Combine(Store, PXReprise.Catalog.Runner.EngineDir, "go.annotate_databases");
+        foreach (var dir in Directory.EnumerateDirectories(engineDir)) Directory.Delete(dir, true);
+        var other = Path.Combine(_root, "go-other.obo");
+        File.WriteAllText(other, File.ReadAllText(Ontology) + "\n");
+        GoReferenceEngines.AnnotateDatabasesRun(Store, [bundle], new Dictionary<string, string> { ["ontology"] = other }, FakeDefinition, StandInInstall);
+        Assert.That(() => CatalogBuilder.SelectArtefacts(Store, Bundles()),
+            Throws.TypeOf<CatalogException>().With.Message.Contains("under another go.obo").And.Message.Contains("GO-D9"));
+    }
 
-    [TestCase("ontology")]
-    [TestCase("category_map")]
-    public void ACatalogServesOneOntologyAndOneMap(string differing)
+    [Test]
+    public void AMemberWithoutAResolutionFailsTheBuild()
     {
-        // go GO-D9 (go 024): a category compared across datasets must come from one go.obo and one map.
-        var a = Annotated("a", "obo1", "map1");
-        var b = differing == "ontology" ? Annotated("b", "obo2", "map1") : Annotated("b", "obo1", "map2");
-        CatalogBuilder.RequireOneOntologyAndMap(Store, [("PXD1", a), ("PXD2", Annotated("c", "obo1", "map1"))]);
-        Assert.That(() => CatalogBuilder.RequireOneOntologyAndMap(Store, [("PXD1", a), ("PXD2", b)]),
-            Throws.TypeOf<CatalogException>().With.Message.Contains($"2 different {differing} files")
-                .And.Message.Contains(": PXD1").And.Message.Contains(": PXD2").And.Message.Contains("GO-D9"));
+        var bundle = IngestWithGo();
+        var (_, _, members) = RunAll(bundle);
+        // The member artefact loses P05141's row, its record recounted: only dataRepo 028's check can see it.
+        var path = members.TablePath("go_group_members")!;
+        var kept = Rows(members, "go_group_members").Where(r => !Equals(r["accession"], "P05141"))
+            .Select(r => (IReadOnlyDictionary<string, object?>)r).ToList();
+        ArrowTables.WriteParquet(ArrowTables.FromRows("go_group_members", GoReferenceEngines.Columns["go_group_members"], kept), path);
+        var record = Path.Combine(members.Path, "run.json");
+        var text = File.ReadAllText(record);
+        File.WriteAllText(record, text.Replace($"\"go_group_members\": {kept.Count + 1}", $"\"go_group_members\": {kept.Count}", StringComparison.Ordinal));
+        Assert.That(File.ReadAllText(record), Is.Not.EqualTo(text));
+        Assert.That(() => Build(Path.Combine(_root, "catalog.duckdb")),
+            Throws.TypeOf<CatalogException>().With.Message.Contains("go.resolve_members members").And.Message.Contains("PXD999999: P05141"));
+    }
+
+    [Test]
+    public void ABundleWithoutItsDatabaseArtefactIsNamedAndServedNoGo()
+    {
+        var bundle = IngestWithGo();
+        RunAll(bundle);
+        foreach (var dir in Directory.EnumerateDirectories(Path.Combine(Store, PXReprise.Catalog.Runner.EngineDir, "go.annotate_databases"))) Directory.Delete(dir, true);
+        // A retired per-bundle artefact in the store is counted and never served.
+        var retired = Path.Combine(Store, PXReprise.Catalog.Runner.EngineDir, "go.annotate_groups", "0123456789abcdef");
+        Directory.CreateDirectory(retired);
+        File.WriteAllText(Path.Combine(retired, "run.json"), "{\"engine\": \"go.annotate_groups\", \"artefact_id\": \"0123456789abcdef\", \"schema_version\": \"0.0.17\"}");
+        var built = Build(Path.Combine(_root, "catalog.duckdb"));
+        Assert.That(built.FailedChecks, Is.Empty);
+        Assert.That(built.Checks.Single(c => c.Name.StartsWith("go.resolve_members coverage", StringComparison.Ordinal)).Detail,
+            Is.EqualTo($"not served: PXD999999 ({bundle.BundleId}): no go.annotate_databases artefact for test_human.xml; "
+                + "1 go.annotate_groups artefact(s) in the store are retired and never served"));
+        Assert.That(Rows(built.Path, "SELECT count(*) FROM protein_localizations").Single(), Is.EqualTo("0"));
+        Assert.That(Rows(built.Path, "SELECT count(*) FROM go_group_members").Single(), Is.EqualTo("0"), "a search not served is not half-served");
+        Assert.That(Rows(built.Path, "SELECT count(*) FROM go_terms").Single(), Is.EqualTo("29"), "the ontology is served");
+        Assert.That(Rows(built.Path, "SELECT count(*) FROM catalog_engine_artefacts WHERE engine = 'go.annotate_groups'").Single(), Is.EqualTo("0"));
     }
 }

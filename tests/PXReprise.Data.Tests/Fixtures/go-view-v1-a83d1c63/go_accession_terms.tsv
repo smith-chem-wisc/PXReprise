@@ -1,0 +1,26 @@
+#!go_accession_terms_format 1
+#!mzlib_version 1.0.0+a83d1c63a8d745af88d0f7a64e921156776476b9
+#!mzlib_release none
+#!go_release releases/2026-07-26
+#!go_obo_sha256 01c11e95ec7068eb02b2aac689258d8b6bd2e6b93d5c28cfbc0bb220bf4d60d6
+#!annotation_db_sha256 0123abcd
+#!unresolved_go_ids 1
+accession	go_id	aspect	evidence	inherited
+P04406	GO:0004365	molecular_function	ECO:0000269	false
+P04406	GO:0005634	cellular_component	ECO:0000314	false
+P04406-2	GO:0004365	molecular_function	ECO:0000269	true
+P04406-2	GO:0005634	cellular_component	ECO:0000314	true
+P11111	GO:0005634	cellular_component	ECO:0000501	false
+P11111	GO:0005739	cellular_component	ECO:0000314	false
+P22222	GO:0005743	cellular_component	ECO:0000314	false
+P33333				
+P35908	GO:0005634	cellular_component	ECO:0000501	false
+P55555	GO:0016020	cellular_component	ECO:0000255	false
+P66666	GO:0006082	biological_process	ECO:0000304	false
+P77777	GO:0005634	cellular_component	ECO:0000501	false
+P88888	GO:0004365	molecular_function	ECO:0000501	false
+P88888	GO:0005634	cellular_component	ECO:0000314;ECO:0000501	false
+Q13148	GO:0005743	cellular_component	ECO:0000250	false
+Q13148-3	GO:0004365	molecular_function	ECO:0000314	false
+Random_foreign_Q99999	GO:0005634	cellular_component	ECO:0000314	false
+X11111	GO:0005739	cellular_component		false
