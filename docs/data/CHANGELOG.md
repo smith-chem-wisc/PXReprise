@@ -67,6 +67,14 @@ search by MetaMorpheus 1.1.13 or earlier.
 - **aging study layer 0.7.0:** `method_scope` in `age_effect_meta`'s key, `method_term_ids`, and
   `age_effect_method_terms`, one row per (isobaric dataset, response). A study bundle written at 0.6.0 is refused by the
   build until `datarepo study` writes it again.
+- **Orthology in the catalog: "every ortholog of protein X" is one query.** The registered orthology snapshot is copied,
+  through its own `views.sql`, into `orthology_species`, `orthology_genes`, `gene_orthologs` (every ortholog row of every
+  species pair, in both directions; paralogs never) and `gene_ortholog_status` (each gene's one status in each other
+  species), in both layouts. `protein_orthologs` joins every target accession with a gene resolution to its orthologs
+  in each other species and to the accessions resolving to them, with a `status` on every row, so an accession with no
+  ortholog says why (`no_gene`, `not_in_gene_set`, `no_edge_in_shared_tree`, `tree_lacks_target_species`,
+  `not_in_any_tree`). The five tables are in every catalog, empty without a snapshot. Two `engine-consistency` checks fail
+  the build if the status counts differ from the registration's, or if an accession lacks a row for some species.
 
 ### Changed (engines)
 - **`logs.resolve_genes` writes `logs:DEF-GENE-RESOLUTION v2`**, on every row, in `run.json` and in the artefact id,

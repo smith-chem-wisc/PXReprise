@@ -189,6 +189,60 @@ same mass shift carries several names across sources. Columns: `dataset_id`, `pr
 `best_q_value`, `best_ambiguity_level`, `target_decoy`. **`n_names > 1` means the same chemistry
 arrived under several spellings** — do not group on `modification` alone.
 
+### Every ortholog of a protein, with what the repository saw of each
+
+From catalog format 17, `protein_orthologs` joins every target accession that has a gene resolution to its
+orthologs in each other species of the registered orthology snapshot (Ensembl Compara, through logs), and to
+the accessions that resolve to each ortholog gene. Then the evidence is one join away:
+
+```sql
+WITH asked AS (
+    SELECT * FROM protein_orthologs WHERE protein_accession = 'P14136'   -- human GFAP
+),
+groups AS (
+    SELECT a.partner_accession, max(g.sequence_coverage) AS best_group_coverage
+    FROM asked a
+    JOIN protein_groups_1pct g ON list_contains(g.protein_accessions, a.partner_accession)
+    GROUP BY a.partner_accession
+),
+peptides AS (
+    SELECT a.partner_accession,
+           count(DISTINCT p.base_sequence) AS n_sequences_1pct,
+           count(DISTINCT p.dataset_id)    AS n_datasets_peptides
+    FROM asked a
+    JOIN peptidoforms_1pct p ON list_contains(p.protein_accessions, a.partner_accession)
+    GROUP BY a.partner_accession
+),
+sites AS (
+    SELECT a.partner_accession,
+           count(DISTINCT s.position || ':' || s.modification_name) AS n_ptm_sites,
+           list_sort(list(DISTINCT s.modification_name))            AS modifications
+    FROM asked a
+    JOIN ptm_sites s ON s.protein_accession = a.partner_accession
+    WHERE s.target_decoy = 'target' AND s.best_q_value <= 0.01
+    GROUP BY a.partner_accession
+)
+SELECT a.target_species, a.status, a.relationship_type, a.partner_gene_name, a.partner_accession,
+       a.partner_n_datasets_1pct, round(g.best_group_coverage, 2) AS best_group_coverage,
+       p.n_sequences_1pct, p.n_datasets_peptides, s.n_ptm_sites, s.modifications
+FROM asked a
+LEFT JOIN groups g ON g.partner_accession = a.partner_accession
+LEFT JOIN peptides p ON p.partner_accession = a.partner_accession
+LEFT JOIN sites s ON s.partner_accession = a.partner_accession
+ORDER BY a.target_species, a.partner_gene, a.partner_accession;
+```
+
+**Read `status` before reading an empty column as "not detected".** Every accession has at least one row per
+other species. A status other than `has_ortholog` says why there is no ortholog: `no_gene` (the accession
+resolves to no gene), `not_in_gene_set`, `no_edge_in_shared_tree`, `tree_lacks_target_species` or
+`not_in_any_tree`. A `has_ortholog` row with no `partner_accession` is an ortholog no searched database holds a
+protein for. Only a row with a `partner_accession` and no evidence means the repository searched for that protein
+and accepted nothing. **No rows at all** means the accession is not one the repository resolved to a gene (it is
+not in `protein_genes`), never that it has no orthologs. One-to-many orthologs give a row each
+(`relationship_type`), and isoform accessions of a partner gene each have their own row. The site rule here
+(target, `best_q_value` at most 0.01) is the reader's: `ptm_sites` holds every site, fixed modifications included.
+`best_group_coverage` is MetaMorpheus's coverage (0 to 1) of an accepted group holding the accession.
+
 ---
 
 ## 3 · Trust: what the bundle itself says is wrong
