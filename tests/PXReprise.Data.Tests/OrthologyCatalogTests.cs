@@ -18,17 +18,23 @@ namespace PXReprise.Data.Tests;
 /// <item>P04406 to A1, which has an ortholog (B1, which P08238 resolves to);</item>
 /// <item>P07437 to A1 and A3 (<c>multi_gene</c>), which follows both;</item>
 /// <item>P60709 to A2, P21266 to A4: no edge in a shared tree, and in no tree;</item>
-/// <item>P13010 to A9, a gene the snapshot does not hold, and P05141 to no gene (<c>not_in_source</c>);</item>
-/// <item>P35527 to A5, whose orthologs are B3 (P08123 resolves to it) and B4 (nothing does);</item>
+/// <item>P05141 to no gene (<c>not_in_source</c>);</item>
+/// <item>P13010 to no gene in the search database, and to A2 through Ensembl's xref: logs 023's case, two rows, the
+/// xref row keeping the <c>not_in_source</c> outcome. It must be answered through A2 only, never also <c>no_gene</c>;</item>
+/// <item>P35527 to A5, whose orthologs are B3 (P08123 resolves to it, on a v1 row) and B4 (nothing does);</item>
 /// <item>P12882 to B2, which has no edge in its shared tree;</item>
 /// <item>P00761 (a contaminant in the fixture) and Q9ZZZ9 (in no searched database) to A1: neither is a target protein a
 /// search held, so neither reaches <c>protein_orthologs</c>, as a source or as a partner.</item>
 /// </list>
-/// One artefact resolves the fixture's one target database against both test gene sets, which a real resolution never
-/// does (one gene set per species), so that one search can stand for two species here.</remarks>
+/// The links carry each of v2's agreements (<c>agrees</c>, <c>silent</c>, <c>disagrees</c>), and P08123's is a v1 row,
+/// with the boolean only. One artefact resolves the fixture's one target database against both test gene sets, which a
+/// real resolution never does (one gene set per species), so that one search can stand for two species here.</remarks>
 public class OrthologyCatalogTests
 {
-    private const string Definition = "logs:DEF-GENE-RESOLUTION v2";
+    private const string V2 = "logs:DEF-GENE-RESOLUTION v2";
+    private const string V1 = "logs:DEF-GENE-RESOLUTION v1";
+    private const string Db = "search_database_dbreference";
+    private const string Xref = "ensembl_xref";
     private const string GeneSetA = OrthologySnapshots.GeneSetA;
     private const string GeneSetB = OrthologySnapshots.GeneSetB;
 
@@ -65,45 +71,52 @@ public class OrthologyCatalogTests
         return CatalogBuilder.BuildCatalog(bundles, output, instance: manifest.Instance, artefacts: artefacts, engineChecks: checks, manifest: manifest);
     }
 
-    /// <summary>The resolution in the class remarks: (accession, outcome, gene, gene set).</summary>
-    private static readonly (string Accession, string Outcome, string? Gene, string GeneSet)[] Resolutions =
+    /// <summary>One <c>gene_resolutions</c> row of the fixture: the columns the bridge reads.</summary>
+    private sealed record Link(string Accession, string Outcome, string? Gene, string GeneSet, string Source, string? Agreement, bool? Agrees,
+        string Definition = V2);
+
+    /// <summary>The resolution in the class remarks.</summary>
+    private static readonly Link[] Resolutions =
     [
-        ("P04406", "resolved", "A1", GeneSetA),
-        ("P07437", "multi_gene", "A1", GeneSetA),
-        ("P07437", "multi_gene", "A3", GeneSetA),
-        ("P60709", "resolved", "A2", GeneSetA),
-        ("P21266", "resolved", "A4", GeneSetA),
-        ("P13010", "resolved", "A9", GeneSetA),
-        ("P05141", "not_in_source", null, GeneSetA),
-        ("P35527", "resolved", "A5", GeneSetA),
-        ("P00761", "resolved", "A1", GeneSetA),
-        ("Q9ZZZ9", "resolved", "A1", GeneSetA),
-        ("P08238", "resolved", "B1", GeneSetB),
-        ("P12882", "resolved", "B2", GeneSetB),
-        ("P08123", "resolved", "B3", GeneSetB),
+        new("P04406", "resolved", "A1", GeneSetA, Db, "agrees", true),
+        new("P07437", "multi_gene", "A1", GeneSetA, Db, "agrees", true),
+        new("P07437", "multi_gene", "A3", GeneSetA, Db, "disagrees", false),
+        new("P60709", "resolved", "A2", GeneSetA, Db, "silent", false),
+        new("P21266", "resolved", "A4", GeneSetA, Db, "agrees", true),
+        new("P13010", "not_in_source", null, GeneSetA, Db, null, null),
+        new("P13010", "not_in_source", "A2", GeneSetA, Xref, "agrees", true),
+        new("P05141", "not_in_source", null, GeneSetA, Db, null, null),
+        new("P35527", "resolved", "A5", GeneSetA, Db, "agrees", true),
+        new("P00761", "resolved", "A1", GeneSetA, Db, "agrees", true),
+        new("Q9ZZZ9", "resolved", "A1", GeneSetA, Db, "agrees", true),
+        new("P08238", "resolved", "B1", GeneSetB, Db, "silent", false),
+        new("P12882", "resolved", "B2", GeneSetB, Db, "agrees", true),
+        new("P08123", "resolved", "B3", GeneSetB, Db, null, true, V1),
     ];
 
-    /// <summary>A current-schema <c>logs.resolve_genes</c> artefact for the fixture's target database, with
-    /// <see cref="Resolutions"/>' rows, as the engine's writer stores them.</summary>
-    private ArtefactRef ResolveGenes()
+    /// <summary>A current-schema <c>logs.resolve_genes</c> artefact for the fixture's target database, with these rows
+    /// (<see cref="Resolutions"/> by default), as the engine's writer stores them.</summary>
+    private ArtefactRef ResolveGenes(IEnumerable<Link>? links = null)
     {
+        var all = (links ?? Resolutions).ToList();
         var bundle = CatalogBuilder.SelectBundles(Manifest.Load(ManifestPath), ["PXD999999"], Store).Single();
         var database = CatalogBuilder.GoInputsOf(bundle).Databases.Single();
-        var rows = Resolutions.Select(r => (IReadOnlyDictionary<string, object?>)new Dictionary<string, object?>
+        var rows = all.Select(r => (IReadOnlyDictionary<string, object?>)new Dictionary<string, object?>
         {
-            ["definition_id"] = Definition, ["accession"] = r.Accession, ["entry_accession"] = r.Accession, ["namespace"] = "uniprot",
-            ["outcome"] = r.Outcome, ["n_genes"] = Resolutions.Count(o => o.Accession == r.Accession && o.Gene is not null),
+            ["definition_id"] = r.Definition, ["accession"] = r.Accession, ["entry_accession"] = r.Accession, ["namespace"] = "uniprot",
+            ["outcome"] = r.Outcome, ["n_genes"] = all.Count(o => o.Accession == r.Accession && o.Gene is not null && o.Source == Db),
             ["gene_id"] = r.Gene, ["gene_symbol"] = r.Gene?.ToLowerInvariant(), ["gene_biotype"] = r.Gene is null ? null : "protein_coding",
-            ["off_primary_genes"] = 0L, ["source"] = "uniprot", ["search_database_sha256"] = database, ["gene_set_release"] = "116",
-            ["gene_set_sha256"] = r.GeneSet, ["ensembl_xref_sha256"] = "x",
+            ["off_primary_genes"] = 0L, ["source"] = r.Source, ["search_database_sha256"] = database, ["gene_set_release"] = "116",
+            ["gene_set_sha256"] = r.GeneSet, ["ensembl_xref_agrees"] = r.Agrees, ["ensembl_xref_agreement"] = r.Agreement,
+            ["ensembl_xref_sha256"] = "x",
         }).ToList();
         var inputs = new Dictionary<string, string> { ["search_database"] = database };
         const string engine = "logs.resolve_genes";
         return EngineRunner.WriteArtefact(Store, engine,
-            EngineRunner.ArtefactId(engine, new Dictionary<string, string> { ["logs"] = "test" }, inputs, Definition),
+            EngineRunner.ArtefactId(engine, new Dictionary<string, string> { ["logs"] = "test" }, inputs, V2),
             new Dictionary<string, object?>
             {
-                ["definition_id"] = Definition,
+                ["definition_id"] = V2,
                 ["release"] = new Dictionary<string, object?> { ["logs"] = "test" },
                 ["inputs"] = inputs.ToDictionary(kv => kv.Key, kv => (object?)kv.Value),
             },
@@ -210,21 +223,43 @@ public class OrthologyCatalogTests
             + "SELECT 'sp_b', gene_id, gene_biotype, 'sp_a', status FROM pair_status('{root}', 'sp_b', 'sp_a') ORDER BY ALL");
         Assert.That(expectedStatus, Has.Count.EqualTo(9), "the oracle answers: 5 genes of sp_a, 4 of sp_b");
 
+        // protein_accession, species, resolution_outcome, resolution_source, gene_id, target_species, status,
+        // relationship_type, is_high_confidence, partner_gene, partner_gene_name, partner_accession,
+        // partner_resolution_outcome, partner_resolution_source.
         string[] answers =
         [
-            "P04406|sp_a|resolved|A1|sp_b|has_ortholog|ortholog_one2one|true|B1|b1|P08238|resolved",
-            "P07437|sp_a|multi_gene|A1|sp_b|has_ortholog|ortholog_one2one|true|B1|b1|P08238|resolved",
-            "P07437|sp_a|multi_gene|A3|sp_b|tree_lacks_target_species|-|-|-|-|-|-",
-            "P60709|sp_a|resolved|A2|sp_b|no_edge_in_shared_tree|-|-|-|-|-|-",
-            "P21266|sp_a|resolved|A4|sp_b|not_in_any_tree|-|-|-|-|-|-",
-            "P13010|sp_a|resolved|A9|sp_b|not_in_gene_set|-|-|-|-|-|-",
-            "P05141|sp_a|not_in_source|-|sp_b|no_gene|-|-|-|-|-|-",
-            "P35527|sp_a|resolved|A5|sp_b|has_ortholog|ortholog_one2many|true|B3|b3|P08123|resolved",
-            "P35527|sp_a|resolved|A5|sp_b|has_ortholog|ortholog_one2many|true|B4|-|-|-",
-            "P08238|sp_b|resolved|B1|sp_a|has_ortholog|ortholog_one2one|true|A1|a1|P04406|resolved",
-            "P08238|sp_b|resolved|B1|sp_a|has_ortholog|ortholog_one2one|true|A1|a1|P07437|multi_gene",
-            "P12882|sp_b|resolved|B2|sp_a|no_edge_in_shared_tree|-|-|-|-|-|-",
-            "P08123|sp_b|resolved|B3|sp_a|has_ortholog|ortholog_one2many|true|A5|a5|P35527|resolved",
+            $"P04406|sp_a|resolved|{Db}|A1|sp_b|has_ortholog|ortholog_one2one|true|B1|b1|P08238|resolved|{Db}",
+            $"P07437|sp_a|multi_gene|{Db}|A1|sp_b|has_ortholog|ortholog_one2one|true|B1|b1|P08238|resolved|{Db}",
+            $"P07437|sp_a|multi_gene|{Db}|A3|sp_b|tree_lacks_target_species|-|-|-|-|-|-|-",
+            $"P60709|sp_a|resolved|{Db}|A2|sp_b|no_edge_in_shared_tree|-|-|-|-|-|-|-",
+            $"P21266|sp_a|resolved|{Db}|A4|sp_b|not_in_any_tree|-|-|-|-|-|-|-",
+            // logs 023: Ensembl's gene answers, and the no-gene row of the search database gives no second, no_gene answer.
+            $"P13010|sp_a|not_in_source|{Xref}|A2|sp_b|no_edge_in_shared_tree|-|-|-|-|-|-|-",
+            $"P05141|sp_a|not_in_source|{Db}|-|sp_b|no_gene|-|-|-|-|-|-|-",
+            $"P35527|sp_a|resolved|{Db}|A5|sp_b|has_ortholog|ortholog_one2many|true|B3|b3|P08123|resolved|{Db}",
+            $"P35527|sp_a|resolved|{Db}|A5|sp_b|has_ortholog|ortholog_one2many|true|B4|-|-|-|-",
+            $"P08238|sp_b|resolved|{Db}|B1|sp_a|has_ortholog|ortholog_one2one|true|A1|a1|P04406|resolved|{Db}",
+            $"P08238|sp_b|resolved|{Db}|B1|sp_a|has_ortholog|ortholog_one2one|true|A1|a1|P07437|multi_gene|{Db}",
+            $"P12882|sp_b|resolved|{Db}|B2|sp_a|no_edge_in_shared_tree|-|-|-|-|-|-|-",
+            $"P08123|sp_b|resolved|{Db}|B3|sp_a|has_ortholog|ortholog_one2many|true|A5|a5|P35527|resolved|{Db}",
+        ];
+        // The view columns, for X and for the partner: protein_accession, gene_id, resolution_xref_agreement,
+        // resolution_xref_agrees, gene_resolution_definition_id, partner_accession, partner_xref_agreement, partner_xref_agrees.
+        string[] views =
+        [
+            $"P04406|A1|agrees|true|{V2}|P08238|silent|false",
+            $"P07437|A1|agrees|true|{V2}|P08238|silent|false",
+            $"P07437|A3|disagrees|false|{V2}|-|-|-",
+            $"P60709|A2|silent|false|{V2}|-|-|-",
+            $"P21266|A4|agrees|true|{V2}|-|-|-",
+            $"P13010|A2|agrees|true|{V2}|-|-|-",
+            $"P05141|-|-|-|{V2}|-|-|-",
+            $"P35527|A5|agrees|true|{V2}|P08123|-|true",
+            $"P35527|A5|agrees|true|{V2}|-|-|-",
+            $"P08238|B1|silent|false|{V2}|P04406|agrees|true",
+            $"P08238|B1|silent|false|{V2}|P07437|agrees|true",
+            $"P12882|B2|agrees|true|{V2}|-|-|-",
+            $"P08123|B3|-|true|{V1}|P35527|agrees|true",
         ];
 
         foreach (var built in new[] { file, folder })
@@ -265,9 +300,21 @@ public class OrthologyCatalogTests
 
                 // The bridge: every refusal a row, each partner accession its own row, contaminants and unsearched accessions nowhere.
                 Assert.That(Rows(at,
-                        "SELECT protein_accession, species, resolution_outcome, gene_id, target_species, status, relationship_type, is_high_confidence, "
-                        + "partner_gene, partner_gene_name, partner_accession, partner_resolution_outcome FROM protein_orthologs"),
+                        "SELECT protein_accession, species, resolution_outcome, resolution_source, gene_id, target_species, status, relationship_type, "
+                        + "is_high_confidence, partner_gene, partner_gene_name, partner_accession, partner_resolution_outcome, partner_resolution_source "
+                        + "FROM protein_orthologs"),
                     Is.EquivalentTo(answers));
+                Assert.That(Rows(at,
+                        "SELECT protein_accession, gene_id, resolution_xref_agreement, resolution_xref_agrees, gene_resolution_definition_id, "
+                        + "partner_accession, partner_xref_agreement, partner_xref_agrees FROM protein_orthologs"),
+                    Is.EquivalentTo(views));
+                // Each of logs' views is a filter on the columns: the search database's leaves P13010 with no gene.
+                Assert.That(Rows(at, $"SELECT DISTINCT protein_accession FROM protein_orthologs WHERE resolution_source = '{Db}' ORDER BY 1"),
+                    Does.Not.Contain("P13010"));
+                Assert.That(Rows(at, "SELECT DISTINCT protein_accession, gene_id FROM protein_orthologs "
+                        + "WHERE resolution_xref_agreement NOT IN ('agrees', 'silent')"),
+                    Is.EqualTo(new[] { "P07437|A3" }), "v2's default view leaves out the link Ensembl contradicts");
+                Assert.That(Scalar(at, "SELECT count(*) FROM protein_orthologs WHERE status = 'not_in_gene_set' OR status IS NULL"), Is.EqualTo(0));
                 Assert.That(Scalar(at, "SELECT count(*) FROM protein_orthologs WHERE 'P00761' IN (protein_accession, partner_accession) "
                     + "OR 'Q9ZZZ9' IN (protein_accession, partner_accession)"), Is.EqualTo(0));
                 Assert.That(Scalar(at,
@@ -278,23 +325,28 @@ public class OrthologyCatalogTests
                     "SELECT count(*) FROM protein_orthologs o LEFT JOIN protein_index i ON i.protein_accession = o.partner_accession "
                     + "WHERE o.partner_n_datasets_1pct IS DISTINCT FROM CASE WHEN o.partner_accession IS NOT NULL THEN coalesce(i.n_datasets_1pct, 0) END"),
                     Is.EqualTo(0));
-                Assert.That(Rows(at, "SELECT DISTINCT definition_id, artefact_id FROM protein_orthologs"),
-                    Is.EqualTo(new[] { $"{Definition}|{snapshot.ArtefactId}" }));
+                Assert.That(Rows(at, "SELECT DISTINCT orthology_definition_id, artefact_id FROM protein_orthologs"),
+                    Is.EqualTo(new[] { $"logs:DEF-ORTHOLOGY v1|{snapshot.ArtefactId}" }));
 
                 // The checks the build ran, and nothing of the snapshot's macros left behind.
+                var name = $"logs.register_orthology/{snapshot.ArtefactId}";
                 var consistency = built.Checks.Where(c => c.Kind == "engine-consistency" && c.Name.Contains(snapshot.ArtefactId)).ToList();
                 Assert.That(consistency.Select(c => c.Name), Is.EquivalentTo(new[]
                 {
-                    $"logs.register_orthology/{snapshot.ArtefactId} gene sets (gene_resolutions)",
-                    $"logs.register_orthology/{snapshot.ArtefactId} pair_status sp_a -> sp_b (gene_ortholog_status)",
-                    $"logs.register_orthology/{snapshot.ArtefactId} pair_status sp_b -> sp_a (gene_ortholog_status)",
-                    $"logs.register_orthology/{snapshot.ArtefactId} genes sp_a (orthology_genes)",
-                    $"logs.register_orthology/{snapshot.ArtefactId} genes sp_b (orthology_genes)",
-                    $"logs.register_orthology/{snapshot.ArtefactId} protein_orthologs (a row per accession and target species)",
+                    $"{name} gene sets (gene_resolutions)",
+                    $"{name} pair_status sp_a -> sp_b (gene_ortholog_status)",
+                    $"{name} pair_status sp_b -> sp_a (gene_ortholog_status)",
+                    $"{name} genes sp_a (orthology_genes)",
+                    $"{name} genes sp_b (orthology_genes)",
+                    $"{name} protein_orthologs (a row per accession and target species)",
+                    $"{name} protein_orthologs (no accession both no_gene and with a gene)",
+                    $"{name} resolved genes in the snapshot's gene sets (orthology_genes)",
                 }));
                 Assert.That(consistency.Where(c => !c.Ok), Is.Empty);
-                Assert.That(consistency.Single(c => c.Name.Contains("protein_orthologs")).Expected, Is.EqualTo(10), "ten source accessions, one other species each");
-                Assert.That(Scalar(at, "SELECT count(*) FROM catalog_checks WHERE kind = 'engine-consistency' AND ok"), Is.EqualTo(6));
+                Assert.That(consistency.Single(c => c.Name.Contains("a row per accession")).Expected, Is.EqualTo(10), "ten source accessions, one other species each");
+                Assert.That(Scalar(at, "SELECT count(*) FROM catalog_checks WHERE kind = 'engine-consistency' AND ok"), Is.EqualTo(8));
+                Assert.That(Rows(at, $"SELECT ok, observed FROM catalog_checks WHERE kind = 'integrity' AND name LIKE '{name} snapshot files%'"),
+                    Is.EqualTo(new[] { "true|9" }), "manifest.json and the eight files it lists");
                 Assert.That(Scalar(at, "SELECT count(*) FROM duckdb_functions() "
                     + "WHERE function_name IN ('orthologs', 'pair_status', 'species_set3', 'orthology_pair_file')"), Is.EqualTo(0));
                 Assert.That(Rows(at, "SELECT catalog_version FROM catalog_meta").Single(), Is.EqualTo("17"));
@@ -340,15 +392,70 @@ public class OrthologyCatalogTests
         Assert.That(File.Exists(output), Is.False, "nothing was written");
     }
 
+    /// <summary>Makes the registration record the snapshot as it now is on disk: a new manifest, and its sha256 in
+    /// <c>run.json</c>, as if this snapshot had been released and registered.</summary>
+    private static void Reregister(ArtefactRef snapshot)
+    {
+        var directory = Path.Combine(snapshot.Path, "snapshot");
+        OrthologySnapshots.WriteManifest(directory);
+        var record = Path.Combine(snapshot.Path, "run.json");
+        var json = JsonNode.Parse(File.ReadAllText(record))!;
+        json["inputs"]!["snapshot_manifest"] = BundleWriter.Sha256File(Path.Combine(directory, "manifest.json"));
+        File.WriteAllText(record, json.ToJsonString());
+    }
+
     [Test]
     public void AViewsSqlThatWouldWriteIntoTheCatalogIsRefused()
     {
         ResolveGenes();
         var snapshot = RegisterSnapshot();
         File.AppendAllText(Path.Combine(snapshot.Path, "snapshot", "views.sql"), "\nCREATE TABLE leaked AS SELECT 1 AS x;\n");
+        Reregister(snapshot);  // past the sha256 check, to the one that guards the catalog
         var output = Path.Combine(_root, "catalog.duckdb");
         Assert.That(() => Build(output), Throws.TypeOf<CatalogException>()
             .With.Message.Contains("did more than define its macros").And.Message.Contains("1 other object(s)"));
+        Assert.That(File.Exists(output), Is.False, "nothing was written");
+    }
+
+    /// <summary>logs 023: the build reads the snapshot only when its files are the registered ones. A changed
+    /// <c>relationship_type</c> or partner gene would move no count, so the counts cannot stand in for this.</summary>
+    [TestCase("file", "pairs/sp_a__sp_b.parquet hashes to")]
+    [TestCase("manifest", "manifest.json hashes to")]
+    public void ASnapshotChangedSinceItsRegistrationIsNotRead(string changed, string message)
+    {
+        ResolveGenes();
+        var snapshot = RegisterSnapshot();
+        var directory = Path.Combine(snapshot.Path, "snapshot");
+        var pairs = Path.Combine(directory, "pairs", "sp_a__sp_b.parquet");
+        var stale = Path.Combine(_root, "stale.parquet");
+        File.Copy(pairs, stale);
+        using (var con = new DuckDBConnection("DataSource=:memory:"))
+        {
+            // The same rows, one relationship retyped: every count stays as registered.
+            con.Open();
+            using var cmd = con.CreateCommand();
+            cmd.CommandText = $"COPY (SELECT * REPLACE (CASE WHEN homology_id = '1' THEN 'ortholog_one2many' ELSE relationship_type END AS relationship_type) "
+                + $"FROM read_parquet('{stale.Replace('\\', '/')}')) TO '{pairs.Replace('\\', '/')}'";
+            cmd.ExecuteNonQuery();
+        }
+        if (changed == "manifest") OrthologySnapshots.WriteManifest(directory);  // a manifest that agrees with the files, unregistered
+        var output = Path.Combine(_root, "catalog.duckdb");
+        Assert.That(() => Build(output), Throws.TypeOf<CatalogException>()
+            .With.Message.Contains($"logs.register_orthology/{snapshot.ArtefactId}: ").And.Message.Contains(message)
+            .And.Message.Contains("is not the one registered"));
+        Assert.That(File.Exists(output), Is.False, "nothing was written");
+    }
+
+    /// <summary>logs 023: a resolved gene the snapshot's gene set does not hold is a failed build, not a status.</summary>
+    [Test]
+    public void AGeneOutsideTheSnapshotsGeneSetFailsTheBuild()
+    {
+        ResolveGenes(Resolutions.Append(new Link("P13533", "resolved", "A9", GeneSetA, Db, "agrees", true)));
+        var snapshot = RegisterSnapshot();
+        var output = Path.Combine(_root, "catalog.duckdb");
+        Assert.That(() => Build(output), Throws.TypeOf<CatalogException>()
+            .With.Message.Contains($"logs.register_orthology/{snapshot.ArtefactId} resolved genes in the snapshot's gene sets (orthology_genes): 1 vs 0")
+            .And.Message.Contains("P13533 -> A9 (sp_a)"));
         Assert.That(File.Exists(output), Is.False, "nothing was written");
     }
 }

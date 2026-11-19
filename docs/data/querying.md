@@ -196,23 +196,38 @@ orthologs in each other species of the registered orthology snapshot (Ensembl Co
 the accessions that resolve to each ortholog gene:
 
 ```sql
-SELECT target_species, status, relationship_type, partner_gene, partner_gene_name, partner_accession,
+-- Every link logs wrote, both of its views together (no view filter).
+SELECT target_species, status, resolution_source, resolution_xref_agreement, relationship_type,
+       partner_gene_name, partner_accession, partner_resolution_source, partner_xref_agreement,
        partner_n_datasets_1pct
 FROM protein_orthologs WHERE protein_accession = 'P14136'   -- human GFAP
-ORDER BY target_species;
+ORDER BY target_species, partner_accession;
 ```
 
 ```
-target_species     status        relationship_type  partner_gene        partner_gene_name  partner_accession  partner_n_datasets_1pct
------------------  ------------  -----------------  ------------------  -----------------  -----------------  -----------------------
-mus_musculus       has_ortholog  ortholog_one2one   ENSMUSG00000020932  Gfap               P03995             59
-rattus_norvegicus  has_ortholog  ortholog_one2one   ENSRNOG00000002919  Gfap               P47819             25
+target_species     status        resolution_source            resolution_xref_agreement  relationship_type  partner_gene_name  partner_accession  partner_resolution_source    partner_xref_agreement  partner_n_datasets_1pct
+-----------------  ------------  ---------------------------  -------------------------  -----------------  -----------------  -----------------  ---------------------------  ----------------------  -----------------------
+mus_musculus       has_ortholog  search_database_dbreference  agrees                     ortholog_one2one   Gfap               P03995             search_database_dbreference  agrees                  59
+rattus_norvegicus  has_ortholog  search_database_dbreference  agrees                     ortholog_one2one   Gfap               P47819             search_database_dbreference  agrees                  25
 ```
 
-That ran on a 1.5.0 folder catalog of aging's 192 re-ingested deposits, where `protein_orthologs` holds 182,552 rows
-for 64,198 accessions; it answers in about 0.1 s. The evidence for each ortholog is one join away:
+That ran on a 1.5.0 folder catalog of aging's 192 re-ingested deposits, where `protein_orthologs` holds 180,930 rows
+for 64,198 accessions; it answers in about 0.1 s.
+
+**Each row is one gene link logs wrote, and the table holds both of its views together.** To read one view, filter
+on the view columns, the accession's and the partner's:
+
+- the search database's view: `resolution_source = 'search_database_dbreference'` (and `partner_resolution_source`);
+- logs' v2 default view, aging's: `resolution_xref_agreement IN ('agrees', 'silent')` (and `partner_xref_agreement`).
+  It leaves out the links Ensembl contradicts. A v1 row (`gene_resolution_definition_id`) has only
+  `resolution_xref_agrees`, where false covers both `silent` and `disagrees`.
+
+A view can leave an accession with no gene (one only Ensembl's xref links, `resolution_source = 'ensembl_xref'`, has
+none in the search database's view) and an ortholog with no accession, so keep the `gene_id IS NULL` rows and read
+the unfiltered rows before calling anything absent. The evidence for each ortholog is one join away:
 
 ```sql
+-- Every link logs wrote, both views together; add a view's filter to `asked` to read one.
 WITH asked AS (
     SELECT * FROM protein_orthologs WHERE protein_accession = 'P14136'   -- human GFAP
 ),
@@ -250,11 +265,11 @@ ORDER BY a.target_species, a.partner_gene, a.partner_accession;
 ```
 
 **Read `status` before reading an empty column as "not detected".** Every accession has at least one row per
-other species. A status other than `has_ortholog` says why there is no ortholog: `no_gene` (the accession
-resolves to no gene), `not_in_gene_set`, `no_edge_in_shared_tree`, `tree_lacks_target_species` or
-`not_in_any_tree`. A `has_ortholog` row with no `partner_accession` is an ortholog no searched database holds a
-protein for. Only a row with a `partner_accession` and no evidence means the repository searched for that protein
-and accepted nothing. **No rows at all** means the accession is not one the repository resolved to a gene (it is
+other species. A status other than `has_ortholog` says why there is no ortholog: `no_gene` (no gene of its species
+is linked to the accession at all, in either view), `no_edge_in_shared_tree`, `tree_lacks_target_species` or
+`not_in_any_tree`. A `has_ortholog` row with no `partner_accession` is an ortholog in Compara with no accession of
+it in any search here. Only a row with a `partner_accession` and no evidence means the repository searched for that
+protein and accepted nothing. **No rows at all** means the accession is not one the repository resolved to a gene (it is
 not in `protein_genes`), or that the catalog serves no snapshot (`orthology_species` is empty), never that it has
 no orthologs. One-to-many orthologs give a row each
 (`relationship_type`), and isoform accessions of a partner gene each have their own row. The site rule here

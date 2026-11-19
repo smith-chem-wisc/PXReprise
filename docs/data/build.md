@@ -193,21 +193,27 @@ protein", which is the question the repository exists for.
 | `orthology_genes` | 1/gene/species | every gene of each species' primary-assembly gene set, all biotypes, from the snapshot's `genes/` files |
 | `gene_orthologs` | 1/ortholog relationship/direction | every ortholog row Ensembl Compara asserts between two snapshot species, in both directions (`species`, `gene`, `partner_species`, `partner_gene`, `relationship_type`, identities, `is_high_confidence`); paralogs never |
 | `gene_ortholog_status` | 1/gene/other species | each gene's one status in each other species: `has_ortholog`, `no_edge_in_shared_tree`, `tree_lacks_target_species` or `not_in_any_tree` |
-| `protein_orthologs` | 1/accession/other species/ortholog/partner accession | every target accession with a gene resolution, against every other snapshot species: its gene, its `status` there, and for `has_ortholog` each ortholog gene and each accession resolving to it, with `partner_n_datasets_1pct`. Refusals are rows: at least one per accession and species |
+| `protein_orthologs` | 1/accession link/other species/ortholog/partner link | every target accession with a gene resolution, against every other snapshot species: each gene linked to it, its `status` there, and for `has_ortholog` each ortholog gene and each accession resolving to it, with `partner_n_datasets_1pct` and the view columns of both links (`resolution_source`, `resolution_xref_agreement`, `partner_resolution_source`, ...). Refusals are rows: at least one per accession and species |
 
 The five orthology tables are copied from the snapshot `datarepo run logs.register_orthology` registered
 ([operating.md](operating.md#4-optional-engines-and-study-results)), through the snapshot's own `views.sql`, in
 both layouts: they are small (on aging's store, human, mouse and rat: 200,649 genes, 171,792 ortholog rows, 401,298
-statuses and 182,552 `protein_orthologs` rows, built in about 6 s), so neither layout reads the snapshot at query time. They are in every catalog of format 17, empty when no snapshot is
-registered. `catalog_tables.kind` is `engine:logs.register_orthology` for the four copied from the snapshot and
-`derived` for `protein_orthologs`. `protein_orthologs` answers for the accessions of `protein_genes` (target proteins
-a search held, no decoy or contaminant): accession to gene through `gene_resolutions` (each gene of a `multi_gene`
-accession), gene to ortholog gene directly for each species pair (never chained), ortholog gene back to the accessions
-that resolve to it. A status other than `has_ortholog` says why there is none (`no_gene` and `not_in_gene_set` are the
-bridge's own; the other four are `gene_ortholog_status`'s), so an empty join never reads as "not detected". Two
-`catalog_checks` rows of kind `engine-consistency` fail the build if the status counts differ from the ones the
-registration recorded, or if an accession lacks a row for some species. [querying.md](querying.md) has the query for
-"every ortholog of protein X, with its peptides and PTM sites".
+statuses and 180,930 `protein_orthologs` rows, built in about 9 s), so neither layout reads the snapshot at query time.
+Before reading it, `build` checks the snapshot's files against the registration (`manifest.json` against
+`inputs.snapshot_manifest`, every file against its sha256 in the manifest) and fails on a mismatch. The tables are in
+every catalog of format 17, empty when no snapshot is registered. `catalog_tables.kind` is
+`engine:logs.register_orthology` for the four copied from the snapshot and `derived` for `protein_orthologs`.
+`protein_orthologs` answers for the accessions of `protein_genes` (target proteins a search held, no decoy or
+contaminant): accession to gene through `gene_resolutions` (each gene of a `multi_gene` accession, and a gene only
+Ensembl's xref links), gene to ortholog gene directly for each species pair (never chained), ortholog gene back to the
+accessions that resolve to it. Its rows are every link logs wrote; `resolution_source` and the xref agreement columns
+let a reader apply the search database's view or v2's default one. A status other than `has_ortholog` says why there is
+none (`no_gene`, the bridge's own and given only when no gene is linked to the accession at all, or one of
+`gene_ortholog_status`'s three), so an empty join never reads as "not detected". `catalog_checks` rows of kind
+`engine-consistency` fail the build if the status counts differ from the ones the registration recorded, if an
+accession lacks a row for some species or is both `no_gene` and answered through a gene, or if a resolved gene is not
+in the snapshot's gene set. [querying.md](querying.md) has the query for "every ortholog of protein X, with its
+peptides and PTM sites".
 
 The three `deposit_*` tables are read at **build** from the records `datarepo pride` kept beside the bundles
 ([operating.md](operating.md#4-optional-engines-and-study-results)); `build` itself fetches nothing. They are
