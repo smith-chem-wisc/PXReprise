@@ -224,7 +224,18 @@ on the view columns, the accession's and the partner's:
 
 A view can leave an accession with no gene (one only Ensembl's xref links, `resolution_source = 'ensembl_xref'`, has
 none in the search database's view) and an ortholog with no accession, so keep the `gene_id IS NULL` rows and read
-the unfiltered rows before calling anything absent. The evidence for each ortholog is one join away:
+the unfiltered rows before calling anything absent.
+
+**A view applied as a plain `WHERE` drops rows; it does not turn them into refusals.** On aging's store (logs 024):
+- under v2's default view, P60484-2 (a PTEN isoform) loses its only gene. Its own xref links only a gene outside the
+  gene set, so its PTEN link reads `disagrees`;
+- 138 (accession, ortholog gene) pairs lose every partner accession, so the ortholog itself disappears from the answer.
+
+To read one view and still see what it leaves out, filter the partner columns inside a `LEFT JOIN` rather than in the
+`WHERE`, and report an accession whose rows a view removes as "no gene in this view", not as absent. The status is
+Compara's own: human PTEN, for example, is `no_edge_in_shared_tree` towards mouse and rat in Compara 116 itself.
+
+The evidence for each ortholog is one join away:
 
 ```sql
 -- Every link logs wrote, both views together; add a view's filter to `asked` to read one.
