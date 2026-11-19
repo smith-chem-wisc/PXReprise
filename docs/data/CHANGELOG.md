@@ -107,8 +107,11 @@ search by MetaMorpheus 1.1.13 or earlier.
   serves its artefacts. `go.categorize_terms --input ontology=... --input category_map=...` (no accession; once per
   go.obo and map), `go.annotate_databases <PXD...> --input ontology=...` (one artefact per searched target database
   file, `go:DEF-ACCESSION-GO-ANNOTATION v1`) and `go.resolve_members <PXD...>` (one per search; no GO). Each writes
-  mzLib's own file, reads it back with mzLib's reader as acceptance, and keeps it. A new go.obo re-runs the first two, a
-  new map only the first, a new dataset only what its files lack.
+  mzLib's own file, reads it back with mzLib's reader as acceptance, and records its sha256 and row count in `run.json`
+  (`files`); as `go_annotation.tsv` was (G110), the file is then dropped, all but the small `go_category.tsv`, which
+  `go.annotate_groups` kept too. On six of aging's deposits that leaves 7.1 MB of artefacts where the files would have
+  added 89 MB (a human proteome's database artefact: 0.84 MB, where its file alone was 13.6 MB). A new go.obo re-runs the first two, a new map only the
+  first, a new dataset only what its files lack.
 
 ### Upgrading
 - Re-ingest every dataset. Then run every engine again over every re-ingested dataset: `logs.register_orthology`,

@@ -16,7 +16,10 @@ namespace PXReprise.Runner;
 /// <para>They replace <c>go.annotate_groups</c>, which wrote every search's group-by-term rows, so a database searched by
 /// 34 deposits had its terms restated 34 times. Each engine computes nothing about GO: it decides what to run on, checks
 /// every input against what the bundles recorded, runs mzLib, reads mzLib's own file back with mzLib's own reader as the
-/// acceptance check, and stores the rows that reader gives, keeping the file beside them so a reader can re-check it.</para>
+/// acceptance check, and stores the rows that reader gives. The file itself is then left out of the artefact, as
+/// <c>go_annotation.tsv</c> was (G110): its sha256 and row count stay in <c>run.json</c> (<c>files</c>), and the rows it
+/// gave are the artefact's Parquet. Only <c>go_category.tsv</c> is kept, as <c>go.annotate_groups</c> kept it: it is small,
+/// in go's own format. (On aging's data the three large files were 92% of the artefacts' bytes.)</para>
 /// <list type="bullet">
 /// <item><see cref="AnnotateDatabases"/> (a): one database FILE's direct GO terms per entry (<c>GoAccessionAnnotation</c>),
 /// one artefact per (file, go.obo, mzLib, definition), shared by every search that read the file. Each row also carries
@@ -59,12 +62,29 @@ public static class GoReferenceEngines
     /// <summary>go D35: drop a GO id the pinned go.obo lacks, and say so, rather than refuse the database.</summary>
     public const bool SkipUnknownGoIds = true;
 
-    /// <summary>mzLib's files, kept in each artefact beside the Parquet the catalog reads.</summary>
+    /// <summary>mzLib's files, written and read back as acceptance. Each is recorded in <c>run.json</c> by sha256 and row
+    /// count; only <see cref="CategoryFile"/> is kept in the artefact (<see cref="KeptFiles"/>).</summary>
     public const string AccessionTermsFile = "go_accession_terms.tsv";
     public const string TermsFile = "go_terms.tsv";
     public const string ClosureFile = "go_closure.tsv";
     public const string CategoryFile = "go_category.tsv";
     public const string MemberFile = "member_resolution.tsv";
+
+    /// <summary>The files an artefact keeps: the category file, as <c>go.annotate_groups</c> kept its own. The others are
+    /// large (on aging's data a human proteome's <see cref="AccessionTermsFile"/> is 13.6 MB against 0.84 MB of Parquet) and
+    /// nothing reads them; <c>go.annotate_groups</c> dropped its annotation file the same way (G110).</summary>
+    public static readonly IReadOnlySet<string> KeptFiles = new HashSet<string>(StringComparer.Ordinal) { CategoryFile };
+
+    /// <summary>What <c>run.json</c> records of mzLib's files: each one's sha256 and row count, and whether it is kept.</summary>
+    private static Dictionary<string, object?> FileRecord(params (string Name, string Path, int Rows)[] files) =>
+        files.ToDictionary(f => f.Name, f => (object?)new Dictionary<string, object?>
+        {
+            ["sha256"] = BundleWriter.Sha256File(f.Path), ["rows"] = (long)f.Rows, ["kept"] = KeptFiles.Contains(f.Name),
+        }, StringComparer.Ordinal);
+
+    /// <summary>The files of these that the artefact keeps, for <see cref="EngineRunner.WriteArtefact"/>.</summary>
+    private static Dictionary<string, string> Kept(params (string Name, string Path)[] files) =>
+        files.Where(f => KeptFiles.Contains(f.Name)).ToDictionary(f => f.Name, f => f.Path, StringComparer.Ordinal);
 
     private static ColumnSpec S(string name, bool nullable = true) => new(name, ColumnType.String, false, nullable);
     private static ColumnSpec B(string name, bool nullable = true) => new(name, ColumnType.Boolean, false, nullable);
@@ -318,13 +338,13 @@ public static class GoReferenceEngines
                         ["mzlib_version"] = table.Header.GetValueOrDefault("mzlib_version"),
                         ["skip_unknown_go_ids"] = SkipUnknownGoIds,
                         ["unresolved_go_ids"] = annotation.UnresolvedGoIds.Cast<object?>().ToList(),
-                        ["file_sha256"] = BundleWriter.Sha256File(path),
                     },
+                    ["files"] = FileRecord((AccessionTermsFile, path, table.Rows.Count)),
                     ["acceptance"] = "passed",
                 };
                 return EngineRunner.WriteArtefact(store, AnnotateDatabases, aid, record,
                     new Dictionary<string, List<IReadOnlyDictionary<string, object?>>> { [CatalogBuilder.GoAccessionTermsTable] = rows },
-                    new Dictionary<string, string> { [AccessionTermsFile] = path }, Columns);
+                    Kept((AccessionTermsFile, path)), Columns);
             }));
         }
         return result;
@@ -434,10 +454,12 @@ public static class GoReferenceEngines
                     ["mzlib_release"] = terms.Header.GetValueOrDefault("mzlib_release"),
                     ["mzlib_version"] = terms.Header.GetValueOrDefault("mzlib_version"),
                 },
+                ["files"] = FileRecord((TermsFile, termsPath, terms.Rows.Count), (ClosureFile, closurePath, closure.Rows.Count),
+                    (CategoryFile, categoryPath, categories.Rows.Count)),
                 ["acceptance"] = "passed",
             };
             return EngineRunner.WriteArtefact(store, CategorizeTerms, aid, record, tables,
-                new Dictionary<string, string> { [TermsFile] = termsPath, [ClosureFile] = closurePath, [CategoryFile] = categoryPath }, Columns);
+                Kept((TermsFile, termsPath), (ClosureFile, closurePath), (CategoryFile, categoryPath)), Columns);
         }));
         return result;
     }
@@ -554,13 +576,13 @@ public static class GoReferenceEngines
                         ["contaminant_databases_not_annotated"] = search.Contaminants.Select(c => (object?)c.Name).ToList(),
                         ["mzlib_release"] = table.Header.GetValueOrDefault("mzlib_release"),
                         ["mzlib_version"] = table.Header.GetValueOrDefault("mzlib_version"),
-                        ["file_sha256"] = BundleWriter.Sha256File(path),
                     },
+                    ["files"] = FileRecord((MemberFile, path, table.Rows.Count)),
                     ["acceptance"] = "passed",
                 };
                 return EngineRunner.WriteArtefact(store, ResolveMembers, aid, record,
                     new Dictionary<string, List<IReadOnlyDictionary<string, object?>>> { [CatalogBuilder.GoGroupMembersTable] = rows },
-                    new Dictionary<string, string> { [MemberFile] = path }, Columns);
+                    Kept((MemberFile, path)), Columns);
             }));
         }
         result.SkippedContaminant.AddRange(skipped);

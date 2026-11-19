@@ -119,6 +119,24 @@ public class GoEngineTests
 
     private static string[] Files(ArtefactRef artefact) => Directory.EnumerateFiles(artefact.Path).Select(f => Path.GetFileName(f)!).Order(StringComparer.Ordinal).ToArray();
 
+    /// <summary>mzLib's files as <c>run.json</c> records them: name, row count and whether the artefact keeps it; each
+    /// sha256 is 64 hex digits, and a kept file hashes to it.</summary>
+    private static string[] RecordedFiles(ArtefactRef artefact)
+    {
+        var files = (IReadOnlyDictionary<string, object?>)artefact.Record["files"]!;
+        foreach (var (name, value) in files)
+        {
+            var sha = (string)((IReadOnlyDictionary<string, object?>)value!)["sha256"]!;
+            Assert.That(sha, Does.Match("^[0-9a-f]{64}$"), name);
+            if (File.Exists(Path.Combine(artefact.Path, name))) Assert.That(BundleWriter.Sha256File(Path.Combine(artefact.Path, name)), Is.EqualTo(sha), name);
+        }
+        return files.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv =>
+        {
+            var f = (IReadOnlyDictionary<string, object?>)kv.Value!;
+            return $"{kv.Key} {f["rows"]} {((bool)f["kept"]! ? "kept" : "dropped")}";
+        }).ToArray();
+    }
+
     // --- the engines -------------------------------------------------------------------------------------
 
     [Test]
@@ -134,7 +152,13 @@ public class GoEngineTests
         {
             // (b) and the ontology: once per (go.obo, map), no bundle.
             Assert.That(ontology.Engine, Is.EqualTo("go.categorize_terms"));
-            Assert.That(Files(ontology), Is.EqualTo(new[] { "go_category.tsv", "go_closure.parquet", "go_closure.tsv", "go_term_categories.parquet", "go_terms.parquet", "go_terms.tsv", "run.json" }));
+            Assert.That(Files(ontology), Is.EqualTo(new[] { "go_category.tsv", "go_closure.parquet", "go_term_categories.parquet", "go_terms.parquet", "run.json" }),
+                "the category file is kept, as go.annotate_groups kept it; the term and closure files are read back and dropped (G110)");
+            var closurePairs = Rows(ontology, "go_closure").Count;
+            Assert.That(RecordedFiles(ontology), Is.EqualTo(new[]
+            {
+                $"go_category.tsv {Rows(ontology, "go_term_categories").Count} kept", $"go_closure.tsv {closurePairs} dropped", "go_terms.tsv 29 dropped",
+            }));
             Assert.That(ontology.Inputs.Keys.Order(), Is.EqualTo(new[] { "category_map", "ontology" }));
             Assert.That(Summary(ontology)["go_release"], Is.EqualTo("releases/2026-07-26"));
             Assert.That(Summary(ontology)["terms"], Is.EqualTo(29L));
@@ -143,7 +167,8 @@ public class GoEngineTests
 
             // (a): one per database FILE; the contaminant panel is never annotation input.
             Assert.That(database.Engine, Is.EqualTo("go.annotate_databases"));
-            Assert.That(Files(database), Is.EqualTo(new[] { "go_accession_terms.parquet", "go_accession_terms.tsv", "run.json" }));
+            Assert.That(Files(database), Is.EqualTo(new[] { "go_accession_terms.parquet", "run.json" }));
+            Assert.That(RecordedFiles(database), Is.EqualTo(new[] { $"go_accession_terms.tsv {Rows(database, "go_accession_terms").Count} dropped" }));
             Assert.That(database.Inputs, Is.EquivalentTo(new Dictionary<string, string> { ["annotation_database"] = human.Sha256, ["ontology"] = ontology.Inputs["ontology"] }));
             Assert.That((IEnumerable<object?>)Summary(database)["unresolved_go_ids"]!, Is.EqualTo(new object?[] { Unknown }), "skipped and listed (go D35)");
             Assert.That(Summary(database)["mzlib_release"], Is.EqualTo(GoReferenceEngines.Release()["mzlib"]), "a released mzLib wrote the file");
@@ -160,7 +185,9 @@ public class GoEngineTests
 
             // (c): one per search, no GO.
             Assert.That(members.Engine, Is.EqualTo("go.resolve_members"));
-            Assert.That(Files(members), Is.EqualTo(new[] { "go_group_members.parquet", "member_resolution.tsv", "run.json" }));
+            Assert.That(Files(members), Is.EqualTo(new[] { "go_group_members.parquet", "run.json" }),
+                "no member file: go.annotate_groups kept none for a search either");
+            Assert.That(RecordedFiles(members), Is.EqualTo(new[] { $"member_resolution.tsv {Rows(members, "go_group_members").Count} dropped" }));
             Assert.That(members.Inputs.Keys.Order(), Is.EqualTo(new[] { "annotation_database:test_human.xml", "protein_groups" }),
                 "the contaminant panel is not annotation input");
             Assert.That(Summary(members)["annotation_db_sha256"], Is.EqualTo(human.Sha256), "one database: its own sha256 (GO-D6)");

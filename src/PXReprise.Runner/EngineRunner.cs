@@ -85,7 +85,7 @@ public static class EngineRunner
     /// <remarks>A failure leaves nothing that discovery would find, so a half-written run can never be mistaken
     /// for "already done".</remarks>
     /// <param name="files">Other files the artefact keeps, <c>{name in the artefact: source path}</c>, copied in
-    /// before the move (go keeps its own TSVs, so a reader can re-check them; a registered orthology snapshot
+    /// before the move (go keeps its small category file, so a reader can re-check it; a registered orthology snapshot
     /// keeps its extracted files under <c>snapshot/</c>). A name may hold <c>/</c>.</param>
     /// <param name="columns">The columns of a table that is not a core schema table (go's reference tables), by table;
     /// a core table is written with the schema's columns.</param>
