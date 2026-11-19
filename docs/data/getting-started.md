@@ -178,12 +178,14 @@ catalog  …/example-instance/catalog.duckdb
   dataset  PXD999999    bundle 4ccf36a955a1e57d
   pride    0 of 1 deposit(s) have a fetched PRIDE record; `datarepo pride --store …/example-instance/store` fetches the rest
   note     logs.resolve_genes coverage (databases with an artefact): 0 of 1; no artefact for 89fb8c7a1140 (PXD999999)
-  note     go.annotate_groups coverage (bundles with an artefact): 0 of 1; no artefact for PXD999999 (4ccf36a955a1e57d)
+  note     go.categorize_terms (ontology and category map served): 0 of 1; no artefact, so no GO is served
+  note     go.annotate_databases coverage (target databases with an artefact): 0 of 1; none served without an ontology; no artefact for 89fb8c7a1140 (PXD999999)
+  note     go.resolve_members coverage (bundles served GO): 0 of 1; not served: PXD999999 (4ccf36a955a1e57d): no go.resolve_members artefact
   note     logs.register_orthology (snapshots registered): 0 of 1; no snapshot registered
   note     ptmqtl.site_pairs coverage (bundles with an artefact): 0 of 1; no artefact for PXD999999
   tables   assays 2, datasets 1, definitions 14, findings 7, gene_resolutions 0, …
-  indexes  18
-  checks   64 run, all passed
+  indexes  23
+  checks   66 run, all passed
   timing   tables 0.4 s, derived: sample names 0.0 s, …
 site     site
   catalog  88a2166ec0d33563
@@ -195,7 +197,7 @@ site     site
 
 `publish` does two things:
 
-- **It builds the catalog.** That is one DuckDB file holding every ingested dataset, with 64
+- **It builds the catalog.** That is one DuckDB file holding every ingested dataset, with 66
   integrity checks run on the result. Any failed check would have stopped it.
 - **It writes the site.** That is a static website with one page per dataset, an `llms.txt` for
   agents, and JSON for programs. Beside the 36 files is a hidden `.datarepo-site.json`, the marker
@@ -278,10 +280,10 @@ catalog  catalog.duckdb
   built    … by datarepo 1.5.0
   dataset  PXD999999           58 PSMs at 1%
   tools    datarepo_describe, datarepo_search, datarepo_sql
-  empty    42 table(s) present with no rows
+  empty    48 table(s) present with no rows
 ```
 
-`42 table(s) present with no rows` is expected here. The schema has tables for data this small
+`48 table(s) present with no rows` is expected here. The schema has tables for data this small
 example does not have (glycopeptides, age effects, GO annotation, orthology, PRIDE records, TMT channels, runs
 excluded from analysis). They exist and are empty, and an agent is told so. An empty table is never a negative answer.
 

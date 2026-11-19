@@ -413,6 +413,26 @@ public class GoEngineTests
             });
         Assert.That(Rows(file.Path, "SELECT * EXCLUDE (artefact_id) FROM go_accession_terms ORDER BY ALL"),
             Is.EqualTo(Rows(folder.Path, "SELECT * EXCLUDE (artefact_id) FROM go_accession_terms ORDER BY ALL")));
+
+        // The worked GO queries in querying.md run in both layouts; the two about one protein find P05141's rows.
+        var documented = DocumentedQueries().Select(sql => sql.Replace("'P04406'", "'P05141'")).ToList();
+        Assert.That(documented, Has.Count.EqualTo(5));
+        foreach (var built in new[] { file, folder })
+            for (var i = 0; i < documented.Count; i++)
+            {
+                var rows = CatalogBuilder.RunQuery(built.Path, documented[i]).Rows;
+                if (i < 2) Assert.That(rows, Is.Not.Empty, documented[i]);
+            }
+    }
+
+    /// <summary>The SQL blocks of <c>docs/data/querying.md</c> that read go's tables.</summary>
+    private static List<string> DocumentedQueries()
+    {
+        var page = File.ReadAllText(Path.Combine(DataPaths.Docs, "querying.md")).Replace("\r\n", "\n");
+        return System.Text.RegularExpressions.Regex.Matches(page, "```sql\n(.*?)```", System.Text.RegularExpressions.RegexOptions.Singleline)
+            .Select(m => m.Groups[1].Value)
+            .Where(sql => sql.Contains("go_accession_terms", StringComparison.Ordinal) || sql.Contains("FROM protein_localizations", StringComparison.Ordinal))
+            .ToList();
     }
 
     [Test]

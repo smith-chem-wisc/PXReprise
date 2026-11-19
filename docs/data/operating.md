@@ -90,7 +90,9 @@ Swap the binary and build. The first folder publish recomputes every deposit's d
 1.5.0 moves the ingest path to `cs-1.3.0` and the schema to 0.0.17 (fragment ions in every bundle), so every bundle is
 re-ingested once, and a catalog that mixes 0.0.16 and 0.0.17 bundles or engine artefacts is refused. In order:
 re-ingest every dataset; run every engine again on every re-ingested dataset (`logs.register_orthology`,
-`logs.resolve_genes` for each species over all of that species' datasets, `go.annotate_groups`); `datarepo pride
+`logs.resolve_genes` for each species over all of that species' datasets, and go's three engines, which replace
+`go.annotate_groups`: `go.categorize_terms` once, `go.annotate_databases` and `go.resolve_members` over every dataset;
+section 4); `datarepo pride
 --store <store>` for the PRIDE record tables; `datarepo study` again for an aging study bundle (layer 0.7.0); then
 build. Read the build's `note` lines before serving it: a `logs.resolve_genes coverage` note means a database has no
 gene resolution, and the build still passes. A multiplex search by MetaMorpheus 1.1.13 or earlier is refused; re-search
@@ -272,12 +274,32 @@ and any dataset the census does not include, in `catalog_checks` (kind `census`)
 
 - **`datarepo run`** runs a released engine on stored data and writes its output beside the
   bundles, never into one. See
-  [the charter](https://github.com/smith-chem-wisc/dataRepo/blob/master/design/CHARTER.md#the-runner-datarepo-ships-it-built-in-datarepo-0200). Three engines:
+  [the charter](https://github.com/smith-chem-wisc/dataRepo/blob/master/design/CHARTER.md#the-runner-datarepo-ships-it-built-in-datarepo-0200). The engines:
   - `logs.resolve_genes <PXD...> --input gene_set=... --input xref=... --input logs_manifest=...`: protein to
     Ensembl gene, one artefact per searched database (`gene_resolutions`).
-  - `go.annotate_groups <PXD...> --input ontology=<go.obo> --input category_map=<map.tsv>`: GO-CC terms and
-    organelle categories for each search's protein groups (`protein_localizations`,
-    `organelle_term_categories`). Use one go.obo and one map for every dataset of a catalog, or `build` refuses.
+  - **GO, in three engines** (from 1.5.0; they replace `go.annotate_groups`, which `datarepo run` now refuses). GO is
+    stored once per database file and per release, never per bundle, and `build` joins the three into
+    `protein_localizations`, `organelle_term_categories` and `go_group_status`
+    ([build.md](build.md#cross-dataset-tables)). Use one go.obo and one map for the whole catalog, or `build` refuses.
+    - `go.categorize_terms --input ontology=<go.obo> --input category_map=<map.tsv>`: takes no accession. The
+      release's terms and closure, and the map's categories over every term: once per (go.obo, map).
+    - `go.annotate_databases <PXD...> --input ontology=<go.obo>`: each TARGET database file the datasets searched
+      (never a contaminant panel), its entries' direct GO terms: one artefact per file, shared by every dataset that
+      searched it, so a run over all of a store's datasets annotates each file once and a new dataset that searched
+      a file already annotated costs nothing ("already exists"). For aging, run it over every dataset, or over one
+      dataset per distinct set of searched files.
+    - `go.resolve_members <PXD...>`: no `--input`. Which database entry each member of each dataset's protein groups
+      takes, against all the files that search read: one artefact per search. It reads
+      `AllQuantifiedProteinGroups.tsv`, so an isobaric search is refused (GO-D14) and served no GO.
+
+    A new go.obo re-runs `go.categorize_terms` and `go.annotate_databases`; a new map, only `go.categorize_terms`; a
+    re-ingest that reads the same files, nothing. For example:
+
+    ```bash
+    datarepo run go.categorize_terms --store store --input ontology=go.obo --input category_map=aging-organelle-map.tsv
+    datarepo run go.annotate_databases PXD011740 PXD034564 --store store --input ontology=go.obo
+    datarepo run go.resolve_members PXD011740 PXD034564 --store store
+    ```
   - `logs.register_orthology --input snapshot_tar=<compara-N.tar> --input snapshot_manifest=<compara-N.manifest.json>`:
     takes no accession. It checks one of logs' released orthology snapshots against logs' file contract and
     registers it. The artefact copies no rows: the snapshot is kept whole in

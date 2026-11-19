@@ -97,8 +97,9 @@ and the hits it gave. That list is the point:
 searched: [ {source: "protein_localizations", rows: 0, hits: 0}, ... ]
 ```
 
-`protein_localizations` holds 0 rows in every catalog built so far — the organelle map belongs to
-`go`, and dataRepo only stores it — so a search for `mitochondria` that returned a bare "no hits"
+`protein_localizations` holds 0 rows in a catalog that serves no GO — the organelle map belongs to
+`go`, and from 1.5.0 the catalog joins it from go's reference tables only when go's engines have run
+([build.md](build.md#cross-dataset-tables)) — so a search for `mitochondria` that returned a bare "no hits"
 would let an agent conclude that no protein is mitochondrial. Instead the result names the empty
 table and says in as many words that an undelivered table is not a negative answer. An absence is
 also scoped to the datasets actually held, never to proteomics.

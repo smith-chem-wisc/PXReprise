@@ -184,15 +184,17 @@ public static partial class CatalogBuilder
     {
         string Dir(string engine) => SourcesPy.PathStr(System.IO.Path.Combine(store, Runner.EngineDir, engine));
         var stale = new List<string>();
-        List<ArtefactRef> Current(string engine)
+        var searches = bundles.ToDictionary(b => b.BundleId, GoInputsOf, StringComparer.Ordinal);
+        // An artefact of another schema is named only when it would have served these bundles, as SelectArtefacts does.
+        List<ArtefactRef> Current(string engine, Func<ArtefactRef, bool> relevant)
         {
-            var all = Runner.DiscoverArtefacts(store, engine);
+            var all = Runner.DiscoverArtefacts(store, engine).Where(relevant).ToList();
             stale.AddRange(all.Where(r => r.SchemaVersion != SchemaContract.Version).Select(r => $"{engine}/{r.ArtefactId} (schema {r.SchemaVersion})"));
             return all.Where(r => r.SchemaVersion == SchemaContract.Version).ToList();
         }
         static string Short(string sha) => sha[..Math.Min(12, sha.Length)];
 
-        var ontologies = Current(Runner.GoCategorizeTerms);
+        var ontologies = Current(Runner.GoCategorizeTerms, _ => true);
         if (ontologies.Count > 1)
             throw new CatalogException(
                 $"{Runner.GoCategorizeTerms}: {ontologies.Count} artefacts ({string.Join(", ", ontologies.Select(r => r.ArtefactId))}) "
@@ -202,7 +204,6 @@ public static partial class CatalogBuilder
         var oboSha = ontology?.Inputs.GetValueOrDefault("ontology");
         if (ontology is not null) chosen.Add(ontology);
 
-        var searches = bundles.ToDictionary(b => b.BundleId, GoInputsOf, StringComparer.Ordinal);
         var files = new SortedDictionary<string, SortedSet<string>>(StringComparer.Ordinal);
         foreach (var b in bundles)
             foreach (var t in searches[b.BundleId].Targets)
@@ -215,10 +216,9 @@ public static partial class CatalogBuilder
         if (ontology is not null)
         {
             var bySha = new Dictionary<string, List<ArtefactRef>>(StringComparer.Ordinal);
-            foreach (var r in Current(Runner.GoAnnotateDatabases))
+            foreach (var r in Current(Runner.GoAnnotateDatabases, r => r.Inputs.GetValueOrDefault(Runner.GoDatabaseRole) is { } s && files.ContainsKey(s)))
             {
-                var sha = r.Inputs.GetValueOrDefault(Runner.GoDatabaseRole);
-                if (sha is null || !files.ContainsKey(sha)) continue;
+                var sha = r.Inputs[Runner.GoDatabaseRole];
                 if (!bySha.TryGetValue(sha, out var list)) bySha[sha] = list = [];
                 list.Add(r);
             }
@@ -241,7 +241,7 @@ public static partial class CatalogBuilder
             }
         }
 
-        var members = Current(Runner.GoResolveMembers);
+        var members = Current(Runner.GoResolveMembers, r => searches.Values.Any(s => GoMembersMatch(r, s)));
         var served = 0;
         var notServed = new List<string>();
         foreach (var b in bundles.OrderBy(b => b.DatasetId, SourcesPy.CodePointOrder))
