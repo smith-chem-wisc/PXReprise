@@ -192,10 +192,13 @@ public sealed record SplitGroup(string Accession, string Group, string By, strin
 {
     /// <remarks><c>tissue</c> (2026-11-15, the maintainer: "split them the same way"): a deposit
     /// whose runs come from different tissues (a group may also be one sex: one TMT plex each, as in PXD067637 and its two
-    /// sisters), searched apart so that protein inference and site localisation stay within a tissue. Only
-    /// <c>species</c> changes what a group must state; the others are reasons, written to the manifest's
-    /// <c>split_reason</c>, whose list datarepo keeps too (<c>DatasetEntry.SplitReasons</c>).</remarks>
-    public static readonly IReadOnlyList<string> Reasons = new[] { "species", "enrichment", "label", "chemistry", "tissue" };
+    /// sisters), searched apart so that protein inference and site localisation stay within a tissue. <c>plex</c>
+    /// (2026-11-20, aging PXR-A214): a deposit of many isobaric plexes of one design (PXD011967: twenty TMT6 sets of five age
+    /// groups, 1.9 TB), searched one plex or set of plexes at a time because it is too large to search whole. Calling such a
+    /// split <c>tissue</c> would write an untrue <c>split_reason</c>. Only <c>species</c> changes what a group must state; the
+    /// others are reasons, written to the manifest's <c>split_reason</c>, whose list datarepo keeps too
+    /// (<c>DatasetEntry.SplitReasons</c>).</remarks>
+    public static readonly IReadOnlyList<string> Reasons = new[] { "species", "enrichment", "label", "chemistry", "tissue", "plex" };
 
     public string Key => SearchKey.Of(Accession, Group);
 

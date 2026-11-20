@@ -96,8 +96,8 @@ public class SplitDepositTests
         Assert.That(DatasetEntry.ContentFields, Does.Not.Contain("split_reason"));
     }
 
-    [TestCase(PartA, "    split_reason: species-ish\n", "split_reason 'species-ish' is not one of chemistry, enrichment, label, species, tissue")]
-    [TestCase(PartA, "    split_reason: [species, label]\n", "is not one of chemistry, enrichment, label, species, tissue")]
+    [TestCase(PartA, "    split_reason: species-ish\n", "split_reason 'species-ish' is not one of chemistry, enrichment, label, plex, species, tissue")]
+    [TestCase(PartA, "    split_reason: [species, label]\n", "is not one of chemistry, enrichment, label, plex, species, tissue")]
     [TestCase(Bare, "    split_reason: species\n", "split_reason 'species' is written on a key that names no group")]
     public void ASplitReasonOffTheListOrOnAWholeDepositIsRefused(string key, string line, string message)
     {

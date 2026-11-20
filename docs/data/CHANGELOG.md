@@ -19,6 +19,9 @@ search by MetaMorpheus 1.1.13 or earlier.
 - **`split_reason: tissue`** (PXReprise, 2026-11-15): a deposit whose runs come from different tissues, each searched on
   its own (a group may also be one sex: one TMT plex per tissue and sex, as in PXD067637 and its two sisters). The fifth
   reason; any other value is still refused. Not content, so no bundle id moves.
+- **`split_reason: plex`** (PXReprise, 2026-11-20, aging PXR-A214): a deposit of many isobaric plexes of one design,
+  searched one plex (or set of plexes) at a time because it is too large to search whole (PXD011967: twenty TMT6 sets,
+  1.9 TB). Calling it `tissue` would be untrue. The sixth reason; not content, so no bundle id moves.
 - **`peptidoform_ions`**: the six `Matched Ion *` columns of the best PSM of each peptidoform, verbatim, with
   `selected_by`, for the peptidoforms that pass the search's confidence rule (below). Contaminants are left out, as
   `peptidoforms_1pct` leaves them, and an ambiguous row is kept under its first option, whose ions MetaMorpheus writes. A

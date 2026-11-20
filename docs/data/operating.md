@@ -223,7 +223,7 @@ A deposit whose runs differ in species, enrichment, labelling, chemistry or tiss
     # ... the rest of the entry, as for any search
 ```
 
-`split_reason` is one of `species`, `enrichment`, `label`, `chemistry` and (from 1.5.0) `tissue`. Loading the manifest refuses
+`split_reason` is one of `species`, `enrichment`, `label` and `chemistry`, and from 1.5.0 `tissue` and `plex`. Loading the manifest refuses
 any other value, and refuses one on a key with no `-<group>`. It is not identity, so no bundle id moves
 when it changes. Write nothing else about the split (no `split_group`, no separate accession): the key
 already says both. From 1.4.5 the catalog names each part's deposit (`dataset_overview.accession`,
