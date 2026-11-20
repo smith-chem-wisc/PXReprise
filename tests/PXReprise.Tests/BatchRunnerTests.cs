@@ -1843,6 +1843,36 @@ public class BatchRunnerTests
             Does.Contain($"{acc} chemistry: label label_free (curated SDRF) outranks the words that chose tmt-dda@2; back to label-free-dda@3"));
     }
 
+    // 2026-11-20 (PXD033714): the record names an immunopeptidome beside its tryptic study, so the screen read non-specific
+    // cleavage and parked the deposit before any SDRF was read. The question's curated SDRF names trypsin for every file;
+    // it now outranks the words, and the chemistry step takes the protease from it.
+    [Test]
+    public async Task ACuratedSdrfNamingAProteaseForEveryFileOutranksTheScreensNonspecificReading()
+    {
+        const string text = "plasma membrane proteins were digested with trypsin; the immunopeptidome was analysed separately";
+        var (runner, search, _, dir) = DepositChemistryRunner("\"label-free-dda@3\"", designs: true);
+        void Deposit(string acc)
+        {
+            search.Results[acc] = new() { TestSupport.Record(acc, "Senescence surfaceome", text, instruments: new[] { "Q Exactive HF" }, files: new[] { "run1.raw" }) };
+            search.Projects[acc] = new PrideProject { Accession = acc, Title = "Senescence surfaceome", SampleProcessingProtocol = text };
+        }
+
+        Deposit("PXD000421");
+        await runner.ProbeAsync(new QueueEntry("PXD000421", "t", "human"), CancellationToken.None);
+        Assert.That(runner.State()["datasets"]!["PXD000421"]!["status"]!.GetValue<string>(), Is.EqualTo("waiting_nonspecific_cleavage"),
+            "no curated SDRF: parked as before");
+
+        Deposit("PXD000422");
+        TestSupport.WriteFile(Path.Combine(dir, "designs"), "PXD000422.sdrf.tsv", "source name\tcomment[data file]\tcomment[cleavage agent details]\tcomment[label]\n"
+            + string.Concat(Enumerable.Range(1, 6).Select(i => $"s{i}\trun{i}.raw\tNT=Trypsin;AC=MS:1001251\tlabel free sample\n")));
+        await runner.ProbeAsync(new QueueEntry("PXD000422", "t", "human"), CancellationToken.None);
+        var st = runner.State()["datasets"]!["PXD000422"]!;
+        Assert.That(st["status"]?.GetValue<string>(), Is.Not.EqualTo("waiting_nonspecific_cleavage"));
+        Assert.That(st["chemistry"]!["protease"]!["source"]!.GetValue<string>(), Is.EqualTo(ChemistrySource.CuratedSdrf));
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")),
+            Does.Contain("PXD000422 screen: the record reads non-specific cleavage, but the curated SDRF names trypsin for every file"));
+    }
+
     // G18: a reboot mid-search left the deposit at "searching" with a half-written 04_search/mm, which MetaMorpheus refuses
     // to reuse; the restart would have settled it as search_failed.
     [Test]

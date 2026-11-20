@@ -1004,6 +1004,15 @@ public sealed class BatchRunner
         if (rec is null) { Log($"{acc} screen: PRIDE returned no record; retry next pass"); return null; }
 
         var acq = AcquisitionClassifier.Classify(rec.Record);
+        // 2026-11-20 (PXD033714): the record's words read non-specific cleavage (an immunopeptidome named beside a tryptic
+        // study), but the question's curated SDRF names a protease for every file. The curated SDRF outranks the words (D22):
+        // the screen routes the deposit as digested, and the chemistry step reads the protease from that SDRF.
+        if (acq.NonspecificCleavage && _q.Designs?.For(acc) is { } designPath && File.Exists(designPath)
+            && ChemistryDetector.ProteaseForEveryFile(new Readers.SdrfDocument(designPath)) is { } curatedProtease)
+        {
+            Log($"{acc} screen: the record reads non-specific cleavage, but the curated SDRF names {curatedProtease} for every file; screened as digested by it");
+            acq = acq with { NonspecificCleavage = false };
+        }
         var route = Router.Assign(SearchKey.Accession(acc), acq, new RelevanceResult(RelevanceVerdict.DecidedInclude, "queued"), _q, _profiles);
         // D30/D32: what experiment this is, fact by fact with sources, written at every exit of this stage.
         var xr = new ExperimentRecord(acc);

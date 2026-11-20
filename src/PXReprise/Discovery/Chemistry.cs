@@ -329,6 +329,19 @@ public static class ChemistryDetector
     private static readonly Regex LabelFreeWords = new(@"label[- ]?free", Opt);
     private static readonly Regex SpectralCounting = new(@"spectr(um|al) count", Opt);
 
+    /// <summary>
+    /// 2026-11-20 (PXD033714): the protease <paramref name="doc"/> names for every one of its files (several joined by ", "
+    /// when the files differ), or null when a row names no file or no protease, or a non-specific one.
+    /// </summary>
+    internal static string? ProteaseForEveryFile(SdrfDocument doc)
+    {
+        var files = doc.Results.Select(r => r["comment[data file]"]?.Trim() ?? "").ToList();
+        if (files.Count == 0 || files.Any(f => f.Length == 0)) return null;
+        var perFile = FromSdrf(doc).ProteasePerFile;
+        if (perFile is null || files.Any(f => !perFile.ContainsKey(f)) || perFile.Values.Any(p => p == NonSpecific)) return null;
+        return string.Join(", ", perFile.Values.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal));
+    }
+
     /// <summary>True when every row of <paramref name="doc"/> names its file and says label-free in <c>comment[label]</c>.</summary>
     internal static bool EveryFileLabelFree(SdrfDocument doc) =>
         doc.Results.Any() && doc.Results.All(row => row["comment[data file]"] is { Length: > 0 }

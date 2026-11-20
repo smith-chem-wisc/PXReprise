@@ -31,7 +31,12 @@ deposit refused for `no_isobaric_reporters` whose record text says TMT while PRI
     person's statement for the deposit, so it now outranks PRIDE's list and the text. When the text had chosen the TMT
     profile, the deposit goes back to the label-free profile before anything is downloaded. A deposited SDRF saying the
     same still decides nothing: community SDRFs have called whole TMT deposits label-free (PXD019316, PXD024356).
-  - **A deposit refused this way does not reopen by itself:** run `batch retry` on it.
+  - **A question's curated SDRF that names a protease for every file now outranks the screen's reading of non-specific
+    cleavage** (PXD033714). The record of a tryptic plasma-membrane screen also named an immunopeptidome, so the screen read
+    non-specific cleavage and parked the deposit (`waiting_nonspecific_cleavage`) before any SDRF was read. Now such a curated
+    SDRF lets the screen route it as digested, and the chemistry step reads the protease from that SDRF.
+  - **A deposit refused or parked this way does not reopen by itself:** run `batch retry` on it once its curated SDRF
+    is in place.
 
 - **A new TMT profile, `tmt-dda@5`: `tmt-dda@4` plus MS2 fragmented by HCD and read in the ion trap,** searched as
   MetaMorpheus's LowCID.
