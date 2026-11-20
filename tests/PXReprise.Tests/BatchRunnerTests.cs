@@ -675,6 +675,30 @@ public class BatchRunnerTests
         QuestionLoader.CheckAgainstProfiles(q, Profiles);
     }
 
+    // 2026-11-20 (aging PXR-A214): PXD011967 is twenty TMT6 sets of one design, 1.9 TB, searched one set at a time. "tissue"
+    // would pass and be untrue in the manifest's split_reason, so the reason is "plex". BRPhsFr right after the set number
+    // keeps Set1 off Set10, Set11 and Set12; set 7 is deposited as reruns only.
+    private const string GestaltSplit =
+        "[splits.PXD011967]\nreason = \"TMT6 sets of five age groups, one search a set (aging D211)\"\nby = \"plex\"\n"
+        + "[splits.PXD011967.set01]\ninclude_files = '^ScltlMsclSet1BRPhsFr[0-9]+\\.raw$'\n"
+        + "[splits.PXD011967.set07]\ninclude_files = '^ScltlMsclSet7(rern)?BRPhsFr[0-9]+\\.raw$'\n"
+        + "[splits.PXD011967.set10]\ninclude_files = '^ScltlMsclSet10BRPhsFr[0-9]+\\.raw$'\n";
+
+    [Test]
+    public void ADepositSplitsByPlexAndEachRawFileIsInOneGroup()
+    {
+        string dir = TestSupport.TempDir();
+        var q = QuestionLoader.Load(TestSupport.WriteFile(dir, "q.toml", SplitQuestion(GestaltSplit)));
+        var keys = q.SplitKeysOf("PXD011967");
+        Assert.That(keys, Is.EqualTo(new[] { "PXD011967-set01", "PXD011967-set07", "PXD011967-set10" }));
+        foreach (string file in new[] { "ScltlMsclSet1BRPhsFr3.raw", "ScltlMsclSet7rernBRPhsFr3.raw", "ScltlMsclSet10BRPhsFr3.raw" })
+            Assert.That(keys.Count(k => q.ExceptionFor(k)!.Keeps(file)), Is.EqualTo(1), $"{file} is in exactly one group");
+        Assert.That(keys.Count(k => q.ExceptionFor(k)!.Keeps("ScltlMsclSet_13BRPhsFr3.raw")), Is.Zero, "a set in no group is left out");
+        var g = q.ExceptionFor("PXD011967-set07")!;
+        Assert.That((g.Split!.By, g.Species), Is.EqualTo(("plex", (string?)null)), "a split by plex names no species");
+        QuestionLoader.CheckAgainstProfiles(q, Profiles);
+    }
+
     [Test]
     public void AQuestionSplitsADepositIntoOneSearchPerGroup()
     {
@@ -697,7 +721,7 @@ public class BatchRunnerTests
         Assert.That(Refused(Pxd076192Split.Replace("include_files = \"_human_\"\n", "")), Does.Contain("splits.PXD076192.human selects no files"));
         Assert.That(Refused(Pxd076192Split.Replace("species = \"human\"\n", "")), Does.Contain("names each group's species"));
         Assert.That(Refused(Pxd076192Split.Replace("species = \"human\"", "species = \"mouse\"")), Does.Contain("two groups name the same species"));
-        Assert.That(Refused(Pxd076192Split.Replace("by = \"species\"", "by = \"organism\"")), Does.Contain("by must be one of species, enrichment, label, chemistry, tissue"));
+        Assert.That(Refused(Pxd076192Split.Replace("by = \"species\"", "by = \"organism\"")), Does.Contain("by must be one of species, enrichment, label, chemistry, tissue, plex"));
         Assert.That(Refused("[splits.PXD076192]\nreason = \"r\"\nby = \"species\"\n[splits.PXD076192.mouse]\nspecies = \"mouse\"\ninclude_files = \"_mouse_\"\n"),
             Does.Contain("names 1 group"));
         var zebrafish = QuestionLoader.Load(TestSupport.WriteFile(dir, "q3.toml", SplitQuestion(Pxd076192Split.Replace("species = \"human\"", "species = \"zebrafish\""))));

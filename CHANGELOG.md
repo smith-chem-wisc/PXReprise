@@ -13,6 +13,12 @@ A new version of the engine never changes a finished result. Methods live in ver
 Nothing searched under another profile changes. **Adopting:** a swap only. A question that wants it names `tmt-dda@5`
 before `tmt-dda@4` in its `profiles`, and each deposit QC refused for ion-trap HCD gets a `batch retry`.
 
+- **A deposit can be split by plex** (`[splits.<acc>] by = "plex"`; aging PXR-A214, 2026-11-20). It is for a deposit of
+  many isobaric plexes of one design, too large to search whole, searched one plex (or set of plexes) at a time: PXD011967
+  is twenty TMT6 sets, 1.9 TB. `tissue` would pass and be untrue. Groups name their raw files with `include_files`, as for
+  any split. Delivering such a group needs a datarepo that reads `split_reason: plex` (1.5.0 here); 1.4.5 refuses it at
+  ingest.
+
 - **A new TMT profile, `tmt-dda@5`: `tmt-dda@4` plus MS2 fragmented by HCD and read in the ion trap,** searched as
   MetaMorpheus's LowCID.
   - **The problem.** Many SPS-MS3 TMT methods on an Orbitrap Fusion, Lumos or Ascend fragment by HCD and read the MS2 in
