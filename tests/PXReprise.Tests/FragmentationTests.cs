@@ -211,12 +211,12 @@ public class FragmentationTests
         Assert.That(Assert.Throws<Config.ConfigException>(() => Config.ProfileLoader.Load(TestSupport.WriteFile(dir, "k.toml",
             probing.Replace("ion_trap_hcd = true", "ion_trap_hcd = true\nion_trap_hcd_lowcid = true\nion_trap_hcd_probe_lowcid = true"))))!.Message, Does.Contain("together"));
         var shipped = Config.ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
-        string[] ionTrap = { "label-free-dda-lowres@1", "label-free-dda-lowres@2", "label-free-dda-lowres@3", "label-free-dda-lowres@4", "label-free-dda-lowres@5", "label-free-dda-lowres@6", "label-free-dda-lowres@7", "label-free-dda-lowres@8", "tmt-dda@2", "tmt-dda@3", "tmt-dda@4" };
+        string[] ionTrap = { "label-free-dda-lowres@1", "label-free-dda-lowres@2", "label-free-dda-lowres@3", "label-free-dda-lowres@4", "label-free-dda-lowres@5", "label-free-dda-lowres@6", "label-free-dda-lowres@7", "label-free-dda-lowres@8", "tmt-dda@2", "tmt-dda@3", "tmt-dda@4", "tmt-dda@5" };
         Assert.That(shipped.Where(kv => !ionTrap.Contains(kv.Key)).Select(kv => kv.Value.Fragmentation), Has.All.EqualTo("fixed"),
             "no shipped profile changes behaviour (D26): per_file arrives with a new profile");
         Assert.That(ionTrap.Select(k => shipped[k].Fragmentation), Has.All.EqualTo("per_file"), "the ion-trap profiles are the ones that write it");
         Assert.That(shipped.Where(kv => kv.Value.IonTrapHcd).Select(kv => kv.Key),
-            Is.EquivalentTo(new[] { "label-free-dda-lowres@2", "label-free-dda-lowres@3", "label-free-dda-lowres@4", "label-free-dda-lowres@5", "label-free-dda-lowres@6", "label-free-dda-lowres@7", "label-free-dda-lowres@8" }));
+            Is.EquivalentTo(new[] { "label-free-dda-lowres@2", "label-free-dda-lowres@3", "label-free-dda-lowres@4", "label-free-dda-lowres@5", "label-free-dda-lowres@6", "label-free-dda-lowres@7", "label-free-dda-lowres@8", "tmt-dda@5" }));
     }
 
     [Test]
@@ -244,6 +244,28 @@ public class FragmentationTests
         Assert.That(Fragmentation.Decide(mix, true, QcStage.IonTrapHcdAsLowCid(shipped["label-free-dda-lowres@5"], probe: false)).Unsupported,
             Is.EqualTo("ion-trap CID and ion-trap HCD are mixed in one file"));
         Assert.That(Fragmentation.Decide(mix, true, QcStage.IonTrapHcdAsLowCid(shipped["label-free-dda-lowres@5"], probe: true)).DissociationType, Is.EqualTo("LowCID"));
+    }
+
+    [Test]
+    public void TmtDda5SearchesIonTrapHcdAsLowCid_AndEveryOtherFileAsTmtDda4()
+    {
+        // 2026-11-20: an SPS-MS3 TMT file whose MS2 is HCD read in the ion trap (a Fusion Lumos method) was refused under
+        // tmt-dda@4. Under @5 it is LowCID in the probe and the search; LowCID found 9 to 14% more PSMs than HCD at the
+        // low-res tolerance on one file each of two such deposits.
+        var shipped = Config.ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
+        FragmentationCall Call(string key, bool probe, params (string Key, int Count)[] scans) =>
+            Fragmentation.Decide(Pairs(scans), shipped[key].IonTrapHcd, QcStage.IonTrapHcdAsLowCid(shipped[key], probe));
+        Assert.Multiple(() =>
+        {
+            foreach (bool probe in new[] { true, false })
+            {
+                var five = Call("tmt-dda@5", probe, ("IonTrap2D/HCD", 48443));
+                Assert.That((five.DissociationType, five.LowRes), Is.EqualTo(("LowCID", true)), $"@5, probe {probe}");
+                Assert.That(Call("tmt-dda@4", probe, ("IonTrap2D/HCD", 48443)).DissociationType, Is.Null, $"@4 refuses it, probe {probe}");
+                foreach (var scans in new[] { ("Orbitrap/HCD", 40000), ("IonTrap2D/CID", 40000) })
+                    Assert.That(Call("tmt-dda@5", probe, scans), Is.EqualTo(Call("tmt-dda@4", probe, scans)), $"{scans.Item1}: as under @4");
+            }
+        });
     }
 
     [Test]
@@ -295,6 +317,6 @@ public class FragmentationTests
 
         var shipped = Config.ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
         Assert.That(shipped.Where(kv => kv.Value.PrecursorWindow != "default").Select(kv => kv.Key),
-            Is.EquivalentTo(new[] { "label-free-dda-lowres@3", "label-free-dda-lowres@4", "label-free-dda-lowres@5", "label-free-dda-lowres@6", "label-free-dda-lowres@7", "label-free-dda-lowres@8", "tmt-dda@2", "tmt-dda@3", "tmt-dda@4" }), "no shipped profile changes behaviour (D26): the window arrives with a new profile");
+            Is.EquivalentTo(new[] { "label-free-dda-lowres@3", "label-free-dda-lowres@4", "label-free-dda-lowres@5", "label-free-dda-lowres@6", "label-free-dda-lowres@7", "label-free-dda-lowres@8", "tmt-dda@2", "tmt-dda@3", "tmt-dda@4", "tmt-dda@5" }), "no shipped profile changes behaviour (D26): the window arrives with a new profile");
     }
 }

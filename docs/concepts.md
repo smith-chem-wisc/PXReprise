@@ -38,7 +38,8 @@ is a new version, so every result says exactly which method made it.
   at different times can hold different proteins under one profile. Each search records the file's date and SHA-256, so compare
   those before pooling results.
 - **Where the ageing project's databases exist:** the newest of each kind, which is what that project runs today:
-  `label-free-dda@14` and `label-free-dda-lowres@8` on MetaMorpheus 1.1.13, and `tmt-dda@4` on 1.1.14. Every other profile names that
+  `label-free-dda@14` and `label-free-dda-lowres@8` on MetaMorpheus 1.1.13, and `tmt-dda@4` on 1.1.14 (`tmt-dda@5`, on the same
+  MetaMorpheus and databases, is newer). Every other profile names that
   project's PTM-annotated databases in the machine's `database_dir`. They are not published, so without them these profiles
   cannot search.
 - **Older versions stay shipped** so that a question can keep naming them and the deposits searched under them are not
@@ -82,6 +83,7 @@ is a new version, so every result says exactly which method made it.
 | `tmt-dda@2` | available (0.4.35) | Isobaric-labelled DDA (TMT, iTRAQ) on MetaMorpheus 1.1.13: the kit read from each file's spectra, MS2 or SPS-MS3 reporters, Calibration then Search (no GPTMD), reporter-ion quantification on a channel design from the SDRF (else one plex per file, flagged `no_channel_design`), a spectral library per kit. Its deliveries need datarepo 1.4.1 or newer |
 | `tmt-dda@3` | available (0.4.40) | `tmt-dda@2` on the agingPTM-v7 databases, with a deposit's enriched PTM classes searched as variable modifications. Phospho (S, T, Y), acetyl-K, succinyl-K and GG-K are variable in every task when the deposit enriches them, with up to 3 modifications a peptide. Under `tmt-dda@2` an enriched deposit waits (`waiting_isobaric_enriched`), because its sites would be searched only where the database annotates one |
 | `tmt-dda@4` | available (0.4.41) | `tmt-dda@3` on MetaMorpheus 1.1.14 and agingPTM-v8; nothing else changes. 1.1.14 fixes a calibration failure (MetaMorpheus #2939): on one TMT10 SPS-MS3 deposit, 1.1.13 calibrated 16 of 32 files and 1.1.14 all 32, with 16% more PSMs and 15% more peptides at 1% FDR. The label-free profiles stay on 1.1.13 for now: their identifications are identical under 1.1.14, but match-between-runs changes. **The ageing project's current isobaric method** |
+| `tmt-dda@5` | available (next release) | `tmt-dda@4`, plus MS2 fragmented by HCD and read in the ion trap (a Fusion, Lumos or Ascend SPS-MS3 method, its reporters read in the Orbitrap MS3), searched as MetaMorpheus's LowCID, its low-resolution path, in the probe and the search. Under `tmt-dda@4` such a file fails QC (`unsupported_fragmentation`). On one file each of two such deposits (TMT6 and TMT10), LowCID found 9 to 14% more PSMs and 12 to 18% more peptides than HCD at the low-resolution tolerance, at about half the memory, and the reporters matched the Orbitrap MS3. Files with Orbitrap MS2 or ion-trap CID are searched exactly as under `@4`. A search with any low-resolution MS2 uses no spectral library, as under `@4` |
 
 **A deposit's own chemistry** (`[engine] chemistry = "deposit"`, `label-free-dda@3`). Before any download, PXReprise reads
 which protease made the deposit's peptides, how its cysteines were alkylated, and whether it carries a label.
