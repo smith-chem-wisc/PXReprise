@@ -194,6 +194,12 @@ protein", which is the question the repository exists for.
 | `gene_orthologs` | 1/ortholog relationship/direction | every ortholog row Ensembl Compara asserts between two snapshot species, in both directions (`species`, `gene`, `partner_species`, `partner_gene`, `relationship_type`, identities, `is_high_confidence`); paralogs never |
 | `gene_ortholog_status` | 1/gene/other species | each gene's one status in each other species: `has_ortholog`, `no_edge_in_shared_tree`, `tree_lacks_target_species` or `not_in_any_tree` |
 | `protein_orthologs` | 1/accession link/other species/ortholog/partner link | every target accession with a gene resolution, against every other snapshot species: each gene linked to it, its `status` there, and for `has_ortholog` each ortholog gene and each accession resolving to it, with `partner_n_datasets_1pct` and the view columns of both links (`resolution_source`, `resolution_xref_agreement`, `partner_resolution_source`, ...). Refusals are rows: at least one per accession and species |
+| `go_terms` | 1/GO term | from 1.5.0: every term of the served go.obo (`go_name`, `aspect`, `obsolete`, `go_release`) |
+| `go_closure` | 1/term/ancestor | each term and every ancestor over `is_a` and `part_of`, the term itself included: join a direct term to `go_id` to propagate it |
+| `go_term_categories` | 1/term/category/subcategory | the served category map over every term of the release (`category_map_name`, `category_map_version`) |
+| `go_accession_terms` | 1/database file/entry/direct term | every entry of each searched target database file, with its direct GO terms (all aspects) and its own evidence; one term-less row for an entry with none; stored once per file, shared by every search that read it |
+| `go_group_members` | 1/search/member accession | each member of a search's non-decoy groups, and the database entry it takes (`annotated_as`; `resolution` `self`, `inherited` or `no_entry`; `entrapment`). No GO |
+| `go_group_status` | 1/search/protein group | every non-decoy group once, with go's `annotation_status` (`annotated`, `contaminant`, `no_entry`, `no_go_terms`), `n_terms`, `n_cc_terms`, `entrapment_members`: where a group with no `protein_localizations` row says why |
 
 The five orthology tables are copied from the snapshot `datarepo run logs.register_orthology` registered
 ([operating.md](operating.md#4-optional-engines-and-study-results)), through the snapshot's own `views.sql`, in
@@ -214,6 +220,40 @@ none (`no_gene`, the bridge's own and given only when no gene is linked to the a
 accession lacks a row for some species or is both `no_gene` and answered through a gene, or if a resolved gene is not
 in the snapshot's gene set. [querying.md](querying.md) has the query for "every ortholog of protein X, with its
 peptides and PTM sites".
+
+**GO is reference data from 1.5.0, stored once per database file and per release, never per bundle.** Up to 1.4.5,
+`go.annotate_groups` wrote every search's group-by-term rows into an artefact of its own, so a database searched by 34
+deposits had its terms restated 34 times; `build` no longer serves those artefacts. Three engines replace it
+([operating.md](operating.md#4-optional-engines-and-study-results)), and `build` copies their rows, in both layouts,
+into five tables of kind `engine:<engine>`, `artefact_id` on every row, typed and empty when nothing is served:
+`go_terms`, `go_closure` and `go_term_categories` from the one `go.categorize_terms` artefact a catalog serves (one
+go.obo and one category map, go GO-D9: two are refused); `go_accession_terms` from one `go.annotate_databases`
+artefact per target database file the bundles searched; and `go_group_members` from each bundle's
+`go.resolve_members` artefact.
+
+**`protein_localizations`, `organelle_term_categories` and `annotation_sources` keep their columns and their rows, and
+are now derived at build** (`catalog_tables.kind` `derived`; they stay core schema tables, which no bundle holds). For
+each served search, `build` joins each member of its non-decoy `protein_groups` (whatever the q-value) to the entry it
+takes (`go_group_members.annotated_as`), the entry to its direct terms over every database file the search read, and
+each direct term through `go_closure`, then expands each CC term over the members that carry it, with that member's own
+`inherited`, `propagated` and evidence and the group's `q_value`, `n_members` and `n_with`. That is go's definition
+`go:DEF-GROUP-GO-ANNOTATION v1`, computed from the stored tables (go's DEFINITIONS.md), so its rows and its id are
+unchanged: `build` reproduces go's own fixture (`go-view-v1-a83d1c63`) row for row, and `go.annotate_groups`' rows for a
+search. An isoform with no GO of its own takes its entry's terms (go D37) even when the two are in different database
+files, through `go_accession_terms.isoform_of`. `protein_group` is the group's accessions `|`-joined in the bundle's
+order. `organelle_term_categories` holds, per dataset, the map's rows for every term the search's groups carry, and
+`annotation_sources` one row per search, which every one of its rows cites. `go_group_status` gives every group go's
+status, so a group with no localization says why, and go's five header counters (D26) are counts there at
+`q_value <= 0.01`.
+
+A search is served GO when it has its `go.resolve_members` artefact and each of its target files has its
+`go.annotate_databases` artefact; otherwise three `catalog_checks` rows of kind `engine-coverage`, which always pass,
+name what is missing, and also count any retired `go.annotate_groups` artefacts left in the store. An isobaric search
+writes no `AllQuantifiedProteinGroups.tsv` and is not annotated (GO-D14). `catalog_checks` fail the build if a member of
+a served search's groups has no `go_group_members` row (dataRepo 028), if an entry a member takes is not in the
+search's database tables, if a database term is not a term of the release, if an artefact used another go.obo, or if
+an artefact's rows are not all copied. [querying.md](querying.md) has the queries for "the GO terms of a protein" and
+"the proteins of a GO term, across datasets".
 
 The three `deposit_*` tables are read at **build** from the records `datarepo pride` kept beside the bundles
 ([operating.md](operating.md#4-optional-engines-and-study-results)); `build` itself fetches nothing. They are
@@ -413,7 +453,7 @@ their own text that they are not published yet (G15).
 - **Releases.** `releases` and `release_changes` are defined in the schema but no bundle fills them:
   they are instance tables the producer writes (D8). `--release` records the version in
   `catalog_meta`; freezing the manifest and minting the DOI is aging's step.
-- **Annotation and study layers.** `protein_localizations` (owned by `go`), `age_effect` and
-  `organelle_age_summary` (owned by aging) exist as empty tables until their producers deliver rows.
+- **Study layers.** `age_effect` and `organelle_age_summary` (owned by aging) exist as empty tables until their
+  producers deliver rows. `protein_localizations` (go's) is filled once go's three engines have run (above).
 - **QPX view names.** Column names are written against an unpinned QPX (G13), so the catalog exposes
   no QPX-compatible views yet.

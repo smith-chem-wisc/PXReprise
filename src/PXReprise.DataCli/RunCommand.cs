@@ -33,13 +33,15 @@ internal static class RunCommand
     {
         var a = new Args.Spec("datarepo run", Cli.Summaries["run"])
             .Positional("engine", $"the engine to run: {string.Join(", ", EngineRunner.Engines)}")
-            .Positional("accession", "datasets to run on (logs: their searched databases; go, ptmqtl: their searches; none for logs.register_orthology)", "*")
+            .Positional("accession", "datasets to run on (logs, go.annotate_databases: their searched databases; go.resolve_members, ptmqtl: their searches; none for logs.register_orthology or go.categorize_terms)", "*")
             .Option("--store", Args.Kind.Value, "the instance's bundle store", required: true)
             .Option("--input", Args.Kind.Append, "an input file by role; repeatable", metavar: "ROLE=PATH")
             .Option("--bundle", Args.Kind.Append, "pin a dataset to one bundle id", metavar: "PXD=ID")
             .Option("--latest", Args.Kind.Flag, "take each dataset's newest bundle")
             .Parse(argv);
         var engine = a.Positional("engine");
+        // Retired in 1.5.0: say what replaced it, rather than only that it is not a choice.
+        if (engine == PXReprise.Catalog.Runner.GoEngine) throw new RunnerException(GoReferenceEngines.Retired);
         if (!EngineRunner.Engines.Contains(engine))
             throw new Args.UsageException("usage: datarepo run [-h] --store STORE [--input ROLE=PATH] [--bundle PXD=ID] [--latest] engine [accession ...]",
                 $"argument engine: invalid choice: '{engine}' (choose from {string.Join(", ", EngineRunner.Engines.Select(e => $"'{e}'"))})");
@@ -86,6 +88,23 @@ internal static class RunCommand
                 Console.WriteLine($"done     {reference.Engine} artefact {reference.ArtefactId} already exists; nothing re-run");
             return 0;
         }
+        if (engine == GoReferenceEngines.CategorizeTerms)
+        {
+            // An ontology and a map belong to no dataset: one artefact per (go.obo, map) serves every catalog built here.
+            if (accessions.Count > 0)
+                throw new RunnerException($"{engine} categorizes one go.obo under one map for the whole store and takes no accession (given {string.Join(", ", accessions)}).");
+            var categorized = GoReferenceEngines.CategorizeTermsRun(store, inputs, GoReferenceEngines.CategoryDefinitionId);
+            foreach (var reference in categorized.Written)
+            {
+                var summary = reference.Record.GetValueOrDefault("engine_summary") as IReadOnlyDictionary<string, object?>;
+                Console.WriteLine($"written  {reference.Engine} artefact {reference.ArtefactId}  {reference.Path}");
+                Console.WriteLine($"  rows     {PyFormat.Repr(reference.RowCounts.ToDictionary(kv => kv.Key, kv => (object?)kv.Value))}");
+                Console.WriteLine($"  release  {summary?.GetValueOrDefault("go_release")}  map {PyFormat.Repr(summary?.GetValueOrDefault("category_map"))}");
+            }
+            foreach (var reference in categorized.AlreadyDone)
+                Console.WriteLine($"done     {reference.Engine} artefact {reference.ArtefactId} already exists; nothing re-run");
+            return 0;
+        }
         if (accessions.Count == 0)
             throw new Args.UsageException("usage: datarepo run [-h] --store STORE [--input ROLE=PATH] [--bundle PXD=ID] [--latest] engine [accession ...]",
                 $"{engine} needs at least one accession");
@@ -110,19 +129,29 @@ internal static class RunCommand
                 Console.WriteLine($"done     {reference.Engine} artefact {reference.ArtefactId} already exists; nothing re-run");
             return 0;
         }
-        var go = engine == GoEngine.Engine;
-        // go's published definition id; GoEngine.Run refuses a call without one.
-        var result = go ? GoEngine.Run(store, bundles, inputs, GoEngine.DefinitionId) : LogsEngine.Run(store, bundles, inputs);
+        var go = engine is GoReferenceEngines.AnnotateDatabases or GoReferenceEngines.ResolveMembers;
+        // go's published definition ids; each run refuses a call without one.
+        var result = engine switch
+        {
+            GoReferenceEngines.AnnotateDatabases => GoReferenceEngines.AnnotateDatabasesRun(store, bundles, inputs, GoReferenceEngines.AccessionDefinitionId),
+            GoReferenceEngines.ResolveMembers => GoReferenceEngines.ResolveMembersRun(store, bundles, inputs, GoReferenceEngines.MemberDefinitionId),
+            _ => LogsEngine.Run(store, bundles, inputs),
+        };
         foreach (var reference in result.Written)
         {
             var summary = reference.Record.GetValueOrDefault("engine_summary") as IReadOnlyDictionary<string, object?>;
             Console.WriteLine($"written  {reference.Engine} artefact {reference.ArtefactId}  {reference.Path}");
             Console.WriteLine($"  rows     {PyFormat.Repr(reference.RowCounts.ToDictionary(kv => kv.Key, kv => (object?)kv.Value))}");
-            if (go)
+            if (engine == GoReferenceEngines.AnnotateDatabases)
             {
-                Console.WriteLine($"  groups   {PyFormat.Repr(summary?.GetValueOrDefault("group_status_counts"))}");
                 var unresolved = summary?.GetValueOrDefault("unresolved_go_ids") as IEnumerable<object?> ?? [];
-                Console.WriteLine($"  unresolved GO ids (skipped, go D35) {unresolved.Count()}");
+                Console.WriteLine($"  database {summary?.GetValueOrDefault("database")}  entries {summary?.GetValueOrDefault("entries")}, "
+                    + $"{summary?.GetValueOrDefault("entries_without_go")} without GO; unresolved GO ids (skipped, go D35) {unresolved.Count()}");
+                continue;
+            }
+            if (engine == GoReferenceEngines.ResolveMembers)
+            {
+                Console.WriteLine($"  members  {PyFormat.Repr(summary?.GetValueOrDefault("resolution_counts"))}");
                 continue;
             }
             Console.WriteLine($"  outcomes {PyFormat.Repr(summary?.GetValueOrDefault("outcome_counts"))}");

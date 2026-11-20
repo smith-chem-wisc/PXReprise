@@ -1,0 +1,35 @@
+#!go_terms_format 1
+#!mzlib_version 1.0.0+a83d1c63a8d745af88d0f7a64e921156776476b9
+#!mzlib_release none
+#!go_release releases/2026-07-26
+#!go_obo_sha256 01c11e95ec7068eb02b2aac689258d8b6bd2e6b93d5c28cfbc0bb220bf4d60d6
+go_id	go_name	aspect	obsolete
+GO:0003674	molecular_function	molecular_function	false
+GO:0003824	catalytic activity	molecular_function	false
+GO:0004365	glyceraldehyde-3-phosphate dehydrogenase (NAD+) (phosphorylating) activity	molecular_function	false
+GO:0005575	cellular_component	cellular_component	false
+GO:0005622	intracellular anatomical structure	cellular_component	false
+GO:0005634	nucleus	cellular_component	false
+GO:0005737	cytoplasm	cellular_component	false
+GO:0005739	mitochondrion	cellular_component	false
+GO:0005740	mitochondrial envelope	cellular_component	false
+GO:0005743	mitochondrial inner membrane	cellular_component	false
+GO:0006082	obsolete organic acid metabolic process	biological_process	true
+GO:0008150	biological_process	biological_process	false
+GO:0008152	metabolic process	biological_process	false
+GO:0009987	cellular process	biological_process	false
+GO:0016020	membrane	cellular_component	false
+GO:0016491	oxidoreductase activity	molecular_function	false
+GO:0016620	oxidoreductase activity, acting on the aldehyde or oxo group of donors, NAD or NADP as acceptor	molecular_function	false
+GO:0016903	oxidoreductase activity, acting on the aldehyde or oxo group of donors	molecular_function	false
+GO:0019866	organelle inner membrane	cellular_component	false
+GO:0031090	organelle membrane	cellular_component	false
+GO:0031966	mitochondrial membrane	cellular_component	false
+GO:0031967	organelle envelope	cellular_component	false
+GO:0043226	organelle	cellular_component	false
+GO:0043227	membrane-bounded organelle	cellular_component	false
+GO:0043229	intracellular organelle	cellular_component	false
+GO:0043231	intracellular membrane-bounded organelle	cellular_component	false
+GO:0043891	glyceraldehyde-3-phosphate dehydrogenase (phosphorylating, [NAD(P)+] ) activity	molecular_function	false
+GO:0044238	primary metabolic process	biological_process	false
+GO:0110165	cellular anatomical structure	cellular_component	false

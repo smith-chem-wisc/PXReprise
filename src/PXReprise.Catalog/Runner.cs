@@ -59,13 +59,35 @@ public static class Runner
     public static readonly IReadOnlyDictionary<string, string> EngineTables =
         new Dictionary<string, string>(StringComparer.Ordinal) { ["gene_resolutions"] = "logs.resolve_genes" };
 
-    /// <summary>go's engine: GO annotation of one search's protein groups (charter section 2, G86).</summary>
+    /// <summary>go's retired engine: GO annotation of one search's protein groups, one artefact per bundle (G86, up to
+    /// datarepo 1.4.5). From catalog format 17 a build never serves its artefacts and <c>datarepo run</c> refuses it: GO
+    /// is stored once per database file and per release by the three engines below, and the catalog joins them
+    /// (<c>CatalogGo.cs</c>).</summary>
     public const string GoEngine = "go.annotate_groups";
 
-    /// <summary>Core tables go's artefacts fill. Unlike <see cref="EngineTables"/>, a go artefact annotates ONE
-    /// search's protein groups, so its rows belong to that dataset and keep the bundle provenance columns
-    /// (<c>dataset_id</c>, <c>bundle_id</c>): stating the dataset is true here, where for logs it would be false.</summary>
+    /// <summary>go (a): one database file's direct GO terms per entry, under one go.obo (<c>go:DEF-ACCESSION-GO-ANNOTATION
+    /// v1</c>, mzLib #1497). One artefact per (file, go.obo, mzLib, definition), shared by every search that read the file.</summary>
+    public const string GoAnnotateDatabases = "go.annotate_databases";
+
+    /// <summary>go (b) and the ontology: one go.obo's terms and is_a/part_of closure, and one consumer map's categories
+    /// over every term. One artefact per (go.obo, map, mzLib, definition); a catalog serves exactly one.</summary>
+    public const string GoCategorizeTerms = "go.categorize_terms";
+
+    /// <summary>go (c): which database entry each protein-group member of one search takes (mzLib's
+    /// <c>MemberResolver</c>). One artefact per (protein-group file, target databases); it holds no GO.</summary>
+    public const string GoResolveMembers = "go.resolve_members";
+
+    /// <summary>The three engines a catalog's GO is built from, in the order a build reads them.</summary>
+    public static readonly IReadOnlyList<string> GoEngines = [GoCategorizeTerms, GoAnnotateDatabases, GoResolveMembers];
+
+    /// <summary>The core tables go's rows fill. A bundle never holds one. Up to datarepo 1.4.5 go's per-bundle artefacts
+    /// filled them; from catalog format 17 the build derives them from go's reference tables and each bundle's
+    /// <c>protein_groups</c> (<c>CatalogGo.cs</c>), with the bundle provenance columns (<c>dataset_id</c>,
+    /// <c>bundle_id</c>): a group's annotation belongs to one search.</summary>
     public static readonly IReadOnlyList<string> GoTables = ["protein_localizations", "organelle_term_categories", "annotation_sources"];
+
+    /// <summary>The input role of one GO annotation database file (go.annotate_databases).</summary>
+    public const string GoDatabaseRole = "annotation_database";
 
     /// <summary>ptmQtl's engines: site pairs per search, pooled per species, and site-trait fits.</summary>
     public const string PtmQtlSitePairs = "ptmqtl.site_pairs";

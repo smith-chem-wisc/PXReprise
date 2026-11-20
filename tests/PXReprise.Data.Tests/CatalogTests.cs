@@ -712,6 +712,7 @@ public class CatalogTests
             .Concat(CatalogBuilder.GrainViews.Select(kv => kv.Key))
             .Concat(CatalogBuilder.RunViewNames)
             .Concat(CatalogBuilder.OrthologyTables)
+            .Concat(CatalogBuilder.GoReferenceTables)
             .Order(StringComparer.Ordinal);
         Assert.That(documented, Is.EqualTo(derived));
         Assert.That(CatalogBuilder.DerivedColumnDocs["samples"]["organism_part_name"], Does.StartWith(
