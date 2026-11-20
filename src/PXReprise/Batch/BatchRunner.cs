@@ -1234,7 +1234,7 @@ public sealed class BatchRunner
         int onDisk = Directory.EnumerateFiles(Path.Combine(d, "02_fetch", "spectra"), "*.raw").Count();
         if (onDisk > probeFiles.Count)
             Log($"{acc} PROBE reads its {probeFiles.Count} probe files only; {onDisk} raw files are on disk (downloaded ahead)");
-        var (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles, probe: true);
+        var (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles, probe: true, gates: QcFor(acc, profile));
         xr.Probe(report);
         // v0.4.45 (PXD032900-lfq, 2026-11-10): PRIDE's words routed the deposit to the isobaric profile, but they named label-free
         // too, and not one probe file carries reporter ions: the spectra decide (D34). Back to the profile it had, the label
@@ -1250,7 +1250,7 @@ public sealed class BatchRunner
             catch (Exception ex) when (Envelope.IsUnavailable(ex) || FetchStage.IsTransient(ex)) { Log($"{acc} chemistry: PRIDE unavailable ({ex.Message}); retry next pass"); return null; }
             xr.Chemistry(chemistry);
             Log($"{acc} chemistry: {Describe(chemistry)}");
-            (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles, probe: true);
+            (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles, probe: true, gates: QcFor(acc, profile));
             xr.Probe(report);
         }
         // v0.4.35: reporter ions in every probe file, under a profile that refuses them: the question's isobaric profile takes
@@ -1263,7 +1263,7 @@ public sealed class BatchRunner
             Log($"{acc} PROBE qc: isobaric reporter ions in all {report.Count} probe file(s); routing to {isoTaker.Key}");
             profile = isoTaker;
             Record(acc, ("profile", profile.Key), ("routed_isobaric", "spectra"));
-            (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles, probe: true);
+            (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles, probe: true, gates: QcFor(acc, profile));
             xr.Probe(report);
         }
         if (RoutedByReporters(acc, report, "PROBE"))
@@ -1282,7 +1282,7 @@ public sealed class BatchRunner
             Log($"{acc} PROBE qc: MS2 not read in the Orbitrap (low_res_ms2); routing to {low.Key}");
             profile = low;
             Record(acc, ("profile", profile.Key), ("routed_low_res", true));
-            (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles, probe: true);
+            (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles, probe: true, gates: QcFor(acc, profile));
             xr.Probe(report);
             excl = QcExclusion(report, profile.Qc);
             ok = allPass || excl is { Count: > 0 };
@@ -1622,7 +1622,8 @@ public sealed class BatchRunner
         string spectraDir = Path.Combine(d, "02_fetch", "spectra");
         // v0.4.45: a raw that is gone and has a calibrated stand-in keeps the verdict the last full QC gave it.
         var keptVerdicts = Search.CalibratedStandIns.In(spectraDir).Select(s => s.RawName).Where(n => !File.Exists(Path.Combine(spectraDir, n))).ToList();
-        var (report, allPass) = QcStage.Run(spectraDir, Path.Combine(d, "02b_qc"), profile, _m, ParamsFile(acc, profile), _runDate, kept: keptVerdicts);
+        var (report, allPass) = QcStage.Run(spectraDir, Path.Combine(d, "02b_qc"), profile, _m, ParamsFile(acc, profile), _runDate, kept: keptVerdicts,
+            gates: QcFor(acc, profile));
         if (RoutedByReporters(acc, report, "QC(full)")) return;
         var excl = new List<string>();
         if (!allPass)
@@ -2448,6 +2449,10 @@ public sealed class BatchRunner
         var dep = Limits?.Apply(profile.Deposit) ?? profile.Deposit;
         return _q.ExceptionFor(acc)?.Apply(dep) ?? dep;
     }
+
+    /// <summary>The profile's QC gates with the question's exception for this deposit or split group over them (its own
+    /// <c>min_ms2</c>; aging 316, PXR-A217). The probe's QC and the full QC both judge by these.</summary>
+    internal QcGates QcFor(string acc, Profile profile) => _q.ExceptionFor(acc)?.Apply(profile.Qc) ?? profile.Qc;
 
     /// <summary>The machine limits a size deferral was decided under, so a change gives the deposit one more look (Settled).</summary>
     private (string, JsonNode?) LimitsField() => ("machine_limits", Limits?.Describe());

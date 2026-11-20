@@ -58,6 +58,17 @@ deposit refused for `no_isobaric_reporters` whose record text says TMT while PRI
     files with Orbitrap MS2 or ion-trap CID are searched exactly as under `@4`. A search with any low-resolution MS2 uses
     no spectral library, as under `@4`. MetaMorpheus and the databases are `@4`'s, so no PTM database is rebuilt.
 
+- **A deposit's own MS2 floor: `min_ms2` in `[exceptions]` and in each group of a split.**
+  - **The problem.** QC refuses a file with fewer MS2 spectra than its profile's `[qc] min_ms2` (5,000) as `too_few_ms2`.
+    PXD016039's 19 high-pH fractions hold 2,790 to 4,978 MS2 each, against medians of 5,919 and 5,471 in the same plexes:
+    real fractions, not blanks. Refused, they were more than a tenth of the deposit, so the whole deposit waited.
+  - **The change.** A question can now lower (or raise) the floor for one deposit, for example `min_ms2 = 2500`. The probe's
+    QC and the full QC both judge by it. The QC's `provenance.json` records the floor it used, with a note when it is the
+    deposit's own, and the delivery's manifest note quotes the exception, as for every exception key. It must be at least
+    1, so a file with no MS2 at all is still a blank.
+  - **Adopting:** a swap only. A deposit already refused at full QC (`skipped_acquisition_full`) needs a `batch retry`
+    once the block is in its question; the exception alone does not reopen it.
+
 ## 0.4.50 (2026-11-17)
 
 **MetaMorpheus** unchanged (1.1.14). **Machine file:** no change needed. **Safe mid-batch?** Yes: swap the pin as usual. A
