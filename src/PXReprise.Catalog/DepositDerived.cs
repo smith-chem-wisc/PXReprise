@@ -12,10 +12,11 @@ namespace PXReprise.Catalog;
 /// catalogs (PXReprise's public-data contract, rule 5: a publish recomputes only what is corpus-wide).</summary>
 /// <remarks>
 /// <para>Each deposit's rows are the same SQL a one-file catalog runs over the whole corpus (<c>OverviewSelect</c>,
-/// <c>ProteinDatasetsSelect</c>, <c>ModificationsPlacedSelect</c>), run over that deposit's own files in a connection of
-/// its own. Every join and group in them is within a dataset, so the rows are the corpus build's. The two corpus-wide
-/// indexes, <c>protein_index</c> and <c>peptide_index</c>, are aggregated at every publish from per-deposit partial rows
-/// that carry exactly what their aggregates need.</para>
+/// <c>ProteinDatasetsSelect</c>, <c>ModificationsPlacedSelect</c>, <c>ProteinPeptidoformsSelect</c>), run over that
+/// deposit's own files in a connection of its own. Every join and group in them is within a dataset, so the rows are the
+/// corpus build's. The two corpus-wide indexes, <c>protein_index</c> and <c>peptide_index</c>, are aggregated at every
+/// publish from per-deposit partial rows that carry exactly what their aggregates need; <c>protein_peptidoforms</c> is
+/// every deposit's rows, sorted by accession at every publish.</para>
 /// <para>The files live in <c>&lt;folder&gt;/derived/&lt;derivation id&gt;/&lt;dataset&gt;/&lt;bundle&gt;/</c>. A bundle
 /// never changes, so a deposit's directory is reused for as long as the derivation id is the same, and the id hashes the
 /// SQL, the catalog format, the schema and DuckDB's version: any change to what a row would hold names a new directory.
@@ -29,7 +30,7 @@ public static partial class CatalogBuilder
 
     /// <summary>The per-deposit files, in the order they are written.</summary>
     private static readonly string[] DepositFiles =
-        ["dataset_overview", "protein_datasets", "protein_partials", "search_modifications_placed", "peptide_partials", "reconciliation_terms"];
+        ["dataset_overview", "protein_datasets", "protein_partials", "search_modifications_placed", "peptide_partials", ProteinPeptidoformsTable, "reconciliation_terms"];
 
     /// <summary>The bundle tables the per-deposit SQL reads.</summary>
     private static readonly string[] DepositInputs =
@@ -103,7 +104,7 @@ public static partial class CatalogBuilder
         var text = new StringBuilder($"catalog/{CatalogVersion}\nschema/{SchemaContract.Version}\nduckdb/{duckdb}\n"
             + $"threshold/{PyFormat.FloatRepr(Identifications.ProducerThreshold)}\n");
         foreach (var (name, body) in CatalogedAcceptedViews) text.Append($"view/{name}\n{body}\n");
-        foreach (var sql in new[] { OverviewSelect(DepositPsmCounts), ProteinDatasetsSelect, ProteinPartialSelect, ModificationsPlacedSelect, PeptidePartialSelect, ReconciliationTermsSql })
+        foreach (var sql in new[] { OverviewSelect(DepositPsmCounts), ProteinDatasetsSelect, ProteinPartialSelect, ModificationsPlacedSelect, PeptidePartialSelect, ProteinPeptidoformsSelect, ReconciliationTermsSql })
             text.Append(sql).Append('\n');
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text.ToString())))[..16];
     }
@@ -157,6 +158,10 @@ public static partial class CatalogBuilder
         lap("derived: protein_index");
         Exec(con, $"CREATE TABLE peptide_index AS {PeptideIndexFromPartials.Replace("{files}", Files("peptide_partials"))}");
         lap("derived: peptide_index");
+        // Copied, not a view over the deposits' files: one file per deposit has no order across deposits, and the sort is
+        // what makes an accession a lookup.
+        Exec(con, $"CREATE TABLE {ProteinPeptidoformsTable} AS SELECT * FROM read_parquet({Files(ProteinPeptidoformsTable)}, union_by_name = true) {ProteinPeptidoformsOrder}");
+        lap($"derived: {ProteinPeptidoformsTable}");
         return checks;
     }
 
@@ -232,6 +237,7 @@ public static partial class CatalogBuilder
                 Write("protein_partials", ProteinPartialSelect);
                 Write("search_modifications_placed", ModificationsPlacedSelect);
                 Write("peptide_partials", PeptidePartialSelect);
+                Write(ProteinPeptidoformsTable, ProteinPeptidoformsSelect);
                 Write("reconciliation_terms", ReconciliationTermsSql);
 
                 var record = new SortedDictionary<string, object?>(StringComparer.Ordinal)

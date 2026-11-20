@@ -278,11 +278,11 @@ catalog  catalog.duckdb
   built    … by datarepo 1.5.0
   dataset  PXD999999           58 PSMs at 1%
   tools    datarepo_describe, datarepo_search, datarepo_sql
-  empty    37 table(s) present with no rows
+  empty    42 table(s) present with no rows
 ```
 
-`37 table(s) present with no rows` is expected here. The schema has tables for data this small
-example does not have (glycopeptides, age effects, GO annotation, PRIDE records, TMT channels, runs
+`42 table(s) present with no rows` is expected here. The schema has tables for data this small
+example does not have (glycopeptides, age effects, GO annotation, orthology, PRIDE records, TMT channels, runs
 excluded from analysis). They exist and are empty, and an agent is told so. An empty table is never a negative answer.
 
 To register the catalog with [Claude Code](https://claude.com/claude-code):

@@ -181,6 +181,7 @@ protein", which is the question the repository exists for.
 | `protein_index` | 1/accession | gene, organism, how many deposits have it, and how many have **accepted** evidence for it |
 | `protein_datasets` | 1/accession/dataset | accepted protein groups and peptidoforms, best group q-value |
 | `peptide_index` | 1/base sequence | how many deposits it appears in |
+| `protein_peptidoforms` | 1/accession/accepted peptidoform | from 1.5.0: `peptidoforms_1pct` unnested over `protein_accessions` (`protein_accession`, `dataset_id`, `bundle_id`, `peptidoform_id`, `base_sequence`, `best_q_value`), stored sorted by accession, so a protein's accepted peptidoforms are a lookup rather than a scan of every peptidoform |
 | `dataset_annotations` | 1/dataset | the producer's notes, flags, status and reason, its declared `sdrf`, the `operator_sdrf` the ingest read in place of any other SDRF (G107) and a split's `split_reason`, from the manifest `build` was given |
 | `run_exclusions` | 1/excluded run | runs the manifest's `excluded_runs` leaves out of analysis, with the reason; `run_id` joins `runs` |
 | `dataset_restrictions` | 1/dataset/use | uses the manifest's `restrictions` says the whole dataset is unfit for, with the reason; the same uses are listed on `dataset_overview.restrictions` (NULL when the manifest has no entry for the dataset) |
@@ -189,6 +190,42 @@ protein", which is the question the repository exists for.
 | `deposit_references` | 1/paper | PRIDE's citation line, PubMed id (NULL for PRIDE's 0) and DOI |
 | `isobaric_channels` (view) | 1/run/channel | from 1.5.0: each isobaric search's design: plex, run, channel, sample (NULL for an `empty` channel), the design's `Sample Type` verbatim, and the run's `reporter_level` (DATAREPO-88 a) |
 | `shared_raw_files` (view) | 1/run | runs whose raw file is served more than once, found by `runs.sha256`, never by name: how many copies, which runs, and whether a copy is in the same deposit or another |
+| `orthology_species` | 1/snapshot species | from 1.5.0: the registered orthology snapshot's species (Ensembl production names) and the gene set each was built from (`gene_set_sha256`, the value `gene_resolutions` carries) |
+| `orthology_genes` | 1/gene/species | every gene of each species' primary-assembly gene set, all biotypes, from the snapshot's `genes/` files |
+| `gene_orthologs` | 1/ortholog relationship/direction | every ortholog row Ensembl Compara asserts between two snapshot species, in both directions (`species`, `gene`, `partner_species`, `partner_gene`, `relationship_type`, identities, `is_high_confidence`); paralogs never |
+| `gene_ortholog_status` | 1/gene/other species | each gene's one status in each other species: `has_ortholog`, `no_edge_in_shared_tree`, `tree_lacks_target_species` or `not_in_any_tree` |
+| `protein_orthologs` | 1/accession link/other species/ortholog/partner link | every target accession with a gene resolution, against every other snapshot species: each gene linked to it, its `status` there, and for `has_ortholog` each ortholog gene and each accession resolving to it, with `partner_n_datasets_1pct` and the view columns of both links (`resolution_source`, `resolution_xref_agreement`, `partner_resolution_source`, ...). Refusals are rows: at least one per accession and species |
+
+`protein_peptidoforms` exists because `peptidoforms_1pct.protein_accessions` is a list, and a list column takes no
+index: joining one accession to it reads every accepted peptidoform. The table has one row per accession of each
+accepted peptidoform (an accession a list names twice gives one row, so accession, dataset and peptidoform are a key),
+written in accession order, then dataset and peptidoform. DuckDB keeps each row group's minimum and maximum, so a
+lookup on one accession reads only the row groups that hold it; an ART index on top was measured and is not built
+(116 MB more, no faster). In a folder, each deposit's rows are derived once into `derived/` with its other derived
+rows, and every build sorts them into the catalog file. On aging's 192 re-ingested deposits (1.5.0): 9,160,934 rows
+for 52,946 accessions, 255 MB of the catalog file (227 MB without it), 267 MB of per-deposit files in `derived/`, and
+9 to 17 s of a build. One accession answers in about 7 ms on an open connection, and GFAP's two orthologs' peptides
+in 0.2 s, against 16 s through `list_contains`.
+
+The five orthology tables are copied from the snapshot `datarepo run logs.register_orthology` registered
+([operating.md](operating.md#4-optional-engines-and-study-results)), through the snapshot's own `views.sql`, in
+both layouts: they are small (on aging's store, human, mouse and rat: 200,649 genes, 171,792 ortholog rows, 401,298
+statuses and 180,930 `protein_orthologs` rows, built in about 9 s), so neither layout reads the snapshot at query time.
+Before reading it, `build` checks the snapshot's files against the registration (`manifest.json` against
+`inputs.snapshot_manifest`, every file against its sha256 in the manifest) and fails on a mismatch. The tables are in
+every catalog of format 17, empty when no snapshot is registered. `catalog_tables.kind` is
+`engine:logs.register_orthology` for the four copied from the snapshot and `derived` for `protein_orthologs`.
+`protein_orthologs` answers for the accessions of `protein_genes` (target proteins a search held, no decoy or
+contaminant): accession to gene through `gene_resolutions` (each gene of a `multi_gene` accession, and a gene only
+Ensembl's xref links), gene to ortholog gene directly for each species pair (never chained), ortholog gene back to the
+accessions that resolve to it. Its rows are every link logs wrote; `resolution_source` and the xref agreement columns
+let a reader apply the search database's view or v2's default one. A status other than `has_ortholog` says why there is
+none (`no_gene`, the bridge's own and given only when no gene is linked to the accession at all, or one of
+`gene_ortholog_status`'s three), so an empty join never reads as "not detected". `catalog_checks` rows of kind
+`engine-consistency` fail the build if the status counts differ from the ones the registration recorded, if an
+accession lacks a row for some species or is both `no_gene` and answered through a gene, or if a resolved gene is not
+in the snapshot's gene set. [querying.md](querying.md) has the query for "every ortholog of protein X, with its
+peptides and PTM sites".
 
 The three `deposit_*` tables are read at **build** from the records `datarepo pride` kept beside the bundles
 ([operating.md](operating.md#4-optional-engines-and-study-results)); `build` itself fetches nothing. They are
@@ -309,18 +346,22 @@ catalogs/
 - **The bundle and engine tables are views** over the store's Parquet (`quant_values`, `peptidoforms`, `proteins`, ...), with
   `dataset_id` and `bundle_id` written into each view per file, so a filter on one dataset reads that dataset's files
   only. `samples` is still copied (a few thousand rows), because its `*_name` columns are added to it. The derived
-  tables, the study tables, the manifest's tables and the catalog's own tables are copied too: they are small. A
-  catalog folder is megabytes, not tens of gigabytes, and a build copies no bundle rows.
+  tables, the study tables, the manifest's tables and the catalog's own tables are copied too: they are small beside the
+  bundles. The largest is `protein_peptidoforms` (from 1.5.0; 255 MB of a 483 MB catalog file on aging's store). A
+  catalog folder is hundreds of megabytes, not tens of gigabytes, and a build copies no bundle rows.
 - **Each deposit's derived rows are computed once** (D48 step 2b) and kept in the folder, under
-  `derived/<derivation id>/<dataset>/<bundle>/`: its `dataset_overview` row, its `protein_datasets` and
-  `search_modifications_placed` rows, and the partial rows `protein_index` and `peptide_index` are aggregated from. They
+  `derived/<derivation id>/<dataset>/<bundle>/`: its `dataset_overview` row, its `protein_datasets`,
+  `search_modifications_placed` and (from 1.5.0) `protein_peptidoforms` rows, and the partial rows `protein_index` and
+  `peptide_index` are aggregated from. They
   are the same SQL a one-file catalog runs over the whole corpus, run over that deposit's own files. A later build
   reuses them while the bundle and the derivation id are the same. The id hashes that SQL, the catalog format, the
   schema and DuckDB's version, so a change to any of them derives every deposit again, once. `protein_datasets` and
-  `search_modifications_placed` are views over those files; `dataset_overview` and the two indexes are copied. A
+  `search_modifications_placed` are views over those files; `dataset_overview`, the two indexes and
+  `protein_peptidoforms` (sorted by accession) are copied. A
   deposit's directory is written beside its final name and moved into place whole, `derived.json` (each file's row
   count) last, and one whose files no longer hold those rows is derived again. On aging's store (170 deposits) the
-  directory is 155 MB, about 0.9 MB a deposit; `build` prints how many deposits it computed and how many it reused.
+  directory is 155 MB, about 0.9 MB a deposit; from 1.5.0, on its 192 re-ingested deposits, it is 510 MB, 267 MB of
+  them `protein_peptidoforms`. `build` prints how many deposits it computed and how many it reused.
 - **A build writes a new file and then the pointer.** No file a reader holds is ever replaced: an MCP server or a
   script keeps the catalog it opened, and the next one opened gets the new file. `latest.json` is written beside
   itself and moved into place, so a reader never sees half of one. An unchanged rebuild writes nothing and points
