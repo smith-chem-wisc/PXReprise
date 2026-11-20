@@ -98,6 +98,24 @@ search by MetaMorpheus 1.1.13 or earlier.
   `q_value <= 0.01`. The build fails if a member of a served search has no `go_group_members` row (dataRepo 028), a
   member's entry is not in the search's databases, a database term is not in the release, or an artefact used another
   go.obo (GO-D9). A search without its artefacts is named in three `engine-coverage` notes and served no GO.
+- **Reactome pathways and KEGG gene links, once per database file and per release, joined by the catalog** (kegg's
+  `kegg:DEF-REACTOME-MEMBERSHIP v1`, mzLib #1536, #1537 and #1576, in 1.0.598; GO's shape, kegg 010). New tables, copied
+  from kegg's two engines (below) in both layouts and empty when nothing is served: `reactome_pathways`,
+  `reactome_hierarchy` and `reactome_ancestors` (one Reactome release; `in_disease` marks Disease and everything under
+  it), `reactome_membership` (each searched target database file's entries and the lowest-level pathways UniProt lists on
+  them, isoform-scoped where UniProt says so, once per file), `reactome_species` (each file's species codes) and
+  `kegg_gene_links` (KEGG GENES ids for link-outs only; no KEGG content). Derived at build, over every file a search read:
+  `protein_reactome` (each member of each search's non-decoy groups and each pathway it takes, or one row with its status:
+  `no_reference`, `species_not_covered`, `no_entry`), `reactome_group_status` (every group once, on kegg's ladder
+  `annotated > contaminant > no_entry > species_not_covered > no_reference`) and `reactome_group_pathways` (each group's
+  pathways with `members_in_pathway` of `members`); a search's `annotation_sources` row is owned by `kegg`. The
+  definition's two set-wide rules, an organism's Reactome code and an isoform's inheritance of its entry's pathways, are
+  applied at build across the search's files, so the rows are mzLib's over the whole set: the build reproduces mzLib's
+  hand-written expectation row for row with the set as one file or split over three. The build fails if a member of a
+  served search has no status, a member's entry is not in its search's files, an organism has two Reactome codes (dataRepo
+  KEGG-D6), or the per-file artefacts cannot give a search's rows exactly (two corner cases no UniProt proteome has); a
+  pathway id the release lacks reads `not_in_release` and is counted per file. A search without its artefacts is named in
+  three `engine-coverage` notes and served no Reactome.
 
 ### Changed (engines)
 - **`logs.resolve_genes` writes `logs:DEF-GENE-RESOLUTION v2`**, on every row, in `run.json` and in the artefact id,
@@ -112,12 +130,22 @@ search by MetaMorpheus 1.1.13 or earlier.
   `go.annotate_groups` kept too. On six of aging's deposits that leaves 7.1 MB of artefacts where the files would have
   added 89 MB (a human proteome's database artefact: 0.84 MB, where its file alone was 13.6 MB). A new go.obo re-runs the first two, a new map only the
   first, a new dataset only what its files lack.
+- **kegg's two engines, new:** `kegg.reactome_release --input pathways=<ReactomePathways.txt> --input
+  relation=<ReactomePathwaysRelation.txt>` (no accession; once per release, and only a release this datarepo lists by
+  its two files' sha256s: release 96, the one UniProt 2026_03 cites) and `kegg.reactome_membership <PXD...>` (no
+  `--input`; one artefact per searched target database file, as `go.annotate_databases`). Both run under
+  `kegg:DEF-REACTOME-MEMBERSHIP v1`, write mzLib's own files, read them back with mzLib's readers as acceptance, record
+  each file's sha256 and row count in `run.json`, and keep only the Parquet. The membership artefact also records the
+  file's species codes and how many references its species check dropped, which the build's exactness check reads, and
+  UniProt's CC BY 4.0 attribution; the release artefact, Reactome's citation (CC0). Which entry each member takes is
+  `go.resolve_members`', so Reactome needs that engine run too, even where no GO is served.
 
 ### Upgrading
 - Re-ingest every dataset. Then run every engine again over every re-ingested dataset: `logs.register_orthology`,
   `logs.resolve_genes` for each species over all of that species' datasets, and go's three (`go.categorize_terms`
-  once, `go.annotate_databases` and `go.resolve_members` over every dataset), in place of `go.annotate_groups`. GO needs
-  no re-ingest of its own: the engines read each bundle's recorded files. Run `datarepo pride` for the PRIDE tables and
+  once, `go.annotate_databases` and `go.resolve_members` over every dataset), in place of `go.annotate_groups`; to serve
+  Reactome, `kegg.reactome_release` once and `kegg.reactome_membership` over every dataset. Neither needs a re-ingest of
+  its own: the engines read each bundle's recorded files. Run `datarepo pride` for the PRIDE tables and
   `datarepo study` for an aging study bundle. Then build. The old `go.annotate_groups` artefacts may be removed from
   `<store>/_engine/`; the build counts any left and never serves them.
 - **Read the build's `note` lines before serving the catalog.** On aging's store, a replay of each old gene artefact for

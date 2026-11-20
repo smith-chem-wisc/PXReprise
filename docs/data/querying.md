@@ -390,6 +390,83 @@ ORDER BY g.gene_symbol NULLS FIRST, a.accession;
 A NULL `outcome` means logs has not resolved that file (`catalog_checks` of kind `engine-coverage`), not that the
 accession has no gene.
 
+### The Reactome pathways of a protein, and the proteins of a pathway
+
+From catalog format 17 Reactome is reference data too, in GO's shape (kegg's `kegg:DEF-REACTOME-MEMBERSHIP v1`).
+`reactome_membership` holds each searched database file's entries and the lowest-level pathways UniProt lists on them,
+once per file; `reactome_pathways`, `reactome_hierarchy` and `reactome_ancestors` hold the one Reactome release a catalog
+serves; and `protein_reactome` is the definition's answer for each member of each search's groups, derived at build over
+every file the search read (an organism's species code and an isoform's inheritance read the whole set). Read
+`protein_reactome`, not `reactome_membership`, for a protein's pathways: the file table's rows are one file's alone.
+
+**The pathways of one protein in each search that held it**, with drift and the disease flag:
+
+```sql
+SELECT r.dataset_id, r.pathway_id, p.name, r.inherited, r.release_status, p.in_disease
+FROM protein_reactome r
+LEFT JOIN reactome_pathways p ON p.pathway_id = r.pathway_id
+WHERE r.protein_accession = 'P04406' AND r.reactome_status = 'annotated'   -- human GAPDH
+ORDER BY r.dataset_id, r.pathway_id;
+```
+
+A member with no pathway has one row whose `reactome_status` says why: `no_reference` (UniProt lists none for its entry,
+which is not "in no pathway"), `species_not_covered` (no entry of its organism in the search's files carries one) or
+`no_entry` (the search's databases do not hold it). `release_status = 'not_in_release'` is an id UniProt cites that the
+served release lacks: it has no name and no ancestors. Mouse and rat pathways are Reactome's inference from human through
+orthology, not evidence observed in that species.
+
+**The same protein rolled up to Reactome's top-level areas** (a top-level pathway is never a child in the hierarchy):
+
+```sql
+SELECT r.dataset_id, a.ancestor_pathway_id AS area, p.name, list_sort(list(DISTINCT r.pathway_id)) AS via
+FROM protein_reactome r
+JOIN reactome_ancestors a ON a.pathway_id = r.pathway_id
+JOIN reactome_pathways p ON p.pathway_id = a.ancestor_pathway_id
+WHERE r.protein_accession = 'P04406'
+  AND a.ancestor_pathway_id NOT IN (SELECT child_id FROM reactome_hierarchy)
+GROUP BY ALL
+ORDER BY r.dataset_id, area;
+```
+
+**The proteins of a pathway across datasets**, the pathway's sub-pathways included, from accepted groups only and
+entrapment left out (an enrichment leaves it out of the background too):
+
+```sql
+WITH accepted AS (
+    SELECT DISTINCT dataset_id, bundle_id, unnest(protein_accessions) AS accession FROM protein_groups_1pct
+)
+SELECT r.protein_accession, count(DISTINCT split_part(r.dataset_id, '-', 1)) AS n_deposits,
+       list_sort(list(DISTINCT r.pathway_id)) AS via
+FROM protein_reactome r
+JOIN accepted g ON g.bundle_id = r.bundle_id AND g.accession = r.protein_accession
+JOIN reactome_ancestors a ON a.pathway_id = r.pathway_id
+WHERE a.ancestor_pathway_id = 'R-HSA-1430728'      -- Metabolism, and every pathway under it
+  AND NOT r.entrapment
+GROUP BY r.protein_accession
+ORDER BY n_deposits DESC, r.protein_accession;
+```
+
+**A group's status and pathways.** `reactome_group_status` gives every non-decoy group once (`annotated`, `contaminant`,
+`no_entry`, `species_not_covered`, `no_reference`), and `reactome_group_pathways` each pathway its members take with
+`members_in_pathway` of `members`. Count a rolled-up area over the carriers, never by adding the sub-pathways' counts:
+
+```sql
+SELECT g.dataset_id, g.protein_group_id, a.ancestor_pathway_id AS area,
+       any_value(g.members) AS members, count(DISTINCT g.carrier) AS members_in_area
+FROM (SELECT *, unnest(carriers) AS carrier FROM reactome_group_pathways) g
+JOIN reactome_ancestors a ON a.pathway_id = g.pathway_id
+JOIN reactome_group_status s ON s.bundle_id = g.bundle_id AND s.protein_group_id = g.protein_group_id
+WHERE s.q_value <= 0.01 AND NOT s.is_contaminant AND len(s.entrapment_members) = 0
+  AND a.ancestor_pathway_id NOT IN (SELECT child_id FROM reactome_hierarchy)
+GROUP BY ALL
+ORDER BY g.dataset_id, g.protein_group_id, area;
+```
+
+**Across species.** `reactome_pathways.human_equivalent_id` names the human pathway a mouse or rat one is (the same number
+and name); leave `in_disease` pathways out of any cross-species comparison, since disease is never inferred to other
+species. **KEGG** is link-outs only: `kegg_gene_links` holds the KEGG GENES ids UniProt lists for an entry of a file, with
+`kegg_url`; no KEGG content is stored.
+
 ---
 
 ## 3 · Trust: what the bundle itself says is wrong

@@ -92,7 +92,7 @@ re-ingested once, and a catalog that mixes 0.0.16 and 0.0.17 bundles or engine a
 re-ingest every dataset; run every engine again on every re-ingested dataset (`logs.register_orthology`,
 `logs.resolve_genes` for each species over all of that species' datasets, and go's three engines, which replace
 `go.annotate_groups`: `go.categorize_terms` once, `go.annotate_databases` and `go.resolve_members` over every dataset;
-section 4); `datarepo pride
+and, to serve Reactome, `kegg.reactome_release` once and `kegg.reactome_membership` over every dataset; section 4); `datarepo pride
 --store <store>` for the PRIDE record tables; `datarepo study` again for an aging study bundle (layer 0.7.0); then
 build. Read the build's `note` lines before serving it: a `logs.resolve_genes coverage` note means a database has no
 gene resolution, and the build still passes. A multiplex search by MetaMorpheus 1.1.13 or earlier is refused; re-search
@@ -298,6 +298,25 @@ and any dataset the census does not include, in `catalog_checks` (kind `census`)
     ```bash
     datarepo run go.categorize_terms --store store --input ontology=go.obo --input category_map=aging-organelle-map.tsv
     datarepo run go.annotate_databases PXD011740 PXD034564 --store store --input ontology=go.obo
+    datarepo run go.resolve_members PXD011740 PXD034564 --store store
+    ```
+  - **Reactome, in two engines** (from 1.5.0; kegg's `kegg:DEF-REACTOME-MEMBERSHIP v1`). Reactome is stored once per
+    database file and per release, never per bundle, and `build` joins the two with `go.resolve_members`' member
+    resolution into `protein_reactome`, `reactome_group_status` and `reactome_group_pathways`
+    ([build.md](build.md#cross-dataset-tables)). So run `go.resolve_members` over the same datasets, even for a catalog
+    that serves no GO.
+    - `kegg.reactome_release --input pathways=<ReactomePathways.txt> --input relation=<ReactomePathwaysRelation.txt>`:
+      takes no accession. One Reactome release's pathways, hierarchy and ancestor closure. Only a release this datarepo
+      lists by its two files' sha256s is read (today release 96, the one UniProt 2026_03 cites,
+      `https://download.reactome.org/96/`): pass the two files unchanged. A catalog serves one release; two are refused.
+    - `kegg.reactome_membership <PXD...>`: no `--input`. Each TARGET database file the datasets searched (never a
+      contaminant panel), its entries' Reactome pathways and KEGG gene ids: one artefact per file, shared by every
+      dataset that searched it, as `go.annotate_databases`. The build applies the definition's species code and isoform
+      inheritance across each search's files.
+
+    ```bash
+    datarepo run kegg.reactome_release --store store --input pathways=ReactomePathways.txt --input relation=ReactomePathwaysRelation.txt
+    datarepo run kegg.reactome_membership PXD011740 PXD034564 --store store
     datarepo run go.resolve_members PXD011740 PXD034564 --store store
     ```
   - `logs.register_orthology --input snapshot_tar=<compara-N.tar> --input snapshot_manifest=<compara-N.manifest.json>`:
