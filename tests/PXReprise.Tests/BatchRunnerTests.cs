@@ -438,6 +438,42 @@ public class BatchRunnerTests
         Assert.That(ex.Apply(Profiles["label-free-dda@4"].Deposit).MaxEstimatedMs2, Is.Zero);
     }
 
+    // 2026-11-20 (aging 316, PXR-A217): a deposit's own MS2 floor. PXD016039's 19 high-pH fractions hold 2,790 to 4,978 MS2:
+    // real fractions under the profiles' floor of 5,000. The question lowers it for that deposit, or for one group of a split,
+    // and the probe's QC and the full QC both judge by it.
+    [Test]
+    public void AMinMs2ExceptionLowersOneDepositsMs2Floor()
+    {
+        var (runner, _, _, dir) = Runner("[exceptions.PXD016039]\nreason = \"19 thin but real fractions (aging D218)\"\nmin_ms2 = 2500\n"
+            + "exclude_files = '_iTRAQ3_f2\\.raw$|_iTRAQ4_f3\\.raw$'\n");
+        var profile = Profiles["tmt-dda@5"];
+        Assert.That(profile.Qc.MinMs2, Is.EqualTo(5000), "the premise: the profile's floor is above the thin fractions");
+        Assert.That(runner.QcFor("PXD016039", profile), Is.EqualTo(profile.Qc with { MinMs2 = 2500 }), "only the floor changes");
+        Assert.That(runner.QcFor("PXD000001", profile), Is.SameAs(profile.Qc), "every other deposit keeps the profile's");
+
+        string Block(string v) => TestSupport.MinimalQuestion + $"\n[exceptions.PXD016039]\nreason = \"x\"\nmin_ms2 = {v}\n";
+        var alone = QuestionLoader.Load(TestSupport.WriteFile(dir, "alone.toml", Block("2500"))).ExceptionFor("PXD016039")!;
+        Assert.That(alone.Describe(), Is.EqualTo("min_ms2 2500 (x)"), "a floor alone is a change, and the manifest note quotes it");
+        Assert.Throws<ConfigException>(() => QuestionLoader.Load(TestSupport.WriteFile(dir, "zero.toml", Block("0"))), "a file with no MS2 is a blank, whatever the floor");
+        Assert.Throws<ConfigException>(() => QuestionLoader.Load(TestSupport.WriteFile(dir, "text.toml", Block("\"2500\""))));
+
+        var split = QuestionLoader.Load(TestSupport.WriteFile(dir, "split.toml", SplitQuestion(
+            "[splits.PXD076192]\nreason = \"x\"\nby = \"species\"\n[splits.PXD076192.mouse]\nspecies = \"mouse\"\ninclude_files = \"_mouse_\"\nmin_ms2 = 3000\n"
+            + "[splits.PXD076192.human]\nspecies = \"human\"\ninclude_files = \"_human_\"\n")));
+        Assert.That((split.ExceptionFor("PXD076192-mouse")!.MinMs2, split.ExceptionFor("PXD076192-human")!.MinMs2), Is.EqualTo(((int?)3000, (int?)null)),
+            "a split group takes it like every other exception key");
+
+        // The QC's provenance records the floor it judged by, and says it is the deposit's own.
+        string spectra = Directory.CreateDirectory(Path.Combine(dir, "PXD016039", "02_fetch", "spectra")).FullName;
+        string qc = Directory.CreateDirectory(Path.Combine(dir, "PXD016039", "02b_qc")).FullName;
+        TestSupport.WriteFile(qc, "qc_report.json", """{"a.raw":{"pass":true,"fail_reasons":[],"ms2":2790}}""");
+        var machine = Machine.Load(TestSupport.WriteFile(dir, "qc-machine.toml", $"work_root = '{dir}'\nmin_free_gb = 0\n[metamorpheus]\n\"1.1.11\" = 'C:/nowhere/CMD.exe'\n"));
+        PXReprise.Qc.QcStage.Run(spectra, qc, profile, machine, TestSupport.WriteFile(dir, "params.json", "{}"), null,
+            kept: new[] { "a.raw" }, gates: runner.QcFor("PXD016039", profile));
+        string prov = File.ReadAllText(Path.Combine(qc, "provenance.json"));
+        Assert.That(prov, Does.Match("\"min_ms2\":\\s*2500").And.Contain("this deposit's own floor").And.Contain("tmt-dda@5's 5000"));
+    }
+
     // v0.4.39 (aging 197, PXR-A158): a question names a local replacement for a raw file damaged at PRIDE, keyed by PRIDE's
     // file name, with PRIDE's SHA-1, the replacement's SHA-256 and why; a path relative to the question resolves beside it.
     [Test]

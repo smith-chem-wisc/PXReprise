@@ -122,6 +122,9 @@ public sealed record DesignSettings(string Dir, IReadOnlyList<string> ConditionC
 /// <c>[databases]</c> (<c>"rat"</c>), over the one the queue read from PRIDE's record (PXD068498: rat, filed as mouse).
 /// <see cref="MinIdentificationRate"/> (v0.4.44): the deposit's own identification floor, under which its full search is
 /// held instead of delivered (<c>BatchRunner.MinIdentificationRate</c>); <c>0</c> delivers it whatever it found.
+/// <see cref="MinMs2"/> (2026-11-20; aging 316, PXR-A217): the deposit's own MS2 floor for QC's <c>too_few_ms2</c>, in place of
+/// the profile's <c>[qc] min_ms2</c>, for files that are thin but real (PXD016039's high-pH fractions: 2,790 to 4,978 MS2
+/// under a floor of 5,000).
 /// </summary>
 public sealed record DepositException(
     string Accession,
@@ -136,7 +139,8 @@ public sealed record DepositException(
     string? Species = null,
     IReadOnlyDictionary<string, FileReplacement>? ReplaceFiles = null,
     SplitGroup? Split = null,
-    double? MinIdentificationRate = null)
+    double? MinIdentificationRate = null,
+    int? MinMs2 = null)
 {
     public const string NoAlkylation = "none";
 
@@ -154,6 +158,9 @@ public sealed record DepositException(
         DeferIfMedianFileMb = DeferIfMedianFileMb ?? p.DeferIfMedianFileMb,
     };
 
+    /// <summary>The profile's QC gates with this deposit's own MS2 floor.</summary>
+    public QcGates Apply(QcGates g) => MinMs2 is { } floor ? g with { MinMs2 = floor } : g;
+
     /// <summary>One line for logs, provenance and the manifest note.</summary>
     public string Describe()
     {
@@ -168,6 +175,7 @@ public sealed record DepositException(
         if (Species is { } sp) parts.Add($"species {sp}");
         if (ReplaceFiles is { Count: > 0 } rf) parts.Add($"replace_files {rf.Count} ({string.Join(", ", rf.Keys.Order(StringComparer.Ordinal))})");
         if (MinIdentificationRate is { } floor) parts.Add($"min_identification_rate {floor.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+        if (MinMs2 is { } minMs2) parts.Add($"min_ms2 {minMs2}");
         return $"{string.Join(", ", parts)} ({Reason})";
     }
 }
