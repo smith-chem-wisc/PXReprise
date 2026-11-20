@@ -7,6 +7,26 @@ section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PX
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## Unreleased
+
+**MetaMorpheus** unchanged (1.1.14). **Machine file:** no change needed. **Safe mid-batch?** Yes: swap the pin as usual.
+Nothing searched under another profile changes. **Adopting:** a swap only. A question that wants it names `tmt-dda@5`
+before `tmt-dda@4` in its `profiles`, and each deposit QC refused for ion-trap HCD gets a `batch retry`.
+
+- **A new TMT profile, `tmt-dda@5`: `tmt-dda@4` plus MS2 fragmented by HCD and read in the ion trap,** searched as
+  MetaMorpheus's LowCID.
+  - **The problem.** Many SPS-MS3 TMT methods on an Orbitrap Fusion, Lumos or Ascend fragment by HCD and read the MS2 in
+    the ion trap, while the reporters are read in the Orbitrap MS3. `tmt-dda@4` accepts ion-trap MS2 only when it is CID,
+    so QC refused these files (`unsupported_fragmentation`) and their deposits waited.
+  - **Why LowCID, not HCD at the low-resolution tolerance.** On one file each of two such deposits (TMT6 and TMT10, both
+    Fusion Lumos), LowCID found more on every count: target PSMs at 1% +14% and +9%, peptides +12% and +18%, protein
+    groups +13% and +11%, at about half the peak memory. In 78 of 80 sampled PSMs the reporter intensities equal the peaks
+    of the linked Orbitrap MS3.
+  - **What stays the same.** It uses no new engine code: the two settings (`ion_trap_hcd`, `ion_trap_hcd_lowcid`) have been
+    in the engine since 0.4.28, for the label-free ion-trap profiles. The call is made per file from its MS2 headers, so
+    files with Orbitrap MS2 or ion-trap CID are searched exactly as under `@4`. A search with any low-resolution MS2 uses
+    no spectral library, as under `@4`. MetaMorpheus and the databases are `@4`'s, so no PTM database is rebuilt.
+
 ## 0.4.50 (2026-11-17)
 
 **MetaMorpheus** unchanged (1.1.14). **Machine file:** no change needed. **Safe mid-batch?** Yes: swap the pin as usual. A

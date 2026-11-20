@@ -41,6 +41,39 @@ public class ConfigTests
     }
 
     /// <summary>
+    /// 2026-11-20 (approved by the maintainer): tmt-dda@5 is tmt-dda@4 plus MS2 fragmented by HCD and read in the ion trap,
+    /// searched as LowCID. SPS-MS3 TMT methods on a Fusion, Lumos or Ascend often read the MS2 in the ion trap, and QC refused
+    /// those files under @4 (unsupported_fragmentation). On one file each of two such deposits, LowCID found 9 to 14% more
+    /// PSMs than HCD at the low-resolution tolerance. Nothing else may differ: lines, not parsed fields, as above.
+    /// </summary>
+    [Test]
+    public void TmtDda5_IsTmtDda4_WithIonTrapHcdSearchedAsLowCid()
+    {
+        static List<string> Settings(string name) => File.ReadAllLines(Path.Combine(TestSupport.ProfilesDir, name))
+            .Select(l => System.Text.RegularExpressions.Regex.Replace(l, @"\s+#.*$", "").TrimEnd())
+            .Where(l => l.Length > 0 && !l.StartsWith('#'))
+            .Where(l => !System.Text.RegularExpressions.Regex.IsMatch(l, @"^(id|version|description) = "))
+            .ToList();
+
+        string[] added = { "ion_trap_hcd = true", "ion_trap_hcd_lowcid = true" };
+        var five = Settings("tmt-dda-5.toml");
+        Assert.That(five.Where(added.Contains), Is.EqualTo(added), "@5 carries the two lines once each");
+        Assert.That(five.Where(l => !added.Contains(l)), Is.EqualTo(Settings("tmt-dda-4.toml")), "nothing else differs from tmt-dda@4");
+
+        var all = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
+        var (p4, p5) = (all["tmt-dda@4"], all["tmt-dda@5"]);
+        Assert.Multiple(() =>
+        {
+            Assert.That(p5.Status, Is.EqualTo(ProfileStatus.Available));
+            Assert.That((p5.Fragmentation, p5.IonTrapHcd, p5.IonTrapHcdLowCid, p5.IonTrapHcdProbeLowCid), Is.EqualTo(("per_file", true, true, false)));
+            Assert.That((p4.IonTrapHcd, p4.IonTrapHcdLowCid), Is.EqualTo((false, false)), "a released profile never changes");
+            Assert.That((p5.MetaMorpheus, p5.SpectralLibrary, p5.LowResProductTolerance), Is.EqualTo((p4.MetaMorpheus, p4.SpectralLibrary, p4.LowResProductTolerance)));
+            Assert.That(p5.Description, Does.Contain("LowCID for ion-trap MS2, CID or HCD"));
+            Assert.That(p5.Description.Replace("LowCID for ion-trap MS2, CID or HCD", "LowCID for ion-trap MS2"), Is.EqualTo(p4.Description));
+        });
+    }
+
+    /// <summary>
     /// 2026-11-08 (the user: "lets do the custom modifications now"): label-free-dda-lowres@8 is lowres@7 with the custom
     /// modification file and the NBF-Cl mapping that label-free-dda@14 ships (G40), so an ion-trap deposit whose cysteines
     /// carry NBF (PXD048079, PXD045806) can be searched. An ion-trap profile runs no GPTMD, so @14's [chemistry_artifacts],
@@ -109,7 +142,7 @@ public class ConfigTests
         var profiles = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
         Assert.That(profiles.Keys, Is.EquivalentTo(new[] { "label-free-dda@1", "label-free-dda@2", "label-free-dda@3", "label-free-dda@4",
             "label-free-dda@5", "label-free-dda@6", "label-free-dda@7", "label-free-dda@8", "label-free-dda@9", "label-free-dda@10", "label-free-dda@11", "label-free-dda@12", "label-free-dda@13", "label-free-dda@14", "label-free-dda-uniprot@1", "label-free-dda-lowres@1", "label-free-dda-lowres@2",
-            "label-free-dda-lowres@3", "label-free-dda-lowres@4", "label-free-dda-lowres@5", "label-free-dda-lowres@6", "label-free-dda-lowres@7", "label-free-dda-lowres@8", "tmt-dda@1", "tmt-dda@2", "tmt-dda@3", "tmt-dda@4" }));
+            "label-free-dda-lowres@3", "label-free-dda-lowres@4", "label-free-dda-lowres@5", "label-free-dda-lowres@6", "label-free-dda-lowres@7", "label-free-dda-lowres@8", "tmt-dda@1", "tmt-dda@2", "tmt-dda@3", "tmt-dda@4", "tmt-dda@5" }));
 
         // D44 (2026-10-17): @8 is @7 on agingPTM-v4; nothing else. No lowres version on v4: it cost an ion-trap run 4% of its PSMs.
         foreach (var (newer, older) in new[] { ("label-free-dda@8", "label-free-dda@7") })
