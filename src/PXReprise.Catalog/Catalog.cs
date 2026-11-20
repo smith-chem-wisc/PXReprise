@@ -262,7 +262,9 @@ public static partial class CatalogBuilder
     /// beside <c>n_peptidoforms_1pct</c>. "17", still unreleased, also copies the registered orthology snapshot into
     /// <c>orthology_species</c>, <c>orthology_genes</c>, <c>gene_orthologs</c> and <c>gene_ortholog_status</c>, and derives
     /// <c>protein_orthologs</c> from them (<c>CatalogOrthology.cs</c>), with <c>engine-consistency</c> checks and a sha256
-    /// check of the snapshot's files; the five tables are in every catalog, empty when no snapshot is registered.</remarks>
+    /// check of the snapshot's files; the five tables are in every catalog, empty when no snapshot is registered. "17" also
+    /// adds <c>protein_peptidoforms</c>, <c>peptidoforms_1pct</c> unnested over <c>protein_accessions</c> and sorted by
+    /// accession (dataRepo 136), derived per deposit in a folder.</remarks>
     public static string CatalogVersion => SchemaContract.IsPython0320 ? "8" : "17";
 
     /// <summary>Bundle tables a catalog does not hold. PSMs are archived per deposit, never in a catalog (PXReprise's
@@ -294,6 +296,17 @@ public static partial class CatalogBuilder
     /// serves for it. A split deposit is searched in parts, each its own dataset keyed
     /// <c>&lt;accession&gt;-&lt;group&gt;</c> (G95); every other deposit is one dataset under its bare accession.</summary>
     public const string DepositsTable = "deposits";
+
+    /// <summary>The derived table of each accession's accepted peptidoforms: <c>peptidoforms_1pct</c> unnested over
+    /// <c>protein_accessions</c> and sorted by accession, so a protein's peptidoforms are a lookup rather than a scan of
+    /// every peptidoform (dataRepo 136). Named as <c>protein_datasets</c>, <c>protein_genes</c> and
+    /// <c>protein_orthologs</c> are: a protein's rows of one thing, and the thing is a peptidoform, not a peptide
+    /// (<c>peptide_index</c> is one row per base sequence).</summary>
+    public const string ProteinPeptidoformsTable = "protein_peptidoforms";
+
+    /// <summary>Whether this build writes <see cref="ProteinPeptidoformsTable"/>: always, except when reproducing Python
+    /// 0.32.0, which had no such table.</summary>
+    private static bool ProteinPeptidoformsActive => !SchemaContract.IsPython0320;
 
     /// <summary>The PRIDE record tables, read at build from the records the operator fetched beside the bundles
     /// (<see cref="PrideRecords"/>; 1.5.0 item 12). Keyed by the bare accession.</summary>
@@ -412,6 +425,7 @@ public static partial class CatalogBuilder
         "protein_index",
         "protein_datasets",
         "peptide_index",
+        ProteinPeptidoformsTable,
         "search_modifications_placed",
         "dataset_databases",
         "protein_genes",
@@ -536,6 +550,8 @@ public static partial class CatalogBuilder
         ("protein_index", "protein_accession"),
         ("protein_datasets", "protein_accession"),
         ("peptide_index", "base_sequence"),
+        // Not protein_peptidoforms: it is stored sorted on protein_accession, so its zone maps answer one accession (about
+        // 7 ms on aging's 9.2 million rows). An ART index on it measured 116 MB more and no faster.
         // The orthology tables (CatalogOrthology.cs): "every ortholog of protein X" starts from an accession or a gene.
         (ProteinOrthologsTable, "protein_accession"),
         (GeneOrthologsTable, "gene"),
@@ -694,6 +710,36 @@ public static partial class CatalogBuilder
                 ["n_peptidoforms"] = "Accepted peptidoform rows with this base sequence, summed over "
                     + "datasets -- so one sequence seen in three datasets with two modification states "
                     + "each counts six.",
+            }),
+        [ProteinPeptidoformsTable] = new(
+            "Each accession's ACCEPTED peptidoforms: `peptidoforms_1pct` unnested over `protein_accessions`, one row per "
+            + "accession of each peptidoform (an accession the list names twice gives one row), sorted by accession so that "
+            + "a protein's peptidoforms are a lookup rather than a scan of every peptidoform (`list_contains` on the list "
+            + "column takes no index). It holds what `peptidoforms_1pct` holds and nothing more: targets passing each "
+            + "search's own confidence rule (D55), contaminants left out, and only the accessions MetaMorpheus's PARSIMONY "
+            + "assigned the peptidoform to, NOT every protein whose sequence contains it. So an accession with no row here "
+            + "had no accepted peptidoform assigned to it, in any search; it can still be in `proteins` (the search "
+            + "database) and in `peptidoforms` below threshold. A shared peptidoform has a row under each of its accessions, "
+            + "so count peptides as distinct `base_sequence` and peptidoforms as distinct `peptidoform_id`, never rows "
+            + "across accessions. `protein_datasets.n_peptidoforms` counts these rows per (dataset, accession). Join "
+            + "`peptidoforms` on `peptidoform_id` for anything else about a row, and `ptm_sites` on `protein_accession` for "
+            + "the accession's sites.",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["protein_accession"] = "One accession of the peptidoform's `protein_accessions`, as the search database "
+                    + "carried it (`protein_index.protein_accession`). An isoform is its own accession (`P14136-2`), and a "
+                    + "peptide parsimony assigned to the isoform is under the isoform only (aging 075). The table is sorted "
+                    + "on it, then on `dataset_id` and `peptidoform_id`; the three are a key.",
+                ["dataset_id"] = "The dataset (search) that accepted the peptidoform.",
+                ["bundle_id"] = "The bundle the row came from (`catalog_bundles`).",
+                ["peptidoform_id"] = "The peptidoform, `<dataset_id>:<ProForma>` (`peptidoforms.peptidoform_id`): join "
+                    + "`peptidoforms` on it for its modifications, PSM count or protein group.",
+                ["base_sequence"] = "The unmodified sequence (`peptidoforms.base_sequence`), so a protein's accepted "
+                    + "sequences need no second pass over `peptidoforms`. Coverage needs the protein's own sequence too, which "
+                    + "the catalog does not hold. `peptide_index` has one row per base sequence across datasets.",
+                ["best_q_value"] = "`peptidoforms.best_q_value`: the lowest q-value of the peptidoform's PSMs. NOT "
+                    + "necessarily the value it passed on: a search whose `datasets.confidence_rule` is `pep_q_value` or "
+                    + "`q_value_notch` passed it on `best_pep_q_value` or `best_q_value_notch`, which `peptidoforms` holds.",
             }),
         ["search_modifications_placed"] = new(
             "What the search actually PLACED on accepted peptidoforms, as against what it was "
@@ -2683,6 +2729,11 @@ public static partial class CatalogBuilder
         lap("derived: modifications");
         Exec(con, $"CREATE TABLE peptide_index AS {PeptideIndexSelect}");
         lap("derived: peptide_index");
+        if (ProteinPeptidoformsActive)
+        {
+            Exec(con, $"CREATE TABLE {ProteinPeptidoformsTable} AS SELECT * FROM ({ProteinPeptidoformsSelect}) {ProteinPeptidoformsOrder}");
+            lap($"derived: {ProteinPeptidoformsTable}");
+        }
         return [];
     }
 
@@ -2870,6 +2921,29 @@ public static partial class CatalogBuilder
         FROM peptidoforms_1pct
         GROUP BY base_sequence
 ";
+
+    // `protein_peptidoforms`: a protein's accepted peptidoforms as a lookup on a sorted column. Joining an accession to
+    // `peptidoforms_1pct` through `list_contains(protein_accessions, ...)` reads every peptidoform, since a list column
+    // takes no index: 10 to 22 s on aging's store (dataRepo 136). Every row is within one dataset, so a catalog folder
+    // keeps each deposit's rows as they are (DepositDerived) and only sorts them at build.
+    //
+    // `list_distinct`: an ambiguous peptidoform's list can repeat its options' accessions (17 of 8.4 million on aging's
+    // 1.5.0 store, PXD005123's [P60709, P63261, P60709, P63261, ...]). One row per accession, so (protein_accession,
+    // dataset_id, peptidoform_id) is a key. A list never holds a NULL (the ingest drops empty accessions).
+    private const string ProteinPeptidoformsSelect = @"        SELECT
+            unnest(list_distinct(protein_accessions)) AS protein_accession,
+            dataset_id,
+            bundle_id,
+            peptidoform_id,
+            base_sequence,
+            best_q_value
+        FROM peptidoforms_1pct
+";
+
+    /// <summary>The order <c>protein_peptidoforms</c> is written in: by accession, so DuckDB's zone maps (each row group's
+    /// min and max) skip every row group but the few that hold an accession; then by dataset and peptidoform, so the order
+    /// is total and two builds of the same bundles write the same rows in the same order.</summary>
+    private const string ProteinPeptidoformsOrder = "ORDER BY protein_accession, dataset_id, peptidoform_id";
 
     /// <summary>Each bundle's PSM counts as its ingest recorded them, in a temporary table <c>dataset_overview</c> reads
     /// in place of the PSMs the catalog no longer holds.</summary>
@@ -3246,6 +3320,7 @@ public static partial class CatalogBuilder
         foreach (var name in DerivedTables.Concat(CatalogedAcceptedViews.Select(kv => kv.Key)).Concat(GrainViews.Select(kv => kv.Key)).Concat(RunViews.Select(kv => kv.Key)))
         {
             if ((name is AnnotationsTable or RunExclusionsTable or RestrictionsTable or DepositsTable || PrideTables.Contains(name)) && !AnnotationsActive) continue;
+            if (name == ProteinPeptidoformsTable && !ProteinPeptidoformsActive) continue;
             var rows = Count(con, $"SELECT count(*) FROM \"{name}\"");
             Exec(con, "INSERT INTO catalog_tables VALUES (?, ?, ?)", name, rows, views.Contains(name) ? "view" : "derived");
         }

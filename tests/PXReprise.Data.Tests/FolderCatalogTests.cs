@@ -252,7 +252,7 @@ public class FolderCatalogTests
         Assert.That(Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).Select(Path.GetFileName), Is.EquivalentTo(new[]
         {
             "dataset_overview.parquet", "protein_datasets.parquet", "protein_partials.parquet", "search_modifications_placed.parquet",
-            "peptide_partials.parquet", "reconciliation_terms.parquet", CatalogBuilder.DerivedRecord,
+            "peptide_partials.parquet", "protein_peptidoforms.parquet", "reconciliation_terms.parquet", CatalogBuilder.DerivedRecord,
         }), "nothing staged is left behind");
 
         var original = File.ReadAllText(ManifestPath);
