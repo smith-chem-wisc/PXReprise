@@ -1004,6 +1004,15 @@ public sealed class BatchRunner
         if (rec is null) { Log($"{acc} screen: PRIDE returned no record; retry next pass"); return null; }
 
         var acq = AcquisitionClassifier.Classify(rec.Record);
+        // 2026-11-20 (PXD033714): the record's words read non-specific cleavage (an immunopeptidome named beside a tryptic
+        // study), but the question's curated SDRF names a protease for every file. The curated SDRF outranks the words (D22):
+        // the screen routes the deposit as digested, and the chemistry step reads the protease from that SDRF.
+        if (acq.NonspecificCleavage && _q.Designs?.For(acc) is { } designPath && File.Exists(designPath)
+            && ChemistryDetector.ProteaseForEveryFile(new Readers.SdrfDocument(designPath)) is { } curatedProtease)
+        {
+            Log($"{acc} screen: the record reads non-specific cleavage, but the curated SDRF names {curatedProtease} for every file; screened as digested by it");
+            acq = acq with { NonspecificCleavage = false };
+        }
         var route = Router.Assign(SearchKey.Accession(acc), acq, new RelevanceResult(RelevanceVerdict.DecidedInclude, "queued"), _q, _profiles);
         // D30/D32: what experiment this is, fact by fact with sources, written at every exit of this stage.
         var xr = new ExperimentRecord(acc);
@@ -1037,7 +1046,19 @@ public sealed class BatchRunner
             if (refusal is null) { profile = _profiles[asked]; Log($"{acc} RE-SEARCH under {asked} (routing chose {route.Profile})"); }
             else Log($"{acc} RE-SEARCH asked for {asked}, which cannot take it ({refusal}); searching under {profile.Key} as routed");
         }
+        // 2026-11-20 (PXD032900-lfq): the screen's words chose the isobaric profile. The profile a label-free reading
+        // would have had is kept, so the probe's spectra can still decide (LabelFreeBySpectra, D34). v0.4.45 kept one only when
+        // the chemistry step routed the deposit, so PXD032900-lfq, whose record text had routed it, was refused under the very
+        // release written for it. A label the spectra decided on an earlier pass takes that profile at once: the words would
+        // otherwise route it back to the isobaric profile, where its label-free probe fails again.
+        Profile? routedFrom = LabelFreeAlternative(acc, acq, profile);
+        if (routedFrom is not null && Entry(acc)?["label_from_spectra"]?["value"]?.GetValue<string>() == "label_free")
+        {
+            Log($"{acc} screen: its probe's spectra decided label-free on an earlier pass; {routedFrom.Key}, not {profile.Key}");
+            (profile, routedFrom) = (routedFrom, null);
+        }
         Record(acc, ("profile", profile.Key));
+        if (routedFrom is not null) Record(acc, ("routed_isobaric", "screen"));
         if (!profile.Databases.ContainsKey(e.Organism))
         {
             Log($"{acc} SKIPPED: {profile.Key} has no database for organism '{e.Organism}'");
@@ -1128,7 +1149,8 @@ public sealed class BatchRunner
         // G19: a profile that searches with the deposit's own chemistry reads it before any download, and a deposit it cannot
         // search as read (two proteases with no per-file map, an unknown protease or modification, a label) waits.
         DepositChemistry? chemistry = null;
-        Profile? routedFrom = null;   // v0.4.45: the profile before PRIDE's words routed the deposit to the isobaric one
+        // routedFrom (above): the profile before PRIDE's words routed the deposit to the isobaric one, by the screen (2026-11-20)
+        // or by the chemistry step below (v0.4.45).
         if (profile.Chemistry == "deposit")
         {
             DepositChemistry chem;
@@ -1143,6 +1165,18 @@ public sealed class BatchRunner
                 routedFrom = profile;
                 profile = taker;
                 Record(acc, ("profile", profile.Key), ("routed_isobaric", "chemistry"));
+                try { chem = await ChemistryAsync(acc, all, listing.Select(f => f.FileName).ToList(), profile, ct).ConfigureAwait(false); }
+                catch (Exception ex) when (Envelope.IsUnavailable(ex) || FetchStage.IsTransient(ex)) { Log($"{acc} chemistry: PRIDE unavailable ({ex.Message}); retry next pass"); return null; }
+            }
+            // 2026-11-20 (PXD015728, PXD019690's Purkinje runs): the record text said TMT and the screen chose the isobaric
+            // profile, but the question's curated SDRF names the files label-free. The curated SDRF outranks the words (D22),
+            // so the deposit goes back to the profile a label-free reading had, before anything is downloaded. A deposited SDRF
+            // does not: community SDRFs have called whole TMT deposits "label free sample" (PXD019316, PXD024356).
+            if (routedFrom is not null && chem.Label is { Value: "label_free", Source: ChemistrySource.CuratedSdrf })
+            {
+                Log($"{acc} chemistry: label label_free (curated SDRF) outranks the words that chose {profile.Key}; back to {routedFrom.Key}");
+                (profile, routedFrom) = (routedFrom, null);
+                Record(acc, ("profile", profile.Key), ("routed_isobaric", null));
                 try { chem = await ChemistryAsync(acc, all, listing.Select(f => f.FileName).ToList(), profile, ct).ConfigureAwait(false); }
                 catch (Exception ex) when (Envelope.IsUnavailable(ex) || FetchStage.IsTransient(ex)) { Log($"{acc} chemistry: PRIDE unavailable ({ex.Message}); retry next pass"); return null; }
             }
@@ -2305,6 +2339,20 @@ public sealed class BatchRunner
     /// </summary>
     internal static string? UnsearchableChemistry(DepositChemistry chem) =>
         chem.Park ?? (chem.Label.Value == "label_free" || IsIsobaricLabel(chem.Label.Value) ? null : $"waiting_{Slug(chem.Label.Value)}_labelling");
+
+    /// <summary>
+    /// 2026-11-20: when the screen read the deposit as isobaric and routed it to <paramref name="chosen"/>, an isobaric profile,
+    /// the profile the question would have routed it to read as label-free; otherwise null. The probe keeps it so that its
+    /// spectra can still decide (<see cref="LabelFreeBySpectra"/>), as it keeps the profile the chemistry step routes from.
+    /// </summary>
+    internal Profile? LabelFreeAlternative(string acc, Acquisition acq, Profile chosen)
+    {
+        if (acq.Labelling != Labelling.Isobaric || !chosen.Accepts.Labellings.Contains(Labelling.Isobaric)) return null;
+        var route = Router.Assign(SearchKey.Accession(acc), acq with { Labelling = Labelling.LabelFree },
+            new RelevanceResult(RelevanceVerdict.DecidedInclude, "queued"), _q, _profiles);
+        return route is { Kind: RouteKind.Search, Profile: { } key } && !_profiles[key].Accepts.Labellings.Contains(Labelling.Isobaric)
+            ? _profiles[key] : null;
+    }
 
     /// <summary>The first profile the question names, in its order, that is available and takes this deposit as isobaric.</summary>
     internal Profile? IsobaricTaker(Acquisition acq) =>

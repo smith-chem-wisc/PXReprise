@@ -11,7 +11,32 @@ A new version of the engine never changes a finished result. Methods live in ver
 
 **MetaMorpheus** unchanged (1.1.14). **Machine file:** no change needed. **Safe mid-batch?** Yes: swap the pin as usual.
 Nothing searched under another profile changes. **Adopting:** a swap only. A question that wants it names `tmt-dda@5`
-before `tmt-dda@4` in its `profiles`, and each deposit QC refused for ion-trap HCD gets a `batch retry`.
+before `tmt-dda@4` in its `profiles`, and each deposit QC refused for ion-trap HCD gets a `batch retry`. So does each
+deposit refused for `no_isobaric_reporters` whose record text says TMT while PRIDE's quantification names label-free too
+(below).
+
+- **The spectra now decide when the record text, not PRIDE's list, chose the TMT profile** (PXD032900-lfq, 2026-11-20).
+  - **The problem.** Since 0.4.45, a deposit routed to the isobaric profile by PRIDE's words goes back to its label-free
+    profile when those words name label-free too and no probe file carries reporter ions (D34: spectra beat text). But the
+    probe kept a profile to go back to only when the chemistry step (PRIDE's quantification list) had routed the deposit.
+    When the record text itself said TMT, the screen routed it first, and the rule was never asked. PXD032900-lfq, the
+    case the rule was written for, has "TMT-based quantification" in its record, so it was refused under 0.4.45 anyway:
+    KMS_1Y, KMS_4Ag and KMS_6Ag, all `no_isobaric_reporters`.
+  - **Now the screen keeps the profile a label-free reading would have had** (`routed_isobaric: screen` in the state), so
+    the same rule applies to it. A label the spectra decided on an earlier pass takes that profile at once, before any
+    download. A deposit PRIDE files as TMT alone, or with a kit in any probe file, is still not second-guessed by the
+    spectra.
+  - **A question's curated SDRF that names every file `label free sample` now decides the label** (PXD015728, PXD019690's
+    Purkinje runs). Before, a label-free cell decided nothing, in any SDRF, and the text's TMT stood. A curated SDRF is a
+    person's statement for the deposit, so it now outranks PRIDE's list and the text. When the text had chosen the TMT
+    profile, the deposit goes back to the label-free profile before anything is downloaded. A deposited SDRF saying the
+    same still decides nothing: community SDRFs have called whole TMT deposits label-free (PXD019316, PXD024356).
+  - **A question's curated SDRF that names a protease for every file now outranks the screen's reading of non-specific
+    cleavage** (PXD033714). The record of a tryptic plasma-membrane screen also named an immunopeptidome, so the screen read
+    non-specific cleavage and parked the deposit (`waiting_nonspecific_cleavage`) before any SDRF was read. Now such a curated
+    SDRF lets the screen route it as digested, and the chemistry step reads the protease from that SDRF.
+  - **A deposit refused or parked this way does not reopen by itself:** run `batch retry` on it once its curated SDRF
+    is in place.
 
 - **A deposit can be split by plex** (`[splits.<acc>] by = "plex"`; aging PXR-A214, 2026-11-20). It is for a deposit of
   many isobaric plexes of one design, too large to search whole, searched one plex (or set of plexes) at a time: PXD011967
