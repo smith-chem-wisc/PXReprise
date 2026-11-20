@@ -1772,6 +1772,49 @@ public class BatchRunnerTests
         Assert.That(onDisk["label"]!["source"]!.GetValue<string>(), Is.EqualTo(ChemistrySource.ProbeSpectra));
     }
 
+    // 2026-11-20 (PXD032900-lfq): its record text says TMT, so the screen itself routed it to the TMT profile, and the
+    // v0.4.45 rule above was never asked: the probe kept a label-free profile to go back to only when the chemistry step had
+    // routed the deposit. It was refused (no_isobaric_reporters) under v0.4.45, the release written for it. Now the screen
+    // keeps that profile too, and a label the spectra decided on an earlier pass takes it at once.
+    [Test]
+    public async Task WhenTheRecordTextChoseTmtTheProbeStillKeepsTheLabelFreeProfileForItsSpectra()
+    {
+        const string tmtText = "digested with trypsin and labelled with TMT10plex reagents";
+        void Deposit(FakeSearch search, string acc)
+        {
+            search.Results[acc] = new() { TestSupport.Record(acc, "Type 2 diabetes muscle", tmtText, instruments: new[] { "Q Exactive HF" }, files: new[] { "run1.raw" }) };
+            search.Projects[acc] = new PrideProject
+            {
+                Accession = acc, Title = "Type 2 diabetes muscle", SampleProcessingProtocol = tmtText,
+                QuantificationMethods = new List<MzLibUtil.CvParam> { new() { Name = "Label free" }, new() { Name = "TMT" } },
+            };
+        }
+
+        var (runner, search, _, dir) = DepositChemistryRunner("\"label-free-dda@3\", \"tmt-dda@2\"");
+        Deposit(search, "PXD000417");
+        await runner.ProbeAsync(new QueueEntry("PXD000417", "t", "human"), CancellationToken.None);
+        var routed = runner.State()["datasets"]!["PXD000417"]!;
+        Assert.That((routed["profile"]!.GetValue<string>(), routed["routed_isobaric"]?.GetValue<string>()), Is.EqualTo(("tmt-dda@2", "screen")),
+            "the words route it to the TMT profile, and the label-free profile is kept for its spectra");
+
+        Deposit(search, "PXD000418");
+        runner.Record("PXD000418", ("label_from_spectra", new JsonObject { ["value"] = "label_free", ["evidence"] = "no isobaric reporter ions in any of the 3 probe files" }));
+        await runner.ProbeAsync(new QueueEntry("PXD000418", "t", "human"), CancellationToken.None);
+        var kept = runner.State()["datasets"]!["PXD000418"]!;
+        Assert.That(kept["profile"]!.GetValue<string>(), Is.EqualTo("label-free-dda@3"), "a retry keeps the spectra's label-free");
+        Assert.That(kept["routed_isobaric"], Is.Null);
+        Assert.That(kept["chemistry"]!["label"]!["value"]!.GetValue<string>(), Is.EqualTo("label_free"));
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")),
+            Does.Contain("PXD000418 screen: its probe's spectra decided label-free on an earlier pass; label-free-dda@3, not tmt-dda@2"));
+
+        // A question with no label-free profile has nothing to go back to: the words route it as before.
+        var (tmtOnly, tmtSearch, _, _) = DepositChemistryRunner("\"tmt-dda@2\"");
+        Deposit(tmtSearch, "PXD000419");
+        await tmtOnly.ProbeAsync(new QueueEntry("PXD000419", "t", "human"), CancellationToken.None);
+        var alone = tmtOnly.State()["datasets"]!["PXD000419"]!;
+        Assert.That((alone["profile"]!.GetValue<string>(), alone["routed_isobaric"]), Is.EqualTo(("tmt-dda@2", (JsonNode?)null)));
+    }
+
     // G18: a reboot mid-search left the deposit at "searching" with a half-written 04_search/mm, which MetaMorpheus refuses
     // to reuse; the restart would have settled it as search_failed.
     [Test]

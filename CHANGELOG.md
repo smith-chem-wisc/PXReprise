@@ -11,7 +11,21 @@ A new version of the engine never changes a finished result. Methods live in ver
 
 **MetaMorpheus** unchanged (1.1.14). **Machine file:** no change needed. **Safe mid-batch?** Yes: swap the pin as usual.
 Nothing searched under another profile changes. **Adopting:** a swap only. A question that wants it names `tmt-dda@5`
-before `tmt-dda@4` in its `profiles`, and each deposit QC refused for ion-trap HCD gets a `batch retry`.
+before `tmt-dda@4` in its `profiles`, and each deposit QC refused for ion-trap HCD gets a `batch retry`. So does each
+deposit refused for `no_isobaric_reporters` whose record text says TMT while PRIDE's quantification names label-free too
+(below).
+
+- **The spectra now decide when the record text, not PRIDE's list, chose the TMT profile** (PXD032900-lfq, 2026-11-20).
+  - **The problem.** Since 0.4.45, a deposit routed to the isobaric profile by PRIDE's words goes back to its label-free
+    profile when those words name label-free too and no probe file carries reporter ions (D34: spectra beat text). But the
+    probe kept a profile to go back to only when the chemistry step (PRIDE's quantification list) had routed the deposit.
+    When the record text itself said TMT, the screen routed it first, and the rule was never asked. PXD032900-lfq, the
+    case the rule was written for, has "TMT-based quantification" in its record, so it was refused under 0.4.45 anyway:
+    KMS_1Y, KMS_4Ag and KMS_6Ag, all `no_isobaric_reporters`.
+  - **Now the screen keeps the profile a label-free reading would have had** (`routed_isobaric: screen` in the state), so
+    the same rule applies to it. A label the spectra decided on an earlier pass takes that profile at once, before any
+    download. A deposit PRIDE files as TMT alone, or with a kit in any probe file, is still not second-guessed.
+  - **A deposit refused this way does not reopen by itself:** run `batch retry` on it.
 
 - **A new TMT profile, `tmt-dda@5`: `tmt-dda@4` plus MS2 fragmented by HCD and read in the ion trap,** searched as
   MetaMorpheus's LowCID.
