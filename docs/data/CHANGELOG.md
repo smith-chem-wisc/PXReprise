@@ -83,6 +83,16 @@ search by MetaMorpheus 1.1.13 or earlier.
   the registration recorded. On aging's 192 re-ingested deposits (human, mouse and rat): 200,649 genes, 171,792 ortholog
   rows, 401,298 statuses and 180,930 `protein_orthologs` rows for 64,198 accessions, about 9 s of a folder build; one
   protein's orthologs answer in about 0.1 s.
+- **`protein_peptidoforms`: a protein's accepted peptidoforms are a lookup, not a scan** (dataRepo 136).
+  `peptidoforms_1pct` unnested over `protein_accessions`, one row per accession of each peptidoform
+  (`protein_accession`, `dataset_id`, `bundle_id`, `peptidoform_id`, `base_sequence`, `best_q_value`; an accession a
+  list names twice gives one row), stored sorted by accession, so DuckDB's zone maps skip every row group but those
+  holding it. Before, a join through `list_contains(protein_accessions, ...)` read every accepted peptidoform. In both
+  layouts: a folder derives each deposit's rows once, in `derived/` beside its other derived rows (so the derivation id
+  moves and a folder derives every deposit once more), and sorts them into the catalog file at every build. On aging's
+  192 re-ingested deposits: 9,160,934 rows for 52,946 accessions, 255 MB of the catalog file (227 MB without it) and
+  267 MB in `derived/`, 9 to 17 s of a build; one accession answers in about 7 ms. querying.md's "every ortholog of
+  protein X, with its peptides and PTM sites" uses it: about 2 s on that catalog, 21 to 23 s before.
 
 ### Changed (engines)
 - **`logs.resolve_genes` writes `logs:DEF-GENE-RESOLUTION v2`**, on every row, in `run.json` and in the artefact id,

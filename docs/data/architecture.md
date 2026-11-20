@@ -50,7 +50,8 @@ The parts of the proposal below that it settled in practice:
   opinion. From catalog format 17 the peptidoform view follows each search's own confidence rule (D55),
   the rule the ingest applied to `peptidoform_ions`, so its count is deliberately not the producer's.
 - **Cross-dataset indexes are the point.** `protein_index`, `protein_datasets` and `peptide_index`
-  answer "which datasets have this", which no single bundle can.
+  answer "which datasets have this", which no single bundle can; from catalog format 17, `protein_peptidoforms`
+  answers "which accepted peptidoforms does this protein have" as a lookup.
 - **Nothing is served that does not hold together.** Row counts, uniqueness and references are
   re-checked against the bundle manifests, and a failed build leaves the previous catalog serving.
 

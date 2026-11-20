@@ -174,6 +174,21 @@ carry `n_datasets`, `n_datasets_1pct`, `dataset_ids`, `dataset_ids_1pct` and `be
 in parts (one dataset per part, keyed `<accession>-<group>`) counts once, and `dataset_ids` lists each
 part. `deposits` lists every deposit with its datasets.
 
+From catalog format 17, `protein_peptidoforms` holds a protein's accepted peptidoforms: `peptidoforms_1pct` unnested
+over `protein_accessions`, one row per accession of each peptidoform, with its `base_sequence`, stored sorted by
+accession. One protein's rows are a lookup (about 7 ms on aging's 9.2 million rows), where
+`list_contains(protein_accessions, ...)` on `peptidoforms_1pct` reads every peptidoform:
+
+```sql
+SELECT dataset_id, count(DISTINCT base_sequence) AS n_sequences, count(*) AS n_peptidoforms
+FROM protein_peptidoforms WHERE protein_accession = 'P03995'   -- mouse GFAP
+GROUP BY dataset_id ORDER BY n_sequences DESC;
+```
+
+The accessions are the ones MetaMorpheus's parsimony assigned each peptidoform to, as in `peptidoforms_1pct`, not
+every protein whose sequence holds it. A shared peptidoform has a row under each of its accessions, so count peptides
+as distinct `base_sequence`, never as rows across accessions.
+
 ⚠ **`gene` here is currently unvalidated** — see [limitations.md §4](limitations.md). Use the
 accession as the key.
 
@@ -248,13 +263,13 @@ groups AS (
     JOIN protein_groups_1pct g ON list_contains(g.protein_accessions, a.partner_accession)
     GROUP BY a.partner_accession
 ),
-peptides AS (
-    SELECT a.partner_accession,
+peptides AS (   -- protein_peptidoforms: peptidoforms_1pct by accession, sorted on it
+    SELECT p.protein_accession AS partner_accession,
            count(DISTINCT p.base_sequence) AS n_sequences_1pct,
            count(DISTINCT p.dataset_id)    AS n_datasets_peptides
-    FROM asked a
-    JOIN peptidoforms_1pct p ON list_contains(p.protein_accessions, a.partner_accession)
-    GROUP BY a.partner_accession
+    FROM protein_peptidoforms p
+    WHERE p.protein_accession IN (SELECT partner_accession FROM asked)
+    GROUP BY p.protein_accession
 ),
 sites AS (
     SELECT a.partner_accession,
@@ -287,8 +302,11 @@ no orthologs. One-to-many orthologs give a row each
 (target, `best_q_value` at most 0.01) is the reader's: `ptm_sites` holds every site, fixed modifications included.
 `best_group_coverage` is MetaMorpheus's coverage (0 to 1) of an accepted group holding the accession. On the
 catalog above it gives mouse P03995 94 sequences in 56 datasets and 286 sites, and rat P47819 71 sequences in 25
-datasets and 140 sites, in 10 to 20 s: nearly all of it is the scan of `peptidoforms_1pct` (8.4 million of 82
-million peptidoforms) that `list_contains` needs, since a list column takes no index.
+datasets and 140 sites, in about 2 s. The peptides come from `protein_peptidoforms`, which is sorted by accession,
+in about 0.2 s. Joined to `peptidoforms_1pct` through `list_contains(protein_accessions, ...)`, as this query did
+before 1.5.0's index, they took 16 s and the whole query 21 to 23 s, since a list column takes no index and every one
+of the 8.4 million accepted peptidoforms was read. Most of the 2 s left is the `list_contains` scan of
+`protein_groups_1pct` (0.7 million groups, about 0.9 s) and the join to `ptm_sites` (about 1.1 s).
 
 ---
 
