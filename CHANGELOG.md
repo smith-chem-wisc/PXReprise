@@ -24,7 +24,13 @@ deposit refused for `no_isobaric_reporters` whose record text says TMT while PRI
     KMS_1Y, KMS_4Ag and KMS_6Ag, all `no_isobaric_reporters`.
   - **Now the screen keeps the profile a label-free reading would have had** (`routed_isobaric: screen` in the state), so
     the same rule applies to it. A label the spectra decided on an earlier pass takes that profile at once, before any
-    download. A deposit PRIDE files as TMT alone, or with a kit in any probe file, is still not second-guessed.
+    download. A deposit PRIDE files as TMT alone, or with a kit in any probe file, is still not second-guessed by the
+    spectra.
+  - **A question's curated SDRF that names every file `label free sample` now decides the label** (PXD015728, PXD019690's
+    Purkinje runs). Before, a label-free cell decided nothing, in any SDRF, and the text's TMT stood. A curated SDRF is a
+    person's statement for the deposit, so it now outranks PRIDE's list and the text. When the text had chosen the TMT
+    profile, the deposit goes back to the label-free profile before anything is downloaded. A deposited SDRF saying the
+    same still decides nothing: community SDRFs have called whole TMT deposits label-free (PXD019316, PXD024356).
   - **A deposit refused this way does not reopen by itself:** run `batch retry` on it.
 
 - **A new TMT profile, `tmt-dda@5`: `tmt-dda@4` plus MS2 fragmented by HCD and read in the ion trap,** searched as

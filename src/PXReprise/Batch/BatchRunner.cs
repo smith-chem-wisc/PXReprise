@@ -1159,6 +1159,18 @@ public sealed class BatchRunner
                 try { chem = await ChemistryAsync(acc, all, listing.Select(f => f.FileName).ToList(), profile, ct).ConfigureAwait(false); }
                 catch (Exception ex) when (Envelope.IsUnavailable(ex) || FetchStage.IsTransient(ex)) { Log($"{acc} chemistry: PRIDE unavailable ({ex.Message}); retry next pass"); return null; }
             }
+            // 2026-11-20 (PXD015728, PXD019690's Purkinje runs): the record text said TMT and the screen chose the isobaric
+            // profile, but the question's curated SDRF names the files label-free. The curated SDRF outranks the words (D22),
+            // so the deposit goes back to the profile a label-free reading had, before anything is downloaded. A deposited SDRF
+            // does not: community SDRFs have called whole TMT deposits "label free sample" (PXD019316, PXD024356).
+            if (routedFrom is not null && chem.Label is { Value: "label_free", Source: ChemistrySource.CuratedSdrf })
+            {
+                Log($"{acc} chemistry: label label_free (curated SDRF) outranks the words that chose {profile.Key}; back to {routedFrom.Key}");
+                (profile, routedFrom) = (routedFrom, null);
+                Record(acc, ("profile", profile.Key), ("routed_isobaric", null));
+                try { chem = await ChemistryAsync(acc, all, listing.Select(f => f.FileName).ToList(), profile, ct).ConfigureAwait(false); }
+                catch (Exception ex) when (Envelope.IsUnavailable(ex) || FetchStage.IsTransient(ex)) { Log($"{acc} chemistry: PRIDE unavailable ({ex.Message}); retry next pass"); return null; }
+            }
             xr.Chemistry(chem);
             chemistry = chem;
             string? wait = UnsearchableChemistry(chem)

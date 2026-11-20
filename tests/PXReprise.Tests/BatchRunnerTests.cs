@@ -1815,6 +1815,34 @@ public class BatchRunnerTests
         Assert.That((alone["profile"]!.GetValue<string>(), alone["routed_isobaric"]), Is.EqualTo(("tmt-dda@2", (JsonNode?)null)));
     }
 
+    // 2026-11-20 (PXD015728, PXD019690's Purkinje runs): the record text says TMT, but the question's curated SDRF names every
+    // file label-free. The curated SDRF outranks the words, so the deposit goes to the label-free profile before any download.
+    // PRIDE's list says TMT alone here, so the spectra rule above could never send it back.
+    [Test]
+    public async Task ACuratedSdrfNamingTheFilesLabelFreeOutranksTheWordsThatChoseTmt()
+    {
+        const string tmtText = "digested with trypsin and labelled with TMT10plex reagents";
+        const string acc = "PXD000420";
+        var (runner, search, _, dir) = DepositChemistryRunner("\"label-free-dda@3\", \"tmt-dda@2\"", designs: true);
+        search.Results[acc] = new() { TestSupport.Record(acc, "Type 2 diabetes muscle", tmtText, instruments: new[] { "Q Exactive HF" }, files: new[] { "run1.raw" }) };
+        search.Projects[acc] = new PrideProject
+        {
+            Accession = acc, Title = "Type 2 diabetes muscle", SampleProcessingProtocol = tmtText,
+            QuantificationMethods = new List<MzLibUtil.CvParam> { new() { Name = "TMT" } },
+        };
+        TestSupport.WriteFile(Path.Combine(dir, "designs"), $"{acc}.sdrf.tsv", "source name\tcomment[data file]\tcomment[label]\n"
+            + string.Concat(Enumerable.Range(1, 6).Select(i => $"s{i}\trun{i}.raw\tlabel free sample\n")));
+
+        await runner.ProbeAsync(new QueueEntry(acc, "t", "human"), CancellationToken.None);
+        var st = runner.State()["datasets"]![acc]!;
+        Assert.That(st["profile"]!.GetValue<string>(), Is.EqualTo("label-free-dda@3"));
+        Assert.That(st["routed_isobaric"], Is.Null);
+        Assert.That((st["chemistry"]!["label"]!["value"]!.GetValue<string>(), st["chemistry"]!["label"]!["source"]!.GetValue<string>()),
+            Is.EqualTo(("label_free", ChemistrySource.CuratedSdrf)));
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")),
+            Does.Contain($"{acc} chemistry: label label_free (curated SDRF) outranks the words that chose tmt-dda@2; back to label-free-dda@3"));
+    }
+
     // G18: a reboot mid-search left the deposit at "searching" with a half-written 04_search/mm, which MetaMorpheus refuses
     // to reuse; the restart would have settled it as search_failed.
     [Test]
