@@ -280,10 +280,11 @@ and any dataset the census does not include, in `catalog_checks` (kind `census`)
     `organelle_term_categories`). Use one go.obo and one map for every dataset of a catalog, or `build` refuses.
   - `logs.register_orthology --input snapshot_tar=<compara-N.tar> --input snapshot_manifest=<compara-N.manifest.json>`:
     takes no accession. It checks one of logs' released orthology snapshots against logs' file contract and
-    registers it. No rows are copied: the snapshot is read in place from
-    `<store>/_engine/logs.register_orthology/<id>/snapshot/` through its own `views.sql`, and the catalog cites it
-    in `catalog_engine_artefacts`. A catalog serves one snapshot, and `build` fails if the gene resolutions it loads
-    used other gene sets than the snapshot's.
+    registers it. The artefact copies no rows: the snapshot is kept whole in
+    `<store>/_engine/logs.register_orthology/<id>/snapshot/`, and the catalog cites it in `catalog_engine_artefacts`.
+    From 1.5.0, `build` copies its rows, through its own `views.sql`, into five orthology tables, `protein_orthologs`
+    among them ([build.md](build.md#cross-dataset-tables)). A catalog serves one snapshot, and `build` fails if the gene
+    resolutions it loads used other gene sets than the snapshot's.
 - **`datarepo study`** delivers a study layer's rows, such as age effects, sample ages, or curated
   tissue and cell type. They go into a separately hashed study bundle, so delivering a model result
   never re-identifies a search bundle. See [study.md](study.md).

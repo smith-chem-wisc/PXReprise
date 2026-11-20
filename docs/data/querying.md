@@ -189,6 +189,107 @@ same mass shift carries several names across sources. Columns: `dataset_id`, `pr
 `best_q_value`, `best_ambiguity_level`, `target_decoy`. **`n_names > 1` means the same chemistry
 arrived under several spellings** — do not group on `modification` alone.
 
+### Every ortholog of a protein, with what the repository saw of each
+
+From catalog format 17, `protein_orthologs` joins every target accession that has a gene resolution to its
+orthologs in each other species of the registered orthology snapshot (Ensembl Compara, through logs), and to
+the accessions that resolve to each ortholog gene:
+
+```sql
+-- Every link logs wrote, both of its views together (no view filter).
+SELECT target_species, status, resolution_source, resolution_xref_agreement, relationship_type,
+       partner_gene_name, partner_accession, partner_resolution_source, partner_xref_agreement,
+       partner_n_datasets_1pct
+FROM protein_orthologs WHERE protein_accession = 'P14136'   -- human GFAP
+ORDER BY target_species, partner_accession;
+```
+
+```
+target_species     status        resolution_source            resolution_xref_agreement  relationship_type  partner_gene_name  partner_accession  partner_resolution_source    partner_xref_agreement  partner_n_datasets_1pct
+-----------------  ------------  ---------------------------  -------------------------  -----------------  -----------------  -----------------  ---------------------------  ----------------------  -----------------------
+mus_musculus       has_ortholog  search_database_dbreference  agrees                     ortholog_one2one   Gfap               P03995             search_database_dbreference  agrees                  59
+rattus_norvegicus  has_ortholog  search_database_dbreference  agrees                     ortholog_one2one   Gfap               P47819             search_database_dbreference  agrees                  25
+```
+
+That ran on a 1.5.0 folder catalog of aging's 192 re-ingested deposits, where `protein_orthologs` holds 180,930 rows
+for 64,198 accessions; it answers in about 0.1 s.
+
+**Each row is one gene link logs wrote, and the table holds both of its views together.** To read one view, filter
+on the view columns, the accession's and the partner's:
+
+- the search database's view: `resolution_source = 'search_database_dbreference'` (and `partner_resolution_source`);
+- logs' v2 default view, aging's: `resolution_xref_agreement IN ('agrees', 'silent')` (and `partner_xref_agreement`).
+  It leaves out the links Ensembl contradicts. A v1 row (`gene_resolution_definition_id`) has only
+  `resolution_xref_agrees`, where false covers both `silent` and `disagrees`.
+
+A view can leave an accession with no gene (one only Ensembl's xref links, `resolution_source = 'ensembl_xref'`, has
+none in the search database's view) and an ortholog with no accession, so keep the `gene_id IS NULL` rows and read
+the unfiltered rows before calling anything absent.
+
+**A view applied as a plain `WHERE` drops rows; it does not turn them into refusals.** On aging's store (logs 024):
+- under v2's default view, P60484-2 (a PTEN isoform) loses its only gene. Its own xref links only a gene outside the
+  gene set, so its PTEN link reads `disagrees`;
+- 138 (accession, ortholog gene) pairs lose every partner accession, so the ortholog itself disappears from the answer.
+
+To read one view and still see what it leaves out, filter the partner columns inside a `LEFT JOIN` rather than in the
+`WHERE`, and report an accession whose rows a view removes as "no gene in this view", not as absent. The status is
+Compara's own: human PTEN, for example, is `no_edge_in_shared_tree` towards mouse and rat in Compara 116 itself.
+
+The evidence for each ortholog is one join away:
+
+```sql
+-- Every link logs wrote, both views together; add a view's filter to `asked` to read one.
+WITH asked AS (
+    SELECT * FROM protein_orthologs WHERE protein_accession = 'P14136'   -- human GFAP
+),
+groups AS (
+    SELECT a.partner_accession, max(g.sequence_coverage) AS best_group_coverage
+    FROM asked a
+    JOIN protein_groups_1pct g ON list_contains(g.protein_accessions, a.partner_accession)
+    GROUP BY a.partner_accession
+),
+peptides AS (
+    SELECT a.partner_accession,
+           count(DISTINCT p.base_sequence) AS n_sequences_1pct,
+           count(DISTINCT p.dataset_id)    AS n_datasets_peptides
+    FROM asked a
+    JOIN peptidoforms_1pct p ON list_contains(p.protein_accessions, a.partner_accession)
+    GROUP BY a.partner_accession
+),
+sites AS (
+    SELECT a.partner_accession,
+           count(DISTINCT s.position || ':' || s.modification_name) AS n_ptm_sites,
+           list_sort(list(DISTINCT s.modification_name))            AS modifications
+    FROM asked a
+    JOIN ptm_sites s ON s.protein_accession = a.partner_accession
+    WHERE s.target_decoy = 'target' AND s.best_q_value <= 0.01
+    GROUP BY a.partner_accession
+)
+SELECT a.target_species, a.status, a.relationship_type, a.partner_gene_name, a.partner_accession,
+       a.partner_n_datasets_1pct, round(g.best_group_coverage, 2) AS best_group_coverage,
+       p.n_sequences_1pct, p.n_datasets_peptides, s.n_ptm_sites, s.modifications
+FROM asked a
+LEFT JOIN groups g ON g.partner_accession = a.partner_accession
+LEFT JOIN peptides p ON p.partner_accession = a.partner_accession
+LEFT JOIN sites s ON s.partner_accession = a.partner_accession
+ORDER BY a.target_species, a.partner_gene, a.partner_accession;
+```
+
+**Read `status` before reading an empty column as "not detected".** Every accession has at least one row per
+other species. A status other than `has_ortholog` says why there is no ortholog: `no_gene` (no gene of its species
+is linked to the accession at all, in either view), `no_edge_in_shared_tree`, `tree_lacks_target_species` or
+`not_in_any_tree`. A `has_ortholog` row with no `partner_accession` is an ortholog in Compara with no accession of
+it in any search here. Only a row with a `partner_accession` and no evidence means the repository searched for that
+protein and accepted nothing. **No rows at all** means the accession is not one the repository resolved to a gene (it is
+not in `protein_genes`), or that the catalog serves no snapshot (`orthology_species` is empty), never that it has
+no orthologs. One-to-many orthologs give a row each
+(`relationship_type`), and isoform accessions of a partner gene each have their own row. The site rule here
+(target, `best_q_value` at most 0.01) is the reader's: `ptm_sites` holds every site, fixed modifications included.
+`best_group_coverage` is MetaMorpheus's coverage (0 to 1) of an accepted group holding the accession. On the
+catalog above it gives mouse P03995 94 sequences in 56 datasets and 286 sites, and rat P47819 71 sequences in 25
+datasets and 140 sites, in 10 to 20 s: nearly all of it is the scan of `peptidoforms_1pct` (8.4 million of 82
+million peptidoforms) that `list_contains` needs, since a list column takes no index.
+
 ---
 
 ## 3 · Trust: what the bundle itself says is wrong

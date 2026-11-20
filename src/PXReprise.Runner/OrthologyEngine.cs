@@ -16,9 +16,9 @@ public sealed record SnapshotRelease(string Tag, string TarSha256, string Manife
 /// <summary><c>logs.register_orthology</c>: verify one of logs' released orthology snapshots and register it, so a
 /// catalog can cite it (DATAREPO-75, logs 031; LOGS-D4 (a), our logs 029).</summary>
 /// <remarks>
-/// <para><b>It copies no orthology rows.</b> The snapshot is read in place: the artefact holds <c>run.json</c> and the
-/// extracted snapshot under <see cref="SnapshotDir"/>, and a query reaches its Parquet through the snapshot's own
-/// <c>views.sql</c> (DuckDB table macros, with the snapshot directory as their first argument). The method and the
+/// <para><b>It copies no orthology rows.</b> The snapshot is kept whole: the artefact holds <c>run.json</c> and the
+/// extracted snapshot under <see cref="SnapshotDir"/>, whose Parquet the snapshot's own <c>views.sql</c> reads (DuckDB
+/// table macros, with the snapshot directory as their first argument), here and at <c>build</c>. The method and the
 /// file contract are logs' (<c>logs:DEF-ORTHOLOGY v1</c>, <c>logs/design/DEFINITIONS.md</c>, "The file contract");
 /// this checks that a snapshot keeps that contract and computes nothing about orthology.</para>
 /// <para><b>Inputs by role:</b> <c>snapshot_tar</c> and <c>snapshot_manifest</c>, both from logs' release, supplied by
@@ -35,7 +35,10 @@ public sealed record SnapshotRelease(string Tag, string TarSha256, string Manife
 /// </list>
 /// <para>The cross-check logs proposed, that the snapshot's gene sets are the ones the stored gene resolutions used,
 /// is made by <c>build</c>, where both are loaded together and it cannot be skipped
-/// (<c>CatalogBuilder.RequireOrthologyGeneSets</c>).</para>
+/// (<see cref="CatalogBuilder.CheckOrthology"/>).</para>
+/// <para>The artefact copies no rows, and a catalog does: <c>build</c> runs the snapshot's <c>views.sql</c> and copies what it
+/// gives into the orthology tables (<see cref="CatalogBuilder.OrthologyTables"/>, <c>CatalogOrthology.cs</c>), so a
+/// catalog answers without reading the snapshot.</para>
 /// </remarks>
 public static class OrthologyEngine
 {
@@ -47,8 +50,9 @@ public static class OrthologyEngine
     /// <c>&lt;artefact&gt;/snapshot</c> as its root.</summary>
     public const string SnapshotDir = "snapshot";
 
-    public const string Format = "ensembl-orthology-snapshot";
-    public const long FormatVersion = 1;
+    /// <summary>The one format this registers, which is the one a build reads.</summary>
+    public const string Format = CatalogBuilder.OrthologySnapshotFormat;
+    public const long FormatVersion = CatalogBuilder.OrthologySnapshotFormatVersion;
 
     /// <summary>The four statuses <c>pair_status</c> gives (logs' file contract). <c>not_in_gene_set</c> is the
     /// caller's, for a gene id the snapshot does not hold, and never comes from the macro.</summary>

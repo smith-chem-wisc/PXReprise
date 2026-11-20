@@ -259,7 +259,10 @@ public static partial class CatalogBuilder
     /// <c>n_datasets*</c> counting deposits, the census matched by accession, and a <c>split</c> check refusing a deposit
     /// served both whole and in parts. "17" (1.5.0, D55) makes <c>peptidoforms_1pct</c> follow each search's
     /// <c>datasets.confidence_rule</c>, so every count built from it moves, and adds <c>dataset_overview.confidence_rule</c>
-    /// beside <c>n_peptidoforms_1pct</c>.</remarks>
+    /// beside <c>n_peptidoforms_1pct</c>. "17", still unreleased, also copies the registered orthology snapshot into
+    /// <c>orthology_species</c>, <c>orthology_genes</c>, <c>gene_orthologs</c> and <c>gene_ortholog_status</c>, and derives
+    /// <c>protein_orthologs</c> from them (<c>CatalogOrthology.cs</c>), with <c>engine-consistency</c> checks and a sha256
+    /// check of the snapshot's files; the five tables are in every catalog, empty when no snapshot is registered.</remarks>
     public static string CatalogVersion => SchemaContract.IsPython0320 ? "8" : "17";
 
     /// <summary>Bundle tables a catalog does not hold. PSMs are archived per deposit, never in a catalog (PXReprise's
@@ -533,6 +536,10 @@ public static partial class CatalogBuilder
         ("protein_index", "protein_accession"),
         ("protein_datasets", "protein_accession"),
         ("peptide_index", "base_sequence"),
+        // The orthology tables (CatalogOrthology.cs): "every ortholog of protein X" starts from an accession or a gene.
+        (ProteinOrthologsTable, "protein_accession"),
+        (GeneOrthologsTable, "gene"),
+        (GeneOrthologStatusTable, "gene_id"),
     ];
 
     /// <summary><c>peptidoforms_1pct</c>'s description: its rule (D55, <see cref="PeptidoformsConfidenceRule"/>), and that
@@ -733,6 +740,151 @@ public static partial class CatalogBuilder
                 ["gene_id"] = "Stable Ensembl gene id, or NULL when the outcome has none.",
                 ["gene_symbol"] = "The pinned Ensembl release's symbol, for display. Group on `gene_id`.",
                 ["artefact_id"] = "The engine artefact the row came from (`catalog_engine_artefacts`).",
+            }),
+        [OrthologySpeciesTable] = new(
+            "One row per species of the registered orthology snapshot (`logs.register_orthology`: logs' "
+            + "`logs:DEF-ORTHOLOGY v1`, from Ensembl Compara), with the Ensembl gene set it was built from. A "
+            + "`gene_resolutions` row belongs to a species here through `gene_set_sha256`, and the build fails if one used "
+            + "a gene set that is not here. The snapshot's release, tag and attribution are in `catalog_engine_artefacts`. "
+            + "The five orthology tables are in every catalog: EMPTY means no snapshot is served (the `catalog_checks` row "
+            + "of kind `engine-coverage` says so), never that a protein has no ortholog.",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["species"] = "Ensembl's production name, e.g. `homo_sapiens`, `mus_musculus`.",
+                ["gene_set_sha256"] = "sha256 of the Ensembl gene set (GTF) the snapshot's genes are, as its manifest records it: "
+                    + "the value `gene_resolutions.gene_set_sha256` carries for this species.",
+                ["n_genes"] = "Rows of `orthology_genes` for the species: every gene of its primary-assembly gene set, all "
+                    + "biotypes, not only protein-coding ones.",
+                ["artefact_id"] = "The snapshot's engine artefact (`catalog_engine_artefacts`).",
+            }),
+        [OrthologyGenesTable] = new(
+            "Every gene of each snapshot species' primary-assembly gene set, all biotypes, copied from the snapshot's "
+            + "`genes/<species>.parquet`. It is the denominator of `gene_ortholog_status`. Every gene `protein_orthologs` "
+            + "reads is here for its species: the build fails otherwise, since the resolutions and the snapshot would then "
+            + "disagree about the gene set.",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["gene_id"] = "Stable Ensembl gene id, unversioned. Joins `gene_resolutions.gene_id` within one species.",
+                ["gene_version"] = "Ensembl's version of the gene, verbatim.",
+                ["gene_biotype"] = "Ensembl's biotype (`protein_coding`, `lncRNA`, ...). Every biotype is here, so name the "
+                    + "ones you count over.",
+                ["gene_name"] = "Ensembl's gene name, for display; NULL where Ensembl gives none. Never join on it.",
+                ["seq_region"] = "The chromosome or scaffold the gene is on.",
+                ["species"] = "Ensembl's production name (`orthology_species.species`).",
+                ["artefact_id"] = "The snapshot's engine artefact (`catalog_engine_artefacts`).",
+            }),
+        [GeneOrthologsTable] = new(
+            "Every ortholog relationship Ensembl Compara asserts between two snapshot species, once in EACH direction: the "
+            + "rows of the snapshot's own `orthologs(root, a, b)` view for every ordered pair, `gene` being `species`' gene "
+            + "and `partner_gene` `partner_species`'. Orthologs only: paralogs are never here. One row per relationship, "
+            + "never collapsed: a gene with several orthologs (`ortholog_one2many`, `ortholog_many2many`) has a row for each. "
+            + "Compara asserts pairs only, so join the pair you need directly and never chain two (human to mouse to rat). "
+            + "A gene with no row here has its reason in `gene_ortholog_status`.",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["species"] = "The species of `gene` (Ensembl's production name).",
+                ["partner_species"] = "The species of `partner_gene`.",
+                ["homology_id"] = "Compara's id for the relationship. It appears once in each direction.",
+                ["relationship_type"] = "Compara's `homology_type`, verbatim: `ortholog_one2one`, `ortholog_one2many` or "
+                    + "`ortholog_many2many`.",
+                ["gene"] = "`species`' Ensembl gene id: joins `orthology_genes.gene_id` and `gene_resolutions.gene_id`.",
+                ["protein"] = "Compara's canonical protein for `gene`, an Ensembl protein id (ENSP...), not a UniProt accession.",
+                ["identity"] = "Percentage of `protein` identical to `partner_protein`: Compara's figure for this side.",
+                ["partner_gene"] = "`partner_species`' Ensembl gene id.",
+                ["partner_protein"] = "Compara's canonical protein for `partner_gene`.",
+                ["partner_identity"] = "Percentage of `partner_protein` identical to `protein`.",
+                ["dn"] = "Compara's dN, verbatim; NULL where Compara gives none, never 0.",
+                ["ds"] = "Compara's dS, verbatim; NULL where Compara gives none, never 0.",
+                ["goc_score"] = "Compara's gene-order conservation score (0 to 100), verbatim; NULL where not computed.",
+                ["wga_coverage"] = "Compara's whole-genome alignment coverage, verbatim; NULL where not computed.",
+                ["is_high_confidence"] = "Compara's high-confidence flag. NULL means Compara declined to say, not false.",
+                ["artefact_id"] = "The snapshot's engine artefact (`catalog_engine_artefacts`).",
+            }),
+        [GeneOrthologStatusTable] = new(
+            "Every gene of each snapshot species with exactly one status in each OTHER species: the snapshot's own "
+            + "`pair_status(root, a, b)` for every ordered pair. Why a gene has no ortholog is a row here, never an absence: "
+            + "`has_ortholog` (rows in `gene_orthologs`), `no_edge_in_shared_tree` (its gene tree holds a gene of the target "
+            + "species and Compara called no ortholog), `tree_lacks_target_species` (its tree holds no gene of the target, so "
+            + "nothing was compared) or `not_in_any_tree` (in no tree; no call was attempted). The build checks each "
+            + "direction's counts against the snapshot's registration (`catalog_checks` kind `engine-consistency`).",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["species"] = "The gene's species.",
+                ["gene_id"] = "The gene (`orthology_genes.gene_id`).",
+                ["gene_biotype"] = "As `orthology_genes.gene_biotype`. Every biotype is here: a denominator of protein-coding "
+                    + "genes is a filter you write and name.",
+                ["target_species"] = "The species the status is about.",
+                ["status"] = "One of `has_ortholog`, `no_edge_in_shared_tree`, `tree_lacks_target_species`, `not_in_any_tree`.",
+                ["artefact_id"] = "The snapshot's engine artefact (`catalog_engine_artefacts`).",
+            }),
+        [ProteinOrthologsTable] = new(
+            "The repository's proteins to their orthologs, so \"every ortholog of protein X\" is one query. For every TARGET "
+            + "accession a search held with logs' gene resolution (the accessions of `protein_genes`: no decoy, no "
+            + "contaminant) and every OTHER snapshot species: each gene logs links the accession to (each gene of a "
+            + "`multi_gene` accession, and a gene only Ensembl's xref links), its `status` in that species, and for "
+            + "`has_ortholog` one row per ortholog gene, times each accession some search held that resolves to that gene. "
+            + "**Refusals are rows**: every accession has at least one row per target species, and a `status` other than "
+            + "`has_ortholog` says why there is no ortholog, so an empty join to the evidence never reads as 'not detected' "
+            + "before `status` is read (`catalog_checks` rows of kind `engine-consistency` check both, and that no accession is "
+            + "both `no_gene` and answered through a gene). **The rows are every link logs wrote, both of its views "
+            + "together**: `resolution_source` and the agreement columns (and their `partner_` twins) let you apply one. The "
+            + "search database's view is `resolution_source = 'search_database_dbreference'`; logs' v2 default view (aging's) "
+            + "is `resolution_xref_agreement IN ('agrees', 'silent')`, or `resolution_xref_agrees` on a v1 row. A view can "
+            + "leave an accession with no gene (one only Ensembl's xref links has no gene in the search database's view) and "
+            + "an ortholog with no accession, so read the unfiltered rows before calling anything absent. Everything joins on "
+            + "Ensembl gene ids within one gene set, never on gene symbols, and pairs are never chained. Like `protein_genes`, "
+            + "it spans the search DATABASES: a row is not evidence that either protein was identified "
+            + "(`partner_n_datasets_1pct`, `peptidoforms_1pct`). Built at `build` from `gene_resolutions`, `gene_orthologs` "
+            + "and `gene_ortholog_status`.",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["protein_accession"] = "The accession as the search database carried it (`protein_index.protein_accession`).",
+                ["species"] = "The snapshot species of the gene set the accession was resolved against "
+                    + "(`gene_resolutions.gene_set_sha256`, through `orthology_species`).",
+                ["resolution_outcome"] = "logs' outcome for the accession on this row's `gene_resolutions` row: `resolved`, "
+                    + "`multi_gene`, or an outcome naming no gene of the search database (`not_in_source`, `off_primary_only`, "
+                    + "`unrecognized_accession`). A no-gene outcome can stand beside a gene and any status: that is a "
+                    + "`resolution_source = 'ensembl_xref'` row, which keeps the outcome while Ensembl's xref supplies the gene. "
+                    + "`status` is `no_gene` only when the accession has no gene at all in its species.",
+                ["resolution_source"] = "Where the accession's gene link comes from (`gene_resolutions.source`): "
+                    + "`search_database_dbreference` (the search database's own reference) or `ensembl_xref` (only Ensembl's xref "
+                    + "links it). On a `no_gene` row, the source of the no-gene answer.",
+                ["resolution_xref_agreement"] = "Whether Ensembl's xref agrees with the link (`gene_resolutions.ensembl_xref_agreement`, "
+                    + "logs' v2): `agrees`, `silent` or `disagrees`. NULL on a v1 row and on a `no_gene` row.",
+                ["resolution_xref_agrees"] = "The same as a boolean (`gene_resolutions.ensembl_xref_agrees`), on v1 and v2 rows: "
+                    + "v1's only agreement column. False covers both `silent` and `disagrees`. NULL on a `no_gene` row.",
+                ["gene_id"] = "The accession's Ensembl gene; NULL only on a `no_gene` row.",
+                ["target_species"] = "The other snapshot species the row answers for. Each one has a row.",
+                ["status"] = "`no_gene` (no gene of the accession's species is linked to it at all), or the gene's "
+                    + "`gene_ortholog_status.status` in `target_species`: `has_ortholog`, `no_edge_in_shared_tree`, "
+                    + "`tree_lacks_target_species` or `not_in_any_tree`. Only `has_ortholog` rows have a partner. An accession "
+                    + "with several genes has a status per gene.",
+                ["relationship_type"] = "For `has_ortholog`: Compara's type of this partner (`ortholog_one2one`, "
+                    + "`ortholog_one2many`, `ortholog_many2many`). NULL otherwise.",
+                ["is_high_confidence"] = "For `has_ortholog`: Compara's flag (NULL: Compara declined to say). NULL otherwise.",
+                ["partner_gene"] = "For `has_ortholog`: the ortholog's Ensembl gene in `target_species`. NULL otherwise.",
+                ["partner_gene_name"] = "Ensembl's name of `partner_gene`, for display (`orthology_genes.gene_name`).",
+                ["partner_accession"] = "An accession of `target_species` that some search held (`protein_genes`) and that "
+                    + "resolves to `partner_gene`, one row per accession and link (isoforms included). NULL when none does: an "
+                    + "ortholog in Compara with no accession of it in any search here, which is its own answer, not a missing row.",
+                ["partner_resolution_outcome"] = "logs' outcome for `partner_accession`'s link to `partner_gene`: `resolved` or "
+                    + "`multi_gene`, or a no-gene outcome (`not_in_source`, `off_primary_only`) on an `ensembl_xref` link "
+                    + "(`partner_resolution_source`). Two databases that disagree give both, joined by `; `.",
+                ["partner_resolution_source"] = "Where `partner_accession`'s link to `partner_gene` comes from, as "
+                    + "`resolution_source`.",
+                ["partner_xref_agreement"] = "Ensembl's xref on `partner_accession`'s link, as `resolution_xref_agreement` "
+                    + "(NULL on a v1 row).",
+                ["partner_xref_agrees"] = "The same as a boolean, as `resolution_xref_agrees`.",
+                ["partner_n_datasets_1pct"] = "`protein_index.n_datasets_1pct` of `partner_accession`: deposits with accepted "
+                    + "evidence for it (a protein group or a peptidoform), 0 when none has. NULL when there is no partner "
+                    + "accession.",
+                ["gene_resolution_definition_id"] = "The definition of the accession's gene resolution "
+                    + "(`gene_resolutions.definition_id`, e.g. `logs:DEF-GENE-RESOLUTION v2`); several, joined by `; `, when the "
+                    + "databases that resolved the accession differ.",
+                ["orthology_definition_id"] = "The orthology snapshot's definition, as its registration recorded it "
+                    + "(`logs:DEF-ORTHOLOGY v1`).",
+                ["artefact_id"] = "The orthology snapshot's engine artefact (`catalog_engine_artefacts`), not the gene "
+                    + "resolution's.",
             }),
         [AnnotationsTable] = new(
             "One row per dataset: what the producer's manifest says ABOUT it that is not identity -- its "
@@ -1385,9 +1537,10 @@ public static partial class CatalogBuilder
 
     /// <summary>The registered orthology snapshot a catalog cites: at most one.</summary>
     /// <remarks>
-    /// <para>A snapshot belongs to no bundle and fills no table: it is read in place, from the artefact's
-    /// <c>snapshot/</c> directory, through its own <c>views.sql</c>. Loading it puts one row in
-    /// <c>catalog_engine_artefacts</c> and its id into the catalog id, so a catalog names exactly the snapshot it serves.</para>
+    /// <para>A snapshot belongs to no bundle: it is kept whole in the artefact's <c>snapshot/</c> directory, and the build
+    /// copies its rows, through its own <c>views.sql</c>, into the orthology tables (<see cref="BuildOrthology"/>, from
+    /// catalog format 17). Loading it also puts one row in <c>catalog_engine_artefacts</c> and its id into the catalog id,
+    /// so a catalog names exactly the snapshot it serves.</para>
     /// <para>Two registered snapshots are refused rather than one picked, as two go or logs artefacts for one input
     /// are: which one a catalog serves is the operator's decision. None is not a failure; the check says so.</para>
     /// </remarks>
@@ -1780,6 +1933,8 @@ public static partial class CatalogBuilder
                 foreach (var (k, v) in LoadPtmQtlRows(con, bundles, engines, views)) rowCounts[k] = v;
                 BuildEngineDerived(con, bundles);
                 Lap("study and engines");
+                foreach (var (k, v) in BuildOrthology(con, engines)) rowCounts[k] = v;
+                Lap("orthology");
                 if (AnnotationsActive)
                 {
                     CreateAnnotations(con, annotations);
@@ -1802,6 +1957,7 @@ public static partial class CatalogBuilder
                 checks.AddRange(CheckEngines(con, engines.Where(r => r.Engine != Runner.GoEngine && !PtmQtlTables.ContainsKey(r.Engine)).ToList()));
                 checks.AddRange(CheckGo(con, bundles, engines));
                 checks.AddRange(CheckOrthology(con, engines));
+                checks.AddRange(CheckOrthologyTables(con, engines));
                 checks.AddRange(CheckPtmQtl(con, engines));
                 Lap("checks: engines");
                 checks = [
@@ -2280,6 +2436,7 @@ public static partial class CatalogBuilder
         taken.UnionWith(AcceptedViews.Select(kv => kv.Key));
         taken.UnionWith(GrainViews.Select(kv => kv.Key));
         taken.UnionWith(RunViews.Select(kv => kv.Key));
+        taken.UnionWith(OrthologyTables);
         foreach (var (layer, tables) in SchemaContract.StudyLayers)
         {
             var r = byLayer.GetValueOrDefault(layer);
@@ -3092,6 +3249,10 @@ public static partial class CatalogBuilder
             var rows = Count(con, $"SELECT count(*) FROM \"{name}\"");
             Exec(con, "INSERT INTO catalog_tables VALUES (?, ?, ?)", name, rows, views.Contains(name) ? "view" : "derived");
         }
+        // The orthology tables, in every catalog of the current rules: the snapshot's own rows, and the derived bridge.
+        if (GoActive)
+            foreach (var name in OrthologyTables)
+                Exec(con, "INSERT INTO catalog_tables VALUES (?, ?, ?)", name, Count(con, $"SELECT count(*) FROM \"{name}\""), OrthologyTableKind(name));
         foreach (var (layer, tables) in SchemaContract.StudyLayers)
             foreach (var spec in tables)
                 Exec(con, "INSERT INTO catalog_tables VALUES (?, ?, ?)", spec.Name, studyCounts.GetValueOrDefault(spec.Name, 0), $"study:{layer}");
