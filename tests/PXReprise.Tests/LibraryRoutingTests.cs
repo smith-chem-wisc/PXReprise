@@ -35,8 +35,17 @@ public class LibraryRoutingTests
     private static LibraryCleaning Cleaning(string dir) =>
         LibraryCleaning.For(new[] { ModsFile(dir) }, new[] { Database(dir) }, blockedCTerm: false);
 
-    private static string Entry(string name, double peak) =>
-        $"Name: {name}\nMW: 500.25\nComment: Parent=500.25 RT=42.5\nNum peaks: 1\n{peak:F5}\t1\t\"y1^1/0ppm\"\n";
+    private static readonly Lazy<LibraryCleaning> Rules = new(() => Cleaning(TestSupport.TempDir()));
+
+    // D84: each entry sits at its theoretical precursor m/z, as MetaMorpheus 1.1.15 writes it, so registration's precursor
+    // correction leaves these files byte for byte and the routing is what is compared.
+    private static string Entry(string name, double peak)
+    {
+        int slash = name.LastIndexOf('/');
+        string mz = Rules.Value.TheoreticalPrecursorMz(name[..slash], int.Parse(name[(slash + 1)..]))!.Value
+            .ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+        return $"Name: {name}\nMW: {mz}\nComment: Parent={mz} RT=42.5\nNum peaks: 1\n{peak:F5}\t1\t\"y1^1/0ppm\"\n";
+    }
 
     [Test]
     public void AClassIsJudgedByChemistryNotByName()
