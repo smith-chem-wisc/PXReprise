@@ -4,7 +4,12 @@ using System.Text.RegularExpressions;
 
 namespace PXReprise.Search;
 
-public sealed record IdRate(int? Psms1Pct, int Ms2, double? Rate, int? PsmsFdrEngine1Pct)
+/// <summary>A search's identification rate. <see cref="Psms1Pct"/> and <see cref="Rate"/> are the definition's (the
+/// "q-value" summary line). D84: under MetaMorpheus 1.1.15's other filters they are null, and <see cref="PsmsFilter1Pct"/>
+/// and <see cref="RateFilter"/> are the summary line under the <see cref="Filter"/> it names; the identification floor
+/// reads the first rate there is.</summary>
+public sealed record IdRate(int? Psms1Pct, int Ms2, double? Rate, int? PsmsFdrEngine1Pct,
+    int? PsmsFilter1Pct = null, double? RateFilter = null, string? Filter = null)
 {
     public const string Definition = "aging DEF-PSM-1PCT v1";
     public const string FdrEngineDefinition = "aging DEF-PSM-FDRENGINE v1";
@@ -40,8 +45,8 @@ public static class SearchMetrics
     public static IdRate IdRate(SearchSummary summary, int ms2)
     {
         int? psms = summary.Psms1Pct;
-        double? rate = psms is > 0 && ms2 > 0 ? PyRound((double)psms.Value / ms2, 4) : null;
-        return new IdRate(psms, ms2, rate, summary.PsmsFdrEngine1Pct);
+        double? Of(int? n) => n is > 0 && ms2 > 0 ? PyRound((double)n.Value / ms2, 4) : null;
+        return new IdRate(psms, ms2, Of(psms), summary.PsmsFdrEngine1Pct, summary.PsmsFilter1Pct, Of(summary.PsmsFilter1Pct), summary.Filter);
     }
 
     public enum PeakKind { None, Msms, MbrKept, MbrOther }

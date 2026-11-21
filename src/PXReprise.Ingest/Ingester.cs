@@ -673,15 +673,19 @@ public static class Ingester
         var resultsPath = Join(resultsDir, "results.txt");
         var results = new Dictionary<string, Dictionary<string, long>>(StringComparer.Ordinal);
         string? resultsFilter = null;
+        var producerFilter = ProducerFilter.QValueAndNotch;
         if (File.Exists(resultsPath))
         {
             writer.AddSource(resultsPath, "results_txt", "results.txt");
             results = Readers.ReadResultsTxt(resultsPath, out resultsFilter, log);
-            metrics.AddRange(ResultsMetrics(results, datasetId, runNames, searchNamespace, rules));
+            // D84: the search's own counts follow its identification filter (MetaMorpheus 1.1.15, #2982 and #2989), as its
+            // results.txt names it; up to 1.1.14 the rule was the q-value and the notch together. The 1% counts become
+            // metrics only under that older rule, the one their definitions (DEF-*-1PCT v1) describe; under another
+            // filter they serve the reconciliation alone until the definitions say what they count.
+            producerFilter = Identifications.FilterOf(resultsFilter, engineVersion);
+            metrics.AddRange(ResultsMetrics(results, datasetId, runNames, searchNamespace, rules,
+                onePercentCounts: producerFilter == ProducerFilter.QValueAndNotch));
         }
-        // D84: the search's own counts follow its identification filter (MetaMorpheus 1.1.15, #2982 and #2989), as its
-        // results.txt names it; up to 1.1.14 the rule was the q-value and the notch together.
-        var producerFilter = Identifications.FilterOf(resultsFilter, engineVersion);
         // Here rather than with the other provenance metrics because the per-run rows need the deposited run
         // names, which only exist once the runs are built.
         metrics.AddRange(Provenance.ContaminationMetricRows(searchProvenance, datasetId, runNames, searchNamespace));
@@ -1281,8 +1285,12 @@ public static class Ingester
     /// <see cref="IngestRules.Current"/> it cites aging's per-file definition (1.5.0 item 7), which has no pxreprise twin;
     /// before, it cited the deposit-wide one. A scan or precursor count partitions, so one definition serves both grains.</remarks>
     private static List<Row> ResultsMetrics(Dictionary<string, Dictionary<string, long>> results, string datasetId, RunNameMap runNames, string ns,
-        IngestRules rules = IngestRules.Current)
+        IngestRules rules = IngestRules.Current, bool onePercentCounts = true)
     {
+        // D84: without the 1% counts (a search under another filter than their definitions'), only the scans and precursors.
+        if (!onePercentCounts)
+            results = results.ToDictionary(kv => kv.Key, kv => kv.Value.Where(c => c.Key is not ("psms" or "peptides" or "protein_groups"))
+                .ToDictionary(c => c.Key, c => c.Value, StringComparer.Ordinal), StringComparer.Ordinal);
         var definitionFor = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["psms"] = Definitions.Cite(Definitions.Psm1pct, ns),

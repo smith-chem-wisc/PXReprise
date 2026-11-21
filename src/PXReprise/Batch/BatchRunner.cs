@@ -1850,15 +1850,18 @@ public sealed class BatchRunner
     internal string? BelowIdentificationFloor(string acc)
     {
         string prov = Path.Combine(Run(acc), "04_search", "provenance.json");
+        // D84: under MetaMorpheus 1.1.15's PEP q-value filter, rate and psms_1pct (the "q-value" line's) are null, and the
+        // floor reads the filter's own count and rate.
         if (!File.Exists(prov) || JsonNode.Parse(File.ReadAllText(prov))?["id_rate"] is not JsonObject id
-            || id["rate"]?.GetValue<double>() is not { } rate) return null;
+            || (id["rate"] ?? id["rate_filter"])?.GetValue<double>() is not { } rate) return null;
         double floor = _q.ExceptionFor(acc)?.MinIdentificationRate ?? MinIdentificationRate;
         if (rate >= floor) return null;
         // Invariant on purpose: "P2" is "0.07%" on Windows en-US and "0.07 %" on Linux (public CI, v0.4.44).
         var inv = System.Globalization.CultureInfo.InvariantCulture;
         string ms2 = id["ms2"]?.GetValue<long>() is { } n ? $" of {n.ToString("N0", inv)} MS2 spectra" : "";
-        string psms = id["psms_1pct"]?.GetValue<long>() is { } p ? p.ToString("N0", inv) : "?";
-        return $"the full search's {psms} PSMs at 1% are {(rate * 100).ToString("0.00", inv)}%{ms2}, under the identification floor of {(floor * 100).ToString("0.##", inv)}%";
+        string psms = (id["psms_1pct"] ?? id["psms_filter_1pct"])?.GetValue<long>() is { } p ? p.ToString("N0", inv) : "?";
+        string filter = id["rate"] is null && id["filter"]?.GetValue<string>() is { } f ? $" ({f})" : "";
+        return $"the full search's {psms} PSMs at 1%{filter} are {(rate * 100).ToString("0.00", inv)}%{ms2}, under the identification floor of {(floor * 100).ToString("0.##", inv)}%";
     }
 
     private readonly SemaphoreSlim _delivering = new(1, 1);

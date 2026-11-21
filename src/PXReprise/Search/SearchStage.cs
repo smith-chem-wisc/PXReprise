@@ -688,14 +688,17 @@ public static class SearchStage
             var summary = SearchSummary.Read(Path.Combine(sd, "results.txt"));
             int ms2 = qc.Where(kv => !r.ExcludeFiles.Contains(kv.Key)).Sum(kv => kv.Value!["ms2"]!.GetValue<int>());
             var idr = SearchMetrics.IdRate(summary, ms2);
-            psms = idr.Psms1Pct;
+            psms = idr.Psms1Pct ?? idr.PsmsFilter1Pct;
             prov.Set("id_rate", new JsonObject
             {
                 ["definition"] = Search.IdRate.Definition, ["psms_1pct"] = idr.Psms1Pct, ["ms2"] = idr.Ms2, ["rate"] = idr.Rate,
                 ["psms_fdr_engine_1pct"] = idr.PsmsFdrEngine1Pct, ["psms_fdr_engine_definition"] = Search.IdRate.FdrEngineDefinition,
+                // D84: the identification filter results.txt's summary line names (MetaMorpheus 1.1.15; "q-value" before), its
+                // count and that count's rate. psms_1pct and rate stay their definition's, null under another filter.
+                ["filter"] = idr.Filter, ["psms_filter_1pct"] = idr.PsmsFilter1Pct, ["rate_filter"] = idr.RateFilter,
             });
-            if (idr.Psms1Pct is { } n && ms2 > 0 && (double)n / ms2 < FlagMinIdRate)
-                flags.Add($"low_id_rate: {n}/{ms2} = {Pct((double)n / ms2)} of MS2 identified (S3)");
+            if (psms is { } n && ms2 > 0 && (double)n / ms2 < FlagMinIdRate)
+                flags.Add($"low_id_rate: {n}/{ms2} = {Pct((double)n / ms2)} of MS2 identified (S3{(idr.Psms1Pct is null ? $", {idr.Filter}" : "")})");
         }
         if (sd is not null && File.Exists(Path.Combine(sd, "AllQuantifiedPeaks.tsv")))
         {
