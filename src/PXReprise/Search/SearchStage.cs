@@ -306,6 +306,7 @@ public static class SearchStage
         int? window = PrecursorWindow(p, r.ProbePrecursorOffsets, prov);
         var artifacts = ArtifactMods(p, chem);
         var gptmdMods = p.GptmdExtraMods.Concat(artifacts.Select(a => a.ModId)).Distinct(StringComparer.Ordinal).ToList();
+        string? inputSdrf = InputSdrfFor(p, design, prov);
         var settings = new TaskSettings(m.MaxThreads, p.MatchBetweenRuns, gptmdMods, SpectralLibraryMode: lib?.Mode,
             Protease: chem is { ProteasePerFile: null } ? chem.Protease.Value : null,
             FixedCysMods: chem?.CysMods.Where(c => c.Fixed).Select(c => c.MetaMorpheusId!).ToList(),
@@ -313,7 +314,7 @@ public static class SearchStage
             // v0.4.43: PRIDE's accession, never a split search's key (PXD027754-mouse is no ProteomeXchange accession).
             WriteSdrf: p.WriteSdrf, ProteomeXchangeAccession: p.WriteSdrf && r.Accession is { } px ? Config.SearchKey.Accession(px) : null,
             PrecursorMassTolerance: window is { } w ? $"±{w}.0000 PPM" : null, QuantifyPpmTol: window,
-            GptmdFilters: p.GptmdFilters, MultiplexKit: kit, GptmdDropMods: p.GptmdDropMods);
+            GptmdFilters: p.GptmdFilters, MultiplexKit: kit, GptmdDropMods: p.GptmdDropMods, InputSdrfPath: inputSdrf);
         // v0.4.40 (G66): the classes the deposit enriches, the ones its library spectra are routed by, variable in every task.
         if (p.EnrichedVariable && r.LibraryRouteClasses is { Count: > 0 } enrichedClasses)
         {
@@ -788,6 +789,28 @@ public static class SearchStage
         string[] header = (File.ReadLines(proteinGroupQuant).FirstOrDefault() ?? "").TrimEnd('\r').Split('\t');
         var missing = samples.Where(s => !header.Any(h => h.StartsWith(s + "_", StringComparison.Ordinal))).ToList();
         return missing.Count == 0 ? null : $"{missing.Count} of {samples.Count} design samples have no reporter column ({string.Join(", ", missing.Take(5))})";
+    }
+
+    /// <summary>
+    /// D84: the SDRF a search under <c>engine.input_sdrf</c> gives MetaMorpheus as <c>InputSdrfPath</c>: the search's own
+    /// copy of the SDRF its design came from (<c>design/</c> in the output, the bytes the design used), so the SDRF the search
+    /// writes copies the sample columns of each file's or channel's row. Null for a profile without the key, or a search
+    /// with no SDRF design, which provenance says. MetaMorpheus refuses an SDRF that cannot describe the search one row per
+    /// file or channel by writing no SDRF, and the results stand (<c>no_output_sdrf</c> below).
+    /// </summary>
+    internal static string? InputSdrfFor(Profile p, JsonObject? design, AgingProvenance prov)
+    {
+        if (!p.InputSdrf) return null;
+        string? sdrf = design is not null && design["written"]?.GetValue<bool>() == true ? design["sdrf"]?.GetValue<string>() : null;
+        if (sdrf is null || !File.Exists(sdrf))
+        {
+            prov.Set("input_sdrf", null);
+            prov.Note("input_sdrf: the profile passes the design's SDRF to MetaMorpheus, and this search has no SDRF design, so its written SDRF describes the search only");
+            return null;
+        }
+        string full = Path.GetFullPath(sdrf);
+        prov.Set("input_sdrf", full);
+        return full;
     }
 
     /// <summary>A released MetaMorpheus older than 1.1.13, which refuses a design with a numbering gap. A commit pin is not.</summary>
