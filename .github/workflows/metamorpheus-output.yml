@@ -1,0 +1,81 @@
+name: MetaMorpheus output
+
+# Runs every supported MetaMorpheus release (tests/metamorpheus-output/releases.tsv) on the small shared inputs in
+# tests/metamorpheus-output/, so what PXReprise reads from MetaMorpheus's output is checked on real output of each
+# release. It is not run on pull requests: it runs by hand (workflow_dispatch), for internal testing, and from the
+# release workflow, which publishes only when it is green. Each release's zip is downloaded from MetaMorpheus's GitHub
+# release, checked against its sha256 and cached.
+on:
+  workflow_dispatch:
+  workflow_call:
+  # TEMPORARY, removed before the pull request: proves the run on Linux from the branch, before the workflow exists on
+  # master (workflow_dispatch can only start a workflow the default branch has).
+  push:
+    branches: [feat/metamorpheus-output-samples]
+
+permissions:
+  contents: read
+
+jobs:
+  releases:
+    name: supported releases
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: list
+        run: |
+          m=$(awk -F'\t' 'NR > 1 && $1 != "" { printf "%s{\"release\":\"%s\",\"url\":\"%s\",\"sha256\":\"%s\"}", (n++ ? "," : ""), $1, $2, $3 }' tests/metamorpheus-output/releases.tsv)
+          echo "matrix=[$m]" >> "$GITHUB_OUTPUT"
+          echo "releases: [$m]"
+
+  run:
+    name: MetaMorpheus ${{ matrix.release }}
+    needs: releases
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.releases.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - uses: actions/cache@v4
+        with:
+          path: ~/metamorpheus-zips/${{ matrix.release }}.zip
+          key: metamorpheus-${{ matrix.release }}-${{ matrix.sha256 }}
+      - name: Download, check and unpack the release
+        run: |
+          z=~/metamorpheus-zips/${{ matrix.release }}.zip
+          mkdir -p ~/metamorpheus-zips
+          [ -f "$z" ] || curl -fsSL --retry 3 -o "$z" "${{ matrix.url }}"
+          echo "${{ matrix.sha256 }}  $z" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/mm"
+          unzip -q "$z" -d "$RUNNER_TEMP/mm"
+          test -f "$RUNNER_TEMP/mm/CMD.dll"
+      - name: Search the label-free input
+        run: |
+          in="$GITHUB_WORKSPACE/tests/metamorpheus-output/lfq"
+          out="$RUNNER_TEMP/output/${{ matrix.release }}/lfq"
+          mkdir -p "$RUNNER_TEMP/mmsettings"
+          timeout 20m dotnet "$RUNNER_TEMP/mm/CMD.dll" \
+            -t "$in/tasks/1_CalibrationTask.toml" "$in/tasks/2_GptmdTask.toml" "$in/tasks/3_SearchTask.toml" \
+            -s "$in/lfq_a.mzML" "$in/lfq_b.mzML" "$in/lfq_c.mzML" \
+            -d "$in/TaGe_SA_A549_3_snip.fasta" "$in/lfq_library.msp" "$in/lfq_contaminants.xml" \
+            -o "$out" --mmsettings "$RUNNER_TEMP/mmsettings" -v minimal < /dev/null
+      - name: What came out
+        run: |
+          r="$RUNNER_TEMP/output/${{ matrix.release }}/lfq/Task3SearchTask"
+          ls -l "$r"
+          grep -E "^MetaMorpheus: version|^All target" "$r/results.txt"
+          c=$(head -1 "$r/AllQuantifiedPeaks.tsv" | tr '\t' '\n' | grep -n -x "Peak Detection Type" | cut -d: -f1)
+          awk -F'\t' -v c="$c" 'NR > 1 { print $c }' "$r/AllQuantifiedPeaks.tsv" | sort | uniq -c
+      - uses: actions/upload-artifact@v4
+        with:
+          name: metamorpheus-${{ matrix.release }}-output
+          path: ${{ runner.temp }}/output/${{ matrix.release }}
+          retention-days: 7
