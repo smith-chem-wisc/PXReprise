@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using System.Xml;
+using Chemistry;
 using Omics.Modifications;
 using Proteomics;
 using Proteomics.ProteolyticDigestion;
@@ -143,6 +144,30 @@ public sealed class LibraryCleaning
             if (key is not null) set.Add(key);
         }
         return set;
+    }
+
+    private Dictionary<string, Modification>? _byId;
+
+    /// <summary>
+    /// D84 (MetaMorpheus #2961): the theoretical precursor m/z of <paramref name="fullSequence"/> at
+    /// <paramref name="charge"/>, from mzLib (<see cref="PeptideWithSetModifications"/>, then <c>ToMz</c>, as MetaMorpheus
+    /// 1.1.15 writes it). The modifications resolve as <see cref="Judge"/> resolves them, mzLib's own first. Null when a
+    /// name does not resolve, the sequence is ambiguous ('|'), or the charge is 0: such an entry cannot be judged.
+    /// </summary>
+    public double? TheoreticalPrecursorMz(string fullSequence, int charge)
+    {
+        if (charge == 0 || fullSequence.Length == 0) return null;
+        if (_byId is null)
+        {
+            // mzLib's parser looks a "[Type:IdWithMotif]" up by IdWithMotif alone; the first type to name one wins, as in _mods.
+            _byId = new Dictionary<string, Modification>(StringComparer.Ordinal);
+            foreach (var m in _mods.Values) _byId.TryAdd(m.IdWithMotif, m);
+        }
+        try
+        {
+            return new PeptideWithSetModifications(fullSequence, _byId).MonoisotopicMass.ToMz(charge);
+        }
+        catch (MzLibUtil.MzLibException) { return null; }
     }
 
     /// <summary>The full sequence of a library "Name:" line ("Name: PEPT[Type:Id]IDE/2" gives "PEPT[Type:Id]IDE").</summary>

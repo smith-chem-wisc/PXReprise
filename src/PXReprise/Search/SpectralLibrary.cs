@@ -149,12 +149,24 @@ public static class SpectralLibrary
                 merged = LibraryMerge.Onto(plan.LibraryIn, src, currentPath!, mergeFile);
                 input = mergeFile;
             }
+            string? correctedFile = null;
             try
             {
+                // D84: every entry's precursor at its theoretical m/z, and no nameless entry, before anything else reads it,
+                // so the version, its routed class chains and a merge all carry the corrected spectra.
+                var correction = PrecursorCorrection.None;
+                if (cleaning is not null)
+                {
+                    correctedFile = Path.Combine(plan.Root, plan.Organism, $".precursor-{Guid.NewGuid():N}.msp");
+                    Directory.CreateDirectory(Path.GetDirectoryName(correctedFile)!);
+                    correction = CorrectPrecursors(input, correctedFile, cleaning);
+                    if (correction.Changed) input = correctedFile;
+                }
                 var (version, rel, dest) = NextVersion(plan.Root, plan.Organism, entry);
                 // COPY, not move: a search that is not delivered keeps what MetaMorpheus wrote. After delivery the run
                 // folder's copy is deleted when its bytes still match this version's sha256 (PruneStage, v0.4.18); a copy that
-                // lost unreadable entries, or was merged, never matches, so MetaMorpheus's whole file stays in the run folder.
+                // lost unreadable entries, or was merged or corrected, never matches, so MetaMorpheus's whole file stays in the
+                // run folder.
                 Routed? routed = null;
                 Dropped dropped;
                 if (routeClasses is { Count: > 0 })
@@ -165,7 +177,7 @@ public static class SpectralLibrary
                     dropped = routed.Dropped;
                 }
                 else dropped = CopyClean(input, dest, cleaning);
-                var rec = VersionRecord(version, rel, plan.Mode, plan.ParentVersion, dest, dropped, cleaning, ProducedBy());
+                var rec = VersionRecord(version, rel, plan.Mode, plan.ParentVersion, dest, dropped, cleaning, ProducedBy(), correction);
                 if (merged is not null)
                     rec["merged_onto"] = new JsonObject
                     {
@@ -208,6 +220,7 @@ public static class SpectralLibrary
             finally
             {
                 if (mergeFile is not null && File.Exists(mergeFile)) File.Delete(mergeFile);
+                if (correctedFile is not null && File.Exists(correctedFile)) File.Delete(correctedFile);
             }
         }
     }
@@ -456,17 +469,37 @@ public static class SpectralLibrary
             string current = entry["current"]?.GetValue<string>() ?? throw new UsageException($"{organism} has no current library");
             int parent = VersionOf(entry, current) ?? throw new SearchSetupException($"{organism}'s current library {current} is not a registered version");
             string src = Path.Combine(root, current);
-            var (version, rel, dest) = NextVersion(root, organism, entry);
-            var dropped = CopyClean(src, dest, cleaning);
-            if (dropped.Total == 0)
+            // D84: a repair also corrects the precursors, so a chain can be corrected with no driver running rather than at its
+            // next update.
+            string? correctedFile = null;
+            var correction = PrecursorCorrection.None;
+            JsonObject rec;
+            string rel, dest;
+            int version;
+            try
             {
-                File.Delete(dest);
-                return new JsonObject { ["organism"] = organism, ["repaired"] = false, ["current"] = current, ["version"] = parent };
+                if (cleaning is not null)
+                {
+                    correctedFile = Path.Combine(root, organism, $".precursor-{Guid.NewGuid():N}.msp");
+                    correction = CorrectPrecursors(src, correctedFile, cleaning);
+                    if (correction.Changed) src = correctedFile;
+                }
+                (version, rel, dest) = NextVersion(root, organism, entry);
+                var dropped = CopyClean(src, dest, cleaning);
+                if (dropped.Total == 0 && !correction.Changed)
+                {
+                    File.Delete(dest);
+                    return new JsonObject { ["organism"] = organism, ["repaired"] = false, ["current"] = current, ["version"] = parent };
+                }
+                rec = VersionRecord(version, rel, "repair", parent, dest, dropped, cleaning, new JsonObject
+                {
+                    ["repair_of"] = current, ["reason"] = reason, ["pxreprise"] = RunRecord.Versions()["pxreprise"],
+                }, correction);
             }
-            var rec = VersionRecord(version, rel, "repair", parent, dest, dropped, cleaning, new JsonObject
+            finally
             {
-                ["repair_of"] = current, ["reason"] = reason, ["pxreprise"] = RunRecord.Versions()["pxreprise"],
-            });
+                if (correctedFile is not null && File.Exists(correctedFile)) File.Delete(correctedFile);
+            }
             if (cloud is not null && !cloud.Claim(organism, rec, dest))
             {
                 File.Delete(dest);
@@ -553,6 +586,97 @@ public static class SpectralLibrary
         return new Dropped(unreadable, blocked, doubtful, byMod);
     }
 
+    /// <summary>What <see cref="CorrectPrecursors"/> changed: entries whose precursor m/z it set, entries with no full
+    /// sequence it dropped, and entries it could not judge (a modification that does not resolve, an ambiguous sequence).</summary>
+    public sealed record PrecursorCorrection(int Corrected, int Nameless, int Unresolved)
+    {
+        public static readonly PrecursorCorrection None = new(0, 0, 0);
+        public bool Changed => Corrected > 0 || Nameless > 0;
+    }
+
+    /// <summary>The rule <see cref="CorrectPrecursors"/> applies, as a version record states it.</summary>
+    public const string PrecursorRule = "pxreprise-library-precursor/1: each entry's MW and Comment Parent= set to its full sequence's theoretical m/z at its charge (mzLib), where they differ by more than 0.001 ppm; entries with no full sequence (\"Name: /2\") dropped (MetaMorpheus #2961, #2962; D84)";
+
+    /// <summary>The relative difference up to which a stored precursor m/z is taken as the theoretical one, so its line is
+    /// kept byte for byte (MetaMorpheus 1.1.15's own entries: the same double, written by two programs).</summary>
+    internal const double PrecursorTolerance = 1e-9;
+
+    private static readonly System.Text.RegularExpressions.Regex ParentToken =
+        new(@"Parent=(\S+)", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// D84 (the user, 2026-11-21: "yes add the library clean"). MetaMorpheus before 1.1.15 stored each library precursor at
+    /// the m/z its scan measured, about 1.003 Da / z off where the 13C peak was taken for the monoisotopic one (#2961: 18-20%
+    /// of targets more than 5 ppm off in two of our libraries), and wrote a match with no full sequence under an empty name,
+    /// "Name: /2" (#2962: 19 in the human library, 22 in mouse). 1.1.15 fixes both for the spectra it writes, but an
+    /// updated library carries every older entry over as it was. So a registration writes <paramref name="dest"/> with
+    /// each entry's <c>MW:</c> and <c>Parent=</c> at its theoretical m/z and without the nameless entries, and each chain is
+    /// corrected at its first update. Nothing else in an entry changes. When nothing differs nothing is written, and the
+    /// caller keeps <paramref name="src"/>: a version 1.1.15 writes onto a corrected parent stays MetaMorpheus's file.
+    /// </summary>
+    public static PrecursorCorrection CorrectPrecursors(string src, string dest, LibraryCleaning cleaning)
+    {
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        int corrected = 0, nameless = 0, unresolved = 0;
+        bool skipping = false, changedThis = false;
+        double? theoretical = null;
+        string Fix(string value, out bool changed)
+        {
+            changed = false;
+            if (theoretical is not { } t || !double.TryParse(value, System.Globalization.NumberStyles.Float, inv, out double v)) return value;
+            if (Math.Abs(v - t) <= PrecursorTolerance * Math.Abs(t)) return value;
+            changed = true;
+            return t.ToString("R", inv);
+        }
+        string tmp = dest + ".partial";
+        try
+        {
+            using (var w = new StreamWriter(new FileStream(tmp, FileMode.CreateNew), new UTF8Encoding(false)) { NewLine = NewLineOf(src) })
+            {
+                foreach (string line in File.ReadLines(src))
+                {
+                    if (line.StartsWith("Name:", StringComparison.Ordinal))
+                    {
+                        if (changedThis) corrected++;
+                        changedThis = false;
+                        string name = NameOf(line);
+                        int slash = name.LastIndexOf('/');
+                        string full = slash >= 0 ? name[..slash] : name;
+                        skipping = full.Length == 0;
+                        if (skipping) { nameless++; continue; }
+                        theoretical = slash >= 0 && int.TryParse(name[(slash + 1)..], System.Globalization.NumberStyles.Integer, inv, out int z)
+                            ? cleaning.TheoreticalPrecursorMz(full, z) : null;
+                        if (theoretical is null) unresolved++;
+                        w.WriteLine(line);
+                        continue;
+                    }
+                    if (skipping) continue;
+                    string outLine = line;
+                    if (line.StartsWith("MW:", StringComparison.Ordinal))
+                    {
+                        string value = Fix(line[3..].Trim(), out bool changed);
+                        if (changed) { outLine = "MW: " + value; changedThis = true; }
+                    }
+                    else if (line.StartsWith("Comment:", StringComparison.Ordinal) && ParentToken.Match(line) is { Success: true } m)
+                    {
+                        var g = m.Groups[1];
+                        string value = Fix(g.Value, out bool changed);
+                        if (changed) { outLine = line[..g.Index] + value + line[(g.Index + g.Length)..]; changedThis = true; }
+                    }
+                    w.WriteLine(outLine);
+                }
+                if (changedThis) corrected++;
+            }
+            var result = new PrecursorCorrection(corrected, nameless, unresolved);
+            if (result.Changed) File.Move(tmp, dest);
+            return result;
+        }
+        finally
+        {
+            if (File.Exists(tmp)) File.Delete(tmp);
+        }
+    }
+
     internal static string NewLineOf(string path)
     {
         using var s = File.OpenRead(path);
@@ -572,7 +696,7 @@ public static class SpectralLibrary
     }
 
     private static JsonObject VersionRecord(int version, string rel, string mode, int? parent, string dest, Dropped dropped,
-        LibraryCleaning? cleaning, JsonObject producedBy)
+        LibraryCleaning? cleaning, JsonObject producedBy, PrecursorCorrection? correction = null)
     {
         var rec = new JsonObject
         {
@@ -590,6 +714,14 @@ public static class SpectralLibrary
             var by = new JsonObject();
             foreach (var (mod, n) in dropped.ByModification) by[mod] = n;
             c["dropped_by_modification"] = by;
+            // D84: what the precursor correction did; checked on every version registered with the cleaning rules.
+            if (correction is not null)
+            {
+                c["precursor_rule"] = PrecursorRule;
+                c["precursor_corrected"] = correction.Corrected;
+                c["dropped_nameless"] = correction.Nameless;
+                c["precursor_unresolved"] = correction.Unresolved;
+            }
             rec["cleaning"] = c;
         }
         rec["produced_by"] = producedBy;
