@@ -965,6 +965,38 @@ public class BatchRunnerTests
         });
     }
 
+    // D84: under MetaMorpheus 1.1.15's PEP q-value filter, id_rate's rate and psms_1pct (the "q-value" line's definition)
+    // are null, and the floor reads the filter's own count and rate, so a low search is still held, never passed silently.
+    [Test]
+    public async Task UnderThePepFilterTheFloorReadsTheFiltersOwnRate()
+    {
+        string dir = TestSupport.TempDir();
+        string manifest = TestSupport.WriteFile(dir, "manifest.yaml", "manifest_version: 1\nwork_root: runs\ndatasets:\n\n");
+        var runner = new BatchRunner(QuestionLoader.Load(TestSupport.WriteFile(dir, "question.toml", TestSupport.MinimalQuestion
+                + "\n[batch]\nrun_root = \"runs\"\nstate_dir = \"state\"\nqueue = \"queue.json\"\n[publish]\nmanifest = \"manifest.yaml\"\n")),
+            Profiles, Machine.Load(TestSupport.WriteFile(dir, "machine.toml", $"work_root = '{dir}'\nmin_free_gb = 0\n[metamorpheus]\n\"1.1.11\" = 'C:/nowhere/CMD.exe'\n")),
+            new FakeFiles(), new FakeSearch(), "2026-11-21");
+        string run = Path.Combine(dir, "runs", "PXD002479");
+        Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
+        Directory.CreateDirectory(Path.Combine(run, "04_search"));
+        File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(("a.raw", true, Array.Empty<string>())).ToJsonString());
+        File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), new JsonObject
+        {
+            ["success"] = true, ["tools"] = new JsonObject { ["MetaMorpheus"] = new JsonObject { ["release"] = "1.1.15" } },
+            ["id_rate"] = new JsonObject
+            {
+                ["definition"] = "aging DEF-PSM-1PCT v1", ["psms_1pct"] = null, ["ms2"] = 163_293, ["rate"] = null,
+                ["filter"] = "pep q-value", ["psms_filter_1pct"] = 120, ["rate_filter"] = Math.Round(120.0 / 163_293, 4),
+            },
+        }.ToJsonString());
+        runner.Record("PXD002479", ("status", "searched"));
+        await runner.DeliverAsync(new QueueEntry("PXD002479", "t", "mouse"), Profiles["label-free-dda@1"], CancellationToken.None);
+
+        Assert.That(ManifestEntry.ReadLf(manifest), Does.Not.Contain("PXD002479"), "held");
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain(
+            "PXD002479 DELIVERY HELD (waiting_low_identifications): the full search's 120 PSMs at 1% (pep q-value) are 0.07% of 163,293 MS2 spectra"));
+    }
+
     // v0.4.15 (PXR-A99, aging 098): PXD015239's protocol has no reduction or alkylation step.
     [Test]
     public void AnAlkylationExceptionSaysNoneAndNothingElse()

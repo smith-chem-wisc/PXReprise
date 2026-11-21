@@ -687,15 +687,10 @@ public static class SearchStage
         {
             var summary = SearchSummary.Read(Path.Combine(sd, "results.txt"));
             int ms2 = qc.Where(kv => !r.ExcludeFiles.Contains(kv.Key)).Sum(kv => kv.Value!["ms2"]!.GetValue<int>());
-            var idr = SearchMetrics.IdRate(summary, ms2);
-            psms = idr.Psms1Pct;
-            prov.Set("id_rate", new JsonObject
-            {
-                ["definition"] = Search.IdRate.Definition, ["psms_1pct"] = idr.Psms1Pct, ["ms2"] = idr.Ms2, ["rate"] = idr.Rate,
-                ["psms_fdr_engine_1pct"] = idr.PsmsFdrEngine1Pct, ["psms_fdr_engine_definition"] = Search.IdRate.FdrEngineDefinition,
-            });
-            if (idr.Psms1Pct is { } n && ms2 > 0 && (double)n / ms2 < FlagMinIdRate)
-                flags.Add($"low_id_rate: {n}/{ms2} = {Pct((double)n / ms2)} of MS2 identified (S3)");
+            var (block, identified, flag) = IdRateBlock(summary, ms2);
+            psms = identified;
+            prov.Set("id_rate", block);
+            if (flag is not null) flags.Add(flag);
         }
         if (sd is not null && File.Exists(Path.Combine(sd, "AllQuantifiedPeaks.tsv")))
         {
@@ -1050,6 +1045,29 @@ public static class SearchStage
     }
 
     private static string Pct(double x) => (x * 100).ToString("0.00", CultureInfo.InvariantCulture) + "%";
+
+    /// <summary>
+    /// The search's <c>id_rate</c> provenance block, the PSM count the stage reports, and the <c>low_id_rate</c> flag (S3),
+    /// from results.txt's summary and the MS2 spectra of the files searched. D84: <c>psms_1pct</c> and <c>rate</c> stay their
+    /// definition's, the "q-value" line's, so under another filter (MetaMorpheus 1.1.15) they are null; <c>filter</c>,
+    /// <c>psms_filter_1pct</c> and <c>rate_filter</c> carry the filter results.txt names, its count and that count's rate.
+    /// The count reported and the flag then read the filter's own count, and the flag names the filter.
+    /// </summary>
+    internal static (JsonObject Block, int? Psms, string? Flag) IdRateBlock(SearchSummary summary, int ms2)
+    {
+        var idr = SearchMetrics.IdRate(summary, ms2);
+        int? psms = idr.Psms1Pct ?? idr.PsmsFilter1Pct;
+        var block = new JsonObject
+        {
+            ["definition"] = Search.IdRate.Definition, ["psms_1pct"] = idr.Psms1Pct, ["ms2"] = idr.Ms2, ["rate"] = idr.Rate,
+            ["psms_fdr_engine_1pct"] = idr.PsmsFdrEngine1Pct, ["psms_fdr_engine_definition"] = Search.IdRate.FdrEngineDefinition,
+            ["filter"] = idr.Filter, ["psms_filter_1pct"] = idr.PsmsFilter1Pct, ["rate_filter"] = idr.RateFilter,
+        };
+        string? flag = psms is { } n && ms2 > 0 && (double)n / ms2 < FlagMinIdRate
+            ? $"low_id_rate: {n}/{ms2} = {Pct((double)n / ms2)} of MS2 identified (S3{(idr.Psms1Pct is null ? $", {idr.Filter}" : "")})"
+            : null;
+        return (block, psms, flag);
+    }
 
     private static JsonObject Obj(IReadOnlyDictionary<string, double?> d)
     {
