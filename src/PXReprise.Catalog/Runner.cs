@@ -89,6 +89,24 @@ public static class Runner
     /// <summary>The input role of one GO annotation database file (go.annotate_databases).</summary>
     public const string GoDatabaseRole = "annotation_database";
 
+    /// <summary>kegg (T1 and T4): one database file's Reactome membership and KEGG gene links
+    /// (<c>kegg:DEF-REACTOME-MEMBERSHIP v1</c>, mzLib #1576). One artefact per (file, mzLib, definition), shared by every
+    /// search that read the file, as <see cref="GoAnnotateDatabases"/>; the catalog applies the definition's two set-wide
+    /// rules over a search's files (<c>CatalogReactome.cs</c>).</summary>
+    public const string ReactomeMembership = "kegg.reactome_membership";
+
+    /// <summary>kegg (T2, T3 and the closure): one Reactome release's pathways, hierarchy and ancestors (mzLib #1537).
+    /// One artefact per (the release's two files, mzLib, definition); a catalog serves exactly one.</summary>
+    public const string ReactomeRelease = "kegg.reactome_release";
+
+    /// <summary>The two engines a catalog's Reactome is built from, in the order a build reads them. Which entry each
+    /// protein-group member takes is go's <see cref="GoResolveMembers"/>, shared.</summary>
+    public static readonly IReadOnlyList<string> ReactomeEngines = [ReactomeRelease, ReactomeMembership];
+
+    /// <summary>The input role of one database file of <see cref="ReactomeMembership"/>, as GO's
+    /// (<see cref="GoDatabaseRole"/>).</summary>
+    public const string ReactomeDatabaseRole = GoDatabaseRole;
+
     /// <summary>ptmQtl's engines: site pairs per search, pooled per species, and site-trait fits.</summary>
     public const string PtmQtlSitePairs = "ptmqtl.site_pairs";
 

@@ -267,7 +267,11 @@ public static partial class CatalogBuilder
     /// reference engines are copied into <c>go_accession_terms</c>, <c>go_terms</c>, <c>go_closure</c>,
     /// <c>go_term_categories</c> and <c>go_group_members</c>, and <c>protein_localizations</c>,
     /// <c>organelle_term_categories</c>, <c>annotation_sources</c> and the new <c>go_group_status</c> are derived from them
-    /// (kind <c>derived</c>), with the same rows go's definition gives.</remarks>
+    /// (kind <c>derived</c>), with the same rows go's definition gives. "17" also serves Reactome the same way
+    /// (<c>CatalogReactome.cs</c>): kegg's two engines are copied into <c>reactome_pathways</c>, <c>reactome_hierarchy</c>,
+    /// <c>reactome_ancestors</c>, <c>reactome_membership</c>, <c>reactome_species</c> and <c>kegg_gene_links</c>, and
+    /// <c>protein_reactome</c>, <c>reactome_group_status</c> and <c>reactome_group_pathways</c> are derived from them and go's
+    /// member resolution; the nine tables are in every catalog, empty when no Reactome release is served.</remarks>
     public static string CatalogVersion => SchemaContract.IsPython0320 ? "8" : "17";
 
     /// <summary>Bundle tables a catalog does not hold. PSMs are archived per deposit, never in a catalog (PXReprise's
@@ -548,6 +552,9 @@ public static partial class CatalogBuilder
         // go's reference tables (CatalogGo.cs): "the GO terms of protein X" starts from an accession.
         (GoAccessionTermsTable, "accession"),
         (GoGroupMembersTable, "accession"),
+        // kegg's Reactome tables (CatalogReactome.cs): "the pathways of protein X" starts from an accession.
+        (ReactomeMembershipTable, "accession"),
+        (ProteinReactomeTable, "protein_accession"),
     ];
 
     /// <summary><c>peptidoforms_1pct</c>'s description: its rule (D55, <see cref="PeptidoformsConfidenceRule"/>), and that
@@ -1007,6 +1014,177 @@ public static partial class CatalogBuilder
                 ["q_value"] = "The group's protein q-value (`protein_groups.q_value`). Nothing is filtered on it.",
                 ["go_release"] = "The GO release.",
                 ["source_id"] = "The search's `annotation_sources` row.",
+            }),
+        [ReactomePathwaysTable] = new(
+            "Every pathway of the served Reactome release, every species, from `kegg.reactome_release` (mzLib's "
+            + "`ReactomeReleaseTsv`; Reactome's own `ReactomePathways.txt`, CC0). A catalog serves ONE release, so a pathway id "
+            + "means one thing in every dataset. The Reactome tables are in every catalog: EMPTY means no Reactome is served (the "
+            + "`catalog_checks` rows of kind `engine-coverage` say why), never that a protein is in no pathway. A pathway id a "
+            + "target set cites and the release lacks has no row here: it reads `not_in_release`.",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["pathway_id"] = "Reactome's stable id, e.g. `R-HSA-70171`; the three letters are the species.",
+                ["name"] = "The pathway's name in this release, verbatim.",
+                ["species_name"] = "Reactome's species name, verbatim, e.g. `Homo sapiens`.",
+                ["human_equivalent_id"] = "The human pathway this one is: itself for an `R-HSA` id; `R-HSA` with the same number "
+                    + "when that pathway exists in the release with the identical name (how Reactome names what it infers from human); "
+                    + "NULL otherwise, e.g. a pathway curated in its own species. Mouse and rat pathways are Reactome's inference "
+                    + "from human through orthology, not evidence observed in that species.",
+                ["in_disease"] = $"True for `{ReactomeDiseaseRoot}` (Disease) and every pathway under it. Disease is never inferred "
+                    + "to another species: leave these out of any cross-species comparison.",
+                ["reactome_release"] = "The release number, e.g. `96`: the one the search databases' UniProt release cites.",
+                ["artefact_id"] = "The `kegg.reactome_release` artefact (`catalog_engine_artefacts`).",
+            }),
+        [ReactomeHierarchyTable] = new(
+            "Each parent-child pair of the release's pathway hierarchy, verbatim from Reactome's "
+            + "`ReactomePathwaysRelation.txt`. It is a DAG: a pathway can have several parents. Use `reactome_ancestors` to roll a "
+            + "pathway up; this table is for walking one level.",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["parent_id"] = "The broader pathway.",
+                ["child_id"] = "A pathway directly under it.",
+                ["artefact_id"] = "The `kegg.reactome_release` artefact (`catalog_engine_artefacts`).",
+            }),
+        [ReactomeAncestorsTable] = new(
+            "Each pathway of the release and each pathway above it, the pathway itself always included, each pair once (the "
+            + "release's closure). UniProt cites only the lowest-level pathways a protein takes part in, so a membership holds for "
+            + "every `ancestor_pathway_id` here: join a direct pathway (`protein_reactome.pathway_id`) to `pathway_id` to roll it "
+            + "up. A top-level area (`Metabolism`, ...) is a pathway with no row in `reactome_hierarchy` as a child.",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["pathway_id"] = "A pathway.",
+                ["ancestor_pathway_id"] = "The pathway itself or one above it.",
+                ["artefact_id"] = "The `kegg.reactome_release` artefact (`catalog_engine_artefacts`).",
+            }),
+        [ReactomeMembershipTable] = new(
+            "Every entry of each target database file a served search read, with the Reactome pathways UniProt lists on it "
+            + "(`kegg:DEF-REACTOME-MEMBERSHIP v1`, `kegg.reactome_membership`, mzLib's `ReactomeAccessionAnnotation` over the "
+            + "file alone). Stored once per FILE and shared by every search that read it, never per bundle, as "
+            + "`go_accession_terms` is. Membership is UniProt's statement, verbatim; ancestors are not rows (join to "
+            + "`reactome_ancestors`). **Every entry has at least one row**: an entry with no pathway has one pathway-less row "
+            + "whose `status` says why, so 'in the database with no pathway' is not 'not in the database'. The rows are the "
+            + "file's alone: its species check and an `inherited` row read THIS file. The definition reads a search's whole set "
+            + "of files, so `protein_reactome` applies both rules again over every file the search read, through "
+            + "`pathway_species` and `isoform_of`: read it, not this table, for a member's pathways.",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["database_sha256"] = "sha256 of the database file (`dataset_databases.sha256`, `go_accession_terms.database_sha256`).",
+                ["accession"] = "The database entry's accession, verbatim.",
+                ["organism"] = "The entry's own NCBI taxon as a CURIE, e.g. `NCBITaxon:9606`; NULL when the entry names none "
+                    + "(a FASTA entry without `OX=`).",
+                ["pathway_id"] = "A Reactome stable id UniProt lists on the entry, verbatim; NULL on the entry's one pathway-less row.",
+                ["pathway_species"] = "The id's species code (`HSA` of `R-HSA-70171`), as the definition's species rule reads it; "
+                    + "NULL for an id that is not a stable id, or on a pathway-less row.",
+                ["molecule"] = "The isoform the membership is scoped to (UniProt's `<molecule>`), verbatim; NULL when it covers the "
+                    + "whole entry.",
+                ["sequence_accession"] = "NULL on a whole-entry row. On an isoform row, the member sequence that takes it: the "
+                    + "entry's own accession when the molecule is the entry's displayed isoform, otherwise the molecule.",
+                ["inherited"] = "True when the entry is a UniProt isoform with no reference of its own and the row is its entry's "
+                    + "whole-entry row, the entry being in the same file (kegg's rule, as GO's D37); NULL on a pathway-less row.",
+                ["status"] = "In this file: `annotated` (the row carries a pathway), `no_reference` (UniProt lists no Reactome "
+                    + "reference for the entry, while its organism is covered: NOT 'in no pathway') or `species_not_covered` (no "
+                    + "entry of its organism in the file carries any).",
+                ["isoform_of"] = "For a UniProt isoform accession (`P04406-2`), its entry (`P04406`), by mzLib's accession parser; "
+                    + "NULL otherwise. The catalog applies the inheritance rule across a search's files through it.",
+                ["definition_id"] = "`kegg:DEF-REACTOME-MEMBERSHIP v1`, from mzLib's file.",
+                ["artefact_id"] = "The `kegg.reactome_membership` artefact (`catalog_engine_artefacts`).",
+            }),
+        [ReactomeSpeciesTable] = new(
+            "Each organism with a Reactome reference in each database file, and the Reactome species code its references were "
+            + "checked against in that file: the prefix a strict majority of at least 10 of them carry (`HSA` for human). A "
+            + "reference with another prefix was dropped. An organism without a code was kept unfiltered, and says so here; "
+            + "for a search, the catalog reads its code over all the search's files. The build fails if one organism has two "
+            + "codes (dataRepo KEGG-D6).",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["database_sha256"] = "The database file (`reactome_membership.database_sha256`).",
+                ["organism"] = "An NCBI taxon CURIE, or `unknown` for the entries that name no taxon, which are one organism "
+                    + "within a search.",
+                ["species_code"] = "The species code read, e.g. `HSA`; NULL when none was (too few references, or no strict "
+                    + "majority), so its references were kept unfiltered.",
+                ["unvalidated_references"] = "For an organism with no code, how many references it has; NULL when it has a code.",
+                ["artefact_id"] = "The `kegg.reactome_membership` artefact (`catalog_engine_artefacts`).",
+            }),
+        [KeggGeneLinksTable] = new(
+            "Every KEGG GENES id UniProt lists on an entry of each database file, verbatim, for link-outs only "
+            + "(`kegg.reactome_membership`, mzLib's `KeggGeneLinksTsv`). No KEGG pathway, orthology or module is stored, and "
+            + "nothing calls KEGG. There are no status rows: for a file served here, an entry with no row is one UniProt lists "
+            + "no KEGG id for. The ids are UniProt's (CC BY 4.0).",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["database_sha256"] = "The database file (`reactome_membership.database_sha256`).",
+                ["accession"] = "The database entry's accession, verbatim. A member takes its `annotated_as` entry's links.",
+                ["kegg_gene_id"] = "The KEGG GENES id, verbatim, e.g. `hsa:2597`.",
+                ["kegg_url"] = $"KEGG's documented entry link, `{KeggEntryUrl}<kegg_gene_id>`.",
+                ["artefact_id"] = "The `kegg.reactome_membership` artefact (`catalog_engine_artefacts`).",
+            }),
+        [ProteinReactomeTable] = new(
+            "For each served search, every distinct member accession of its non-decoy protein groups (whatever the q-value), "
+            + "with each Reactome pathway it takes, or ONE pathway-less row saying why it takes none (kegg's \"Per member\" rule): "
+            + "its entry's whole-entry rows and the isoform rows of its own sequence, over every target file the search read, "
+            + "with the definition's species code and isoform inheritance read across all of them (an isoform in another file "
+            + "than its entry still takes its entry's pathways). Direct pathways only: join `pathway_id` to "
+            + "`reactome_ancestors` to roll up. A member's answer does not depend on its group, so it is here once per search, "
+            + "not once per group. **Refusals are rows**, so an empty answer is never 'in no pathway'.",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["dataset_id"] = "The served search.",
+                ["bundle_id"] = "Its bundle.",
+                ["protein_accession"] = "The member exactly as the search wrote it.",
+                ["annotated_as"] = "The database entry it takes (`go_group_members.annotated_as`); NULL for `no_entry`.",
+                ["entrapment"] = "The member is entrapment (go D32, D36): a label, never a reason to drop a row. Exclude entrapment "
+                    + "from any enrichment, hit list and background alike.",
+                ["reactome_status"] = "`annotated` (it takes at least one pathway), `no_entry` (the search's databases do not hold "
+                    + "it), `no_reference` (UniProt lists no Reactome reference for its entry, or only ones scoped to other "
+                    + "isoforms) or `species_not_covered` (no entry of its organism in the set carries any).",
+                ["pathway_id"] = "A Reactome pathway it takes directly; NULL on its pathway-less row.",
+                ["inherited"] = "True when it takes the pathway only as its UniProt entry's (an isoform with no Reactome reference "
+                    + "of its own, kegg's rule as GO's D37); NULL on a pathway-less row.",
+                ["release_status"] = "`in_release` when the served release has the pathway, `not_in_release` when it does not (no "
+                    + "name and no ancestors: release drift); NULL on a pathway-less row.",
+                ["annotation_db_sha256"] = "The search's target set, as `go_group_members.annotation_db_sha256`: the file's sha256 "
+                    + "with one, else a sha256 over its files' sorted sha256s.",
+                ["reactome_release"] = "The served Reactome release.",
+                ["source_id"] = "The search's `annotation_sources` row (owner `kegg`).",
+            }),
+        [ReactomeGroupStatusTable] = new(
+            "Every non-decoy protein group of each served search, whatever its q-value, ONCE, with kegg's group status: the "
+            + "highest of `annotated` (a member takes a pathway, even in a contaminant group) > `contaminant` (the group is "
+            + "marked contaminant) > `no_entry` > `species_not_covered` > `no_reference` (the highest of its members'). One "
+            + "member set for everything: entrapment and `no_entry` members count. **This is where a group with no "
+            + "`reactome_group_pathways` row says why.** No member is first or leading.",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["dataset_id"] = "The served search.",
+                ["bundle_id"] = "Its bundle.",
+                ["protein_group_id"] = "The group (`protein_groups.protein_group_id`).",
+                ["protein_group"] = "The group's accessions `|`-joined in the bundle's order.",
+                ["members"] = "Distinct member accessions.",
+                ["reactome_status"] = "`annotated`, `contaminant`, `no_entry`, `species_not_covered` or `no_reference` (above).",
+                ["n_pathways"] = "Distinct pathways its members take directly (`reactome_group_pathways` rows).",
+                ["entrapment_members"] = "The group's entrapment members, sorted, whether or not they take a pathway. Empty for a "
+                    + "group with none. A label: exclude such a group from an enrichment, never change the counts.",
+                ["is_contaminant"] = "The group's contaminant mark, from the search (`protein_groups.target_decoy = 'contaminant'`).",
+                ["q_value"] = "The group's protein q-value (`protein_groups.q_value`). Nothing is filtered on it.",
+                ["reactome_release"] = "The served Reactome release.",
+                ["source_id"] = "The search's `annotation_sources` row (owner `kegg`).",
+            }),
+        [ReactomeGroupPathwaysTable] = new(
+            "Each pathway any member of a served search's group takes directly, per group: the union over the group's "
+            + "members, with how many of them take it. Ancestors are not rows: join `pathway_id` to `reactome_ancestors` and "
+            + "count DISTINCT `carriers` to roll up (a member taking two children of one area counts once).",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["dataset_id"] = "The served search.",
+                ["bundle_id"] = "Its bundle.",
+                ["protein_group_id"] = "The group (`reactome_group_status.protein_group_id`).",
+                ["pathway_id"] = "A pathway a member takes directly.",
+                ["members"] = "The group's distinct members, as `reactome_group_status.members`.",
+                ["members_in_pathway"] = "How many of them take the pathway.",
+                ["carriers"] = "Those members, sorted.",
+                ["release_status"] = "`in_release` or `not_in_release` (release drift: no name and no ancestors).",
+                ["reactome_release"] = "The served Reactome release.",
+                ["source_id"] = "The search's `annotation_sources` row (owner `kegg`).",
             }),
         [AnnotationsTable] = new(
             "One row per dataset: what the producer's manifest says ABOUT it that is not identity -- its "
@@ -1651,6 +1829,7 @@ public static partial class CatalogBuilder
         if (GoActive)
         {
             SelectGo(store, bundles, chosen, checks);
+            SelectReactome(store, bundles, chosen, checks);
             SelectOrthology(store, chosen, checks);
             SelectPtmQtl(store, bundles, chosen, checks);
         }
@@ -1886,6 +2065,8 @@ public static partial class CatalogBuilder
                 Lap("orthology");
                 foreach (var (k, v) in BuildGo(con, bundles, engines)) rowCounts[k] = v;
                 Lap("go");
+                foreach (var (k, v) in BuildReactome(con, bundles, engines)) rowCounts[k] = v;
+                Lap("reactome");
                 if (AnnotationsActive)
                 {
                     CreateAnnotations(con, annotations);
@@ -1905,8 +2086,10 @@ public static partial class CatalogBuilder
                 Lap("checks: bundles");
                 checks.AddRange(CheckStudy(con, study));
                 Lap("checks: study");
-                checks.AddRange(CheckEngines(con, engines.Where(r => !Runner.GoEngines.Contains(r.Engine) && !PtmQtlTables.ContainsKey(r.Engine)).ToList()));
+                checks.AddRange(CheckEngines(con, engines.Where(r => !Runner.GoEngines.Contains(r.Engine) && !Runner.ReactomeEngines.Contains(r.Engine)
+                    && !PtmQtlTables.ContainsKey(r.Engine)).ToList()));
                 checks.AddRange(CheckGoTables(con, bundles, engines));
+                checks.AddRange(CheckReactomeTables(con, bundles, engines));
                 checks.AddRange(CheckOrthology(con, engines));
                 checks.AddRange(CheckOrthologyTables(con, engines));
                 checks.AddRange(CheckPtmQtl(con, engines));
@@ -2389,6 +2572,7 @@ public static partial class CatalogBuilder
         taken.UnionWith(RunViews.Select(kv => kv.Key));
         taken.UnionWith(OrthologyTables);
         taken.UnionWith(GoReferenceTables);
+        taken.UnionWith(ReactomeTables);
         foreach (var (layer, tables) in SchemaContract.StudyLayers)
         {
             var r = byLayer.GetValueOrDefault(layer);
@@ -3212,6 +3396,10 @@ public static partial class CatalogBuilder
         if (GoActive)
             foreach (var name in GoReferenceTables)
                 Exec(con, "INSERT INTO catalog_tables VALUES (?, ?, ?)", name, Count(con, $"SELECT count(*) FROM \"{name}\""), GoTableKind(name));
+        // kegg's Reactome tables (CatalogReactome.cs), likewise.
+        if (ReactomeActive)
+            foreach (var name in ReactomeTables)
+                Exec(con, "INSERT INTO catalog_tables VALUES (?, ?, ?)", name, Count(con, $"SELECT count(*) FROM \"{name}\""), ReactomeTableKind(name));
         foreach (var (layer, tables) in SchemaContract.StudyLayers)
             foreach (var spec in tables)
                 Exec(con, "INSERT INTO catalog_tables VALUES (?, ?, ?)", spec.Name, studyCounts.GetValueOrDefault(spec.Name, 0), $"study:{layer}");

@@ -200,6 +200,15 @@ protein", which is the question the repository exists for.
 | `go_accession_terms` | 1/database file/entry/direct term | every entry of each searched target database file, with its direct GO terms (all aspects) and its own evidence; one term-less row for an entry with none; stored once per file, shared by every search that read it |
 | `go_group_members` | 1/search/member accession | each member of a search's non-decoy groups, and the database entry it takes (`annotated_as`; `resolution` `self`, `inherited` or `no_entry`; `entrapment`). No GO |
 | `go_group_status` | 1/search/protein group | every non-decoy group once, with go's `annotation_status` (`annotated`, `contaminant`, `no_entry`, `no_go_terms`), `n_terms`, `n_cc_terms`, `entrapment_members`: where a group with no `protein_localizations` row says why |
+| `reactome_pathways` | 1/pathway | from 1.5.0: every pathway of the served Reactome release, every species (`name`, `species_name`, `human_equivalent_id`, `in_disease`, `reactome_release`) |
+| `reactome_hierarchy` | 1/parent/child | the release's parent-child pairs (a DAG) |
+| `reactome_ancestors` | 1/pathway/ancestor | each pathway and every pathway above it, itself included: join a direct pathway to `pathway_id` to roll it up |
+| `reactome_membership` | 1/database file/entry/pathway | every entry of each searched target database file, with the Reactome pathways UniProt lists on it, isoform-scoped where UniProt says so; one pathway-less row with its `status` for an entry with none; stored once per file |
+| `reactome_species` | 1/database file/organism | the Reactome species code each file's references were checked against (`HSA`), or none and how many references were kept unfiltered |
+| `kegg_gene_links` | 1/database file/entry/KEGG id | the KEGG GENES ids UniProt lists, with `kegg_url`: link-outs only, no KEGG content |
+| `protein_reactome` | 1/search/member/pathway | each member of a search's non-decoy groups and each pathway it takes, over all the search's files, or one row with its `reactome_status` (`no_reference`, `species_not_covered`, `no_entry`); `release_status` for drift |
+| `reactome_group_status` | 1/search/protein group | every non-decoy group once, with kegg's status (`annotated`, `contaminant`, `no_entry`, `species_not_covered`, `no_reference`), `n_pathways`, `entrapment_members` |
+| `reactome_group_pathways` | 1/search/protein group/pathway | each pathway a group's members take, with `members`, `members_in_pathway` and `carriers` |
 
 The five orthology tables are copied from the snapshot `datarepo run logs.register_orthology` registered
 ([operating.md](operating.md#4-optional-engines-and-study-results)), through the snapshot's own `views.sql`, in
@@ -254,6 +263,41 @@ a served search's groups has no `go_group_members` row (dataRepo 028), if an ent
 search's database tables, if a database term is not a term of the release, if an artefact used another go.obo, or if
 an artefact's rows are not all copied. [querying.md](querying.md) has the queries for "the GO terms of a protein" and
 "the proteins of a GO term, across datasets".
+
+**Reactome is reference data from 1.5.0 too, in GO's shape** (kegg's `kegg:DEF-REACTOME-MEMBERSHIP v1`, built by mzLib
+1.0.598). Two engines ([operating.md](operating.md#4-optional-engines-and-study-results)) write it, and `build` copies
+their rows, in both layouts, into six tables of kind `engine:<engine>`, `artefact_id` on every row, typed and empty when
+nothing is served: `reactome_pathways`, `reactome_hierarchy` and `reactome_ancestors` from the one `kegg.reactome_release`
+artefact a catalog serves (two are refused); `reactome_membership`, `reactome_species` and `kegg_gene_links` from one
+`kegg.reactome_membership` artefact per target database file the bundles searched. `reactome_pathways.in_disease` marks
+Disease (`R-HSA-1643685`) and everything under it, from the release's own closure. Which entry each member of a group
+takes is go's `go.resolve_members` artefact, read for Reactome as for GO, so a search is served Reactome when it has that
+artefact, the release, and a membership artefact for each of its target files; three `catalog_checks` rows of kind
+`engine-coverage`, which always pass, name what is missing.
+
+**The membership is stored per file, as GO's is, and the definition's two set-wide rules run at build** over every file
+a search read. An organism's Reactome code (the prefix a strict majority of at least 10 of its references carry) is the
+code a file of the search read, or, where no file could, the code read over the union of the files' references; a file's
+rows with another prefix are then left out. A UniProt isoform with no reference of its own in any of the files takes its
+entry's whole-entry pathways (`inherited`), wherever the entry is. Every entry's status is read again over the union, so
+an isoform-only file does not make its entries `species_not_covered`. Then `protein_reactome` gives each member of the
+search's non-decoy groups (whatever the q-value) its entry's whole-entry pathways and the isoform-scoped ones of its own
+sequence, DISTINCT, or one row saying why it has none: `no_entry`, or its entry's status (`no_reference`, or
+`species_not_covered`), an entry whose references are all scoped to other isoforms giving `no_reference` (kegg D20).
+`reactome_group_status` gives every group the highest of `annotated` > `contaminant` > `no_entry` > `species_not_covered`
+> `no_reference` over one member set, and `reactome_group_pathways` each pathway with `members_in_pathway` of `members`.
+Entrapment is a label (`entrapment`, `entrapment_members`), never a change to a count. Pathways are the lowest-level ones
+UniProt cites; roll them up through `reactome_ancestors`. `build` reproduces mzLib's hand-written expectation for the
+definition row for row, whether the search's set is one file or split over several (`ReactomeCatalogTests`).
+
+`catalog_checks` fail the build if a member of a served search has no status, if an entry a member takes is not in its
+search's files, if an artefact's rows are not all copied, if one organism has two Reactome codes (dataRepo KEGG-D6), or
+if the per-file artefacts cannot give a search's rows exactly. That last refusal covers the two cases a file alone cannot
+see into: an organism whose code one file read while another file's references of other prefixes could outvote it, and
+an isoform that inherits although its file, holding it apart from its entry, dropped references for their prefix. Neither
+arises in a UniProt proteome. A pathway id a file cites that the release lacks reads `release_status = 'not_in_release'`,
+and a passing `engine-coverage` row counts them per file (release drift). [querying.md](querying.md) has the queries for
+"the pathways of a protein" and "the proteins of a pathway".
 
 The three `deposit_*` tables are read at **build** from the records `datarepo pride` kept beside the bundles
 ([operating.md](operating.md#4-optional-engines-and-study-results)); `build` itself fetches nothing. They are
