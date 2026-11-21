@@ -69,6 +69,14 @@ public static class ProfileLoader
         // MetaMorpheus 1.1.12+ (#2816, #2870): each search writes experiment.sdrf.tsv, stamped with the
         // deposit's accession. A key the pinned MetaMorpheus lacks fails the task-file edit, never silently.
         bool writeSdrf = eng.OptionalBool("write_sdrf") ?? false;
+        // D84 (the user, 2026-11-21: "we should see output sdrf. if that depends on input sdrf then we should begin that"):
+        // the SDRF the search's design came from goes to MetaMorpheus as InputSdrfPath (1.1.14+, #2934), so the written SDRF
+        // copies its sample columns for each file or channel. It only shapes the written SDRF, so it needs write_sdrf.
+        bool inputSdrf = eng.OptionalBool("input_sdrf") ?? false;
+        if (inputSdrf && !writeSdrf)
+            throw new ConfigException(file, "engine.input_sdrf needs engine.write_sdrf: the input SDRF only fills the SDRF a search writes");
+        if (inputSdrf && Version.TryParse(mm, out var mmRelease) && mmRelease < new Version(1, 1, 14))
+            throw new ConfigException(file, $"engine.input_sdrf needs MetaMorpheus 1.1.14 or later (InputSdrfPath, #2934); this profile names {mm}");
         // v0.4.40 (G66, D32 slice 4): the PTM classes a deposit enriches (LibraryRouting: the curated manifest enrichment over
         // the screen's, plus the probe's measurement) are variable in every task, with MaxModsForPeptide 3.
         bool enrichedVariable = eng.OptionalBool("enriched_variable") ?? false;
@@ -260,7 +268,7 @@ public static class ProfileLoader
             method, mbr, deposit, gates, Path.GetDirectoryName(Path.GetFullPath(file))!, design, chemistry, writeSdrf, shipped, fragmentation, lowResTolerance, probeSearch, probeMinutes, ionTrapHcd,
             customMods, thiolReagents, precursorWindow, ionTrapHcdLowCid, ionTrapHcdProbeLowCid, artifacts,
             gptmdFilters.Count > 0 ? gptmdFilters : null, mmSettings.Count > 0 ? mmSettings : null,
-            dropMods.Count > 0 ? dropMods : null, enrichedVariable);
+            dropMods.Count > 0 ? dropMods : null, enrichedVariable, inputSdrf);
     }
 
     /// <summary>

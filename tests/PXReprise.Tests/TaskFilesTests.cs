@@ -59,6 +59,65 @@ public class TaskFilesTests
             new TaskSettings(8, true, Array.Empty<string>(), WriteSdrf: true), Known), "1.1.11 has no WriteSdrf: refused, never silent");
     }
 
+    private static string Mm1115(string task) =>
+        File.ReadAllText(Path.Combine(TestContext.CurrentContext.TestDirectory, "Fixtures", "mm-1.1.15", task));
+
+    // D84 on the real 1.1.15 default (CMD -g, 2026-11-21): CMD -g writes no InputSdrfPath (the setting is null), so the
+    // design's SDRF goes in under the accession, as a TOML basic string with its backslashes escaped. Nothing else changes.
+    [Test]
+    public void OnMetaMorpheus1115TheSearchCopiesTheDesignsSdrfIntoTheOneItWrites()
+    {
+        string text = Mm1115("SearchTask.toml");
+        Assert.That(text, Does.Not.Contain("InputSdrfPath"), "CMD -g writes no line for it");
+        string nl = text.Contains("\r\n") ? "\r\n" : "\n";
+        string sdrf = Path.Combine(TestContext.CurrentContext.TestDirectory, "design", "PXD017058.sdrf.tsv");
+        string written = TaskFiles.TomlBasicString(sdrf);
+        var (edited, _) = TaskFiles.Edit(text, TaskKind.Search, new TaskSettings(8, true, Array.Empty<string>(),
+            WriteSdrf: true, ProteomeXchangeAccession: "PXD017058", InputSdrfPath: sdrf), Known);
+        Assert.That(edited, Does.Contain($"WriteSdrf = true{nl}ProteomeXchangeAccession = \"PXD017058\"{nl}InputSdrfPath = {written}{nl}"));
+        Assert.That(edited.Replace($"WriteSdrf = true{nl}ProteomeXchangeAccession = \"PXD017058\"{nl}InputSdrfPath = {written}", "WriteSdrf = false")
+            .Replace("MatchBetweenRuns = true", "MatchBetweenRuns = false").Replace("MaxThreadsToUsePerFile = 8", "MaxThreadsToUsePerFile = 63"),
+            Is.EqualTo(text), "nothing else changes");
+
+        // A second edit replaces the line; without an accession it goes under WriteSdrf.
+        string other = Path.Combine(TestContext.CurrentContext.TestDirectory, "design", "PXD000001.sdrf.tsv");
+        var (again, _) = TaskFiles.Edit(edited, TaskKind.Search, new TaskSettings(8, true, Array.Empty<string>(),
+            WriteSdrf: true, ProteomeXchangeAccession: "PXD017058", InputSdrfPath: other), Known);
+        Assert.That(again, Does.Contain($"InputSdrfPath = {TaskFiles.TomlBasicString(other)}").And.Not.Contain("PXD017058.sdrf.tsv"), "replaced, not added twice");
+        var (noAccession, _) = TaskFiles.Edit(text, TaskKind.Search, new TaskSettings(8, true, Array.Empty<string>(),
+            WriteSdrf: true, InputSdrfPath: sdrf), Known);
+        Assert.That(noAccession, Does.Contain($"WriteSdrf = true{nl}InputSdrfPath = {written}{nl}"));
+
+        Assert.Throws<SearchSetupException>(() => TaskFiles.Edit(text, TaskKind.Search,
+            new TaskSettings(8, true, Array.Empty<string>(), InputSdrfPath: sdrf), Known), "only into a written SDRF");
+        Assert.Throws<SearchSetupException>(() => TaskFiles.Edit(text, TaskKind.Search,
+            new TaskSettings(8, true, Array.Empty<string>(), WriteSdrf: true, InputSdrfPath: "design/PXD017058.sdrf.tsv"), Known), "a full path");
+    }
+
+    [Test]
+    public void ATomlBasicStringEscapesBackslashesAndQuotes() =>
+        Assert.That(TaskFiles.TomlBasicString(@"F:\run\PXD1\04_search\design\a ""b"".tsv"),
+            Is.EqualTo(@"""F:\\run\\PXD1\\04_search\\design\\a \""b\"".tsv"""));
+
+    // D82 on the real 1.1.15 defaults: every task CMD -g writes names its filter and threshold once, so a profile's
+    // [metamorpheus_settings.all] IdentificationFilter and FilterThreshold land in Calibration, GPTMD and Search alike.
+    [TestCase("CalibrationTask.toml")]
+    [TestCase("GptmdTask.toml")]
+    [TestCase("SearchTask.toml")]
+    public void OnMetaMorpheus1115EveryTaskTakesTheFilterAndItsThreshold(string task)
+    {
+        var settings = new[]
+        {
+            new PXReprise.Config.MetaMorpheusSetting("all", "IdentificationFilter", "\"PepQValue\""),
+            new PXReprise.Config.MetaMorpheusSetting("all", "FilterThreshold", "0.01"),
+        };
+        string text = Mm1115(task);
+        Assert.That(text, Does.Not.Contain("QValueThreshold").And.Not.Contain("PepQValueThreshold"), "1.1.15 writes one threshold");
+        var (edited, applied) = TaskFiles.ApplySettings(text, TaskKind.Search, settings);
+        Assert.That(applied, Has.Count.EqualTo(2), "both keys found exactly once");
+        Assert.That(edited, Does.Contain("IdentificationFilter = \"PepQValue\"").And.Contain("FilterThreshold = 0.01"));
+    }
+
     // G19 (D23, D24): the deposit's protease and cysteine chemistry; the d0/d5-NEM pair goes in as two variable mods.
     [Test]
     public void TheDepositsProteaseAndCysteineModsReplaceTheDefaults()
