@@ -291,9 +291,13 @@ public static class Program
             {
                 Positional(args, 0);
                 args.AllowOnly("spectra", "qc", "out", "organism", "profile", "profile-file", "profiles", "machine",
-                    "extra-db", "exclude", "run-date", "accession", "design", "condition-columns", "enriched");
+                    "extra-db", "exclude", "run-date", "accession", "design", "condition-columns", "enriched", "probe-offsets");
                 var profile = ResolveProfile(args);
                 if (args.Option("design") is { } given && !File.Exists(given)) throw new UsageException($"--design {given} does not exist");
+                // D84: a probe's measured precursor offsets, as the batch passes them to a profile with
+                // engine.precursor_window = "probe" (its state entry's probe_precursor_offsets_ppm), so a search re-run by hand
+                // gets the window the batch would give it.
+                var probeOffsets = args.Option("probe-offsets") is { } po ? ReadProbeOffsets(po) : null;
                 // v0.4.40 (G66): the PTM classes the deposit enriches, as the batch reads them (library routing, and the variable
                 // mods of a profile with engine.enriched_variable): --enriched phospho,GG.
                 var enriched = List(args.Option("enriched"));
@@ -305,7 +309,7 @@ public static class Program
                     CuratedDesign: args.Option("design"), DesignConditionColumns: args.Option("condition-columns") is null ? null : List(args.Option("condition-columns")),
                     // v0.4.45: a profile that reads each deposit's chemistry takes it from --design's SDRF here.
                     Chemistry: Search.SearchStage.ChemistryOutsideTheBatch(profile, args.Required("spectra"), args.Option("design")),
-                    LibraryRouteClasses: enriched.Count > 0 ? enriched : null);
+                    LibraryRouteClasses: enriched.Count > 0 ? enriched : null, ProbePrecursorOffsets: probeOffsets);
                 return await Search.SearchStage.RunAsync(request, ct).ConfigureAwait(false);
             }
 
@@ -544,6 +548,28 @@ public static class Program
 
     private static IReadOnlyList<string> List(string? csv) =>
         csv is null ? Array.Empty<string>() : csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    /// <summary>
+    /// <c>search --probe-offsets</c>: a JSON object of each probe run's precursor offset in ppm (<c>{"run": 9.4}</c>), the
+    /// shape of a batch state entry's <c>probe_precursor_offsets_ppm</c>.
+    /// </summary>
+    internal static IReadOnlyDictionary<string, double> ReadProbeOffsets(string path)
+    {
+        if (!File.Exists(path)) throw new UsageException($"--probe-offsets {path} does not exist");
+        System.Text.Json.Nodes.JsonNode? node;
+        try { node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(path)); }
+        catch (System.Text.Json.JsonException e) { throw new UsageException($"--probe-offsets {path} is not JSON: {e.Message}", e); }
+        if (node is not System.Text.Json.Nodes.JsonObject o || o.Count == 0)
+            throw new UsageException($"--probe-offsets {path} must be a JSON object of run name to offset in ppm, such as {{\"run\": 9.4}}");
+        var offsets = new Dictionary<string, double>(StringComparer.Ordinal);
+        foreach (var (run, value) in o)
+        {
+            if (value is not System.Text.Json.Nodes.JsonValue v || !v.TryGetValue(out double ppm))
+                throw new UsageException($"--probe-offsets {path}: run '{run}' has no number");
+            offsets[run] = ppm;
+        }
+        return offsets;
+    }
 
     /// <summary>Exactly <paramref name="n"/> positional arguments after the verb.</summary>
     private static IReadOnlyList<string> Positional(Arguments args, int n)
