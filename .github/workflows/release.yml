@@ -4,6 +4,8 @@ name: Release
 # dated section for it ("## 0.4.48 (2026-11-20)"). The version bump and the dated CHANGELOG go in by pull request first. Then
 # an admin pushes the tag (git tag v0.4.48 && git push upstream v0.4.48), or runs this workflow by hand with the version, which
 # tags master's head. GitHub builds and tests that commit and publishes the release with the CHANGELOG section as its notes.
+# First, every supported MetaMorpheus release is run on the small shared inputs (metamorpheus-output.yml): nothing is
+# published unless that is green. (A pushed tag stays even when it is red; no release is made from it.)
 on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]
@@ -21,7 +23,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  metamorpheus-output:
+    uses: ./.github/workflows/metamorpheus-output.yml
+
   release:
+    needs: metamorpheus-output
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
