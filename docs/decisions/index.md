@@ -78,3 +78,4 @@ Records marked *provisional* are good guesses, made fast on purpose. Each says w
 | [0069](0069-datarepo-code-in-pxreprise.md) | The data repository's code lives here, with its history | accepted | 2026-11-13 |
 | [0070](0070-record-engine-decisions-as-madr.md) | Record engine decisions as MADR records in this repository | accepted | 2026-11-14 |
 | [0072](0072-dia-search-mode.md) | A DIA search mode keyed on the DIA task's own tables | accepted | 2026-11-16 |
+| [0082](0082-pep-q-value-from-the-next-metamorpheus-version.md) | The PEP q-value at 1% from the next MetaMorpheus version | accepted | 2026-11-20 |
