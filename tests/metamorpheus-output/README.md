@@ -17,6 +17,11 @@ runs by hand (Actions, "MetaMorpheus output", Run workflow) and from `release.ym
 it is green. For each release it downloads `MetaMorpheus_CommandLine.zip` from MetaMorpheus's GitHub release, checks
 its sha256 (cached after the first download), seeds a settings folder with `-g --mmsettings` (an empty one crashes
 MetaMorpheus), checks that the banner names the release, and runs `dotnet CMD.dll` on each input set below, on Linux.
+Each release's output is kept as a workflow artifact for 7 days.
+
+**Not yet here: the checks.** For now the workflow fails only when a release cannot be fetched, does not start, or
+cannot search an input. The tests that read the output and check what the engine and datarepo rely on, one function
+at a time, come next.
 
 **To add a release:** add its line to `releases.tsv` (the release, the zip's URL, the zip's sha256 as GitHub's release
 page gives it) and run the workflow.

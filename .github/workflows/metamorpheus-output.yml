@@ -1,17 +1,13 @@
 name: MetaMorpheus output
 
 # Runs every supported MetaMorpheus release (tests/metamorpheus-output/releases.tsv) on the small shared inputs in
-# tests/metamorpheus-output/, so what PXReprise reads from MetaMorpheus's output is checked on real output of each
-# release. It is not run on pull requests: it runs by hand (workflow_dispatch), for internal testing, and from the
+# tests/metamorpheus-output/, so what PXReprise reads from MetaMorpheus's output can be checked on real output of each
+# release (the checks themselves come next). It is not run on pull requests: it runs by hand (workflow_dispatch), for internal testing, and from the
 # release workflow, which publishes only when it is green. Each release's zip is downloaded from MetaMorpheus's GitHub
 # release, checked against its sha256 and cached.
 on:
   workflow_dispatch:
   workflow_call:
-  # TEMPORARY, removed before the pull request: proves the run on Linux from the branch, before the workflow exists on
-  # master (workflow_dispatch can only start a workflow the default branch has).
-  push:
-    branches: [feat/metamorpheus-output-samples]
 
 permissions:
   contents: read
