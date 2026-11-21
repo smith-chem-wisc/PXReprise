@@ -81,7 +81,7 @@ public class IdentificationFilterTests
         Assert.That(Identifications.FilterOf(named, release), Is.EqualTo(expected));
 
     // Target rows: (q, notch q, PEP q, notch). PEP q 2 is MetaMorpheus's "not computed" (PEP not trained).
-    private static Dictionary<string, List<object?>> Columns(params (string Status, double Q, double Notch, double Pep, string Notches)[] rows) => new()
+    private static Dictionary<string, List<object?>> Columns(params (string Status, double? Q, double? Notch, double? Pep, string Notches)[] rows) => new()
     {
         ["decoy_contam_target"] = rows.Select(r => (object?)r.Status).ToList(),
         ["q_value"] = rows.Select(r => (object?)r.Q).ToList(),
@@ -107,6 +107,21 @@ public class IdentificationFilterTests
         Assert.That(Identifications.ProducerCounts(c, filter: ProducerFilter.PepQValue), Is.EqualTo(3), "rows 1, 4 and 5");
         Assert.That(Identifications.ProducerCounts(c, requireResolvedNotch: false, filter: ProducerFilter.PepQValue), Is.EqualTo(4),
             "the peptide count keeps the notch-ambiguous row");
+    }
+
+    /// <summary>An empty cell: the notch and PEP filters fall back to the next value, and a match with nothing to judge
+    /// it by is not counted.</summary>
+    [Test]
+    public void AnEmptyCellFallsBackOrIsNotCounted()
+    {
+        var c = Columns(
+            ("T", null, null, 0.005, "0"),   // no q-values: only the PEP q-value keeps it
+            ("T", 0.005, null, null, "0"),   // no notch and no PEP q-value: the q-value decides
+            ("T", null, null, -1, "0"));     // a PEP q-value out of range, and nothing to fall back to
+        Assert.That(Identifications.ProducerCounts(c), Is.EqualTo(1), "row 2: its q-value, and no notch to fail");
+        Assert.That(Identifications.ProducerCounts(c, filter: ProducerFilter.QValue), Is.EqualTo(1), "row 2");
+        Assert.That(Identifications.ProducerCounts(c, filter: ProducerFilter.QValueNotch), Is.EqualTo(1), "row 2, by its q-value");
+        Assert.That(Identifications.ProducerCounts(c, filter: ProducerFilter.PepQValue), Is.EqualTo(2), "rows 1 and 2");
     }
 
     [Test]
