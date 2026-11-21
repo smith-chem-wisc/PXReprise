@@ -46,6 +46,16 @@ public class InputSdrfTests
         Assert.That(old!.Message, Does.Contain("needs MetaMorpheus 1.1.14 or later").And.Contain("1.1.13"));
     }
 
+    /// <summary>The engine writes InputSdrfPath from engine.input_sdrf, so a settings table may not write it too.</summary>
+    [Test]
+    public void ASettingsTableMayNotNameInputSdrfPath()
+    {
+        var e = Assert.Throws<ConfigException>(() => ProfileLoader.Load(ProfileWith(t => t
+            .Replace(Pin, "metamorpheus = \"1.1.15\"")
+            .Replace("[metamorpheus_settings.search]", "[metamorpheus_settings.search]\nInputSdrfPath = \"/data/design.sdrf.tsv\""))));
+        Assert.That(e!.Message, Does.Contain("'InputSdrfPath' is written by the engine"));
+    }
+
     private static (AgingProvenance Prov, string Dir) Prov()
     {
         string dir = TestSupport.TempDir();

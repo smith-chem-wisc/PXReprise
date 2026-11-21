@@ -134,7 +134,7 @@ public sealed record Profile(
         "MaxThreadsToUsePerFile", "MatchBetweenRuns", "SearchType", "WriteSpectralLibrary", "UpdateSpectralLibrary",
         "WriteSdrf", "ProteomeXchangeAccession", "QuantifyPpmTol", "Protease", "SpecificProtease", "ListOfModsFixed",
         "ListOfModsVariable", "ListOfModsGptmd", "GptmdFilters", "ProductMassTolerance", "PrecursorMassTolerance",
-        "DissociationType", "MaxModsForPeptide",
+        "DissociationType", "MaxModsForPeptide", "InputSdrfPath",
     };
 
     /// <summary>The GPTMD filters MetaMorpheus 1.1.12 has (EngineLayer/Gptmd/IGptmdFilter.cs). MetaMorpheus drops a name it
