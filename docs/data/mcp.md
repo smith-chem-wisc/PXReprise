@@ -43,6 +43,41 @@ environment variable moves the default.
 **Removing an entry.** `claude mcp remove datarepo` (or the name you gave with `--name`), or delete
 the entry from the config file. Nothing else was written anywhere.
 
+## Over HTTP: `datarepo-host`
+
+`datarepo-host` serves the same three tools, with the same sandbox and provenance, over MCP's Streamable HTTP transport
+at `/mcp`. It is a separate program (`src/PXReprise.Host`), so the `datarepo` command line carries no web framework.
+
+```bash
+export DATAREPO_HOST_TOKEN="$(openssl rand -hex 32)"     # the bearer token; never on the command line
+datarepo-host --catalog /path/to/catalog.duckdb --urls http://0.0.0.0:8080
+```
+
+| Option | Default | |
+|---|---|---|
+| `--catalog` | required | a catalog file or a catalog folder, as for `datarepo mcp` |
+| `--urls` | `http://127.0.0.1:8080` | where to listen |
+| `--rate` | 120 | requests per minute for each client address; more get HTTP 429 |
+| `--allowed-origins` | none | web origins a browser may call from; a request with another `Origin` gets 403 |
+| `--name` | `datarepo` | the server name a client sees |
+
+**A token is required on any address that is not loopback.** Each `/mcp` request must carry
+`Authorization: Bearer <token>`, or it gets 401. The host refuses to start on `0.0.0.0` (or any other address that is
+not loopback) when `DATAREPO_HOST_TOKEN` is not set. Without a token, listen on `127.0.0.1` and reach the host through
+a tunnel. `GET /healthz` needs no token, so a load balancer can call it; it gives only the catalog id and the version.
+
+The checks run in this sequence before a request reaches the catalog: the `Origin` header (the MCP specification
+requires it, against DNS rebinding; an agent sends none), the rate limit, the token.
+
+To register the host with Claude Code:
+
+```bash
+claude mcp add --transport http datarepo https://<host>/mcp --header "Authorization: Bearer <token>"
+```
+
+One host serves one catalog, one call at a time, for all sessions. The session record and the save tool of dataRepo's
+`feat/ai-contributions` branch are not in this host yet.
+
 ## One catalog, by explicit path
 
 The path is required and the catalog is **never auto-discovered**. A server that went looking for a

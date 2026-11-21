@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- datarepo's version line (stamped by a datarepo release build), shared by every data project. -->
+  <Import Project="..\Data.Build.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>datarepo-host</AssemblyName>
+    <RootNamespace>PXReprise.Host</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PXReprise.Mcp\PXReprise.Mcp.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The official C# MCP SDK's ASP.NET Core transport (Streamable HTTP), the same release as the core package in
+         PXReprise.Mcp. It is here, not in PXReprise.Mcp or the CLI, so the datarepo command line carries no web framework. -->
+    <PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.2.0" />
+  </ItemGroup>
+
+</Project>

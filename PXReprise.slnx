@@ -1,4 +1,4 @@
-<Solution>
+﻿<Solution>
   <Folder Name="/src/">
     <Project Path="src/PXReprise/PXReprise.csproj" />
     <Project Path="src/PXReprise.Storage/PXReprise.Storage.csproj" />
@@ -7,6 +7,7 @@
     <Project Path="src/PXReprise.Bundle/PXReprise.Bundle.csproj" />
     <Project Path="src/PXReprise.Catalog/PXReprise.Catalog.csproj" />
     <Project Path="src/PXReprise.DataCli/PXReprise.DataCli.csproj" />
+    <Project Path="src/PXReprise.Host/PXReprise.Host.csproj" />
     <Project Path="src/PXReprise.Ingest/PXReprise.Ingest.csproj" />
     <Project Path="src/PXReprise.Mcp/PXReprise.Mcp.csproj" />
     <Project Path="src/PXReprise.Runner/PXReprise.Runner.csproj" />

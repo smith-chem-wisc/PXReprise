@@ -55,6 +55,12 @@ search by MetaMorpheus 1.1.13 or earlier.
 ### Removed
 - `psms.matched_ion_series` and `psms.matched_ion_count`. They were never filled; the ions are in `peptidoform_ions`.
 
+### Added (serving)
+- **`datarepo-host`**: the three MCP tools over Streamable HTTP at `/mcp`, a separate program (`src/PXReprise.Host`).
+  A bearer token from `DATAREPO_HOST_TOKEN` is required on any address that is not loopback, an `Origin` that is not
+  named gets 403, each client address has a rate limit, and `GET /healthz` names the catalog. Ported from dataRepo's
+  `feat/ai-contributions` branch, without its session record and save tool ([mcp.md](mcp.md#over-http-datarepo-host)).
+
 ### Added (catalog, format 17)
 - **`peptidoforms_1pct` follows each search's recorded rule**, with `dataset_overview.confidence_rule` beside
   `n_peptidoforms_1pct`. A NULL value or a rule the view does not name passes nothing. It is not the producer's peptide
