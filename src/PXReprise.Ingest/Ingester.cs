@@ -672,12 +672,16 @@ public static class Ingester
 
         var resultsPath = Join(resultsDir, "results.txt");
         var results = new Dictionary<string, Dictionary<string, long>>(StringComparer.Ordinal);
+        string? resultsFilter = null;
         if (File.Exists(resultsPath))
         {
             writer.AddSource(resultsPath, "results_txt", "results.txt");
-            results = Readers.ReadResultsTxt(resultsPath, log);
+            results = Readers.ReadResultsTxt(resultsPath, out resultsFilter, log);
             metrics.AddRange(ResultsMetrics(results, datasetId, runNames, searchNamespace, rules));
         }
+        // D84: the search's own counts follow its identification filter (MetaMorpheus 1.1.15, #2982 and #2989), as its
+        // results.txt names it; up to 1.1.14 the rule was the q-value and the notch together.
+        var producerFilter = Identifications.FilterOf(resultsFilter, engineVersion);
         // Here rather than with the other provenance metrics because the per-run rows need the deposited run
         // names, which only exist once the runs are built.
         metrics.AddRange(Provenance.ContaminationMetricRows(searchProvenance, datasetId, runNames, searchNamespace));
@@ -838,16 +842,17 @@ public static class Ingester
         // --- reconciliation -------------------------------------------------------------------------------
         var searchMs2 = Get(Map(Get(searchProvenance, "id_rate")), "ms2");
         var checks = Reconcile.Build(
-            Identifications.ProducerCounts(psmColumns),
+            Identifications.ProducerCounts(psmColumns, filter: producerFilter),
             // No notch clause for peptidoforms: it is a PSM rule, and applying it cost exactly 3 on
             // two datasets, making one count_mismatch spurious.
-            Identifications.ProducerCounts(peptideColumns.Count > 0 ? peptideColumns : psmColumns, requireResolvedNotch: false),
+            Identifications.ProducerCounts(peptideColumns.Count > 0 ? peptideColumns : psmColumns, requireResolvedNotch: false, filter: producerFilter),
             proteinGroupCount,
             runRows,
             results,
             entry.Files is null ? null : Convert.ToInt64(entry.Files),
             searchMs2 is null ? null : Convert.ToInt64(searchMs2),
-            Definitions.ById[Definitions.Cite(Definitions.Psm1pct, searchNamespace)]);
+            Definitions.ById[Definitions.Cite(Definitions.Psm1pct, searchNamespace)],
+            resultsFilter);
         findings.AddRange(Reconcile.FindingRows(checks, datasetId));
         findings.AddRange(Reconcile.MetricConflicts(metrics, datasetId));
         findings.AddRange(ModificationFindings(proforma, datasetId));

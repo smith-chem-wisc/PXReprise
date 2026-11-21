@@ -59,20 +59,23 @@ public static class Reconcile
         IReadOnlyDictionary<string, Dictionary<string, long>> results,
         long? expectedFiles,
         long? provenanceMs2,
-        Def? psmDefinition = null)
+        Def? psmDefinition = null,
+        string? filter = null)
     {
         var psm = psmDefinition ?? Definitions.Psm1pct;
         var totals = results.TryGetValue("", out var t) ? t : new Dictionary<string, long>();
         double? Total(string name) => totals.TryGetValue(name, out var v) ? v : null;
         var ms2Observed = runs.Sum(r => r.TryGetValue("ms2_spectra", out var v) && v is not null ? Convert.ToDouble(v) : 0);
+        // D84: the filter results.txt names (MetaMorpheus 1.1.15: "pep q-value", "q-value notch"); "q-value" before.
+        string f = filter ?? "q-value";
         return
         [
             new Check("psms_target_1pct", psmCount1pct, Total("psms"),
-                $"results.txt: All target PSMs with q-value <= 0.01 ({psm.DefinitionId} {psm.Version})"),
+                $"results.txt: All target PSMs with {f} <= 0.01 ({psm.DefinitionId} {psm.Version})"),
             new Check("peptidoforms_target_1pct", peptidoformCount1pct, Total("peptides"),
-                "results.txt: All target peptides with q-value <= 0.01"),
+                $"results.txt: All target peptides with {f} <= 0.01"),
             new Check("protein_groups_1pct", proteinGroupCount1pct, Total("protein_groups"),
-                "results.txt: All target protein groups with q-value <= 0.01"),
+                $"results.txt: All target protein groups with {f} <= 0.01"),
             new Check("runs", runs.Count, expectedFiles, "ingest manifest: files"),
             new Check("ms2_spectra", ms2Observed == 0 ? null : ms2Observed,
                 provenanceMs2 is not null ? provenanceMs2 : Total("ms2_scans"),

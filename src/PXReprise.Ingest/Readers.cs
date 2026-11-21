@@ -510,11 +510,20 @@ public static class Readers
         }
     }
 
+    // MetaMorpheus 1.1.15 (#2982, #2989) names the search's identification filter on each count line, and prints its
+    // threshold as set: "All target PSMs with pep q-value <= 0.01: N", "... with q-value notch <= 0.01: N". Up to 1.1.14
+    // the filter was "q-value" (a q-value AND notch rule) and the threshold was rounded to two places.
+    private const string ResultsFilterPattern =
+        @"with (?<filter>pep q-value|q-value notch|q-value) <= (?<t>\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)";
+
     private static readonly Regex ResultsTotal = new(
-        @"^All target (?<what>\w+(?: \w+)*) with q-value <= 0\.01.*?:\s*(?<n>\d+)", RegexOptions.CultureInvariant);
+        @"^All target (?<what>\w+(?: \w+)*) " + ResultsFilterPattern + @".*?:\s*(?<n>\d+)", RegexOptions.CultureInvariant);
 
     private static readonly Regex ResultsPerFile = new(
-        @"^(?<run>\S+) - Target (?<what>\w+(?: \w+)*) with q-value <= 0\.01.*?:\s*(?<n>\d+)", RegexOptions.CultureInvariant);
+        @"^(?<run>\S+) - Target (?<what>\w+(?: \w+)*) " + ResultsFilterPattern + @".*?:\s*(?<n>\d+)", RegexOptions.CultureInvariant);
+
+    /// <summary>The threshold of the counts read: only a count at 0.01 is a 1% count.</summary>
+    private const double ResultsThreshold = 0.01;
 
     private static readonly Regex ResultsScans = new(
         @"^(?:(?<run>\S+) - )?All (?<what>MS2 Scans|Precursors):\s*(?<n>\d+)", RegexOptions.CultureInvariant);
@@ -529,8 +538,15 @@ public static class Readers
     /// own log line that older provenance records as <c>psms_1pct</c>.
     /// </remarks>
     /// <returns><c>{scope: {name: count}}</c> where scope is <c>""</c> for dataset-wide totals or the run name.</returns>
-    public static Dictionary<string, Dictionary<string, long>> ReadResultsTxt(string path, ReaderLog? log = null)
+    public static Dictionary<string, Dictionary<string, long>> ReadResultsTxt(string path, ReaderLog? log = null) =>
+        ReadResultsTxt(path, out _, log);
+
+    /// <summary>As <see cref="ReadResultsTxt(string, ReaderLog?)"/>, and the identification filter the counts were taken
+    /// with, as the first dataset-wide count line names it (<c>pep q-value</c>, <c>q-value notch</c> or <c>q-value</c>),
+    /// or null when no count line names one. A count at another threshold than 0.01 is not read.</summary>
+    public static Dictionary<string, Dictionary<string, long>> ReadResultsTxt(string path, out string? filter, ReaderLog? log = null)
     {
+        filter = null;
         var output = new Dictionary<string, Dictionary<string, long>>(StringComparer.Ordinal);
         string text = PyText.DecodeUtf8Sig(File.ReadAllBytes(path), strict: false);
         foreach (string raw in PyText.SplitLines(text))
@@ -541,6 +557,13 @@ public static class Readers
                 Match m = pattern.Match(line);
                 if (!m.Success)
                     continue;
+                if (m.Groups["t"].Success)
+                {
+                    if (!double.TryParse(m.Groups["t"].Value, System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out double t) || Math.Abs(t - ResultsThreshold) > 1e-12)
+                        break;
+                    if (pattern == ResultsTotal) filter ??= m.Groups["filter"].Value;
+                }
                 Group run = m.Groups["run"];
                 string scope = PyText.Strip(run.Success ? run.Value : "");
                 string name = PyText.Strip(m.Groups["what"].Value).ToLowerInvariant().Replace(" ", "_");

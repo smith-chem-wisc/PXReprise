@@ -771,17 +771,24 @@ public static class Identifications
         return text.Length == 0 ? null : text.Contains(NotchSeparator);
     }
 
-    /// <summary>Counts target matches the way the producing search engine counts them: target,
-    /// <c>q_value &lt;= threshold</c> and <c>q_value_notch &lt;= threshold</c>, plus, for PSMs only, a notch that
-    /// resolved.</summary>
+    /// <summary>
+    /// Counts target matches the way the producing search engine counts them, under its identification filter: target,
+    /// the filter's value <c>&lt;= threshold</c>, plus, for PSMs only, a notch that resolved. Under
+    /// <see cref="ProducerFilter.QValueAndNotch"/> (every MetaMorpheus up to 1.1.14) that is <c>q_value</c> and
+    /// <c>q_value_notch</c> both.
+    /// </summary>
     /// <remarks><b>The notch clause is a PSM rule and must not be carried to peptidoforms</b>: on PXD032202 the
-    /// producer's peptide count agrees with the un-clause number exactly.</remarks>
+    /// producer's peptide count agrees with the un-clause number exactly. On PXD058082 (2026-11-18, MetaMorpheus #2982's
+    /// builds) the filter's own column reproduces results.txt exactly: 42,125 (q-value and notch), 42,392 (notch), 52,778
+    /// (PEP q-value).</remarks>
     public static long ProducerCounts(
-        IReadOnlyDictionary<string, List<object?>> columns, double threshold = ProducerThreshold, bool requireResolvedNotch = true)
+        IReadOnlyDictionary<string, List<object?>> columns, double threshold = ProducerThreshold, bool requireResolvedNotch = true,
+        ProducerFilter filter = ProducerFilter.QValueAndNotch)
     {
         var n = Length(columns, "q_value");
         var qs = columns.TryGetValue("q_value", out var c) ? c : [];
         var notches = Get(columns, "q_value_notch", n);
+        var peps = Get(columns, "pep_q_value", n);
         var rawNotches = Get(columns, "notch", n);
         var status = Get(columns, "decoy_contam_target", n, "");
         long total = 0;
@@ -790,11 +797,47 @@ public static class Identifications
             if ((IsFalsy(status[i]) ? "" : PyFormat.Str(status[i]!)).Trim() != "T") continue;
             var q = Float(qs[i]);
             var notch = Float(notches[i]);
-            if (q is null || q > threshold) continue;
-            if (notch is not null && notch > threshold) continue;
+            bool passes = filter switch
+            {
+                ProducerFilter.QValue => q is not null && q <= threshold,
+                ProducerFilter.QValueNotch => (notch ?? q) is { } v && v <= threshold,
+                // The PEP q-value where PEP was trained for the match; MetaMorpheus writes 2, "not computed", where it was
+                // not (1.1.15: PEP 0, PEP q-value 2 on every match of a search too small to train), and judges those by
+                // their notch (#2982).
+                ProducerFilter.PepQValue => (Float(peps[i]) is { } pq && pq is >= 0 and <= 1 ? pq : notch ?? q) is { } v && v <= threshold,
+                _ => q is not null && q <= threshold && (notch is null || notch <= threshold),
+            };
+            if (!passes) continue;
             if (requireResolvedNotch && NotchAmbiguous(rawNotches[i]) == true) continue;
             total++;
         }
         return total;
     }
+
+    /// <summary>
+    /// The filter a search's counts follow, from the filter its results.txt count lines name (<paramref name="named"/>)
+    /// and the MetaMorpheus release that wrote them. "q-value" is the q-value AND notch rule up to 1.1.14, and the pooled
+    /// q-value alone from 1.1.15 (#2989), so a commit pin, which names no release, keeps the older rule. No named filter
+    /// (a search before the count lines named one, or no results.txt) is the older rule too.
+    /// </summary>
+    public static ProducerFilter FilterOf(string? named, string? metamorpheusRelease) => named switch
+    {
+        "pep q-value" => ProducerFilter.PepQValue,
+        "q-value notch" => ProducerFilter.QValueNotch,
+        "q-value" when Version.TryParse(metamorpheusRelease, out var v) && v >= new Version(1, 1, 15) => ProducerFilter.QValue,
+        _ => ProducerFilter.QValueAndNotch,
+    };
+}
+
+/// <summary>The identification filter a search's own counts follow (MetaMorpheus's <c>IdentificationFilter</c>).</summary>
+public enum ProducerFilter
+{
+    /// <summary><c>q_value</c> and <c>q_value_notch</c> both: every MetaMorpheus up to 1.1.14.</summary>
+    QValueAndNotch,
+    /// <summary><c>q_value_notch</c> alone (1.1.15's "q-value notch").</summary>
+    QValueNotch,
+    /// <summary><c>q_value</c> alone (1.1.15's "q-value", the pooled q-value).</summary>
+    QValue,
+    /// <summary><c>pep_q_value</c> where PEP was trained, else <c>q_value_notch</c> (1.1.15's "pep q-value").</summary>
+    PepQValue,
 }
