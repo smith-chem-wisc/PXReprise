@@ -39,3 +39,8 @@ examples/*/work/
 machines/my-*.toml
 # dataRepo's test fixtures include protein databases (2026-11-13): they are inputs, not downloads.
 !tests/PXReprise.Data.Tests/Fixtures/**/*.fasta
+# The MetaMorpheus output samples' inputs (2026-11-21): MetaMorpheus's own A549 test file (MIT) under three names, and
+# its FASTA. Every supported release searches them (.github/workflows/metamorpheus-output.yml).
+!tests/metamorpheus-output/**/*.mzML
+!tests/metamorpheus-output/**/*.mzml
+!tests/metamorpheus-output/**/*.fasta
