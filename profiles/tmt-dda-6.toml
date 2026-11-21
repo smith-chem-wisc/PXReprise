@@ -1,0 +1,88 @@
+# tmt-dda/6 (D84, 2026-11-21): tmt-dda/5 on MetaMorpheus 1.1.15 and agingPTM-v9, with the search's identification
+# filter set to the PEP q-value at 1% and the design's curated SDRF passed to the search, as label-free-dda/15 (see its
+# header for the filter, the input SDRF and agingPTM-v9).
+#  - From 1.1.14. The kit's library chain is corrected at its next registration, as every chain is (D84 (4)).
+#  - IdentificationFilter and FilterThreshold go to the Calibration and Search tasks, the two this profile runs.
+# Every other setting is /5's, whose notes follow.
+#
+# tmt-dda/5 (2026-11-20, approved by the maintainer): tmt-dda/4 plus MS2 fragmented by HCD and read in the ion trap,
+# searched as MetaMorpheus's LowCID (engine.ion_trap_hcd and engine.ion_trap_hcd_lowcid, both in the engine since v0.4.28,
+# where the label-free ion-trap profiles use them). Nothing else changes.
+#   - Why: many SPS-MS3 TMT methods on an Orbitrap Fusion, Lumos or Ascend fragment by HCD and read the MS2 in the ion trap;
+#     the reporters are read in the Orbitrap MS3. tmt-dda/4 accepts ion-trap MS2 only when it is CID, so QC refuses these
+#     files (unsupported_fragmentation) and the deposit waits.
+#   - Why LowCID, not HCD at the low-resolution tolerance (2026-11-20; one file each from PXD015616, TMT6, and PXD039548,
+#     TMT10, both Orbitrap Fusion Lumos SPS-MS3, each searched alone under tmt-dda/4's settings without a spectral library):
+#     LowCID found more on every count. Target PSMs at 1% +14% and +9%, peptides +12% and +18%, protein groups +13% and
+#     +11%, at about half the peak memory. In 78 of 80 sampled PSMs the reporter intensities equal the peaks of the linked
+#     Orbitrap MS3; the ion-trap MS2 holds nothing in the reporter region.
+#   - The call is per file, from its MS2 headers: a file with Orbitrap MS2, or ion-trap CID, is searched exactly as under /4.
+#     A search with any low-resolution MS2 writes and reads no spectral library, as under /4.
+#   - The same MetaMorpheus (1.1.14) and databases (agingPTM-v8) as /4, so no PTM database is rebuilt.
+# Every other setting is /4's. Needs PXReprise v0.4.41 or later, as /4 does, and a machine file naming MetaMorpheus "1.1.14".
+id = "tmt-dda"
+version = 6
+description = "Isobaric-labelled DDA (TMT, iTRAQ), MS2 or SPS-MS3 reporters; the kit read from the spectra; MetaMorpheus 1.1.15 Calibrate/Search (no GPTMD) with cleavage-blocking modifications respected and a deposit's enriched PTM classes (phospho, acetyl-K, succinyl-K, GG) variable in every task with up to 3 modifications a peptide, reporter-ion quantification on a TmtDesign.txt, ±20 ppm precursors, LowCID for ion-trap MS2, CID or HCD; a spectral library per kit; UniProt canonical proteomes, their own PTM sites kept only where non-enriched data see them, with agingPTM-v9 sites; the PEP q-value at 1% in every task; the curated SDRF passed to the search"
+
+[accepts]
+acquisition = ["dda"]
+labelling = ["isobaric"]
+instrument = ["orbitrap_hcd_only", "orbitrap_hybrid"]
+file_types = [".raw"]
+
+[engine]
+chemistry = "deposit"
+metamorpheus = "1.1.15"   # released 2026-11-21 at 0da8edeaf (D84)
+tasks = ["Calibration", "Search"]
+spectral_library = true   # the kit's own chain (SpectralLibrary.Plan label); off for low-res MS2 (SearchStage)
+write_sdrf = true
+input_sdrf = true
+fragmentation = "per_file"
+low_res_product_tolerance = "±0.5000 Absolute"
+precursor_window = "wide"
+enriched_variable = true
+timeout_h = 8
+ion_trap_hcd = true          # accept MS2 fragmented by HCD and read in the ion trap
+ion_trap_hcd_lowcid = true   # and search it as LowCID, in the probe and the search
+
+[databases.human]
+proteome = "UP000005640_all_genecentric_2026_03_agingPTM-v9.xml"
+taxon = 9606
+
+[databases.mouse]
+proteome = "UP000000589_all_genecentric_2026_03_agingPTM-v9.xml"
+taxon = 10090
+
+[databases.rat]
+proteome = "UP000002494_all_genecentric_2026_03_agingPTM-v9.xml"
+taxon = 10116
+
+[contaminants]
+file = "MetaMorpheusContaminants_NoUPS.xml"
+
+[quant]
+method = "reporter_ion"
+mbr = false
+
+[deposit]
+whole = true
+max_files = 120
+probe = "probe_spread"
+max_est_ms2 = 3_000_000
+max_file_mb = 5000
+defer_if_median_file_mb = 2200
+
+[qc]
+ms2_analyzer = "orbitrap"
+min_fraction_orbitrap_hcd = 0.9   # waived for a file whose MS3 carries the kit's reporters (SPS-MS3)
+min_ms2 = 5000
+excludable = ["too_few_ms2"]
+max_excluded_frac = 0.10
+
+[metamorpheus_settings.all]
+RespectCleavageBlockingModifications = true
+IdentificationFilter = "PepQValue"   # D82, D84: the filter at 1%, in every task
+FilterThreshold = 0.01
+
+[metamorpheus_settings.search]
+WriteIndividualFiles = false

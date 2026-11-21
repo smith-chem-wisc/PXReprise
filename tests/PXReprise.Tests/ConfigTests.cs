@@ -74,6 +74,44 @@ public class ConfigTests
     }
 
     /// <summary>
+    /// D84 (2026-11-21): label-free-dda@15, label-free-dda-lowres@9 and tmt-dda@6 are @14, @8 and @5 on MetaMorpheus 1.1.15
+    /// and agingPTM-v9, with the PEP q-value filter at 1% set in every task (D82) and the design's SDRF passed to the
+    /// search. Nothing else may differ: lines, not parsed fields, as above.
+    /// </summary>
+    [TestCase("label-free-dda-15.toml", "label-free-dda-14.toml", "label-free-dda@15", new[] { "Calibration", "Gptmd", "Search" })]
+    [TestCase("label-free-dda-lowres-9.toml", "label-free-dda-lowres-8.toml", "label-free-dda-lowres@9", new[] { "Search" })]
+    [TestCase("tmt-dda-6.toml", "tmt-dda-5.toml", "tmt-dda@6", new[] { "Calibration", "Search" })]
+    public void TheMetaMorpheus1115VersionsChangeOnlyTheReleaseTheFilterTheInputSdrfAndTheDatabases(string next, string previous, string key, string[] tasks)
+    {
+        static List<string> Settings(string name) => File.ReadAllLines(Path.Combine(TestSupport.ProfilesDir, name))
+            .Select(l => System.Text.RegularExpressions.Regex.Replace(l, @"\s+#.*$", "").TrimEnd())
+            .Where(l => l.Length > 0 && !l.StartsWith('#'))
+            .Where(l => !System.Text.RegularExpressions.Regex.IsMatch(l, @"^(id|version|description) = "))
+            .ToList();
+        static string Moved(string l) => System.Text.RegularExpressions.Regex.Replace(
+            System.Text.RegularExpressions.Regex.Replace(l, @"^metamorpheus = "".*""$", @"metamorpheus = ""1.1.15"""),
+            @"_agingPTM-v\d+\.xml""$", @"_agingPTM-v9.xml""");
+
+        string[] added = { "input_sdrf = true", "IdentificationFilter = \"PepQValue\"", "FilterThreshold = 0.01" };
+        var lines = Settings(next);
+        Assert.That(lines.Where(added.Contains), Is.EqualTo(added), "the three lines once each");
+        Assert.That(lines.Where(l => !added.Contains(l)), Is.EqualTo(Settings(previous).Select(Moved)), "nothing else differs but the release and the databases");
+
+        var all = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
+        var (p, old) = (all[key], all[key[..key.IndexOf('@')] + "@" + (int.Parse(key[(key.IndexOf('@') + 1)..]) - 1)]);
+        Assert.Multiple(() =>
+        {
+            Assert.That((p.MetaMorpheus, p.InputSdrf, p.WriteSdrf), Is.EqualTo(("1.1.15", true, true)));
+            Assert.That(old.InputSdrf, Is.False, "a released profile never changes");
+            Assert.That(p.Tasks, Is.EqualTo(tasks));
+            Assert.That(p.MetaMorpheusSettings!.Where(s => s.Key is "IdentificationFilter" or "FilterThreshold").Select(s => (s.Scope, s.Key, s.TomlValue)),
+                Is.EqualTo(new[] { ("all", "IdentificationFilter", "\"PepQValue\""), ("all", "FilterThreshold", "0.01") }), "in every task");
+            Assert.That(p.Databases.Values.Select(d => d.Proteome), Has.All.EndsWith("_agingPTM-v9.xml"));
+            Assert.That(p.Description, Does.EndWith("; the PEP q-value at 1% in every task; the curated SDRF passed to the search"));
+        });
+    }
+
+    /// <summary>
     /// 2026-11-08 (the user: "lets do the custom modifications now"): label-free-dda-lowres@8 is lowres@7 with the custom
     /// modification file and the NBF-Cl mapping that label-free-dda@14 ships (G40), so an ion-trap deposit whose cysteines
     /// carry NBF (PXD048079, PXD045806) can be searched. An ion-trap profile runs no GPTMD, so @14's [chemistry_artifacts],
@@ -141,8 +179,8 @@ public class ConfigTests
     {
         var profiles = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
         Assert.That(profiles.Keys, Is.EquivalentTo(new[] { "label-free-dda@1", "label-free-dda@2", "label-free-dda@3", "label-free-dda@4",
-            "label-free-dda@5", "label-free-dda@6", "label-free-dda@7", "label-free-dda@8", "label-free-dda@9", "label-free-dda@10", "label-free-dda@11", "label-free-dda@12", "label-free-dda@13", "label-free-dda@14", "label-free-dda-uniprot@1", "label-free-dda-lowres@1", "label-free-dda-lowres@2",
-            "label-free-dda-lowres@3", "label-free-dda-lowres@4", "label-free-dda-lowres@5", "label-free-dda-lowres@6", "label-free-dda-lowres@7", "label-free-dda-lowres@8", "tmt-dda@1", "tmt-dda@2", "tmt-dda@3", "tmt-dda@4", "tmt-dda@5" }));
+            "label-free-dda@5", "label-free-dda@6", "label-free-dda@7", "label-free-dda@8", "label-free-dda@9", "label-free-dda@10", "label-free-dda@11", "label-free-dda@12", "label-free-dda@13", "label-free-dda@14", "label-free-dda@15", "label-free-dda-uniprot@1", "label-free-dda-lowres@1", "label-free-dda-lowres@2",
+            "label-free-dda-lowres@3", "label-free-dda-lowres@4", "label-free-dda-lowres@5", "label-free-dda-lowres@6", "label-free-dda-lowres@7", "label-free-dda-lowres@8", "label-free-dda-lowres@9", "tmt-dda@1", "tmt-dda@2", "tmt-dda@3", "tmt-dda@4", "tmt-dda@5", "tmt-dda@6" }));
 
         // D44 (2026-10-17): @8 is @7 on agingPTM-v4; nothing else. No lowres version on v4: it cost an ion-trap run 4% of its PSMs.
         foreach (var (newer, older) in new[] { ("label-free-dda@8", "label-free-dda@7") })
