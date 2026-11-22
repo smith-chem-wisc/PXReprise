@@ -41,7 +41,9 @@ a new text file, never a change to the program.
 - [.NET 10](https://dotnet.microsoft.com/download/dotnet/10.0). **No Python.**
 - [MetaMorpheus 1.1.13](https://github.com/smith-chem-wisc/MetaMorpheus/releases/tag/1.1.13), the command-line zip: the
   release `label-free-dda-uniprot@1` names, the profile a new installation runs ([why that one](concepts.md#profiles)).
-- Optional: [dataRepo 1.4.4](https://github.com/smith-chem-wisc/dataRepo/releases/tag/v1.4.4), for the repository and website.
+- Optional: datarepo, for the repository and website. It is in the same
+  [PXReprise release](https://github.com/smith-chem-wisc/PXReprise/releases) as the engine (from 1.0.0), and a batch takes
+  no other.
 - Windows is tested. Linux and macOS should work but are untested.
 
 ## Learn more

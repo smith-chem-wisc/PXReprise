@@ -2789,6 +2789,103 @@ public class BatchRunnerTests
         Assert.That(text, Does.Contain("cysteine_poor").And.Contain("question_exception"));
     }
 
+    // D73 (G112): one PXReprise release holds the engine and datarepo under one version, and a batch delivers only with the
+    // datarepo of its own engine's release. `datarepo --version` prints "datarepo <version>"; the engine reports its version
+    // with the commit as +build metadata ("1.0.0+f9483dd...").
+    [TestCase("1.0.0", "datarepo 1.0.0", true)]
+    [TestCase("1.0.0", "  datarepo 1.0.0\r", true)]                                       // as read, with its line ending
+    [TestCase("1.0.0+f9483dd3e9814e7ed1135ba5a611d200e41ac8eb", "datarepo 1.0.0", true)]  // the engine's commit is no part of the release
+    [TestCase("1.1.0-rc.1+f9483dd", "datarepo 1.1.0-rc.1", true)]                         // a pre-release suffix is part of it
+    [TestCase("0.0.0-dev+f9483dd", "datarepo 0.0.0-dev", true)]                           // two builds stamped alike, by this rule
+    [TestCase("1.0.1", "datarepo 1.0.0", false)]                                          // another patch
+    [TestCase("1.0.0+f9483dd", "datarepo 1.0.1", false)]
+    [TestCase("1.0.0", "datarepo 1.5.0", false)]                                          // datarepo's last version of its own
+    [TestCase("1.0.0", "datarepo 0.0.0-dev", false)]                                      // a source build of datarepo
+    [TestCase("1.0.0", "datarepo 1.0.0-dev", false)]                                      // the suffix counts
+    [TestCase("1.0.0", "Unhandled exception. System.IO.FileNotFoundException: Could not load file", false)]
+    [TestCase("1.0.0", "pxreprise 1.0.0", false)]
+    [TestCase("1.0.0", "datarepo 1.0", false)]
+    [TestCase("1.0.0", "datarepo 1.0.0 (dev)", false)]
+    [TestCase("1.0.0", "", false)]
+    [TestCase("unknown", "datarepo 1.0.0", false)]
+    public void SameReleaseIsTheEnginesVersionWithoutItsBuildMetadata(string engine, string line, bool same) =>
+        Assert.That(BatchRunner.SameRelease(engine, line), Is.EqualTo(same));
+
+    [Test]
+    public void ABatchStartRefusesADatarepoFromAnotherReleaseBeforeAnyDeposit()
+    {
+        var (runner, _, _, dir) = Runner("", "datarepo = 'D:/tools/datarepo/datarepo.exe'\n");
+        runner.DataRepoVersionForTest = ct => Task.FromResult((0, "datarepo 1.5.0\n", ""));
+        var prepared = new List<string>();
+        runner.PrepareForTest = (e, ct) => { prepared.Add(e.Accession); return Task.FromResult<Profile?>(null); };
+
+        var ex = Assert.ThrowsAsync<ConfigException>(() => runner.RunAsync(new[] { new QueueEntry("PXD000961", "t", "mouse") }, CancellationToken.None));
+
+        string engine = BatchRunner.ReleaseOf(Provenance.RunRecord.Versions()["pxreprise"]);
+        Assert.That(ex!.Message, Does.StartWith("machine.toml: datarepo D:/tools/datarepo/datarepo.exe reports 'datarepo 1.5.0', ")
+            .And.Contain($"this engine is pxreprise {engine}: use the datarepo from the same PXReprise release")
+            .And.Contain($"prints 'datarepo {engine}'"));
+        Assert.That(prepared, Is.Empty, "no deposit is touched");
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")),
+            Does.Contain("batch refused: datarepo D:/tools/datarepo/datarepo.exe reports 'datarepo 1.5.0'"));
+        Assert.That(File.Exists(Path.Combine(dir, "state", "driver.pid")), Is.False, "the refused driver gives up its claim");
+
+        runner.DataRepoVersionForTest = ct => Task.FromResult((134, "", "Segmentation fault\n"));
+        Assert.That(Assert.ThrowsAsync<ConfigException>(() => runner.RunAsync(Array.Empty<QueueEntry>(), CancellationToken.None))!.Message,
+            Does.Contain("reports 'Segmentation fault' (rc 134), and this engine is"), "a datarepo that fails to say its version is refused too");
+        runner.DataRepoVersionForTest = ct => Task.FromResult((1, "", ""));
+        Assert.That(Assert.ThrowsAsync<ConfigException>(() => runner.RunAsync(Array.Empty<QueueEntry>(), CancellationToken.None))!.Message,
+            Does.Contain("reports no version (rc 1), and this engine is"));
+    }
+
+    [Test]
+    public async Task ABatchStartGoesOnWithTheDatarepoOfItsOwnRelease()
+    {
+        // One fetch pass: the stub prepares no profile, which the batch reads as a deposit to retry, and each later pass
+        // waits 30 minutes.
+        var (runner, _, _, dir) = Runner("", "datarepo = 'D:/tools/datarepo/datarepo.exe'\nfetch_passes = 1\n");
+        string engine = BatchRunner.ReleaseOf(Provenance.RunRecord.Versions()["pxreprise"]);
+        runner.DataRepoVersionForTest = ct => Task.FromResult((0, $"datarepo {engine}\n", ""));
+        var prepared = new List<string>();
+        runner.PrepareForTest = (e, ct) => { prepared.Add(e.Accession); return Task.FromResult<Profile?>(null); };
+
+        await runner.RunAsync(new[] { new QueueEntry("PXD000962", "t", "mouse") }, CancellationToken.None);
+
+        Assert.That(prepared, Is.EqualTo(new[] { "PXD000962" }));
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")),
+            Does.Contain($"  datarepo version: datarepo {engine};").And.Not.Contain("batch refused"));
+    }
+
+    // `batch status --machine` is the check of a new install before its swap: it makes the start's check, so a datarepo from
+    // another release is found before the old driver is stopped. `dotnet --version` stands in for a program that is not datarepo.
+    [Test]
+    public async Task BatchStatusWithTheMachineFileRefusesADatarepoFromAnotherRelease()
+    {
+        var (_, _, _, dir) = Runner("", "datarepo = 'dotnet'\n");
+        string q = Path.Combine(dir, "question.toml"), m = Path.Combine(dir, "machine.toml");
+        async Task<(int Exit, System.Text.Json.JsonElement Envelope)> Status(params string[] extra)
+        {
+            var sw = new StringWriter();
+            int rc = await Program.RunAsync(new[] { "batch", "status", q, "--profiles", TestSupport.ProfilesDir }.Concat(extra).ToArray(), sw, CancellationToken.None);
+            return (rc, System.Text.Json.JsonDocument.Parse(sw.ToString()).RootElement.Clone());
+        }
+
+        var (exit, envelope) = await Status("--machine", m);
+        Assert.That(exit, Is.EqualTo(Cli.Envelope.ExitUsage), envelope.ToString());
+        Assert.That(envelope.GetProperty("error").GetProperty("message").GetString(),
+            Does.StartWith("machine.toml: datarepo dotnet reports ").And.Contain("this engine is pxreprise").And.Contain("same PXReprise release"));
+
+        (exit, envelope) = await Status();
+        Assert.That(exit, Is.Zero, "without the machine file there is nothing to check");
+        Assert.That(envelope.GetProperty("data").TryGetProperty("datarepo", out _), Is.False);
+
+        // A program that cannot be started has no version to compare: its ingest fails and says so, as before.
+        File.WriteAllText(m, File.ReadAllText(m).Replace("datarepo = 'dotnet'", "datarepo = 'no-such-datarepo-program'"));
+        (exit, envelope) = await Status("--machine", m);
+        Assert.That(exit, Is.Zero, envelope.ToString());
+        Assert.That(envelope.GetProperty("data").GetProperty("datarepo").GetString(), Is.Not.Empty);
+    }
+
     private sealed class FakeFiles : IPrideFiles
     {
         public List<PrideArchiveFile> Listing { get; set; } = new();

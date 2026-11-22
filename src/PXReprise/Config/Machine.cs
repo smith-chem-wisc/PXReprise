@@ -77,7 +77,8 @@ public sealed record Machine(
         string libraries = root.OptionalString("spectral_library_root") ?? Path.Combine(workRoot, "spectral_libraries");
         // Stop rather than fill a disk other projects share.
         double minFree = root.OptionalNumber("min_free_gb") ?? 250;
-        // The dataRepo RELEASE install used to ingest, never an editable development checkout (aging D-rule).
+        // The datarepo install used to ingest: the one of this engine's own release, never an editable development checkout
+        // (aging D-rule). A batch's start refuses a datarepo from another release (D73, BatchRunner.SameRelease).
         string? datarepo = root.OptionalString("datarepo");
         int attempts = checked((int)(root.OptionalInteger("fetch_attempts") ?? 8));
         int parallel = checked((int)(root.OptionalInteger("parallel_downloads") ?? 4));

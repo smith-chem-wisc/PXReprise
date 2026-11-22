@@ -29,30 +29,37 @@ can call every step after every dataset without keeping track of what it already
 
 ## 1. Install one released version
 
-Run every step from **one released version, unpacked once and never edited**. Each
-[release](https://github.com/smith-chem-wisc/dataRepo/releases) carries one archive per platform,
-each holding a `datarepo/` folder with the program, `datarepo` (`datarepo.exe` on Windows), and
-everything it needs: the .NET runtime, mzLib, DuckDB and the Parquet writer. Nothing else is
-installed, and no .NET or Python is needed.
+Run every step from **one released version, unpacked once and never edited**. datarepo is released
+with the PXReprise engine, under one version
+([decision 0073](../decisions/0073-one-release-for-the-engine-and-datarepo.md)): each
+[PXReprise release](https://github.com/smith-chem-wisc/PXReprise/releases), from 1.0.0, carries one
+archive per platform, each holding a `pxreprise/` folder (the engine) and a `datarepo/` folder with
+the program, `datarepo` (`datarepo.exe` on Windows), and everything it needs: the .NET runtime,
+mzLib, DuckDB and the Parquet writer. Nothing else is installed, and no .NET or Python is needed.
 
 | Platform | Archive |
 |---|---|
-| Windows x64 | `datarepo-<version>-win-x64.zip` |
-| Linux x64 | `datarepo-<version>-linux-x64.tar.gz` |
-| macOS, Apple silicon | `datarepo-<version>-osx-arm64.tar.gz` |
-| macOS, Intel | `datarepo-<version>-osx-x64.tar.gz` |
+| Windows x64 | `pxreprise-<version>-win-x64.zip` |
+| Linux x64 | `pxreprise-<version>-linux-x64.tar.gz` |
+| macOS, Apple silicon | `pxreprise-<version>-osx-arm64.tar.gz` |
+| macOS, Intel | `pxreprise-<version>-osx-x64.tar.gz` |
 
 ```bash
-mkdir -p /opt/datarepo-1.5.0 && cd /opt/datarepo-1.5.0
-curl -LO https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.5.0/datarepo-1.5.0-linux-x64.tar.gz
-tar -xzf datarepo-1.5.0-linux-x64.tar.gz          # tar keeps the executable bit; a zip would lose it
-/opt/datarepo-1.5.0/datarepo/datarepo doctor
+mkdir -p /opt/pxreprise-1.0.0 && cd /opt/pxreprise-1.0.0
+curl -LO https://github.com/smith-chem-wisc/PXReprise/releases/download/v1.0.0/pxreprise-1.0.0-linux-x64.tar.gz
+tar -xzf pxreprise-1.0.0-linux-x64.tar.gz         # tar keeps the executable bit; a zip would lose it
+/opt/pxreprise-1.0.0/datarepo/datarepo doctor
 ```
 
+datarepo's own releases, tagged `datarepo-v<version>`, ended with 1.5.0; there will be no more. Its
+version restarts at 1.0.0, PXReprise's, so across that change a higher number no longer means a
+newer datarepo.
+
 Call the program by its path, put its folder on `PATH`, or point a tool at it (PXReprise's machine
-file: `datarepo = "…"`). On macOS, an archive downloaded with a browser is quarantined and the
-program refused as unverified: download with `curl`, or run `xattr -dr com.apple.quarantine` on the
-unpacked folder. The commands, arguments and outputs are the ones in [cli.md](cli.md).
+file: `datarepo = "…"`, which must be the datarepo of the engine's own release: a batch refuses any
+other at its start). On macOS, an archive downloaded with a browser is quarantined and the program
+refused as unverified: download with `curl`, or run `xattr -dr com.apple.quarantine` on the unpacked
+folder. The commands, arguments and outputs are the ones in [cli.md](cli.md).
 
 Three things depend on running a release:
 
@@ -61,13 +68,16 @@ Three things depend on running a release:
 - **`datarepo run` refuses a development build.** It records the exact build behind every engine
   output: the version and the commit the release was built from. A build that reports `0.0.0-dev`,
   or carries no commit, has no fixed identity to record.
-- **Each download was verified by running it.** The `datarepo-binaries` workflow publishes each
-  platform's program, runs the example instance end to end with no .NET on the machine's `PATH`,
-  checks that it reports the tagged version, and only then attaches the archive to a draft release,
-  which a person publishes.
+- **Each download was verified by running it.** The release workflow publishes each platform's
+  programs, runs the example instance end to end with no .NET on the machine's `PATH`, checks that
+  both programs report the release's version, unpacks the archive and runs them again, and only
+  then attaches the archives to the release.
 
-Build the catalog and the site with **the same version** that ingested. The program's version is
-part of the catalog id, and the site's footer names it.
+Build the catalog and the site with **the release you ingest with**. The program's version is part
+of the catalog id, and the site's footer names it. Since that version is every PXReprise release's,
+each release, even one that changes only the engine, gives a new catalog id: after a swap, rebuild.
+Each release's notes (PXReprise's CHANGELOG) say what adopting it costs, under **Adopting:**: a swap
+only, a swap and a catalog rebuild, or a full re-ingest.
 
 **Moving from the Python package (0.32.0 and earlier).** The C# program writes the same tables, with
 the changes its [changelog](CHANGELOG.md) lists (among them, `peptidoforms.is_unique` now means
@@ -109,12 +119,13 @@ dotnet build PXReprise/src/PXReprise.DataCli -c Release -o datarepo-dev
 datarepo-dev/datarepo --version                    # datarepo 0.0.0-dev
 ```
 
-A source build reports version `0.0.0-dev`, and `datarepo run` refuses it by design. It is for
-development and testing; serve an instance from a release. A self-contained folder like a release's
-comes from `dotnet publish PXReprise/src/PXReprise.DataCli -c Release -r <rid> --self-contained -o
-<dir>` (`<rid>` is `win-x64`, `linux-x64`, `osx-arm64` or `osx-x64`); a release build also passes
-`-p:Version=<version>` and `-p:SourceRevisionId=<commit>`, which is what
-`.github/workflows/datarepo-binaries.yml` does.
+A source build reports version `0.0.0-dev`, and `datarepo run` refuses it by design; a PXReprise
+batch takes only the datarepo of its engine's own release. It is for development and testing; serve
+an instance from a release. A self-contained folder like a release's comes from `dotnet publish
+PXReprise/src/PXReprise.DataCli -c Release -r <rid> --self-contained -o <dir>` (`<rid>` is `win-x64`,
+`linux-x64`, `osx-arm64` or `osx-x64`); a release build also passes `-p:Version=<version>`, PXReprise's
+release version, and `-p:SourceRevisionId=<commit>`, as `.github/workflows/binaries.yml` does for
+both programs.
 
 ## 2. Describe your instance: `manifest.yaml`
 
