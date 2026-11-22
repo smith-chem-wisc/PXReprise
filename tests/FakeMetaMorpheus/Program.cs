@@ -10,6 +10,9 @@
 // no CPU (a hung search); FAKE_MM_BUSY_SECONDS=<n> works silently for n seconds first (MetaMorpheus's long PEP step);
 // FAKE_MM_WARN=<text> prints that line during the first task (MetaMorpheus's warnings, e.g. "Unrecognized mod ...");
 // FAKE_MM_CALIBRATE=all|<name>,<name> writes <name>-calib.mzML and -calib.toml in the Calibration task's folder.
+// FAKE_MM_REPLAY=<dir> copies every file of <dir>, a real MetaMorpheus search task's folder as it wrote it, over the
+// search task's tables, so a test downstream of the search (datarepo's ingest, tests/PXReprise.Seam.Tests) reads
+// MetaMorpheus's own grammar. The release the banner names should be the one that wrote <dir>.
 using System.Text;
 
 string Release = Environment.GetEnvironmentVariable("FAKE_MM_RELEASE") ?? "1.1.11";
@@ -125,5 +128,8 @@ if (searchToml is not null)
         File.WriteAllText(Path.Combine(sd, Environment.GetEnvironmentVariable("FAKE_MM_SDRF_CRASH") == "1" ? "SdrfWriter_crash.txt" : "experiment.sdrf.tsv"),
             "source name\tcomment[proteomexchange accession number]\n");
 }
+if (Environment.GetEnvironmentVariable("FAKE_MM_REPLAY") is { Length: > 0 } replay)
+    foreach (string f in Directory.EnumerateFiles(replay))
+        File.Copy(f, Path.Combine(sd, Path.GetFileName(f)), overwrite: true);
 File.WriteAllText(Path.Combine(outDir, "allResults.txt"), "fake run\n");
 return int.TryParse(Environment.GetEnvironmentVariable("FAKE_MM_EXIT"), out int rc) ? rc : 0;
