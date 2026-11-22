@@ -1167,8 +1167,11 @@ public class BatchRunnerTests
         await runner.RunAsync(queue, CancellationToken.None);
 
         Assert.That(most, Is.EqualTo(2), "two searches ran at once");
-        Assert.That(started, Is.EqualTo(new[] { "PXD000901", "PXD000903", "PXD000902", "PXD000904" }),
-            "the human deposit jumps the second mouse one while a mouse search runs; then queue order");
+        // The first two start together, one per slot, so which records its start first is a race (master ea6d529's CI saw
+        // 903 before 901). The rule is in which two start first and in what follows them.
+        Assert.That(started.Take(2), Is.EquivalentTo(new[] { "PXD000901", "PXD000903" }),
+            "the human deposit jumps the second mouse one while a mouse search runs");
+        Assert.That(started.Skip(2), Is.EqualTo(new[] { "PXD000902", "PXD000904" }), "then queue order");
         Assert.That(runner.Searching, Is.Empty);
     }
 
