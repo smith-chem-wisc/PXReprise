@@ -1,9 +1,11 @@
 <Project>
   <!--
-    One version for every project in the solution. It is recorded in each bundle's `ingester.version`, hashed
-    into every catalog id (catalog_id carries the package version, as the Python one did), and written as the
-    site's generator, so it must have exactly one source. `0.0.0-dev` until a release build stamps it
-    (CI passes -p:Version=X.Y.Z); a build that is not a release must never look like one.
+    datarepo has no version of its own (decision 0073). One PXReprise release holds the engine and datarepo under one
+    version, whose single source is src/PXReprise/PXReprise.csproj's <Version>: the release workflow checks it against the
+    tag and stamps it on both programs (-p:Version=X.Y.Z). Here it is `0.0.0-dev`, which every other build keeps: a build
+    that is not a release must never look like one. The version is recorded in each bundle's `ingester.version`, hashed
+    into every catalog id (catalog_id carries the package version, as the Python one did), and written as the site's
+    generator, so every release, even one that changes only the engine, gives a new catalog id.
   -->
   <PropertyGroup>
     <Version>0.0.0-dev</Version>

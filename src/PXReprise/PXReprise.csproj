@@ -8,6 +8,8 @@
     <Nullable>enable</Nullable>
     <AssemblyName>pxreprise</AssemblyName>
     <RootNamespace>PXReprise</RootNamespace>
+    <!-- The release version, for the engine and datarepo alike (decision 0073): datarepo has none of its own. A release's
+         pull request bumps it; the release workflow checks it against the release tag and stamps it on both programs. -->
     <Version>0.4.50</Version>
   </PropertyGroup>
 
