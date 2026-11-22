@@ -135,6 +135,26 @@ public class PepFilterIngestTests
         });
     }
 
+    /// <summary>G148, the review of #42: under the notch filter a match whose candidates sat at different notches with
+    /// different full sequences when FDR ran keeps the default notch q-value 2 and fails, though the psmtsv prints the best
+    /// candidate's. One whose notch is ambiguous with one full sequence counts. PXD031782's notch arm has both kinds.</summary>
+    [Test]
+    public void UnderTheNotchFilterOnlyAMatchAmbiguousWhenFdrRanFails()
+    {
+        EditPsms((row, target) =>
+        {
+            if (target is 0 or 1) row["Notch"] = "0|1";
+            if (target == 1) row["Mass Diff (Da)"] = row["Mass Diff (Da)"] + "|0.98402";
+        });
+        SetRelease("1.1.15");
+        Rewrite(ResultsTxt, t => t.Replace("with q-value <= 0.01", "with q-value notch <= 0.01")
+            .Replace("All target PSMs with q-value notch <= 0.01: 58", "All target PSMs with q-value notch <= 0.01: 57"));
+        var result = Ingester.Ingest(Manifest, Accession, Path.Combine(_root, "store"), overwrite: true);
+        var psms = Check(result, "psms_target_1pct");
+        Assert.That(psms["observed"], Is.EqualTo(57.0), "target 0 counts (one mass difference), target 1 fails (two)");
+        Assert.That(psms["ok"], Is.True);
+    }
+
     /// <summary>G148: PEP training failed (every PEP 0), so MetaMorpheus judges every match by its notch, though its PEP
     /// q-values look usable. #38 read them per row and gave 55.</summary>
     [Test]
@@ -157,7 +177,7 @@ public class PepFilterIngestTests
     [Test]
     public void ASearchTrainedForSomeMatchesSaysItsCountIsApproximate()
     {
-        PepResults(58, "PEP filtering was requested, but PEP was not trained for 4 target PSMs (trypsin, semi: 4), so those were filtered by q-value notch <= 0.01.");
+        PepResults(58, "PEP filtering was requested, but PEP was not trained for 4 target PSMs (trypsin (Semi): 4), so those were filtered by q-value notch <= 0.01.");
         var result = Ingester.Ingest(Manifest, Accession, Path.Combine(_root, "store"), overwrite: true);
         Assert.That((string?)Check(result, "psms_target_1pct").GetValueOrDefault("note"), Does.StartWith("PEP was not trained for some"));
         Assert.That(Check(result, "peptidoforms_target_1pct").ContainsKey("note"), Is.False, "no sentence above the peptide count");

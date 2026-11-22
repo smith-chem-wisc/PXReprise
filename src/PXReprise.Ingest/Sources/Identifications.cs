@@ -771,19 +771,36 @@ public static class Identifications
         return text.Length == 0 ? null : text.Contains(NotchSeparator);
     }
 
+    /// <summary>Does a psmtsv cell hold several values, joined with <c>|</c> as MetaMorpheus joins a match's candidates'?</summary>
+    private static bool SeveralValues(object? raw) => NotchAmbiguous(raw) == true;
+
     /// <summary>
     /// Counts target matches the way the producing search engine counts them, under its identification filter: target,
     /// and the filter's value <c>&lt;= threshold</c>. Under <see cref="ProducerFilter.QValueAndNotch"/> (every MetaMorpheus
     /// up to 1.1.14) that is <c>q_value</c> and <c>q_value_notch</c> both, and, for PSMs only, a notch that resolved.
     /// </summary>
     /// <remarks>
-    /// <para><b>The notch clause belongs to the q-value-and-notch rule, and to PSMs.</b> On eight served 1.1.11 and 1.1.12
-    /// searches (2026-11-21) it reproduces results.txt's PSM count exactly, with 1 to 124 notch-ambiguous matches each. On
-    /// PXD032202 the producer's peptide count agrees with the un-clause number exactly, so it is never carried to
-    /// peptidoforms. MetaMorpheus 1.1.15's filters count notch-ambiguous matches (<c>TargetPsmsAboveThreshold</c> over a
-    /// list filtered with <c>includeAmbiguous: true</c>): on PXD058082's filter trial (2026-11-18, #2982's builds) the
-    /// filter's own column with no clause reproduces results.txt exactly under each filter: 42,125 (q-value and notch, on
-    /// master before #2982), 42,392 (notch) and 52,778 (PEP q-value). The clause made them short by 1, 1 and 2.</para>
+    /// <para><b>The notch clauses are PSM rules, and differ by filter.</b> None is ever carried to peptidoforms: on PXD032202
+    /// the producer's peptide count agrees with the un-clause number exactly, and so does every 1.1.15 trial arm's.
+    /// <list type="bullet">
+    /// <item>Under <see cref="ProducerFilter.QValueAndNotch"/>, a notch-ambiguous match is left out. On eight served 1.1.11
+    /// and 1.1.12 searches (2026-11-21) that reproduces results.txt's PSM count exactly, with 1 to 124 such matches
+    /// each.</item>
+    /// <item>Where 1.1.15 judges a match by its notch (<see cref="ProducerFilter.QValueNotch"/>, and the PEP q-value where
+    /// PEP was not trained), only a match whose own candidates sat at different notches with different full sequences is
+    /// left out: MetaMorpheus sets each candidate's notch q-value but leaves the match's at its default, 2
+    /// (<c>FdrAnalysisEngine.QValueInverted</c>; <c>SpectralMatch.ResolveAllAmbiguities</c> resolves it only when every
+    /// candidate's notch q-value is the same), while the psmtsv prints the best candidate's. The psmtsv shows it as a
+    /// <c>Notch</c> and a <c>Mass Diff (Da)</c> that both hold several values. A match that became notch-ambiguous only at
+    /// parsimony keeps its notch q-value and counts. On the three 1.1.15 notch arms (PXD031782, PXD019690, PXD007683;
+    /// PXReprise's trial, review of smith #42) this gives 64,457, 34,044 and 104,274 exactly. No clause gave PXD031782 8
+    /// over, and the notch alone 2 short.</item>
+    /// <item>Under the pooled q-value, and the PEP q-value where PEP was trained, no clause: 1.1.15 counts every
+    /// notch-ambiguous match (<c>TargetPsmsAboveThreshold</c> over a list filtered with <c>includeAmbiguous: true</c>).
+    /// On PXD058082's filter trial (2026-11-18, #2982's builds) the filter's own column reproduces results.txt exactly:
+    /// 42,392 (notch) and 52,778 (PEP q-value). PXD031782's trained PEP arm (84,532) includes the matches the notch arm
+    /// leaves out.</item>
+    /// </list></para>
     /// <para><b>Under the PEP q-value, whether PEP was trained is the search's, never the row's</b> (<paramref name="pepTraining"/>).
     /// MetaMorpheus judges a match by its PEP q-value where PEP was trained for it and by its notch where it was not
     /// (<c>FilteredPsms.Value</c>), and the psmtsv does not say which. A trained match can still read PEP q-value 2 and fail:
@@ -801,6 +818,7 @@ public static class Identifications
         var notches = Get(columns, "q_value_notch", n);
         var peps = Get(columns, "pep_q_value", n);
         var rawNotches = Get(columns, "notch", n);
+        var massDiffs = Get(columns, "mass_diff_da", n);
         var status = Get(columns, "decoy_contam_target", n, "");
         long total = 0;
         for (var i = 0; i < n; i++)
@@ -808,6 +826,19 @@ public static class Identifications
             if ((IsFalsy(status[i]) ? "" : PyFormat.Str(status[i]!)).Trim() != "T") continue;
             var q = Float(qs[i]);
             var notch = Float(notches[i]);
+            // Whether 1.1.15 judges this match by its notch q-value: the notch filter, and the PEP q-value where PEP was
+            // not trained for it (for some: a PEP q-value outside [0, 1], as below).
+            bool judgedByNotch = filter switch
+            {
+                ProducerFilter.QValueNotch => true,
+                ProducerFilter.PepQValue => pepTraining switch
+                {
+                    PepTraining.Every => false,
+                    PepTraining.None => true,
+                    _ => !(Float(peps[i]) is >= 0 and <= 1),
+                },
+                _ => false,
+            };
             bool passes = filter switch
             {
                 ProducerFilter.QValue => q is not null && q <= threshold,
@@ -827,6 +858,7 @@ public static class Identifications
             };
             if (!passes) continue;
             if (requireResolvedNotch && filter == ProducerFilter.QValueAndNotch && NotchAmbiguous(rawNotches[i]) == true) continue;
+            if (requireResolvedNotch && judgedByNotch && SeveralValues(rawNotches[i]) && SeveralValues(massDiffs[i])) continue;
             total++;
         }
         return total;
