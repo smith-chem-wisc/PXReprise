@@ -44,7 +44,7 @@ Records marked *provisional* are good guesses, made fast on purpose. Each says w
 | [0007](0007-profile-versions-never-edited.md) | A profile version is never edited | accepted | 2026-09-29 |
 | [0008](0008-no-python.md) | No Python | accepted | 2026-09-29 |
 | [0009](0009-limits-belong-to-the-machine.md) | Time and size limits belong to the machine, not the profile | accepted | 2026-09-29 |
-| [0010](0010-numbered-releases.md) | Every user-visible change is a numbered release | accepted | 2026-09-29 |
+| [0010](0010-numbered-releases.md) | Every user-visible change is a numbered release | accepted (amended by 0073) | 2026-09-29 |
 | [0011](0011-pipeline-number-definitions.md) | PXReprise owns the definitions of its pipeline numbers | accepted | 2026-09-29 |
 | [0013](0013-pride-index-for-discovery-only.md) | PRIDE's search index is for discovery only | accepted | 2026-09-30 |
 | [0014](0014-new-engines-join-through-metamorpheus.md) | A new search engine joins as a MetaMorpheus task and a profile | accepted | 2026-09-30 |
@@ -74,8 +74,9 @@ Records marked *provisional* are good guesses, made fast on purpose. Each says w
 | [0065](0065-sdrf-for-every-deposit.md) | PXReprise makes every deposit's SDRF | accepted | 2026-11-07 |
 | [0066](0066-sdrf-makes-the-design.md) | PXReprise's SDRF makes the design; the default design retires | accepted | 2026-11-12 |
 | [0067](0067-smith-is-the-engine-repository.md) | This repository is the engine's real home | accepted | 2026-11-13 |
-| [0068](0068-rules-on-master.md) | Rules on master, and how a release is made | accepted | 2026-11-13 |
-| [0069](0069-datarepo-code-in-pxreprise.md) | The data repository's code lives here, with its history | accepted | 2026-11-13 |
+| [0068](0068-rules-on-master.md) | Rules on master, and how a release is made | accepted (amended by 0073) | 2026-11-13 |
+| [0069](0069-datarepo-code-in-pxreprise.md) | The data repository's code lives here, with its history | accepted (amended by 0073) | 2026-11-13 |
 | [0070](0070-record-engine-decisions-as-madr.md) | Record engine decisions as MADR records in this repository | accepted | 2026-11-14 |
 | [0072](0072-dia-search-mode.md) | A DIA search mode keyed on the DIA task's own tables | accepted | 2026-11-16 |
+| [0073](0073-one-release-for-the-engine-and-datarepo.md) | One release for the engine and datarepo | accepted | 2026-11-22 |
 | [0082](0082-pep-q-value-from-the-next-metamorpheus-version.md) | The PEP q-value at 1% from the next MetaMorpheus version | accepted | 2026-11-20 |

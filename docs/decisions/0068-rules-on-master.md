@@ -34,3 +34,8 @@ Not recorded as options; the maintainer set each rule.
 
 * Good, because `master` always builds and passes its offline tests, and each contribution keeps its own commits.
 * Bad, because even a one-line fix needs a branch and a pull request.
+
+## More Information
+
+[0073](0073-one-release-for-the-engine-and-datarepo.md) makes one release for the engine and datarepo: a `v<version>`
+tag publishes both programs, and the `datarepo-v*` tags end.
