@@ -109,6 +109,40 @@ public class MetaMorpheusResultsTests
         Assert.That(counts, Is.EqualTo(new[] { ("PSMs", "q-value", 1.0), ("peptides", "pep q-value", 0.01) }));
     }
 
+    // PXR-R80: identification_filter.pep_trained, read from the sentence MetaMorpheus 1.1.15 writes on the line above a count
+    // it took partly or wholly by the notch because PEP was not trained (FilteredPsms.PepNotTrainedSentence).
+    [Test]
+    public void PepTrainedIsTheSentenceAboveThePsmCountUnderThePepFilter()
+    {
+        static string[] Lines(string s) => s.Split('\n');
+        static (string, bool)[] Agents(System.Text.Json.Nodes.JsonNode? n) => n!.AsObject().Select(kv => (kv.Key, kv.Value!.GetValue<bool>())).ToArray();
+        Assert.Multiple(() =>
+        {
+            Assert.That(Agents(MetaMorpheusResults.PepTrained(Lines(ResultsTxtSamples.Lfq1115PepNotTrained))), Is.EqualTo(new[] { ("trypsin", false) }),
+                "the one agent the sentence names");
+            Assert.That(MetaMorpheusResults.PepTrained(Lines(ResultsTxtSamples.Pxd031782PepTrained))!.GetValue<bool>(), Is.True, "no sentence: trained");
+            foreach (string other in new[] { ResultsTxtSamples.Lfq1114, ResultsTxtSamples.Lfq1115QValue, ResultsTxtSamples.Lfq1115Notch })
+                Assert.That(MetaMorpheusResults.PepTrained(Lines(other)), Is.Null, "another filter");
+        });
+
+        // Two agents, one in its semi-specific category, in the form FilteredPsms writes them, with Windows line endings.
+        string[] two =
+        {
+            "PEP filtering was requested, but PEP was not trained for 300 target PSMs (chymotrypsin (don't cleave before proline): 120, trypsin (Semi): 180), so those were filtered by q-value notch <= 0.01.\r",
+            "All target PSMs with pep q-value <= 0.01: 5000\r",
+        };
+        Assert.That(Agents(MetaMorpheusResults.PepTrained(two)), Is.EqualTo(new[] { ("chymotrypsin (don't cleave before proline)", false), ("trypsin (Semi)", false) }));
+        // A sentence that names no agent, as up to 1.1.14 (which wrote it above a "q-value" line).
+        string[] none = { "PEP filtering was requested, but PEP was not computed for these PSMs, so results were filtered by q-value.", "All target PSMs with pep q-value <= 0.01: 50" };
+        Assert.That(MetaMorpheusResults.PepTrained(none)!.GetValue<bool>(), Is.False);
+        // Only the all-files PSM line is read, and only before the engine results.
+        string[] peptidesFirst = { "PEP filtering was requested, but PEP was not trained for 3 target PSMs (trypsin: 3), so those were filtered by q-value notch <= 0.01.",
+                                   "All target peptides with pep q-value <= 0.01: 40", "All target PSMs with pep q-value <= 0.01: 70" };
+        Assert.That(MetaMorpheusResults.PepTrained(peptidesFirst)!.GetValue<bool>(), Is.True, "the sentence is not above the PSM line");
+        Assert.That(MetaMorpheusResults.PepTrained(new[] { "Engine Results:", "All target PSMs with pep q-value <= 0.01: 5" }), Is.Null);
+        Assert.That(MetaMorpheusResults.PepTrained(new[] { "nothing here" }), Is.Null);
+    }
+
     [Test]
     public void DesignGapWarningsAreReadFromTheConsoleLog()
     {

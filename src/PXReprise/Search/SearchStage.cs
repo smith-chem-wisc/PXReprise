@@ -608,12 +608,16 @@ public static class SearchStage
             }
             if (sd is not null && File.Exists(Path.Combine(sd, "results.txt")))
             {
-                var (counts, notes) = MetaMorpheusResults.Filter(File.ReadLines(Path.Combine(sd, "results.txt")));
+                var resultsLines = File.ReadAllLines(Path.Combine(sd, "results.txt"));
+                var (counts, notes) = MetaMorpheusResults.Filter(resultsLines);
                 if (counts.Count > 0 || notes.Count > 0)
                     prov.Set("identification_filter", new JsonObject
                     {
                         ["counts"] = new JsonArray(counts.Select(c => (JsonNode?)new JsonObject { ["of"] = c.What, ["filter"] = c.Filter, ["threshold"] = c.Threshold }).ToArray()),
                         ["notes"] = new JsonArray(notes.Select(n => (JsonNode?)n).ToArray()),
+                        // PXR-R80 (dataRepo's ingest reads it): under the PEP q-value filter, whether PEP was trained, true or per
+                        // digestion agent; null under any other filter.
+                        ["pep_trained"] = MetaMorpheusResults.PepTrained(resultsLines),
                     });
             }
             var gaps = MetaMorpheusResults.DesignGaps(log.Split('\n'));
@@ -686,7 +690,9 @@ public static class SearchStage
         int? psms = null;
         if (sd is not null && File.Exists(Path.Combine(sd, "results.txt")))
         {
-            var summary = SearchSummary.Read(Path.Combine(sd, "results.txt"));
+            // PXR-R80: the release as the provenance records it (none for a commit pin) decides what a bare "q-value" means
+            // only where results.txt lacks the FDR engine's line.
+            var summary = SearchSummary.Read(Path.Combine(sd, "results.txt"), pin.IsRelease ? banner : null);
             int ms2 = qc.Where(kv => !r.ExcludeFiles.Contains(kv.Key)).Sum(kv => kv.Value!["ms2"]!.GetValue<int>());
             var (block, identified, flag) = IdRateBlock(summary, ms2);
             psms = identified;
