@@ -13,7 +13,7 @@ namespace PXReprise;
 public static class Program
 {
     /// <summary>The verbs, listed by the <c>version</c> verb. Keep in step with <see cref="Dispatch"/>.</summary>
-    public static readonly string[] Verbs = { "version", "profiles", "validate", "census", "gate", "rank", "chemistry", "fetch", "qc", "search", "qc-payload", "batch", "library", "worker" };
+    public static readonly string[] Verbs = { "version", "profiles", "validate", "census", "gate", "rank", "chemistry", "fetch", "qc", "search", "qc-payload", "differential", "batch", "library", "worker" };
 
     /// <summary>Where profiles are read from when --profiles is not given: beside the executable.</summary>
     public static string DefaultProfilesDir => Path.Combine(AppContext.BaseDirectory, "profiles");
@@ -330,6 +330,21 @@ public static class Program
                     bin_edges_source = o.BinSource, validate = o.Validate, render = o.Render, findings = o.FindingsFile, flags = o.Flags,
                     provenance = o.ProvenanceFile,
                 };
+            }
+
+            case "differential":
+            {
+                // pxreprise differential --search <04_search> --out <06_differential> [--sdrf corrected.sdrf.tsv] [--threads N]
+                // D84 (QuantProject 155): mzLib's differential analysis of one finished search, with QuantProject's defaults.
+                Positional(args, 0);
+                args.AllowOnly("search", "out", "sdrf", "threads");
+                string searchDir = args.Required("search"), outDir = args.Required("out");
+                if (!Directory.Exists(searchDir)) throw new UsageException($"--search {searchDir} does not exist");
+                int threads = -1;
+                if (args.Option("threads") is { } t && (!int.TryParse(t, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out threads) || threads < 1))
+                    throw new UsageException($"--threads must be a whole number of 1 or more, not {t}");
+                var record = Differential.DifferentialStage.Run(searchDir, outDir, args.Option("sdrf"), threads);
+                return Differential.DifferentialStage.Summary(record, outDir);
             }
 
             case "batch":

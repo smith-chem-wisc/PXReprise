@@ -160,7 +160,13 @@ public static class DesignStage
     /// MetaMorpheus requires a biological replicate of at least 1 on any row, so these take the numbers after the file's samples.
     /// A design that names every channel is left as it is (no column added). Returns the channels marked, by file name.
     /// </summary>
-    private static SortedDictionary<string, List<string>> MarkUnnamedChannelsEmpty(string tmtDesign, string kit)
+    /// <remarks>
+    /// 2026-11-22: mzLib writes its own <c>Sample Type</c> column when the SDRF marks a pooled reference channel
+    /// (<c>reference</c> or <c>study sample</c>, <see cref="SdrfIsobaricDesign.WriteTmtDesign"/>). Such a design was refused
+    /// here until now, so a curated SDRF that wrote <c>pooled</c> (QuantProject 155: PXD011741, PXD013708) could not be
+    /// searched. Its column is kept, and only the added rows say <c>empty</c>.
+    /// </remarks>
+    internal static SortedDictionary<string, List<string>> MarkUnnamedChannelsEmpty(string tmtDesign, string kit)
     {
         if (!IsobaricMassTag.TryGetIsobaricMassTag(kit, out var tag) || tag is null)
             throw new SearchSetupException($"the kit {kit} is not one mzLib defines");
@@ -168,7 +174,8 @@ public static class DesignStage
         var header = lines[0].Split('\t');
         int Column(string name) => Array.IndexOf(header, name);
         int file = Column("File"), sample = Column("Sample Name"), channel = Column("TMT Channel"), condition = Column("Condition"), biorep = Column("Biological Replicate");
-        if (new[] { file, sample, channel, condition, biorep }.Any(i => i < 0) || Column(SampleTypeColumn) >= 0)
+        int type = Column(SampleTypeColumn);
+        if (new[] { file, sample, channel, condition, biorep }.Any(i => i < 0))
             throw new SearchSetupException($"{tmtDesign} has not the columns mzLib writes: {lines[0]}");
         var order = tag.ChannelLabels.Select((label, i) => (label, i)).ToDictionary(x => x.label, x => x.i, StringComparer.Ordinal);
         var byFile = lines.Skip(1).Where(l => l.Length > 0).Select(l => l.Split('\t')).GroupBy(r => r[file], StringComparer.Ordinal).ToList();
@@ -183,10 +190,10 @@ public static class DesignStage
             if (missing.Count > 0) marked[Path.GetFileName(rows.Key)] = missing;
         }
         if (marked.Count == 0) return marked;
-        var output = new List<string> { string.Join('\t', header.Append(SampleTypeColumn)) };
+        var output = new List<string> { string.Join('\t', type >= 0 ? header : header.Append(SampleTypeColumn)) };
         foreach (var rows in byFile)
         {
-            var samples = rows.Select(r => r.Append("study sample").ToArray()).ToList();
+            var samples = rows.Select(r => type >= 0 ? r : r.Append("study sample").ToArray()).ToList();
             int next = samples.Max(r => int.Parse(r[biorep], CultureInfo.InvariantCulture));
             var empties = (marked.TryGetValue(Path.GetFileName(rows.Key), out var missing) ? missing : new List<string>()).Select(c =>
             {
@@ -195,7 +202,7 @@ public static class DesignStage
                 row[channel] = c;
                 row[condition] = "";
                 row[biorep] = (++next).ToString(CultureInfo.InvariantCulture);
-                row[^1] = "empty";
+                row[type >= 0 ? type : row.Length - 1] = "empty";
                 return row;
             });
             output.AddRange(samples.Concat(empties).OrderBy(r => order[r[channel]]).Select(r => string.Join('\t', r)));
