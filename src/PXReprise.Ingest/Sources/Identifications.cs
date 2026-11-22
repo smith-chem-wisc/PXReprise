@@ -771,25 +771,54 @@ public static class Identifications
         return text.Length == 0 ? null : text.Contains(NotchSeparator);
     }
 
+    /// <summary>Does a psmtsv cell hold several values, joined with <c>|</c> as MetaMorpheus joins a match's candidates'?</summary>
+    private static bool SeveralValues(object? raw) => NotchAmbiguous(raw) == true;
+
     /// <summary>
     /// Counts target matches the way the producing search engine counts them, under its identification filter: target,
-    /// the filter's value <c>&lt;= threshold</c>, plus, for PSMs only, a notch that resolved. Under
-    /// <see cref="ProducerFilter.QValueAndNotch"/> (every MetaMorpheus up to 1.1.14) that is <c>q_value</c> and
-    /// <c>q_value_notch</c> both.
+    /// and the filter's value <c>&lt;= threshold</c>. Under <see cref="ProducerFilter.QValueAndNotch"/> (every MetaMorpheus
+    /// up to 1.1.14) that is <c>q_value</c> and <c>q_value_notch</c> both, and, for PSMs only, a notch that resolved.
     /// </summary>
-    /// <remarks><b>The notch clause is a PSM rule and must not be carried to peptidoforms</b>: on PXD032202 the
-    /// producer's peptide count agrees with the un-clause number exactly. On PXD058082 (2026-11-18, MetaMorpheus #2982's
-    /// builds) the filter's own column reproduces results.txt exactly: 42,125 (q-value and notch), 42,392 (notch), 52,778
-    /// (PEP q-value).</remarks>
+    /// <remarks>
+    /// <para><b>The notch clauses are PSM rules, and differ by filter.</b> None is ever carried to peptidoforms: on PXD032202
+    /// the producer's peptide count agrees with the un-clause number exactly, and so does every 1.1.15 trial arm's.
+    /// <list type="bullet">
+    /// <item>Under <see cref="ProducerFilter.QValueAndNotch"/>, a notch-ambiguous match is left out. On eight served 1.1.11
+    /// and 1.1.12 searches (2026-11-21) that reproduces results.txt's PSM count exactly, with 1 to 124 such matches
+    /// each.</item>
+    /// <item>Where 1.1.15 judges a match by its notch (<see cref="ProducerFilter.QValueNotch"/>, and the PEP q-value where
+    /// PEP was not trained), only a match whose own candidates sat at different notches with different full sequences is
+    /// left out: MetaMorpheus sets each candidate's notch q-value but leaves the match's at its default, 2
+    /// (<c>FdrAnalysisEngine.QValueInverted</c>; <c>SpectralMatch.ResolveAllAmbiguities</c> resolves it only when every
+    /// candidate's notch q-value is the same), while the psmtsv prints the best candidate's. The psmtsv shows it as a
+    /// <c>Notch</c> and a <c>Mass Diff (Da)</c> that both hold several values. A match that became notch-ambiguous only at
+    /// parsimony keeps its notch q-value and counts. On the three 1.1.15 notch arms (PXD031782, PXD019690, PXD007683;
+    /// PXReprise's trial, review of smith #42) this gives 64,457, 34,044 and 104,274 exactly. No clause gave PXD031782 8
+    /// over, and the notch alone 2 short.</item>
+    /// <item>Under the pooled q-value, and the PEP q-value where PEP was trained, no clause: 1.1.15 counts every
+    /// notch-ambiguous match (<c>TargetPsmsAboveThreshold</c> over a list filtered with <c>includeAmbiguous: true</c>).
+    /// On PXD058082's filter trial (2026-11-18, #2982's builds) the filter's own column reproduces results.txt exactly:
+    /// 42,392 (notch) and 52,778 (PEP q-value). PXD031782's trained PEP arm (84,532) includes the matches the notch arm
+    /// leaves out.</item>
+    /// </list></para>
+    /// <para><b>Under the PEP q-value, whether PEP was trained is the search's, never the row's</b> (<paramref name="pepTraining"/>).
+    /// MetaMorpheus judges a match by its PEP q-value where PEP was trained for it and by its notch where it was not
+    /// (<c>FilteredPsms.Value</c>), and the psmtsv does not say which. A trained match can still read PEP q-value 2 and fail:
+    /// on the trial's PEP arm one such peptide passes on its notch, and the per-row reading counted it (6,773, against
+    /// results.txt's 6,772).</para>
+    /// </remarks>
+    /// <param name="pepTraining">Under <see cref="ProducerFilter.PepQValue"/>, whether PEP was trained for the target
+    /// matches at this level (<see cref="PepTrainingOf"/>). Ignored under the other filters.</param>
     public static long ProducerCounts(
         IReadOnlyDictionary<string, List<object?>> columns, double threshold = ProducerThreshold, bool requireResolvedNotch = true,
-        ProducerFilter filter = ProducerFilter.QValueAndNotch)
+        ProducerFilter filter = ProducerFilter.QValueAndNotch, PepTraining pepTraining = PepTraining.Every)
     {
         var n = Length(columns, "q_value");
         var qs = columns.TryGetValue("q_value", out var c) ? c : [];
         var notches = Get(columns, "q_value_notch", n);
         var peps = Get(columns, "pep_q_value", n);
         var rawNotches = Get(columns, "notch", n);
+        var massDiffs = Get(columns, "mass_diff_da", n);
         var status = Get(columns, "decoy_contam_target", n, "");
         long total = 0;
         for (var i = 0; i < n; i++)
@@ -797,18 +826,39 @@ public static class Identifications
             if ((IsFalsy(status[i]) ? "" : PyFormat.Str(status[i]!)).Trim() != "T") continue;
             var q = Float(qs[i]);
             var notch = Float(notches[i]);
+            // Whether 1.1.15 judges this match by its notch q-value: the notch filter, and the PEP q-value where PEP was
+            // not trained for it (for some: a PEP q-value outside [0, 1], as below).
+            bool judgedByNotch = filter switch
+            {
+                ProducerFilter.QValueNotch => true,
+                ProducerFilter.PepQValue => pepTraining switch
+                {
+                    PepTraining.Every => false,
+                    PepTraining.None => true,
+                    _ => !(Float(peps[i]) is >= 0 and <= 1),
+                },
+                _ => false,
+            };
             bool passes = filter switch
             {
                 ProducerFilter.QValue => q is not null && q <= threshold,
                 ProducerFilter.QValueNotch => (notch ?? q) is { } v && v <= threshold,
-                // The PEP q-value where PEP was trained for the match; MetaMorpheus writes 2, "not computed", where it was
-                // not (1.1.15: PEP 0, PEP q-value 2 on every match of a search too small to train), and judges those by
-                // their notch (#2982).
-                ProducerFilter.PepQValue => (Float(peps[i]) is { } pq && pq is >= 0 and <= 1 ? pq : notch ?? q) is { } v && v <= threshold,
+                ProducerFilter.PepQValue => pepTraining switch
+                {
+                    // Trained for every match: its PEP q-value alone, so a 2 ("not computed") fails. A negative value is
+                    // none MetaMorpheus writes, and is no value.
+                    PepTraining.Every => Float(peps[i]) is { } pq && pq >= 0 && pq <= threshold,
+                    // Trained for none: MetaMorpheus judges every match by its notch.
+                    PepTraining.None => (notch ?? q) is { } v && v <= threshold,
+                    // Trained for some, and the psmtsv does not say which: a PEP q-value in [0, 1] is taken as trained,
+                    // anything else is judged by the notch. Approximate; the reconciliation's note says so.
+                    _ => (Float(peps[i]) is { } pq && pq is >= 0 and <= 1 ? pq : notch ?? q) is { } v && v <= threshold,
+                },
                 _ => q is not null && q <= threshold && (notch is null || notch <= threshold),
             };
             if (!passes) continue;
-            if (requireResolvedNotch && NotchAmbiguous(rawNotches[i]) == true) continue;
+            if (requireResolvedNotch && filter == ProducerFilter.QValueAndNotch && NotchAmbiguous(rawNotches[i]) == true) continue;
+            if (requireResolvedNotch && judgedByNotch && SeveralValues(rawNotches[i]) && SeveralValues(massDiffs[i])) continue;
             total++;
         }
         return total;
@@ -820,13 +870,30 @@ public static class Identifications
     /// q-value alone from 1.1.15 (#2989), so a commit pin, which names no release, keeps the older rule. No named filter
     /// (a search before the count lines named one, or no results.txt) is the older rule too.
     /// </summary>
-    public static ProducerFilter FilterOf(string? named, string? metamorpheusRelease) => named switch
+    public static ProducerFilter FilterOf(string? named, string? metamorpheusRelease) => FilterOf(named, metamorpheusRelease, null);
+
+    /// <summary>As <see cref="FilterOf(string?, string?)"/>, with the FDR engine line's wording
+    /// (<see cref="ResultsTxtFilter.FdrEngineLineNamesFilter"/>) deciding what a bare "q-value" means wherever results.txt has
+    /// that line. The wording does not depend on how the release was written: "v1.1.15", "1.1.15-rc" or a commit pin after
+    /// #2989 fail <see cref="Version.TryParse(string?, out Version?)"/>, and would read as the older rule.</summary>
+    public static ProducerFilter FilterOf(string? named, string? metamorpheusRelease, bool? fdrEngineLineNamesFilter) => named switch
     {
         "pep q-value" => ProducerFilter.PepQValue,
         "q-value notch" => ProducerFilter.QValueNotch,
-        "q-value" when Version.TryParse(metamorpheusRelease, out var v) && v >= new Version(1, 1, 15) => ProducerFilter.QValue,
+        "q-value" when fdrEngineLineNamesFilter ?? (Version.TryParse(metamorpheusRelease, out var v) && v >= new Version(1, 1, 15))
+            => ProducerFilter.QValue,
         _ => ProducerFilter.QValueAndNotch,
     };
+
+    /// <summary>Whether PEP was trained for a search's target matches at one level, under the PEP q-value filter.</summary>
+    /// <param name="sentenceAbove">results.txt has MetaMorpheus's "PEP filtering was requested, but ..." sentence above
+    /// this level's dataset-wide count (<see cref="ResultsTxtFilter.PepNotTrained"/>): some or all of its matches were
+    /// judged by the notch.</param>
+    /// <param name="pepUsable">mzLib's whole-search test (<see cref="QuantifiedPsmRule.PepIsUsable"/>, as
+    /// <see cref="ChooseConfidence"/> applies it) passes: some PEP q-value is in [0, 1] and the PEPs are not all one value.
+    /// It fails on a search too small to train (every PEP q-value 2) and on one whose training failed (every PEP 0).</param>
+    public static PepTraining PepTrainingOf(bool sentenceAbove, bool pepUsable) =>
+        !sentenceAbove ? PepTraining.Every : pepUsable ? PepTraining.Some : PepTraining.None;
 }
 
 /// <summary>The identification filter a search's own counts follow (MetaMorpheus's <c>IdentificationFilter</c>).</summary>
@@ -840,4 +907,18 @@ public enum ProducerFilter
     QValue,
     /// <summary><c>pep_q_value</c> where PEP was trained, else <c>q_value_notch</c> (1.1.15's "pep q-value").</summary>
     PepQValue,
+}
+
+/// <summary>Under the PEP q-value filter, for how many of a search's target matches at one level PEP was trained. MetaMorpheus
+/// records it per match (<c>FdrInfo.PepTrained</c>, set per digestion agent and cleavage-specificity category) and writes it
+/// to no psmtsv column, so the ingest reads it from results.txt (<see cref="Identifications.PepTrainingOf"/>).</summary>
+public enum PepTraining
+{
+    /// <summary>Every match: no "PEP filtering was requested, but ..." sentence above the level's count.</summary>
+    Every,
+    /// <summary>None: the sentence is there, and the search's PEP is not usable at all.</summary>
+    None,
+    /// <summary>Some: the sentence is there, but the search's PEP is usable, so one agent or category trained and another
+    /// did not. Which rows were which is not recorded.</summary>
+    Some,
 }
