@@ -9,7 +9,8 @@
 // table (FlashLFQ failing silently); FAKE_MM_SKIP_QUANT=1 prints the design warning; FAKE_MM_HANG=1 sleeps forever, using
 // no CPU (a hung search); FAKE_MM_BUSY_SECONDS=<n> works silently for n seconds first (MetaMorpheus's long PEP step);
 // FAKE_MM_WARN=<text> prints that line during the first task (MetaMorpheus's warnings, e.g. "Unrecognized mod ...");
-// FAKE_MM_CALIBRATE=all|<name>,<name> writes <name>-calib.mzML and -calib.toml in the Calibration task's folder.
+// FAKE_MM_CALIBRATE=all|<name>,<name> writes <name>-calib.mzML and -calib.toml in the Calibration task's folder;
+// FAKE_MM_RESULTS=<file> makes the search task's results.txt a copy of that file (a later release's lines).
 using System.Text;
 
 string Release = Environment.GetEnvironmentVariable("FAKE_MM_RELEASE") ?? "1.1.11";
@@ -104,7 +105,8 @@ if (Environment.GetEnvironmentVariable("FAKE_MM_NO_PROTEIN_GROUPS") != "1")
         + Row("P20929", "Nebulin", "Homo sapiens", "T", "0.5", "900"));
 File.WriteAllText(Path.Combine(sd, "AllQuantifiedPeaks.tsv"),
     "Peak Detection Type\tRandom RT\tPIP Q-Value\tDecoy Peptide\nMSMS\t\t\tFalse\nMSMS\t\t\tFalse\nMSMS\t\t\tFalse\nMBR\tFalse\t0.001\tFalse\nMBR\tTrue\t0.001\tFalse\nMBR\tFalse\t0.2\tFalse\n");
-File.WriteAllText(Path.Combine(sd, "results.txt"), "All target PSMs with q-value <= 0.01: 8\n\nPSMs within 1% FDR: 9\n");
+if (Environment.GetEnvironmentVariable("FAKE_MM_RESULTS") is { Length: > 0 } results) File.Copy(results, Path.Combine(sd, "results.txt"), overwrite: true);
+else File.WriteAllText(Path.Combine(sd, "results.txt"), "All target PSMs with q-value <= 0.01: 8\n\nPSMs within 1% FDR: 9\n");
 // The spectral library, under MetaMorpheus's own timestamped names, in the SEARCH task's folder. An update MERGES:
 // every spectrum of the loaded library plus one for this run, so a test can prove the chain grows.
 string? searchToml = Values("-t").FirstOrDefault(t => t.EndsWith("SearchTask.toml", StringComparison.Ordinal));

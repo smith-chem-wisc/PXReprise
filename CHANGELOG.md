@@ -76,6 +76,17 @@ text says TMT while PRIDE's quantification names label-free too (below).
   any split. Delivering such a group needs a datarepo that reads `split_reason: plex` (1.5.0 here); 1.4.5 refuses it at
   ingest.
 
+- **Ahead of MetaMorpheus 1.1.15: a bare `q-value` count is the 1% definition's only up to 1.1.14, and the search
+  provenance says whether PEP was trained** (dataRepo PXR-R80).
+  - Up to 1.1.14 a results.txt line "All target PSMs with q-value <= 0.01" counts by the q-value and the notch together,
+    the rule `DEF-PSM-1PCT v1` describes; from 1.1.15 the same words mean the q-value alone. The search's `id_rate`
+    files the count under the definition (`psms_1pct`, `rate`) only where the line means the older rule, decided as
+    datarepo decides it: by the FDR engine's own line ("PSMs within 1% FDR" up to 1.1.14, "PSMs with <filter> <= t" from
+    1.1.15), else by the release. Otherwise it stays under `psms_filter_1pct` and `rate_filter`, beside `filter`.
+  - `identification_filter.pep_trained`: under the PEP q-value filter, `true` when PEP was trained for every target PSM,
+    or one entry per digestion agent results.txt names as untrained (`{"trypsin": false}`); null under any other filter.
+  - A search under MetaMorpheus 1.1.14 or earlier records the same counts as before.
+
 - **A new TMT profile, `tmt-dda@5`: `tmt-dda@4` plus MS2 fragmented by HCD and read in the ion trap,** searched as
   MetaMorpheus's LowCID.
   - **The problem.** Many SPS-MS3 TMT methods on an Orbitrap Fusion, Lumos or Ascend fragment by HCD and read the MS2 in
