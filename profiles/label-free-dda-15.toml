@@ -16,6 +16,10 @@
 #    13,096 (v7 14,683). Most sites dropped were seen only in deposits aging has since excluded from its scope.
 #  - Spectral libraries: each is corrected at its next registration (D84 (4)), each entry's precursor m/z set from its
 #    sequence and charge; 1.1.13 wrote the measured m/z.
+#  - The MS2 floor is lowered (D84, 2026-11-22): `[qc] min_ms2` is 2500, where every earlier version has 5000. A raw
+#    file needs 2,500 MS2 spectra to pass QC; fewer is `too_few_ms2`. Thin but real files now pass, such as the late
+#    fractions of a fractionated deposit (PXD016039's high-pH fractions hold 2,790 to 4,978). A deposit can still set its
+#    own floor with `min_ms2` in `[exceptions]`.
 # Every other setting is /14's, whose notes follow.
 #
 # label-free-dda/14 (v0.4.40, 2026-11-05): label-free-dda/13 without MetaMorpheus's individual-file tables (the user,
@@ -208,7 +212,7 @@ defer_if_median_file_mb = 2200
 [qc]
 ms2_analyzer = "orbitrap"
 min_fraction_orbitrap_hcd = 0.9
-min_ms2 = 5000
+min_ms2 = 2500   # D84: 5000 in every earlier version
 excludable = ["too_few_ms2"]   # a blank or failed injection may be excluded with a record (aging D52)
 max_excluded_frac = 0.10
 

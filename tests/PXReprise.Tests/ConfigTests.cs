@@ -76,26 +76,31 @@ public class ConfigTests
     /// <summary>
     /// D84 (2026-11-21): label-free-dda@15, label-free-dda-lowres@9 and tmt-dda@6 are @14, @8 and @5 on MetaMorpheus 1.1.15
     /// and agingPTM-v9, with the PEP q-value filter at 1% set in every task (D82) and the design's SDRF passed to the
-    /// search. Nothing else may differ: lines, not parsed fields, as above.
+    /// search, and (2026-11-22) the QC's MS2 floor lowered from 5000 to 2500. Nothing else may differ: lines, not parsed
+    /// fields, as above.
     /// </summary>
     [TestCase("label-free-dda-15.toml", "label-free-dda-14.toml", "label-free-dda@15", new[] { "Calibration", "Gptmd", "Search" })]
     [TestCase("label-free-dda-lowres-9.toml", "label-free-dda-lowres-8.toml", "label-free-dda-lowres@9", new[] { "Search" })]
     [TestCase("tmt-dda-6.toml", "tmt-dda-5.toml", "tmt-dda@6", new[] { "Calibration", "Search" })]
-    public void TheMetaMorpheus1115VersionsChangeOnlyTheReleaseTheFilterTheInputSdrfAndTheDatabases(string next, string previous, string key, string[] tasks)
+    public void TheMetaMorpheus1115VersionsChangeOnlyTheReleaseTheFilterTheInputSdrfTheDatabasesAndTheMs2Floor(string next, string previous, string key, string[] tasks)
     {
         static List<string> Settings(string name) => File.ReadAllLines(Path.Combine(TestSupport.ProfilesDir, name))
             .Select(l => System.Text.RegularExpressions.Regex.Replace(l, @"\s+#.*$", "").TrimEnd())
             .Where(l => l.Length > 0 && !l.StartsWith('#'))
             .Where(l => !System.Text.RegularExpressions.Regex.IsMatch(l, @"^(id|version|description) = "))
             .ToList();
-        static string Moved(string l) => System.Text.RegularExpressions.Regex.Replace(
-            System.Text.RegularExpressions.Regex.Replace(l, @"^metamorpheus = "".*""$", @"metamorpheus = ""1.1.15"""),
-            @"_agingPTM-v\d+\.xml""$", @"_agingPTM-v9.xml""");
+        static string Moved(string l)
+        {
+            string m = System.Text.RegularExpressions.Regex.Replace(
+                System.Text.RegularExpressions.Regex.Replace(l, @"^metamorpheus = "".*""$", @"metamorpheus = ""1.1.15"""),
+                @"_agingPTM-v\d+\.xml""$", @"_agingPTM-v9.xml""");
+            return m == "min_ms2 = 5000" ? "min_ms2 = 2500" : m;
+        }
 
         string[] added = { "input_sdrf = true", "IdentificationFilter = \"PepQValue\"", "FilterThreshold = 0.01" };
         var lines = Settings(next);
         Assert.That(lines.Where(added.Contains), Is.EqualTo(added), "the three lines once each");
-        Assert.That(lines.Where(l => !added.Contains(l)), Is.EqualTo(Settings(previous).Select(Moved)), "nothing else differs but the release and the databases");
+        Assert.That(lines.Where(l => !added.Contains(l)), Is.EqualTo(Settings(previous).Select(Moved)), "nothing else differs but the release, the databases and the MS2 floor");
 
         var all = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
         var (p, old) = (all[key], all[key[..key.IndexOf('@')] + "@" + (int.Parse(key[(key.IndexOf('@') + 1)..]) - 1)]);
@@ -103,6 +108,7 @@ public class ConfigTests
         {
             Assert.That((p.MetaMorpheus, p.InputSdrf, p.WriteSdrf), Is.EqualTo(("1.1.15", true, true)));
             Assert.That(old.InputSdrf, Is.False, "a released profile never changes");
+            Assert.That((p.Qc.MinMs2, old.Qc.MinMs2), Is.EqualTo((2500, 5000)), "the MS2 floor, lowered in the new version only");
             Assert.That(p.Tasks, Is.EqualTo(tasks));
             Assert.That(p.MetaMorpheusSettings!.Where(s => s.Key is "IdentificationFilter" or "FilterThreshold").Select(s => (s.Scope, s.Key, s.TomlValue)),
                 Is.EqualTo(new[] { ("all", "IdentificationFilter", "\"PepQValue\""), ("all", "FilterThreshold", "0.01") }), "in every task");

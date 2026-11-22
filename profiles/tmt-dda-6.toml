@@ -3,6 +3,10 @@
 # header for the filter, the input SDRF and agingPTM-v9).
 #  - From 1.1.14. The kit's library chain is corrected at its next registration, as every chain is (D84 (4)).
 #  - IdentificationFilter and FilterThreshold go to the Calibration and Search tasks, the two this profile runs.
+#  - The MS2 floor is lowered (D84, 2026-11-22): `[qc] min_ms2` is 2500, where every earlier version has 5000. A raw
+#    file needs 2,500 MS2 spectra to pass QC; fewer is `too_few_ms2`. Thin but real files now pass, such as the late
+#    fractions of a fractionated deposit (PXD016039's high-pH fractions hold 2,790 to 4,978). A deposit can still set its
+#    own floor with `min_ms2` in `[exceptions]`.
 # Every other setting is /5's, whose notes follow.
 #
 # tmt-dda/5 (2026-11-20, approved by the maintainer): tmt-dda/4 plus MS2 fragmented by HCD and read in the ion trap,
@@ -75,7 +79,7 @@ defer_if_median_file_mb = 2200
 [qc]
 ms2_analyzer = "orbitrap"
 min_fraction_orbitrap_hcd = 0.9   # waived for a file whose MS3 carries the kit's reporters (SPS-MS3)
-min_ms2 = 5000
+min_ms2 = 2500   # D84: 5000 in every earlier version
 excludable = ["too_few_ms2"]
 max_excluded_frac = 0.10
 

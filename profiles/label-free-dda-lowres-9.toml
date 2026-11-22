@@ -7,6 +7,10 @@
 #    all), so its search space can be smaller than v3's. The 1.1.15 trial measures an ion-trap deposit on v3 and on v9;
 #    if v9 loses, this version returns to v3 before it ships.
 #  - IdentificationFilter and FilterThreshold go to the Search task, the only one this profile runs.
+#  - The MS2 floor is lowered (D84, 2026-11-22): `[qc] min_ms2` is 2500, where every earlier version has 5000. A raw
+#    file needs 2,500 MS2 spectra to pass QC; fewer is `too_few_ms2`. Thin but real files now pass, such as the late
+#    fractions of a fractionated deposit (PXD016039's high-pH fractions hold 2,790 to 4,978). A deposit can still set its
+#    own floor with `min_ms2` in `[exceptions]`.
 # Every other setting is /8's, whose notes follow.
 #
 # label-free-dda-lowres/8 (v0.4.42, 2026-11-08): lowres/7 plus the custom modification file and the NBF-Cl mapping that
@@ -132,7 +136,7 @@ defer_if_median_file_mb = 2200
 [qc]
 ms2_analyzer = "any"
 min_fraction_orbitrap_hcd = 0   # no Orbitrap-HCD gate: that is what this profile is for
-min_ms2 = 5000
+min_ms2 = 2500   # D84: 5000 in every earlier version
 excludable = ["too_few_ms2"]
 max_excluded_frac = 0.10
 
