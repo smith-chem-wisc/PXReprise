@@ -24,6 +24,10 @@
 #    file needs 2,500 MS2 spectra to pass QC; fewer is `too_few_ms2`. Thin but real files now pass, such as the late
 #    fractions of a fractionated deposit (PXD016039's high-pH fractions hold 2,790 to 4,978). A deposit can still set its
 #    own floor with `min_ms2` in `[exceptions]`.
+#  - No per-file output (the user, 2026-11-22: "we don't need any per file outputs. that should be off by default"):
+#    WriteMzId = false. MetaMorpheus's own default writes one mzIdentML per raw file into "Individual File Results" even
+#    with WriteIndividualFiles off (1.39 GB for PXD000279's 143 files). Nothing reads them; the prune stage deletes
+#    them after delivery. The combined tables are unchanged; so are the identifications.
 # Every other setting is /14's, whose notes follow.
 #
 # label-free-dda/14 (v0.4.40, 2026-11-05): label-free-dda/13 without MetaMorpheus's individual-file tables (the user,
@@ -227,3 +231,4 @@ FilterThreshold = 0.01
 
 [metamorpheus_settings.search]
 WriteIndividualFiles = false   # /14: see the header (was true in /12 and /13)
+WriteMzId = false              # /15: no per-file mzIdentML (see the header)

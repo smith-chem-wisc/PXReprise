@@ -79,12 +79,13 @@ public class ConfigTests
     /// (2026-11-22) the QC's MS2 floor lowered from 5000 to 2500. The filter is the q-value notch in all three, not 1.1.15's
     /// default PEP q-value (D85, D87: under the PEP filter MetaMorpheus 1.1.15's protein FDR can collapse, depending on the
     /// deposit). The databases are agingPTM-v9, except lowres@9's, which stay v3 (v9 lost to v3 on an ion-trap deposit,
-    /// 2026-11-22). Nothing else may differ: lines, not parsed fields, as above.
+    /// 2026-11-22). The Search task writes no per-file mzIdentML (WriteMzId = false; the user, 2026-11-22: "we don't need
+    /// any per file outputs"). Nothing else may differ: lines, not parsed fields, as above.
     /// </summary>
     [TestCase("label-free-dda-15.toml", "label-free-dda-14.toml", "label-free-dda@15", new[] { "Calibration", "Gptmd", "Search" }, "v9")]
     [TestCase("label-free-dda-lowres-9.toml", "label-free-dda-lowres-8.toml", "label-free-dda-lowres@9", new[] { "Search" }, "v3")]
     [TestCase("tmt-dda-6.toml", "tmt-dda-5.toml", "tmt-dda@6", new[] { "Calibration", "Search" }, "v9")]
-    public void TheMetaMorpheus1115VersionsChangeOnlyTheReleaseTheFilterTheInputSdrfTheDatabasesAndTheMs2Floor(string next, string previous, string key, string[] tasks,
+    public void TheMetaMorpheus1115VersionsChangeOnlyTheReleaseTheFilterTheInputSdrfTheDatabasesTheMs2FloorAndTheMzId(string next, string previous, string key, string[] tasks,
         string db)
     {
         const string filter = "QValueNotch";
@@ -101,9 +102,9 @@ public class ConfigTests
             return m == "min_ms2 = 5000" ? "min_ms2 = 2500" : m;
         }
 
-        string[] added = { "input_sdrf = true", $"IdentificationFilter = \"{filter}\"", "FilterThreshold = 0.01" };
+        string[] added = { "input_sdrf = true", $"IdentificationFilter = \"{filter}\"", "FilterThreshold = 0.01", "WriteMzId = false" };
         var lines = Settings(next);
-        Assert.That(lines.Where(added.Contains), Is.EqualTo(added), "the three lines once each");
+        Assert.That(lines.Where(added.Contains), Is.EqualTo(added), "the four lines once each");
         Assert.That(lines.Where(l => !added.Contains(l)), Is.EqualTo(Settings(previous).Select(Moved)), "nothing else differs but the release, the databases and the MS2 floor");
 
         var all = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
@@ -116,6 +117,9 @@ public class ConfigTests
             Assert.That(p.Tasks, Is.EqualTo(tasks));
             Assert.That(p.MetaMorpheusSettings!.Where(s => s.Key is "IdentificationFilter" or "FilterThreshold").Select(s => (s.Scope, s.Key, s.TomlValue)),
                 Is.EqualTo(new[] { ("all", "IdentificationFilter", $"\"{filter}\""), ("all", "FilterThreshold", "0.01") }), "in every task");
+            Assert.That(p.MetaMorpheusSettings!.Where(s => s.Key == "WriteMzId").Select(s => (s.Scope, s.TomlValue)),
+                Is.EqualTo(new[] { ("search", "false") }), "no per-file mzIdentML, in the Search task");
+            Assert.That(old.MetaMorpheusSettings!.Any(s => s.Key == "WriteMzId"), Is.False, "a released profile never changes");
             Assert.That(p.Databases.Values.Select(d => d.Proteome), Has.All.EndsWith($"_agingPTM-{db}.xml"));
             Assert.That(p.Description, Does.EndWith("; the q-value notch at 1% in every task; the curated SDRF passed to the search"));
         });

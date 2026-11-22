@@ -13,6 +13,7 @@
 #    file needs 2,500 MS2 spectra to pass QC; fewer is `too_few_ms2`. Thin but real files now pass, such as the late
 #    fractions of a fractionated deposit (PXD016039's high-pH fractions hold 2,790 to 4,978). A deposit can still set its
 #    own floor with `min_ms2` in `[exceptions]`.
+#  - No per-file output: WriteMzId = false, as label-free-dda/15 (see its header).
 # Every other setting is /8's, whose notes follow.
 #
 # label-free-dda-lowres/8 (v0.4.42, 2026-11-08): lowres/7 plus the custom modification file and the NBF-Cl mapping that
@@ -149,3 +150,4 @@ FilterThreshold = 0.01
 
 [metamorpheus_settings.search]
 WriteIndividualFiles = false   # /7: as label-free-dda/14 (was true in /6)
+WriteMzId = false              # /9: no per-file mzIdentML, as label-free-dda/15
