@@ -355,6 +355,33 @@ public class DifferentialStageTests
         Assert.That(psms.Count(l => l.Split('\t')[8] == "0"), Is.EqualTo(2), "a reporter written as 0 is passed as written");
     }
 
+    // PXD007683 (1.1.15, tmt-dda@6): 24 of 103,545 quantified PSMs have a base sequence and no full sequence, all
+    // methionine-rich, and mzLib's table refuses such a PSM. It is left out, listed as a finding, and kept out of the PSMs
+    // written for QuantProject's comparison with R; the analysis runs on the rest.
+    [Test]
+    public void AQuantifiedPsmWithNoFullSequenceIsLeftOutAndListed()
+    {
+        string search = Isobaric(c => c.StartsWith("12", StringComparison.Ordinal) ? "A" : "B");
+        string task = Path.Combine(search, "mm", "Task2SearchTask");
+        string reporters = string.Join('\t', Tmt10.Select(_ => "5000"));
+        File.AppendAllText(Path.Combine(task, "RawQuantification.tsv"),
+            $"F:\\run\\04_search\\mm\\Task1CalibrationTask\\f1-calib.mzML\t62683\tMEDTEPFSAELLSAMMR\t\tP1\tT\t30\t{reporters}\n");
+        File.AppendAllText(Path.Combine(task, "AllPSMs.psmtsv"), "f1-calib\t62683\t2\t\tMEDTEPFSAELLSAMMR\n");
+
+        string outDir = Out();
+        var r = DifferentialStage.Run(search, outDir, maxThreads: 2);
+        Assert.That(r["analysed"]!.GetValue<bool>(), Is.True, r.ToJsonString());
+        var finding = r["findings"]!.AsArray().Single()!;
+        Assert.That(finding["kind"]!.GetValue<string>(), Is.EqualTo(DifferentialStage.PsmsWithoutFullSequence));
+        Assert.That(finding["detail"]!.GetValue<string>(), Does.StartWith("1 quantified PSM(s) in RawQuantification.tsv have a base sequence but no full sequence"));
+        Assert.That(finding["psms"]!.ToJsonString(), Is.EqualTo("""[{"file":"f1-calib","scan":62683,"base_sequence":"MEDTEPFSAELLSAMMR"}]"""));
+        var psms = File.ReadAllLines(Path.Combine(outDir, DifferentialStage.IsobaricFolder, DifferentialStage.IsobaricPsmsFileName));
+        Assert.That(psms, Has.Length.EqualTo(1 + 6 * 3 * 2), "the row is not among the PSMs fed");
+        Assert.That(psms, Has.None.Contains("MEDTEPFSAELLSAMMR"));
+        var summary = DifferentialStage.Summary(r, outDir)["findings"]!.AsArray().Single()!.AsObject();
+        Assert.That(summary.Select(kv => kv.Key), Is.EqualTo(new[] { "kind", "detail" }), "the summary leaves the per-row list in the provenance");
+    }
+
     // PXD015616: one sample named in two plexes. The runner's design step refuses it, and that is a finding.
     [Test]
     public void ASampleNamedInTwoPlexesIsARecordedRefusal()

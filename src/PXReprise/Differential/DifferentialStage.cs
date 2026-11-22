@@ -59,6 +59,9 @@ public static class DifferentialStage
     /// <summary>The TMT design written from a corrected SDRF (<c>--sdrf</c>).</summary>
     public const string CorrectedDesignFileName = "TmtDesign.corrected.txt";
 
+    /// <summary>The finding for quantified PSMs left out because they have no full sequence.</summary>
+    public const string PsmsWithoutFullSequence = "psms_without_full_sequence";
+
     /// <summary>155's assumptions note for 1.0.0, word for word.</summary>
     public const string AssumptionsText = """
         **Assumptions of this differential analysis** (QuantProject, 2026-11-21; replaced by the report's own Assumptions and
@@ -224,7 +227,11 @@ public static class DifferentialStage
             ["name"] = a!["name"]?.DeepClone(), ["rows"] = a["rows"]?.DeepClone(), ["contrasts"] = a["contrasts"]?.DeepClone(),
             ["by_status"] = a["by_status"]?.DeepClone(), ["analysis_id"] = a["analysis_id"]?.DeepClone(),
         }).ToArray()),
-        ["findings"] = record["findings"]?.DeepClone(),
+        // Each finding's kind and detail; its per-row list (psms_without_full_sequence) stays in the provenance.
+        ["findings"] = new JsonArray(record["findings"]!.AsArray().Select(f => (JsonNode?)new JsonObject
+        {
+            ["kind"] = f!["kind"]!.DeepClone(), ["detail"] = f["detail"]!.DeepClone(),
+        }).ToArray()),
         ["samples_left_out"] = record["samples_left_out"]!.AsArray().Count,
         ["lost_transfer_files"] = new JsonArray(record["lost_transfer_files"]!.AsArray().Select(f => (JsonNode?)f!["file"]!.GetValue<string>()).ToArray()),
     };
@@ -495,7 +502,18 @@ public static class DifferentialStage
             var entries = design.FileNameSampleInfoDictionary.Values.SelectMany(s => s).ToList();
             var samples = Samples(design, entries, designFile, tag, leftOutAlready: true);
 
-            var (psms, groups) = ReadPsms(raw, psmsFile, groupsFile, tag);
+            var (psms, groups, noFullSequence) = ReadPsms(raw, psmsFile, groupsFile, tag);
+            if (noFullSequence.Count > 0)
+                Findings.Add(new JsonObject
+                {
+                    ["kind"] = PsmsWithoutFullSequence,
+                    ["detail"] = $"{noFullSequence.Count} quantified PSM(s) in {Path.GetFileName(raw)} have a base sequence but no full sequence "
+                                 + $"(MetaMorpheus resolved no single modified form), so they are left out of the isobaric table and of {IsobaricPsmsFileName}",
+                    ["psms"] = new JsonArray(noFullSequence.Select(p => (JsonNode?)new JsonObject
+                    {
+                        ["file"] = p.File, ["scan"] = p.Scan, ["base_sequence"] = p.Base,
+                    }).ToArray()),
+                });
             inputs.AddRange(new[] { Role("isobaric_raw_quant", raw), Role("psms", psmsFile), Role("protein_groups", groupsFile) });
             if (_individualsUsed) inputs.Add(Role("written_sdrf", Path.Combine(task, "experiment.sdrf.tsv")));
             IsobaricObservationTable table;
@@ -631,10 +649,12 @@ public static class DifferentialStage
 
         /// <summary>
         /// The PSMs MetaMorpheus quantified (<c>RawQuantification.tsv</c>), each with its charge from <c>AllPSMs.psmtsv</c> and
-        /// the protein groups whose unique or shared peptides list it in <c>AllProteinGroups.tsv</c>, read unfiltered.
+        /// the protein groups whose unique or shared peptides list it in <c>AllProteinGroups.tsv</c>, read unfiltered. A row with
+        /// no full sequence (MetaMorpheus resolved no single modified form: on PXD007683, 24 of 103,545 rows, all
+        /// methionine-rich) cannot be a peptide of the table, so it is left out and returned, for the provenance's findings.
         /// </summary>
-        private static (List<IsobaricPsm> Psms, IReadOnlyList<ProteinGroupInfo> Groups) ReadPsms(string raw, string psmsFile, string groupsFile,
-            IsobaricMassTag tag)
+        private static (List<IsobaricPsm> Psms, IReadOnlyList<ProteinGroupInfo> Groups, List<(string File, int Scan, string Base)> NoFullSequence) ReadPsms(
+            string raw, string psmsFile, string groupsFile, IsobaricMassTag tag)
         {
             var header = Search.Tsv.Header(raw);
             foreach (string c in new[] { "File", "Scan", "BaseSequence", "FullSequence" })
@@ -643,11 +663,19 @@ public static class DifferentialStage
             if (reporters.Count != tag.ChannelLabels.Count)
                 throw new InvalidDataException($"{raw} has {reporters.Count} reporter column(s), but the kit {tag.TagType} has {tag.ChannelLabels.Count} channels");
             var quantified = new List<(string File, int Scan, string Full, string Base, double[] Values)>();
+            var noFullSequence = new List<(string File, int Scan, string Base)>();
             foreach (var r in Search.Tsv.Read(raw))
             {
+                string file = Path.GetFileNameWithoutExtension(FileName(r["File"]));
+                int scan = Int(raw, r["Scan"]);
+                if (string.IsNullOrWhiteSpace(r["FullSequence"]))
+                {
+                    noFullSequence.Add((file, scan, r["BaseSequence"]));
+                    continue;
+                }
                 var values = reporters.Select(c => Search.Tsv.Number(r[c])).ToArray();
                 if (values.Any(v => !double.IsFinite(v))) throw new InvalidDataException($"{raw}: scan {r["Scan"]} of {r["File"]} has a reporter that is not a number");
-                quantified.Add((Path.GetFileNameWithoutExtension(FileName(r["File"])), Int(raw, r["Scan"]), r["FullSequence"], r["BaseSequence"], values));
+                quantified.Add((file, scan, r["FullSequence"], r["BaseSequence"], values));
             }
 
             var wanted = quantified.Select(q => (q.File, q.Scan)).ToHashSet();
@@ -692,7 +720,7 @@ public static class DifferentialStage
                 var names = bySequence.GetValueOrDefault(q.Full) ?? bySequence.GetValueOrDefault(q.Base) ?? new SortedSet<string>();
                 psms.Add(new IsobaricPsm(q.File, q.Scan, q.Full, q.Base, charge, names.ToList(), q.Values));
             }
-            return (psms, groups);
+            return (psms, groups, noFullSequence);
         }
 
         /// <summary>The PSMs the table was built from, one line each, reporters in the kit's channel order.</summary>
