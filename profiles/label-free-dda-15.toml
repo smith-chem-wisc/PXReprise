@@ -1,14 +1,18 @@
 # label-free-dda/15 (D84, 2026-11-21): label-free-dda/14 on MetaMorpheus 1.1.15 and agingPTM-v9, with the search's
-# identification filter set to the PEP q-value at 1% and the design's curated SDRF passed to the search.
+# identification filter set to the q-value notch at 1% and the design's curated SDRF passed to the search.
 #  - MetaMorpheus 1.1.15 (released 2026-11-21 at 0da8edeaf; its CommandLine zip's sha256 is in
 #    tests/metamorpheus-output/releases.tsv). /14 ran 1.1.13; tmt-dda/5 brought 1.1.14. G85 comes with the move: since
 #    1.1.14's FlashLFQ, a whole file can lose every match-between-runs transfer at once (PXD058082).
-#  - The identification filter (D82): IdentificationFilter = "PepQValue" and FilterThreshold = 0.01 in every task, by
-#    [metamorpheus_settings.all]. They are 1.1.15's own defaults (#2982, #2989), set here so that no later default can
-#    move them. A match whose PEP was not trained is judged by its q-value notch. results.txt names the filter on its
-#    count lines ("All target PSMs with pep q-value <= 0.01"), and the engine and datarepo count by it; the 1% metrics
-#    whose definitions (DEF-*-1PCT v1) describe the q-value and the notch together stay null until those definitions
-#    have a v2.
+#  - The identification filter (D82, D85, D87): IdentificationFilter = "QValueNotch" and FilterThreshold = 0.01 in every
+#    task, by [metamorpheus_settings.all], set here so that no later default can move them. NOT 1.1.15's own default,
+#    the PEP q-value (#2982, #2989): under it, 1.1.15 ranks protein groups for their FDR by the best peptide's PEP, and
+#    where many decoys get a PEP of exactly 0 the protein FDR collapses (tmt-dda/6's header; PXD019690-astro kept 106
+#    target protein groups at 1% under PEP, 4,590 under the notch). Label-free PXD031782 did not collapse (2,652
+#    protein groups under PEP, 1,864 under the notch), but the failure depends on the deposit, so every 1.1.15 version
+#    takes the notch (D87, 2026-11-22). A later version moves to the PEP q-value once MetaMorpheus ranks such groups
+#    correctly. results.txt names the filter on its count lines ("All target PSMs with q-value notch <= 0.01"), and the
+#    engine and datarepo count by it; the 1% metrics whose definitions (DEF-*-1PCT v1) describe the q-value and the
+#    notch together stay null until those definitions have a v2.
 #  - engine.input_sdrf = true: the SDRF the design came from is passed as MetaMorpheus's InputSdrfPath (#2934), so the
 #    SDRF the search writes carries the sample facts it states (cell type, disease, organism part).
 #  - agingPTM-v9 (D29; data/ptm-db/agingPTM-v9): /14's build rule on aging's catalog 7ecfc9763064b181 (215 deposits).
@@ -129,7 +133,7 @@
 id = "label-free-dda"
 version = 15
 status = "available"
-description = "Label-free DDA, high-resolution HCD with MS2 read in the Orbitrap; a short probe search first (species, cysteine share, enrichment); MetaMorpheus 1.1.15 Calibrate/GPTMD/Search with cleavage-blocking modifications respected, FlashLFQ with MBR and an SDRF design; protease and cysteine chemistry read from each deposit; UniProt canonical proteomes, their own PTM sites kept only where non-enriched data see them, with agingPTM-v9 sites (no GPTMD hydroxy-P/K or malonyl-K); NBF-Cl modelled by a shipped modification (G40); ring-opened NEM and gel propionamide offered to GPTMD where the chemistry makes them likely; GPTMD adds a site only where it improves the match's score, offers formyl on S/T and not malonyl-K; no individual-file tables; the PEP q-value at 1% in every task; the curated SDRF passed to the search"
+description = "Label-free DDA, high-resolution HCD with MS2 read in the Orbitrap; a short probe search first (species, cysteine share, enrichment); MetaMorpheus 1.1.15 Calibrate/GPTMD/Search with cleavage-blocking modifications respected, FlashLFQ with MBR and an SDRF design; protease and cysteine chemistry read from each deposit; UniProt canonical proteomes, their own PTM sites kept only where non-enriched data see them, with agingPTM-v9 sites (no GPTMD hydroxy-P/K or malonyl-K); NBF-Cl modelled by a shipped modification (G40); ring-opened NEM and gel propionamide offered to GPTMD where the chemistry makes them likely; GPTMD adds a site only where it improves the match's score, offers formyl on S/T and not malonyl-K; no individual-file tables; the q-value notch at 1% in every task; the curated SDRF passed to the search"
 
 [accepts]
 acquisition = ["dda"]
@@ -218,7 +222,7 @@ max_excluded_frac = 0.10
 
 [metamorpheus_settings.all]
 RespectCleavageBlockingModifications = true
-IdentificationFilter = "PepQValue"   # D82, D84: the filter at 1%, in every task
+IdentificationFilter = "QValueNotch"   # D87: the q-value notch at 1%, in every task (the PEP q-value can fail at protein level)
 FilterThreshold = 0.01
 
 [metamorpheus_settings.search]

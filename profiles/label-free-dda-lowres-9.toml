@@ -1,11 +1,13 @@
-# label-free-dda-lowres/9 (D84, 2026-11-21): lowres/8 on MetaMorpheus 1.1.15 and agingPTM-v9, with the search's
-# identification filter set to the PEP q-value at 1% and the design's curated SDRF passed to the search, as
-# label-free-dda/15 (see its header for the filter, the input SDRF and agingPTM-v9).
-#  - The databases move from agingPTM-v3, where D44 kept this profile "until measured otherwise": v4's added sites cost
-#    an ion-trap run 4% of its PSMs (PXD045821 under 1.1.12). v9 is a different kind of database: since v7 (D62) UniProt's
-#    own modified residues are kept only where non-enriched data see them (human 13,096 of about 56,000; v3 keeps them
-#    all), so its search space can be smaller than v3's. The 1.1.15 trial measures an ion-trap deposit on v3 and on v9;
-#    if v9 loses, this version returns to v3 before it ships.
+# label-free-dda-lowres/9 (D84, 2026-11-21): lowres/8 on MetaMorpheus 1.1.15, still on agingPTM-v3, with the search's
+# identification filter set to the q-value notch at 1% and the design's curated SDRF passed to the search, as
+# label-free-dda/15 (see its header for the filter, why it is the notch (D87), and the input SDRF).
+#  - The databases stay agingPTM-v3, where D44 kept this profile "until measured otherwise" (v4's added sites cost an
+#    ion-trap run 4% of its PSMs, PXD045821 under 1.1.12). Measured again in the 1.1.15 trial (2026-11-22): PXD031710,
+#    18 ion-trap files, searched by this version on v3 and on v9. v9 lost on every identification count at the table's
+#    1%: target PSMs 903,940 against 917,458 (-1.5%), peptidoforms -3.1%, base sequences -3.1%. Most of the gap is
+#    hydroxylation (v3: 8,458 hydroxy-P and 1,558 hydroxy-K PSMs; v9 leaves those sites out); v9 found more phospho,
+#    HexNAc and methylation PSMs. By the rule this version was written under, it ships on v3 (the user, 2026-11-22).
+#    A later version measures again.
 #  - IdentificationFilter and FilterThreshold go to the Search task, the only one this profile runs.
 #  - The MS2 floor is lowered (D84, 2026-11-22): `[qc] min_ms2` is 2500, where every earlier version has 5000. A raw
 #    file needs 2,500 MS2 spectra to pass QC; fewer is `too_few_ms2`. Thin but real files now pass, such as the late
@@ -77,7 +79,7 @@
 id = "label-free-dda-lowres"
 version = 9
 status = "available"
-description = "Label-free DDA with MS2 read in the ion trap; a probe search first (ion-trap HCD as LowCID there), then MetaMorpheus 1.1.15 Search only (cleavage-blocking modifications respected) (no calibration, no GPTMD) with precursor and FlashLFQ windows wide enough for the probe's measured offset, LowCID or ion-trap HCD per file, FlashLFQ with MBR and an SDRF design; UniProt canonical proteomes with agingPTM-v9 sites; no individual-file tables; NBF-Cl modelled by a shipped modification (G40); the PEP q-value at 1% in every task; the curated SDRF passed to the search"
+description = "Label-free DDA with MS2 read in the ion trap; a probe search first (ion-trap HCD as LowCID there), then MetaMorpheus 1.1.15 Search only (cleavage-blocking modifications respected) (no calibration, no GPTMD) with precursor and FlashLFQ windows wide enough for the probe's measured offset, LowCID or ion-trap HCD per file, FlashLFQ with MBR and an SDRF design; UniProt canonical proteomes with agingPTM-v3 sites; no individual-file tables; NBF-Cl modelled by a shipped modification (G40); the q-value notch at 1% in every task; the curated SDRF passed to the search"
 
 [accepts]
 acquisition = ["dda"]
@@ -106,15 +108,15 @@ timeout_h = 8
 "NBF-Cl" = "PXReprise\tNBF on C"
 
 [databases.human]
-proteome = "UP000005640_all_genecentric_2026_03_agingPTM-v9.xml"
+proteome = "UP000005640_all_genecentric_2026_03_agingPTM-v3.xml"
 taxon = 9606
 
 [databases.mouse]
-proteome = "UP000000589_all_genecentric_2026_03_agingPTM-v9.xml"
+proteome = "UP000000589_all_genecentric_2026_03_agingPTM-v3.xml"
 taxon = 10090
 
 [databases.rat]
-proteome = "UP000002494_all_genecentric_2026_03_agingPTM-v9.xml"
+proteome = "UP000002494_all_genecentric_2026_03_agingPTM-v3.xml"
 taxon = 10116
 
 [contaminants]
@@ -142,7 +144,7 @@ max_excluded_frac = 0.10
 
 [metamorpheus_settings.all]
 RespectCleavageBlockingModifications = true
-IdentificationFilter = "PepQValue"   # D82, D84: the filter at 1%, in every task
+IdentificationFilter = "QValueNotch"   # D87: the q-value notch at 1%, in every task (the PEP q-value can fail at protein level)
 FilterThreshold = 0.01
 
 [metamorpheus_settings.search]

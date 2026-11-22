@@ -38,8 +38,11 @@ public class ProbeSearchTests
         ["Accession"] = accession, ["Decoy/Contaminant/Target"] = dct, ["QValue"] = q,
     };
 
+    // D87 (the user, 2026-11-22): one filter, set in the search. The probe search writes only the matches its filter
+    // passed (WriteHighQValuePsms = false), so the measures filter nothing again: a row's own q-value decides nothing
+    // (HIGHQK, EDGEQK count). Decoys and contaminants still count for no run.
     [Test]
-    public void MeasuresAreCountedPerRunOverOnePercentTargetsOnly()
+    public void MeasuresAreCountedPerRunOverTheTargetsTheProbeSearchWrote()
     {
         string path = Psms(new[]
         {
@@ -51,8 +54,8 @@ public class ProbeSearchTests
             Row("a", "HUMANK", organism: "Homo sapiens", accession: "P2"),
             Row("a", "DECOYK", dct: "D"),
             Row("a", "CONTAMK", dct: "C"),
-            Row("a", "HIGHQK", q: "0.05"),
-            Row("a", "EDGEQK", q: "0.01"),          // strict: q exactly 0.01 is out (D36's comparison)
+            Row("a", "HIGHQK", q: "0.05"),          // the search's filter wrote it: it counts
+            Row("a", "EDGEQK", q: "0.01"),
             Row("b", "OTHERFILEK"),
         });
         var m = ProbeMeasures.FromAllPsms(path);
@@ -60,11 +63,11 @@ public class ProbeSearchTests
         {
             Assert.That(m.Keys, Is.EquivalentTo(new[] { "a", "b" }));
             var a = m["a"];
-            Assert.That(a.Psms, Is.EqualTo(6));
-            Assert.That(a.SpeciesPsms["Mus musculus"], Is.EqualTo(4));
+            Assert.That(a.Psms, Is.EqualTo(8));
+            Assert.That(a.SpeciesPsms["Mus musculus"], Is.EqualTo(6));
             Assert.That(a.SpeciesPsms["Homo sapiens"], Is.EqualTo(1));
             Assert.That(a.SharedSpeciesPsms, Is.EqualTo(1));
-            Assert.That((a.Peptides, a.CysteinePeptides), Is.EqualTo((6, 1)));
+            Assert.That((a.Peptides, a.CysteinePeptides), Is.EqualTo((8, 1)));
             Assert.That((a.PhosphoPsms, a.GgPsms), Is.EqualTo((1, 1)));
         });
     }
@@ -305,6 +308,39 @@ public class ProbeSearchTests
             "a modification the pinned MetaMorpheus lacks is refused, never silently skipped");
     }
 
+    // D87 (the user, 2026-11-22): "just setting the one notch filter in the search should accomplish everything". The probe
+    // is a search too, so it takes its profile's identification filter; a profile that sets none keeps MetaMorpheus's own.
+    [Test]
+    public void TheProbeFiltersItsMatchesAsItsProfilesSearchDoes()
+    {
+        string defaults = File.ReadAllText(Fixture("mm-1.1.15", "SearchTask.toml"));
+        var known = new HashSet<(string, string)>
+        {
+            ("Common Biological", "Phosphorylation on S"), ("Common Biological", "Phosphorylation on T"), ("Common Biological", "Phosphorylation on Y"),
+            ("Trypsin Digested", "GG (Ubiquitination Site) on K"), ("Common Biological", "Acetylation on K"),
+        };
+        var m = Config.Machine.Load(TestSupport.WriteFile(TestSupport.TempDir(), "m.toml",
+            "work_root = \"F:/w\"\nmax_threads = 8\n[metamorpheus]\n\"1.1.15\" = \"C:/mm/CMD.exe\"\n"));
+        var profiles = Config.ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
+        var notch = new[] { ("IdentificationFilter", "\"QValueNotch\""), ("FilterThreshold", "0.01") };
+        Assert.Multiple(() =>
+        {
+            foreach (string key in new[] { "label-free-dda@15", "label-free-dda-lowres@9", "tmt-dda@6" })
+            {
+                var filter = ProbeSearch.FilterSettings(profiles[key]);
+                Assert.That(filter.Select(s => (s.Key, s.TomlValue)), Is.EquivalentTo(notch), key);
+                string text = ProbeSearch.TaskText(defaults, m, null, known, filter);
+                Assert.That(text, Does.Contain("IdentificationFilter = \"QValueNotch\"").And.Not.Contain("PepQValue"), key);
+                Assert.That(text, Does.Contain("FilterThreshold = 0.01"), key);
+            }
+            Assert.That(ProbeSearch.FilterSettings(profiles["label-free-dda@14"]), Is.Empty, "no filter set: MetaMorpheus's own");
+            Assert.That(ProbeSearch.TaskText(defaults, m, null, known), Does.Contain("IdentificationFilter = \"PepQValue\""),
+                "without a profile filter the default task's stays");
+        });
+        Assert.Throws<SearchSetupException>(() => ProbeSearch.TaskText(File.ReadAllText(Fixture("mm-1.1.12", "SearchTask.toml")), m, null, known,
+            ProbeSearch.FilterSettings(profiles["tmt-dda@6"])), "a MetaMorpheus without the setting cannot filter as the profile asks: refused, never skipped");
+    }
+
     [Test]
     public void TheNewParksAreAnnouncedAndOnlyLabelFreeDda7AndLowres3TurnTheProbeOn()
     {
@@ -319,8 +355,8 @@ public class ProbeSearchTests
     [Test]
     public void TheProbeMeasuresEachRunsPrecursorOffsetAndTheWindowHoldsTheLargest()
     {
-        // PXD045821 (2026-10-17): +8.7 ppm in every run. Notch 0 and notch +1 PSMs measure the same offset; decoys, PSMs
-        // above 1% and runs with fewer than 20 PSMs measure none.
+        // PXD045821 (2026-10-17): +8.7 ppm in every run. Notch 0 and notch +1 PSMs measure the same offset; decoys and runs
+        // with fewer than 20 PSMs measure none. No q-value is read: the probe search wrote only what its filter passed (D87).
         string dir = TestSupport.TempDir();
         var sb = new System.Text.StringBuilder("File Name\tQValue\tDecoy/Contaminant/Target\tMass Diff (Da)\tMonoisotopic Mass\n");
         string Da(double ppm, double mass, int notch) => (notch * Chemistry.Constants.C13MinusC12 + ppm * mass / 1e6).ToString("R", System.Globalization.CultureInfo.InvariantCulture);
@@ -331,7 +367,6 @@ public class ProbeSearchTests
             sb.Append($"centred\t0.002\tT\t{Da((i % 5 - 2) * 0.4, 2000 + i, 0)}\t{2000 + i}\n");
         }
         for (int i = 0; i < 40; i++) sb.Append($"centred\t0.002\tD\t{Da(-15, 1800, 0)}\t1800\n");    // decoys say nothing
-        for (int i = 0; i < 40; i++) sb.Append($"centred\t0.05\tT\t{Da(-15, 1800, 0)}\t1800\n");     // nor PSMs above 1%
         for (int i = 0; i < 19; i++) sb.Append($"thin\t0.001\tT\t{Da(12, 1800, 0)}\t1800\n");          // 19 < 20
         string psms = TestSupport.WriteFile(dir, "AllPSMs.psmtsv", sb.ToString());
 

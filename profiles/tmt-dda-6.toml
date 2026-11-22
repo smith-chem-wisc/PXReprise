@@ -1,12 +1,13 @@
 # tmt-dda/6 (D84, 2026-11-21): tmt-dda/5 on MetaMorpheus 1.1.15 and agingPTM-v9, with the search's identification
 # filter set to the q-value notch at 1% and the design's curated SDRF passed to the search, as label-free-dda/15 does
 # (see its header for the input SDRF and agingPTM-v9).
-#  - The q-value notch, NOT the PEP q-value that label-free-dda/15 and lowres/9 use (D85, 2026-11-22). Under the PEP
+#  - The q-value notch, NOT the PEP q-value, MetaMorpheus 1.1.15's default (D85, 2026-11-22). Under the PEP
 #    filter, MetaMorpheus 1.1.15 ranks protein groups for their FDR by the best peptide's PEP. In isobaric searches with
 #    ion-trap fragments, both target and decoy matches score very high and many get a PEP of exactly 0, so decoy groups
 #    rank among the first targets. The trial's PXD019690-astro search kept 106 target protein groups at 1% under the
 #    PEP filter, against 4,590 under the notch (4,601 delivered under tmt-dda/5). PSMs at 1%: 34,044 under the notch,
-#    48,284 under PEP. The label-free versions are unaffected (PXD031782: 2,652 under PEP, 1,864 under the notch).
+#    48,284 under PEP. Label-free PXD031782 did not collapse (2,652 under PEP, 1,864 under the notch), but the failure
+#    depends on the deposit, so label-free-dda/15 and lowres/9 take the notch too (D87).
 #    A later version moves to the PEP q-value once MetaMorpheus ranks such protein groups correctly.
 #  - From 1.1.14. The kit's library chain is corrected at its next registration, as every chain is (D84 (4)).
 #  - IdentificationFilter and FilterThreshold go to the Calibration and Search tasks, the two this profile runs.

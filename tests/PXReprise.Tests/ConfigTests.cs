@@ -74,28 +74,30 @@ public class ConfigTests
     }
 
     /// <summary>
-    /// D84 (2026-11-21): label-free-dda@15, label-free-dda-lowres@9 and tmt-dda@6 are @14, @8 and @5 on MetaMorpheus 1.1.15
-    /// and agingPTM-v9, with the PEP q-value filter at 1% set in every task (D82) and the design's SDRF passed to the
-    /// search, and (2026-11-22) the QC's MS2 floor lowered from 5000 to 2500. tmt-dda@6 sets the q-value notch instead of
-    /// the PEP q-value (D85: under the PEP filter MetaMorpheus 1.1.15's protein FDR fails on isobaric ion-trap searches).
-    /// Nothing else may differ: lines, not parsed fields, as above.
+    /// D84 (2026-11-21): label-free-dda@15, label-free-dda-lowres@9 and tmt-dda@6 are @14, @8 and @5 on MetaMorpheus 1.1.15,
+    /// with the identification filter at 1% set in every task (D82) and the design's SDRF passed to the search, and
+    /// (2026-11-22) the QC's MS2 floor lowered from 5000 to 2500. The filter is the q-value notch in all three, not 1.1.15's
+    /// default PEP q-value (D85, D87: under the PEP filter MetaMorpheus 1.1.15's protein FDR can collapse, depending on the
+    /// deposit). The databases are agingPTM-v9, except lowres@9's, which stay v3 (v9 lost to v3 on an ion-trap deposit,
+    /// 2026-11-22). Nothing else may differ: lines, not parsed fields, as above.
     /// </summary>
-    [TestCase("label-free-dda-15.toml", "label-free-dda-14.toml", "label-free-dda@15", new[] { "Calibration", "Gptmd", "Search" }, "PepQValue", "the PEP q-value")]
-    [TestCase("label-free-dda-lowres-9.toml", "label-free-dda-lowres-8.toml", "label-free-dda-lowres@9", new[] { "Search" }, "PepQValue", "the PEP q-value")]
-    [TestCase("tmt-dda-6.toml", "tmt-dda-5.toml", "tmt-dda@6", new[] { "Calibration", "Search" }, "QValueNotch", "the q-value notch")]
+    [TestCase("label-free-dda-15.toml", "label-free-dda-14.toml", "label-free-dda@15", new[] { "Calibration", "Gptmd", "Search" }, "v9")]
+    [TestCase("label-free-dda-lowres-9.toml", "label-free-dda-lowres-8.toml", "label-free-dda-lowres@9", new[] { "Search" }, "v3")]
+    [TestCase("tmt-dda-6.toml", "tmt-dda-5.toml", "tmt-dda@6", new[] { "Calibration", "Search" }, "v9")]
     public void TheMetaMorpheus1115VersionsChangeOnlyTheReleaseTheFilterTheInputSdrfTheDatabasesAndTheMs2Floor(string next, string previous, string key, string[] tasks,
-        string filter, string filterWords)
+        string db)
     {
+        const string filter = "QValueNotch";
         static List<string> Settings(string name) => File.ReadAllLines(Path.Combine(TestSupport.ProfilesDir, name))
             .Select(l => System.Text.RegularExpressions.Regex.Replace(l, @"\s+#.*$", "").TrimEnd())
             .Where(l => l.Length > 0 && !l.StartsWith('#'))
             .Where(l => !System.Text.RegularExpressions.Regex.IsMatch(l, @"^(id|version|description) = "))
             .ToList();
-        static string Moved(string l)
+        string Moved(string l)
         {
             string m = System.Text.RegularExpressions.Regex.Replace(
                 System.Text.RegularExpressions.Regex.Replace(l, @"^metamorpheus = "".*""$", @"metamorpheus = ""1.1.15"""),
-                @"_agingPTM-v\d+\.xml""$", @"_agingPTM-v9.xml""");
+                @"_agingPTM-v\d+\.xml""$", $@"_agingPTM-{db}.xml""");
             return m == "min_ms2 = 5000" ? "min_ms2 = 2500" : m;
         }
 
@@ -114,8 +116,8 @@ public class ConfigTests
             Assert.That(p.Tasks, Is.EqualTo(tasks));
             Assert.That(p.MetaMorpheusSettings!.Where(s => s.Key is "IdentificationFilter" or "FilterThreshold").Select(s => (s.Scope, s.Key, s.TomlValue)),
                 Is.EqualTo(new[] { ("all", "IdentificationFilter", $"\"{filter}\""), ("all", "FilterThreshold", "0.01") }), "in every task");
-            Assert.That(p.Databases.Values.Select(d => d.Proteome), Has.All.EndsWith("_agingPTM-v9.xml"));
-            Assert.That(p.Description, Does.EndWith($"; {filterWords} at 1% in every task; the curated SDRF passed to the search"));
+            Assert.That(p.Databases.Values.Select(d => d.Proteome), Has.All.EndsWith($"_agingPTM-{db}.xml"));
+            Assert.That(p.Description, Does.EndWith("; the q-value notch at 1% in every task; the curated SDRF passed to the search"));
         });
     }
 
