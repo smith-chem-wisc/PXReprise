@@ -1,7 +1,12 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using PXReprise.Batch;
+using PXReprise.Config;
 using PXReprise.Differential;
+using PXReprise.Discovery;
+using PXReprise.Fetch;
+using UsefulProteomicsDatabases;
 
 namespace PXReprise.Tests;
 
@@ -505,5 +510,64 @@ public class DifferentialStageTests
         string search = Isobaric(c => c.StartsWith("12", StringComparison.Ordinal) ? "A" : "B");
         string bad = TestSupport.WriteFile(TestSupport.TempDir(), "bad.sdrf.tsv", "source name\tcomment[data file]\ns1\tf1.raw\n");
         Assert.That(Assert.Throws<Cli.UsageException>(() => DifferentialStage.Run(search, Out(), bad))!.Message, Does.Contain("gives no channel design"));
+    }
+
+    // ------------------------------------------------------------------ the batch stage
+
+    // A refusal never fails the deposit; a lost-transfer file is a notice; a machine may turn the stage off.
+    [Test]
+    public void TheBatchStageRecordsItsResultAndAnnouncesLostTransfers()
+    {
+        var (runner, dir) = Runner("");
+        string acc = "PXD000001", run = Path.Combine(dir, "runs", acc);
+        Directory.CreateDirectory(run);
+        CopyDirectory(LabelFree(new[] { "A", "A", "A", "B", "B", "B" }, lostFile: 2), Path.Combine(run, "04_search"));
+        runner.Differential(acc);
+        var entry = runner.State()["datasets"]![acc]!;
+        Assert.That(entry["differential"]!["analysed"]!.GetValue<bool>(), Is.True, entry.ToJsonString());
+        Assert.That(File.Exists(Path.Combine(run, "06_differential", "msms_only", "DifferentialResults.tsv")), Is.True);
+        string notices = Path.Combine(dir, "runs", Notices.FileName);
+        Assert.That(File.ReadAllLines(notices), Has.Length.EqualTo(2));
+        Assert.That(File.ReadAllLines(notices)[1], Does.Contain(acc).And.Contain(Notices.LostTransfers).And.Contain("f2-calib (2 MBR peaks"));
+        runner.Differential(acc);
+        Assert.That(File.ReadAllLines(notices), Has.Length.EqualTo(2), "the same search announces nothing new");
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain($"{acc} NOTICE (lost_transfers)"));
+
+        // A search it cannot read is recorded, and the deposit goes on.
+        string other = "PXD000002";
+        Directory.CreateDirectory(Path.Combine(dir, "runs", other, "04_search"));
+        runner.Differential(other);
+        Assert.That(runner.State()["datasets"]![other]!["differential_error"]!.GetValue<string>(), Does.StartWith("InvalidDataException"));
+
+        var (off, offDir) = Runner("differential = false\n");
+        Directory.CreateDirectory(Path.Combine(offDir, "runs", acc));
+        CopyDirectory(Path.Combine(run, "04_search"), Path.Combine(offDir, "runs", acc, "04_search"));
+        off.Differential(acc);
+        Assert.That(Directory.Exists(Path.Combine(offDir, "runs", acc, "06_differential")), Is.False, "turned off");
+    }
+
+    private static (BatchRunner Runner, string Dir) Runner(string extraMachine)
+    {
+        string dir = TestSupport.TempDir();
+        string q = TestSupport.MinimalQuestion + "\n[batch]\nrun_root = \"runs\"\nstate_dir = \"state\"\nqueue = \"queue.json\"\n";
+        var question = QuestionLoader.Load(TestSupport.WriteFile(dir, "question.toml", q));
+        var machine = Machine.Load(TestSupport.WriteFile(dir, "machine.toml",
+            $"work_root = '{dir}'\nmin_free_gb = 0\nmax_threads = 2\n{extraMachine}[metamorpheus]\n\"1.1.11\" = 'C:/nowhere/CMD.exe'\n"));
+        Directory.CreateDirectory(Path.Combine(dir, "state"));
+        return (new BatchRunner(question, ProfileLoader.LoadDirectory(TestSupport.ProfilesDir), machine, new NoFiles(), new FakeSearch(), "2026-11-22"), dir);
+    }
+
+    private static void CopyDirectory(string from, string to)
+    {
+        Directory.CreateDirectory(to);
+        foreach (string f in Directory.EnumerateFiles(from)) File.Copy(f, Path.Combine(to, Path.GetFileName(f)));
+        foreach (string d in Directory.EnumerateDirectories(from)) CopyDirectory(d, Path.Combine(to, Path.GetFileName(d)));
+    }
+
+    private sealed class NoFiles : IPrideFiles
+    {
+        public Task<List<PrideArchiveFile>> ListFilesAsync(string a, CancellationToken ct) => throw new InvalidOperationException("offline");
+        public Task<List<string>> ListFtpNamesAsync(string a, CancellationToken ct) => throw new InvalidOperationException("offline");
+        public Task<string> DownloadAsync(PrideArchiveFile f, string dir, CancellationToken ct) => throw new InvalidOperationException("offline");
     }
 }

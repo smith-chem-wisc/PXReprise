@@ -1713,6 +1713,7 @@ public sealed class BatchRunner
         if (outcome.Success)
         {
             QcPayload(acc, profile);
+            Differential(acc);
             Cleanup(acc);
             await DeliverAsync(e, profile, ct).ConfigureAwait(false);
         }
@@ -1759,6 +1760,41 @@ public sealed class BatchRunner
         {
             Log($"{acc} QC-PAYLOAD FAILED ({ex.GetType().Name}): {ex.Message}; delivering anyway");
             Record(acc, ("qc_payload_error", $"{ex.GetType().Name}: {ex.Message}"), ("qc_payload_flags", new JsonArray("qc_payload_failed")));
+        }
+    }
+
+    /// <summary>
+    /// D84 (QuantProject 155): the search's differential abundance (stage 06_differential), unless the machine turns it off.
+    /// Never fatal: a search the stage cannot analyse is a finding in its provenance, and one it cannot read is recorded;
+    /// the deposit is delivered either way. A file that lost every match-between-runs transfer is a notice
+    /// (<see cref="Notices"/>): QuantProject's user is told each time one is found.
+    /// </summary>
+    internal void Differential(string acc)
+    {
+        if (!_m.Differential) return;
+        string d = Run(acc), outDir = Path.Combine(d, "06_differential");
+        try
+        {
+            var record = PXReprise.Differential.DifferentialStage.Run(Path.Combine(d, "04_search"), outDir, null, _m.MaxThreads);
+            var summary = PXReprise.Differential.DifferentialStage.Summary(record, outDir);
+            var analyses = record["analyses"]!.AsArray();
+            string findings = string.Join("; ", record["findings"]!.AsArray().Select(f => $"{f!["kind"]}: {f["detail"]}"));
+            Log($"{acc} DIFFERENTIAL analyses={analyses.Count} rows={string.Join("/", analyses.Select(a => a!["rows"]))}"
+                + $" left_out={record["samples_left_out"]!.AsArray().Count}" + (findings.Length > 0 ? $" findings: {findings}" : ""));
+            Record(acc, ("differential", summary));
+            var lost = record["lost_transfer_files"]!.AsArray();
+            if (lost.Count > 0)
+            {
+                string detail = $"{lost.Count} file(s) lost every match-between-runs transfer: "
+                                + string.Join(", ", lost.Select(f => $"{f!["file"]} ({f["mbr_peaks"]} MBR peaks, smallest PIP q {f["min_pip_q_value"]?.ToString() ?? "none"})"));
+                Notices.Announce(_runRoot, acc, Notices.LostTransfers, detail);
+                Log($"{acc} NOTICE ({Notices.LostTransfers}): {detail}. Tell QuantProject's user and QuantProject; listed in {Notices.FileName}.");
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log($"{acc} DIFFERENTIAL FAILED ({ex.GetType().Name}): {ex.Message}; delivering anyway");
+            Record(acc, ("differential_error", $"{ex.GetType().Name}: {ex.Message}"));
         }
     }
 

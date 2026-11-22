@@ -41,7 +41,8 @@ public sealed record Machine(
     bool DeleteRawAfterCalibration = true,
     bool DeliverSplitDeposits = false,
     bool OutputSdrfReadOnly = true,
-    string? SpectralLibraryRemote = null)
+    string? SpectralLibraryRemote = null,
+    bool Differential = true)
 {
     /// <summary>The environment variable that holds the shared bucket's name (2026-11-13).</summary>
     public const string BucketVariable = "PXR_S3_BUCKET";
@@ -149,6 +150,9 @@ public sealed record Machine(
         // 2026-11-13: a machine file is often committed (machines/), and the lab's bucket name must never be, so the file
         // may say s3://$PXR_S3_BUCKET/libraries and the name comes from this machine's environment.
         string? libraryRemote = ExpandBucket(file, root.OptionalString("spectral_library_remote"), Environment.GetEnvironmentVariable(BucketVariable));
+        // D84 (QuantProject 155): each finished search's differential abundance (stage 06_differential). It can take long on a
+        // design of many conditions (every pair is compared), so a machine may turn it off; the verb still runs by hand.
+        bool differential = root.OptionalBool("differential") ?? true;
         root.RefuseUnknownKeys();
         if (worker is not null && workers is not null) throw new ConfigException(file, "[worker] and [workers] do not go together: a machine probes for a controller, or controls workers");
         if (worker is not null && datarepo is not null) throw new ConfigException(file, "a probe worker ([worker]) never ingests: remove 'datarepo'");
@@ -171,7 +175,7 @@ public sealed record Machine(
         if (passWait < 0) throw new ConfigException(file, "'pass_wait_minutes' must not be negative");
         if (searchTimeout <= 0) throw new ConfigException(file, "'search_timeout_h' must be positive");
         if (stall < 0) throw new ConfigException(file, "'search_stall_minutes' must not be negative (0 turns the stall check off)");
-        return new Machine(file, workRoot, dbDir, mm, settings, threads, dotnet, licence, libraries, minFree, datarepo, attempts, parallel, qcPython, passes, passWait, searchTimeout, stall, dotnetRoot, fetchStall, slots, catchUp, ascp, asperaKey, asperaAttempts, prideHttps, limits, probeMinutes, worker, workers, deleteCalibrated, deliverSplits, sdrfReadOnly, libraryRemote);
+        return new Machine(file, workRoot, dbDir, mm, settings, threads, dotnet, licence, libraries, minFree, datarepo, attempts, parallel, qcPython, passes, passWait, searchTimeout, stall, dotnetRoot, fetchStall, slots, catchUp, ascp, asperaKey, asperaAttempts, prideHttps, limits, probeMinutes, worker, workers, deleteCalibrated, deliverSplits, sdrfReadOnly, libraryRemote, differential);
     }
 
     public string CmdFor(string release) =>
