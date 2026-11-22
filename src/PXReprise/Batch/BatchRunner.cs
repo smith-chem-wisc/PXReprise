@@ -1920,7 +1920,7 @@ public sealed class BatchRunner
         if (_ingestJson)
         {
             // datarepo 1.0+: one JSON envelope on stdout, the human report on stderr.
-            var argv = new[] { _m.DataRepo, "ingest", manifest, e.Accession, "--json" };
+            var argv = IngestCommand(_m.DataRepo, manifest, e.Accession, json: true);
             var (exit, stdout, stderr) = await RunProcessFullAsync(argv, TimeSpan.FromHours(3), ct).ConfigureAwait(false);
             string full = KeepOutput(OutputDir, e.Accession, "ingest", argv, exit, stdout, stderr, DateTime.UtcNow);
             var o = IngestEnvelope.Read(stdout, e.Accession, exit);
@@ -1933,7 +1933,7 @@ public sealed class BatchRunner
         }
         else
         {
-            var argv = new[] { _m.DataRepo, "ingest", manifest, e.Accession };
+            var argv = IngestCommand(_m.DataRepo, manifest, e.Accession, json: false);
             var (exit, stdout, stderr) = await RunProcessFullAsync(argv, TimeSpan.FromHours(3), ct).ConfigureAwait(false);
             string full = KeepOutput(OutputDir, e.Accession, "ingest", argv, exit, stdout, stderr, DateTime.UtcNow);
             rc = exit;
@@ -2175,6 +2175,14 @@ public sealed class BatchRunner
     internal static bool TakesIngestJson(string versionLine) =>
         System.Text.RegularExpressions.Regex.Match(versionLine, @"datarepo\s+(\d+)\.(\d+)\.(\d+)") is { Success: true } m
         && int.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture) >= 1;
+
+    /// <summary>
+    /// The command a delivery runs to ingest one search: <c>datarepo ingest &lt;manifest&gt; &lt;key&gt;</c>, with
+    /// <c>--json</c> when the machine's datarepo takes it (<see cref="TakesIngestJson"/>). Public for the test that runs
+    /// both programs together (<c>tests/PXReprise.Seam.Tests</c>), so that it runs exactly what a batch runs.
+    /// </summary>
+    public static string[] IngestCommand(string datarepo, string manifest, string key, bool json) =>
+        json ? new[] { datarepo, "ingest", manifest, key, "--json" } : new[] { datarepo, "ingest", manifest, key };
 
     private bool _ingestJson;
 
