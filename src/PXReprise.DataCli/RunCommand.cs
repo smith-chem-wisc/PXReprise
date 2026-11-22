@@ -33,7 +33,7 @@ internal static class RunCommand
     {
         var a = new Args.Spec("datarepo run", Cli.Summaries["run"])
             .Positional("engine", $"the engine to run: {string.Join(", ", EngineRunner.Engines)}")
-            .Positional("accession", "datasets to run on (logs, go.annotate_databases: their searched databases; go.resolve_members, ptmqtl: their searches; none for logs.register_orthology or go.categorize_terms)", "*")
+            .Positional("accession", "datasets to run on (logs, go.annotate_databases, kegg.reactome_membership: their searched databases; go.resolve_members, ptmqtl: their searches; none for logs.register_orthology, go.categorize_terms or kegg.reactome_release)", "*")
             .Option("--store", Args.Kind.Value, "the instance's bundle store", required: true)
             .Option("--input", Args.Kind.Append, "an input file by role; repeatable", metavar: "ROLE=PATH")
             .Option("--bundle", Args.Kind.Append, "pin a dataset to one bundle id", metavar: "PXD=ID")
@@ -105,6 +105,23 @@ internal static class RunCommand
                 Console.WriteLine($"done     {reference.Engine} artefact {reference.ArtefactId} already exists; nothing re-run");
             return 0;
         }
+        if (engine == ReactomeEngines.ReleaseEngine)
+        {
+            // A release belongs to no dataset: one artefact per release serves every catalog built here.
+            if (accessions.Count > 0)
+                throw new RunnerException($"{engine} reads one Reactome release for the whole store and takes no accession (given {string.Join(", ", accessions)}).");
+            var released = ReactomeEngines.ReleaseRun(store, inputs, ReactomeEngines.DefinitionId);
+            foreach (var reference in released.Written)
+            {
+                var summary = reference.Record.GetValueOrDefault("engine_summary") as IReadOnlyDictionary<string, object?>;
+                Console.WriteLine($"written  {reference.Engine} artefact {reference.ArtefactId}  {reference.Path}");
+                Console.WriteLine($"  rows     {PyFormat.Repr(reference.RowCounts.ToDictionary(kv => kv.Key, kv => (object?)kv.Value))}");
+                Console.WriteLine($"  release  Reactome {summary?.GetValueOrDefault("reactome_release")}  roots {summary?.GetValueOrDefault("roots")}");
+            }
+            foreach (var reference in released.AlreadyDone)
+                Console.WriteLine($"done     {reference.Engine} artefact {reference.ArtefactId} already exists; nothing re-run");
+            return 0;
+        }
         if (accessions.Count == 0)
             throw new Args.UsageException("usage: datarepo run [-h] --store STORE [--input ROLE=PATH] [--bundle PXD=ID] [--latest] engine [accession ...]",
                 $"{engine} needs at least one accession");
@@ -129,12 +146,13 @@ internal static class RunCommand
                 Console.WriteLine($"done     {reference.Engine} artefact {reference.ArtefactId} already exists; nothing re-run");
             return 0;
         }
-        var go = engine is GoReferenceEngines.AnnotateDatabases or GoReferenceEngines.ResolveMembers;
-        // go's published definition ids; each run refuses a call without one.
+        var go = engine is GoReferenceEngines.AnnotateDatabases or GoReferenceEngines.ResolveMembers or ReactomeEngines.Membership;
+        // go's and kegg's published definition ids; each run refuses a call without one.
         var result = engine switch
         {
             GoReferenceEngines.AnnotateDatabases => GoReferenceEngines.AnnotateDatabasesRun(store, bundles, inputs, GoReferenceEngines.AccessionDefinitionId),
             GoReferenceEngines.ResolveMembers => GoReferenceEngines.ResolveMembersRun(store, bundles, inputs, GoReferenceEngines.MemberDefinitionId),
+            ReactomeEngines.Membership => ReactomeEngines.MembershipRun(store, bundles, inputs, ReactomeEngines.DefinitionId),
             _ => LogsEngine.Run(store, bundles, inputs),
         };
         foreach (var reference in result.Written)
@@ -152,6 +170,13 @@ internal static class RunCommand
             if (engine == GoReferenceEngines.ResolveMembers)
             {
                 Console.WriteLine($"  members  {PyFormat.Repr(summary?.GetValueOrDefault("resolution_counts"))}");
+                continue;
+            }
+            if (engine == ReactomeEngines.Membership)
+            {
+                Console.WriteLine($"  database {summary?.GetValueOrDefault("database")}  entries {PyFormat.Repr(summary?.GetValueOrDefault("entries_by_status"))}");
+                Console.WriteLine($"  species  {PyFormat.Repr(summary?.GetValueOrDefault("species_codes"))}; unvalidated {PyFormat.Repr(summary?.GetValueOrDefault("unvalidated_organisms"))}; "
+                    + $"foreign references dropped {summary?.GetValueOrDefault("dropped_foreign_references")}");
                 continue;
             }
             Console.WriteLine($"  outcomes {PyFormat.Repr(summary?.GetValueOrDefault("outcome_counts"))}");

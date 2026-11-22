@@ -34,6 +34,7 @@ public static class EngineRunner
     public static readonly IReadOnlyList<string> Engines =
     [
         LogsEngine.Engine, GoReferenceEngines.AnnotateDatabases, GoReferenceEngines.CategorizeTerms, GoReferenceEngines.ResolveMembers,
+        ReactomeEngines.Membership, ReactomeEngines.ReleaseEngine,
         OrthologyEngine.Engine,
         PtmQtlEngine.SitePairsEngine, PtmQtlEngine.PoolPairsEngine, PtmQtlEngine.SiteTraitsEngine,
     ];

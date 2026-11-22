@@ -13,6 +13,7 @@ tests/PXReprise.Data.Tests/Fixtures/study/** -text
 tests/PXReprise.Data.Tests/Fixtures/site/** -text
 tests/PXReprise.Data.Tests/Fixtures/go-engine/** -text
 tests/PXReprise.Data.Tests/Fixtures/go-view-v1-a83d1c63/** -text
+tests/PXReprise.Data.Tests/Fixtures/reactome/** -text
 tests/PXReprise.Data.Tests/Fixtures/design-labels/** -text
 *.parquet binary
 # Released schemas are frozen byte for byte (FrozenSchemaTests checks SHA256SUMS).
