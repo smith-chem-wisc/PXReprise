@@ -51,6 +51,11 @@ public static class Reconcile
     /// <summary>Compares the bundle's own counts with the producer's reported totals.</summary>
     /// <param name="psmDefinition">The PSM count's definition, cited in the check's source; the namespace
     /// its record declares decides which twin (D37). Defaults to aging's.</param>
+    /// <param name="definitionDescribesCount">Whether <paramref name="psmDefinition"/> describes the count compared:
+    /// false under MetaMorpheus 1.1.15's filters, which DEF-PSM-1PCT v1 (the q-value and the notch) does not describe, so
+    /// the source cites no definition until one does.</param>
+    /// <param name="psmNote">A note on the PSM check, e.g. that it could only approximate how the search judged its matches.</param>
+    /// <param name="peptideNote">The same, on the peptide check.</param>
     public static List<Check> Build(
         long psmCount1pct,
         long peptidoformCount1pct,
@@ -60,7 +65,10 @@ public static class Reconcile
         long? expectedFiles,
         long? provenanceMs2,
         Def? psmDefinition = null,
-        string? filter = null)
+        string? filter = null,
+        bool definitionDescribesCount = true,
+        string? psmNote = null,
+        string? peptideNote = null)
     {
         var psm = psmDefinition ?? Definitions.Psm1pct;
         var totals = results.TryGetValue("", out var t) ? t : new Dictionary<string, long>();
@@ -68,12 +76,13 @@ public static class Reconcile
         var ms2Observed = runs.Sum(r => r.TryGetValue("ms2_spectra", out var v) && v is not null ? Convert.ToDouble(v) : 0);
         // D84: the filter results.txt names (MetaMorpheus 1.1.15: "pep q-value", "q-value notch"); "q-value" before.
         string f = filter ?? "q-value";
+        string cited = definitionDescribesCount ? $" ({psm.DefinitionId} {psm.Version})" : "";
         return
         [
             new Check("psms_target_1pct", psmCount1pct, Total("psms"),
-                $"results.txt: All target PSMs with {f} <= 0.01 ({psm.DefinitionId} {psm.Version})"),
+                $"results.txt: All target PSMs with {f} <= 0.01{cited}", psmNote),
             new Check("peptidoforms_target_1pct", peptidoformCount1pct, Total("peptides"),
-                $"results.txt: All target peptides with {f} <= 0.01"),
+                $"results.txt: All target peptides with {f} <= 0.01", peptideNote),
             new Check("protein_groups_1pct", proteinGroupCount1pct, Total("protein_groups"),
                 $"results.txt: All target protein groups with {f} <= 0.01"),
             new Check("runs", runs.Count, expectedFiles, "ingest manifest: files"),

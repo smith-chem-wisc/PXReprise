@@ -673,16 +673,19 @@ public static class Ingester
         var resultsPath = Join(resultsDir, "results.txt");
         var results = new Dictionary<string, Dictionary<string, long>>(StringComparer.Ordinal);
         string? resultsFilter = null;
+        var resultsNotTrained = (IReadOnlySet<string>)new HashSet<string>(StringComparer.Ordinal);
         var producerFilter = ProducerFilter.QValueAndNotch;
         if (File.Exists(resultsPath))
         {
             writer.AddSource(resultsPath, "results_txt", "results.txt");
-            results = Readers.ReadResultsTxt(resultsPath, out resultsFilter, log);
+            results = Readers.ReadResultsTxtAndFilter(resultsPath, out ResultsTxtFilter read, log);
+            resultsFilter = read.Named;
+            resultsNotTrained = read.PepNotTrained;
             // D84: the search's own counts follow its identification filter (MetaMorpheus 1.1.15, #2982 and #2989), as its
             // results.txt names it; up to 1.1.14 the rule was the q-value and the notch together. The 1% counts become
             // metrics only under that older rule, the one their definitions (DEF-*-1PCT v1) describe; under another
             // filter they serve the reconciliation alone until the definitions say what they count.
-            producerFilter = Identifications.FilterOf(resultsFilter, engineVersion);
+            producerFilter = Identifications.FilterOf(resultsFilter, engineVersion, read.FdrEngineLineNamesFilter);
             metrics.AddRange(ResultsMetrics(results, datasetId, runNames, searchNamespace, rules,
                 onePercentCounts: producerFilter == ProducerFilter.QValueAndNotch));
         }
@@ -845,18 +848,34 @@ public static class Ingester
 
         // --- reconciliation -------------------------------------------------------------------------------
         var searchMs2 = Get(Map(Get(searchProvenance, "id_rate")), "ms2");
+        // Under the PEP q-value filter, whether PEP was trained is decided per search and level, from results.txt's
+        // sentence and mzLib's whole-search test, never from a row's own PEP q-value (G148).
+        var pepUsable = producerFilter == ProducerFilter.PepQValue
+            && (confidence ?? Identifications.ChooseConfidence(psmRows)).Tier == Quantification.QuantifiedPsmTier.PepQValue;
+        var psmTraining = Identifications.PepTrainingOf(resultsNotTrained.Contains("psms"), pepUsable);
+        var peptideTraining = Identifications.PepTrainingOf(resultsNotTrained.Contains("peptides"), pepUsable);
+        string? TrainingNote(PepTraining training, string level) =>
+            producerFilter == ProducerFilter.PepQValue && training == PepTraining.Some
+                ? $"PEP was not trained for some of this search's target {level} (results.txt says so above its count), and the "
+                  + "psmtsv does not say which, so each was judged by its PEP q-value where that is in [0, 1] and by its notch "
+                  + "otherwise; a difference here can come from that."
+                : null;
         var checks = Reconcile.Build(
-            Identifications.ProducerCounts(psmColumns, filter: producerFilter),
+            Identifications.ProducerCounts(psmColumns, filter: producerFilter, pepTraining: psmTraining),
             // No notch clause for peptidoforms: it is a PSM rule, and applying it cost exactly 3 on
             // two datasets, making one count_mismatch spurious.
-            Identifications.ProducerCounts(peptideColumns.Count > 0 ? peptideColumns : psmColumns, requireResolvedNotch: false, filter: producerFilter),
+            Identifications.ProducerCounts(peptideColumns.Count > 0 ? peptideColumns : psmColumns, requireResolvedNotch: false,
+                filter: producerFilter, pepTraining: peptideTraining),
             proteinGroupCount,
             runRows,
             results,
             entry.Files is null ? null : Convert.ToInt64(entry.Files),
             searchMs2 is null ? null : Convert.ToInt64(searchMs2),
             Definitions.ById[Definitions.Cite(Definitions.Psm1pct, searchNamespace)],
-            resultsFilter);
+            resultsFilter,
+            definitionDescribesCount: producerFilter == ProducerFilter.QValueAndNotch,
+            psmNote: TrainingNote(psmTraining, "PSMs"),
+            peptideNote: TrainingNote(peptideTraining, "peptides"));
         findings.AddRange(Reconcile.FindingRows(checks, datasetId));
         findings.AddRange(Reconcile.MetricConflicts(metrics, datasetId));
         findings.AddRange(ModificationFindings(proforma, datasetId));

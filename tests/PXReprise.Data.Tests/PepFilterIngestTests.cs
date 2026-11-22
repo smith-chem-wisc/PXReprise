@@ -77,4 +77,89 @@ public class PepFilterIngestTests
             Assert.That(Source(after, "peptidoforms_target_1pct"), Is.EqualTo("results.txt: All target peptides with pep q-value <= 0.01"));
         });
     }
+
+    private string AllPsms => Path.Combine(Search, "mm", "Task3SearchTask", "AllPSMs.psmtsv");
+
+    /// <summary>Rewrites cells of AllPSMs.psmtsv: <paramref name="edit"/> gets each row's cells by column name, and the
+    /// row's index among the target rows (-1 for a decoy or contaminant).</summary>
+    private void EditPsms(Action<Dictionary<string, string>, int> edit)
+    {
+        var lines = File.ReadAllText(AllPsms).Split('\n');
+        var header = lines[0].TrimEnd('\r').Split('\t');
+        int target = 0;
+        for (int i = 1; i < lines.Length; i++)
+        {
+            if (lines[i].TrimEnd('\r').Length == 0) continue;
+            var cells = lines[i].TrimEnd('\r').Split('\t');
+            var row = header.Select((h, k) => (h, k)).ToDictionary(p => p.h, p => cells[p.k]);
+            edit(row, row["Decoy/Contaminant/Target"].Trim() == "T" ? target++ : -1);
+            lines[i] = string.Join('\t', header.Select(h => row[h])) + (lines[i].EndsWith('\r') ? "\r" : "");
+        }
+        File.WriteAllText(AllPsms, string.Join('\n', lines), new System.Text.UTF8Encoding(false));
+    }
+
+    private static IReadOnlyDictionary<string, object?> Check(IngestResult result, string name) =>
+        result.Checks.First(c => Equals(c["name"], name));
+
+    /// <summary>Rewords results.txt as 1.1.15 writes it under the PEP filter, with this PSM count, and the "PEP filtering
+    /// was requested, but ..." sentence above it when <paramref name="notTrainedSentence"/> is given.</summary>
+    private void PepResults(long psms, string? notTrainedSentence = null)
+    {
+        SetRelease("1.1.15");
+        Rewrite(ResultsTxt, t => t
+            .Replace("with q-value <= 0.01", "with pep q-value <= 0.01")
+            .Replace("All target PSMs with pep q-value <= 0.01: 58",
+                (notTrainedSentence is null ? "" : notTrainedSentence + "\n") + $"All target PSMs with pep q-value <= 0.01: {psms}"));
+    }
+
+    /// <summary>G148: PEP trained for every match. 1.1.15 counts a notch-ambiguous match and fails a PEP q-value of 2,
+    /// whatever its notch. #38's counts gave 56 here, two short for the clause and one over for the 2.</summary>
+    [Test]
+    public void ATrainedSearchCountsNotchAmbiguousMatchesAndFailsAPepQValueOfTwo()
+    {
+        EditPsms((row, target) =>
+        {
+            if (target is 0 or 1) row["Notch"] = "0|1";
+            if (target == 2) row["PEP_QValue"] = "2";
+        });
+        PepResults(57);
+        var result = Ingester.Ingest(Manifest, Accession, Path.Combine(_root, "store"), overwrite: true);
+        var psms = Check(result, "psms_target_1pct");
+        Assert.Multiple(() =>
+        {
+            Assert.That(psms["observed"], Is.EqualTo(57.0), "58 targets, both ambiguous ones counted, the PEP q-value 2 failed");
+            Assert.That(psms["ok"], Is.True);
+            Assert.That(psms.ContainsKey("note"), Is.False);
+            Assert.That((string)psms["source"]!, Is.EqualTo("results.txt: All target PSMs with pep q-value <= 0.01"),
+                "DEF-PSM-1PCT v1 describes the q-value and the notch, so it is not cited");
+        });
+    }
+
+    /// <summary>G148: PEP training failed (every PEP 0), so MetaMorpheus judges every match by its notch, though its PEP
+    /// q-values look usable. #38 read them per row and gave 55.</summary>
+    [Test]
+    public void ASearchWhosePepDidNotTrainIsCountedByItsNotch()
+    {
+        EditPsms((row, target) =>
+        {
+            row["PEP"] = "0";
+            if (target is >= 0 and < 3) row["PEP_QValue"] = "0.5";
+        });
+        PepResults(58, "PEP filtering was requested, but PEP was not trained for 58 target PSMs (trypsin: 58), so those were filtered by q-value notch <= 0.01.");
+        var result = Ingester.Ingest(Manifest, Accession, Path.Combine(_root, "store"), overwrite: true);
+        var psms = Check(result, "psms_target_1pct");
+        Assert.That(psms["observed"], Is.EqualTo(58.0));
+        Assert.That(psms["ok"], Is.True);
+    }
+
+    /// <summary>G148: the sentence, but a usable PEP: trained for some matches and not others. The count can only
+    /// approximate it, and the check says so.</summary>
+    [Test]
+    public void ASearchTrainedForSomeMatchesSaysItsCountIsApproximate()
+    {
+        PepResults(58, "PEP filtering was requested, but PEP was not trained for 4 target PSMs (trypsin, semi: 4), so those were filtered by q-value notch <= 0.01.");
+        var result = Ingester.Ingest(Manifest, Accession, Path.Combine(_root, "store"), overwrite: true);
+        Assert.That((string?)Check(result, "psms_target_1pct").GetValueOrDefault("note"), Does.StartWith("PEP was not trained for some"));
+        Assert.That(Check(result, "peptidoforms_target_1pct").ContainsKey("note"), Is.False, "no sentence above the peptide count");
+    }
 }
