@@ -2841,7 +2841,9 @@ public class BatchRunnerTests
     [Test]
     public async Task ABatchStartGoesOnWithTheDatarepoOfItsOwnRelease()
     {
-        var (runner, _, _, dir) = Runner("", "datarepo = 'D:/tools/datarepo/datarepo.exe'\n");
+        // One fetch pass: the stub prepares no profile, which the batch reads as a deposit to retry, and each later pass
+        // waits 30 minutes.
+        var (runner, _, _, dir) = Runner("", "datarepo = 'D:/tools/datarepo/datarepo.exe'\nfetch_passes = 1\n");
         string engine = BatchRunner.ReleaseOf(Provenance.RunRecord.Versions()["pxreprise"]);
         runner.DataRepoVersionForTest = ct => Task.FromResult((0, $"datarepo {engine}\n", ""));
         var prepared = new List<string>();
