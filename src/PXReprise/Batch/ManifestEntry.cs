@@ -13,21 +13,32 @@ public static class ManifestEntry
 {
     /// <summary>
     /// A new question's manifest, written the first time a deposit is delivered: the header dataRepo requires
-    /// (<c>work_root</c>, <c>store</c>, <c>datasets</c>), with roots relative to the manifest so the folder can move.
-    /// An existing manifest (aging's, written by hand) is never touched.
+    /// (<c>work_root</c>, <c>store</c>, <c>datasets</c>). An existing manifest (aging's, written by hand) is never touched.
     /// </summary>
-    public static void EnsureExists(string manifestPath, string instance, string runRoot)
+    /// <param name="workRoot">The MACHINE's <c>work_root</c>, never the question's run root. Every provenance record names
+    /// its inputs relative to the machine's root (<c>"root": "work_root"</c>: the databases, the upstream stages' records),
+    /// and the machine keeps MetaMorpheus's settings under it by default; datarepo resolves all of them against the
+    /// manifest's <c>work_root</c>. Until 1.0.0 the run root was written here, and an ingest under it lost the bundle's
+    /// databases, its modifications and its fetch and QC records while still exiting 0 (dataRepo's seam test, G139).
+    /// The root is written relative to the manifest where one folder holds the other, so that tree can move; otherwise
+    /// it is written absolute.</param>
+    public static void EnsureExists(string manifestPath, string instance, string workRoot)
     {
         if (File.Exists(manifestPath)) return;
         string dir = Path.GetDirectoryName(Path.GetFullPath(manifestPath))!;
         Directory.CreateDirectory(dir);
-        string workRoot = Path.GetRelativePath(dir, Path.GetFullPath(runRoot)).Replace('\\', '/');
+        string full = Path.GetFullPath(workRoot);
+        string rel = Path.GetRelativePath(dir, full).Replace('\\', '/');
+        var parts = rel.Split('/');
+        bool nested = !Path.IsPathRooted(rel) && (parts.All(p => p == "..") || parts.All(p => p != ".."));
+        string root = nested ? rel : full.Replace('\\', '/');
         File.WriteAllText(manifestPath, $"""
             # dataRepo manifest for the question '{instance}', written by PXReprise. `datarepo ingest` reads it; the batch
-            # appends one `include` entry per searched deposit. Roots are relative to this file.
+            # appends one `include` entry per searched deposit. work_root is the machine's (the root every provenance record
+            # names its inputs against); an entry's run is relative to it. A relative root is relative to this file.
             manifest_version: 1
             instance: {instance}
-            work_root: {workRoot}
+            work_root: {root}
             store: store
 
             datasets:
