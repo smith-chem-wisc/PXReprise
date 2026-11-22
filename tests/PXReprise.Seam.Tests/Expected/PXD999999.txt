@@ -1,0 +1,178 @@
+# What datarepo makes of the engine's search of PXD999999 (tests/PXReprise.Seam.Tests).
+# Rewrite with PXREPRISE_SEAM_WRITE_EXPECTED=1, and say in the pull request why it moved.
+
+## The manifest entry the engine wrote
+
+  - accession: PXD999999
+    status: include
+    delivery: pending
+    title: "A deposit searched for the seam test"
+    run: PXD999999
+    stages:
+      qc: 02b_qc
+      search: 04_search
+    search_results: 04_search/mm/Task3SearchTask
+    files: 2
+    organism: NCBITaxon:9606
+    acquisition: DDA
+    quant_method: label-free
+    metamorpheus: "1.1.11"
+    provenance_schema: aging-provenance/3
+    enrichment: [none]
+    flags: [no_design_file, no_output_sdrf]
+    notes: >
+      Searched by PXReprise under profile seam-dda@1. Human; a label-free DDA search for the seam test. Raw spectra were deleted after the search; PRIDE is the source of truth and the fetch provenance holds every SHA-256.
+
+## datarepo ingest --json
+
+status: ingested
+mismatches: 0
+unresolved_modifications: {"Common Fixed:Carbamidomethyl on C":25,"UniProt:N6,N6-dimethyllysine on K":1,"Common Artifact:Deamidation on N":4,"Common Artifact:Ammonia loss on C":1,"Common Artifact:Deamidation on Q":1,"UniProt:N-acetylglutamate on E":1,"UniProt:N-acetylalanine on A":1,"Common Variable:Oxidation on M":1}
+unmatched_runs: {}
+findings (warnings and errors): high_contamination, no_design_file, occupancy_not_stored, sdrf_skeleton, unplaced_ptm_sites, unresolved_modifications
+tables (findings listed below):
+  assays: 2
+  datasets: 1
+  definitions: 14
+  metrics: 25
+  peptidoform_ions: 40
+  peptidoforms: 40
+  protein_groups: 5
+  proteins: 62
+  provenance_records: 1
+  psms: 60
+  ptm_sites: 26
+  quant_values: 37
+  runs: 2
+  sample_characteristics: 8
+  samples: 2
+  search_modifications_declared: 4
+checks:
+  ms2_spectra: ok true, observed 300, expected 300, source provenance.json id_rate.ms2 / results.txt All MS2 Scans
+  peptidoforms_target_1pct: ok true, observed 40, expected 40, source results.txt: All target peptides with q-value <= 0.01
+  protein_groups_1pct: ok true, observed 3, expected 3, source results.txt: All target protein groups with q-value <= 0.01
+  psms_target_1pct: ok true, observed 58, expected 58, source results.txt: All target PSMs with q-value <= 0.01 (pxreprise:DEF-PSM-1PCT v1)
+  runs: ok true, observed 2, expected 2, source ingest manifest: files
+
+## datarepo build: every catalog table's rows (findings listed below)
+
+age_effect_meta: 0
+age_effect_method_terms: 0
+age_effect_refusals: 0
+age_effects: 0
+age_mappings: 0
+annotation_sources: 0
+assay_runs: 0
+assays: 2
+catalog_bundles: 1
+catalog_checks: 65
+catalog_engine_artefacts: 0
+catalog_meta: 1
+catalog_reconciliation: 5
+catalog_study_bundles: 0
+catalog_tables: 74
+clock_features: 0
+clock_models: 0
+curated_design_factors: 0
+curated_run_design: 0
+curated_sample_characteristics: 0
+dataset_annotations: 1
+dataset_candidates: 0
+dataset_databases: 0
+dataset_overview: 1
+dataset_restrictions: 0
+datasets: 1
+definitions: 14
+deposit_contacts: 0
+deposit_records: 0
+deposit_references: 0
+deposits: 1
+feature_set_members: 0
+feature_sets: 0
+gene_ortholog_status: 0
+gene_orthologs: 0
+gene_resolutions: 0
+glycopeptides: 0
+go_accession_terms: 0
+go_closure: 0
+go_group_members: 0
+go_group_status: 0
+go_term_categories: 0
+go_terms: 0
+isobaric_channels: 0
+metrics: 25
+organelle_age_summaries: 0
+organelle_term_categories: 0
+orthology_genes: 0
+orthology_species: 0
+peptide_index: 40
+peptidoform_ions: 40
+peptidoforms: 40
+peptidoforms_1pct: 40
+protein_annotations: 0
+protein_datasets: 62
+protein_genes: 0
+protein_groups: 5
+protein_groups_1pct: 3
+protein_index: 62
+protein_localizations: 0
+protein_orthologs: 0
+proteins: 62
+proteoform_inferences: 0
+provenance_records: 1
+ptm_pairs: 0
+ptm_sites: 26
+ptm_sites_by_chemistry: 26
+ptm_stoichiometry: 0
+quant_values: 37
+release_changes: 0
+releases: 0
+run_exclusions: 0
+runs: 2
+sample_ages: 0
+sample_characteristics: 8
+samples: 2
+search_modifications_declared: 4
+search_modifications_placed: 5
+shared_raw_files: 0
+trait_effects: 0
+
+## Every metric
+
+contaminant_psms PXD999999 2.0 (provenance.json contamination.contaminant_psms)
+contamination_intensity_share PXD999999:QE-002106_GM1_a 0.3333 (provenance.json contamination.intensity_share_per_file)
+contamination_intensity_share PXD999999:QE-002107_GM1_b 0.3333 (provenance.json contamination.intensity_share_per_file)
+contamination_intensity_share_max PXD999999 0.3333 (provenance.json contamination.intensity_share_max (a summary of the per-run values, not a measurement of the dataset))
+contamination_intensity_share_median PXD999999 0.3333 (provenance.json contamination.intensity_share_median (a summary of the per-run values, not a measurement of the dataset))
+contamination_intensity_share_min PXD999999 0.3333 (provenance.json contamination.intensity_share_min (a summary of the per-run values, not a measurement of the dataset))
+contamination_psm_share PXD999999 0.0333 (provenance.json contamination.psm_share (aging DEF-CONTAM-PSM v1))
+id_rate PXD999999 0.1933 (provenance.json id_rate.rate)
+mbr_fdr_threshold PXD999999 0.01 (provenance.json mbr (QuantProject DEF-QC-MBR v1))
+mbr_kept PXD999999 3.0 (provenance.json mbr (QuantProject DEF-QC-MBR v1))
+mbr_rows PXD999999 6.0 (provenance.json mbr (QuantProject DEF-QC-MBR v1))
+ms2 PXD999999 300.0 (provenance.json id_rate.ms2)
+ms2 PXD999999:QE-002106_GM1_a 150.0 (qc_report.json)
+ms2 PXD999999:QE-002107_GM1_b 150.0 (qc_report.json)
+ms2_scans PXD999999 300.0 (results.txt)
+ms2_scans PXD999999:QE-002106_GM1_a 150.0 (results.txt)
+ms2_scans PXD999999:QE-002107_GM1_b 150.0 (results.txt)
+msms_peaks PXD999999 0.0 (provenance.json mbr (QuantProject DEF-QC-MBR v1))
+peptides PXD999999 40.0 (results.txt)
+protein_groups PXD999999 3.0 (results.txt)
+psms_1pct PXD999999 58.0 (provenance.json id_rate.psms_1pct)
+psms_1pct PXD999999 58.0 (results.txt)
+run_minutes PXD999999:QE-002106_GM1_a 90.0 (qc_report.json)
+run_minutes PXD999999:QE-002107_GM1_b 90.0 (qc_report.json)
+target_plus_contaminant_psms PXD999999 60.0 (provenance.json contamination.target_plus_contaminant_psms)
+
+## Every finding but low_core_use
+
+high_contamination warning x1
+no_design_file warning x1
+no_output_sdrf info x1
+occupancy_decoy_groups info x1
+occupancy_not_stored warning x1
+run_counts_missing info x1
+sdrf_skeleton warning x1
+unplaced_ptm_sites warning x1
+unresolved_modifications warning x1
