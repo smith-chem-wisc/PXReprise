@@ -1906,7 +1906,7 @@ public sealed class BatchRunner
         }
         try
         {
-            ManifestEntry.EnsureExists(manifest, _q.Name, _runRoot);
+            ManifestEntry.EnsureExists(manifest, _q.Name, _m.WorkRoot);
             var split = _q.ExceptionFor(e.Accession)?.Split;
             ManifestEntry.Append(manifest, e, profile, Run(e.Accession), Entry(e.Accession), _m.WorkRoot, split, _q.RestrictionsFor(e.Accession));
             Log($"{e.Accession} MANIFEST entry appended" + (split is null ? "" : $" (split by {split.By}; {split.Accession}'s own entry, if served, retired as superseded)"));

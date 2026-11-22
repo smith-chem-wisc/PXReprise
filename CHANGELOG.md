@@ -47,6 +47,20 @@ text says TMT while PRIDE's quantification names label-free too (below).
   - The push-time `datarepo-binaries` workflow now checks both programs on every platform, with the release's own steps
     (`.github/workflows/binaries.yml`).
 
+- **A new question's manifest now names the machine's `work_root`, not the question's run root** (dataRepo's seam test).
+  - **The problem.** When a question's `[publish] manifest` did not exist yet, the batch wrote it with `work_root` set to
+    the question's `run_root`. But every `provenance.json` names its inputs relative to the machine's `work_root`: the
+    searched databases, the fetch and QC records, and (by default) MetaMorpheus's settings folder. datarepo reads all of
+    them against the manifest's `work_root`, so it found none of them. Each bundle then had no databases, left
+    Carbamidomethyl and other modifications unresolved, and kept only the search's own provenance record, and
+    `datarepo ingest` still exited 0. Measured on a replayed real search: 0 database rows instead of 2, 26 PTM sites
+    instead of 36, no stoichiometry instead of 4 rows.
+  - **Now the manifest names the machine's `work_root`,** relative to the manifest where one folder holds the other and
+    absolute otherwise, and each entry's `run` is relative to that root (`runs/PXD000210`).
+  - **An existing manifest is never rewritten.** One the batch wrote under an earlier version needs its `work_root` set
+    to the machine's by hand, and each entry's `run` changed to match. A hand-written manifest whose `work_root` is
+    already the machine's (aging's) is not affected.
+
 - **The spectra now decide when the record text, not PRIDE's list, chose the TMT profile** (PXD032900-lfq, 2026-11-20).
   - **The problem.** Since 0.4.45, a deposit routed to the isobaric profile by PRIDE's words goes back to its label-free
     profile when those words name label-free too and no probe file carries reporter ions (D34: spectra beat text). But the

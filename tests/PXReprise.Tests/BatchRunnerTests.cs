@@ -2316,29 +2316,60 @@ public class BatchRunnerTests
     }
 
     [Test]
-    public void ANewQuestionGetsAManifestWhoseRunsAreRelativeToItsOwnWorkRoot()
+    public void ANewQuestionsManifestNamesTheMachinesWorkRootAndItsRunsUnderIt()
     {
-        string dir = TestSupport.TempDir(), runRoot = Path.Combine(dir, "work", "runs"), run = Path.Combine(runRoot, "PXD000210");
+        // dataRepo's seam test (G139): the provenance names the databases and the upstream records relative to the
+        // MACHINE's work root, and datarepo reads them against the manifest's. A manifest naming the run root instead
+        // gave bundles with no databases, unresolved Carbamidomethyl and no fetch or QC record, and an ingest exiting 0.
+        string dir = TestSupport.TempDir(), workRoot = Path.Combine(dir, "work"), runRoot = Path.Combine(workRoot, "runs"), run = Path.Combine(runRoot, "PXD000210");
         Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
         Directory.CreateDirectory(Path.Combine(run, "04_search"));
         File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(("a.raw", true, Array.Empty<string>())).ToJsonString());
         File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), """{"tools":{"MetaMorpheus":{"release":"1.1.11"}}}""");
-        string manifest = Path.Combine(dir, "work", "manifest.yaml");
+        string manifest = Path.Combine(workRoot, "first-run", "manifest.yaml");
 
-        ManifestEntry.EnsureExists(manifest, "first-run", runRoot);
-        // The machine's work root is somewhere else entirely: the manifest's own root decides the entry's `run`.
+        ManifestEntry.EnsureExists(manifest, "first-run", workRoot);
+        // The fallback root passed to Append is never used once the manifest names its own: that root decides `run`.
         ManifestEntry.Append(manifest, new QueueEntry("PXD000210", "t", "human"), Profiles["label-free-dda@1"], run, null, "Z:/elsewhere");
         string text = File.ReadAllText(manifest).ReplaceLineEndings("\n");
-        Assert.That(text, Does.Contain("instance: first-run\n").And.Contain("work_root: runs\n").And.Contain("store: store\n")
-            .And.Contain("run: PXD000210\n").And.Contain("files: 1\n"));
-        Assert.That(ManifestEntry.WorkRootOf(manifest), Is.EqualTo(Path.GetFullPath(runRoot)));
+        Assert.That(text, Does.Contain("instance: first-run\n").And.Contain("work_root: ..\n").And.Contain("store: store\n")
+            .And.Contain("run: runs/PXD000210\n").And.Contain("files: 1\n"));
+        Assert.That(ManifestEntry.WorkRootOf(manifest), Is.EqualTo(Path.GetFullPath(workRoot)));
+
+        // A work root below the manifest's folder is relative too; one in another tree is written absolute, so the
+        // manifest does not depend on where the two trees sit relative to each other.
+        string below = Path.Combine(dir, "q2", "manifest.yaml");
+        ManifestEntry.EnsureExists(below, "q2", Path.Combine(dir, "q2", "work"));
+        Assert.That(File.ReadAllText(below).ReplaceLineEndings("\n"), Does.Contain("work_root: work\n"));
+        string apart = Path.Combine(dir, "q3", "manifest.yaml"), machine = Path.GetFullPath(Path.Combine(dir, "m", "work"));
+        ManifestEntry.EnsureExists(apart, "q3", machine);
+        Assert.That(File.ReadAllText(apart).ReplaceLineEndings("\n"), Does.Contain($"work_root: {machine.Replace('\\', '/')}\n"));
+        Assert.That(ManifestEntry.WorkRootOf(apart), Is.EqualTo(machine));
 
         // An absolute root, as aging's hand-written manifest has (F:/aging_data there; absolute on every OS here).
         string absolute = Path.GetFullPath(Path.Combine(dir, "aging_data")).Replace('\\', '/');
         File.WriteAllText(manifest, $"manifest_version: 1\nwork_root: {absolute}   # by hand\ndatasets:\n");
-        ManifestEntry.EnsureExists(manifest, "first-run", runRoot);
+        ManifestEntry.EnsureExists(manifest, "first-run", workRoot);
         Assert.That(File.ReadAllText(manifest), Does.StartWith($"manifest_version: 1\nwork_root: {absolute}"), "an existing manifest is never rewritten");
         Assert.That(ManifestEntry.WorkRootOf(manifest), Is.EqualTo(Path.GetFullPath(absolute)));
+    }
+
+    [Test]
+    public async Task TheBatchWritesANewQuestionsManifestAgainstTheMachinesWorkRootNotItsRunRoot()
+    {
+        // The machine's work root is the test folder; the question's runs are in runs/ below it, its manifest in q/.
+        var (runner, _, _, dir) = Runner("[publish]\nmanifest = \"q/manifest.yaml\"\n");
+        string run = Path.Combine(dir, "runs", "PXD000210");
+        Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
+        Directory.CreateDirectory(Path.Combine(run, "04_search"));
+        File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(("a.raw", true, Array.Empty<string>())).ToJsonString());
+        File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), "{\"success\": true, \"tools\": {\"MetaMorpheus\": {\"release\": \"1.1.11\"}}}");
+
+        await runner.DeliverAsync(new QueueEntry("PXD000210", "t", "human"), Profiles["label-free-dda@1"], CancellationToken.None);
+
+        string manifest = Path.Combine(dir, "q", "manifest.yaml");
+        Assert.That(File.ReadAllText(manifest).ReplaceLineEndings("\n"), Does.Contain("work_root: ..\n").And.Contain("run: runs/PXD000210\n"));
+        Assert.That(ManifestEntry.WorkRootOf(manifest), Is.EqualTo(Path.GetFullPath(dir)));
     }
 
     [Test]
