@@ -504,6 +504,19 @@ public class DifferentialStageTests
         File.WriteAllLines(raw, rawLines.Select(l => l.Replace("File\tScan\t", "File\tScanNo\t")));
         Assert.That(Assert.Throws<InvalidDataException>(() => DifferentialStage.Run(notNumber, Out()))!.Message, Does.Contain("no 'Scan' column"));
 
+        // Protein-group tables mzLib cannot read, and matches from a file the design does not have.
+        string badGroups = LabelFree(new[] { "A", "A", "B", "B" });
+        File.WriteAllText(Path.Combine(badGroups, "mm", "Task3SearchTask", "AllQuantifiedProteinGroups.tsv"), "Gene\nG1\n");
+        Assert.That(Assert.Throws<InvalidDataException>(() => DifferentialStage.Run(badGroups, Out()))!.Message, Does.Contain("cannot be read"));
+        string badTmtGroups = Isobaric(c => c.StartsWith("12", StringComparison.Ordinal) ? "A" : "B");
+        File.WriteAllText(Path.Combine(badTmtGroups, "mm", "Task2SearchTask", "AllProteinGroups.tsv"), "Gene\nG1\n");
+        Assert.That(Assert.Throws<InvalidDataException>(() => DifferentialStage.Run(badTmtGroups, Out()))!.Message, Does.Contain("cannot be read"));
+        string otherFile = Isobaric(c => c.StartsWith("12", StringComparison.Ordinal) ? "A" : "B");
+        string task = Path.Combine(otherFile, "mm", "Task2SearchTask");
+        File.WriteAllText(Path.Combine(task, "RawQuantification.tsv"), File.ReadAllText(Path.Combine(task, "RawQuantification.tsv")).Replace("f2-calib.mzML", "f9-calib.mzML"));
+        File.WriteAllText(Path.Combine(task, "AllPSMs.psmtsv"), File.ReadAllText(Path.Combine(task, "AllPSMs.psmtsv")).Replace("f2-calib\t", "f9-calib\t"));
+        Assert.That(Assert.Throws<InvalidDataException>(() => DifferentialStage.Run(otherFile, Out()))!.Message, Does.Contain("does not fit"));
+
         // A design naming one file twice; a corrected SDRF that gives no design at all.
         string twice = TestSupport.WriteFile(TestSupport.TempDir(), "ExperimentalDesign.tsv", "FileName\tCondition\tBiorep\tFraction\tTechrep\na.mzML\tA\t1\t1\t1\na.mzML\tB\t1\t1\t1\n");
         Assert.Throws<InvalidDataException>(() => DifferentialStage.LabelFreeDesign(twice));
