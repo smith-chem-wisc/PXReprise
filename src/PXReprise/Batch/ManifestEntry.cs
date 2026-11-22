@@ -28,10 +28,10 @@ public static class ManifestEntry
         string dir = Path.GetDirectoryName(Path.GetFullPath(manifestPath))!;
         Directory.CreateDirectory(dir);
         string full = Path.GetFullPath(workRoot);
+        // A root on another drive comes back from GetRelativePath already absolute (no ".." in it), and is kept as is.
         string rel = Path.GetRelativePath(dir, full).Replace('\\', '/');
         var parts = rel.Split('/');
-        bool nested = !Path.IsPathRooted(rel) && (parts.All(p => p == "..") || parts.All(p => p != ".."));
-        string root = nested ? rel : full.Replace('\\', '/');
+        string root = parts.All(p => p == "..") || parts.All(p => p != "..") ? rel : full.Replace('\\', '/');
         File.WriteAllText(manifestPath, $"""
             # dataRepo manifest for the question '{instance}', written by PXReprise. `datarepo ingest` reads it; the batch
             # appends one `include` entry per searched deposit. work_root is the machine's (the root every provenance record
