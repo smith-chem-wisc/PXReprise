@@ -251,13 +251,15 @@ public static class Program
             case "fetch":
             {
                 string accession = Positional(args, 1)[0];
-                args.AllowOnly("out", "machine", "pick", "max-files", "max-file-mb", "parallel", "attempts");
+                args.AllowOnly("out", "machine", "pick", "max-files", "max-file-mb", "parallel", "attempts", "include", "exclude");
+                var select = FileSelection(args.Option("include"), args.Option("exclude"));
                 var machine = Machine.Load(args.Required("machine"));
                 var pick = ProfileLoader.ParseEnum<Fetch.Pick>("--pick", "pick", args.Option("pick") ?? "all");
                 var request = new Fetch.FetchRequest(accession, args.Required("out"), pick,
                     int.Parse(args.Option("max-files") ?? "60"), int.Parse(args.Option("max-file-mb") ?? "5000"), ".raw",
                     int.Parse(args.Option("parallel") ?? "4"), int.Parse(args.Option("attempts") ?? "8"),
                     TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(60), machine.WorkRoot, TimeSpan.FromMinutes(machine.FetchStallMinutes),
+                    Select: select,
                     Sha1Source: Fetch.Integrity.PrideChecksumsAsync,
                     Aspera: machine.AsperaAscp is { } ascp ? new Fetch.AsperaClient(ascp, machine.AsperaKey!, machine.AsperaAttempts, StartGap: TimeSpan.FromSeconds(10),
                         Stall: TimeSpan.FromMinutes(machine.FetchStallMinutes)) : null,
@@ -569,6 +571,28 @@ public static class Program
             offsets[run] = ppm;
         }
         return offsets;
+    }
+
+    /// <summary>
+    /// <c>fetch --include / --exclude</c>: the raw files to download, as a question's <c>include_files</c> and
+    /// <c>exclude_files</c> choose them (case-insensitive regular expressions on the file name; a file is kept when it
+    /// matches the include, if given, and not the exclude, if given). Null when neither is given. Files left out are never
+    /// downloaded, so a search by hand of part of a deposit fetches only that part.
+    /// </summary>
+    internal static Fetch.FileSelection? FileSelection(string? include, string? exclude)
+    {
+        if (include is null && exclude is null) return null;
+        static System.Text.RegularExpressions.Regex? Pattern(string option, string? p)
+        {
+            if (p is null) return null;
+            if (p.Length == 0) throw new UsageException($"--{option} is empty");
+            try { return new System.Text.RegularExpressions.Regex(p, System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant); }
+            catch (ArgumentException e) { throw new UsageException($"--{option} is not a valid regular expression: '{p}' ({e.Message})", e); }
+        }
+        var (inc, exc) = (Pattern("include", include), Pattern("exclude", exclude));
+        string reason = string.Join(", ", new[] { inc is null ? null : $"include_files /{inc}/", exc is null ? null : $"exclude_files /{exc}/" }
+            .Where(s => s is not null)) + " (fetch by hand)";
+        return new Fetch.FileSelection(n => (inc is null || inc.IsMatch(n)) && (exc is null || !exc.IsMatch(n)), reason);
     }
 
     /// <summary>Exactly <paramref name="n"/> positional arguments after the verb.</summary>
