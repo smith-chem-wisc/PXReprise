@@ -113,7 +113,7 @@ Reads each deposit's protease, cysteine alkylation and label, without downloadin
 
 ```
 pxreprise batch run    question.toml --machine my-machine.toml
-pxreprise batch status question.toml
+pxreprise batch status question.toml [--machine my-machine.toml]
 pxreprise batch stop   question.toml
 pxreprise batch retry  question.toml PXD000000 --reason "why"
 pxreprise batch research question.toml PXD000000 --reason "why" [--profile label-free-dda@14]
@@ -122,8 +122,12 @@ pxreprise batch restrictions question.toml [--manifest copy.yaml] [--write]
 
 - `run` works through the queue, one deposit at a time, until the queue is done, the disk is full, or it is stopped.
   Run it again at any time: deposits already settled are skipped, and it carries on where it stopped. Each downloaded
-  file is logged as it finishes, and each retry with its error.
+  file is logged as it finishes, and each retry with its error. A machine file whose `datarepo` is from another
+  PXReprise release than the engine stops it at its start, before any deposit, with both versions named: one release
+  holds both programs, under one version.
 - `status` counts the deposits by status (see [Reading the results](results.md)) and shows whether a batch is running.
+  With `--machine` it also makes the start's datarepo check, and refuses as the start would, so a new install can be
+  checked before a running batch is stopped.
 - `stop` asks a running batch to start no new search, finish the searches under way, then exit. Meanwhile it keeps
   downloading the next deposits; the next `run` checks those files instead of downloading them again, and searches
   them first. A download still under way when the last search ends is cut and taken up again by the next `run`.

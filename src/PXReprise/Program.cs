@@ -348,7 +348,8 @@ public static class Program
                 var b = q.Batch ?? throw new ConfigException(q.SourceFile, "a batch needs a [batch] table");
                 // A probe worker (v0.4.26) runs the controller's copy of the question, whose [batch] is the controller's: its
                 // state directory and run root are its machine file's.
-                var worker = args.Option("machine") is { } wm ? Machine.Load(wm).Worker : null;
+                var given = args.Option("machine") is { } wm ? Machine.Load(wm) : null;
+                var worker = given?.Worker;
                 if (worker is not null) b = b with { StateDir = worker.StateDir, RunRoot = worker.RunRoot };
                 Directory.CreateDirectory(b.StateDir);
                 string stop = Path.Combine(b.StateDir, "STOP"), stateFile = Path.Combine(b.StateDir, "state.json");
@@ -398,12 +399,23 @@ public static class Program
                         return new { stop_written = stop };
                     case "status":
                     {
+                        // D73: with --machine, the check a start makes on its datarepo, so a new install is checked before
+                        // the old driver is stopped.
+                        string? datarepoVersion = null;
+                        if (given?.DataRepo is { } dr)
+                        {
+                            var (started, rc, line) = await Batch.BatchRunner.DataRepoVersionAsync(dr, ct).ConfigureAwait(false);
+                            if (started && Batch.BatchRunner.OtherRelease(dr, RunRecord.Versions()["pxreprise"], rc, line) is { } refusal)
+                                throw new ConfigException(given.SourceFile, refusal);
+                            datarepoVersion = line;
+                        }
                         var ds = File.Exists(stateFile) ? System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(stateFile, ct).ConfigureAwait(false))!["datasets"]!.AsObject() : new System.Text.Json.Nodes.JsonObject();
                         string pidFile = Path.Combine(b.StateDir, "driver.pid");
                         return new
                         {
                             driver_pid = File.Exists(pidFile) ? (await File.ReadAllTextAsync(pidFile, ct).ConfigureAwait(false)).Trim() : null,
                             stop_pending = File.Exists(stop),
+                            datarepo = datarepoVersion,
                             datasets = ds.Count,
                             by_status = ds.GroupBy(kv => kv.Value?["status"]?.GetValue<string>() ?? "?").OrderByDescending(g => g.Count()).ToDictionary(g => g.Key, g => g.Count()),
                             // The question's profiles that take no new searches (status "deprecated"), if any.

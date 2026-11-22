@@ -97,10 +97,13 @@ min_free_gb = 50
 # Without it, MetaMorpheus uses the machine's .NET, and a search the runtime changed under is searched again.
 # dotnet_root = "D:/tools/dotnet-10.0.10"
 
-# RECOMMENDED. dataRepo, the no-Python download (https://github.com/smith-chem-wisc/dataRepo/releases; use 1.4.4 or newer,
-# and the same release for the whole repository): each searched deposit is ingested into a repository and published as a
-# website. Leave it out and the batch stops after the search.
-# datarepo = "D:/tools/datarepo/datarepo.exe"
+# RECOMMENDED. datarepo, the no-Python program that ingests each searched deposit into a repository and publishes it as a
+# website. Leave it out and the batch stops after the search. It must be the datarepo of this engine's own PXReprise
+# release (the datarepo/ folder of the release's archive, https://github.com/smith-chem-wisc/PXReprise/releases, from
+# 1.0.0): `datarepo --version` prints the version `pxreprise version` reports, without its +commit. `batch run` refuses
+# any other before it touches a deposit, naming both versions, and `batch status <question> --machine <this file>` makes
+# the same check, so check a new install with it before stopping a running batch. Use one release for the whole repository.
+# datarepo = "D:/tools/pxreprise-1.0.0/datarepo/datarepo.exe"
 
 # OPTIONAL. A Python with qc's qctemplates, to validate and render QC reports. The pipeline runs without it: 05_qc then holds
 # the data (qc_payload.json), with no report.html.
