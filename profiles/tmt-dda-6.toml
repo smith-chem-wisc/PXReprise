@@ -1,6 +1,13 @@
 # tmt-dda/6 (D84, 2026-11-21): tmt-dda/5 on MetaMorpheus 1.1.15 and agingPTM-v9, with the search's identification
-# filter set to the PEP q-value at 1% and the design's curated SDRF passed to the search, as label-free-dda/15 (see its
-# header for the filter, the input SDRF and agingPTM-v9).
+# filter set to the q-value notch at 1% and the design's curated SDRF passed to the search, as label-free-dda/15 does
+# (see its header for the input SDRF and agingPTM-v9).
+#  - The q-value notch, NOT the PEP q-value that label-free-dda/15 and lowres/9 use (D85, 2026-11-22). Under the PEP
+#    filter, MetaMorpheus 1.1.15 ranks protein groups for their FDR by the best peptide's PEP. In isobaric searches with
+#    ion-trap fragments, both target and decoy matches score very high and many get a PEP of exactly 0, so decoy groups
+#    rank among the first targets. The trial's PXD019690-astro search kept 106 target protein groups at 1% under the
+#    PEP filter, against 4,590 under the notch (4,601 delivered under tmt-dda/5). PSMs at 1%: 34,044 under the notch,
+#    48,284 under PEP. The label-free versions are unaffected (PXD031782: 2,652 under PEP, 1,864 under the notch).
+#    A later version moves to the PEP q-value once MetaMorpheus ranks such protein groups correctly.
 #  - From 1.1.14. The kit's library chain is corrected at its next registration, as every chain is (D84 (4)).
 #  - IdentificationFilter and FilterThreshold go to the Calibration and Search tasks, the two this profile runs.
 #  - The MS2 floor is lowered (D84, 2026-11-22): `[qc] min_ms2` is 2500, where every earlier version has 5000. A raw
@@ -26,7 +33,7 @@
 # Every other setting is /4's. Needs PXReprise v0.4.41 or later, as /4 does, and a machine file naming MetaMorpheus "1.1.14".
 id = "tmt-dda"
 version = 6
-description = "Isobaric-labelled DDA (TMT, iTRAQ), MS2 or SPS-MS3 reporters; the kit read from the spectra; MetaMorpheus 1.1.15 Calibrate/Search (no GPTMD) with cleavage-blocking modifications respected and a deposit's enriched PTM classes (phospho, acetyl-K, succinyl-K, GG) variable in every task with up to 3 modifications a peptide, reporter-ion quantification on a TmtDesign.txt, ±20 ppm precursors, LowCID for ion-trap MS2, CID or HCD; a spectral library per kit; UniProt canonical proteomes, their own PTM sites kept only where non-enriched data see them, with agingPTM-v9 sites; the PEP q-value at 1% in every task; the curated SDRF passed to the search"
+description = "Isobaric-labelled DDA (TMT, iTRAQ), MS2 or SPS-MS3 reporters; the kit read from the spectra; MetaMorpheus 1.1.15 Calibrate/Search (no GPTMD) with cleavage-blocking modifications respected and a deposit's enriched PTM classes (phospho, acetyl-K, succinyl-K, GG) variable in every task with up to 3 modifications a peptide, reporter-ion quantification on a TmtDesign.txt, ±20 ppm precursors, LowCID for ion-trap MS2, CID or HCD; a spectral library per kit; UniProt canonical proteomes, their own PTM sites kept only where non-enriched data see them, with agingPTM-v9 sites; the q-value notch at 1% in every task; the curated SDRF passed to the search"
 
 [accepts]
 acquisition = ["dda"]
@@ -85,7 +92,7 @@ max_excluded_frac = 0.10
 
 [metamorpheus_settings.all]
 RespectCleavageBlockingModifications = true
-IdentificationFilter = "PepQValue"   # D82, D84: the filter at 1%, in every task
+IdentificationFilter = "QValueNotch"   # D85: the q-value notch at 1%, in every task (the PEP q-value fails at protein level here)
 FilterThreshold = 0.01
 
 [metamorpheus_settings.search]

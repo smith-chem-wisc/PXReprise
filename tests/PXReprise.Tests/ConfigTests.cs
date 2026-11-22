@@ -76,13 +76,15 @@ public class ConfigTests
     /// <summary>
     /// D84 (2026-11-21): label-free-dda@15, label-free-dda-lowres@9 and tmt-dda@6 are @14, @8 and @5 on MetaMorpheus 1.1.15
     /// and agingPTM-v9, with the PEP q-value filter at 1% set in every task (D82) and the design's SDRF passed to the
-    /// search, and (2026-11-22) the QC's MS2 floor lowered from 5000 to 2500. Nothing else may differ: lines, not parsed
-    /// fields, as above.
+    /// search, and (2026-11-22) the QC's MS2 floor lowered from 5000 to 2500. tmt-dda@6 sets the q-value notch instead of
+    /// the PEP q-value (D85: under the PEP filter MetaMorpheus 1.1.15's protein FDR fails on isobaric ion-trap searches).
+    /// Nothing else may differ: lines, not parsed fields, as above.
     /// </summary>
-    [TestCase("label-free-dda-15.toml", "label-free-dda-14.toml", "label-free-dda@15", new[] { "Calibration", "Gptmd", "Search" })]
-    [TestCase("label-free-dda-lowres-9.toml", "label-free-dda-lowres-8.toml", "label-free-dda-lowres@9", new[] { "Search" })]
-    [TestCase("tmt-dda-6.toml", "tmt-dda-5.toml", "tmt-dda@6", new[] { "Calibration", "Search" })]
-    public void TheMetaMorpheus1115VersionsChangeOnlyTheReleaseTheFilterTheInputSdrfTheDatabasesAndTheMs2Floor(string next, string previous, string key, string[] tasks)
+    [TestCase("label-free-dda-15.toml", "label-free-dda-14.toml", "label-free-dda@15", new[] { "Calibration", "Gptmd", "Search" }, "PepQValue", "the PEP q-value")]
+    [TestCase("label-free-dda-lowres-9.toml", "label-free-dda-lowres-8.toml", "label-free-dda-lowres@9", new[] { "Search" }, "PepQValue", "the PEP q-value")]
+    [TestCase("tmt-dda-6.toml", "tmt-dda-5.toml", "tmt-dda@6", new[] { "Calibration", "Search" }, "QValueNotch", "the q-value notch")]
+    public void TheMetaMorpheus1115VersionsChangeOnlyTheReleaseTheFilterTheInputSdrfTheDatabasesAndTheMs2Floor(string next, string previous, string key, string[] tasks,
+        string filter, string filterWords)
     {
         static List<string> Settings(string name) => File.ReadAllLines(Path.Combine(TestSupport.ProfilesDir, name))
             .Select(l => System.Text.RegularExpressions.Regex.Replace(l, @"\s+#.*$", "").TrimEnd())
@@ -97,7 +99,7 @@ public class ConfigTests
             return m == "min_ms2 = 5000" ? "min_ms2 = 2500" : m;
         }
 
-        string[] added = { "input_sdrf = true", "IdentificationFilter = \"PepQValue\"", "FilterThreshold = 0.01" };
+        string[] added = { "input_sdrf = true", $"IdentificationFilter = \"{filter}\"", "FilterThreshold = 0.01" };
         var lines = Settings(next);
         Assert.That(lines.Where(added.Contains), Is.EqualTo(added), "the three lines once each");
         Assert.That(lines.Where(l => !added.Contains(l)), Is.EqualTo(Settings(previous).Select(Moved)), "nothing else differs but the release, the databases and the MS2 floor");
@@ -111,9 +113,9 @@ public class ConfigTests
             Assert.That((p.Qc.MinMs2, old.Qc.MinMs2), Is.EqualTo((2500, 5000)), "the MS2 floor, lowered in the new version only");
             Assert.That(p.Tasks, Is.EqualTo(tasks));
             Assert.That(p.MetaMorpheusSettings!.Where(s => s.Key is "IdentificationFilter" or "FilterThreshold").Select(s => (s.Scope, s.Key, s.TomlValue)),
-                Is.EqualTo(new[] { ("all", "IdentificationFilter", "\"PepQValue\""), ("all", "FilterThreshold", "0.01") }), "in every task");
+                Is.EqualTo(new[] { ("all", "IdentificationFilter", $"\"{filter}\""), ("all", "FilterThreshold", "0.01") }), "in every task");
             Assert.That(p.Databases.Values.Select(d => d.Proteome), Has.All.EndsWith("_agingPTM-v9.xml"));
-            Assert.That(p.Description, Does.EndWith("; the PEP q-value at 1% in every task; the curated SDRF passed to the search"));
+            Assert.That(p.Description, Does.EndWith($"; {filterWords} at 1% in every task; the curated SDRF passed to the search"));
         });
     }
 
