@@ -7,7 +7,7 @@
     status: include
     delivery: pending
     title: "A deposit searched for the seam test"
-    run: PXD999999
+    run: runs/PXD999999
     stages:
       qc: 02b_qc
       search: 04_search
@@ -27,21 +27,22 @@
 
 status: ingested
 mismatches: 0
-unresolved_modifications: {"Common Fixed:Carbamidomethyl on C":25,"UniProt:N6,N6-dimethyllysine on K":1,"Common Artifact:Deamidation on N":4,"Common Artifact:Ammonia loss on C":1,"Common Artifact:Deamidation on Q":1,"UniProt:N-acetylglutamate on E":1,"UniProt:N-acetylalanine on A":1,"Common Variable:Oxidation on M":1}
+unresolved_modifications: {"UniProt:N6,N6-dimethyllysine on K":1,"UniProt:N-acetylglutamate on E":1,"UniProt:N-acetylalanine on A":1}
 unmatched_runs: {}
-findings (warnings and errors): high_contamination, no_design_file, occupancy_not_stored, sdrf_skeleton, unplaced_ptm_sites, unresolved_modifications
+findings (warnings and errors): high_contamination, no_design_file, occupancy_not_stored, sdrf_skeleton, unresolved_modifications
 tables (findings listed below):
   assays: 2
   datasets: 1
-  definitions: 14
+  definitions: 16
   metrics: 25
   peptidoform_ions: 40
   peptidoforms: 40
   protein_groups: 5
   proteins: 62
-  provenance_records: 1
+  provenance_records: 3
   psms: 60
-  ptm_sites: 26
+  ptm_sites: 36
+  ptm_stoichiometry: 4
   quant_values: 37
   runs: 2
   sample_characteristics: 8
@@ -65,7 +66,7 @@ annotation_sources: 0
 assay_runs: 0
 assays: 2
 catalog_bundles: 1
-catalog_checks: 65
+catalog_checks: 66
 catalog_engine_artefacts: 0
 catalog_meta: 1
 catalog_reconciliation: 5
@@ -78,11 +79,11 @@ curated_run_design: 0
 curated_sample_characteristics: 0
 dataset_annotations: 1
 dataset_candidates: 0
-dataset_databases: 0
+dataset_databases: 2
 dataset_overview: 1
 dataset_restrictions: 0
 datasets: 1
-definitions: 14
+definitions: 16
 deposit_contacts: 0
 deposit_records: 0
 deposit_references: 0
@@ -119,11 +120,11 @@ protein_localizations: 0
 protein_orthologs: 0
 proteins: 62
 proteoform_inferences: 0
-provenance_records: 1
+provenance_records: 3
 ptm_pairs: 0
-ptm_sites: 26
-ptm_sites_by_chemistry: 26
-ptm_stoichiometry: 0
+ptm_sites: 36
+ptm_sites_by_chemistry: 36
+ptm_stoichiometry: 4
 quant_values: 37
 release_changes: 0
 releases: 0
@@ -174,5 +175,4 @@ occupancy_decoy_groups info x1
 occupancy_not_stored warning x1
 run_counts_missing info x1
 sdrf_skeleton warning x1
-unplaced_ptm_sites warning x1
 unresolved_modifications warning x1

@@ -118,10 +118,11 @@ public class EngineToDatarepoTests
         finally { Environment.SetEnvironmentVariable("FAKE_MM_REPLAY", null); }
         Assert.That(_search.Success, Is.True, "the engine's search stage accepts the replayed search");
 
-        // The delivery, as BatchRunner.DeliverOneAsync makes it: the manifest entry, then datarepo's ingest.
+        // The delivery, as BatchRunner.DeliverOneAsync makes it: a new question's manifest against the machine's work root
+        // (PXReprise's BatchRunnerTests pin that the batch passes that root), the deposit's entry, then datarepo's ingest.
         _manifest = Path.Combine(_root, "question", "manifest.yaml");
-        ManifestEntry.EnsureExists(_manifest, "seam", _runRoot);
-        ManifestEntry.Append(_manifest, new QueueEntry(Accession, "A deposit searched for the seam test", "human"), _profile, run, null, _runRoot);
+        ManifestEntry.EnsureExists(_manifest, "seam", machine.WorkRoot);
+        ManifestEntry.Append(_manifest, new QueueEntry(Accession, "A deposit searched for the seam test", "human"), _profile, run, null, machine.WorkRoot);
         string lf = ManifestEntry.ReadLf(_manifest);
         _entry = lf[lf.IndexOf($"  - accession: {Accession}\n", StringComparison.Ordinal)..];
         _ingest = Run(BatchRunner.IngestCommand(Datarepo, _manifest, Accession, json: true));
@@ -180,10 +181,10 @@ public class EngineToDatarepoTests
     /// the manifest the engine writes must name that root. The same deposit ingested from the fixture's own records gives
     /// exactly these.
     /// </summary>
+    /// <remarks>Before smith-chem-wisc/PXReprise#46 the engine wrote the run root there, and this bundle had no database,
+    /// eight unresolved modifications (Carbamidomethyl on C among them) and only the search's own record, while the
+    /// ingest exited 0.</remarks>
     [Test]
-    [Ignore("Fails today: ManifestEntry.EnsureExists names the batch's run root as the manifest's work_root (BatchRunner "
-        + "passes _runRoot), so datarepo finds no database, no modification definitions and no fetch or QC record. The "
-        + "fix that names the machine's work_root removes this Ignore and rewrites Expected/PXD999999.txt.")]
     public void ANewQuestionsBundleHoldsTheSearchsDatabasesModificationsAndUpstreamRecords()
     {
         var databases = Query("SELECT database, role FROM dataset_databases ORDER BY database").Select(r => $"{r["database"]} {r["role"]}").ToList();
