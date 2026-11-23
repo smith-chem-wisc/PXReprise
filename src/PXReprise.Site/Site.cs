@@ -159,12 +159,14 @@ public static partial class SiteGenerator
 
     private static string Title(Dict ds) => Or(ds, "title", Id(ds));
 
-    /// <summary>The q-value a dataset's 1% peptidoforms were counted on (D55, catalog format 17), in words; null in a
+    /// <summary>The q-value a dataset's 1% peptidoforms were counted on (D78, catalog format 17), in words; null in a
     /// catalog before it, whose <c>peptidoforms_1pct</c> read the q-value rule for every search.</summary>
     /// <remarks>Said beside the count, because two datasets' counts on different rules rest on different q-values, and
     /// none of them is the producer's own peptide count.</remarks>
     private static string? RuleWords(Dict ds) => ds.GetValueOrDefault("confidence_rule") switch
     {
+        "q_value_and_notch" => "q-value and notch q-value",
+        "pep_q_value_or_notch" => "PEP q-value where trained, else notch q-value",
         "pep_q_value" => "PEP q-value",
         "q_value_notch" => "notch q-value",
         "q_value" => "q-value",

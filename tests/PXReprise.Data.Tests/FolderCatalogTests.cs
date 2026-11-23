@@ -382,9 +382,9 @@ public class FolderCatalogTests
         Assert.That(CatalogBuilder.RunQuery(Path.Combine(Folder, CatalogPointer.FileName), "SELECT n_psms_all FROM dataset_overview").Rows.Single()[0], Is.EqualTo(60L));
     }
 
-    /// <summary>1.5.0 item 11 (D55): on a real ingest, in either layout, <c>peptidoforms_1pct</c> holds exactly the target
-    /// rows the ingest's own test passes under the bundle's recorded rule, and the overview counts them beside that rule;
-    /// the site and the MCP overview name it.</summary>
+    /// <summary>D78: on a real ingest, in either layout, <c>peptidoforms_1pct</c> holds exactly the target rows the
+    /// ingest's own test passes under the bundle's recorded rule, and the overview counts them beside that rule; the site
+    /// and the MCP overview name it.</summary>
     [Test]
     public void PeptidoformsAtOnePercentAreTheRowsTheIngestPassesUnderTheRecordedRule()
     {
@@ -394,15 +394,10 @@ public class FolderCatalogTests
         using var raw = new DuckDBConnection("DataSource=:memory:");
         raw.Open();
         var rule = (string)Rows(raw, $"SELECT confidence_rule FROM read_parquet('{CatalogBuilder.AsPosix(bundle.TablePath("datasets")!)}')").Single()[0]!;
-        var tier = rule switch
-        {
-            "pep_q_value" => Quantification.QuantifiedPsmTier.PepQValue,
-            "q_value_notch" => Quantification.QuantifiedPsmTier.QValueNotch,
-            _ => Quantification.QuantifiedPsmTier.QValue,
-        };
+        Assert.That(rule, Is.EqualTo("q_value_and_notch"), "a MetaMorpheus 1.1.11 search");
         var expected = Rows(raw, "SELECT peptidoform_id, target_decoy, best_q_value, best_q_value_notch, best_pep_q_value "
                                  + $"FROM read_parquet('{CatalogBuilder.AsPosix(bundle.TablePath("peptidoforms")!)}')")
-            .Where(r => Equals(r[1], "target") && PXReprise.Ingest.Sources.Identifications.PassesConfidence(tier, new Row
+            .Where(r => Equals(r[1], "target") && PXReprise.Ingest.Sources.Identifications.PassesRule(rule, new Row
             {
                 ["best_q_value"] = r[2], ["best_q_value_notch"] = r[3], ["best_pep_q_value"] = r[4],
             }))
@@ -420,13 +415,13 @@ public class FolderCatalogTests
             });
         }
         var site = PXReprise.Site.SiteGenerator.BuildSite(Folder, Path.Combine(_root, "site"));
-        var words = rule == "pep_q_value" ? "PEP q-value" : rule == "q_value_notch" ? "notch q-value" : "q-value";
+        const string words = "q-value and notch q-value";
         var page = File.ReadAllText(Path.Combine(_root, "site", "datasets", "PXD999999.html"));
         Assert.Multiple(() =>
         {
             Assert.That(page, Does.Contain($"Peptidoforms at 1% ({words})"));
             Assert.That(page, Does.Contain($"{expected.Count.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)} peptidoforms pass 1% on its {words}"));
-            Assert.That(File.ReadAllText(Path.Combine(_root, "site", "llms.txt")), Does.Contain("`peptidoforms_1pct` follows each search's own rule"));
+            Assert.That(File.ReadAllText(Path.Combine(_root, "site", "llms.txt")), Does.Contain("`peptidoforms_1pct` follows each search's own identification filter"));
         });
     }
 
