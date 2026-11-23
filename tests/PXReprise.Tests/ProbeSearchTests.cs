@@ -334,6 +334,7 @@ public class ProbeSearchTests
                 Assert.That(text, Does.Contain("FilterThreshold = 0.01"), key);
             }
             Assert.That(ProbeSearch.FilterSettings(profiles["label-free-dda@14"]), Is.Empty, "no filter set: MetaMorpheus's own");
+            Assert.That(ProbeSearch.FilterSettings(profiles["label-free-dda@1"]), Is.Empty, "no [metamorpheus_settings] at all");
             Assert.That(ProbeSearch.TaskText(defaults, m, null, known), Does.Contain("IdentificationFilter = \"PepQValue\""),
                 "without a profile filter the default task's stays");
         });
@@ -425,6 +426,9 @@ public class ProbeSearchTests
         var search = await Run("search", "--profile", "label-free-dda@1", "--profiles", TestSupport.ProfilesDir, "--organism", "no-such-organism",
             "--machine", machine, "--spectra", root, "--qc", Path.Combine(root, "qc.json"), "--out", Path.Combine(root, "out"), "--probe-offsets", offsets);
         Assert.That(search.Out, Does.Contain("has no database for 'no-such-organism'"), "the request was built, offsets included");
+        var noOffsets = await Run("search", "--profile", "label-free-dda@1", "--profiles", TestSupport.ProfilesDir, "--organism", "no-such-organism",
+            "--machine", machine, "--spectra", root, "--qc", Path.Combine(root, "qc.json"), "--out", Path.Combine(root, "out2"));
+        Assert.That(noOffsets.Out, Does.Contain("has no database for 'no-such-organism'"), "--probe-offsets is optional");
 
         var fetch = await Run("fetch", "PXD000001", "--out", Path.Combine(root, "fetch"), "--machine", Path.Combine(root, "none.toml"), "--include", @"\.raw$");
         Assert.That((fetch.Exit, fetch.Out.Contains("none.toml")), Is.EqualTo((2, true)), "it stops at the missing machine file, after reading --include");
