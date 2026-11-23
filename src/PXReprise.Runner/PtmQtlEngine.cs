@@ -206,7 +206,7 @@ public static class PtmQtlEngine
     }
 
     /// <summary>D78's null in a <c>site_pairs</c> run record, or null where type A was not computed.</summary>
-    private static Dictionary<string, object?>? DepthNullRecord(DepthNullResult? n) => n is null ? null : new Dictionary<string, object?>
+    internal static Dictionary<string, object?>? DepthNullRecord(DepthNullResult? n) => n is null ? null : new Dictionary<string, object?>
     {
         ["call_q"] = PtmQtlCore.CallQ,
         ["replicates"] = (long)PtmQtlCore.NullReplicates,
@@ -220,7 +220,7 @@ public static class PtmQtlEngine
     };
 
     /// <summary>Whether a <c>site_pairs</c> artefact's dataset is depth-like (D78), as its run record says.</summary>
-    private static bool DepthLike(ArtefactRef a) =>
+    internal static bool DepthLike(ArtefactRef a) =>
         ((a.Record.GetValueOrDefault("engine_summary") as IReadOnlyDictionary<string, object?>)?.GetValueOrDefault("depth_null")
             as IReadOnlyDictionary<string, object?>)?.GetValueOrDefault("depth_like") is true;
 

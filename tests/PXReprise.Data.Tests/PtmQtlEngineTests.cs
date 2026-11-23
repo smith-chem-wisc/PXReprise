@@ -182,6 +182,76 @@ public class PtmQtlEngineTests
         Assert.That(() => PtmQtlCore.SitePairs(mixed), Throws.TypeOf<RunnerException>().With.Message.Contains("never mixed"));
     }
 
+    /// <summary>v3's bounds at their edges, each counted, none guessed: an <c>intensity_unassigned</c> cell counts as
+    /// stored, so no covered-zero is added there; an engine cell that saw the modified form where nothing is stored is
+    /// counted, never added; the files of a design sample MetaMorpheus pooled (P32) are read as that sample; the
+    /// site-trait reading leaves a stored <c>covered_zero</c> out; a deposit with no real call has no share and no
+    /// label.</summary>
+    [Test]
+    public void TheBoundsEdgesAreCountedNeverGuessed()
+    {
+        const string Added = "v3 bounds: covered-zero cells added from the engine's coverage";
+        var all = Datasets().ToDictionary(d => d.DatasetId);
+        var d1 = all["D1"];
+        Dictionary<string, long> Counts(PtmQtlDataset d, bool bounds = true)
+        {
+            var left = new Dictionary<string, long>(StringComparer.Ordinal);
+            PtmQtlCore.Occupancy(d, d.Categories(), left, bounds);
+            return left;
+        }
+        var baseline = Counts(d1);
+
+        // S3: P2 S5's covered-zero is the engine's, since nothing is stored there; an intensity_unassigned cell is.
+        var p2 = d1.Occupancy.First(c => c.Protein == "P2");
+        var unassigned = d1 with { Occupancy = [.. d1.Occupancy, p2 with { Run = "S3", State = "intensity_unassigned" }] };
+        // S2: P1 S13's stored cell removed; the engine still sees the modified form there.
+        var dropped = d1 with { Occupancy = d1.Occupancy.Where(c => !(c.Protein == "P1" && c.Position == 13 && c.Run == "S2")).ToList() };
+        // S14's two injections stored as one design sample, as MetaMorpheus writes a pooled sample (P32); S2 is not a
+        // whole proteome (S3b), so neither its cells nor its observations reach type A.
+        var pooledRuns = d1.RunToSample.ToDictionary(kv => kv.Key, kv => kv.Key.StartsWith("S14", StringComparison.Ordinal) ? "S14" : kv.Value, StringComparer.Ordinal);
+        pooledRuns["S14"] = "S14";
+        var pooled = d1 with
+        {
+            RunToSample = pooledRuns,
+            Occupancy = d1.Occupancy.Where(c => c.Run != "S14_2").Select(c => c.Run == "S14_1" ? c with { Run = "S14" } : c).ToList(),
+            OccupancyRuns = pooledRuns.Keys.Where(r => r != "S2").ToHashSet(StringComparer.Ordinal),
+        };
+        var pooledCells = PtmQtlCore.Occupancy(pooled, pooled.Categories(), new Dictionary<string, long>(), bounds: true);
+        var none = PtmQtlCore.DepthNull("D0", [], [], new Dictionary<string, double>(), []);
+        Assert.Multiple(() =>
+        {
+            Assert.That(Counts(unassigned)[Added], Is.EqualTo(baseline[Added] - 1));
+            Assert.That(Counts(unassigned)["S1 intensity_unassigned"], Is.EqualTo(1));
+            Assert.That(baseline["v3 bounds: engine saw the modified form, nothing stored (not added)"], Is.EqualTo(0));
+            Assert.That(Counts(dropped)["v3 bounds: engine saw the modified form, nothing stored (not added)"], Is.EqualTo(1));
+            Assert.That(pooledCells.Select(c => c.Run), Has.Some.EqualTo("S14").And.None.StartsWith("S14_").And.None.EqualTo("S2"));
+            Assert.That(Counts(all["D2"], bounds: false)["S1 covered_zero: a bound, read by type A only"], Is.GreaterThan(0));
+            Assert.That((none.RealCalls, none.NullCalls, double.IsNaN(none.Share), none.DepthLike), Is.EqualTo((0L, new long[] { 0, 0, 0 }, true, false)));
+        });
+    }
+
+    /// <summary>D78 in the run records: <c>site_pairs</c> stores the null's counts, and <c>pool_pairs</c> reads the label
+    /// back to flag a depth-like dataset's pooled rows. A deposit with no real call stores no share.</summary>
+    [Test]
+    public void ADepthLikeLabelIsReadBackFromItsRunRecord()
+    {
+        var store = Scratch();
+        try
+        {
+            Assert.That(PtmQtlEngine.DepthNullRecord(null), Is.Null);
+            Assert.That(PtmQtlEngine.DepthNullRecord(new DepthNullResult(0, [0, 0, 0], double.NaN, false))!["share"], Is.Null);
+            foreach (var (like, share) in new[] { (true, 0.25), (false, 0.05) })
+            {
+                var record = PtmQtlEngine.DepthNullRecord(new DepthNullResult(4, [1, 1, 1], share, like))!;
+                Assert.That((record["real_calls"], record["share"], record["depth_like"]), Is.EqualTo(((object?)4L, (object?)share, (object?)like)));
+                var artefact = WriteArtefact(store, PtmQtlEngine.SitePairsEngine, new() { ["bundle"] = $"b-{like}", ["enrichment"] = "e1" },
+                    new() { ["species"] = "mouse", ["depth_null"] = record }, []);
+                Assert.That(PtmQtlEngine.DepthLike(artefact), Is.EqualTo(like), $"depth_like {like}");
+            }
+        }
+        finally { Remove(store); }
+    }
+
     [Test]
     public void TheSiteTraitRowsAreTheReferenceCasesRows()
     {
