@@ -15,13 +15,39 @@ A new version of the engine never changes a finished result. Methods live in ver
 
 ## Unreleased
 
-**MetaMorpheus** unchanged (1.1.14). **Machine file:** `datarepo` must name the datarepo of this release (the `datarepo`
-folder of its archive): a batch refuses any other at its start. **Safe mid-batch?** Yes: swap the pin and its datarepo
+**MetaMorpheus** 1.1.15 for three new profile versions, label-free-dda@15, label-free-dda-lowres@9 and tmt-dda@6 (below);
+every other profile keeps its own. **Machine file:** `"1.1.15"` under `[metamorpheus]`, naming the `CMD.dll` of
+MetaMorpheus 1.1.15's CommandLine release (its zip's sha256 is in `tests/metamorpheus-output/releases.tsv`); and
+`datarepo` must name the datarepo of this release (the `datarepo` folder of its archive): a batch refuses any other at
+its start. **Safe mid-batch?** Yes: swap the pin and its datarepo
 together, as usual. Nothing searched under another profile changes. **Adopting:** a swap and a catalog rebuild, because
 datarepo's version is now the release's and the catalog id hashes it (a store still on datarepo 1.4.x first re-ingests
 once, as 1.5.0 asks). A question that wants it names `tmt-dda@5` before `tmt-dda@4` in its `profiles`, and each deposit
 QC refused for ion-trap HCD gets a `batch retry`. So does each deposit refused for `no_isobaric_reporters` whose record
-text says TMT while PRIDE's quantification names label-free too (below).
+text says TMT while PRIDE's quantification names label-free too (below). A question takes the MetaMorpheus 1.1.15
+profiles by naming them before their earlier versions in its `profiles`; deposits already searched keep their profile, and
+whether to search them again is a separate choice.
+
+- **Three profile versions on MetaMorpheus 1.1.15: `label-free-dda@15`, `label-free-dda-lowres@9` and `tmt-dda@6`**
+  (@14, @8 and @5 on the new release). The guard test allows each only the changes below, line by line.
+  - **One identification filter, the q-value notch at 1%, in every task** (decision 0087, which replaces 0082):
+    `IdentificationFilter = "QValueNotch"` and `FilterThreshold = 0.01`, set in the profile, never MetaMorpheus 1.1.15's
+    default (the PEP q-value for bottom-up searches). Under the PEP q-value, 1.1.15's protein FDR collapsed on some
+    deposits (an isobaric ion-trap one kept 106 target protein groups at 1%, against 4,590 under the notch). The probe
+    search takes its profile's filter, and its measures read only what that filter passed.
+  - **Match-between-runs transfers kept below a q-value of 5%** in the two label-free versions (decision 0089):
+    `MbrFdrThreshold = 0.05`, mzLib FlashLFQ's own default (MetaMorpheus sets 0.01). At 1%, FlashLFQ refuses a whole
+    file's transfers when its decoys run just over 1 in 100; on a 143-file deposit, 27 files kept none at 1% and 2 at
+    5%. About 1 kept transfer in 20 is then estimated wrong, against 1 in 100. The provenance's `mbr` block and the QC
+    payload count kept transfers at the search's own threshold.
+  - **agingPTM-v9 databases** (decision 0029; built on aging's catalog of 215 deposits). `label-free-dda-lowres@9` stays
+    on agingPTM-v3: v9 lost 1.5% of an ion-trap deposit's PSMs, mostly hydroxylation.
+  - **The design's curated SDRF passed to the search** (`engine.input_sdrf = true`, MetaMorpheus's `InputSdrfPath`), so
+    the SDRF the search writes carries the sample facts it states.
+  - **The QC's MS2 floor at 2,500 spectra a file** (`[qc] min_ms2`; 5,000 in every earlier version), so thin but real
+    files such as a fractionated deposit's late fractions pass.
+  - **No per-file mzIdentML** (`WriteMzId = false`): MetaMorpheus wrote one per raw file even with individual-file
+    tables off, and nothing read them.
 
 - **ptmQtl's observations (its S7) are the PSMs the search's own identification filter kept** (ptmQtl D82, PXR-P23;
   replaces ptmQtl D36).
@@ -61,6 +87,22 @@ text says TMT while PRIDE's quantification names label-free too (below).
   - **Cost.** The null takes type A three more times per deposit. ptmQtl's v5 pairs took 37 min for 121 deposits on 64
     cores, so expect about four times that. No ptmQtl row is stored yet.
 
+- **A bundle's 1% rule is the search's own identification filter too** (dataRepo D78, PXR-R81; ingest path `cs-1.5.0`).
+  - datarepo 1.5.0's plan (D55, never released) had `peptidoforms_1pct` and `peptidoform_ions` read the tier mzLib's
+    `ChooseTier` picks, the PEP q-value wherever PEP trained, cut strictly below 0.01. Our maintainer ruled one filter,
+    set in the search and nowhere else.
+  - Now `datasets.confidence_rule` is the filter the search's results.txt names, cut at or below 0.01 as the search
+    cuts:
+    - `q_value_and_notch` for every MetaMorpheus up to 1.1.14 (a new value), which is exactly the rule datarepo 1.4.5's
+      `peptidoforms_1pct` read, so the 1% peptidoforms aging serves do not move;
+    - from 1.1.15, `q_value_notch`, `q_value` or `pep_q_value`;
+    - `pep_q_value_or_notch` where a PEP filter trained for only some peptides, with a finding saying so.
+  - One predicate serves all three readers: `Identifications.PassesRuleSql` for `peptidoforms_1pct`,
+    `Identifications.PassesRule` for `peptidoform_ions`, and `Identifications.PsmPassesSql` (that predicate with the PSM
+    notch clause) for ptmQtl's S7.
+  - D55's two findings, `confidence_rule_fallback` and `confidence_rule_fewer_peptides`, are gone. A search from 1.1.15
+    whose results.txt names no filter is refused, as S7 refuses it.
+
 - **One release for the engine and datarepo, under one version** (decision 0073).
   - **The problem.** The two programs were released apart. The engine's `v<version>` tags published notes only, and
     datarepo's own `datarepo-v<version>` tags made draft releases of its programs. Nothing tied a machine's two programs
@@ -86,6 +128,10 @@ text says TMT while PRIDE's quantification names label-free too (below).
     one that changes only the engine, costs at least a swap and a catalog rebuild.
   - The push-time `datarepo-binaries` workflow now checks both programs on every platform, with the release's own steps
     (`.github/workflows/binaries.yml`).
+  - **datarepo's tutorial follows** (`docs/data/getting-started.md`). It clones PXReprise at the release's tag, downloads
+    the release's archive, and copies the example instance from `tests/datarepo-instance`. It had pointed at dataRepo's
+    own 1.5.0 release and its `tests/data`. Its test now fails on a page that names another repository, archive or
+    instance folder.
 
 - **A new question's manifest now names the machine's `work_root`, not the question's run root** (dataRepo's seam test).
   - **The problem.** When a question's `[publish] manifest` did not exist yet, the batch wrote it with `work_root` set to

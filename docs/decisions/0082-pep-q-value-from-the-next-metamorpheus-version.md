@@ -2,8 +2,8 @@
 title: "0082 The PEP q-value at 1% from the next MetaMorpheus version"
 parent: Decisions
 nav_order: 82
-status: accepted
-date: 2026-11-20
+status: superseded by [0087](0087-one-filter-the-q-value-notch.md)
+date: 2026-11-23
 decision-makers: the maintainer
 ---
 

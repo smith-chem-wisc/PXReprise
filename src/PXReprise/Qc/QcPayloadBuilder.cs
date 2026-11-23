@@ -537,13 +537,13 @@ public static class QcPayloadBuilder
 
     /// <summary><c>msms_peaks</c> and <c>mbr_kept</c> per file through the ONE DEF-MBR-KEPT rule (<see cref="SearchMetrics.ClassifyPeak"/>).
     /// A file with any MSMS or MBR row gets both keys, so "no transfer survived" is 0, not "not measured".</summary>
-    public static Dictionary<string, JsonObject> ParsePeaks(string path)
+    public static Dictionary<string, JsonObject> ParsePeaks(string path, double mbrFdrThreshold = SearchMetrics.MbrFdrThreshold)
     {
         var per = new Dictionary<string, JsonObject>(StringComparer.Ordinal);
         if (!File.Exists(path)) return per;
         foreach (var row in Tsv.Read(path))
         {
-            var (kind, _) = SearchMetrics.ClassifyPeak(row, SearchMetrics.MbrFdrThreshold);
+            var (kind, _) = SearchMetrics.ClassifyPeak(row, mbrFdrThreshold);
             if (kind == SearchMetrics.PeakKind.None) continue;
             string k = Stem(row.GetValueOrDefault("File Name"));
             if (!per.TryGetValue(k, out var f)) per[k] = f = new JsonObject { ["msms_peaks"] = 0, ["mbr_kept"] = 0 };
@@ -658,15 +658,17 @@ public static class QcPayloadBuilder
         var datasetCounts = ParseDatasetCounts(results);
         var calib = ParseCalibration(Path.Combine(mm, "Task1CalibrationTask"));
         var (psmMetrics, dists) = ParsePsms(Path.Combine(task, "AllPSMs.psmtsv"), runMinutes, bins, out var support);
-        var peaks = ParsePeaks(Path.Combine(task, "AllQuantifiedPeaks.tsv"));
+        string provFile = Path.Combine(searchDir, "provenance.json");
+        var searchProvenance = File.Exists(provFile) ? JsonNode.Parse(File.ReadAllText(provFile, Encoding.UTF8)) : null;
+        // Kept transfers at the threshold the search ran with, as its provenance records it (and dataRepo reads it)
+        var peaks = ParsePeaks(Path.Combine(task, "AllQuantifiedPeaks.tsv"),
+            searchProvenance?["mbr"]?["mbr_fdr_threshold"]?.GetValue<double>() ?? SearchMetrics.MbrFdrThreshold);
         var pg = ParseProteinGroups(Path.Combine(task, "AllQuantifiedProteinGroups.tsv"));
         // /2: the whole search's 1% peptide and group sets, each run's share of them taken from its own 1% PSMs.
         var peptideSet = v2 ? ParsePeptideSet(Path.Combine(task, "AllPeptides.psmtsv")) : null;
         string? groupTable = v2 ? ProteinGroupTable(task) : null;
         var groups = groupTable is null ? null : ParseProteinGroupPeptides(groupTable);
         var groupsByPeptide = groups is null ? null : IndexGroups(groups);
-        string provFile = Path.Combine(searchDir, "provenance.json");
-        var searchProvenance = File.Exists(provFile) ? JsonNode.Parse(File.ReadAllText(provFile, Encoding.UTF8)) : null;
 
         var excluded = (excludedFiles ?? Array.Empty<string>()).Select(Stem).ToHashSet(StringComparer.Ordinal);
         var names = new SortedSet<string>(counts.Keys, StringComparer.Ordinal);

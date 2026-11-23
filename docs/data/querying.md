@@ -22,8 +22,9 @@ Your catalog will differ. That is the point of §1.
 `peptidoforms` and `protein_groups` hold **everything the producer wrote**, including rows above the
 FDR threshold and decoys. The views `peptidoforms_1pct` and `protein_groups_1pct` apply a 1% rule,
 once, in one place. `protein_groups_1pct` is the search engine's own q-value rule. From catalog format 17,
-`peptidoforms_1pct` is each search's own confidence rule (`datasets.confidence_rule`): the PEP q-value
-where the search trained PEP, otherwise its notch q-value, strictly below 0.01. It is not the engine's own
+`peptidoforms_1pct` is each search's own identification filter, the one its results.txt names
+(`datasets.confidence_rule`): for every MetaMorpheus up to 1.1.14 the q-value and the notch q-value, at or
+below 0.01; from 1.1.15 the filter the search was set to. It is not the engine's own
 peptide count, which is in `metrics` (`name = 'peptides'`, `scope = 'dataset'`), and two datasets on
 different rules rest on different q-values.
 

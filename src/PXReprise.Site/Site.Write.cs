@@ -47,14 +47,14 @@ public static partial class SiteGenerator
             "MetaMorpheus writes it alphabetically. The first accession is not a leading or razor " +
             "protein, and nothing in this repository names one.",
         };
-        // D55 (catalog format 17): only when the catalog records each search's rule, so an older catalog writes the file it
+        // D78 (catalog format 17): only when the catalog records each search's rule, so an older catalog writes the file it
         // always wrote. After the bullet on the *_1pct views, which it qualifies.
         if (facts.Datasets.Any(ds => ds.ContainsKey("confidence_rule")))
             lines.Insert(lines.IndexOf("Before you answer from this data:") + 3,
-                "- `peptidoforms_1pct` follows each search's own rule (`dataset_overview.confidence_rule`): the PEP q-value " +
-                "where the search trained PEP, otherwise its notch q-value. So its counts are not the search engine's own " +
-                "peptide count, which is in `metrics` (`name = 'peptides'`), and two datasets on different rules rest on " +
-                "different q-values.");
+                "- `peptidoforms_1pct` follows each search's own identification filter (`dataset_overview.confidence_rule`): " +
+                "the q-value and notch q-value for MetaMorpheus up to 1.1.14, the filter the search was set to from 1.1.15. " +
+                "Its counts are not the search engine's own peptide count, which is in `metrics` (`name = 'peptides'`), and " +
+                "two datasets on different rules rest on different q-values.");
         // Only when the catalog labels each dataset's value scale (format 17).
         if (facts.Datasets.Any(ds => ds.ContainsKey("quant_scale")))
             lines.Insert(lines.IndexOf("Before you answer from this data:") + 3,

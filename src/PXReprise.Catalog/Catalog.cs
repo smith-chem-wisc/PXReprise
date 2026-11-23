@@ -257,9 +257,9 @@ public static partial class CatalogBuilder
     /// <c>dataset_overview.accession</c>, <c>split_group</c> and <c>split_reason</c> (the manifest's, also in
     /// <c>dataset_annotations</c>), the <c>deposits</c> table, <c>protein_index</c>'s and <c>peptide_index</c>'s
     /// <c>n_datasets*</c> counting deposits, the census matched by accession, and a <c>split</c> check refusing a deposit
-    /// served both whole and in parts. "17" (1.5.0, D55) makes <c>peptidoforms_1pct</c> follow each search's
-    /// <c>datasets.confidence_rule</c>, so every count built from it moves, and adds <c>dataset_overview.confidence_rule</c>
-    /// beside <c>n_peptidoforms_1pct</c>. "17", still unreleased, also copies the registered orthology snapshot into
+    /// served both whole and in parts. "17" (unreleased; D78, replacing D55) makes <c>peptidoforms_1pct</c> follow each
+    /// search's <c>datasets.confidence_rule</c>, its own identification filter, which for every search up to 1.1.14 is
+    /// format 16's rule, and adds <c>dataset_overview.confidence_rule</c> beside <c>n_peptidoforms_1pct</c>. "17", still unreleased, also copies the registered orthology snapshot into
     /// <c>orthology_species</c>, <c>orthology_genes</c>, <c>gene_orthologs</c> and <c>gene_ortholog_status</c>, and derives
     /// <c>protein_orthologs</c> from them (<c>CatalogOrthology.cs</c>), with <c>engine-consistency</c> checks and a sha256
     /// check of the snapshot's files; the five tables are in every catalog, empty when no snapshot is registered. "17" also
@@ -444,10 +444,11 @@ public static partial class CatalogBuilder
     /// reconciliation compares against; these views are how the catalog selects <i>rows</i>, and on a dataset
     /// where the predicate is imperfect they will differ from the canonical count by a small margin and the
     /// <c>count_mismatch</c> finding will say by how much.</para>
-    /// <para><b>From catalog format 17, <c>peptidoforms_1pct</c> follows each search's own confidence rule instead</b>
-    /// (D55, <see cref="PeptidoformsConfidenceRule"/>), so it no longer restates the producer's acceptance rule and stops
-    /// matching its <c>results.txt</c> peptide count. The reconciliation keeps the q-value rule for peptidoforms
-    /// (<c>CatalogReconciliation</c>), or nearly every deposit would read <c>count_mismatch</c>.</para>
+    /// <para><b>From catalog format 17, <c>peptidoforms_1pct</c> reads each search's own 1% rule</b>
+    /// (<see cref="PeptidoformsConfidenceRule"/>): the filter its results.txt names, as the ingest recorded it in
+    /// <c>datasets.confidence_rule</c> (D78, which replaced D55's mzLib tier before any release carried it). For every
+    /// search up to MetaMorpheus 1.1.14 that is the q-value rule above, so it reads what format 16 read. The
+    /// reconciliation keeps the q-value rule for peptidoforms (<c>CatalogReconciliation</c>).</para>
     /// </remarks>
     public static IReadOnlyList<KeyValuePair<string, string>> AcceptedViews =>
     [
@@ -466,18 +467,15 @@ public static partial class CatalogBuilder
         "SELECT * FROM peptidoforms WHERE target_decoy = 'target' AND best_q_value <= {t} "
         + "AND (best_q_value_notch IS NULL OR best_q_value_notch <= {t})";
 
-    /// <summary><c>peptidoforms_1pct</c> from catalog format 17 (D55): each search's own confidence rule, as the ingest
-    /// recorded it in <c>datasets.confidence_rule</c> and applied it to <c>peptidoform_ions</c>
-    /// (<see cref="Identifications.PassesConfidence"/>, which is mzLib's <c>QuantifiedPsmRule.PassesConfidence</c>): a
-    /// target, and the value the rule names strictly below the threshold.</summary>
-    /// <remarks>A NULL value fails, as mzLib has it. So does a rule this text does not name: it passes nothing rather than
-    /// falling back on another column, since a fallback would read a q-value the search's rule did not choose.</remarks>
-    private const string PeptidoformsConfidenceRule =
+    /// <summary><c>peptidoforms_1pct</c> from catalog format 17 (D78): each search's own 1% rule, as the ingest recorded
+    /// it in <c>datasets.confidence_rule</c> and applied it to <c>peptidoform_ions</c>: a target, and the rule's test at or
+    /// below the threshold (<see cref="Identifications.PassesRuleSql"/>, the one predicate ptmQtl's S7 also reads).</summary>
+    /// <remarks>A NULL value fails. So does a rule this text does not name: it passes nothing rather than falling back on
+    /// another column, since a fallback would read a q-value the search's filter did not name.</remarks>
+    private static readonly string PeptidoformsConfidenceRule =
         "SELECT p.* FROM peptidoforms p JOIN datasets d ON d.dataset_id = p.dataset_id "
         + "WHERE p.target_decoy = 'target' AND CASE d.confidence_rule "
-        + "WHEN 'pep_q_value' THEN p.best_pep_q_value < {t} "
-        + "WHEN 'q_value_notch' THEN p.best_q_value_notch < {t} "
-        + "WHEN 'q_value' THEN p.best_q_value < {t} "
+        + string.Concat(Identifications.RuleValues.Select(r => $"WHEN '{r}' THEN {Identifications.PassesRuleSql(r, "p.best_", "{t}")} "))
         + "ELSE false END";
 
     /// <summary>The <see cref="AcceptedViews"/> this build creates: those over a table it holds. <c>psms_1pct</c>'s rule
@@ -550,33 +548,32 @@ public static partial class CatalogBuilder
         (GoGroupMembersTable, "accession"),
     ];
 
-    /// <summary><c>peptidoforms_1pct</c>'s description: its rule (D55, <see cref="PeptidoformsConfidenceRule"/>), and that
+    /// <summary><c>peptidoforms_1pct</c>'s description: its rule (D78, <see cref="PeptidoformsConfidenceRule"/>), and that
     /// it is not the producer's peptide count.</summary>
     private const string PeptidoformsOnePercentDoc =
-        "`peptidoforms` at 1% under each search's own confidence rule (D55): target only, and the q-value its "
-          + "`datasets.confidence_rule` names strictly below 0.01: `best_pep_q_value` under `pep_q_value` (the search "
-          + "trained PEP), `best_q_value_notch` under `q_value_notch`, `best_q_value` under `q_value`. A row with no value "
-          + "for its rule fails. It is the test the ingest applied to `peptidoform_ions`, so the two hold the same "
-          + "peptidoforms wherever the search left the AllPeptides.psmtsv the ions are read from. Contaminants are left out. **It is NOT the producer's own peptide count:** MetaMorpheus "
-          + "counts on the q-value, and its count is in `metrics` (`name = 'peptides'`, `scope = 'dataset'`); "
-          + "`dataset_overview.n_peptidoforms_1pct` counts this view. Up to datarepo 1.4.5 this view read "
-          + "`best_q_value` (and `best_q_value_notch`) at or below 0.01 for every search. The PEP q-value passes "
-          + "more peptidoforms than that on most deposits and far fewer on some low-resolution ones, where a "
-          + "`confidence_rule_fewer_peptides` finding gives both counts. PEP is trained afresh by every search and "
-          + "its training changed between MetaMorpheus releases, so compare counts across datasets on one rule and "
-          + "one release (`datasets.search_engine_version`).";
+        "`peptidoforms` at 1% under each search's own identification filter, the one its results.txt names, as "
+          + "`datasets.confidence_rule` records it: target only, and at or below 0.01 as the search cuts. "
+          + "`q_value_and_notch` (every MetaMorpheus up to 1.1.14): `best_q_value`, and `best_q_value_notch` where there "
+          + "is one. `q_value_notch`: `best_q_value_notch` (`best_q_value` where there is none). `q_value`: `best_q_value`. "
+          + "`pep_q_value`: `best_pep_q_value`. `pep_q_value_or_notch`: the PEP q-value where it is between 0 and 1, else "
+          + "the notch. A row with no value for its rule fails. It is the test the ingest applied to `peptidoform_ions`, "
+          + "so the two hold the same peptidoforms wherever the search left the AllPeptides.psmtsv the ions are read from. "
+          + "Contaminants are left out. **It is not the producer's own peptide count:** that is in `metrics` "
+          + "(`name = 'peptides'`, `scope = 'dataset'`); `dataset_overview.n_peptidoforms_1pct` counts this view. For "
+          + "every search up to 1.1.14 this is the rule datarepo 1.4.5 used. Compare counts across datasets on one rule "
+          + "(`confidence_rule`) and one MetaMorpheus release (`datasets.search_engine_version`).";
 
-    /// <summary>The sentence <c>dataset_overview</c>'s description gains at catalog format 17 (D55): one count is not
+    /// <summary>The sentence <c>dataset_overview</c>'s description gains at catalog format 17: one count is not
     /// reconciled against the producer.</summary>
     internal const string OverviewPeptidoformException =
         "`n_peptidoforms_1pct` is the exception from catalog format 17: it counts `peptidoforms_1pct`, which follows "
-        + "each search's own confidence rule (`confidence_rule`), not the producer's q-value count. ";
+        + "each search's own identification filter (`confidence_rule`), and is not reconciled against the producer's count. ";
 
     /// <summary><c>dataset_overview.n_peptidoforms_1pct</c>'s description, which Python 0.32.0 never gave it.</summary>
     internal const string OverviewPeptidoformsDoc =
-        "Target peptidoforms in `peptidoforms_1pct`: those whose q-value named by `confidence_rule` is strictly below "
-        + "0.01 (D55). NOT the producer's peptide count, which counts on the q-value and is in `metrics` "
-        + "(`name = 'peptides'`, `scope = 'dataset'`): compare the two to see what the rule did.";
+        "Target peptidoforms in `peptidoforms_1pct`: those that pass the search's own filter, as `confidence_rule` names "
+        + "it, at or below 0.01. Not the producer's peptide count, which is in `metrics` (`name = 'peptides'`, "
+        + "`scope = 'dataset'`).";
 
     /// <summary>What the derived tables and views MEAN, for <c>datarepo mcp</c>'s describe tool.</summary>
     /// <remarks>
@@ -623,10 +620,11 @@ public static partial class CatalogBuilder
                     + "other method. **Never pool values across `quant_scale`**; effects may be combined under "
                     + "`aging:DEF-AGE-EFFECT-META` v1.4, TMT read at MS3 only, with one method term per dataset. A dataset "
                     + "`reporter_level_mixed` or `reporter_level_not_recorded` is on neither track.",
-                ["confidence_rule"] = "The search's confidence rule, as `datasets.confidence_rule` records it: which "
-                    + "q-value `n_peptidoforms_1pct` counted on. `pep_q_value` where the search trained PEP, "
-                    + "`q_value_notch` or `q_value` where it did not (D55). Two datasets' peptide counts on different rules "
-                    + "rest on different q-values.",
+                ["confidence_rule"] = "The search's 1% rule, as `datasets.confidence_rule` records it: the identification "
+                    + "filter its results.txt names, which `n_peptidoforms_1pct` counted on. `q_value_and_notch` for every "
+                    + "MetaMorpheus up to 1.1.14; from 1.1.15 the filter the search was set to (`q_value_notch`, `q_value`, "
+                    + "`pep_q_value`, or `pep_q_value_or_notch` where PEP trained for only some peptides). Two datasets' "
+                    + "peptide counts on different rules rest on different q-values.",
                 ["n_protein_groups_1pct"] = "Protein groups at 1% group-level FDR, contaminants included.",
                 ["unique_peptides_scope"] = "What `protein_groups.unique_peptides` and `shared_peptides` count in this dataset, "
                     + "decided by the MetaMorpheus release that searched it: `database` before 1.1.13 (a peptide no other "
@@ -2692,7 +2690,7 @@ public static partial class CatalogBuilder
                 END AS quant_scale,
             ";
 
-    /// <summary>The rule <c>n_peptidoforms_1pct</c> counted by (D55), beside it. Python 0.32.0's schema records none, so a
+    /// <summary>The rule <c>n_peptidoforms_1pct</c> counted by (D78), beside it. Python 0.32.0's schema records none, so a
     /// parity build writes no such column.</summary>
     internal static string ConfidenceRuleColumn => SchemaContract.IsPython0320 ? "" : @"d.confidence_rule,
             ";

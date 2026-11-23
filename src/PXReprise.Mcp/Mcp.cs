@@ -65,8 +65,8 @@ public static class Mcp
             + $"{PyFormat.FormatG(Sandbox.TimeoutSecondsDefault)} s is stopped -- so aggregate in "
             + "SQL rather than fetching rows to count them. Prefer the *_1pct views (peptidoforms_1pct, "
             + "protein_groups_1pct): they apply each search's 1% rule, so you do not have to restate "
-            + "it. peptidoforms_1pct reads the q-value datasets.confidence_rule names, so its counts are not "
-            + "the producer's own peptide count (that is in metrics). PSMs are not in the catalog; dataset_overview has each "
+            + "it. peptidoforms_1pct reads each search's own filter, as datasets.confidence_rule names it, and its "
+            + "counts are not the producer's own peptide count (that is in metrics). PSMs are not in the catalog; dataset_overview has each "
             + "dataset's PSM counts. Call describe('<table>') first if you are unsure of a column.",
             """{"properties":{"query":{"title":"Query","type":"string"},"max_rows":{"anyOf":[{"type":"integer"},{"type":"null"}],"default":null,"title":"Max Rows"}},"required":["query"],"type":"object","title":"datarepo_sqlArguments"}""",
             """{"type":"object","additionalProperties":true,"title":"datarepo_sqlDictOutput"}"""),

@@ -47,8 +47,8 @@ The parts of the proposal below that it settled in practice:
 - **A 1% rule is applied once.** `peptidoforms_1pct` and `protein_groups_1pct` are views, and each
   dataset's PSM count at the rule is the one its bundle reconciled (PSMs stay in the bundles), so the
   catalog's PSM and protein-group numbers are the numbers the bundle reconciled rather than a second
-  opinion. From catalog format 17 the peptidoform view follows each search's own confidence rule (D55),
-  the rule the ingest applied to `peptidoform_ions`, so its count is deliberately not the producer's.
+  opinion. From catalog format 17 the peptidoform view follows each search's own identification filter
+  (D78), the rule the ingest applied to `peptidoform_ions`; it is not reconciled against the producer's count.
 - **Cross-dataset indexes are the point.** `protein_index`, `protein_datasets` and `peptide_index`
   answer "which datasets have this", which no single bundle can.
 - **Nothing is served that does not hold together.** Row counts, uniqueness and references are
