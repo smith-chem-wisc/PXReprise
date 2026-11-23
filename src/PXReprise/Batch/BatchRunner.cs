@@ -502,7 +502,9 @@ public sealed class BatchRunner
             if (_m.DataRepo is not null)
             {
                 var (started, vrc, version) = await DataRepoVersionAsync(_m.DataRepo, ct, DataRepoVersionForTest).ConfigureAwait(false);
-                _ingestJson = vrc == 0 && TakesIngestJson(version);
+                // A datarepo of the engine's own release takes --json too: a pair the binaries workflow stamps 0.0.0-dev,
+                // which D73 lets run together, is one build of today's code (dataRepo 149)
+                _ingestJson = vrc == 0 && (TakesIngestJson(version) || SameRelease(Provenance.RunRecord.Versions()["pxreprise"], version));
                 Log($"  datarepo version: {(version.Length > 0 ? version : $"unknown (rc {vrc})")}; ingest reads {(_ingestJson ? "the --json envelope" : "the exit code")}");
                 // D73: one release holds both programs, so a datarepo from another release stops the batch before any deposit.
                 if (started && OtherRelease(_m.DataRepo, Provenance.RunRecord.Versions()["pxreprise"], vrc, version) is { } refusal)
@@ -2183,7 +2185,8 @@ public sealed class BatchRunner
     /// The command a delivery runs to ingest one search: <c>datarepo ingest &lt;manifest&gt; &lt;key&gt;</c>, with
     /// <c>--json</c> when the machine's datarepo takes it (<see cref="TakesIngestJson"/>). The test that runs both
     /// programs together (<c>tests/PXReprise.Seam.Tests</c>) calls it with <c>json: true</c>, so it runs what a batch
-    /// runs with a datarepo that takes <c>--json</c> (1.0.0 or later; a source build reports 0.0.0-dev and does not).
+    /// runs with a datarepo that takes <c>--json</c>: 1.0.0 or later, or a datarepo of the engine's own release, as a pair
+    /// the binaries workflow stamps 0.0.0-dev is.
     /// </summary>
     internal static string[] IngestCommand(string datarepo, string manifest, string key, bool json) =>
         json ? new[] { datarepo, "ingest", manifest, key, "--json" } : new[] { datarepo, "ingest", manifest, key };
