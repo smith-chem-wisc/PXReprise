@@ -1,19 +1,65 @@
 # Changelog
 
-Every release says three things before anything else: whether it needs a different MetaMorpheus, whether your machine
-file needs a change, and whether it is safe to update while a batch is part-way through a queue. How to update:
-section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PXReprise/getting-started.html).
+Every release says four things before anything else: whether it needs a different MetaMorpheus, whether your machine
+file needs a change, whether it is safe to update while a batch is part-way through a queue, and what adopting it costs
+your repository (**Adopting:** a swap only, a swap and a catalog rebuild, or a full re-ingest). The release workflow
+refuses a section whose lead does not say **Adopting:**. How to update: section 7, "Updating", of
+[Getting started](https://smith-chem-wisc.github.io/PXReprise/getting-started.html).
+
+One release holds the engine (`pxreprise`) and `datarepo`, under one version, for Windows, Linux and macOS
+([decision 0073](docs/decisions/0073-one-release-for-the-engine-and-datarepo.md)). datarepo's own version line ended at
+1.5.0; its changes up to then are in [docs/data/CHANGELOG.md](docs/data/CHANGELOG.md).
 
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
 ## Unreleased
 
-**MetaMorpheus** unchanged (1.1.14). **Machine file:** no change needed. **Safe mid-batch?** Yes: swap the pin as usual.
-Nothing searched under another profile changes. **Adopting:** a swap only. A question that wants it names `tmt-dda@5`
-before `tmt-dda@4` in its `profiles`, and each deposit QC refused for ion-trap HCD gets a `batch retry`. So does each
-deposit refused for `no_isobaric_reporters` whose record text says TMT while PRIDE's quantification names label-free too
-(below).
+**MetaMorpheus** unchanged (1.1.14). **Machine file:** `datarepo` must name the datarepo of this release (the `datarepo`
+folder of its archive): a batch refuses any other at its start. **Safe mid-batch?** Yes: swap the pin and its datarepo
+together, as usual. Nothing searched under another profile changes. **Adopting:** a swap and a catalog rebuild, because
+datarepo's version is now the release's and the catalog id hashes it (a store still on datarepo 1.4.x first re-ingests
+once, as 1.5.0 asks). A question that wants it names `tmt-dda@5` before `tmt-dda@4` in its `profiles`, and each deposit
+QC refused for ion-trap HCD gets a `batch retry`. So does each deposit refused for `no_isobaric_reporters` whose record
+text says TMT while PRIDE's quantification names label-free too (below).
+
+- **One release for the engine and datarepo, under one version** (decision 0073).
+  - **The problem.** The two programs were released apart. The engine's `v<version>` tags published notes only, and
+    datarepo's own `datarepo-v<version>` tags made draft releases of its programs. Nothing tied a machine's two programs
+    together: an engine release's notes said which datarepo it needed, and a batch ran with any.
+  - **One tag, one version, both programs.** A `v<version>` tag now publishes "PXReprise <version>" with one archive per
+    platform, `pxreprise-<version>-<rid>` (`.zip` for win-x64; `.tar.gz`, which keeps the executable bit, for linux-x64,
+    osx-arm64 and osx-x64). Each holds a `pxreprise/` and a `datarepo/` folder, both self-contained. Before anything is
+    published, each platform's programs run with no .NET on `PATH`: the engine's `version` must report the release,
+    `datarepo --version` must print `datarepo <version>`, and datarepo runs the fixture instance end to end, from its
+    folder and again from the unpacked archive.
+  - **The version is the csproj's `<Version>`;** datarepo has none of its own (`src/Data.Build.props` keeps `0.0.0-dev`
+    for every build that is not a release). The `datarepo-v*` tags end. datarepo's last own numbers were 1.4.5 and 1.5.0,
+    and its version restarts at the joint 1.0.0.
+  - **A batch refuses a datarepo from another release.** At its start a batch reads `datarepo --version`; any version but
+    the engine's own (its `+commit` aside) stops it before any deposit, naming both versions ("use the datarepo from the
+    same PXReprise release"). `batch status --machine` makes the same check and shows the datarepo's version, so check a
+    new install with it before stopping a running batch. A datarepo that cannot be started at all is left to its ingest,
+    as before.
+  - **Every release says what adopting it costs:** a swap only, a swap and a catalog rebuild, or a full re-ingest, in its
+    lead (above). The catalog id hashes datarepo's version, which is now every release's, so adopting any release, even
+    one that changes only the engine, costs at least a swap and a catalog rebuild.
+  - The push-time `datarepo-binaries` workflow now checks both programs on every platform, with the release's own steps
+    (`.github/workflows/binaries.yml`).
+
+- **A new question's manifest now names the machine's `work_root`, not the question's run root** (dataRepo's seam test).
+  - **The problem.** When a question's `[publish] manifest` did not exist yet, the batch wrote it with `work_root` set to
+    the question's `run_root`. But every `provenance.json` names its inputs relative to the machine's `work_root`: the
+    searched databases, the fetch and QC records, and (by default) MetaMorpheus's settings folder. datarepo reads all of
+    them against the manifest's `work_root`, so it found none of them. Each bundle then had no databases, left
+    Carbamidomethyl and other modifications unresolved, and kept only the search's own provenance record, and
+    `datarepo ingest` still exited 0. Measured on a replayed real search: 0 database rows instead of 2, 26 PTM sites
+    instead of 36, no stoichiometry instead of 4 rows.
+  - **Now the manifest names the machine's `work_root`,** relative to the manifest where one folder holds the other and
+    absolute otherwise, and each entry's `run` is relative to that root (`runs/PXD000210`).
+  - **An existing manifest is never rewritten.** One the batch wrote under an earlier version needs its `work_root` set
+    to the machine's by hand, and each entry's `run` changed to match. A hand-written manifest whose `work_root` is
+    already the machine's (aging's) is not affected.
 
 - **The spectra now decide when the record text, not PRIDE's list, chose the TMT profile** (PXD032900-lfq, 2026-11-20).
   - **The problem.** Since 0.4.45, a deposit routed to the isobaric profile by PRIDE's words goes back to its label-free
@@ -43,6 +89,17 @@ deposit refused for `no_isobaric_reporters` whose record text says TMT while PRI
   is twenty TMT6 sets, 1.9 TB. `tissue` would pass and be untrue. Groups name their raw files with `include_files`, as for
   any split. Delivering such a group needs a datarepo that reads `split_reason: plex` (1.5.0 here); 1.4.5 refuses it at
   ingest.
+
+- **Ahead of MetaMorpheus 1.1.15: a bare `q-value` count is the 1% definition's only up to 1.1.14, and the search
+  provenance says whether PEP was trained** (dataRepo PXR-R80).
+  - Up to 1.1.14 a results.txt line "All target PSMs with q-value <= 0.01" counts by the q-value and the notch together,
+    the rule `DEF-PSM-1PCT v1` describes; from 1.1.15 the same words mean the q-value alone. The search's `id_rate`
+    files the count under the definition (`psms_1pct`, `rate`) only where the line means the older rule, decided as
+    datarepo decides it: by the FDR engine's own line ("PSMs within 1% FDR" up to 1.1.14, "PSMs with <filter> <= t" from
+    1.1.15), else by the release. Otherwise it stays under `psms_filter_1pct` and `rate_filter`, beside `filter`.
+  - `identification_filter.pep_trained`: under the PEP q-value filter, `true` when PEP was trained for every target PSM,
+    or one entry per digestion agent results.txt names as untrained (`{"trypsin": false}`); null under any other filter.
+  - A search under MetaMorpheus 1.1.14 or earlier records the same counts as before.
 
 - **A new TMT profile, `tmt-dda@5`: `tmt-dda@4` plus MS2 fragmented by HCD and read in the ion trap,** searched as
   MetaMorpheus's LowCID.

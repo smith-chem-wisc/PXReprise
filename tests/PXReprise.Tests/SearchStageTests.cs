@@ -297,6 +297,46 @@ public class SearchStageTests
         finally { Environment.SetEnvironmentVariable("FAKE_MM_RELEASE", null); }
     }
 
+    // PXR-R80 (dataRepo): a MetaMorpheus 1.1.15 search records, in its identification_filter, whether PEP was trained under
+    // the PEP q-value filter, and none under another; and its id_rate files no count under the q-value-and-notch
+    // definition, a bare "q-value" one included. results.txt is 1.1.15's own (ResultsTxtSamples).
+    [Test]
+    public async Task A1115SearchRecordsWhetherPepTrainedAndFilesNoCountUnderTheOldDefinition()
+    {
+        var rig = Setup(library: false, mm: "1.1.15");
+        Environment.SetEnvironmentVariable("FAKE_MM_RELEASE", "1.1.15");
+        try
+        {
+            async Task<JsonNode> Search(string outName, string results)
+            {
+                Environment.SetEnvironmentVariable("FAKE_MM_RESULTS", TestSupport.WriteFile(rig.Root, outName + ".results.txt", results));
+                var o = await SearchStage.RunAsync(Req(rig, outName), CancellationToken.None);
+                Assert.That(o.Success, Is.True);
+                return JsonNode.Parse(File.ReadAllText(o.ProvenanceFile))!;
+            }
+
+            var pep = await Search("04_search_pep", ResultsTxtSamples.Lfq1115PepNotTrained);
+            var q = await Search("04_search_q", ResultsTxtSamples.Lfq1115QValue);
+            Assert.Multiple(() =>
+            {
+                Assert.That(pep["identification_filter"]!["pep_trained"]!.ToJsonString(), Is.EqualTo("""{"trypsin":false}"""));
+                Assert.That(pep["identification_filter"]!["notes"]!.AsArray(), Has.Count.EqualTo(2), "the sentences stay in the notes");
+                Assert.That(pep["id_rate"]!["psms_1pct"], Is.Null);
+                Assert.That((pep["id_rate"]!["filter"]!.GetValue<string>(), (int)pep["id_rate"]!["psms_filter_1pct"]!), Is.EqualTo(("pep q-value", 332)));
+
+                Assert.That(q["identification_filter"]!.AsObject().TryGetPropertyValue("pep_trained", out var none) && none is null, Is.True,
+                    "another filter: null");
+                Assert.That(q["id_rate"]!["psms_1pct"], Is.Null, "1.1.15's bare q-value is not the definition's rule");
+                Assert.That((q["id_rate"]!["filter"]!.GetValue<string>(), (int)q["id_rate"]!["psms_filter_1pct"]!), Is.EqualTo(("q-value", 332)));
+            });
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("FAKE_MM_RELEASE", null);
+            Environment.SetEnvironmentVariable("FAKE_MM_RESULTS", null);
+        }
+    }
+
     [TestCase("master@fedcba9876", null, "built from commit 0123456789abcdef")]
     [TestCase("1.1.11", "Not a release version.", "MetaMorpheus is unknown, test-dda@1 expects 1.1.11")]
     public void ABuildOtherThanTheOnePinnedIsRefused(string mm, string? banner, string message)

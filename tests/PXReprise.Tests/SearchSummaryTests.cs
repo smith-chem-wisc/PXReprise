@@ -30,6 +30,49 @@ public class SearchSummaryTests
         Assert.That((idr.PsmsFilter1Pct, idr.RateFilter, idr.Filter), Is.EqualTo(((int?)n, (double?)Math.Round(n / 100_000.0, 4), filter)));
     }
 
+    // PXR-R80: the definition's count (DEF-PSM-1PCT v1, the q-value and the notch together) is a bare "q-value" line's only
+    // up to 1.1.14. The FDR engine's line says which rule the count lines follow, whatever the release string says, as
+    // datarepo's FilterOf decides. Real lines, with either line ending.
+    [Test]
+    public void ABareQValueLineIsTheDefinitionsCountOnlyUpTo1114()
+    {
+        foreach (string eol in new[] { "\n", "\r\n" })
+        {
+            string Eol(string s) => s.ReplaceLineEndings(eol);
+            Assert.Multiple(() =>
+            {
+                Assert.That(SearchSummary.Parse(Eol(ResultsTxtSamples.Lfq1114), "1.1.14"), Is.EqualTo(new SearchSummary(318, 323, "q-value", 318)));
+                Assert.That(SearchSummary.Parse(Eol(ResultsTxtSamples.Lfq1115QValue), "1.1.15"), Is.EqualTo(new SearchSummary(null, null, "q-value", 332)),
+                    "1.1.15's q-value alone is not the definition's rule");
+                Assert.That(SearchSummary.Parse(Eol(ResultsTxtSamples.Lfq1115QValue)), Is.EqualTo(new SearchSummary(null, null, "q-value", 332)),
+                    "the engine line decides with no release, as for a commit pin");
+                Assert.That(SearchSummary.Parse(Eol(ResultsTxtSamples.Lfq1114), "1.1.15"), Is.EqualTo(new SearchSummary(318, 323, "q-value", 318)),
+                    "and over a release string that says otherwise");
+                Assert.That(SearchSummary.Parse(Eol(ResultsTxtSamples.Lfq1115Notch), "1.1.15"), Is.EqualTo(new SearchSummary(null, null, "q-value notch", 318)));
+            });
+        }
+
+        // The id_rate block files 1.1.15's q-value count under the filter, and the low_id_rate flag names it.
+        var (block, psms, flag) = SearchStage.IdRateBlock(SearchSummary.Parse(ResultsTxtSamples.Lfq1115QValue, "1.1.15"), 100_000);
+        Assert.That((block["psms_1pct"], block["rate"]), Is.EqualTo(((JsonNode?)null, (JsonNode?)null)));
+        Assert.That((block["filter"]!.GetValue<string>(), block["psms_filter_1pct"]!.GetValue<int>(), psms), Is.EqualTo(("q-value", 332, (int?)332)));
+        Assert.That(flag, Is.EqualTo("low_id_rate: 332/100000 = 0.33% of MS2 identified (S3, q-value)"));
+    }
+
+    // Without the FDR engine's line the release decides: 1.1.15 or later is the q-value alone; an earlier release, no release
+    // (a commit pin) or a string that is not a version is the older rule.
+    [TestCase("1.1.15", false)]
+    [TestCase("1.2.0", false)]
+    [TestCase("1.1.14", true)]
+    [TestCase(null, true)]
+    [TestCase("v1.1.15", true)]
+    public void WithoutTheEngineLineTheReleaseDecides(string? release, bool oldRule)
+    {
+        const string counts = "All target PSMs with q-value <= 0.01: 332\nAll target peptides with q-value <= 0.01: 88\n";
+        Assert.That(SearchSummary.QValueIsTheOldRule(counts, release), Is.EqualTo(oldRule));
+        Assert.That(SearchSummary.Parse(counts, release).Psms1Pct, Is.EqualTo(oldRule ? (int?)332 : null));
+    }
+
     // D84: the search's id_rate block and its low_id_rate flag (S3). Under the PEP filter the definition's slots are null,
     // and the count the stage reports and the flag read the filter's own count; the flag names the filter.
     [Test]

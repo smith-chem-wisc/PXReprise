@@ -501,12 +501,15 @@ public sealed class BatchRunner
         {
             if (_m.DataRepo is not null)
             {
-                int vrc; string vout, verr;
-                try { (vrc, vout, verr) = await RunProcessFullAsync(new[] { _m.DataRepo, "--version" }, TimeSpan.FromMinutes(2), ct).ConfigureAwait(false); }
-                catch (System.ComponentModel.Win32Exception ex) { (vrc, vout, verr) = (-1, "", ex.Message); }   // not startable: ingest will say so
-                string version = (vout + verr).Trim().Split('\n')[0].Trim();
+                var (started, vrc, version) = await DataRepoVersionAsync(_m.DataRepo, ct, DataRepoVersionForTest).ConfigureAwait(false);
                 _ingestJson = vrc == 0 && TakesIngestJson(version);
                 Log($"  datarepo version: {(version.Length > 0 ? version : $"unknown (rc {vrc})")}; ingest reads {(_ingestJson ? "the --json envelope" : "the exit code")}");
+                // D73: one release holds both programs, so a datarepo from another release stops the batch before any deposit.
+                if (started && OtherRelease(_m.DataRepo, Provenance.RunRecord.Versions()["pxreprise"], vrc, version) is { } refusal)
+                {
+                    Log($"batch refused: {refusal}");
+                    throw new ConfigException(_m.SourceFile, refusal);
+                }
             }
             SyncRestrictions();
             await ReconcileAsync(queue, ct).ConfigureAwait(false);
@@ -1903,7 +1906,7 @@ public sealed class BatchRunner
         }
         try
         {
-            ManifestEntry.EnsureExists(manifest, _q.Name, _runRoot);
+            ManifestEntry.EnsureExists(manifest, _q.Name, _m.WorkRoot);
             var split = _q.ExceptionFor(e.Accession)?.Split;
             ManifestEntry.Append(manifest, e, profile, Run(e.Accession), Entry(e.Accession), _m.WorkRoot, split, _q.RestrictionsFor(e.Accession));
             Log($"{e.Accession} MANIFEST entry appended" + (split is null ? "" : $" (split by {split.By}; {split.Accession}'s own entry, if served, retired as superseded)"));
@@ -2185,6 +2188,52 @@ public sealed class BatchRunner
         json ? new[] { datarepo, "ingest", manifest, key, "--json" } : new[] { datarepo, "ingest", manifest, key };
 
     private bool _ingestJson;
+
+    /// <summary>Tests only: replaces the run of <c>datarepo --version</c> at the batch's start (exit code, stdout, stderr).</summary>
+    internal Func<CancellationToken, Task<(int Rc, string Stdout, string Stderr)>>? DataRepoVersionForTest { get; set; }
+
+    /// <summary>
+    /// Runs <c>datarepo --version</c> (or <paramref name="run"/>): whether the program started, its exit code and the first line
+    /// it printed. A program that cannot be started at all gives its error as the line; its ingest fails and says so.
+    /// </summary>
+    internal static async Task<(bool Started, int Rc, string Line)> DataRepoVersionAsync(string dataRepo, CancellationToken ct,
+        Func<CancellationToken, Task<(int Rc, string Stdout, string Stderr)>>? run = null)
+    {
+        int rc; string stdout, stderr;
+        try
+        {
+            (rc, stdout, stderr) = await (run ?? (c => RunProcessFullAsync(new[] { dataRepo, "--version" }, TimeSpan.FromMinutes(2), c)))(ct)
+                .ConfigureAwait(false);
+        }
+        catch (System.ComponentModel.Win32Exception ex) { return (false, -1, ex.Message.Split('\n')[0].Trim()); }
+        return (true, rc, (stdout + stderr).Trim().Split('\n')[0].Trim());
+    }
+
+    /// <summary>
+    /// D73: whether <paramref name="datarepoVersionLine"/> (<c>datarepo --version</c>: "datarepo 1.0.0") is the datarepo of the
+    /// engine's own release. One release stamps one version on both programs, so its version, a pre-release suffix included,
+    /// must equal <paramref name="engineVersion"/> without the engine's <c>+build</c> metadata (the commit it reports).
+    /// </summary>
+    internal static bool SameRelease(string engineVersion, string datarepoVersionLine) =>
+        System.Text.RegularExpressions.Regex.Match(datarepoVersionLine.Trim(), @"^datarepo\s+(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$") is { Success: true } m
+        && string.Equals(m.Groups[1].Value, ReleaseOf(engineVersion), StringComparison.Ordinal);
+
+    /// <summary>A version without its <c>+build</c> metadata: "1.0.0+f9483dd" is release 1.0.0.</summary>
+    internal static string ReleaseOf(string version) => version.Split('+')[0].Trim();
+
+    /// <summary>
+    /// D73: why the datarepo at <paramref name="dataRepo"/> may not deliver for this engine, or null when it is the datarepo of
+    /// the engine's own release. Read by a batch's start and by <c>batch status --machine</c>, so a new install is checked
+    /// before the old driver is stopped.
+    /// </summary>
+    internal static string? OtherRelease(string dataRepo, string engineVersion, int rc, string line)
+    {
+        if (SameRelease(engineVersion, line)) return null;
+        string release = ReleaseOf(engineVersion);
+        string said = (line.Length > 0 ? $"'{line}'" : "no version") + (rc == 0 ? "" : $" (rc {rc})");
+        return $"datarepo {dataRepo} reports {said}, and this engine is pxreprise {release}: use the datarepo from the same "
+            + $"PXReprise release (the datarepo folder of the pxreprise-{release} archive; its --version prints 'datarepo {release}')";
+    }
 
     // ------------------------------------------------------------------ helpers
 

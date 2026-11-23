@@ -2,8 +2,11 @@
 
 **dataRepo's code now lives here, in smith-chem-wisc/PXReprise** (since #4, 2026-11-13): the projects
 `src/PXReprise.*`, the tests `tests/PXReprise.Data.Tests`, the schema `schemas/datarepo/datarepo.yaml`,
-and these docs. Changes come in as pull requests; datarepo releases are tagged `datarepo-v<version>`.
-smith-chem-wisc/dataRepo keeps the project's design records, threads and results.
+and these docs. Changes come in as pull requests. datarepo is released with the engine, under one
+version, on PXReprise's `v<version>` tags
+([decision 0073](../decisions/0073-one-release-for-the-engine-and-datarepo.md)); its own
+`datarepo-v<version>` tags ended with 1.5.0. smith-chem-wisc/dataRepo keeps the project's design
+records, threads and results.
 
 Thanks for helping. dataRepo is early, so the most useful contributions right now are schema reviews,
 benchmark questions the schema can't yet answer, and producer file formats the ingester mishandles.

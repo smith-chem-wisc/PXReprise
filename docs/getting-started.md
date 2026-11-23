@@ -49,23 +49,31 @@ profile a new installation uses, names 1.1.13. Its protein databases download by
 after release, so a newer MetaMorpheus arrives with a new profile version, once it has been measured: see
 [Profiles](concepts.md#profiles).
 
-## 3b. Download dataRepo
+## 3b. Download datarepo
 
-[dataRepo](https://github.com/smith-chem-wisc/dataRepo) turns the search results into a repository you can query, and
-a website. It is a ready-to-run download: no Python.
+datarepo turns the search results into a repository you can query, and a website. It is part of PXReprise: one
+[PXReprise release](https://github.com/smith-chem-wisc/PXReprise/releases) holds the engine and datarepo under one
+version, ready to run, with no .NET or Python (from 1.0.0; earlier releases carried neither program).
 
-1. From the [dataRepo 1.4.4 release](https://github.com/smith-chem-wisc/dataRepo/releases/tag/v1.4.4), download the
-   file for your computer: `datarepo-1.4.4-win-x64.zip`, `datarepo-1.4.4-linux-x64.tar.gz`,
-   `datarepo-1.4.4-osx-arm64.tar.gz` (Apple silicon) or `datarepo-1.4.4-osx-x64.tar.gz` (Intel).
-2. Unpack it into `D:\tools`, which makes `D:\tools\datarepo`. On Linux and macOS use `tar -xzf`.
-3. Check it: `D:\tools\datarepo\datarepo.exe --version` should print `datarepo 1.4.4`, and
-   `D:\tools\datarepo\datarepo.exe doctor` should end with `ready`. On macOS, if the program is blocked, run
-   `xattr -dr com.apple.quarantine datarepo` once in the folder you unpacked.
+**A batch delivers only with the datarepo of its engine's own release.** `pxreprise version` reports the engine's version,
+then a `+` and its commit; `datarepo --version` must print `datarepo` and that same version. A batch with any other
+datarepo stops at its start, before any deposit, and names both versions.
 
-Use one release for the whole repository: ingest, catalog and website. Its version is part of each bundle's and catalog's
-identity, and its release notes say when moving to a newer one means ingesting every deposit again.
+1. From the release of your engine's version, download the archive for your computer:
+   `pxreprise-<version>-win-x64.zip`, `pxreprise-<version>-linux-x64.tar.gz`, `pxreprise-<version>-osx-arm64.tar.gz`
+   (Apple silicon) or `pxreprise-<version>-osx-x64.tar.gz` (Intel). It holds two folders, `pxreprise` and `datarepo`.
+2. Unpack it into a folder of its own, e.g. `D:\tools\pxreprise-1.0.0`. On Linux and macOS use `tar -xzf`, which keeps
+   the programs executable.
+3. Check it: `D:\tools\pxreprise-1.0.0\datarepo\datarepo.exe --version` should print `datarepo 1.0.0`, the version
+   `pxreprise version` reports, and `D:\tools\pxreprise-1.0.0\datarepo\datarepo.exe doctor` should end with `ready`. On
+   macOS, if the program is blocked, run `xattr -dr com.apple.quarantine pxreprise-1.0.0` once in the folder that holds it.
 
-Without dataRepo, everything still runs; it stops after the search.
+The archive's `pxreprise` folder is the same engine, ready to run; you may use it instead of the one you built.
+
+Use one release for the whole repository: ingest, catalog and website. Its version is part of each catalog's identity, so
+every release builds a new catalog id, and its release notes say when moving to it means ingesting every deposit again.
+
+Without datarepo, everything still runs; it stops after the search.
 
 ## 4. Describe your machine
 
@@ -79,7 +87,7 @@ Set four things. Use forward slashes in paths, even on Windows.
 
 - `work_root`: where the work goes, e.g. `"D:/pxreprise"`.
 - `"1.1.13"` under `[metamorpheus]`: `"D:/tools/MetaMorpheus-1.1.13/CMD.dll"`.
-- `datarepo`: `"D:/tools/datarepo/datarepo.exe"`.
+- `datarepo`: `"D:/tools/pxreprise-1.0.0/datarepo/datarepo.exe"`, the datarepo of your engine's release (step 3b).
 - `accept_thermo_licence`: Thermo `.raw` files are read with Thermo's RawFileReader, under
   [its licence](https://github.com/thermofisherlsms/RawFileReader). Read it; set `true` only if you accept it.
 
@@ -132,7 +140,8 @@ MetaMorpheus count the 1% PSMs slightly differently.
 
 New versions are listed, newest first, on the [releases page](https://github.com/smith-chem-wisc/PXReprise/releases)
 and in `CHANGELOG.md`. Each one says whether it needs a different MetaMorpheus, whether your machine file needs a
-change, and whether it is safe to update part-way through a batch. Read that first. To see what you have:
+change, whether it is safe to update part-way through a batch, and what adopting it costs your repository (a swap only,
+a swap and a catalog rebuild, or ingesting every deposit again). Read that first. To see what you have:
 `pxreprise version` (the `pxreprise` line is the version and the exact commit).
 
 1. **Stop any running batch** and wait for it to exit (the current search finishes first). On Windows the program
@@ -160,7 +169,15 @@ change, and whether it is safe to update part-way through a batch. Read that fir
    ```
 
 4. **Do what the release notes ask**, if anything: download a new MetaMorpheus, or add a line to your machine file.
-5. **Start the batch again** with `batch run`. It carries on where it stopped.
+5. **With datarepo, take the new release's too** (step 3b) and point the machine file's `datarepo` at it: a batch refuses
+   a datarepo from another release. Check before you start:
+
+   ```
+   pxreprise batch status path/to/question.toml --machine machines/my-machine.toml
+   ```
+
+   It makes the same check as a start and changes nothing.
+6. **Start the batch again** with `batch run`. It carries on where it stopped.
 
 What an update keeps:
 - **Your machine file.** `machines/my-*.toml` is never committed, so `git pull` does not touch it. New settings come
@@ -206,6 +223,7 @@ Every command prints one JSON object. `"ok": false` comes with an error `type` a
 | `"type": "ServiceUnavailable"` | PRIDE or UniProt is down or slow. Try again later; a running batch retries by itself. |
 | `names no MetaMorpheus 1.1.13` | Your machine file's `[metamorpheus]` entry is missing or misspelled. |
 | `contaminant database missing` | The `[metamorpheus]` path is not inside the unzipped release folder. |
+| `use the datarepo from the same PXReprise release` | The machine file's `datarepo` is from another release than the engine. Point it at the `datarepo` folder of your engine's release (step 3b). |
 | `batch.log` says `free space ... below ... floor: stopping` or `paused at the disk floor` | Free up disk, or lower `min_free_gb` in your machine file, then run the batch again. |
 | a deposit you expected was not searched | Find it in the census's `census.tsv`: the `route` and `route_reason` columns say why. |
 | a deposit's status starts `waiting_` | [Reading the results](results.md#what-each-status-means) says what it waits on. If it needs a person, it has a row in `decisions_needed.tsv`. |

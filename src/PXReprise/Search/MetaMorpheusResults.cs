@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
 namespace PXReprise.Search;
@@ -112,6 +113,55 @@ public static partial class MetaMorpheusResults
             else if (line.StartsWith("PEP ", StringComparison.Ordinal)) notes.Add(line.Trim());
         }
         return (counts, notes);
+    }
+
+    // MetaMorpheus 1.1.15 (FilteredPsms.PepNotTrainedSentence), on the line just above the count it qualifies:
+    // "PEP filtering was requested, but PEP was not trained for 7 target PSMs (trypsin: 7), so those were filtered by q-value
+    // notch <= 0.01." Up to 1.1.14 the sentence names no digestion agent.
+    private const string PepFilteringNotDone = "PEP filtering was requested, but ";
+
+    [GeneratedRegex(@"^PEP filtering was requested, but PEP was not trained for \d+ target \S+ \((?<agents>.+)\), so those were filtered by ")]
+    private static partial Regex PepNotTrained();
+
+    // One "<agent>: <count>" of the sentence's list. An agent's name can hold parentheses ("trypsin (Semi)" for a semi-specific
+    // category, "chymotrypsin (don't cleave before proline)"), never ": " or ", ".
+    [GeneratedRegex(@"(?:^|, )(?<agent>.+?): \d+(?=, |$)")]
+    private static partial Regex PepNotTrainedAgent();
+
+    /// <summary>
+    /// PXR-R80: whether PEP was trained for a search's target PSMs under the PEP q-value filter, as results.txt says, for
+    /// the search provenance's <c>identification_filter.pep_trained</c>.
+    /// <list type="bullet">
+    /// <item>null: the all-files PSM count line names another filter ("q-value", "q-value notch"), or there is none.</item>
+    /// <item>true: it names "pep q-value", and no "PEP filtering was requested, but ..." sentence stands on the line above
+    /// it, so every target PSM was judged by its PEP q-value.</item>
+    /// <item>an object, one entry per digestion agent the sentence names, each false: PEP was not trained for that agent's
+    /// target PSMs, which MetaMorpheus judged by their q-value notch instead. MetaMorpheus 1.1.15 trains PEP per digestion
+    /// agent (and, in a semi- or non-specific search, per cleavage-specificity category, which the sentence writes
+    /// "trypsin (Semi)"), so an agent the search used and the sentence does not name was trained.</item>
+    /// <item>false: the sentence is there and names no agent.</item>
+    /// </list>
+    /// </summary>
+    public static JsonNode? PepTrained(IEnumerable<string> resultsLines)
+    {
+        string previous = "";
+        foreach (string raw in resultsLines)
+        {
+            string line = raw.TrimEnd('\r');
+            if (line.StartsWith("Engine Results:", StringComparison.Ordinal)) break;
+            if (CountLine().Match(line) is { Success: true } m && m.Groups["what"].Value == "PSMs")
+            {
+                if (m.Groups["filter"].Value != "pep q-value") return null;
+                if (!previous.StartsWith(PepFilteringNotDone, StringComparison.Ordinal)) return true;
+                var agents = new JsonObject();
+                if (PepNotTrained().Match(previous) is { Success: true } s)
+                    foreach (Match a in PepNotTrainedAgent().Matches(s.Groups["agents"].Value))
+                        agents[a.Groups["agent"].Value] = false;
+                return agents.Count > 0 ? agents : false;
+            }
+            previous = line;
+        }
+        return null;
     }
 
     /// <summary>The experimental-design gap warnings MetaMorpheus 1.1.13 logs when it quantifies a gapped numbering (#2928).</summary>

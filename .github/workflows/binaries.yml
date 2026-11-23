@@ -1,0 +1,123 @@
+# Both programs of one PXReprise release, self-contained, one archive per platform (decision 0073): the engine
+# (`pxreprise`, src/PXReprise) and `datarepo` (src/PXReprise.DataCli). There is ONE release and ONE version: datarepo has
+# no version of its own, and its own `datarepo-v*` tags ended with 1.5.0.
+#
+# A reusable workflow, called with the version to stamp:
+#   - by release.yml, with the release's version and commit, whose archives it attaches to the release;
+#   - by datarepo-binaries.yml on pushes to master, with the default 0.0.0-dev, as a check that every platform still builds
+#     and runs (a 0.0.0-dev build is never a release, and `datarepo run` refuses it).
+#
+# Each platform publishes both programs with -p:Version=<version> and -p:SourceRevisionId=<commit>, then VERIFIES them
+# with no .NET on PATH: the engine's `version` verb reports the version (its +build metadata is the commit), the
+# profiles load beside it, `datarepo --version` says `datarepo <version>`, and datarepo ingests the fixture dataset,
+# builds a catalog, answers a query and writes the site. The archive is then unpacked as a user would, with no chmod,
+# and both programs are run again from it.
+name: binaries
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "The version stamped on both programs (a release's, or 0.0.0-dev)"
+        type: string
+        default: "0.0.0-dev"
+      ref:
+        description: "The commit to build (default: the caller's)"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: both programs, ${{ matrix.rid }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+            exe: ".exe"
+          - os: ubuntu-latest
+            rid: linux-x64
+            exe: ""
+          - os: macos-latest       # arm64
+            rid: osx-arm64
+            exe: ""
+          - os: macos-15-intel     # x64
+            rid: osx-x64
+            exe: ""
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      V: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Publish both programs self-contained
+        shell: bash
+        run: |
+          sha=$(git rev-parse HEAD)
+          dotnet publish src/PXReprise -c Release -r ${{ matrix.rid }} --self-contained \
+            -p:Version="$V" -p:SourceRevisionId="$sha" -o "$RUNNER_TEMP/pkg/pxreprise"
+          dotnet publish src/PXReprise.DataCli -c Release -r ${{ matrix.rid }} --self-contained \
+            -p:Version="$V" -p:SourceRevisionId="$sha" -o "$RUNNER_TEMP/pkg/datarepo"
+
+      - name: Run both, with no .NET on PATH
+        shell: bash
+        run: |
+          PX="$RUNNER_TEMP/pkg/pxreprise/pxreprise${{ matrix.exe }}"
+          DR="$RUNNER_TEMP/pkg/datarepo/datarepo${{ matrix.exe }}"
+          export PATH="/usr/bin:/bin"
+          export DOTNET_ROOT=""
+          # The engine prints one JSON envelope; its tools.pxreprise is "<version>+<commit>".
+          got=$("$PX" version | tr -d '\r' | sed -n 's/^ *"pxreprise": "\([^"]*\)".*/\1/p')
+          echo "pxreprise version: $got"
+          [ "${got%%+*}" = "$V" ] || { echo "::error::pxreprise reports '$got', the release is $V"; exit 1; }
+          "$PX" profiles > "$RUNNER_TEMP/profiles.json" || { echo "::error::the profiles beside pxreprise do not load"; exit 1; }
+          test "$("$DR" --version | tr -d '\r')" = "datarepo $V"
+          "$DR" doctor
+          "$DR" manifest tests/datarepo-instance/manifest.yaml
+          "$DR" ingest tests/datarepo-instance/manifest.yaml PXD999999 --store "$RUNNER_TEMP/store" \
+            --mm-settings tests/datarepo-instance/work_root/mm_settings/1.1.11
+          "$DR" build tests/datarepo-instance/manifest.yaml PXD999999 --store "$RUNNER_TEMP/store" --out "$RUNNER_TEMP/catalog.duckdb"
+          "$DR" query "$RUNNER_TEMP/catalog.duckdb" "SELECT dataset_id, n_psms_1pct FROM dataset_overview"
+          "$DR" site "$RUNNER_TEMP/catalog.duckdb" --out "$RUNNER_TEMP/site"
+          test -f "$RUNNER_TEMP/site/datasets/PXD999999.html"
+
+      # One archive per platform holding a `pxreprise/` and a `datarepo/` folder. Unix builds ship .tar.gz, because a zip
+      # loses the executable bit (it did once, with datarepo's Python binaries).
+      - name: Package
+        shell: bash
+        run: |
+          name="pxreprise-$V-${{ matrix.rid }}"
+          mkdir -p dist
+          if [ "${{ matrix.rid }}" = "win-x64" ]; then
+            (cd "$RUNNER_TEMP/pkg" && 7z a -tzip "$GITHUB_WORKSPACE/dist/$name.zip" pxreprise datarepo > /dev/null)
+          else
+            tar -czf "dist/$name.tar.gz" -C "$RUNNER_TEMP/pkg" pxreprise datarepo
+          fi
+
+      # Unpack as a user would, with no chmod, and run what was unpacked: a lost executable bit fails here.
+      - name: Unpack and run the archive
+        shell: bash
+        run: |
+          mkdir unpacked
+          if ls dist/*.zip > /dev/null 2>&1; then (cd unpacked && 7z x ../dist/*.zip > /dev/null); else tar -xzf dist/*.tar.gz -C unpacked; fi
+          test "$(unpacked/datarepo/datarepo${{ matrix.exe }} --version | tr -d '\r')" = "datarepo $V"
+          got=$(unpacked/pxreprise/pxreprise${{ matrix.exe }} version | tr -d '\r' | sed -n 's/^ *"pxreprise": "\([^"]*\)".*/\1/p')
+          [ "${got%%+*}" = "$V" ] || { echo "::error::the unpacked pxreprise reports '$got', the release is $V"; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pxreprise-${{ matrix.rid }}
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+          if-no-files-found: error

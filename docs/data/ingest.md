@@ -19,7 +19,8 @@ producer's work root                          bundle store
 ## Install
 
 `datarepo` is one self-contained program: download the archive for your platform from a
-[release](https://github.com/smith-chem-wisc/dataRepo/releases) and unpack it (see
+[PXReprise release](https://github.com/smith-chem-wisc/PXReprise/releases) (from 1.0.0; it holds the
+engine and datarepo) and unpack it (see
 [operating.md](operating.md#1-install-one-released-version)). It reads MetaMorpheus output with
 mzLib, which is inside it, so nothing else is installed.
 

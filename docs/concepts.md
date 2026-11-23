@@ -226,7 +226,9 @@ one deposit at a time. It downloads the next deposit while the current one is be
 9. **Clean up.** Delete any raw files left; keep the results and every record.
 10. **Deliver,** if the question has a `[publish]` table and the machine names `datarepo`: add the deposit to the manifest,
     run `datarepo ingest`, then delete the search outputs nothing reads. Only `INGEST rc=0` means delivered. The website or
-    other publish step runs on a schedule, not after each deposit.
+    other publish step runs on a schedule, not after each deposit. The datarepo must be the one of the engine's own
+    release (one release holds both programs, under one version): a batch with any other stops at its start, before any
+    deposit.
 
 ## Provenance
 

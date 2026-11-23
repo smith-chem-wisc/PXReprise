@@ -150,7 +150,7 @@ Who does what between these projects is written down in [design/CHARTER.md](http
 | Ingest, study bundles, engine runner, catalog, MCP server, static site, `publish` | **working** |
 | A download that needs nothing installed | **done in 1.0.0**: dataRepo is now a C# program, released as self-contained executables for Windows, Linux and macOS (arm64, x64), each run end to end in CI before it is attached ([operating.md](operating.md#1-install-one-released-version)). The Python package is frozen at 0.32.0 |
 | Question-neutral code throughout | in progress: provenance, site and MCP done in 0.30.0 |
-| Versioned public releases alongside [PXReprise](https://github.com/smith-chem-wisc/PXReprise) | the program: [GitHub releases](https://github.com/smith-chem-wisc/dataRepo/releases) of this repository, from 1.0.0. Where data releases live is to be decided |
+| Versioned public releases alongside [PXReprise](https://github.com/smith-chem-wisc/PXReprise) | the program: released with the engine, under one version, in each [PXReprise release](https://github.com/smith-chem-wisc/PXReprise/releases) from 1.0.0 ([decision 0073](../decisions/0073-one-release-for-the-engine-and-datarepo.md)); dataRepo's own releases ended with 1.5.0. Where data releases live is to be decided |
 | REST API | deferred until a human user asks for REST (D16) |
 | A DOI per data release | the operator's step |
 

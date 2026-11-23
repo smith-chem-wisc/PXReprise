@@ -2316,29 +2316,60 @@ public class BatchRunnerTests
     }
 
     [Test]
-    public void ANewQuestionGetsAManifestWhoseRunsAreRelativeToItsOwnWorkRoot()
+    public void ANewQuestionsManifestNamesTheMachinesWorkRootAndItsRunsUnderIt()
     {
-        string dir = TestSupport.TempDir(), runRoot = Path.Combine(dir, "work", "runs"), run = Path.Combine(runRoot, "PXD000210");
+        // dataRepo's seam test (G139): the provenance names the databases and the upstream records relative to the
+        // MACHINE's work root, and datarepo reads them against the manifest's. A manifest naming the run root instead
+        // gave bundles with no databases, unresolved Carbamidomethyl and no fetch or QC record, and an ingest exiting 0.
+        string dir = TestSupport.TempDir(), workRoot = Path.Combine(dir, "work"), runRoot = Path.Combine(workRoot, "runs"), run = Path.Combine(runRoot, "PXD000210");
         Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
         Directory.CreateDirectory(Path.Combine(run, "04_search"));
         File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(("a.raw", true, Array.Empty<string>())).ToJsonString());
         File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), """{"tools":{"MetaMorpheus":{"release":"1.1.11"}}}""");
-        string manifest = Path.Combine(dir, "work", "manifest.yaml");
+        string manifest = Path.Combine(workRoot, "first-run", "manifest.yaml");
 
-        ManifestEntry.EnsureExists(manifest, "first-run", runRoot);
-        // The machine's work root is somewhere else entirely: the manifest's own root decides the entry's `run`.
+        ManifestEntry.EnsureExists(manifest, "first-run", workRoot);
+        // The fallback root passed to Append is never used once the manifest names its own: that root decides `run`.
         ManifestEntry.Append(manifest, new QueueEntry("PXD000210", "t", "human"), Profiles["label-free-dda@1"], run, null, "Z:/elsewhere");
         string text = File.ReadAllText(manifest).ReplaceLineEndings("\n");
-        Assert.That(text, Does.Contain("instance: first-run\n").And.Contain("work_root: runs\n").And.Contain("store: store\n")
-            .And.Contain("run: PXD000210\n").And.Contain("files: 1\n"));
-        Assert.That(ManifestEntry.WorkRootOf(manifest), Is.EqualTo(Path.GetFullPath(runRoot)));
+        Assert.That(text, Does.Contain("instance: first-run\n").And.Contain("work_root: ..\n").And.Contain("store: store\n")
+            .And.Contain("run: runs/PXD000210\n").And.Contain("files: 1\n"));
+        Assert.That(ManifestEntry.WorkRootOf(manifest), Is.EqualTo(Path.GetFullPath(workRoot)));
+
+        // A work root below the manifest's folder is relative too; one in another tree is written absolute, so the
+        // manifest does not depend on where the two trees sit relative to each other.
+        string below = Path.Combine(dir, "q2", "manifest.yaml");
+        ManifestEntry.EnsureExists(below, "q2", Path.Combine(dir, "q2", "work"));
+        Assert.That(File.ReadAllText(below).ReplaceLineEndings("\n"), Does.Contain("work_root: work\n"));
+        string apart = Path.Combine(dir, "q3", "manifest.yaml"), machine = Path.GetFullPath(Path.Combine(dir, "m", "work"));
+        ManifestEntry.EnsureExists(apart, "q3", machine);
+        Assert.That(File.ReadAllText(apart).ReplaceLineEndings("\n"), Does.Contain($"work_root: {machine.Replace('\\', '/')}\n"));
+        Assert.That(ManifestEntry.WorkRootOf(apart), Is.EqualTo(machine));
 
         // An absolute root, as aging's hand-written manifest has (F:/aging_data there; absolute on every OS here).
         string absolute = Path.GetFullPath(Path.Combine(dir, "aging_data")).Replace('\\', '/');
         File.WriteAllText(manifest, $"manifest_version: 1\nwork_root: {absolute}   # by hand\ndatasets:\n");
-        ManifestEntry.EnsureExists(manifest, "first-run", runRoot);
+        ManifestEntry.EnsureExists(manifest, "first-run", workRoot);
         Assert.That(File.ReadAllText(manifest), Does.StartWith($"manifest_version: 1\nwork_root: {absolute}"), "an existing manifest is never rewritten");
         Assert.That(ManifestEntry.WorkRootOf(manifest), Is.EqualTo(Path.GetFullPath(absolute)));
+    }
+
+    [Test]
+    public async Task TheBatchWritesANewQuestionsManifestAgainstTheMachinesWorkRootNotItsRunRoot()
+    {
+        // The machine's work root is the test folder; the question's runs are in runs/ below it, its manifest in q/.
+        var (runner, _, _, dir) = Runner("[publish]\nmanifest = \"q/manifest.yaml\"\n");
+        string run = Path.Combine(dir, "runs", "PXD000210");
+        Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
+        Directory.CreateDirectory(Path.Combine(run, "04_search"));
+        File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(("a.raw", true, Array.Empty<string>())).ToJsonString());
+        File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), "{\"success\": true, \"tools\": {\"MetaMorpheus\": {\"release\": \"1.1.11\"}}}");
+
+        await runner.DeliverAsync(new QueueEntry("PXD000210", "t", "human"), Profiles["label-free-dda@1"], CancellationToken.None);
+
+        string manifest = Path.Combine(dir, "q", "manifest.yaml");
+        Assert.That(File.ReadAllText(manifest).ReplaceLineEndings("\n"), Does.Contain("work_root: ..\n").And.Contain("run: runs/PXD000210\n"));
+        Assert.That(ManifestEntry.WorkRootOf(manifest), Is.EqualTo(Path.GetFullPath(dir)));
     }
 
     [Test]
@@ -2787,6 +2818,103 @@ public class BatchRunnerTests
             .And.Contain("Expected here: the cysteines were not alkylated (alkylation none, question_exception)")
             .And.Contain("cysteine unmodified (question_exception)"));
         Assert.That(text, Does.Contain("cysteine_poor").And.Contain("question_exception"));
+    }
+
+    // D73 (G112): one PXReprise release holds the engine and datarepo under one version, and a batch delivers only with the
+    // datarepo of its own engine's release. `datarepo --version` prints "datarepo <version>"; the engine reports its version
+    // with the commit as +build metadata ("1.0.0+f9483dd...").
+    [TestCase("1.0.0", "datarepo 1.0.0", true)]
+    [TestCase("1.0.0", "  datarepo 1.0.0\r", true)]                                       // as read, with its line ending
+    [TestCase("1.0.0+f9483dd3e9814e7ed1135ba5a611d200e41ac8eb", "datarepo 1.0.0", true)]  // the engine's commit is no part of the release
+    [TestCase("1.1.0-rc.1+f9483dd", "datarepo 1.1.0-rc.1", true)]                         // a pre-release suffix is part of it
+    [TestCase("0.0.0-dev+f9483dd", "datarepo 0.0.0-dev", true)]                           // two builds stamped alike, by this rule
+    [TestCase("1.0.1", "datarepo 1.0.0", false)]                                          // another patch
+    [TestCase("1.0.0+f9483dd", "datarepo 1.0.1", false)]
+    [TestCase("1.0.0", "datarepo 1.5.0", false)]                                          // datarepo's last version of its own
+    [TestCase("1.0.0", "datarepo 0.0.0-dev", false)]                                      // a source build of datarepo
+    [TestCase("1.0.0", "datarepo 1.0.0-dev", false)]                                      // the suffix counts
+    [TestCase("1.0.0", "Unhandled exception. System.IO.FileNotFoundException: Could not load file", false)]
+    [TestCase("1.0.0", "pxreprise 1.0.0", false)]
+    [TestCase("1.0.0", "datarepo 1.0", false)]
+    [TestCase("1.0.0", "datarepo 1.0.0 (dev)", false)]
+    [TestCase("1.0.0", "", false)]
+    [TestCase("unknown", "datarepo 1.0.0", false)]
+    public void SameReleaseIsTheEnginesVersionWithoutItsBuildMetadata(string engine, string line, bool same) =>
+        Assert.That(BatchRunner.SameRelease(engine, line), Is.EqualTo(same));
+
+    [Test]
+    public void ABatchStartRefusesADatarepoFromAnotherReleaseBeforeAnyDeposit()
+    {
+        var (runner, _, _, dir) = Runner("", "datarepo = 'D:/tools/datarepo/datarepo.exe'\n");
+        runner.DataRepoVersionForTest = ct => Task.FromResult((0, "datarepo 1.5.0\n", ""));
+        var prepared = new List<string>();
+        runner.PrepareForTest = (e, ct) => { prepared.Add(e.Accession); return Task.FromResult<Profile?>(null); };
+
+        var ex = Assert.ThrowsAsync<ConfigException>(() => runner.RunAsync(new[] { new QueueEntry("PXD000961", "t", "mouse") }, CancellationToken.None));
+
+        string engine = BatchRunner.ReleaseOf(Provenance.RunRecord.Versions()["pxreprise"]);
+        Assert.That(ex!.Message, Does.StartWith("machine.toml: datarepo D:/tools/datarepo/datarepo.exe reports 'datarepo 1.5.0', ")
+            .And.Contain($"this engine is pxreprise {engine}: use the datarepo from the same PXReprise release")
+            .And.Contain($"prints 'datarepo {engine}'"));
+        Assert.That(prepared, Is.Empty, "no deposit is touched");
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")),
+            Does.Contain("batch refused: datarepo D:/tools/datarepo/datarepo.exe reports 'datarepo 1.5.0'"));
+        Assert.That(File.Exists(Path.Combine(dir, "state", "driver.pid")), Is.False, "the refused driver gives up its claim");
+
+        runner.DataRepoVersionForTest = ct => Task.FromResult((134, "", "Segmentation fault\n"));
+        Assert.That(Assert.ThrowsAsync<ConfigException>(() => runner.RunAsync(Array.Empty<QueueEntry>(), CancellationToken.None))!.Message,
+            Does.Contain("reports 'Segmentation fault' (rc 134), and this engine is"), "a datarepo that fails to say its version is refused too");
+        runner.DataRepoVersionForTest = ct => Task.FromResult((1, "", ""));
+        Assert.That(Assert.ThrowsAsync<ConfigException>(() => runner.RunAsync(Array.Empty<QueueEntry>(), CancellationToken.None))!.Message,
+            Does.Contain("reports no version (rc 1), and this engine is"));
+    }
+
+    [Test]
+    public async Task ABatchStartGoesOnWithTheDatarepoOfItsOwnRelease()
+    {
+        // One fetch pass: the stub prepares no profile, which the batch reads as a deposit to retry, and each later pass
+        // waits 30 minutes.
+        var (runner, _, _, dir) = Runner("", "datarepo = 'D:/tools/datarepo/datarepo.exe'\nfetch_passes = 1\n");
+        string engine = BatchRunner.ReleaseOf(Provenance.RunRecord.Versions()["pxreprise"]);
+        runner.DataRepoVersionForTest = ct => Task.FromResult((0, $"datarepo {engine}\n", ""));
+        var prepared = new List<string>();
+        runner.PrepareForTest = (e, ct) => { prepared.Add(e.Accession); return Task.FromResult<Profile?>(null); };
+
+        await runner.RunAsync(new[] { new QueueEntry("PXD000962", "t", "mouse") }, CancellationToken.None);
+
+        Assert.That(prepared, Is.EqualTo(new[] { "PXD000962" }));
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")),
+            Does.Contain($"  datarepo version: datarepo {engine};").And.Not.Contain("batch refused"));
+    }
+
+    // `batch status --machine` is the check of a new install before its swap: it makes the start's check, so a datarepo from
+    // another release is found before the old driver is stopped. `dotnet --version` stands in for a program that is not datarepo.
+    [Test]
+    public async Task BatchStatusWithTheMachineFileRefusesADatarepoFromAnotherRelease()
+    {
+        var (_, _, _, dir) = Runner("", "datarepo = 'dotnet'\n");
+        string q = Path.Combine(dir, "question.toml"), m = Path.Combine(dir, "machine.toml");
+        async Task<(int Exit, System.Text.Json.JsonElement Envelope)> Status(params string[] extra)
+        {
+            var sw = new StringWriter();
+            int rc = await Program.RunAsync(new[] { "batch", "status", q, "--profiles", TestSupport.ProfilesDir }.Concat(extra).ToArray(), sw, CancellationToken.None);
+            return (rc, System.Text.Json.JsonDocument.Parse(sw.ToString()).RootElement.Clone());
+        }
+
+        var (exit, envelope) = await Status("--machine", m);
+        Assert.That(exit, Is.EqualTo(Cli.Envelope.ExitUsage), envelope.ToString());
+        Assert.That(envelope.GetProperty("error").GetProperty("message").GetString(),
+            Does.StartWith("machine.toml: datarepo dotnet reports ").And.Contain("this engine is pxreprise").And.Contain("same PXReprise release"));
+
+        (exit, envelope) = await Status();
+        Assert.That(exit, Is.Zero, "without the machine file there is nothing to check");
+        Assert.That(envelope.GetProperty("data").TryGetProperty("datarepo", out _), Is.False);
+
+        // A program that cannot be started has no version to compare: its ingest fails and says so, as before.
+        File.WriteAllText(m, File.ReadAllText(m).Replace("datarepo = 'dotnet'", "datarepo = 'no-such-datarepo-program'"));
+        (exit, envelope) = await Status("--machine", m);
+        Assert.That(exit, Is.Zero, envelope.ToString());
+        Assert.That(envelope.GetProperty("data").GetProperty("datarepo").GetString(), Is.Not.Empty);
     }
 
     private sealed class FakeFiles : IPrideFiles

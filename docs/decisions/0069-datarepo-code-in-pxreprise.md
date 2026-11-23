@@ -36,3 +36,8 @@ Chosen option: "Move the code with its history", because its history explains it
 
 * Good, because the engine and the data repository change together in one pull request when they must.
 * Bad, because dataRepo's design records stay in its own repository, apart from its code.
+
+## More Information
+
+[0073](0073-one-release-for-the-engine-and-datarepo.md) ends the `datarepo-v*` release tags: datarepo is released with the
+engine, under one version, and the binaries workflow checks on pushes to `master` that both programs build and run.
