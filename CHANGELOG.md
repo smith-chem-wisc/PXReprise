@@ -89,6 +89,10 @@ whether to search them again is a separate choice.
     one that changes only the engine, costs at least a swap and a catalog rebuild.
   - The push-time `datarepo-binaries` workflow now checks both programs on every platform, with the release's own steps
     (`.github/workflows/binaries.yml`).
+  - **datarepo's tutorial follows** (`docs/data/getting-started.md`). It clones PXReprise at the release's tag, downloads
+    the release's archive, and copies the example instance from `tests/datarepo-instance`. It had pointed at dataRepo's
+    own 1.5.0 release and its `tests/data`. Its test now fails on a page that names another repository, archive or
+    instance folder.
 
 - **A new question's manifest now names the machine's `work_root`, not the question's run root** (dataRepo's seam test).
   - **The problem.** When a question's `[publish] manifest` did not exist yet, the batch wrote it with `work_root` set to
