@@ -543,11 +543,18 @@ when they would write the same rows**. To reproduce one:
 **If a database is missing, the ingest does not fail.** It writes the bundle anyway, and the
 result is not the same bundle:
 
+- a `search_database_missing` finding names each missing file, where it was looked for (against the manifest's
+  `work_root`), and the sha256 the search recorded, which finds a copy kept by hash;
 - sites on single-accession PSMs are still placed, from the producer's own spans;
 - sites for shared peptides on proteins it cannot see are **not written** and are counted in the
-  `unplaced_ptm_sites` finding, which names the missing file;
+  `unplaced_ptm_sites` finding;
 - the missing database is absent from `sources`, so **the bundle id differs** -- which is
   correct, because the rows do.
+
+A MetaMorpheus settings folder that is not on disk (`--mm-settings`, or `<work_root>/mm_settings/<release>`) is the
+same kind of loss: no modification definitions are loaded, so more modifications are left unresolved. It raises
+`search_settings_missing`, naming the folder. A manifest whose `work_root` is not the root the provenance names its
+inputs against raises both at once.
 
 A database that is present but **differs** from the searched one (wrong sha256) stops the ingest, and so does one
 that reads as having **no entries**. A UniProt XML is read in any namespace (UniProt's `http://` or `https://`, or
@@ -592,6 +599,8 @@ It exits 1 on any failure. Against aging's 0.9.0 bundles it fails (PXD036557: 29
 | `unmatched_runs` | warning | A run the search reported is not a deposited file. |
 | `ptm_site_residue_mismatch` | warning | A written site names a residue that is not at its position in the searched sequence, or lies beyond the protein. Should never fire; it is the self-check for DATAREPO-32. |
 | `unplaced_ptm_sites` | warning | Some (PSM, protein) pairs got no `ptm_sites` row because the stored peptide is not in that protein's sequence (typically a level 4/5 PSM whose protein carries a different candidate peptide), the protein has no sequence in the searched databases, or a database was missing. Counts are in `bundle.json` under `protein_databases`. |
+| `search_database_missing` | warning | A protein database the search provenance names is not on disk where the manifest's `work_root` puts it. None of its proteins was read: no `dataset_databases` row, specificity decided without them, shared-peptide sites on them not placed. The message gives each path and the sha256 the search recorded. |
+| `search_settings_missing` | warning | The MetaMorpheus settings folder (`--mm-settings`, or `<work_root>/mm_settings/<release>`) is not on disk, so no modification definitions were loaded; those left unresolved are in `unresolved_modifications`. |
 | `collapsed_duplicate_rows` | info | The producer wrote a row more than once, identical in every column; the copies were dropped. |
 | `metric_conflict` | warning | One metric reached the bundle from two sources under one definition, and they disagree. |
 | `isobaric_channels_not_in_sdrf` | warning | Channels of the search's `TmtDesign.txt` that no SDRF row names by file and label; their assays sit on the design's own sample. |

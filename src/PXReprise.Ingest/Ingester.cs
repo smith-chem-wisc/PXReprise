@@ -293,6 +293,9 @@ public static class Ingester
         // Current: mzLib's loaders over the install, as MetaMorpheus loads them (G26); Python0320: 0.32.0's file reader.
         var registry = settings is null ? new ModRegistry()
             : rules == IngestRules.Current ? ModRegistry.FromMzLib(settings) : ModRegistry.FromMetaMorpheus(settings, rules);
+        // A folder that is not there loads no definitions, and the only sign was a longer unresolved_modifications list.
+        if (settings is not null && rules == IngestRules.Current && !Directory.Exists(settings))
+            findings.Add(SearchSettingsMissing(settings, named: mmSettings is not null, datasetId));
         var proforma = new ProformaCache(registry, rules);
 
         // --- samples and runs -----------------------------------------------------------------------------
@@ -526,6 +529,10 @@ public static class Ingester
         // be paired with its accessions. The databases are inputs to every ptm_sites
         // row, so they are in the content hash; they are not copied.
         var sequences = ProteinDb.Load(searchProvenance, manifest.WorkRoot, rules);
+        if (sequences.Missing.Count > 0 && rules == IngestRules.Current)
+            findings.Add(SearchDatabasesMissing(
+                ProteinDb.SearchedDatabases(searchProvenance, manifest.WorkRoot).Where(d => sequences.Missing.Contains(d.Path)).ToList(),
+                manifest.WorkRoot, datasetId));
         foreach (var db in sequences.Files)
         {
             // The role carries the file name: sources are hashed in (role, path) order, and a path is absolute and
@@ -1428,6 +1435,39 @@ public static class Ingester
                 + "bundle.json under protein_databases."),
         ];
     }
+
+    /// <summary><c>search_database_missing</c>: protein databases the search provenance names that are not on disk where the
+    /// manifest's work_root puts them. The ingest still writes the bundle (ingest.md), and until this finding the only word
+    /// was the tail of <c>unplaced_ptm_sites</c>, which is about sites. A manifest naming the wrong work_root loses every
+    /// database this way (PXReprise #46, found by the seam test).</summary>
+    /// <param name="missing">Each missing database's path, as the provenance resolves against work_root, and the sha256
+    /// the search recorded for it.</param>
+    internal static Row SearchDatabasesMissing(IReadOnlyList<(string Path, object? Sha256)> missing, string workRoot, string datasetId) =>
+        Finding(datasetId, "search_database_missing", "warning",
+            $"{missing.Count} protein database(s) the search provenance names are not on disk, resolved against the manifest's "
+            + $"work_root ({workRoot}): "
+            + string.Join("; ", missing.Select(d => d.Path + (d.Sha256 is string sha && sha.Length > 0 ? $" (sha256 {sha})" : "")))
+            + ". None of their proteins was read: the catalog's `dataset_databases` has no row for them, so nothing keyed by "
+            + "database (gene names, GO) reaches those proteins; peptide specificity (`is_unique`, `is_isoform_specific`) was "
+            + "decided without them; and sites of shared peptides on their proteins were not placed (`unplaced_ptm_sites`). "
+            + "The bundle id differs from an ingest with them present, because a database is an input. If the file is "
+            + "elsewhere, the manifest's `work_root` is probably not the root the search provenance names its inputs against "
+            + "(operating.md); the sha256 finds a copy kept by hash.");
+
+    /// <summary><c>search_settings_missing</c>: the MetaMorpheus settings folder the ingest reads modification definitions
+    /// from is not on disk. The registry is then empty, so the search's modifications are resolved without its own
+    /// definitions, and until this finding nothing said why <c>unresolved_modifications</c> grew (Carbamidomethyl among
+    /// them on the seam test's rig).</summary>
+    /// <param name="named">The folder was given by <c>--mm-settings</c>, not the manifest default.</param>
+    internal static Row SearchSettingsMissing(string settings, bool named, string datasetId) =>
+        Finding(datasetId, "search_settings_missing", "warning",
+            $"The MetaMorpheus settings folder {settings} ("
+            + (named ? "given by --mm-settings" : "the default, <work_root>/mm_settings/<the manifest's MetaMorpheus release>")
+            + ") is not on disk, so no modification definitions were loaded from the release that ran the search. Its "
+            + "modifications were resolved without them; those left with neither a UNIMOD accession nor a mass are in "
+            + "`unresolved_modifications`, and their `ptm_sites` rows carry `modification_name` with `modification` null. Put "
+            + "the install's folder (the one holding `Mods/` and `Data/`) there, or name it with `--mm-settings`, and ingest "
+            + "again.");
 
     private static List<Row> SiteResidueFindings(OrderedDictionary<string, long> check, string datasetId)
     {

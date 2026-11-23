@@ -40,8 +40,12 @@ public sealed class BundleWriter(string store, string datasetId, string? ingestP
     /// peptidoform keys (#1416, #1524); schema 0.0.17: each search's confidence rule (D55) in
     /// <c>datasets.confidence_rule</c>, <c>peptidoforms.best_pep_q_value</c>, and two findings on the rule; the
     /// <c>peptidoform_ions</c> table, each passing AllPeptides.psmtsv row's matched fragment ions, verbatim (D53).
+    /// cs-1.4.0 (for 1.0.0, unreleased): a MetaMorpheus 1.1.15 search's reconciliation counts follow the filter its
+    /// results.txt names (#38, #42, which changed its <c>count_mismatch</c> findings without a bump of their own); a
+    /// searched protein database or MetaMorpheus settings folder that is not on disk is a finding of its own
+    /// (<c>search_database_missing</c>, <c>search_settings_missing</c>).
     /// </remarks>
-    public const string IngesterVersion = "cs-1.3.0";
+    public const string IngesterVersion = "cs-1.4.0";
 
     /// <summary>QPX release the column names are written against (D4). Provisional (G13).</summary>
     public const string QpxVersion = "unpinned";
