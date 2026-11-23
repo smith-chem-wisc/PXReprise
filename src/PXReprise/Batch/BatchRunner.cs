@@ -2181,10 +2181,11 @@ public sealed class BatchRunner
 
     /// <summary>
     /// The command a delivery runs to ingest one search: <c>datarepo ingest &lt;manifest&gt; &lt;key&gt;</c>, with
-    /// <c>--json</c> when the machine's datarepo takes it (<see cref="TakesIngestJson"/>). Public for the test that runs
-    /// both programs together (<c>tests/PXReprise.Seam.Tests</c>), so that it runs exactly what a batch runs.
+    /// <c>--json</c> when the machine's datarepo takes it (<see cref="TakesIngestJson"/>). The test that runs both
+    /// programs together (<c>tests/PXReprise.Seam.Tests</c>) calls it with <c>json: true</c>, so it runs what a batch
+    /// runs with a datarepo that takes <c>--json</c> (1.0.0 or later; a source build reports 0.0.0-dev and does not).
     /// </summary>
-    public static string[] IngestCommand(string datarepo, string manifest, string key, bool json) =>
+    internal static string[] IngestCommand(string datarepo, string manifest, string key, bool json) =>
         json ? new[] { datarepo, "ingest", manifest, key, "--json" } : new[] { datarepo, "ingest", manifest, key };
 
     private bool _ingestJson;
