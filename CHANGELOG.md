@@ -15,13 +15,39 @@ A new version of the engine never changes a finished result. Methods live in ver
 
 ## Unreleased
 
-**MetaMorpheus** unchanged (1.1.14). **Machine file:** `datarepo` must name the datarepo of this release (the `datarepo`
-folder of its archive): a batch refuses any other at its start. **Safe mid-batch?** Yes: swap the pin and its datarepo
+**MetaMorpheus** 1.1.15 for three new profile versions, label-free-dda@15, label-free-dda-lowres@9 and tmt-dda@6 (below);
+every other profile keeps its own. **Machine file:** `"1.1.15"` under `[metamorpheus]`, naming the `CMD.dll` of
+MetaMorpheus 1.1.15's CommandLine release (its zip's sha256 is in `tests/metamorpheus-output/releases.tsv`); and
+`datarepo` must name the datarepo of this release (the `datarepo` folder of its archive): a batch refuses any other at
+its start. **Safe mid-batch?** Yes: swap the pin and its datarepo
 together, as usual. Nothing searched under another profile changes. **Adopting:** a swap and a catalog rebuild, because
 datarepo's version is now the release's and the catalog id hashes it (a store still on datarepo 1.4.x first re-ingests
 once, as 1.5.0 asks). A question that wants it names `tmt-dda@5` before `tmt-dda@4` in its `profiles`, and each deposit
 QC refused for ion-trap HCD gets a `batch retry`. So does each deposit refused for `no_isobaric_reporters` whose record
-text says TMT while PRIDE's quantification names label-free too (below).
+text says TMT while PRIDE's quantification names label-free too (below). A question takes the MetaMorpheus 1.1.15
+profiles by naming them before their earlier versions in its `profiles`; deposits already searched keep their profile, and
+whether to search them again is a separate choice.
+
+- **Three profile versions on MetaMorpheus 1.1.15: `label-free-dda@15`, `label-free-dda-lowres@9` and `tmt-dda@6`**
+  (@14, @8 and @5 on the new release). The guard test allows each only the changes below, line by line.
+  - **One identification filter, the q-value notch at 1%, in every task** (decision 0087, which replaces 0082):
+    `IdentificationFilter = "QValueNotch"` and `FilterThreshold = 0.01`, set in the profile, never MetaMorpheus 1.1.15's
+    default (the PEP q-value for bottom-up searches). Under the PEP q-value, 1.1.15's protein FDR collapsed on some
+    deposits (an isobaric ion-trap one kept 106 target protein groups at 1%, against 4,590 under the notch). The probe
+    search takes its profile's filter, and its measures read only what that filter passed.
+  - **Match-between-runs transfers kept below a q-value of 5%** in the two label-free versions (decision 0089):
+    `MbrFdrThreshold = 0.05`, mzLib FlashLFQ's own default (MetaMorpheus sets 0.01). At 1%, FlashLFQ refuses a whole
+    file's transfers when its decoys run just over 1 in 100; on a 143-file deposit, 27 files kept none at 1% and 2 at
+    5%. About 1 kept transfer in 20 is then estimated wrong, against 1 in 100. The provenance's `mbr` block and the QC
+    payload count kept transfers at the search's own threshold.
+  - **agingPTM-v9 databases** (decision 0029; built on aging's catalog of 215 deposits). `label-free-dda-lowres@9` stays
+    on agingPTM-v3: v9 lost 1.5% of an ion-trap deposit's PSMs, mostly hydroxylation.
+  - **The design's curated SDRF passed to the search** (`engine.input_sdrf = true`, MetaMorpheus's `InputSdrfPath`), so
+    the SDRF the search writes carries the sample facts it states.
+  - **The QC's MS2 floor at 2,500 spectra a file** (`[qc] min_ms2`; 5,000 in every earlier version), so thin but real
+    files such as a fractionated deposit's late fractions pass.
+  - **No per-file mzIdentML** (`WriteMzId = false`): MetaMorpheus wrote one per raw file even with individual-file
+    tables off, and nothing read them.
 
 - **ptmQtl's observations (its S7) are the PSMs the search's own identification filter kept** (ptmQtl D82, PXR-P23;
   replaces ptmQtl D36).

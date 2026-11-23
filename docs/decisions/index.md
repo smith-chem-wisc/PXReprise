@@ -79,4 +79,6 @@ Records marked *provisional* are good guesses, made fast on purpose. Each says w
 | [0070](0070-record-engine-decisions-as-madr.md) | Record engine decisions as MADR records in this repository | accepted | 2026-11-14 |
 | [0072](0072-dia-search-mode.md) | A DIA search mode keyed on the DIA task's own tables | accepted | 2026-11-16 |
 | [0073](0073-one-release-for-the-engine-and-datarepo.md) | One release for the engine and datarepo | accepted | 2026-11-22 |
-| [0082](0082-pep-q-value-from-the-next-metamorpheus-version.md) | The PEP q-value at 1% from the next MetaMorpheus version | accepted | 2026-11-20 |
+| [0082](0082-pep-q-value-from-the-next-metamorpheus-version.md) | The PEP q-value at 1% from the next MetaMorpheus version | superseded by [0087](0087-one-filter-the-q-value-notch.md) | 2026-11-23 |
+| [0087](0087-one-filter-the-q-value-notch.md) | One identification filter, the q-value notch at 1%, set in the search only | proposed | 2026-11-23 |
+| [0089](0089-mbr-transfers-at-five-percent.md) | Match-between-runs transfers kept below a q-value of 5% | proposed | 2026-11-23 |
