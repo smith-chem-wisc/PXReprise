@@ -1923,7 +1923,7 @@ public sealed class BatchRunner
         if (_ingestJson)
         {
             // datarepo 1.0+: one JSON envelope on stdout, the human report on stderr.
-            var argv = new[] { _m.DataRepo, "ingest", manifest, e.Accession, "--json" };
+            var argv = IngestCommand(_m.DataRepo, manifest, e.Accession, json: true);
             var (exit, stdout, stderr) = await RunProcessFullAsync(argv, TimeSpan.FromHours(3), ct).ConfigureAwait(false);
             string full = KeepOutput(OutputDir, e.Accession, "ingest", argv, exit, stdout, stderr, DateTime.UtcNow);
             var o = IngestEnvelope.Read(stdout, e.Accession, exit);
@@ -1936,7 +1936,7 @@ public sealed class BatchRunner
         }
         else
         {
-            var argv = new[] { _m.DataRepo, "ingest", manifest, e.Accession };
+            var argv = IngestCommand(_m.DataRepo, manifest, e.Accession, json: false);
             var (exit, stdout, stderr) = await RunProcessFullAsync(argv, TimeSpan.FromHours(3), ct).ConfigureAwait(false);
             string full = KeepOutput(OutputDir, e.Accession, "ingest", argv, exit, stdout, stderr, DateTime.UtcNow);
             rc = exit;
@@ -2179,7 +2179,20 @@ public sealed class BatchRunner
         System.Text.RegularExpressions.Regex.Match(versionLine, @"datarepo\s+(\d+)\.(\d+)\.(\d+)") is { Success: true } m
         && int.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture) >= 1;
 
+    /// <summary>
+    /// The command a delivery runs to ingest one search: <c>datarepo ingest &lt;manifest&gt; &lt;key&gt;</c>, with
+    /// <c>--json</c> when the machine's datarepo takes it (<see cref="TakesIngestJson"/>). The test that runs both
+    /// programs together (<c>tests/PXReprise.Seam.Tests</c>) calls it with <c>json: true</c>, so it runs what a batch
+    /// runs with a datarepo that takes <c>--json</c> (1.0.0 or later; a source build reports 0.0.0-dev and does not).
+    /// </summary>
+    internal static string[] IngestCommand(string datarepo, string manifest, string key, bool json) =>
+        json ? new[] { datarepo, "ingest", manifest, key, "--json" } : new[] { datarepo, "ingest", manifest, key };
+
     private bool _ingestJson;
+
+    /// <summary>Tests only: whether a delivery's ingest takes <c>--json</c>, which a batch's start otherwise decides from
+    /// <c>datarepo --version</c> (<see cref="TakesIngestJson"/>), for a test that delivers without starting a batch.</summary>
+    internal bool IngestJsonForTest { set => _ingestJson = value; }
 
     /// <summary>Tests only: replaces the run of <c>datarepo --version</c> at the batch's start (exit code, stdout, stderr).</summary>
     internal Func<CancellationToken, Task<(int Rc, string Stdout, string Stderr)>>? DataRepoVersionForTest { get; set; }

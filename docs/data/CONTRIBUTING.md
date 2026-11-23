@@ -70,8 +70,16 @@ smith-chem-wisc/dataRepo, frozen at 0.32.0. You need the
 
 ```bash
 dotnet test tests/PXReprise.Data.Tests                                  # dataRepo's tests, including the docs (DocsTests)
+dotnet test tests/PXReprise.Seam.Tests                                  # the engine and datarepo together
 dotnet build src/PXReprise.DataCli -c Release -o build/datarepo         # the program, as build/datarepo/datarepo
 ```
+
+`tests/PXReprise.Seam.Tests` runs both programs where they meet. The engine's search stage runs on the fixture's
+recorded MetaMorpheus search (the fake CMD replays it), the engine writes the deposit's manifest entry, and the real
+`datarepo` ingests it with the batch's own command and builds a catalog. What datarepo makes of it is committed in
+`tests/PXReprise.Seam.Tests/Expected/PXD999999.txt`. A change on either side that moves it fails there: a manifest field
+or a note the engine writes, a provenance field datarepo reads, or any row datarepo writes. If the move is meant, rewrite
+the file with `PXREPRISE_SEAM_WRITE_EXPECTED=1` and say in the pull request why it moved.
 
 [PORTING.md](PORTING.md) holds the conventions the port followed (it still names the projects
 `DataRepo.*`, as they were then).

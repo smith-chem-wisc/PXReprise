@@ -76,6 +76,19 @@ text says TMT while PRIDE's quantification names label-free too (below).
     to the machine's by hand, and each entry's `run` changed to match. A hand-written manifest whose `work_root` is
     already the machine's (aging's) is not affected.
 
+- **datarepo names a searched database or settings folder that is not on disk** (ingest path `cs-1.4.0`).
+  - **The problem.** A protein database the search provenance names, or the MetaMorpheus settings folder, could be
+    missing where the manifest's `work_root` puts it, and the ingest still exited 0. A missing database was named
+    only at the end of the `unplaced_ptm_sites` finding, which is about sites. A missing settings folder only showed as
+    a longer `unresolved_modifications` list. The manifest the batch wrote before the fix above lost both for every
+    deposit.
+  - **Now each is a warning of its own.** `search_database_missing` gives each missing path and the sha256 the search
+    recorded, and says what the bundle lacks without it. `search_settings_missing` names the folder, and whether it
+    came from `--mm-settings` or the default `<work_root>/mm_settings/<release>`.
+  - **The ingest path moves to `cs-1.4.0`,** which also covers 1.1.15's reconciliation counts (#38, #42). So a
+    re-ingest writes a new bundle id for every deposit. A bundle written at `cs-1.3.0` (schema 0.0.17) is still served
+    as it is; a store on datarepo 1.4.x re-ingests once anyway, as the lead above says.
+
 - **The spectra now decide when the record text, not PRIDE's list, chose the TMT profile** (PXD032900-lfq, 2026-11-20).
   - **The problem.** Since 0.4.45, a deposit routed to the isobaric profile by PRIDE's words goes back to its label-free
     profile when those words name label-free too and no probe file carries reporter ions (D34: spectra beat text). But the

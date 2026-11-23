@@ -136,7 +136,7 @@ whether a run is fit to serve.
 ```yaml
 manifest_version: 1
 instance: my-instance
-work_root: /data/runs            # where your pipeline writes; relative paths resolve from this file
+work_root: /data/pxreprise       # your pipeline's root (below); relative paths resolve from this file
 store: /data/repo/store          # where bundles go
 licence: CC-BY-4.0
 credit: My Working Group
@@ -156,6 +156,13 @@ datasets:
     status: exclude
     reason: TMT data whose SDRF says label-free; its quant is invalid.
 ```
+
+`work_root` is the root your pipeline's provenance records name their inputs against. For PXReprise that is the machine
+file's `work_root`, not a question's run root, and each `run:` is a folder under it. datarepo reads three things under
+`work_root`: the searched databases, the earlier stages' records, and MetaMorpheus's modification definitions
+(`<work_root>/mm_settings/<release>`, unless `--mm-settings` names them). Under any other root the ingest still
+succeeds, but the bundle has no databases, its modifications are unresolved and only the search's record is kept. A
+manifest the engine writes for a new question already names the machine's root.
 
 `hold` and `exclude` are refused, with your `reason`, whenever someone tries to load them. Every
 field is described in [ingest.md](ingest.md#the-manifest-is-the-contract).
