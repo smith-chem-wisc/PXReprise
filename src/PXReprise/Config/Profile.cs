@@ -125,6 +125,12 @@ public sealed record Profile(
         s.Key == "RespectCleavageBlockingModifications" && (s.Scope is "all" or "search")
         && s.TomlValue.Trim().Equals("true", StringComparison.OrdinalIgnoreCase)) == true;
 
+    /// <summary>The q-value below which FlashLFQ keeps a match-between-runs transfer in the search task: the profile's
+    /// <c>MbrFdrThreshold</c> (scope <c>all</c> or <c>search</c>), else MetaMorpheus's default. Our own counts of kept
+    /// transfers use it, so they agree with FlashLFQ's tables.</summary>
+    public double MbrFdrThreshold => MetaMorpheusSettings?.LastOrDefault(s => s.Key == "MbrFdrThreshold" && (s.Scope is "all" or "search"))
+        is { } setting ? double.Parse(setting.TomlValue.Trim(), System.Globalization.CultureInfo.InvariantCulture) : Search.SearchMetrics.MbrFdrThreshold;
+
     /// <summary>
     /// Task-file keys the engine writes itself, from the profile's other keys, the deposit or the machine. A
     /// <c>[metamorpheus_settings]</c> entry may not name them: two writers of one line would make provenance ambiguous.

@@ -80,13 +80,15 @@ public class ConfigTests
     /// default PEP q-value (D85, D87: under the PEP filter MetaMorpheus 1.1.15's protein FDR can collapse, depending on the
     /// deposit). The databases are agingPTM-v9, except lowres@9's, which stay v3 (v9 lost to v3 on an ion-trap deposit,
     /// 2026-11-22). The Search task writes no per-file mzIdentML (WriteMzId = false; the user, 2026-11-22: "we don't need
-    /// any per file outputs"). Nothing else may differ: lines, not parsed fields, as above.
+    /// any per file outputs"). The two label-free versions keep match-between-runs transfers below a q-value of 5%, not
+    /// 1% (MbrFdrThreshold = 0.05; the user, 2026-11-23); TMT runs no match-between-runs. Nothing else may differ: lines,
+    /// not parsed fields, as above.
     /// </summary>
-    [TestCase("label-free-dda-15.toml", "label-free-dda-14.toml", "label-free-dda@15", new[] { "Calibration", "Gptmd", "Search" }, "v9")]
-    [TestCase("label-free-dda-lowres-9.toml", "label-free-dda-lowres-8.toml", "label-free-dda-lowres@9", new[] { "Search" }, "v3")]
-    [TestCase("tmt-dda-6.toml", "tmt-dda-5.toml", "tmt-dda@6", new[] { "Calibration", "Search" }, "v9")]
-    public void TheMetaMorpheus1115VersionsChangeOnlyTheReleaseTheFilterTheInputSdrfTheDatabasesTheMs2FloorAndTheMzId(string next, string previous, string key, string[] tasks,
-        string db)
+    [TestCase("label-free-dda-15.toml", "label-free-dda-14.toml", "label-free-dda@15", new[] { "Calibration", "Gptmd", "Search" }, "v9", true)]
+    [TestCase("label-free-dda-lowres-9.toml", "label-free-dda-lowres-8.toml", "label-free-dda-lowres@9", new[] { "Search" }, "v3", true)]
+    [TestCase("tmt-dda-6.toml", "tmt-dda-5.toml", "tmt-dda@6", new[] { "Calibration", "Search" }, "v9", false)]
+    public void TheMetaMorpheus1115VersionsChangeOnlyTheReleaseTheFilterTheInputSdrfTheDatabasesTheMs2FloorTheMzIdAndTheMbrThreshold(string next, string previous, string key, string[] tasks,
+        string db, bool mbrAtFivePercent)
     {
         const string filter = "QValueNotch";
         static List<string> Settings(string name) => File.ReadAllLines(Path.Combine(TestSupport.ProfilesDir, name))
@@ -102,9 +104,10 @@ public class ConfigTests
             return m == "min_ms2 = 5000" ? "min_ms2 = 2500" : m;
         }
 
-        string[] added = { "input_sdrf = true", $"IdentificationFilter = \"{filter}\"", "FilterThreshold = 0.01", "WriteMzId = false" };
+        string[] added = new[] { "input_sdrf = true", $"IdentificationFilter = \"{filter}\"", "FilterThreshold = 0.01", "WriteMzId = false" }
+            .Concat(mbrAtFivePercent ? new[] { "MbrFdrThreshold = 0.05" } : Array.Empty<string>()).ToArray();
         var lines = Settings(next);
-        Assert.That(lines.Where(added.Contains), Is.EqualTo(added), "the four lines once each");
+        Assert.That(lines.Where(added.Contains), Is.EqualTo(added), "the added lines once each");
         Assert.That(lines.Where(l => !added.Contains(l)), Is.EqualTo(Settings(previous).Select(Moved)), "nothing else differs but the release, the databases and the MS2 floor");
 
         var all = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
@@ -120,6 +123,8 @@ public class ConfigTests
             Assert.That(p.MetaMorpheusSettings!.Where(s => s.Key == "WriteMzId").Select(s => (s.Scope, s.TomlValue)),
                 Is.EqualTo(new[] { ("search", "false") }), "no per-file mzIdentML, in the Search task");
             Assert.That(old.MetaMorpheusSettings!.Any(s => s.Key == "WriteMzId"), Is.False, "a released profile never changes");
+            Assert.That((p.MbrFdrThreshold, old.MbrFdrThreshold), Is.EqualTo((mbrAtFivePercent ? 0.05 : 0.01, 0.01)),
+                "the transfer threshold our counts use, as the Search task runs it");
             Assert.That(p.Databases.Values.Select(d => d.Proteome), Has.All.EndsWith($"_agingPTM-{db}.xml"));
             Assert.That(p.Description, Does.EndWith("; the q-value notch at 1% in every task; the curated SDRF passed to the search"));
         });

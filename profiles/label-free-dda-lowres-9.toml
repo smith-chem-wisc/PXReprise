@@ -14,6 +14,8 @@
 #    fractions of a fractionated deposit (PXD016039's high-pH fractions hold 2,790 to 4,978). A deposit can still set its
 #    own floor with `min_ms2` in `[exceptions]`.
 #  - No per-file output: WriteMzId = false, as label-free-dda/15 (see its header).
+#  - Match-between-runs transfers kept below a q-value of 5%: MbrFdrThreshold = 0.05, as label-free-dda/15 (see its
+#    header). PXD000279, the ion-trap benchmark, is this profile's case: 27 of 143 files kept no transfer at 1%, 2 at 5%.
 # Every other setting is /8's, whose notes follow.
 #
 # label-free-dda-lowres/8 (v0.4.42, 2026-11-08): lowres/7 plus the custom modification file and the NBF-Cl mapping that
@@ -151,3 +153,4 @@ FilterThreshold = 0.01
 [metamorpheus_settings.search]
 WriteIndividualFiles = false   # /7: as label-free-dda/14 (was true in /6)
 WriteMzId = false              # /9: no per-file mzIdentML, as label-free-dda/15
+MbrFdrThreshold = 0.05         # /9: transfers kept below a q-value of 5%, as label-free-dda/15

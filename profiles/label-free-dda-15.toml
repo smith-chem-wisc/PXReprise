@@ -28,6 +28,13 @@
 #    WriteMzId = false. MetaMorpheus's own default writes one mzIdentML per raw file into "Individual File Results" even
 #    with WriteIndividualFiles off (1.39 GB for PXD000279's 143 files). Nothing reads them; the prune stage deletes
 #    them after delivery. The combined tables are unchanged; so are the identifications.
+#  - Match-between-runs transfers are kept below a q-value of 5%, not 1% (the user, 2026-11-23: "i am telling you to
+#    move your profiles unless you hear differently"; QuantProject 165): MbrFdrThreshold = 0.05 in the Search task,
+#    mzLib FlashLFQ's own default (MetaMorpheus sets 0.01). FlashLFQ judges each file's transfers on that file's decoys
+#    alone, so at 1% a file whose decoys run just over 1 in 100 keeps none (G85). On PXD000279 (143 files), 27 files kept
+#    none at 1% and 2 at 5%, and those 2 are bad (22% decoys among their transfers). The price: about 1 kept transfer in
+#    20 is estimated wrong, against 1 in 100 (results/mbr-pooled-fdr_2026-11-23). Peptide identifications are unchanged;
+#    the provenance's mbr block records the threshold, and the engine, the QC payload and datarepo count by it.
 # Every other setting is /14's, whose notes follow.
 #
 # label-free-dda/14 (v0.4.40, 2026-11-05): label-free-dda/13 without MetaMorpheus's individual-file tables (the user,
@@ -232,3 +239,4 @@ FilterThreshold = 0.01
 [metamorpheus_settings.search]
 WriteIndividualFiles = false   # /14: see the header (was true in /12 and /13)
 WriteMzId = false              # /15: no per-file mzIdentML (see the header)
+MbrFdrThreshold = 0.05         # /15: transfers kept below a q-value of 5% (see the header)
