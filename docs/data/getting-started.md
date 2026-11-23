@@ -30,10 +30,12 @@ installed, and this tutorial uses only `datarepo`. You also need git, to fetch t
 
 Work in a new, empty folder. First fetch the repository at the release's tag. It is cloned as
 `PXReprise-src` because the release unpacks to a folder named `pxreprise`, and on Windows and macOS
-those two names are the same folder:
+those two names are the same folder. `core.longpaths` lets Windows check out the repository's longest
+test file paths (without it the checkout can fail with "Filename too long"); it changes nothing
+elsewhere:
 
 ```bash
-git clone --depth 1 --branch v1.0.0 https://github.com/smith-chem-wisc/PXReprise.git PXReprise-src
+git clone -c core.longpaths=true --depth 1 --branch v1.0.0 https://github.com/smith-chem-wisc/PXReprise.git PXReprise-src
 ```
 
 Then download the release for your machine from the
@@ -48,6 +50,19 @@ put its `datarepo` folder on your `PATH` for this session. The archive holds two
 | macOS, Intel | as Linux, with `pxreprise-1.0.0-osx-x64.tar.gz` |
 | Windows, PowerShell | `Invoke-WebRequest https://github.com/smith-chem-wisc/PXReprise/releases/download/v1.0.0/pxreprise-1.0.0-win-x64.zip -OutFile pxreprise-1.0.0-win-x64.zip`<br>`Expand-Archive pxreprise-1.0.0-win-x64.zip -DestinationPath .`<br>`$env:Path = "$PWD\datarepo;" + $env:Path` |
 | Windows, Git Bash | `curl -LO` the `win-x64.zip` as above, `unzip pxreprise-1.0.0-win-x64.zip`, then `export PATH="$PWD/datarepo:$PATH"` |
+
+**Before PXReprise 1.0.0 is released** (it is not yet), the `v1.0.0` tag and the downloads above do
+not exist. Until then, clone without `--branch v1.0.0`, and build `datarepo` from the clone instead of
+downloading it. That needs the [.NET 10 SDK](https://dotnet.microsoft.com/download):
+
+```bash
+git clone -c core.longpaths=true --depth 1 https://github.com/smith-chem-wisc/PXReprise.git PXReprise-src
+dotnet publish PXReprise-src/src/PXReprise.DataCli -c Release -o datarepo
+export PATH="$PWD/datarepo:$PATH"      # PowerShell: $env:Path = "$PWD\datarepo;" + $env:Path
+```
+
+A build from source reports `datarepo 0.0.0-dev`, so `doctor`'s first line and the catalog id differ
+from this page, and the bundle id can too. The steps are the same.
 
 Unpack a `.tar.gz` with `tar`, which keeps the programs' executable bit. On macOS, an archive
 downloaded with a browser is quarantined and the program is refused as unverified; `curl` does not
@@ -124,7 +139,7 @@ datarepo ingest manifest.yaml PXD999999
 
 ```
 PXD999999
-  bundle   …/store/PXD999999/4ccf36a955a1e57d
+  bundle   …/store/PXD999999/f93cde2fc6835dcd
   tables   datasets 1, samples 2, sample_characteristics 8, runs 2, assays 2, psms 60, peptidoforms 40,
            peptidoform_ions 40, protein_groups 5, proteins 62, ptm_sites 36, ptm_stoichiometry 4,
            quant_values 37, definitions 14, provenance_records 3, findings 7, metrics 18,
@@ -146,7 +161,7 @@ Three things happened:
   with no biology in it, and so on. Two are informational. They travel with the data, so nobody
   reads a count without its caveats.
 
-The bundle's name, `4ccf36a955a1e57d`, is a hash of its input files, the schema version and the
+The bundle's name, `f93cde2fc6835dcd`, is a hash of its input files, the schema version and the
 ingester version. Run the command again and it says the bundle is unchanged. Change one byte of
 input and you get a second bundle beside the first, so a result someone cited never changes under
 them.
@@ -177,13 +192,13 @@ datarepo publish manifest.yaml --site site --title "Example repository" --purpos
 
 ```
 catalog  …/example-instance/catalog.duckdb
-  id       6e69863e2448c775
-  dataset  PXD999999    bundle 4ccf36a955a1e57d
+  id       e76ae034659645af
+  dataset  PXD999999    bundle f93cde2fc6835dcd
   pride    0 of 1 deposit(s) have a fetched PRIDE record; `datarepo pride --store …/example-instance/store` fetches the rest
   note     logs.resolve_genes coverage (databases with an artefact): 0 of 1; no artefact for 89fb8c7a1140 (PXD999999)
   note     go.categorize_terms (ontology and category map served): 0 of 1; no artefact, so no GO is served
   note     go.annotate_databases coverage (target databases with an artefact): 0 of 1; none served without an ontology; no artefact for 89fb8c7a1140 (PXD999999)
-  note     go.resolve_members coverage (bundles served GO): 0 of 1; not served: PXD999999 (4ccf36a955a1e57d): no go.resolve_members artefact
+  note     go.resolve_members coverage (bundles served GO): 0 of 1; not served: PXD999999 (f93cde2fc6835dcd): no go.resolve_members artefact
   note     logs.register_orthology (snapshots registered): 0 of 1; no snapshot registered
   note     ptmqtl.site_pairs coverage (bundles with an artefact): 0 of 1; no artefact for PXD999999
   tables   assays 2, datasets 1, definitions 14, findings 7, gene_resolutions 0, …
@@ -191,7 +206,7 @@ catalog  …/example-instance/catalog.duckdb
   checks   66 run, all passed
   timing   tables 0.4 s, derived: sample names 0.0 s, …
 site     site
-  catalog  6e69863e2448c775
+  catalog  e76ae034659645af
   wrote    36 files, 1 dataset page
   skipped  croissant.json: no --data-url: a Croissant file describes downloadable files, …
   skipped  robots.txt: no --base-url: both need the site's absolute address
@@ -224,7 +239,7 @@ the site, add `--base-url` (for the sitemap) and `--data-url` (for download link
 [Croissant](https://mlcommons.org/croissant/) file, which machine-learning tools load). See
 [site.md](site.md).
 
-**Why the ids are what they are.** A bundle id hashes the version of the *ingest path* (`cs-1.3.0`),
+**Why the ids are what they are.** A bundle id hashes the version of the *ingest path* (`cs-1.4.0`),
 so it moves only when ingestion itself changes. A catalog id also hashes the *program's* version, so
 any new release of PXReprise gives a new catalog id from the same bundles. Rebuilding a catalog is
 cheap; re-ingesting is not.
@@ -279,7 +294,7 @@ datarepo mcp --catalog catalog.duckdb --check
 
 ```
 catalog  catalog.duckdb
-  id       6e69863e2448c775
+  id       e76ae034659645af
   built    … by datarepo 1.0.0
   dataset  PXD999999           58 PSMs at 1%
   tools    datarepo_describe, datarepo_search, datarepo_sql

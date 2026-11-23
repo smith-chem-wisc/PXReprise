@@ -107,6 +107,16 @@ public class DocsTests
             Assert.That(statedPath.Groups[1].Value, Is.EqualTo(BundleWriter.IngesterVersion),
                 "a release build: the page's ingest path must be this build's. Rerun the tutorial and update its output");
 
+        // Until its release exists, the page says how to follow it from a source build; a release build of that version
+        // must not still carry the note, whose tag and downloads then exist.
+        var preRelease = $"**Before PXReprise {version} is released**";
+        if (!BundleWriter.PackageVersion.Contains("-dev", StringComparison.Ordinal))
+            Assert.That(page, Does.Not.Contain(preRelease), "a release build: remove the page's note for before the release");
+        else if (page.Contains(preRelease, StringComparison.Ordinal))
+            Assert.That(page, Does.Contain("git clone -c core.longpaths=true --depth 1 https://github.com/smith-chem-wisc/PXReprise.git PXReprise-src\n")
+                .And.Contain("dotnet publish PXReprise-src/src/PXReprise.DataCli -c Release -o datarepo\n"),
+                "the pre-release note clones master and builds datarepo from it");
+
         var scratch = Path.Combine(Path.GetTempPath(), "datarepo-docs-" + Guid.NewGuid().ToString("N"));
         var instance = Path.Combine(scratch, "example-instance");
         CopyTree(DataPaths.Instance, instance);
