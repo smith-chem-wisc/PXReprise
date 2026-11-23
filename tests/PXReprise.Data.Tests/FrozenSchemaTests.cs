@@ -68,4 +68,31 @@ public class FrozenSchemaTests
         Assert.That(Released, Does.Not.Contain(working),
             "the working schema carries a released version: bump it before changing it, or freeze it here when it is released");
     }
+
+    /// <summary>Every value an enum of Python 0.32.0's schema 0.0.13 has gained since is listed in
+    /// <see cref="PXReprise.Bundle.SchemaContract.AddedEnumValues"/>, and nothing else is, so a Python-parity answer (the
+    /// MCP server's <c>describe</c>) hides exactly those. An enum 0.0.13 did not have is not listed: no 0.0.13 column
+    /// names it. The rule as <c>AddedColumns</c> holds it for columns (review of #55).</summary>
+    [Test]
+    public void EveryEnumValueAddedSince0013IsInAddedEnumValues()
+    {
+        var yaml = new YamlDotNet.RepresentationModel.YamlStream();
+        yaml.Load(new StringReader(File.ReadAllText(Path.Combine(Releases, PXReprise.Bundle.SchemaContract.Python0320SchemaVersion, "datarepo.yaml"))));
+        static YamlDotNet.RepresentationModel.YamlScalarNode Key(string k) => new(k);
+        var root = (YamlDotNet.RepresentationModel.YamlMappingNode)yaml.Documents[0].RootNode;
+        var then = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        foreach (var (name, node) in ((YamlDotNet.RepresentationModel.YamlMappingNode)root.Children[Key("enums")]).Children)
+        {
+            var values = node is YamlDotNet.RepresentationModel.YamlMappingNode e && e.Children.TryGetValue(Key("permissible_values"), out var pv)
+                ? ((YamlDotNet.RepresentationModel.YamlMappingNode)pv).Children.Keys.Select(k => ((YamlDotNet.RepresentationModel.YamlScalarNode)k).Value!)
+                : [];
+            then[((YamlDotNet.RepresentationModel.YamlScalarNode)name).Value!] = values.ToHashSet(StringComparer.Ordinal);
+        }
+        var gained = PXReprise.Bundle.SchemaDocs.Enums
+            .Where(e => then.ContainsKey(e.Key))
+            .SelectMany(e => e.Value.Values.Where(v => !then[e.Key].Contains(v)).Select(v => (e.Key, v)))
+            .ToList();
+        Assert.That(gained, Is.Not.Empty, "0.0.13 is read: some enum has gained a value since");
+        Assert.That(PXReprise.Bundle.SchemaContract.AddedEnumValues.Select(a => (a.Enum, a.Value)), Is.EquivalentTo(gained));
+    }
 }
