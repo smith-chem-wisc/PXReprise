@@ -2190,6 +2190,10 @@ public sealed class BatchRunner
 
     private bool _ingestJson;
 
+    /// <summary>Tests only: whether a delivery's ingest takes <c>--json</c>, which a batch's start otherwise decides from
+    /// <c>datarepo --version</c> (<see cref="TakesIngestJson"/>), for a test that delivers without starting a batch.</summary>
+    internal bool IngestJsonForTest { set => _ingestJson = value; }
+
     /// <summary>Tests only: replaces the run of <c>datarepo --version</c> at the batch's start (exit code, stdout, stderr).</summary>
     internal Func<CancellationToken, Task<(int Rc, string Stdout, string Stderr)>>? DataRepoVersionForTest { get; set; }
 
