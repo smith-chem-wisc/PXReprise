@@ -40,7 +40,9 @@ text says TMT while PRIDE's quantification names label-free too (below).
     the engine's own (its `+commit` aside) stops it before any deposit, naming both versions ("use the datarepo from the
     same PXReprise release"). `batch status --machine` makes the same check and shows the datarepo's version, so check a
     new install with it before stopping a running batch. A datarepo that cannot be started at all is left to its ingest,
-    as before.
+    as before. A datarepo of the engine's own release is read through its `--json` envelope, a pair the binaries
+    workflow stamps `0.0.0-dev` included: before, only datarepo 1.0 or later was, so a developer's pair read only the
+    exit code.
   - **Every release says what adopting it costs:** a swap only, a swap and a catalog rebuild, or a full re-ingest, in its
     lead (above). The catalog id hashes datarepo's version, which is now every release's, so adopting any release, even
     one that changes only the engine, costs at least a swap and a catalog rebuild.

@@ -2928,8 +2928,9 @@ public class BatchRunnerTests
         await runner.RunAsync(new[] { new QueueEntry("PXD000962", "t", "mouse") }, CancellationToken.None);
 
         Assert.That(prepared, Is.EqualTo(new[] { "PXD000962" }));
+        // The datarepo of the engine's own release takes --json, a source-built pair (0.0.0-dev) included (dataRepo 149).
         Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")),
-            Does.Contain($"  datarepo version: datarepo {engine};").And.Not.Contain("batch refused"));
+            Does.Contain($"  datarepo version: datarepo {engine}; ingest reads the --json envelope").And.Not.Contain("batch refused"));
     }
 
     // `batch status --machine` is the check of a new install before its swap: it makes the start's check, so a datarepo from
