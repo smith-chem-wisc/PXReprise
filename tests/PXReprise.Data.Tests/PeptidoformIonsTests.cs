@@ -6,7 +6,7 @@ using Quantification;
 namespace PXReprise.Data.Tests;
 
 /// <summary>1.5.0 build list item 3 (schema 0.0.17, D53): <c>peptidoform_ions</c>, the six matched-ion cells of every
-/// AllPeptides.psmtsv target row the search's confidence rule passes, verbatim. The fixture's cells are in
+/// AllPeptides.psmtsv target row the search's 1% rule (D78) passes, verbatim. The fixture's cells are in
 /// MetaMorpheus's own format (<c>PsmTsvWriter.AddMatchedIonsData</c>), and it holds one row of each case the rule
 /// decides (the user, 2026-11-11: ambiguous rows kept under their first option, contaminants left out).</summary>
 public class PeptidoformIonsTests
@@ -31,7 +31,7 @@ public class PeptidoformIonsTests
         series == " " ? " " : "3",
     ];
 
-    /// <summary>One row per case: passes; at exactly 0.01 on PEP q-value (fails: strictly below); contaminant; decoy;
+    /// <summary>One row per case: passes; at exactly 0.01 on PEP q-value (passes: at or below, as the search cuts); contaminant; decoy;
     /// ambiguous (two options, first kept); ET, a target; passes with a blank ion series; passes with no peptidoform in
     /// the bundle; passes on the notch only (PEP q-value is MetaMorpheus's unset 2).</summary>
     private static string Fixture()
@@ -57,14 +57,13 @@ public class PeptidoformIonsTests
     private static readonly HashSet<string> Ids = new(
         new[] { "PEPK", "SEQK", "CONK", "DECK", "PEPTIDEK", "ETK", "BLANKK", "NOTCHK" }.Select(p => "PXD1:" + p), StringComparer.Ordinal);
 
-    private static Identifications.ConfidenceChoice Choice(QuantifiedPsmTier tier) => new(tier, 10, tier == QuantifiedPsmTier.PepQValue, true, null);
 
-    private static (List<Row> Rows, PeptidoformIons.Report Report) Read(QuantifiedPsmTier tier)
+    private static (List<Row> Rows, PeptidoformIons.Report Report) Read(string rule)
     {
         var path = Fixture();
         try
         {
-            return PeptidoformIons.Read(path, "PXD1", new ProformaCache(new ModRegistry(), IngestRules.Current), Choice(tier), Ids);
+            return PeptidoformIons.Read(path, "PXD1", new ProformaCache(new ModRegistry(), IngestRules.Current), rule, Ids);
         }
         finally
         {
@@ -75,12 +74,12 @@ public class PeptidoformIonsTests
     [Test]
     public void OnlyTargetsThatPassThePepRuleHaveIons()
     {
-        var (rows, report) = Read(QuantifiedPsmTier.PepQValue);
+        var (rows, report) = Read(Identifications.RulePepQValue);
         Assert.Multiple(() =>
         {
-            Assert.That(rows.Select(r => r["full_sequence"]), Is.EqualTo(new[] { "PEPK", "PEPTIDEK|PEPTLDEK", "ETK" }),
-                "not at 0.01, not the contaminant or the decoy, not the notch-only row");
-            Assert.That(report, Is.EqualTo(report with { Rows = 9, Passed = 5, Written = 3, NoIonSeries = 1, NoPeptidoform = 1 }));
+            Assert.That(rows.Select(r => r["full_sequence"]), Is.EqualTo(new[] { "PEPK", "SEQK", "PEPTIDEK|PEPTLDEK", "ETK" }),
+                "at 0.01 too, not the contaminant or the decoy, not the notch-only row");
+            Assert.That(report, Is.EqualTo(report with { Rows = 9, Passed = 6, Written = 4, NoIonSeries = 1, NoPeptidoform = 1 }));
             Assert.That(report.MissingHeaders, Is.Empty);
             Assert.That(rows.All(r => Equals(r["selected_by"], "pep_q_value")));
         });
@@ -89,7 +88,7 @@ public class PeptidoformIonsTests
     [Test]
     public void ARowsCellsAreStoredAsWritten()
     {
-        var pep = Read(QuantifiedPsmTier.PepQValue).Rows.Single(r => Equals(r["full_sequence"], "PEPK"));
+        var pep = Read(Identifications.RulePepQValue).Rows.Single(r => Equals(r["full_sequence"], "PEPK"));
         Assert.That(pep, Is.EquivalentTo(new Row
         {
             ["dataset_id"] = "PXD1",
@@ -112,19 +111,31 @@ public class PeptidoformIonsTests
     [Test]
     public void AnAmbiguousRowIsKeptUnderItsFirstOption()
     {
-        var ambiguous = Read(QuantifiedPsmTier.PepQValue).Rows.Single(r => ((string)r["full_sequence"]!).Contains('|'));
+        var ambiguous = Read(Identifications.RulePepQValue).Rows.Single(r => ((string)r["full_sequence"]!).Contains('|'));
         Assert.That((ambiguous["peptidoform_id"], ambiguous["full_sequence"]), Is.EqualTo(("PXD1:PEPTIDEK", "PEPTIDEK|PEPTLDEK")));
     }
 
     [Test]
     public void ASearchOnTheNotchSelectsByTheNotch()
     {
-        var rows = Read(QuantifiedPsmTier.QValueNotch).Rows;
+        var rows = Read(Identifications.RuleQValueNotch).Rows;
         Assert.Multiple(() =>
         {
             Assert.That(rows.Select(r => r["full_sequence"]), Is.EqualTo(new[] { "PEPK", "SEQK", "PEPTIDEK|PEPTLDEK", "ETK", "NOTCHK" }));
             Assert.That(rows.All(r => Equals(r["selected_by"], "q_value_notch")));
             Assert.That(rows.Single(r => Equals(r["full_sequence"], "NOTCHK"))["pep_q_value"], Is.EqualTo(2.0), "stored as written");
+        });
+    }
+
+    /// <summary>Every search up to MetaMorpheus 1.1.14: the q-value, and the notch where there is one (D78).</summary>
+    [Test]
+    public void AnOlderSearchSelectsByTheQValueAndTheNotch()
+    {
+        var rows = Read(Identifications.RuleQValueAndNotch).Rows;
+        Assert.Multiple(() =>
+        {
+            Assert.That(rows.Select(r => r["full_sequence"]), Is.EqualTo(new[] { "PEPK", "SEQK", "PEPTIDEK|PEPTLDEK", "ETK", "NOTCHK" }));
+            Assert.That(rows.All(r => Equals(r["selected_by"], "q_value_and_notch")));
         });
     }
 
@@ -135,7 +146,7 @@ public class PeptidoformIonsTests
         File.WriteAllText(path, string.Join(Tab, Header.Take(6)) + Newline + string.Join(Tab, Line("PEPK", "T", "0.001", "0.001", "0.001").Take(6)) + Newline);
         try
         {
-            var (rows, report) = PeptidoformIons.Read(path, "PXD1", new ProformaCache(new ModRegistry(), IngestRules.Current), Choice(QuantifiedPsmTier.PepQValue), Ids);
+            var (rows, report) = PeptidoformIons.Read(path, "PXD1", new ProformaCache(new ModRegistry(), IngestRules.Current), Identifications.RulePepQValue, Ids);
             var finding = Ingester.PeptidoformIonFindings(report, "PXD1").Single();
             Assert.Multiple(() =>
             {
@@ -154,13 +165,13 @@ public class PeptidoformIonsTests
     [Test]
     public void NoAllPeptidesFileIsAFindingAndRowsLeftOutAreCounted()
     {
-        var report = Read(QuantifiedPsmTier.PepQValue).Report;
+        var report = Read(Identifications.RulePepQValue).Report;
         Assert.Multiple(() =>
         {
             Assert.That(Ingester.PeptidoformIonFindings(null, "PXD1").Single()["code"], Is.EqualTo("peptidoform_ions_not_read"));
             var leftOut = Ingester.PeptidoformIonFindings(report, "PXD1").Single();
             Assert.That(leftOut["code"], Is.EqualTo("peptidoform_ions_left_out"));
-            Assert.That((string)leftOut["message"]!, Does.Contain("Of 5 AllPeptides.psmtsv target row(s)").And.Contain("2 have no row").And.Contain("1 with a blank"));
+            Assert.That((string)leftOut["message"]!, Does.Contain("Of 6 AllPeptides.psmtsv target row(s)").And.Contain("2 have no row").And.Contain("1 with a blank"));
             Assert.That(Ingester.PeptidoformIonFindings(report with { NoIonSeries = 0, NoPeptidoform = 0 }, "PXD1"), Is.Empty);
         });
     }

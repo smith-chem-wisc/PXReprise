@@ -38,6 +38,22 @@ text says TMT while PRIDE's quantification names label-free too (below).
     129.3 M over aging's 215 served bundles, from 0.38 to 1.63 times per bundle (dataRepo's measure, 2026-11-23, before
     S7's ambiguity-level-1 cut). No ptmQtl row is stored yet, so nothing stored changes.
 
+- **A bundle's 1% rule is the search's own identification filter too** (dataRepo D78, PXR-R81; ingest path `cs-1.5.0`).
+  - datarepo 1.5.0's plan (D55, never released) had `peptidoforms_1pct` and `peptidoform_ions` read the tier mzLib's
+    `ChooseTier` picks, the PEP q-value wherever PEP trained, cut strictly below 0.01. Our maintainer ruled one filter,
+    set in the search and nowhere else.
+  - Now `datasets.confidence_rule` is the filter the search's results.txt names, cut at or below 0.01 as the search
+    cuts:
+    - `q_value_and_notch` for every MetaMorpheus up to 1.1.14 (a new value), which is exactly the rule datarepo 1.4.5's
+      `peptidoforms_1pct` read, so the 1% peptidoforms aging serves do not move;
+    - from 1.1.15, `q_value_notch`, `q_value` or `pep_q_value`;
+    - `pep_q_value_or_notch` where a PEP filter trained for only some peptides, with a finding saying so.
+  - One predicate serves all three readers: `Identifications.PassesRuleSql` for `peptidoforms_1pct`,
+    `Identifications.PassesRule` for `peptidoform_ions`, and `Identifications.PsmPassesSql` (that predicate with the PSM
+    notch clause) for ptmQtl's S7.
+  - D55's two findings, `confidence_rule_fallback` and `confidence_rule_fewer_peptides`, are gone. A search from 1.1.15
+    whose results.txt names no filter is refused, as S7 refuses it.
+
 - **One release for the engine and datarepo, under one version** (decision 0073).
   - **The problem.** The two programs were released apart. The engine's `v<version>` tags published notes only, and
     datarepo's own `datarepo-v<version>` tags made draft releases of its programs. Nothing tied a machine's two programs

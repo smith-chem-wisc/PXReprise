@@ -127,7 +127,7 @@ NULL there is not "unknown" (aging 078).
 
 Prefer the acceptance views — `peptidoforms_1pct`, `protein_groups_1pct` — which apply
 a 1% rule once so no caller restates it. Each one states the rule it applies in its own `describe`.
-From catalog format 17, `peptidoforms_1pct` reads each search's own confidence rule
+From catalog format 17, `peptidoforms_1pct` reads each search's own identification filter
 (`dataset_overview.confidence_rule`), so its counts are not the search engine's own peptide count. PSMs are not in the catalog (format 13): `dataset_overview` has each
 dataset's PSM counts, and a query or `describe` that names `psms` or `psms_1pct` is told so.
 

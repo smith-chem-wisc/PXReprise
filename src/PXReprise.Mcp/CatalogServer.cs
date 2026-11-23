@@ -380,7 +380,7 @@ public sealed partial class CatalogServer : IDisposable
         var split = Box.HasTable(CatalogBuilder.DepositsTable)
             && Box.Dicts($"SELECT count(*) AS n FROM {CatalogBuilder.DepositsTable} WHERE n_datasets > 1 OR len(split_groups) > 0")
                 .Single()["n"] is long n && n > 0;
-        // D55 (catalog format 17): the rule n_peptidoforms_1pct counted by, beside it, so a count is never compared with
+        // D78 (catalog format 17): the rule n_peptidoforms_1pct counted by, beside it, so a count is never compared with
         // another dataset's without it. A catalog before it has none and answers as it did.
         var rule = Box.HasTable("dataset_overview") && ColumnTypes("dataset_overview").ContainsKey("confidence_rule");
         var datasets = Box.HasTable("dataset_overview")

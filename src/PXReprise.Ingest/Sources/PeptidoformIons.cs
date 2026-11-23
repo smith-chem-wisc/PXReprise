@@ -1,5 +1,4 @@
 using PXReprise.Bundle;
-using Quantification;
 
 namespace PXReprise.Ingest.Sources;
 
@@ -9,8 +8,9 @@ namespace PXReprise.Ingest.Sources;
 /// <para>mzLib's psmtsv projection leaves the matched-ion fields out, having no faithful column shape for them
 /// (<see cref="Readers.ReadPsmtsv"/>), so the six cells are read here, from the file's own columns, in a second pass
 /// with <see cref="TsvReader"/>, one row at a time. Nothing is parsed: each cell is stored as MetaMorpheus wrote it.</para>
-/// <para>Which rows (the maintainer, 2026-11-11): targets (<c>T</c>, <c>ET</c>) that pass the search's confidence rule strictly
-/// below 0.01, so a peptidoform has ions exactly when <c>peptidoforms_1pct</c> holds it; contaminants are left out, as
+/// <para>Which rows (the maintainer, 2026-11-11): targets (<c>T</c>, <c>ET</c>) that pass the search's own 1% rule (D78,
+/// <see cref="Identifications.PassesRule(string?, double?, double?, double?, double)"/>, at or below 0.01), so a peptidoform
+/// has ions exactly when <c>peptidoforms_1pct</c> holds it; contaminants are left out, as
 /// that view leaves them out. An ambiguous row (<c>Full Sequence</c> naming several options joined by <c>|</c>) is kept
 /// under its first option, the one its peptidoform id names: MetaMorpheus writes "the ions matched to the best peptide
 /// option", the first of the options its <c>Full Sequence</c> lists (<c>SpectralMatch.cs</c>, <c>PsmTsvWriter.cs</c>).</para>
@@ -38,10 +38,11 @@ public static class PeptidoformIons
     /// <param name="MissingHeaders">Ion headers the file does not have; any, and nothing is read.</param>
     public sealed record Report(long Rows, long Passed, long Written, long NoIonSeries, long NoPeptidoform, IReadOnlyList<string> MissingHeaders);
 
-    /// <summary>The ion rows of one AllPeptides.psmtsv under <paramref name="choice"/>'s rule.</summary>
+    /// <summary>The ion rows of one AllPeptides.psmtsv under the search's 1% <paramref name="rule"/>.</summary>
+    /// <param name="rule">A <c>ConfidenceRule</c> value (<see cref="Identifications.RuleOf"/>).</param>
     /// <param name="peptidoformIds">The bundle's peptidoform ids; a row whose id is not among them is left out and counted.</param>
     public static (List<Row> Rows, Report Report) Read(string path, string datasetId, ProformaCache proforma,
-        Identifications.ConfidenceChoice choice, IReadOnlySet<string> peptidoformIds, ReaderLog? log = null)
+        string rule, IReadOnlySet<string> peptidoformIds, ReaderLog? log = null)
     {
         using var reader = TsvReader.Open(path);
         var missing = IonColumns.Select(c => c.Header).Where(h => reader.Column(h) < 0).ToList();
@@ -63,7 +64,7 @@ public static class PeptidoformIons
             if (Identifications.TargetDecoy(reader.Cell(status)) != "target") continue;
             var pepQValue = Value(reader.Cell(pepQ));
             var notchQValue = Value(reader.Cell(notch));
-            if (!QuantifiedPsmRule.PassesConfidence(choice.Tier, Value(reader.Cell(q)) ?? double.NaN, notchQValue, pepQValue)) continue;
+            if (!Identifications.PassesRule(rule, Value(reader.Cell(q)), notchQValue, pepQValue)) continue;
             passed++;
             var fullSequence = reader.Cell(full);
             var parsed = proforma.Get(Identifications.First(fullSequence));
@@ -78,7 +79,7 @@ public static class PeptidoformIons
                 ["dataset_id"] = datasetId,
                 ["peptidoform_id"] = id,
                 ["full_sequence"] = Identifications.Verbatim(fullSequence),
-                ["selected_by"] = choice.Rule,
+                ["selected_by"] = rule,
                 ["pep_q_value"] = pepQValue,
                 ["q_value_notch"] = notchQValue,
             };
