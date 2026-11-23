@@ -23,6 +23,21 @@ once, as 1.5.0 asks). A question that wants it names `tmt-dda@5` before `tmt-dda
 QC refused for ion-trap HCD gets a `batch retry`. So does each deposit refused for `no_isobaric_reporters` whose record
 text says TMT while PRIDE's quantification names label-free too (below).
 
+- **ptmQtl's observations (its S7) are the PSMs the search's own identification filter kept** (ptmQtl D82, PXR-P23;
+  replaces ptmQtl D36).
+  - `datarepo run`'s ptmQtl engines (`site_pairs`, `site_traits`) took one quantified-PSM tier per search (mzLib's
+    `QuantifiedPsmRule.ChooseTier`: the PEP q-value wherever PEP trained) and cut strictly below 0.01. MetaMorpheus
+    quantifies, and builds the occupancy cells the engines read, from the PSMs its own filter keeps, so a site could
+    count as covered by PSMs it never quantified.
+  - Now a bundle's filter is the one its `results.txt` names, read as the ingest reads it (`Identifications.FilterOf`),
+    and the cut is the search's, `<= 0.01`. Up to 1.1.14 that is the q-value and the notch, with the notch resolved
+    (`psms_1pct`'s rule); from 1.1.15 it is the filter the search names. A search from 1.1.15 on whose results.txt names
+    no filter is refused, never read on a guess.
+  - The run record's `quantified_psm_tier` (one tier per search) becomes `identification_filter` (the bundle's filter).
+  - Every served search is 1.1.14 or earlier, so S7 keeps about 19 % fewer target PSMs than under D36: 105.3 M against
+    129.3 M over aging's 215 served bundles, from 0.38 to 1.63 times per bundle (dataRepo's measure, 2026-11-23, before
+    S7's ambiguity-level-1 cut). No ptmQtl row is stored yet, so nothing stored changes.
+
 - **One release for the engine and datarepo, under one version** (decision 0073).
   - **The problem.** The two programs were released apart. The engine's `v<version>` tags published notes only, and
     datarepo's own `datarepo-v<version>` tags made draft releases of its programs. Nothing tied a machine's two programs
