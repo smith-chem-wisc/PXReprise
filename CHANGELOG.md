@@ -23,6 +23,21 @@ once, as 1.5.0 asks). A question that wants it names `tmt-dda@5` before `tmt-dda
 QC refused for ion-trap HCD gets a `batch retry`. So does each deposit refused for `no_isobaric_reporters` whose record
 text says TMT while PRIDE's quantification names label-free too (below).
 
+- **ptmQtl's observations (its S7) are the PSMs the search's own identification filter kept** (ptmQtl D82, PXR-P23;
+  replaces ptmQtl D36).
+  - `datarepo run`'s ptmQtl engines (`site_pairs`, `site_traits`) took one quantified-PSM tier per search (mzLib's
+    `QuantifiedPsmRule.ChooseTier`: the PEP q-value wherever PEP trained) and cut strictly below 0.01. MetaMorpheus
+    quantifies, and builds the occupancy cells the engines read, from the PSMs its own filter keeps, so a site could
+    count as covered by PSMs it never quantified.
+  - Now a bundle's filter is the one its `results.txt` names, read as the ingest reads it (`Identifications.FilterOf`),
+    and the cut is the search's, `<= 0.01`. Up to 1.1.14 that is the q-value and the notch, with the notch resolved
+    (`psms_1pct`'s rule); from 1.1.15 it is the filter the search names. A search from 1.1.15 on whose results.txt names
+    no filter is refused, never read on a guess.
+  - The run record's `quantified_psm_tier` (one tier per search) becomes `identification_filter` (the bundle's filter).
+  - Every served search is 1.1.14 or earlier, so S7 keeps about 19 % fewer target PSMs than under D36: 105.3 M against
+    129.3 M over aging's 215 served bundles, from 0.38 to 1.63 times per bundle (dataRepo's measure, 2026-11-23, before
+    S7's ambiguity-level-1 cut). No ptmQtl row is stored yet, so nothing stored changes.
+
 - **One release for the engine and datarepo, under one version** (decision 0073).
   - **The problem.** The two programs were released apart. The engine's `v<version>` tags published notes only, and
     datarepo's own `datarepo-v<version>` tags made draft releases of its programs. Nothing tied a machine's two programs
@@ -40,7 +55,9 @@ text says TMT while PRIDE's quantification names label-free too (below).
     the engine's own (its `+commit` aside) stops it before any deposit, naming both versions ("use the datarepo from the
     same PXReprise release"). `batch status --machine` makes the same check and shows the datarepo's version, so check a
     new install with it before stopping a running batch. A datarepo that cannot be started at all is left to its ingest,
-    as before.
+    as before. A datarepo of the engine's own release is read through its `--json` envelope, a pair the binaries
+    workflow stamps `0.0.0-dev` included: before, only datarepo 1.0 or later was, so a developer's pair read only the
+    exit code.
   - **Every release says what adopting it costs:** a swap only, a swap and a catalog rebuild, or a full re-ingest, in its
     lead (above). The catalog id hashes datarepo's version, which is now every release's, so adopting any release, even
     one that changes only the engine, costs at least a swap and a catalog rebuild.
@@ -64,6 +81,19 @@ text says TMT while PRIDE's quantification names label-free too (below).
   - **An existing manifest is never rewritten.** One the batch wrote under an earlier version needs its `work_root` set
     to the machine's by hand, and each entry's `run` changed to match. A hand-written manifest whose `work_root` is
     already the machine's (aging's) is not affected.
+
+- **datarepo names a searched database or settings folder that is not on disk** (ingest path `cs-1.4.0`).
+  - **The problem.** A protein database the search provenance names, or the MetaMorpheus settings folder, could be
+    missing where the manifest's `work_root` puts it, and the ingest still exited 0. A missing database was named
+    only at the end of the `unplaced_ptm_sites` finding, which is about sites. A missing settings folder only showed as
+    a longer `unresolved_modifications` list. The manifest the batch wrote before the fix above lost both for every
+    deposit.
+  - **Now each is a warning of its own.** `search_database_missing` gives each missing path and the sha256 the search
+    recorded, and says what the bundle lacks without it. `search_settings_missing` names the folder, and whether it
+    came from `--mm-settings` or the default `<work_root>/mm_settings/<release>`.
+  - **The ingest path moves to `cs-1.4.0`,** which also covers 1.1.15's reconciliation counts (#38, #42). So a
+    re-ingest writes a new bundle id for every deposit. A bundle written at `cs-1.3.0` (schema 0.0.17) is still served
+    as it is; a store on datarepo 1.4.x re-ingests once anyway, as the lead above says.
 
 - **The spectra now decide when the record text, not PRIDE's list, chose the TMT profile** (PXD032900-lfq, 2026-11-20).
   - **The problem.** Since 0.4.45, a deposit routed to the isobaric profile by PRIDE's words goes back to its label-free
@@ -129,6 +159,38 @@ text says TMT while PRIDE's quantification names label-free too (below).
     1, so a file with no MS2 at all is still a blank.
   - **Adopting:** a swap only. A deposit already refused at full QC (`skipped_acquisition_full`) needs a `batch retry`
     once the block is in its question; the exception alone does not reopen it.
+
+- **Differential abundance for each finished search: the `differential` command and the batch's stage `06_differential`**
+  (D84; QuantProject 155).
+  - **The problem.** The pipeline delivered per-sample peptide and protein intensities, but no comparison between a
+    deposit's conditions. mzLib 1.0.600 carries QuantProject's runner (`DifferentialAnalysis.Run`, mzLib #1591), and
+    nothing called it.
+  - **The change.** After each search, the batch runs mzLib's analysis on the tables the search wrote, with
+    QuantProject's defaults: every pair of the design's conditions, one model per protein group. `pxreprise differential
+    --search <04_search> --out <06_differential>` runs it by hand, also on a search delivered before this version.
+    - Label-free: the peptide table, once per basis (`msms_only`, and `mbr_kept` when the search ran match-between-runs).
+    - TMT: the PSMs MetaMorpheus quantified.
+    - Each analysis writes mzLib's `DifferentialResults.tsv`, `DifferentialResults.metadata.json`, `DifferentialDecisions.tsv`
+      and `StatisticalReport.md` with its figures, and QuantProject's `DifferentialAssumptions.md`.
+    - A sample whose condition is `not available` is left out and listed. The individual comes from the SDRF the search
+      wrote.
+    - A search that cannot be analysed, such as one condition, no replicates or a design the runner refuses, is recorded
+      in the stage's `provenance.json`, and the deposit is delivered as before.
+  - **A file that lost every match-between-runs transfer** while its sibling files kept theirs is named in the stage's
+    provenance. The batch also writes it to the run's `notices.tsv` and to `batch.log` as a `NOTICE (lost_transfers)`, to be
+    told to QuantProject (their PXR-T19).
+  - **The release notes say:** "Differential abundance by QuantProject's `DEF-DIFF v1` (mzLib 1.0.600): a peptide-level
+    model per protein group, one comparison per pair of conditions. A peptide with no value in a sample is treated as
+    missing at random; a value below detection is not modelled, so where absence means low abundance the size of a change
+    can be understated. Rows with match-between-runs values are reported separately (`quant_basis`), and a file that lost
+    every transfer is named in the deposit's provenance."
+  - **A TMT design whose SDRF marks a pooled reference channel can now be searched.** mzLib writes its own `Sample Type`
+    column for such a design. The engine refused the design at set-up, so a curated SDRF that wrote `pooled` could not be
+    used. `--sdrf` gives the differential step such a corrected SDRF for a search already made. Its design must match the
+    search's in every column but `Sample Type`.
+  - **Machine file:** optional `differential = false` turns the stage off; it is on by default.
+  - **Not yet in the bundle:** datarepo does not ingest these files yet (dataRepo's part). Until it does, they stay in the
+    run folder.
 
 ## 0.4.50 (2026-11-17)
 

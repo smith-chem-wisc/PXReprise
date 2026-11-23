@@ -95,6 +95,18 @@ public class DocsTests
         Assert.That(page, Does.Contain($"cp -r PXReprise-src/{instancePath} example-instance"),
             $"the page copies another folder than the example instance this test runs ({instancePath})");
 
+        // The page describes the release it names. Between releases master's ingest path moves ahead of it whenever an
+        // ingest change bumps it, and this build then writes other bundle ids than that release printed. The page keeps
+        // the release's ids, which stay true for anyone following it; only the id comparisons wait for the next
+        // release's rerun. Every command still runs and every other line is still compared, and a release build must
+        // carry its own ingest path on the page.
+        var statedPath = Regex.Match(page, @"\*ingest path\* \(`([^`]+)`\)");
+        Assert.That(statedPath.Success, "getting-started.md no longer says which ingest path its bundle id hashes");
+        var idsAreThisBuilds = statedPath.Groups[1].Value == BundleWriter.IngesterVersion;
+        if (!BundleWriter.PackageVersion.Contains("-dev", StringComparison.Ordinal))
+            Assert.That(statedPath.Groups[1].Value, Is.EqualTo(BundleWriter.IngesterVersion),
+                "a release build: the page's ingest path must be this build's. Rerun the tutorial and update its output");
+
         var scratch = Path.Combine(Path.GetTempPath(), "datarepo-docs-" + Guid.NewGuid().ToString("N"));
         var instance = Path.Combine(scratch, "example-instance");
         CopyTree(DataPaths.Instance, instance);
@@ -133,10 +145,20 @@ public class DocsTests
 
             var quotedBundles = Regex.Matches(page, @"bundle\s+(?:…/store/PXD999999/)?([0-9a-f]{16})").Select(m => m.Groups[1].Value).ToHashSet();
             var quotedCatalogs = Regex.Matches(page, @"(?:id|catalog)\s+([0-9a-f]{16})").Select(m => m.Groups[1].Value).ToHashSet();
-            Assert.That(quotedBundles, Is.EquivalentTo(new[] { bundle }), $"page quotes bundle(s) {string.Join(", ", quotedBundles)}, the program wrote {bundle}");
-            Assert.That(quotedCatalogs, Is.EquivalentTo(new[] { catalog }),
-                $"page quotes catalog(s) {string.Join(", ", quotedCatalogs)}; datarepo {version} builds {catalog}");
-            Assert.That(page, Does.Contain($"The bundle's name, `{bundle}`"));
+            if (idsAreThisBuilds)
+            {
+                Assert.That(quotedBundles, Is.EquivalentTo(new[] { bundle }), $"page quotes bundle(s) {string.Join(", ", quotedBundles)}, the program wrote {bundle}");
+                Assert.That(quotedCatalogs, Is.EquivalentTo(new[] { catalog }),
+                    $"page quotes catalog(s) {string.Join(", ", quotedCatalogs)}; datarepo {version} builds {catalog}");
+                Assert.That(page, Does.Contain($"The bundle's name, `{bundle}`"));
+            }
+            else
+            {
+                Assert.That((quotedBundles.Count, quotedCatalogs.Count), Is.EqualTo((1, 1)), "the page quotes one bundle and one catalog throughout");
+                Assert.That(page, Does.Contain($"The bundle's name, `{quotedBundles.Single()}`"));
+                TestContext.Out.WriteLine($"ids not compared: the page's ingest path is {statedPath.Groups[1].Value}, this build's "
+                    + $"{BundleWriter.IngesterVersion} (it wrote bundle {bundle}, and datarepo {version} would build catalog {catalog})");
+            }
 
             var again = Datarepo("publish", "manifest.yaml", "--site", "site", "--title", "Example repository",
                 "--purpose", "how a tutorial fixture behaves");

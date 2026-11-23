@@ -2372,6 +2372,51 @@ public class BatchRunnerTests
         Assert.That(ManifestEntry.WorkRootOf(manifest), Is.EqualTo(Path.GetFullPath(dir)));
     }
 
+    /// <summary>
+    /// A delivery's ingest runs the command <see cref="BatchRunner.IngestCommand"/> builds, with <c>--json</c> exactly when
+    /// the machine's datarepo takes it, and reads datarepo's reply. The stand-in datarepo is a script that records its
+    /// arguments and, given <c>--json</c>, prints a real 1.0.0 envelope (the IngestEnvelopeTests fixture).
+    /// </summary>
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task ADeliverysIngestRunsTheIngestCommandAndReadsTheReply(bool json)
+    {
+        const string acc = "PXD034059";   // the envelope fixture's deposit
+        string tools = TestSupport.TempDir();
+        string args = Path.Combine(tools, "args.txt"), envelope = Path.Combine(tools, "envelope.json");
+        File.Copy(Path.Combine(TestContext.CurrentContext.TestDirectory, "Fixtures", "datarepo", "ingest-1.0.0-ingested.json"), envelope);
+        string datarepo;
+        if (OperatingSystem.IsWindows())
+        {
+            datarepo = TestSupport.WriteFile(tools, "datarepo.cmd",
+                $"@echo off\r\necho %*> \"{args}\"\r\nif \"%4\"==\"--json\" type \"{envelope}\"\r\nexit /b 0\r\n");
+        }
+        else
+        {
+            datarepo = TestSupport.WriteFile(tools, "datarepo",
+                $"#!/bin/sh\nprintf '%s ' \"$@\" > '{args}'\nif [ \"$4\" = \"--json\" ]; then cat '{envelope}'; fi\nexit 0\n");
+            File.SetUnixFileMode(datarepo, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+        var (runner, _, _, dir) = Runner("[publish]\nmanifest = \"q/manifest.yaml\"\n", $"datarepo = '{datarepo}'\n");   // a TOML literal string: backslashes stay
+        runner.IngestJsonForTest = json;
+        string run = Path.Combine(dir, "runs", acc);
+        Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
+        Directory.CreateDirectory(Path.Combine(run, "04_search"));
+        File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(("a.raw", true, Array.Empty<string>())).ToJsonString());
+        File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), "{\"success\": true, \"tools\": {\"MetaMorpheus\": {\"release\": \"1.1.11\"}}}");
+
+        await runner.DeliverAsync(new QueueEntry(acc, "t", "human"), Profiles["label-free-dda@1"], CancellationToken.None);
+
+        string said = File.ReadAllText(args).Trim();
+        Assert.That(said, Does.StartWith("ingest ").And.Contain("manifest.yaml"), "datarepo is asked to ingest the question's manifest");
+        Assert.That(said, json ? Does.EndWith($"{acc} --json") : Does.EndWith(acc), "--json exactly when the machine's datarepo takes it");
+        var entry = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "state", "state.json")))!["datasets"]![acc]!;
+        Assert.That(entry["ingest_rc"]!.GetValue<int>(), Is.EqualTo(0));
+        Assert.That(entry["bundle_id"]?.GetValue<string>(), json ? Is.EqualTo("24e3acd215f6ceb5") : Is.Null, "the bundle id comes from the envelope");
+        Assert.That(File.ReadAllText(Path.Combine(dir, "q", "manifest.yaml")).ReplaceLineEndings("\n"), Does.Contain("delivery: delivered"),
+            "an ingest that exits 0 marks the entry delivered");
+    }
+
     [Test]
     public void APublishCommandNamesNoMachinePath()
     {
@@ -2883,8 +2928,9 @@ public class BatchRunnerTests
         await runner.RunAsync(new[] { new QueueEntry("PXD000962", "t", "mouse") }, CancellationToken.None);
 
         Assert.That(prepared, Is.EqualTo(new[] { "PXD000962" }));
+        // The datarepo of the engine's own release takes --json, a source-built pair (0.0.0-dev) included (dataRepo 149).
         Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")),
-            Does.Contain($"  datarepo version: datarepo {engine};").And.Not.Contain("batch refused"));
+            Does.Contain($"  datarepo version: datarepo {engine}; ingest reads the --json envelope").And.Not.Contain("batch refused"));
     }
 
     // `batch status --machine` is the check of a new install before its swap: it makes the start's check, so a datarepo from
