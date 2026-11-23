@@ -322,6 +322,24 @@ public class PtmQtlEngineTests
             Throws.TypeOf<RunnerException>().With.Message.Contains("ptmQtl S7 (D82)"));
     }
 
+    /// <summary>D40 with S4: a sample's depth is log2 of the target PSMs of all its runs, so its fractions add up; an
+    /// injection is its own sample; a sample with no target PSM, and a run with no sample, give no depth.</summary>
+    [Test]
+    public void DepthIsLog2OfASamplesTargetPsmsOverAllItsRuns()
+    {
+        var dataset = new PtmQtlDataset("D", "mouse", [], [], new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["f1"] = "s1", ["f2"] = "s1", ["inj1"] = "inj1", ["inj2"] = "inj2", ["empty"] = "empty",
+        }, new Dictionary<string, string>(), Enriched: false)
+        {
+            TargetPsms = new Dictionary<string, long>(StringComparer.Ordinal) { ["f1"] = 1000, ["f2"] = 3000, ["inj1"] = 512, ["inj2"] = 0, ["stray"] = 7 },
+        };
+        Assert.That(PtmQtlCore.Depth(dataset), Is.EquivalentTo(new Dictionary<string, double>
+        {
+            ["s1"] = Math.Log2(4000), ["inj1"] = 9.0,
+        }));
+    }
+
     /// <summary>D35: a site is pooled only where every dataset holding it gives it one window; otherwise it, and every
     /// pair holding it, is left out and counted.</summary>
     [TestCase("another window", "D35 sites left out: windows disagree")]

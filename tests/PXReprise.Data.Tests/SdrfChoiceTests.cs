@@ -276,6 +276,11 @@ public class SdrfChoiceTests
         var (dataset, counts) = PXReprise.Runner.PtmQtlBundle.Read(PXReprise.Catalog.BundleRef.Load(result.BundlePath), enriched: false);
         var sample = $"{Accession}:donor";
         var eligible = Rows(result, "ptm_stoichiometry").Count(o => (string)o["assay_id"]! == Pooled);
+        // D40: the fixture's search is up to 1.1.14, so S7 keeps target PSMs with q-value and notch at or below 0.01
+        // and a resolved notch; the pooled sample's depth counts both of its files' PSMs.
+        static bool Kept(Row p) => (string)p["target_decoy"]! == "target" && p["q_value"] is double q && q <= 0.01
+            && (p["q_value_notch"] is not double n || n <= 0.01) && p["notch_ambiguous"] is not true;
+        var kept = Rows(result, "psms").Where(Kept).GroupBy(p => (string)p["run_id"]!).ToDictionary(g => g.Key, g => (long)g.Count());
         Assert.Multiple(() =>
         {
             Assert.That(counts["P32 pooled samples read"], Is.EqualTo(1));
@@ -283,6 +288,13 @@ public class SdrfChoiceTests
             Assert.That(dataset.RunToSample[$"{Accession}:{RunB}"], Is.EqualTo(sample));
             Assert.That(dataset.Occupancy.Select(c => c.Run).Distinct(), Is.EqualTo(new[] { sample }));
             Assert.That(dataset.Occupancy, Has.Count.EqualTo(eligible).And.Count.GreaterThan(0));
+            Assert.That(dataset.IdentificationFilter, Is.EqualTo("QValueAndNotch"));
+            Assert.That(dataset.TargetPsms, Is.EquivalentTo(kept));
+            Assert.That(kept.Keys, Is.EquivalentTo(new[] { $"{Accession}:{RunA}", $"{Accession}:{RunB}" }), "both files have kept PSMs");
+            Assert.That(PXReprise.Runner.PtmQtlCore.Depth(dataset), Is.EquivalentTo(new Dictionary<string, double>
+            {
+                [sample] = Math.Log2(kept.Values.Sum()),
+            }));
         });
     }
 

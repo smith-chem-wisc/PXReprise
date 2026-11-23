@@ -33,6 +33,10 @@ public sealed record PtmQtlDataset(string DatasetId, string Species, IReadOnlyLi
     /// from a bundle, as in ptmQtl's reference case.</summary>
     public string? IdentificationFilter { get; init; }
 
+    /// <summary>Each run's target PSMs that S7's filter keeps, at any ambiguity level and on any protein: what its depth
+    /// counts (D40, <see cref="PtmQtlCore.Depth"/>). A run with none is absent.</summary>
+    public IReadOnlyDictionary<string, long> TargetPsms { get; init; } = new Dictionary<string, long>(StringComparer.Ordinal);
+
     /// <summary>The runs (and pooled samples' keys) whose occupancy enters type A and site-trait fits (S3, S3b): the
     /// whole-proteome ones. Null means every run, as in ptmQtl's reference case.</summary>
     public IReadOnlySet<string>? OccupancyRuns { get; init; }
@@ -180,6 +184,20 @@ public static class PtmQtlCore
     };
 
     private static void Count(Dictionary<string, long> counts, string reason) => counts[reason] = counts.GetValueOrDefault(reason) + 1;
+
+    /// <summary>D40: each sample's depth, log2 of the target PSMs that S7's filter keeps in all of its runs (S4: a
+    /// sample's fractions are summed; an injection is its own sample), keyed as <see cref="Occupancy"/> keys its cells.
+    /// A sample with no such PSM has no depth and is absent.</summary>
+    /// <remarks>D40 partials it out of type A's correlation when one-form cells enter as bounds, since a shallow run
+    /// sees fewer of a site's forms (<c>results/g46_bounds_v1</c>: the covered-zero share falls with depth in 31 of 68
+    /// deposits).</remarks>
+    public static Dictionary<string, double> Depth(PtmQtlDataset dataset)
+    {
+        var psms = new Dictionary<string, long>(StringComparer.Ordinal);
+        foreach (var (run, sample) in dataset.RunToSample)
+            if (dataset.TargetPsms.TryGetValue(run, out var n)) psms[sample] = psms.GetValueOrDefault(sample) + n;
+        return psms.Where(kv => kv.Value > 0).ToDictionary(kv => kv.Key, kv => Math.Log2(kv.Value), StringComparer.Ordinal);
+    }
 
     /// <summary>S1 + S2 (with S2c, S2d) + S3b + S4: the stored cells as mzLib cells, biological and not left out by an
     /// artefact rule, of whole-proteome runs only, combined per sample.</summary>

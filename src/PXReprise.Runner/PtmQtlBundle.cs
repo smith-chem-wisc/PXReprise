@@ -260,6 +260,10 @@ public static class PtmQtlBundle
                 r[5] is null ? double.NaN : Convert.ToDouble(r[5]), previous));
         }
         counts["observations"] = observations.Count;
+        // D40: each run's depth counts its target PSMs under S7's filter, at any ambiguity level and on any protein.
+        var targetPsms = Query(con, $"SELECT run_id, count(*) FROM {psms} WHERE target_decoy = 'target' AND {passes} GROUP BY run_id")
+            .ToDictionary(r => (string)r[0]!, r => Convert.ToInt64(r[1]), StringComparer.Ordinal);
+        counts["runs with target PSMs (depth)"] = targetPsms.Count;
         // ptmQtl's three counters (their summary.tsv): distinct name combinations, not rows.
         counts["several_names_kept_unimod"] = verdicts.Count(v => v.Value == PtmQtlRules.SameByUnimod);
         counts["several_names_kept_formula"] = verdicts.Count(v => v.Value == PtmQtlRules.SameByFormula);
@@ -476,6 +480,7 @@ public static class PtmQtlBundle
         {
             Windows = windows,
             IdentificationFilter = filter.ToString(),
+            TargetPsms = targetPsms,
             RunTypes = runTypes,
             OccupancyRuns = occupancyRuns,
             Excluded = excluded,
