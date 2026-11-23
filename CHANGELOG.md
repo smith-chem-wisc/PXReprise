@@ -56,6 +56,8 @@ text says TMT while PRIDE's quantification names label-free too (below).
     parity scope, as `AddedColumns` hides columns, so the MCP parity answers stand.
   - **Tests.** ptmQtl's reference case v3 (`tests/PXReprise.Data.Tests/Fixtures/ptmqtl-reference-v3`) is reproduced
     row for row. The site-trait fit is unchanged (`DEF-SITE-TRAIT v1`), and is still checked against v1's fixture.
+  - **The reference builder moved here:** `tools/ptmqtl-reference`, from ptmQtl's `tools/ReferenceCase`. It applies
+    ptmQtl's definitions through mzLib calls only, not through `PXReprise.Runner`, and regenerates the v3 fixture.
   - **Cost.** The null takes type A three more times per deposit. ptmQtl's v5 pairs took 37 min for 121 deposits on 64
     cores, so expect about four times that. No ptmQtl row is stored yet.
 
