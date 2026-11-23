@@ -2,7 +2,7 @@
 title: "0089 Match-between-runs transfers kept below a q-value of 5%"
 parent: Decisions
 nav_order: 89
-status: proposed
+status: accepted
 date: 2026-11-23
 decision-makers: the maintainer
 ---

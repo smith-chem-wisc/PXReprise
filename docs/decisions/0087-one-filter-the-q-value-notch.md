@@ -2,7 +2,7 @@
 title: "0087 One identification filter, the q-value notch at 1%, set in the search only"
 parent: Decisions
 nav_order: 87
-status: proposed
+status: accepted
 date: 2026-11-23
 decision-makers: the maintainer
 ---
