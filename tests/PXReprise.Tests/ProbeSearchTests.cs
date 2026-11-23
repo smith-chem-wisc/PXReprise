@@ -386,4 +386,47 @@ public class ProbeSearchTests
         Assert.Throws<InvalidDataException>(() => Qc.ProbeMeasures.PrecursorOffsets(TestSupport.WriteFile(dir, "b.psmtsv", "File Name\tQValue\tDecoy/Contaminant/Target\n")),
             "a probe output without the mass columns is an error, never an offset of 0");
     }
+
+    /// <summary><c>search --probe-offsets</c> reads a JSON object of run name to offset in ppm; anything else is a usage error.</summary>
+    [TestCase("{\"a\": 9.4, \"b\": -1.5}", null)]
+    [TestCase(null, "does not exist")]
+    [TestCase("not json", "is not JSON")]
+    [TestCase("[]", "must be a JSON object")]
+    [TestCase("{}", "must be a JSON object")]
+    [TestCase("{\"a\": \"x\"}", "run 'a' has no number")]
+    public void ProbeOffsetsAreAJsonObjectOfRunToPpm(string? json, string? error)
+    {
+        string dir = TestSupport.TempDir();
+        string path = json is null ? Path.Combine(dir, "none.json") : TestSupport.WriteFile(dir, "offsets.json", json);
+        if (error is null)
+            Assert.That(Program.ReadProbeOffsets(path), Is.EqualTo(new Dictionary<string, double> { ["a"] = 9.4, ["b"] = -1.5 }));
+        else
+            Assert.That(Assert.Throws<Cli.UsageException>(() => Program.ReadProbeOffsets(path))!.Message, Does.Contain(error));
+    }
+
+    /// <summary>
+    /// The search verb takes --probe-offsets into its request, and fetch takes --include. Both stop before any work here: the
+    /// search has no database for the organism, and fetch has no machine file.
+    /// </summary>
+    [Test]
+    public async Task TheSearchAndFetchVerbsTakeTheirNewOptions()
+    {
+        string root = TestSupport.TempDir();
+        string machine = TestSupport.WriteFile(root, "machine.toml",
+            $"work_root = '{root}'\ndatabase_dir = '{root}'\nmax_threads = 1\n[metamorpheus]\n\"1.1.11\" = '{Path.Combine(root, "CMD.dll")}'\n");
+        string offsets = TestSupport.WriteFile(root, "offsets.json", "{\"a\": 9.4}");
+        async Task<(int Exit, string Out)> Run(params string[] argv)
+        {
+            var sw = new StringWriter();
+            int exit = await Program.RunAsync(argv, sw, CancellationToken.None);
+            return (exit, sw.ToString());
+        }
+
+        var search = await Run("search", "--profile", "label-free-dda@1", "--profiles", TestSupport.ProfilesDir, "--organism", "no-such-organism",
+            "--machine", machine, "--spectra", root, "--qc", Path.Combine(root, "qc.json"), "--out", Path.Combine(root, "out"), "--probe-offsets", offsets);
+        Assert.That(search.Out, Does.Contain("has no database for 'no-such-organism'"), "the request was built, offsets included");
+
+        var fetch = await Run("fetch", "PXD000001", "--out", Path.Combine(root, "fetch"), "--machine", Path.Combine(root, "none.toml"), "--include", @"\.raw$");
+        Assert.That((fetch.Exit, fetch.Out.Contains("none.toml")), Is.EqualTo((2, true)), "it stops at the missing machine file, after reading --include");
+    }
 }
