@@ -5,8 +5,10 @@ using Readers;
 namespace PXReprise.Qc;
 
 /// <summary>
-/// One probe run's measured facts (D32, D34; PLAN_search-settings.md slice 3), over its 1% target non-contaminant PSMs
-/// (q-value &lt; 0.01, the D36 q tier: a probe search is too small for PEP). Species come from MetaMorpheus's
+/// One probe run's measured facts (D32, D34; PLAN_search-settings.md slice 3), over its target non-contaminant PSMs.
+/// The probe search writes only the matches its identification filter passes at 1% (WriteHighQValuePsms = false; the
+/// profile's own filter, D87), so nothing here filters them again: one filter, set in the search, for every stage of it
+/// (the user, 2026-11-22). Until D87 a q-value &lt; 0.01 cut was applied here too (D36). Species come from MetaMorpheus's
 /// <c>Organism Name</c>: a PSM whose candidate proteins all come from one organism counts for it; one shared between
 /// organisms counts as shared. Cysteine, phospho, GG and acetyl-K are counted over PSMs with ONE candidate sequence only.
 /// Acetyl-K is MetaMorpheus's `Acetylation on K` or a UniProt `N6-acetyllysine` site from the database: counting only the
@@ -58,7 +60,6 @@ public static class ProbeMeasures
         {
             // Target only: "T|C" (shared with a contaminant) is left out, the conservative reading.
             ["Decoy/Contaminant/Target"] = c => c.Trim() == "T",
-            ["QValue"] = c => double.TryParse(c, NumberStyles.Float, CultureInfo.InvariantCulture, out double q) && q < 0.01,
         };
         var psms = LightWeightSpectralMatchReader.ReadTsv(allPsms, out var warnings, keep);
         if (warnings.Count > 0) throw new InvalidDataException($"{Path.GetFileName(allPsms)}: mzLib could not read every row ({warnings[0]})");
@@ -102,7 +103,8 @@ public static class ProbeMeasures
     private const double IsotopeSpacing = Chemistry.Constants.C13MinusC12;
 
     /// <summary>
-    /// Each probe run's precursor offset: the median precursor mass error, in ppm, of its 1% target PSMs, after the isotope
+    /// Each probe run's precursor offset: the median precursor mass error, in ppm, of its target PSMs (the ones the probe
+    /// search's filter passed at 1%, which are all it writes; D87), after the isotope
     /// notch MetaMorpheus matched each at. The probe takes precursors within ±20 ppm and runs no calibration, so this is the
     /// instrument's own offset (PXD045821, 2026-10-17: +8.7 ppm in every run). mzLib's light reader keeps no mass
     /// difference, so the columns are read here. A run with fewer than <see cref="MinOffsetPsms"/> such PSMs has none.
@@ -110,12 +112,12 @@ public static class ProbeMeasures
     public static IReadOnlyDictionary<string, double> PrecursorOffsets(string allPsms)
     {
         var header = Search.Tsv.Header(allPsms);
-        var missing = new[] { "File Name", "QValue", "Decoy/Contaminant/Target", "Mass Diff (Da)", "Monoisotopic Mass" }.Where(c => !header.Contains(c)).ToList();
+        var missing = new[] { "File Name", "Decoy/Contaminant/Target", "Mass Diff (Da)", "Monoisotopic Mass" }.Where(c => !header.Contains(c)).ToList();
         if (missing.Count > 0) throw new InvalidDataException($"{Path.GetFileName(allPsms)} lacks column(s) {string.Join(", ", missing)}");
         var byRun = new Dictionary<string, List<double>>(StringComparer.Ordinal);
         foreach (var row in Search.Tsv.Read(allPsms))
         {
-            if (row["Decoy/Contaminant/Target"].Trim() != "T" || !(Search.Tsv.Number(row["QValue"]) < 0.01)) continue;
+            if (row["Decoy/Contaminant/Target"].Trim() != "T") continue;
             double da = Search.Tsv.Number(row["Mass Diff (Da)"].Split('|')[0]), mass = Search.Tsv.Number(row["Monoisotopic Mass"].Split('|')[0]);
             if (double.IsNaN(da) || !(mass > 0)) continue;
             double ppm = (da - Math.Round(da / IsotopeSpacing) * IsotopeSpacing) / mass * 1e6;

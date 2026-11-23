@@ -1,0 +1,245 @@
+{
+  "built_utc": "2026-11-21T19:07:32\u002B00:00",
+  "script": "PXReprise tools/ptm-db/BuildPtmDb.cs (C# port of aging results/ptm_db_2026-09-27/build_ptm_db.py)",
+  "tag": "agingPTM-v9",
+  "catalog": {
+    "id": "7ecfc9763064b181",
+    "datarepo": "1.4.5",
+    "built_utc": "2026-11-21T05:02:17\u002B00:00",
+    "path": "F:/aging_data/repo/catalogs/catalog-7ecfc9763064b181.duckdb"
+  },
+  "from_sites": null,
+  "selection": {
+    "q_max": 0.01,
+    "ambiguity_level": "1",
+    "target_only": true,
+    "min_psms_summed": 5,
+    "modifications": [
+      "Acetylation on K",
+      "Acetylation on X",
+      "Butyrylation on K",
+      "Crotonylation on K",
+      "Dimethylation on K",
+      "Dimethylation on R",
+      "GG (Ubiquitination Site) on K",
+      "Glutarylation on K",
+      "HexNAc on S",
+      "HexNAc on T",
+      "Hydroxybutyrylation on K",
+      "Methylation on K",
+      "Methylation on R",
+      "Phosphorylation on S",
+      "Phosphorylation on T",
+      "Phosphorylation on Y",
+      "Succinylation on K",
+      "Trimethylation on K"
+    ],
+    "excluded_if_uniprot_modified_residue_same_class": true,
+    "uniprot_overlap_ignored_for": [
+      "GG",
+      "oglcnac"
+    ],
+    "enriched_for_excluded": {
+      "rule": "a site of a PTM class is not counted from a deposit that enriches that class (user, 2026-10-07)",
+      "declared_file": "E:/x/pxr-mm1115/data/ptm-db/agingPTM-v9/../enriched_ptm_exclusions_2026-11-21.tsv",
+      "declared_sha256": "d811d3e0b5d92499e5b28f58e8a5d23d32588b6065bce5a977342c13769a520a",
+      "measured": {
+        "phospho_pct_min": 5,
+        "gg_pct_min": 2,
+        "over": "1% target PSMs per run (the catalog\u0027s psms_1pct, else each served bundle\u0027s psms.parquet at q and notch q \u003C= 0.01)"
+      },
+      "used_file": "F:/pxreprise_ptmdb_v9/sites\\enriched_exclusions_used.tsv",
+      "used_sha256": "7dc3d841d9bcab62006474f6732160ce9b4eeb0d1d6b1447537a8076758cc4bc",
+      "rows": 60
+    }
+  },
+  "uniprot_sites": {
+    "mode": "regular",
+    "rule": "a UniProt modified residue is kept only where a deposit not enriched for its class identifies the site (ptm_sites target, best q \u003C= 0.01; same accession and position; mzLib name or Unimod id) (D61, D62)",
+    "enriched_for": "the enriched_for_excluded rows, by class",
+    "leave_out": []
+  },
+  "note": "The sites come from searches of the corpus these databases then search; the PSM floor limits that feedback.",
+  "dotnet": "10.0.10",
+  "organisms": {
+    "human": {
+      "source_xml": "F:/aging_data/db/UP000005640_all_genecentric_2026_03.xml",
+      "source_sha256": "cc31d2db409e172674949e6c485addd46599e77d8dccba4c631bbdb545349e58",
+      "output_xml": "F:/pxreprise_ptmdb_v9/out\\UP000005640_all_genecentric_2026_03_agingPTM-v9.xml",
+      "output_sha256": "fc4fbdbbe73e9731a5a52915ff55fd1481370c53d362ba39a00ccc494b1d3d3e",
+      "sites_written": 6398,
+      "proteins_touched": 2261,
+      "sites_by_modification": {
+        "Methylation on K": 962,
+        "Acetylation on K": 758,
+        "Acetylation on X": 700,
+        "Phosphorylation on S": 683,
+        "Methylation on R": 527,
+        "Dimethylation on K": 472,
+        "Dimethylation on R": 436,
+        "Trimethylation on K": 417,
+        "Phosphorylation on T": 382,
+        "GG (Ubiquitination Site) on K": 253,
+        "HexNAc on T": 134,
+        "Glutarylation on K": 123,
+        "Succinylation on K": 121,
+        "HexNAc on S": 105,
+        "Hydroxybutyrylation on K": 94,
+        "Butyrylation on K": 84,
+        "Phosphorylation on Y": 77,
+        "Crotonylation on K": 70
+      },
+      "dropped": {
+        "already_in_uniprot": 56,
+        "not_in_canonical_xml": 170
+      },
+      "sites_tsv": "F:/pxreprise_ptmdb_v9/sites\\sites_human.tsv",
+      "uniprot_sites": {
+        "features": 56212,
+        "kept": 13096,
+        "by_class_kept_of": {
+          "phospho": "7544/41485",
+          "acetylK": "1352/4378",
+          "other": "476/2574",
+          "acetylNterm": "1778/2389",
+          "succinyl": "325/1288",
+          "me1R": "404/1024",
+          "hydroxybutyryl": "133/697",
+          "me2R": "212/609",
+          "hydroxyP": "398/579",
+          "glutaryl": "95/264",
+          "me1K": "114/262",
+          "crotonyl": "66/224",
+          "me2K": "56/129",
+          "me3K": "59/122",
+          "hydroxyK": "38/81",
+          "butyryl": "34/62",
+          "malonyl": "12/45"
+        },
+        "tsv": "F:/pxreprise_ptmdb_v9/sites\\uniprot_sites_human.tsv",
+        "tsv_sha256": "a47a3fed00272c049f9be1c5204fdb299328e449dddce9382dbe3e9bec5a2681"
+      },
+      "wall_s": 20.2
+    },
+    "mouse": {
+      "source_xml": "F:/aging_data/db/UP000000589_all_genecentric_2026_03.xml",
+      "source_sha256": "b10f1780bdd8b9359aeb9f5e6821c78bf3ee2fae26b119fc92100a7f1f61c675",
+      "output_xml": "F:/pxreprise_ptmdb_v9/out\\UP000000589_all_genecentric_2026_03_agingPTM-v9.xml",
+      "output_sha256": "9660f829d0f4e21ab26d60d8d550d55a1353e50ada03cf719e3cf290de0d5fcf",
+      "sites_written": 11670,
+      "proteins_touched": 3383,
+      "sites_by_modification": {
+        "Methylation on K": 1875,
+        "Acetylation on X": 1511,
+        "Acetylation on K": 1276,
+        "Methylation on R": 992,
+        "Dimethylation on K": 911,
+        "Phosphorylation on S": 860,
+        "Trimethylation on K": 755,
+        "Phosphorylation on T": 569,
+        "Dimethylation on R": 543,
+        "GG (Ubiquitination Site) on K": 361,
+        "Crotonylation on K": 314,
+        "HexNAc on S": 300,
+        "Hydroxybutyrylation on K": 295,
+        "HexNAc on T": 288,
+        "Succinylation on K": 265,
+        "Butyrylation on K": 237,
+        "Glutarylation on K": 203,
+        "Phosphorylation on Y": 115
+      },
+      "dropped": {
+        "already_in_uniprot": 40,
+        "not_in_canonical_xml": 184,
+        "nterm_acetyl_not_at_1_or_2": 1
+      },
+      "sites_tsv": "F:/pxreprise_ptmdb_v9/sites\\sites_mouse.tsv",
+      "uniprot_sites": {
+        "features": 50544,
+        "kept": 16744,
+        "by_class_kept_of": {
+          "phospho": "9651/37318",
+          "acetylK": "2090/4292",
+          "acetylNterm": "1692/2050",
+          "other": "591/2043",
+          "succinyl": "768/1439",
+          "me1R": "507/992",
+          "me2R": "257/593",
+          "hydroxybutyryl": "249/538",
+          "hydroxyP": "293/340",
+          "glutaryl": "173/220",
+          "me1K": "123/197",
+          "crotonyl": "115/190",
+          "me3K": "58/93",
+          "me2K": "61/87",
+          "hydroxyK": "52/69",
+          "butyryl": "43/53",
+          "malonyl": "21/30"
+        },
+        "tsv": "F:/pxreprise_ptmdb_v9/sites\\uniprot_sites_mouse.tsv",
+        "tsv_sha256": "5932fdd516baa59db4a7bec3f094060985a0b0a1f42d38d20a32f1edf137e134"
+      },
+      "wall_s": 20.6
+    },
+    "rat": {
+      "source_xml": "F:/aging_data/db/UP000002494_all_genecentric_2026_03.xml",
+      "source_sha256": "a914d2eff95c64583dc657e8e160a34ecab2521f22444e2f16b5c48ade01f047",
+      "output_xml": "F:/pxreprise_ptmdb_v9/out\\UP000002494_all_genecentric_2026_03_agingPTM-v9.xml",
+      "output_sha256": "e7c498cf0c813939675eb6356eb2ac6d8d3394d14709d2e9cda18674e8d835ec",
+      "sites_written": 2049,
+      "proteins_touched": 945,
+      "sites_by_modification": {
+        "Acetylation on X": 374,
+        "Methylation on K": 368,
+        "Methylation on R": 230,
+        "Phosphorylation on S": 196,
+        "Acetylation on K": 159,
+        "Dimethylation on K": 136,
+        "Phosphorylation on T": 111,
+        "Dimethylation on R": 103,
+        "Trimethylation on K": 82,
+        "Succinylation on K": 61,
+        "Glutarylation on K": 44,
+        "HexNAc on S": 37,
+        "Butyrylation on K": 30,
+        "HexNAc on T": 26,
+        "Hydroxybutyrylation on K": 25,
+        "Phosphorylation on Y": 24,
+        "GG (Ubiquitination Site) on K": 22,
+        "Crotonylation on K": 21
+      },
+      "dropped": {
+        "already_in_uniprot": 9,
+        "not_in_canonical_xml": 59
+      },
+      "sites_tsv": "F:/pxreprise_ptmdb_v9/sites\\sites_rat.tsv",
+      "uniprot_sites": {
+        "features": 27325,
+        "kept": 4655,
+        "by_class_kept_of": {
+          "phospho": "2565/19295",
+          "acetylK": "534/2930",
+          "other": "162/1219",
+          "acetylNterm": "665/1138",
+          "succinyl": "166/1138",
+          "me1R": "146/459",
+          "hydroxyP": "174/288",
+          "me2R": "65/251",
+          "hydroxybutyryl": "23/156",
+          "glutaryl": "30/101",
+          "me1K": "26/96",
+          "crotonyl": "11/62",
+          "hydroxyK": "25/53",
+          "me3K": "28/51",
+          "me2K": "26/45",
+          "malonyl": "6/28",
+          "butyryl": "3/15"
+        },
+        "tsv": "F:/pxreprise_ptmdb_v9/sites\\uniprot_sites_rat.tsv",
+        "tsv_sha256": "bdfed8052f438c9702491a1553afc2a89fa42fe1b73cc07ef2f0df58fd587bc4"
+      },
+      "wall_s": 14.2
+    }
+  },
+  "wall_s": 76.7
+}

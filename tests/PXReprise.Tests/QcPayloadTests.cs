@@ -80,6 +80,18 @@ public class QcPayloadTests
         });
     }
 
+    /// <summary>A search run with transfers kept below 5% (MbrFdrThreshold = 0.05) is counted at 5%, as FlashLFQ kept them.</summary>
+    [Test]
+    public void KeptTransfersAreCountedAtTheSearchsThreshold()
+    {
+        string dir = TestSupport.TempDir();
+        string peaks = TestSupport.WriteFile(dir, "peaks.tsv",
+            "File Name\tPeak Detection Type\tRandom RT\tPIP Q-Value\tDecoy Peptide\n" +
+            "a.raw\tMBR\tFalse\t0.03\tFalse\n");
+        Assert.That((QcPayloadBuilder.ParsePeaks(peaks)["a"]["mbr_kept"]!.GetValue<int>(),
+                     QcPayloadBuilder.ParsePeaks(peaks, 0.05)["a"]["mbr_kept"]!.GetValue<int>()), Is.EqualTo((0, 1)));
+    }
+
     private static (string Search, string Qc) MiniRun(bool spectralCounts)
     {
         string root = TestSupport.TempDir();

@@ -38,8 +38,11 @@ public class ProbeSearchTests
         ["Accession"] = accession, ["Decoy/Contaminant/Target"] = dct, ["QValue"] = q,
     };
 
+    // D87 (the user, 2026-11-22): one filter, set in the search. The probe search writes only the matches its filter
+    // passed (WriteHighQValuePsms = false), so the measures filter nothing again: a row's own q-value decides nothing
+    // (HIGHQK, EDGEQK count). Decoys and contaminants still count for no run.
     [Test]
-    public void MeasuresAreCountedPerRunOverOnePercentTargetsOnly()
+    public void MeasuresAreCountedPerRunOverTheTargetsTheProbeSearchWrote()
     {
         string path = Psms(new[]
         {
@@ -51,8 +54,8 @@ public class ProbeSearchTests
             Row("a", "HUMANK", organism: "Homo sapiens", accession: "P2"),
             Row("a", "DECOYK", dct: "D"),
             Row("a", "CONTAMK", dct: "C"),
-            Row("a", "HIGHQK", q: "0.05"),
-            Row("a", "EDGEQK", q: "0.01"),          // strict: q exactly 0.01 is out (D36's comparison)
+            Row("a", "HIGHQK", q: "0.05"),          // the search's filter wrote it: it counts
+            Row("a", "EDGEQK", q: "0.01"),
             Row("b", "OTHERFILEK"),
         });
         var m = ProbeMeasures.FromAllPsms(path);
@@ -60,11 +63,11 @@ public class ProbeSearchTests
         {
             Assert.That(m.Keys, Is.EquivalentTo(new[] { "a", "b" }));
             var a = m["a"];
-            Assert.That(a.Psms, Is.EqualTo(6));
-            Assert.That(a.SpeciesPsms["Mus musculus"], Is.EqualTo(4));
+            Assert.That(a.Psms, Is.EqualTo(8));
+            Assert.That(a.SpeciesPsms["Mus musculus"], Is.EqualTo(6));
             Assert.That(a.SpeciesPsms["Homo sapiens"], Is.EqualTo(1));
             Assert.That(a.SharedSpeciesPsms, Is.EqualTo(1));
-            Assert.That((a.Peptides, a.CysteinePeptides), Is.EqualTo((6, 1)));
+            Assert.That((a.Peptides, a.CysteinePeptides), Is.EqualTo((8, 1)));
             Assert.That((a.PhosphoPsms, a.GgPsms), Is.EqualTo((1, 1)));
         });
     }
@@ -305,6 +308,40 @@ public class ProbeSearchTests
             "a modification the pinned MetaMorpheus lacks is refused, never silently skipped");
     }
 
+    // D87 (the user, 2026-11-22): "just setting the one notch filter in the search should accomplish everything". The probe
+    // is a search too, so it takes its profile's identification filter; a profile that sets none keeps MetaMorpheus's own.
+    [Test]
+    public void TheProbeFiltersItsMatchesAsItsProfilesSearchDoes()
+    {
+        string defaults = File.ReadAllText(Fixture("mm-1.1.15", "SearchTask.toml"));
+        var known = new HashSet<(string, string)>
+        {
+            ("Common Biological", "Phosphorylation on S"), ("Common Biological", "Phosphorylation on T"), ("Common Biological", "Phosphorylation on Y"),
+            ("Trypsin Digested", "GG (Ubiquitination Site) on K"), ("Common Biological", "Acetylation on K"),
+        };
+        var m = Config.Machine.Load(TestSupport.WriteFile(TestSupport.TempDir(), "m.toml",
+            "work_root = \"F:/w\"\nmax_threads = 8\n[metamorpheus]\n\"1.1.15\" = \"C:/mm/CMD.exe\"\n"));
+        var profiles = Config.ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
+        var notch = new[] { ("IdentificationFilter", "\"QValueNotch\""), ("FilterThreshold", "0.01") };
+        Assert.Multiple(() =>
+        {
+            foreach (string key in new[] { "label-free-dda@15", "label-free-dda-lowres@9", "tmt-dda@6" })
+            {
+                var filter = ProbeSearch.FilterSettings(profiles[key]);
+                Assert.That(filter.Select(s => (s.Key, s.TomlValue)), Is.EquivalentTo(notch), key);
+                string text = ProbeSearch.TaskText(defaults, m, null, known, filter);
+                Assert.That(text, Does.Contain("IdentificationFilter = \"QValueNotch\"").And.Not.Contain("PepQValue"), key);
+                Assert.That(text, Does.Contain("FilterThreshold = 0.01"), key);
+            }
+            Assert.That(ProbeSearch.FilterSettings(profiles["label-free-dda@14"]), Is.Empty, "no filter set: MetaMorpheus's own");
+            Assert.That(ProbeSearch.FilterSettings(profiles["label-free-dda@1"]), Is.Empty, "no [metamorpheus_settings] at all");
+            Assert.That(ProbeSearch.TaskText(defaults, m, null, known), Does.Contain("IdentificationFilter = \"PepQValue\""),
+                "without a profile filter the default task's stays");
+        });
+        Assert.Throws<SearchSetupException>(() => ProbeSearch.TaskText(File.ReadAllText(Fixture("mm-1.1.12", "SearchTask.toml")), m, null, known,
+            ProbeSearch.FilterSettings(profiles["tmt-dda@6"])), "a MetaMorpheus without the setting cannot filter as the profile asks: refused, never skipped");
+    }
+
     [Test]
     public void TheNewParksAreAnnouncedAndOnlyLabelFreeDda7AndLowres3TurnTheProbeOn()
     {
@@ -313,14 +350,14 @@ public class ProbeSearchTests
         // The user, 2026-10-12: "Yes to the preliminary search". Profiles already used keep it off (a profile never changes).
         // lowres@3 (2026-10-17) runs it to measure the precursor offset its uncalibrated search must hold.
         Assert.That(Config.ProfileLoader.LoadDirectory(TestSupport.ProfilesDir).Where(kv => kv.Value.ProbeSearch).Select(kv => kv.Key),
-            Is.EquivalentTo(new[] { "label-free-dda@7", "label-free-dda@8", "label-free-dda@9", "label-free-dda@10", "label-free-dda@11", "label-free-dda@12", "label-free-dda@13", "label-free-dda@14", "label-free-dda-uniprot@1", "label-free-dda-lowres@3", "label-free-dda-lowres@4", "label-free-dda-lowres@5", "label-free-dda-lowres@6", "label-free-dda-lowres@7", "label-free-dda-lowres@8" }));
+            Is.EquivalentTo(new[] { "label-free-dda@7", "label-free-dda@8", "label-free-dda@9", "label-free-dda@10", "label-free-dda@11", "label-free-dda@12", "label-free-dda@13", "label-free-dda@14", "label-free-dda@15", "label-free-dda-uniprot@1", "label-free-dda-lowres@3", "label-free-dda-lowres@4", "label-free-dda-lowres@5", "label-free-dda-lowres@6", "label-free-dda-lowres@7", "label-free-dda-lowres@8", "label-free-dda-lowres@9" }));
     }
 
     [Test]
     public void TheProbeMeasuresEachRunsPrecursorOffsetAndTheWindowHoldsTheLargest()
     {
-        // PXD045821 (2026-10-17): +8.7 ppm in every run. Notch 0 and notch +1 PSMs measure the same offset; decoys, PSMs
-        // above 1% and runs with fewer than 20 PSMs measure none.
+        // PXD045821 (2026-10-17): +8.7 ppm in every run. Notch 0 and notch +1 PSMs measure the same offset; decoys and runs
+        // with fewer than 20 PSMs measure none. No q-value is read: the probe search wrote only what its filter passed (D87).
         string dir = TestSupport.TempDir();
         var sb = new System.Text.StringBuilder("File Name\tQValue\tDecoy/Contaminant/Target\tMass Diff (Da)\tMonoisotopic Mass\n");
         string Da(double ppm, double mass, int notch) => (notch * Chemistry.Constants.C13MinusC12 + ppm * mass / 1e6).ToString("R", System.Globalization.CultureInfo.InvariantCulture);
@@ -331,7 +368,6 @@ public class ProbeSearchTests
             sb.Append($"centred\t0.002\tT\t{Da((i % 5 - 2) * 0.4, 2000 + i, 0)}\t{2000 + i}\n");
         }
         for (int i = 0; i < 40; i++) sb.Append($"centred\t0.002\tD\t{Da(-15, 1800, 0)}\t1800\n");    // decoys say nothing
-        for (int i = 0; i < 40; i++) sb.Append($"centred\t0.05\tT\t{Da(-15, 1800, 0)}\t1800\n");     // nor PSMs above 1%
         for (int i = 0; i < 19; i++) sb.Append($"thin\t0.001\tT\t{Da(12, 1800, 0)}\t1800\n");          // 19 < 20
         string psms = TestSupport.WriteFile(dir, "AllPSMs.psmtsv", sb.ToString());
 
@@ -350,5 +386,51 @@ public class ProbeSearchTests
         });
         Assert.Throws<InvalidDataException>(() => Qc.ProbeMeasures.PrecursorOffsets(TestSupport.WriteFile(dir, "b.psmtsv", "File Name\tQValue\tDecoy/Contaminant/Target\n")),
             "a probe output without the mass columns is an error, never an offset of 0");
+    }
+
+    /// <summary><c>search --probe-offsets</c> reads a JSON object of run name to offset in ppm; anything else is a usage error.</summary>
+    [TestCase("{\"a\": 9.4, \"b\": -1.5}", null)]
+    [TestCase(null, "does not exist")]
+    [TestCase("not json", "is not JSON")]
+    [TestCase("[]", "must be a JSON object")]
+    [TestCase("{}", "must be a JSON object")]
+    [TestCase("{\"a\": \"x\"}", "run 'a' has no number")]
+    public void ProbeOffsetsAreAJsonObjectOfRunToPpm(string? json, string? error)
+    {
+        string dir = TestSupport.TempDir();
+        string path = json is null ? Path.Combine(dir, "none.json") : TestSupport.WriteFile(dir, "offsets.json", json);
+        if (error is null)
+            Assert.That(Program.ReadProbeOffsets(path), Is.EqualTo(new Dictionary<string, double> { ["a"] = 9.4, ["b"] = -1.5 }));
+        else
+            Assert.That(Assert.Throws<Cli.UsageException>(() => Program.ReadProbeOffsets(path))!.Message, Does.Contain(error));
+    }
+
+    /// <summary>
+    /// The search verb takes --probe-offsets into its request, and fetch takes --include. Both stop before any work here: the
+    /// search has no database for the organism, and fetch has no machine file.
+    /// </summary>
+    [Test]
+    public async Task TheSearchAndFetchVerbsTakeTheirNewOptions()
+    {
+        string root = TestSupport.TempDir();
+        string machine = TestSupport.WriteFile(root, "machine.toml",
+            $"work_root = '{root}'\ndatabase_dir = '{root}'\nmax_threads = 1\n[metamorpheus]\n\"1.1.11\" = '{Path.Combine(root, "CMD.dll")}'\n");
+        string offsets = TestSupport.WriteFile(root, "offsets.json", "{\"a\": 9.4}");
+        async Task<(int Exit, string Out)> Run(params string[] argv)
+        {
+            var sw = new StringWriter();
+            int exit = await Program.RunAsync(argv, sw, CancellationToken.None);
+            return (exit, sw.ToString());
+        }
+
+        var search = await Run("search", "--profile", "label-free-dda@1", "--profiles", TestSupport.ProfilesDir, "--organism", "no-such-organism",
+            "--machine", machine, "--spectra", root, "--qc", Path.Combine(root, "qc.json"), "--out", Path.Combine(root, "out"), "--probe-offsets", offsets);
+        Assert.That(search.Out, Does.Contain("has no database for 'no-such-organism'"), "the request was built, offsets included");
+        var noOffsets = await Run("search", "--profile", "label-free-dda@1", "--profiles", TestSupport.ProfilesDir, "--organism", "no-such-organism",
+            "--machine", machine, "--spectra", root, "--qc", Path.Combine(root, "qc.json"), "--out", Path.Combine(root, "out2"));
+        Assert.That(noOffsets.Out, Does.Contain("has no database for 'no-such-organism'"), "--probe-offsets is optional");
+
+        var fetch = await Run("fetch", "PXD000001", "--out", Path.Combine(root, "fetch"), "--machine", Path.Combine(root, "none.toml"), "--include", @"\.raw$");
+        Assert.That((fetch.Exit, fetch.Out.Contains("none.toml")), Is.EqualTo((2, true)), "it stops at the missing machine file, after reading --include");
     }
 }

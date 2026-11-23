@@ -701,7 +701,7 @@ public static class SearchStage
         }
         if (sd is not null && File.Exists(Path.Combine(sd, "AllQuantifiedPeaks.tsv")))
         {
-            var mb = SearchMetrics.Mbr(Path.Combine(sd, "AllQuantifiedPeaks.tsv"));
+            var mb = SearchMetrics.Mbr(Path.Combine(sd, "AllQuantifiedPeaks.tsv"), p.MbrFdrThreshold);
             prov.Set("mbr", new JsonObject
             {
                 ["definition"] = MbrCounts.Definition, ["mbr_rows"] = mb.MbrRows, ["mbr_random_rt_won"] = mb.MbrRandomRtWon,
