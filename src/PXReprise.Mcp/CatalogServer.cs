@@ -665,7 +665,7 @@ public sealed partial class CatalogServer : IDisposable
 
     private static List<string> EnumValues(string name)
     {
-        if (SchemaDocs.Enums.TryGetValue(name, out var e)) return e.Values.ToList();
+        if (SchemaDocs.Enums.TryGetValue(name, out var e)) return e.Values.Where(v => SchemaContract.HasEnumValue(name, v)).ToList();
         foreach (var enums in SchemaDocs.StudyEnums.Values)
             if (enums.TryGetValue(name, out var s)) return s.Values.ToList();
         return [];
@@ -691,7 +691,7 @@ public sealed partial class CatalogServer : IDisposable
         };
         var drift = SchemaDrift;
         if (drift is not null) output["schema_drift"] = drift;
-        output["values"] = entry.Values.ToList();
+        output["values"] = entry.Values.Where(v => layer is not null || SchemaContract.HasEnumValue(name, v)).ToList();
         output["note"] = "a column of this enum holds exactly one of these strings, or NULL";
         output["provenance"] = Provenance();
         return output;

@@ -64,6 +64,29 @@ whether to search them again is a separate choice.
     129.3 M over aging's 215 served bundles, from 0.38 to 1.63 times per bundle (dataRepo's measure, 2026-11-23, before
     S7's ambiguity-level-1 cut). No ptmQtl row is stored yet, so nothing stored changes.
 
+- **ptmQtl's co-varying pairs (type A) are `ptmQtl:DEF-PTM-PAIR v3`: one-form cells as bounds, correlated given depth,
+  with a depth null per deposit** (ptmQtl D37, D40, D42-D44, D78, D83). This is ptmQtl's reported method (their v5).
+  - **Bounds.** A run where a site was seen in one form is no longer dropped. A covered-zero or a floor is tied lowest
+    in the site's ranks; a ceiling, or a count-only cell with only the modified form, is tied highest.
+    - Covered-zeros are MetaMorpheus's own from 1.1.13 on (`covered_zero`, which the engines now read).
+    - Up to 1.1.12, MetaMorpheus wrote none, so the engine reads them from the observations' coverage. The two are
+      never mixed.
+  - **Depth.** The correlation is partial, given each sample's depth: log2 of the target PSMs that S7's filter keeps,
+    over all of the sample's runs. A sample with none is left out of every pair.
+  - **The depth null.** Per deposit, each site's cells are permuted within blocks of 3 samples of similar depth, 3
+    times. A deposit whose null calls reach 10 % of its real calls is depth-like.
+    - Its type A rows, and pooled rows with it behind them, carry the new `PairFlag` value `depth_like` (schema
+      0.0.17). The rows are kept.
+    - The null's counts are in the `site_pairs` run record, beside each run's `target_psms`.
+  - **Python parity.** `SchemaContract.AddedEnumValues` hides enum values added since Python's schema 0.0.13 inside a
+    parity scope, as `AddedColumns` hides columns, so the MCP parity answers stand.
+  - **Tests.** ptmQtl's reference case v3 (`tests/PXReprise.Data.Tests/Fixtures/ptmqtl-reference-v3`) is reproduced
+    row for row. The site-trait fit is unchanged (`DEF-SITE-TRAIT v1`), and is still checked against v1's fixture.
+  - **The reference builder moved here:** `tools/ptmqtl-reference`, from ptmQtl's `tools/ReferenceCase`. It applies
+    ptmQtl's definitions through mzLib calls only, not through `PXReprise.Runner`, and regenerates the v3 fixture.
+  - **Cost.** The null takes type A three more times per deposit. ptmQtl's v5 pairs took 37 min for 121 deposits on 64
+    cores, so expect about four times that. No ptmQtl row is stored yet.
+
 - **A bundle's 1% rule is the search's own identification filter too** (dataRepo D78, PXR-R81; ingest path `cs-1.5.0`).
   - datarepo 1.5.0's plan (D55, never released) had `peptidoforms_1pct` and `peptidoform_ions` read the tier mzLib's
     `ChooseTier` picks, the PEP q-value wherever PEP trained, cut strictly below 0.01. Our maintainer ruled one filter,

@@ -46,6 +46,21 @@ public static class SchemaContract
         ("0.0.17", "assays", "design_sample_type"),
     ];
 
+    /// <summary>Every value added to an existing core enum after Python 0.32.0's schema 0.0.13, with the version that
+    /// added it.</summary>
+    /// <remarks>As <see cref="AddedColumns"/>: inside a <see cref="Python0320"/> scope an enum lists only the values
+    /// 0.0.13 had, so an answer about it (the MCP server's <c>describe</c>) is the one Python gave. Add a value's entry in
+    /// the commit that adds the value.</remarks>
+    public static readonly IReadOnlyList<(string Version, string Enum, string Value)> AddedEnumValues =
+    [
+        ("0.0.14", "OccupancyState", "covered_zero"),
+        ("0.0.17", "PairFlag", "depth_like"),
+    ];
+
+    /// <summary>Whether <paramref name="value"/> of <paramref name="enumName"/> exists in the schema in force here.</summary>
+    public static bool HasEnumValue(string enumName, string value) =>
+        !IsPython0320 || !AddedEnumValues.Any(a => a.Enum == enumName && a.Value == value);
+
     /// <summary>Every core table added after Python 0.32.0's schema 0.0.13, with the version that added it.</summary>
     /// <remarks>A parity bundle or catalog holds exactly the tables Python wrote, so a table added since is not even
     /// created empty there. Add a table's entry in the commit that adds the table.</remarks>

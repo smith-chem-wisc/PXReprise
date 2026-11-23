@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    ptmQtl's reference case builder (G37, G62): a small synthetic catalog slice (inputs/), and the rows the ptmqtl.*
+    engines must reproduce from it (expected/), made by applying ptmQtl's design/DEFINITIONS.md through mzLib calls only,
+    not through PXReprise.Runner, so the engine is checked against a second reading of the definitions. It writes
+    tests/PXReprise.Data.Tests/Fixtures/ptmqtl-reference-v3 byte for byte; its usage line is at the top of Program.cs.
+    It uses the same mzLib NuGet package as the engine. It moved here from ptmQtl's tools/ReferenceCase (2026-11-23),
+    which built reference cases v1 and v2 (at ptmQtl 1ff86a2).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>pxr-ptmqtl-reference</AssemblyName>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="mzLib" Version="1.0.600" />
+  </ItemGroup>
+</Project>

@@ -205,6 +205,25 @@ public static class PtmQtlEngine
         return path;
     }
 
+    /// <summary>D78's null in a <c>site_pairs</c> run record, or null where type A was not computed.</summary>
+    internal static Dictionary<string, object?>? DepthNullRecord(DepthNullResult? n) => n is null ? null : new Dictionary<string, object?>
+    {
+        ["call_q"] = PtmQtlCore.CallQ,
+        ["replicates"] = (long)PtmQtlCore.NullReplicates,
+        ["block"] = (long)PtmQtlCore.NullBlock,
+        ["seed"] = (long)PtmQtlCore.NullSeed,
+        ["real_calls"] = n.RealCalls,
+        ["null_calls"] = n.NullCalls.Select(c => (object?)c).ToList(),
+        ["share"] = double.IsFinite(n.Share) ? n.Share : null,
+        ["threshold"] = PtmQtlCore.DepthLikeShare,
+        ["depth_like"] = n.DepthLike,
+    };
+
+    /// <summary>Whether a <c>site_pairs</c> artefact's dataset is depth-like (D78), as its run record says.</summary>
+    internal static bool DepthLike(ArtefactRef a) =>
+        ((a.Record.GetValueOrDefault("engine_summary") as IReadOnlyDictionary<string, object?>)?.GetValueOrDefault("depth_null")
+            as IReadOnlyDictionary<string, object?>)?.GetValueOrDefault("depth_like") is true;
+
     /// <summary>The pairs a <c>site_pairs</c> artefact stored, as mzLib pairs with their sites.</summary>
     public static List<(PtmPair Pair, PairSite A, PairSite B)> ReadPairSites(string path) =>
         ReadTsv(path, PairSiteColumns, PairSitesFile).Select(r =>
@@ -311,6 +330,8 @@ public static class PtmQtlEngine
                         ["rows_a"] = (long)pairs.Rows.Count(r => (string)r["result_type"]! == "A"),
                         ["search_gate"] = Gate(bundle),
                         ["identification_filter"] = dataset.IdentificationFilter,
+                        ["target_psms"] = dataset.TargetPsms.OrderBy(kv => kv.Key, StringComparer.Ordinal).ToDictionary(kv => kv.Key, kv => (object?)kv.Value),
+                        ["depth_null"] = DepthNullRecord(pairs.DepthNull),
                         ["databases"] = Databases(bundle),
                     },
                     ["acceptance"] = "passed",
@@ -390,7 +411,8 @@ public static class PtmQtlEngine
             }
             install ??= EngineRunner.InstallIdentity();
             var input = members.SelectMany(m => ReadPairSites(Path.Combine(m.Artefact.Path, PairSitesFile)).Select(p => (m.Bundle.DatasetId, p.Pair, p.A, p.B)));
-            var pooled = PtmQtlCore.Pool(group.Key, input);
+            var depthLike = members.Where(m => DepthLike(m.Artefact)).Select(m => m.Bundle.DatasetId).ToHashSet(StringComparer.Ordinal);
+            var pooled = PtmQtlCore.Pool(group.Key, input, depthLike);
             var rows = pooled.Rows;
             var record = new Dictionary<string, object?>(StringComparer.Ordinal)
             {
@@ -408,6 +430,7 @@ public static class PtmQtlEngine
                     ["rows_a"] = (long)rows.Count(r => (string)r["result_type"]! == "A"),
                     ["left_out"] = Counts(pooled.LeftOut),
                     ["not_pooled_s3b"] = notPooled,
+                    ["depth_like_datasets"] = depthLike.Order(StringComparer.Ordinal).Select(d => (object?)d).ToList(),
                     ["bundles"] = members.Select(m => (object?)BundleRecord(m.Bundle)).ToList(),
                 },
                 ["acceptance"] = "passed",
