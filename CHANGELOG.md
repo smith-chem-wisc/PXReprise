@@ -172,6 +172,38 @@ text says TMT while PRIDE's quantification names label-free too (below).
   - **Adopting:** a swap only. A deposit already refused at full QC (`skipped_acquisition_full`) needs a `batch retry`
     once the block is in its question; the exception alone does not reopen it.
 
+- **Differential abundance for each finished search: the `differential` command and the batch's stage `06_differential`**
+  (D84; QuantProject 155).
+  - **The problem.** The pipeline delivered per-sample peptide and protein intensities, but no comparison between a
+    deposit's conditions. mzLib 1.0.600 carries QuantProject's runner (`DifferentialAnalysis.Run`, mzLib #1591), and
+    nothing called it.
+  - **The change.** After each search, the batch runs mzLib's analysis on the tables the search wrote, with
+    QuantProject's defaults: every pair of the design's conditions, one model per protein group. `pxreprise differential
+    --search <04_search> --out <06_differential>` runs it by hand, also on a search delivered before this version.
+    - Label-free: the peptide table, once per basis (`msms_only`, and `mbr_kept` when the search ran match-between-runs).
+    - TMT: the PSMs MetaMorpheus quantified.
+    - Each analysis writes mzLib's `DifferentialResults.tsv`, `DifferentialResults.metadata.json`, `DifferentialDecisions.tsv`
+      and `StatisticalReport.md` with its figures, and QuantProject's `DifferentialAssumptions.md`.
+    - A sample whose condition is `not available` is left out and listed. The individual comes from the SDRF the search
+      wrote.
+    - A search that cannot be analysed, such as one condition, no replicates or a design the runner refuses, is recorded
+      in the stage's `provenance.json`, and the deposit is delivered as before.
+  - **A file that lost every match-between-runs transfer** while its sibling files kept theirs is named in the stage's
+    provenance. The batch also writes it to the run's `notices.tsv` and to `batch.log` as a `NOTICE (lost_transfers)`, to be
+    told to QuantProject (their PXR-T19).
+  - **The release notes say:** "Differential abundance by QuantProject's `DEF-DIFF v1` (mzLib 1.0.600): a peptide-level
+    model per protein group, one comparison per pair of conditions. A peptide with no value in a sample is treated as
+    missing at random; a value below detection is not modelled, so where absence means low abundance the size of a change
+    can be understated. Rows with match-between-runs values are reported separately (`quant_basis`), and a file that lost
+    every transfer is named in the deposit's provenance."
+  - **A TMT design whose SDRF marks a pooled reference channel can now be searched.** mzLib writes its own `Sample Type`
+    column for such a design. The engine refused the design at set-up, so a curated SDRF that wrote `pooled` could not be
+    used. `--sdrf` gives the differential step such a corrected SDRF for a search already made. Its design must match the
+    search's in every column but `Sample Type`.
+  - **Machine file:** optional `differential = false` turns the stage off; it is on by default.
+  - **Not yet in the bundle:** datarepo does not ingest these files yet (dataRepo's part). Until it does, they stay in the
+    run folder.
+
 ## 0.4.50 (2026-11-17)
 
 **MetaMorpheus** unchanged (1.1.14). **Machine file:** no change needed. **Safe mid-batch?** Yes: swap the pin as usual. A
