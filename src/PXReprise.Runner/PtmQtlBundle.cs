@@ -481,6 +481,7 @@ public static class PtmQtlBundle
             Windows = windows,
             IdentificationFilter = filter.ToString(),
             TargetPsms = targetPsms,
+            SearchEngineVersion = engineVersion,
             RunTypes = runTypes,
             OccupancyRuns = occupancyRuns,
             Excluded = excluded,

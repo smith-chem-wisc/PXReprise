@@ -34,7 +34,7 @@ public static partial class SchemaDocs
         ["OccupancyState"] = new EnumDoc("Which of QuantProject's states a stored occupancy observation is in (DEF-OCC-COUNTONLY). The remaining state, absent (no entry), is no row at all (DEF-OCC-ABSENT v3.6): not covered, or, in output without covered-zero entries, covered and not modified -- the file cannot tell which. NA, never 0.", ["quantified", "floor", "count_only", "covered_zero", "intensity_unassigned"]),
         ["GeneResolutionOutcome"] = new EnumDoc("What logs' gene resolution found for one protein (mzLib `EnsemblGeneResolver`, pyMzLib `proteins.OUTCOMES`). The six values are mzLib's own and are stored as it writes them.", ["resolved", "multi_gene", "off_primary_only", "not_in_source", "unrecognized_accession", "contaminant_not_mapped"]),
         ["PairResultType"] = new EnumDoc("What kind of relationship a ptm_pairs row reports (ptmQtl 002 section 5).", ["P", "C", "A", "B"]),
-        ["PairFlag"] = new EnumDoc("Structural facts about a pair that change how it may be read.", ["overlapping", "same_residue_exclusive"]),
+        ["PairFlag"] = new EnumDoc("Facts about a pair that change how it may be read: structural ones (`overlapping`, `same_residue_exclusive`), and `depth_like`, a label of the deposit's null.", ["overlapping", "same_residue_exclusive", "depth_like"]),
         ["GlycanType"] = new EnumDoc("Glycan linkage class.", ["N", "O", "N_and_O"]),
         ["GlycoLocalizationLevel"] = new EnumDoc("MetaMorpheus O-Pair style levels; confirm names with the producer (R16).", ["level_1", "level_1b", "level_2", "level_3"]),
         ["Severity"] = new EnumDoc("How much a Finding should change trust.", ["info", "warning", "error"]),

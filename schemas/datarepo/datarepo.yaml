@@ -309,12 +309,14 @@ enums:
       B:
         description: Stratified or differential -- the relationship differs between strata. The only type with a stratum.
   PairFlag:
-    description: "Structural facts about a pair that change how it may be read."
+    description: "Facts about a pair that change how it may be read: structural ones (`overlapping`, `same_residue_exclusive`), and `depth_like`, a label of the deposit's null."
     permissible_values:
       overlapping:
         description: The two peptidoforms overlap in sequence or site. Excluded from A and B, where the unmodified form would anti-correlate with its own modified form by construction.
       same_residue_exclusive:
         description: The two modifications compete for one residue, e.g. O-GlcNAc versus phospho.
+      depth_like:
+        description: "The deposit's co-varying calls are depth-like: a null that keeps each site's relation to run depth and breaks every link between sites made at least 10 % as many calls at q <= 0.1 (ptmQtl D78). Set on every type A row of such a deposit, and on a pooled row when any dataset behind it is; the rows are kept. The null's counts are in the site_pairs run record."
   GlycanType:
     description: "Glycan linkage class."
     permissible_values:
