@@ -2,12 +2,12 @@
 
 In about ten minutes this page takes you from a download to a working repository: one dataset
 ingested, a catalog built, a public site written, and an agent able to ask it questions. It uses the
-small example instance that ships in this repository (`tests/data/`), so you need no real data and
-no search run of your own.
+small example instance that ships in this repository (`tests/datarepo-instance/`), so you need no real
+data and no search run of your own.
 
-Every command and every line of output below was run on this example with datarepo 1.5.0. Long
+Every command and every line of output below was run on this example with datarepo 1.0.0. Long
 paths are shortened to `…`, and long lines are wrapped. On Windows the paths print with `\`. The ids
-are content hashes, so on 1.5.0 you should get the same ones; on another version they will differ (a
+are content hashes, so on 1.0.0 you should get the same ones; on another version they will differ (a
 later section says why).
 
 **Words used here.**
@@ -24,30 +24,32 @@ The [glossary](README.md#glossary) has the rest.
 
 ## 1. Install
 
-dataRepo is one self-contained program, `datarepo`. It needs no .NET, no Python and nothing else
-installed. You also need git, to fetch the example instance.
+datarepo is part of PXReprise: one PXReprise release holds two self-contained programs, the engine
+(`pxreprise`) and `datarepo`, under one version. Neither needs .NET, Python or anything else
+installed, and this tutorial uses only `datarepo`. You also need git, to fetch the example instance.
 
 Work in a new, empty folder. First fetch the repository at the release's tag. It is cloned as
-`dataRepo-src` because the program unpacks to a folder named `datarepo`, and on Windows and macOS
+`PXReprise-src` because the release unpacks to a folder named `pxreprise`, and on Windows and macOS
 those two names are the same folder:
 
 ```bash
-git clone --depth 1 --branch v1.5.0 https://github.com/smith-chem-wisc/dataRepo.git dataRepo-src
+git clone --depth 1 --branch v1.0.0 https://github.com/smith-chem-wisc/PXReprise.git PXReprise-src
 ```
 
-Then download the program for your machine from the
-[v1.5.0 release](https://github.com/smith-chem-wisc/dataRepo/releases/tag/v1.5.0), unpack it, and
-put its folder on your `PATH` for this session:
+Then download the release for your machine from the
+[v1.0.0 release](https://github.com/smith-chem-wisc/PXReprise/releases/tag/v1.0.0), unpack it, and
+put its `datarepo` folder on your `PATH` for this session. The archive holds two folders,
+`pxreprise` and `datarepo`:
 
 | Machine | Commands |
 |---|---|
-| Linux x64 | `curl -LO https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.5.0/datarepo-1.5.0-linux-x64.tar.gz`<br>`tar -xzf datarepo-1.5.0-linux-x64.tar.gz`<br>`export PATH="$PWD/datarepo:$PATH"` |
-| macOS, Apple silicon | as Linux, with `datarepo-1.5.0-osx-arm64.tar.gz` |
-| macOS, Intel | as Linux, with `datarepo-1.5.0-osx-x64.tar.gz` |
-| Windows, PowerShell | `Invoke-WebRequest https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.5.0/datarepo-1.5.0-win-x64.zip -OutFile datarepo-1.5.0-win-x64.zip`<br>`Expand-Archive datarepo-1.5.0-win-x64.zip -DestinationPath .`<br>`$env:Path = "$PWD\datarepo;" + $env:Path` |
-| Windows, Git Bash | `curl -LO` the `win-x64.zip` as above, `unzip datarepo-1.5.0-win-x64.zip`, then `export PATH="$PWD/datarepo:$PATH"` |
+| Linux x64 | `curl -LO https://github.com/smith-chem-wisc/PXReprise/releases/download/v1.0.0/pxreprise-1.0.0-linux-x64.tar.gz`<br>`tar -xzf pxreprise-1.0.0-linux-x64.tar.gz`<br>`export PATH="$PWD/datarepo:$PATH"` |
+| macOS, Apple silicon | as Linux, with `pxreprise-1.0.0-osx-arm64.tar.gz` |
+| macOS, Intel | as Linux, with `pxreprise-1.0.0-osx-x64.tar.gz` |
+| Windows, PowerShell | `Invoke-WebRequest https://github.com/smith-chem-wisc/PXReprise/releases/download/v1.0.0/pxreprise-1.0.0-win-x64.zip -OutFile pxreprise-1.0.0-win-x64.zip`<br>`Expand-Archive pxreprise-1.0.0-win-x64.zip -DestinationPath .`<br>`$env:Path = "$PWD\datarepo;" + $env:Path` |
+| Windows, Git Bash | `curl -LO` the `win-x64.zip` as above, `unzip pxreprise-1.0.0-win-x64.zip`, then `export PATH="$PWD/datarepo:$PATH"` |
 
-Unpack a `.tar.gz` with `tar`, which keeps the program's executable bit. On macOS, an archive
+Unpack a `.tar.gz` with `tar`, which keeps the programs' executable bit. On macOS, an archive
 downloaded with a browser is quarantined and the program is refused as unverified; `curl` does not
 quarantine it, or run `xattr -dr com.apple.quarantine datarepo` on the unpacked folder. You can also
 skip the `PATH` step and call the program by its path (`./datarepo/datarepo`, or
@@ -60,7 +62,7 @@ datarepo doctor
 ```
 
 ```
-datarepo 1.5.0  schema 0.0.17
+datarepo 1.0.0  schema 0.0.17
   runtime          .NET 10.0.10
   mzLib            1.0.600.0
   parquet          ParquetSharp 24.0.0.0
@@ -70,8 +72,9 @@ datarepo 1.5.0  schema 0.0.17
 ready
 ```
 
-Check that the first line says `datarepo 1.5.0`. If it names another version, another `datarepo`
-(an older install, such as the Python package) is earlier on your `PATH` and answering instead, and
+Check that the first line says `datarepo 1.0.0`. If it names another version, another `datarepo`
+(an older install, such as a dataRepo 1.x release or the Python package) is earlier on your `PATH`
+and answering instead, and
 every id below will differ; repeat the `PATH` step, or call the program by its path.
 
 `doctor` names what is inside the program: the .NET runtime it carries, mzLib (which reads
@@ -86,7 +89,7 @@ have written (`work_root/`). The `go/` folder beside them holds inputs for an op
 this tutorial does not use. Copy it all out, so nothing you make lands inside the repository:
 
 ```bash
-cp -r dataRepo-src/tests/data example-instance      # PowerShell: Copy-Item -Recurse dataRepo-src\tests\data example-instance
+cp -r PXReprise-src/tests/datarepo-instance example-instance      # PowerShell: Copy-Item -Recurse PXReprise-src\tests\datarepo-instance example-instance
 cd example-instance
 datarepo manifest manifest.yaml
 ```
@@ -108,8 +111,8 @@ licence    CC-BY-4.0 - Test Working Group
      reason Not yet reviewed by the producer.
 ```
 
-The manifest is the contract between whoever ran the searches and dataRepo. It says which datasets
-may be loaded (`include`), which may not (`exclude`, or `hold` while undecided), and why. dataRepo
+The manifest is the contract between whoever ran the searches and datarepo. It says which datasets
+may be loaded (`include`), which may not (`exclude`, or `hold` while undecided), and why. datarepo
 never makes that call itself. A `?` means the manifest does not state that fact for the dataset.
 Nothing is needed for a dataset that will not be loaded.
 
@@ -174,7 +177,7 @@ datarepo publish manifest.yaml --site site --title "Example repository" --purpos
 
 ```
 catalog  …/example-instance/catalog.duckdb
-  id       88a2166ec0d33563
+  id       6e69863e2448c775
   dataset  PXD999999    bundle 4ccf36a955a1e57d
   pride    0 of 1 deposit(s) have a fetched PRIDE record; `datarepo pride --store …/example-instance/store` fetches the rest
   note     logs.resolve_genes coverage (databases with an artefact): 0 of 1; no artefact for 89fb8c7a1140 (PXD999999)
@@ -188,7 +191,7 @@ catalog  …/example-instance/catalog.duckdb
   checks   66 run, all passed
   timing   tables 0.4 s, derived: sample names 0.0 s, …
 site     site
-  catalog  88a2166ec0d33563
+  catalog  6e69863e2448c775
   wrote    36 files, 1 dataset page
   skipped  croissant.json: no --data-url: a Croissant file describes downloadable files, …
   skipped  robots.txt: no --base-url: both need the site's absolute address
@@ -223,7 +226,7 @@ the site, add `--base-url` (for the sitemap) and `--data-url` (for download link
 
 **Why the ids are what they are.** A bundle id hashes the version of the *ingest path* (`cs-1.3.0`),
 so it moves only when ingestion itself changes. A catalog id also hashes the *program's* version, so
-any new release of dataRepo gives a new catalog id from the same bundles. Rebuilding a catalog is
+any new release of PXReprise gives a new catalog id from the same bundles. Rebuilding a catalog is
 cheap; re-ingesting is not.
 
 ## 5. Ask it something
@@ -276,8 +279,8 @@ datarepo mcp --catalog catalog.duckdb --check
 
 ```
 catalog  catalog.duckdb
-  id       88a2166ec0d33563
-  built    … by datarepo 1.5.0
+  id       6e69863e2448c775
+  built    … by datarepo 1.0.0
   dataset  PXD999999           58 PSMs at 1%
   tools    datarepo_describe, datarepo_search, datarepo_sql
   empty    48 table(s) present with no rows
