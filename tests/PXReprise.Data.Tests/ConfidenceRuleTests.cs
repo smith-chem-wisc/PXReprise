@@ -17,9 +17,9 @@ public class ConfidenceRuleTests
         ["target_decoy"] = status, ["pep"] = pep, ["pep_q_value"] = pepQ, ["q_value_notch"] = notch, ["q_value"] = q,
     };
 
-    /// <summary>The searches of <c>PtmQtlEngineTests.EachSearchFiltersOnTheTierMzLibChoosesForIt</c> (ptmQtl S7).
-    /// trained: PEP q-values, and target PEPs that differ. untrained: MetaMorpheus's 2 for every PEP q-value, with notch
-    /// q-values. failed: PEP 0 for every target, and no notch. The decoys' and the contaminant's values change nothing.</summary>
+    /// <summary>trained: PEP q-values, and target PEPs that differ. untrained: MetaMorpheus's 2 for every PEP q-value, with
+    /// notch q-values. failed: PEP 0 for every target, and no notch. The decoys' and the contaminant's values change
+    /// nothing.</summary>
     private static readonly Dictionary<string, Row[]> Searches = new(StringComparer.Ordinal)
     {
         ["trained"] = [Psm("target", 0.0, 0.005, 0.5, 0.5), Psm("target", 0.02, 0.01, 0.001, 0.001), Psm("decoy", 0.95, 0.9, 0.9, 0.9)],
@@ -27,30 +27,19 @@ public class ConfidenceRuleTests
         ["failed"] = [Psm("target", 0.0, 0.001, null, 0.009), Psm("contaminant", 0.7, 0.001, 0.001, 0.01), Psm("decoy", 0.9, 0.5, 0.5, 0.5)],
     };
 
-    /// <summary>The ingest and ptmQtl's S7 decide a search's tier from the same rows the same way, so one search can
-    /// never be on two rules (the user, 2026-11-11: decide from target PSMs, as S7 does).</summary>
+    /// <summary>The ingest decides each search's tier from its target PSMs (the user, 2026-11-11). ptmQtl's S7 decided it
+    /// the same way until ptmQtl D82, which reads the search's own filter instead (<c>PtmQtlBundle.Filter</c>); PXR-R81
+    /// asks the same of this rule.</summary>
     [Test]
-    public void TheIngestChoosesTheTierPtmQtlS7Chooses()
+    public void TheIngestChoosesOneTierPerSearchFromItsTargetPsms()
     {
-        using var con = new DuckDB.NET.Data.DuckDBConnection("DataSource=:memory:");
-        con.Open();
-        static string Sql(object? v) => v is double d ? d.ToString("R", CultureInfo.InvariantCulture) : v is string s ? $"'{s}'" : "NULL";
-        var values = Searches.SelectMany(kv => kv.Value.Select(r =>
-            $"('{kv.Key}', {Sql(r["target_decoy"])}, {Sql(r["pep"])}, {Sql(r["pep_q_value"])}, {Sql(r["q_value_notch"])}, {Sql(r["q_value"])})"));
-        using (var c = con.CreateCommand())
+        var tiers = Searches.ToDictionary(kv => kv.Key, kv => Identifications.ChooseConfidence(kv.Value).Tier, StringComparer.Ordinal);
+        Assert.That(tiers, Is.EquivalentTo(new Dictionary<string, QuantifiedPsmTier>
         {
-            c.CommandText = "CREATE TABLE t AS SELECT * FROM (VALUES " + string.Join(", ", values)
-                + ") v(search, target_decoy, pep, pep_q_value, q_value_notch, q_value)";
-            c.ExecuteNonQuery();
-        }
-        var s7 = PtmQtlBundle.Tiers(con, "t");
-        Assert.Multiple(() =>
-        {
-            foreach (var (search, rows) in Searches)
-                Assert.That(Identifications.ChooseConfidence(rows).Tier, Is.EqualTo(s7[search]), search);
-            Assert.That(s7.Values, Is.EquivalentTo(new[] { QuantifiedPsmTier.PepQValue, QuantifiedPsmTier.QValueNotch, QuantifiedPsmTier.QValue }),
-                "the three searches reach the three tiers");
-        });
+            ["trained"] = QuantifiedPsmTier.PepQValue,
+            ["untrained"] = QuantifiedPsmTier.QValueNotch,
+            ["failed"] = QuantifiedPsmTier.QValue,
+        }), "the three searches reach the three tiers");
     }
 
     [Test]

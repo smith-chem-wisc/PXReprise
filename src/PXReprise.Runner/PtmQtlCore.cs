@@ -29,8 +29,9 @@ public sealed record PtmQtlDataset(string DatasetId, string Species, IReadOnlyLi
     /// it has none.</summary>
     public IReadOnlyDictionary<(string, int), string?> Windows { get; init; } = new Dictionary<(string, int), string?>();
 
-    /// <summary>Each search's quantified-PSM tier (S7), for the run record.</summary>
-    public IReadOnlyDictionary<string, string> Tiers { get; init; } = new Dictionary<string, string>(StringComparer.Ordinal);
+    /// <summary>The search's own identification filter (S7, D82), for the run record; null where the dataset was not read
+    /// from a bundle, as in ptmQtl's reference case.</summary>
+    public string? IdentificationFilter { get; init; }
 
     /// <summary>The runs (and pooled samples' keys) whose occupancy enters type A and site-trait fits (S3, S3b): the
     /// whole-proteome ones. Null means every run, as in ptmQtl's reference case.</summary>

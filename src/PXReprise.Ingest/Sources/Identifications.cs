@@ -713,9 +713,9 @@ public static class Identifications
     /// <summary>Which q-value the search's 1% rule reads, decided once for the whole search by mzLib's
     /// <see cref="QuantifiedPsmRule.ChooseTier"/> over its target PSMs (D55, the user 2026-11-11).</summary>
     /// <remarks>
-    /// <para>Target PSMs only, PEPs included, as ptmQtl's S7 decides it (<c>PtmQtlBundle.Tiers</c>), so the two can never
-    /// put one search on different rules. mzLib's own comment asks for every match's PEP, decoys included; on every
-    /// served deposit the two give the same tier.</para>
+    /// <para>Target PSMs only, PEPs included, as ptmQtl's S7 decided it until ptmQtl D82, which reads the search's own
+    /// filter instead (<c>PtmQtlBundle.Filter</c>; PXR-R81 asks the same of this rule). mzLib's own comment asks for every
+    /// match's PEP, decoys included; on every served deposit the two give the same tier.</para>
     /// <para>The values are reduced to what the rule reads before it is called, as S7 does: whether any PEP q-value or
     /// notch q-value is a probability, and up to two distinct finite PEPs. A row's own PEP q-value never decides:
     /// PXD058775 trained no PEP and still wrote 229 target rows at or below 1% in <c>PEP_QValue</c>.</para>
@@ -862,6 +862,39 @@ public static class Identifications
             total++;
         }
         return total;
+    }
+
+    /// <summary>
+    /// <see cref="ProducerCounts"/>'s PSM test as SQL over a bundle's <c>psms</c> row: whether the search's own
+    /// identification filter keeps the match, with the filter's value <c>&lt;= threshold</c>. The caller says which rows
+    /// are targets. A NULL value fails.
+    /// </summary>
+    /// <remarks>
+    /// <para>Under <see cref="ProducerFilter.QValueAndNotch"/> it is <c>psms_1pct</c>'s predicate, the notch-ambiguous
+    /// clause included (the bundle's <c>notch_ambiguous</c> is <see cref="NotchAmbiguous"/> of the psmtsv's notch).</para>
+    /// <para>1.1.15's clause for a match judged by its notch (a <c>Notch</c> and a <c>Mass Diff (Da)</c> that both hold
+    /// several values) is not applied: <c>psms</c> stores no mass difference. It concerns a match whose candidates have
+    /// different full sequences, which a match at ambiguity level 1 does not have.</para>
+    /// </remarks>
+    /// <param name="pepTraining">Under <see cref="ProducerFilter.PepQValue"/>, whether PEP was trained for the search's
+    /// target PSMs (<see cref="PepTrainingOf"/>). Ignored under the other filters.</param>
+    public static string PsmPassesSql(ProducerFilter filter, PepTraining pepTraining = PepTraining.Every, double threshold = ProducerThreshold)
+    {
+        var t = threshold.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+        const string Notch = "coalesce(q_value_notch, q_value)";
+        var test = filter switch
+        {
+            ProducerFilter.QValue => $"q_value <= {t}",
+            ProducerFilter.QValueNotch => $"{Notch} <= {t}",
+            ProducerFilter.PepQValue => pepTraining switch
+            {
+                PepTraining.Every => $"(pep_q_value >= 0 AND pep_q_value <= {t})",
+                PepTraining.None => $"{Notch} <= {t}",
+                _ => $"(CASE WHEN pep_q_value BETWEEN 0 AND 1 THEN pep_q_value ELSE {Notch} END) <= {t}",
+            },
+            _ => $"(q_value <= {t} AND (q_value_notch IS NULL OR q_value_notch <= {t}) AND coalesce(notch_ambiguous, false) = false)",
+        };
+        return $"coalesce({test}, false)";
     }
 
     /// <summary>

@@ -1,5 +1,6 @@
 using System.Globalization;
 using PXReprise.Bundle;
+using PXReprise.Ingest;
 using PXReprise.Runner;
 using Quantification.PtmQtl;
 
@@ -258,39 +259,67 @@ public class PtmQtlEngineTests
         });
     }
 
-    /// <summary>S7 (D36): one tier per search, as mzLib's QuantifiedPsmRule chooses it, and a PSM passes only strictly
-    /// below 0.01 on that tier's value.</summary>
-    [Test]
-    public void EachSearchFiltersOnTheTierMzLibChoosesForIt()
+    /// <summary>Six target PSMs for S7's filter tests, in a table named <paramref name="table"/>. a sits at exactly 0.01
+    /// on every value; b fails the notch; c has no notch; d is notch-ambiguous; e passes on its notch alone; f fails
+    /// everything. PEP q-values: a 0.01, b 2 (MetaMorpheus's "not computed"), c 0.5, d 0.001, e and f none. With
+    /// <paramref name="pepsDiffer"/> the targets' PEPs differ, so mzLib's whole-search test finds PEP usable; without, every
+    /// target's PEP is 0 (training failed), and a decoy's different PEP must not change that.</summary>
+    private static DuckDB.NET.Data.DuckDBConnection FilterPsms(string table, bool pepsDiffer)
     {
-        using var con = new DuckDB.NET.Data.DuckDBConnection("DataSource=:memory:");
+        var con = new DuckDB.NET.Data.DuckDBConnection("DataSource=:memory:");
         con.Open();
-        using (var c = con.CreateCommand())
-        {
-            // trained: PEP q-values, and target PEPs that differ. untrained: MetaMorpheus's 2 for every PEP q-value,
-            // with notch q-values. failed: PEP 0 for every target, and no notch. The tier is read from target PSMs
-            // only (S7), so the decoys' and the contaminant's values change nothing.
-            c.CommandText = """
-                CREATE TABLE t AS SELECT * FROM (VALUES
-                  ('trained', 'target', 0.0, 0.005, 0.5, 0.5), ('trained', 'target', 0.02, 0.01, 0.001, 0.001), ('trained', 'decoy', 0.95, 0.9, 0.9, 0.9),
-                  ('untrained', 'target', 2.0, 2.0, 0.009, 0.5), ('untrained', 'target', 2.0, 2.0, NULL, 0.001), ('untrained', 'decoy', 2.0, 2.0, 0.9, 0.9),
-                  ('failed', 'target', 0.0, 0.001, NULL, 0.009), ('failed', 'contaminant', 0.7, 0.001, 0.001, 0.01), ('failed', 'decoy', 0.9, 0.5, 0.5, 0.5)
-                ) v(search, target_decoy, pep, pep_q_value, q_value_notch, q_value)
-                """;
-            c.ExecuteNonQuery();
-        }
-        var tiers = PtmQtlBundle.Tiers(con, "t");
-        Assert.That(tiers, Is.EquivalentTo(new Dictionary<string, Quantification.QuantifiedPsmTier>
-        {
-            ["trained"] = Quantification.QuantifiedPsmTier.PepQValue,
-            ["untrained"] = Quantification.QuantifiedPsmTier.QValueNotch,
-            ["failed"] = Quantification.QuantifiedPsmTier.QValue,
-        }));
+        using var c = con.CreateCommand();
+        c.CommandText = $"""
+            CREATE TABLE {table} AS SELECT id, 'target' AS target_decoy, CASE WHEN {(pepsDiffer ? "true" : "false")} THEN pep ELSE 0.0 END AS pep,
+                   pep_q_value, q_value_notch, q_value, notch_ambiguous
+            FROM (VALUES
+              ('a', 0.001, 0.01, 0.01, 0.01, false), ('b', 0.002, 2.0, 0.02, 0.005, false), ('c', 0.003, 0.5, NULL, 0.005, NULL),
+              ('d', 0.004, 0.001, 0.005, 0.005, true), ('e', 0.005, NULL, 0.005, 0.02, false), ('f', 0.006, NULL, 0.0101, 0.0101, false)
+            ) v(id, pep, pep_q_value, q_value_notch, q_value, notch_ambiguous)
+            UNION ALL SELECT 'decoy', 'decoy', 0.9, 0.9, 0.9, 0.9, false
+            """;
+        c.ExecuteNonQuery();
+        return con;
+    }
+
+    /// <summary>S7 (ptmQtl D82): the search's own filter, as results.txt names it and the ingest reads it
+    /// (<c>Identifications.FilterOf</c>), cut as the search cut it: a value of exactly 0.01 passes. Up to 1.1.14 the
+    /// filter is the q-value and notch, and a notch-ambiguous PSM fails it; 1.1.15 names its filter.</summary>
+    [TestCase(null, null, "1.1.14", false, true, "QValueAndNotch", "a c")]
+    [TestCase("q-value", false, "1.1.12", false, true, "QValueAndNotch", "a c")]
+    [TestCase("q-value", true, "1.1.15", false, true, "QValue", "a b c d")]
+    [TestCase("q-value notch", true, "1.1.15", false, true, "QValueNotch", "a c d e")]
+    [TestCase("pep q-value", true, "1.1.15", false, true, "PepQValue (Every)", "a d")]
+    [TestCase("pep q-value", true, "1.1.15", true, true, "PepQValue (Some)", "a d e")]
+    [TestCase("pep q-value", true, "1.1.15", true, false, "PepQValue (None)", "a c d e")]
+    public void S7KeepsWhatTheSearchsOwnFilterKept(string? named, bool? fdrLineNamesFilter, string version, bool pepNotTrained,
+        bool pepsDiffer, string filter, string kept)
+    {
+        using var con = FilterPsms("t", pepsDiffer);
+        var results = named is null && fdrLineNamesFilter is null ? null
+            : new ResultsTxtFilter(named, fdrLineNamesFilter, pepNotTrained ? new HashSet<string> { "psms" } : new HashSet<string>());
+        var chosen = PtmQtlBundle.Filter(con, "t", results, version, "test");
         using var q = con.CreateCommand();
-        q.CommandText = $"SELECT string_agg(search || ':' || CAST(q_value AS DOUBLE), ' ' ORDER BY search, q_value) FROM t WHERE target_decoy = 'target' AND {PtmQtlBundle.PassesSql(tiers)}";
-        // trained keeps its PEP q 0.005 (not 0.01: strictly below); untrained keeps notch 0.009, never a NULL notch;
-        // failed keeps q 0.009, not 0.01.
-        Assert.That(q.ExecuteScalar(), Is.EqualTo("failed:0.009 trained:0.5 untrained:0.5"));
+        q.CommandText = $"SELECT string_agg(id, ' ' ORDER BY id) FROM t WHERE target_decoy = 'target' AND {chosen.Sql}";
+        Assert.Multiple(() =>
+        {
+            Assert.That(chosen.ToString(), Is.EqualTo(filter));
+            Assert.That(q.ExecuteScalar(), Is.EqualTo(kept));
+        });
+    }
+
+    /// <summary>S7 (D82) never guesses a filter: a search from 1.1.15 on, or from a release that cannot be read as one,
+    /// whose results.txt names none (or that has no results.txt) is refused.</summary>
+    [TestCase(false, "1.1.15")]
+    [TestCase(true, "1.1.15")]
+    [TestCase(false, null)]
+    [TestCase(false, "a1b2c3d")]
+    public void S7RefusesASearchWhoseFilterIsUnknown(bool hasResultsTxt, string? version)
+    {
+        using var con = FilterPsms("t", pepsDiffer: true);
+        var results = hasResultsTxt ? new ResultsTxtFilter(null, null, new HashSet<string>()) : null;
+        Assert.That(() => PtmQtlBundle.Filter(con, "t", results, version, "test"),
+            Throws.TypeOf<RunnerException>().With.Message.Contains("ptmQtl S7 (D82)"));
     }
 
     /// <summary>D35: a site is pooled only where every dataset holding it gives it one window; otherwise it, and every
