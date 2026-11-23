@@ -94,6 +94,11 @@ datasets:
     flags: [low_id_rate, no_design_file, no_output_sdrf]
 ```
 
+`work_root` must be the root the producer's provenance names its inputs against (`"root": "work_root"`): for PXReprise,
+the machine file's `work_root`. The searched databases, the earlier stages' records and `<work_root>/mm_settings/<release>`
+are all read under it, and a database that is not there is skipped, so a wrong root is no error. It costs the bundle its
+databases, its sites in shared peptides and its modification definitions.
+
 Only `include` is ingested. `hold` and `exclude` are **refused with the producer's own reason**:
 
 ```

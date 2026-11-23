@@ -30,6 +30,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="PXReprise.Tests" />
+    <InternalsVisibleTo Include="PXReprise.Seam.Tests" />
   </ItemGroup>
 
   <ItemGroup>
