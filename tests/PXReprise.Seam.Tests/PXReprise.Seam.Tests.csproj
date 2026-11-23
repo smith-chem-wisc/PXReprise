@@ -19,6 +19,8 @@
   <ItemGroup>
     <!-- The engine, called as a batch calls it. -->
     <ProjectReference Include="..\..\src\PXReprise\PXReprise.csproj" />
+    <!-- datarepo's manifest reader, for the lists of values it accepts (ManifestValuesTests). -->
+    <ProjectReference Include="..\..\src\PXReprise.Ingest\PXReprise.Ingest.csproj" />
     <!-- Built before the tests, not referenced: launched as programs, as a machine runs them. MetaMorpheus is the fake
          CMD, replaying a real search's output; datarepo is the real one. -->
     <ProjectReference Include="..\FakeMetaMorpheus\FakeMetaMorpheus.csproj" ReferenceOutputAssembly="false" />
