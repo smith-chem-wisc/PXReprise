@@ -1,0 +1,270 @@
+{
+  "built_utc": "2026-11-24T13:19:42\u002B00:00",
+  "script": "PXReprise tools/ptm-db/BuildPtmDb.cs (C# port of aging results/ptm_db_2026-09-27/build_ptm_db.py)",
+  "tag": "agingPTM-v10",
+  "catalog": {
+    "id": "7ecfc9763064b181\u002Bkept58",
+    "datarepo": "1.4.5",
+    "built_utc": "2026-11-21T05:02:17\u002B00:00",
+    "path": "F:/pxreprise_ptmdb_v10/evidence_v10.duckdb"
+  },
+  "from_sites": null,
+  "selection": {
+    "q_max": 0.01,
+    "ambiguity_level": "1",
+    "target_only": true,
+    "min_psms_summed": 5,
+    "modifications": [
+      "Acetylation on K",
+      "Acetylation on X",
+      "Butyrylation on K",
+      "Crotonylation on K",
+      "Dimethylation on K",
+      "Dimethylation on R",
+      "GG (Ubiquitination Site) on K",
+      "Glutarylation on K",
+      "HexNAc on S",
+      "HexNAc on T",
+      "Hydroxybutyrylation on K",
+      "Methylation on K",
+      "Methylation on R",
+      "Phosphorylation on S",
+      "Phosphorylation on T",
+      "Phosphorylation on Y",
+      "Succinylation on K",
+      "Trimethylation on K"
+    ],
+    "excluded_if_uniprot_modified_residue_same_class": true,
+    "uniprot_overlap_ignored_for": [
+      "GG",
+      "oglcnac"
+    ],
+    "enriched_for_excluded": {
+      "rule": "a site of a PTM class is not counted from a deposit that enriches that class (user, 2026-10-07)",
+      "declared_file": "E:/x/pxr-ptmdb-v10/data/ptm-db/agingPTM-v10/../enriched_ptm_exclusions_2026-11-24.tsv",
+      "declared_sha256": "6bedba52937a8705d08940d18f59083539303c056caa1dde8f81a81e7415f377",
+      "measured": {
+        "phospho_pct_min": 5,
+        "gg_pct_min": 2,
+        "over": "1% target PSMs per run (the catalog\u0027s psms_1pct, else each served bundle\u0027s psms.parquet at q and notch q \u003C= 0.01)"
+      },
+      "used_file": "F:/pxreprise_ptmdb_v10/sites\\enriched_exclusions_used.tsv",
+      "used_sha256": "68b19e4ffff1a33f2cf3580d5edadd9af11cbd9c4df0b8a9b0702724003edb00",
+      "rows": 61
+    }
+  },
+  "uniprot_sites": {
+    "mode": "regular",
+    "rule": "a UniProt modified residue is kept only where a deposit not enriched for its class identifies the site (ptm_sites target, best q \u003C= 0.01; same accession and position; mzLib name or Unimod id) (D61, D62)",
+    "enriched_for": "the enriched_for_excluded rows, by class",
+    "leave_out": []
+  },
+  "note": "The sites come from searches of the corpus these databases then search; the PSM floor limits that feedback.",
+  "dotnet": "10.0.10",
+  "organisms": {
+    "human": {
+      "source_xml": "F:/aging_data/db/UP000005640_all_genecentric_2026_04.xml",
+      "source_sha256": "de180198c769edd1fa81b0d2ac9b4c4d03ab9232cc5ef3b24243e59a42b37159",
+      "output_xml": "F:/pxreprise_ptmdb_v10/out\\UP000005640_all_genecentric_2026_04_agingPTM-v10.xml",
+      "output_sha256": "79c37c81dd43fba96be96e45afbd4f9c0b63587107c6f4f5ae2afe65d01e2c38",
+      "sites_written": 7890,
+      "proteins_touched": 2713,
+      "sites_by_modification": {
+        "Methylation on K": 1200,
+        "Acetylation on K": 1065,
+        "Acetylation on X": 791,
+        "Phosphorylation on S": 781,
+        "Methylation on R": 654,
+        "Dimethylation on K": 549,
+        "Trimethylation on K": 520,
+        "Dimethylation on R": 499,
+        "Phosphorylation on T": 439,
+        "GG (Ubiquitination Site) on K": 279,
+        "Succinylation on K": 209,
+        "Glutarylation on K": 208,
+        "HexNAc on T": 152,
+        "HexNAc on S": 128,
+        "Hydroxybutyrylation on K": 120,
+        "Butyrylation on K": 110,
+        "Phosphorylation on Y": 94,
+        "Crotonylation on K": 92
+      },
+      "dropped": {
+        "already_in_uniprot": 57,
+        "not_in_canonical_xml": 231
+      },
+      "sites_tsv": "F:/pxreprise_ptmdb_v10/sites\\sites_human.tsv",
+      "uniprot_sites": {
+        "features": 56255,
+        "kept": 14789,
+        "by_class_kept_of": {
+          "phospho": "8632/41512",
+          "acetylK": "1534/4379",
+          "other": "550/2589",
+          "acetylNterm": "1861/2389",
+          "succinyl": "385/1287",
+          "me1R": "450/1024",
+          "hydroxybutyryl": "176/697",
+          "me2R": "243/609",
+          "hydroxyP": "407/579",
+          "glutaryl": "116/264",
+          "me1K": "131/262",
+          "crotonyl": "76/224",
+          "me2K": "58/130",
+          "me3K": "63/122",
+          "hydroxyK": "42/81",
+          "butyryl": "37/62",
+          "malonyl": "28/45"
+        },
+        "tsv": "F:/pxreprise_ptmdb_v10/sites\\uniprot_sites_human.tsv",
+        "tsv_sha256": "9a246e7b56e0fc3f41683a089cdc7f7668fc5e3ea58bc9462d84ed05eda3110d"
+      },
+      "wall_s": 66.9,
+      "moved_to_current_entry": {
+        "previous_proteome": "F:/aging_data/db/UP000005640_all_genecentric_2026_03.xml",
+        "previous_sha256": "cc31d2db409e172674949e6c485addd46599e77d8dccba4c631bbdb545349e58",
+        "moved": 0,
+        "tsv": "F:/pxreprise_ptmdb_v10/sites\\sites_moved_human.tsv",
+        "rule": "a site on an accession the proteome no longer has moves to the one current entry of its gene (Ensembl gene ID, else primary gene name) where the previous sequence around it (7 residues each side) occurs exactly once (D91)"
+      }
+    },
+    "mouse": {
+      "source_xml": "F:/aging_data/db/UP000000589_all_genecentric_2026_04.xml",
+      "source_sha256": "4c8675a11f6ef6325ebccdeb321123b1f93e76e4c435e11407c80d18a9c51da4",
+      "output_xml": "F:/pxreprise_ptmdb_v10/out\\UP000000589_all_genecentric_2026_04_agingPTM-v10.xml",
+      "output_sha256": "a7cc243cd2f996da80c76f4c02f9d2713578bbc018c5a417b13614ceeb2c7cb1",
+      "sites_written": 13186,
+      "proteins_touched": 3861,
+      "sites_by_modification": {
+        "Methylation on K": 2074,
+        "Acetylation on X": 1685,
+        "Acetylation on K": 1371,
+        "Methylation on R": 1118,
+        "Phosphorylation on S": 1116,
+        "Dimethylation on K": 980,
+        "Trimethylation on K": 797,
+        "Phosphorylation on T": 711,
+        "Dimethylation on R": 610,
+        "GG (Ubiquitination Site) on K": 413,
+        "Crotonylation on K": 353,
+        "HexNAc on S": 348,
+        "HexNAc on T": 326,
+        "Hydroxybutyrylation on K": 322,
+        "Succinylation on K": 290,
+        "Butyrylation on K": 279,
+        "Glutarylation on K": 232,
+        "Phosphorylation on Y": 161
+      },
+      "dropped": {
+        "already_in_uniprot": 43,
+        "not_in_canonical_xml": 188,
+        "nterm_acetyl_not_at_1_or_2": 1,
+        "replaced_sequence_around_site_found_twice": 4,
+        "replaced_sequence_around_site_not_found": 7
+      },
+      "sites_tsv": "F:/pxreprise_ptmdb_v10/sites\\sites_mouse.tsv",
+      "uniprot_sites": {
+        "features": 50583,
+        "kept": 18183,
+        "by_class_kept_of": {
+          "phospho": "10703/37337",
+          "acetylK": "2232/4295",
+          "other": "636/2054",
+          "acetylNterm": "1739/2050",
+          "succinyl": "811/1439",
+          "me1R": "548/992",
+          "me2R": "281/593",
+          "hydroxybutyryl": "263/538",
+          "hydroxyP": "298/343",
+          "glutaryl": "190/220",
+          "me1K": "124/197",
+          "crotonyl": "119/190",
+          "me3K": "60/93",
+          "me2K": "62/88",
+          "hydroxyK": "52/71",
+          "butyryl": "43/53",
+          "malonyl": "22/30"
+        },
+        "tsv": "F:/pxreprise_ptmdb_v10/sites\\uniprot_sites_mouse.tsv",
+        "tsv_sha256": "5b560351263fe727e27cd2fdbdafb5c1c8d4eea413a2fdf5419a8ed247cac0e1"
+      },
+      "wall_s": 46.5,
+      "moved_to_current_entry": {
+        "previous_proteome": "F:/aging_data/db/UP000000589_all_genecentric_2026_03.xml",
+        "previous_sha256": "b10f1780bdd8b9359aeb9f5e6821c78bf3ee2fae26b119fc92100a7f1f61c675",
+        "moved": 225,
+        "tsv": "F:/pxreprise_ptmdb_v10/sites\\sites_moved_mouse.tsv",
+        "rule": "a site on an accession the proteome no longer has moves to the one current entry of its gene (Ensembl gene ID, else primary gene name) where the previous sequence around it (7 residues each side) occurs exactly once (D91)"
+      }
+    },
+    "rat": {
+      "source_xml": "F:/aging_data/db/UP000002494_all_genecentric_2026_04.xml",
+      "source_sha256": "5d5cd4e8f2209624f00bb6b5a7cd60c536bb924ef98ac25e4ab382d60e758a6a",
+      "output_xml": "F:/pxreprise_ptmdb_v10/out\\UP000002494_all_genecentric_2026_04_agingPTM-v10.xml",
+      "output_sha256": "02e0bf79e499877a69507b95a8cdb33982118ccfe224103b011b79af9e553963",
+      "sites_written": 2147,
+      "proteins_touched": 1021,
+      "sites_by_modification": {
+        "Acetylation on X": 405,
+        "Methylation on K": 389,
+        "Methylation on R": 236,
+        "Phosphorylation on S": 200,
+        "Acetylation on K": 172,
+        "Dimethylation on K": 144,
+        "Phosphorylation on T": 111,
+        "Dimethylation on R": 106,
+        "Trimethylation on K": 89,
+        "Succinylation on K": 62,
+        "Glutarylation on K": 45,
+        "HexNAc on S": 37,
+        "Butyrylation on K": 30,
+        "HexNAc on T": 26,
+        "Hydroxybutyrylation on K": 26,
+        "Phosphorylation on Y": 24,
+        "Crotonylation on K": 23,
+        "GG (Ubiquitination Site) on K": 22
+      },
+      "dropped": {
+        "already_in_uniprot": 9,
+        "not_in_canonical_xml": 60,
+        "replaced_no_current_entry_for_its_gene": 6,
+        "replaced_sequence_around_site_not_found": 1
+      },
+      "sites_tsv": "F:/pxreprise_ptmdb_v10/sites\\sites_rat.tsv",
+      "uniprot_sites": {
+        "features": 27355,
+        "kept": 5073,
+        "by_class_kept_of": {
+          "phospho": "2740/19313",
+          "acetylK": "667/2935",
+          "other": "179/1225",
+          "acetylNterm": "671/1138",
+          "succinyl": "215/1138",
+          "me1R": "151/459",
+          "hydroxyP": "183/288",
+          "me2R": "71/251",
+          "hydroxybutyryl": "26/156",
+          "glutaryl": "33/101",
+          "me1K": "29/96",
+          "crotonyl": "14/62",
+          "hydroxyK": "26/53",
+          "me3K": "28/51",
+          "me2K": "27/46",
+          "malonyl": "9/28",
+          "butyryl": "4/15"
+        },
+        "tsv": "F:/pxreprise_ptmdb_v10/sites\\uniprot_sites_rat.tsv",
+        "tsv_sha256": "596f75d4f892dc2dd32160d25b63851fcacbf4c8fbd629db95e63357c4dc60ec"
+      },
+      "wall_s": 30.4,
+      "moved_to_current_entry": {
+        "previous_proteome": "F:/aging_data/db/UP000002494_all_genecentric_2026_03.xml",
+        "previous_sha256": "a914d2eff95c64583dc657e8e160a34ecab2521f22444e2f16b5c48ade01f047",
+        "moved": 1,
+        "tsv": "F:/pxreprise_ptmdb_v10/sites\\sites_moved_rat.tsv",
+        "rule": "a site on an accession the proteome no longer has moves to the one current entry of its gene (Ensembl gene ID, else primary gene name) where the previous sequence around it (7 residues each side) occurs exactly once (D91)"
+      }
+    }
+  },
+  "wall_s": 225.4
+}

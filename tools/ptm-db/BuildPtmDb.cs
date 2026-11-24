@@ -32,6 +32,9 @@
 //
 //   dotnet run BuildPtmDb.cs -- --catalog C.duckdb --out DIR --tag agingPTM-v2 --xml mouse=P.xml [--xml human=P.xml ...]
 //                               [--min-psms 5] [--sites-out DIR] [--exclude-enriched data/ptm-db/enriched_ptm_exclusions_<date>.tsv]
+//                               [--previous-proteome mouse=OLD.xml ...]   (D91) the proteome the earlier searches read: a
+//                               site on an accession the --xml no longer has moves to its gene's current entry where the old
+//                               sequence around it occurs exactly once (Relocate); each move goes to sites_moved_<organism>.tsv
 //   dotnet run BuildPtmDb.cs -- --from-sites DIR ...   use DIR/sites_<organism>.tsv instead of the catalog (to prove the
 //                               port: v1's site lists must rebuild v1's XMLs byte for byte)
 //
@@ -91,6 +94,10 @@ if (uniprotSites == "regular" && mode != "proteome") return Usage("--uniprot-sit
 if (uniprotSites == "regular" && catalog is not null && exclFile is null) return Usage("--uniprot-sites regular needs --exclude-enriched");
 if (leaveOut.Count > 0 && uniprotSites != "regular") return Usage("--leave-out needs --uniprot-sites regular");
 var enrichedFor = exclRows.Select(e => (e.Dataset, e.Class)).ToHashSet();
+// --previous-proteome organism=path (D91, 2026-11-24): the proteome the earlier searches read. A site on an accession the
+// current proteome no longer has moves to its gene's current entry (Relocate); without it, the site is dropped as before.
+var previous = (opt.GetValueOrDefault("previous-proteome") ?? new()).Select(s => s.Split('=', 2)).ToDictionary(p => p[0], p => p[1]);
+if (previous.Count > 0 && mode != "proteome") return Usage("--previous-proteome is for --mode proteome");
 if (mode == "isoforms") return RunIsoforms(catalog, fromSites, outDir, sitesOut, tag, minPsms, xmls, proteomes, only, excluded, exclProv);
 if (mode != "proteome") return Usage("--mode is proteome (the default) or isoforms");
 
@@ -150,21 +157,56 @@ foreach (var (org, src) in xmls.OrderBy(kv => kv.Key, StringComparer.Ordinal))
         };
         Console.WriteLine($"{org}: UniProt modified residues kept {uniProv["kept"]} of {verdicts.Count}");
     }
-    var keep = new Dictionary<string, List<Site>>(StringComparer.Ordinal);
     var drop = new SortedDictionary<string, int>(StringComparer.Ordinal);
     var kept = new List<Site>();
-    foreach (var s in rows.Where(r => r.Organism == org))
+    // D91: the previous proteome's entries, and the current entries by gene, to move a site whose accession left.
+    Dictionary<string, GeneEntry>? old = null;
+    var byGene = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+    var moved = new List<(Site From, Site To)>();
+    if (previous.TryGetValue(org, out var prevXml))
     {
+        old = GeneEntries(prevXml);
+        foreach (var g in GeneEntries(src).Values)
+            foreach (var key in g.GeneIds.Select(i => "ens:" + i).Append(g.Gene is null ? null : "name:" + g.Gene).OfType<string>())
+                (byGene.TryGetValue(key, out var l) ? l : byGene[key] = new()).Add(g.Acc);
+    }
+    var keptAt = new Dictionary<(string, int, string), int>();
+    foreach (var found in rows.Where(r => r.Organism == org))
+    {
+        var s = found;
         var (cls, res) = Bio[s.Modification];
         string? why = null;
-        if (!seq.TryGetValue(s.Accession, out string? sq)) why = "not_in_canonical_xml";
+        if (old is not null && !seq.ContainsKey(s.Accession))
+        {
+            var (to, miss) = Relocate(s, old, byGene, seq);
+            if (to is null) why = miss; else { moved.Add((s, to)); s = to; }
+        }
+        if (!seq.TryGetValue(s.Accession, out string? sq)) why ??= "not_in_canonical_xml";
         else if (s.Position < 1 || s.Position > sq.Length) why = "position_out_of_range";
         else if (res is null ? s.Position > 2 : sq[s.Position - 1] != res) why = res is null ? "nterm_acetyl_not_at_1_or_2" : "residue_mismatch";
         else if (!NotLoadedByMzLib.Contains(cls) && ann.TryGetValue((s.Accession, s.Position), out var have) && have.Contains(cls)) why = "already_in_uniprot";
         if (why is not null) { drop[why] = drop.GetValueOrDefault(why) + 1; continue; }
         var k = s with { Residue = sq![s.Position - 1] };
+        // A moved site can land where the same site was also found on the current entry: one site, its evidence summed.
+        if (keptAt.TryGetValue((k.Accession, k.Position, k.Modification), out int i))
+        {
+            var ds = kept[i].Datasets.Split(',').Union(k.Datasets.Split(',')).Order(StringComparer.Ordinal).ToArray();
+            kept[i] = kept[i] with { NDatasets = ds.Length, NPsms = kept[i].NPsms + k.NPsms, Datasets = string.Join(",", ds) };
+            continue;
+        }
+        keptAt[(k.Accession, k.Position, k.Modification)] = kept.Count;
         kept.Add(k);
-        (keep.TryGetValue(k.Accession, out var l) ? l : keep[k.Accession] = new()).Add(k);
+    }
+    var keep = kept.GroupBy(k => k.Accession, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
+    string? movedTsv = null;
+    if (old is not null)
+    {
+        movedTsv = Path.Combine(sitesOut, $"sites_moved_{org}.tsv");
+        var mb = new StringBuilder("from_accession\tfrom_position\tto_accession\tto_position\tmodification\tn_psms\tdatasets\r\n");
+        foreach (var (f, t) in moved)
+            mb.Append($"{f.Accession}\t{f.Position}\t{t.Accession}\t{t.Position}\t{f.Modification}\t{f.NPsms}\t{f.Datasets}\r\n");
+        File.WriteAllText(movedTsv, mb.ToString());
+        Console.WriteLine($"{org}: {moved.Count} sites moved to their gene's current entry ({movedTsv})");
     }
     // A database that matches almost none of the sites is a reading failure, not a selection (agingPTM-v3's first build
     // read 0 entries from an https-namespace file and wrote 0 sites without complaint).
@@ -189,6 +231,11 @@ foreach (var (org, src) in xmls.OrderBy(kv => kv.Key, StringComparer.Ordinal))
         ["sites_by_modification"] = new JsonObject(perMod.Select(g => KeyValuePair.Create(g.Key, (JsonNode?)g.Count()))),
         ["dropped"] = new JsonObject(drop.Select(kv => KeyValuePair.Create(kv.Key, (JsonNode?)kv.Value))),
         ["sites_tsv"] = tsv, ["uniprot_sites"] = uniProv, ["wall_s"] = Math.Round(t0.Elapsed.TotalSeconds, 1),
+        ["moved_to_current_entry"] = old is null ? null : new JsonObject
+        {
+            ["previous_proteome"] = prevXml, ["previous_sha256"] = Sha(prevXml!), ["moved"] = moved.Count, ["tsv"] = movedTsv,
+            ["rule"] = "a site on an accession the proteome no longer has moves to the one current entry of its gene (Ensembl gene ID, else primary gene name) where the previous sequence around it (7 residues each side) occurs exactly once (D91)",
+        },
     };
     Console.WriteLine($"{org}: {written} sites written to {dst}; dropped {JsonSerializer.Serialize(drop)}");
 }
@@ -642,6 +689,36 @@ static List<SpGene> SwissProtGenes(string xml) =>
         return new SpGene(e.Element(ns + "accession")!.Value, gene, GeneIds(e).ToHashSet(StringComparer.Ordinal));
     }).ToList();
 
+/// <summary>Every entry of a proteome XML: first accession, sequence, primary gene name, Ensembl gene IDs (unversioned).</summary>
+static Dictionary<string, GeneEntry> GeneEntries(string xml) =>
+    UniprotEntries(xml).Select(e =>
+    {
+        XNamespace ns = e.Name.Namespace;
+        string? gene = e.Element(ns + "gene")?.Elements(ns + "name").FirstOrDefault(n => (string?)n.Attribute("type") == "primary")?.Value;
+        return new GeneEntry(e.Element(ns + "accession")!.Value, string.Concat(e.Element(ns + "sequence")!.Value.Where(c => !char.IsWhiteSpace(c))),
+            gene, GeneIds(e).ToHashSet(StringComparer.Ordinal));
+    }).ToDictionary(g => g.Acc, StringComparer.Ordinal);
+
+/// <summary>D91: a site found on an accession the current proteome no longer has (UniProt chose another entry for the
+/// gene), moved to that gene's current entry. The gene is the old entry's Ensembl gene IDs, else its primary gene name, and
+/// must name exactly one current entry. The old sequence around the site, 7 residues each side (fewer at an end), must
+/// occur exactly once in the new sequence; the site keeps its offset in it. Returns the moved site, or why not.</summary>
+static (Site? To, string Why) Relocate(Site s, Dictionary<string, GeneEntry> old, Dictionary<string, List<string>> byGene, Dictionary<string, string> seq)
+{
+    if (!old.TryGetValue(s.Accession, out var o)) return (null, "not_in_canonical_xml");
+    var to = o.GeneIds.SelectMany(g => byGene.GetValueOrDefault("ens:" + g) ?? new()).Distinct(StringComparer.Ordinal).ToList();
+    if (to.Count == 0 && o.Gene is not null) to = byGene.GetValueOrDefault("name:" + o.Gene) ?? new();
+    if (to.Count != 1) return (null, to.Count == 0 ? "replaced_no_current_entry_for_its_gene" : "replaced_gene_names_several_entries");
+    if (s.Position < 1 || s.Position > o.Seq.Length) return (null, "position_out_of_range");
+    const int flank = 7;
+    int from = Math.Max(0, s.Position - 1 - flank), end = Math.Min(o.Seq.Length, s.Position + flank);
+    string window = o.Seq[from..end], target = seq[to[0]];
+    int at = target.IndexOf(window, StringComparison.Ordinal);
+    if (at < 0) return (null, "replaced_sequence_around_site_not_found");
+    if (target.IndexOf(window, at + 1, StringComparison.Ordinal) >= 0) return (null, "replaced_sequence_around_site_found_twice");
+    return (s with { Accession = to[0], Position = at + (s.Position - 1 - from) + 1 }, "");
+}
+
 static IEnumerable<string> GeneIds(XElement e) =>
     e.Elements(e.Name.Namespace + "dbReference").Where(d => (string?)d.Attribute("type") == "Ensembl")
         .SelectMany(d => d.Elements(e.Name.Namespace + "property")).Where(p => (string?)p.Attribute("type") == "gene ID")
@@ -777,6 +854,8 @@ record UniSite(string Acc, int Index, int Pos, char Res, string Desc, string Cla
 record EnsemblEntry(string Acc, string? Gene, string? GeneId);
 
 record SpGene(string Acc, string? Gene, HashSet<string> GeneIds);
+
+record GeneEntry(string Acc, string Seq, string? Gene, HashSet<string> GeneIds);
 
 record IsoVerdict(string Org, string Dataset, string Acc, string Canonical, int Pos, string Res, string Mod, long Psms, long Groups,
     bool? HasCanonical, bool? IsoformOnly, bool CanonicalInDataset, string Verdict);
