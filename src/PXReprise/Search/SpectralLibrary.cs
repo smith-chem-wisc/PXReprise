@@ -55,6 +55,35 @@ public static class SpectralLibrary
     }
 
     /// <summary>
+    /// 2026-11-24 (the maintainer: "keep lowCID libraries separate from HCD libraries separate from ETD (and so forth). We
+    /// will use these libraries for dia and so having a bunch of spectra that don't belong will be problematic"): the
+    /// fragmentation a search's spectra share, as QC called it per file (<c>qc_report.json</c> <c>fragmentation</c>), as a
+    /// chain-key suffix. Orbitrap HCD, all that the chains held until then, is empty, so its chains keep their names. Every
+    /// other type has a chain of its own: <c>cid</c>, <c>etd</c>, <c>ethcd</c>, and, for MS2 read in the ion trap,
+    /// <c>lowcid</c> or <c>ithcd</c>. A file QC called nothing does not count; with no call at all the profile's own chain
+    /// is kept, as before. Files that disagree give no chain (<c>Key</c> null): their spectra would mix.
+    /// </summary>
+    public static (string? Key, bool LowRes, string Description) FragmentationKey(IEnumerable<JsonNode?> perFile)
+    {
+        var calls = perFile.OfType<JsonObject>()
+            .Select(o => (Type: o["dissociation_type"]?.GetValue<string>(), LowRes: o["low_res"]?.GetValue<bool>() ?? false))
+            .Where(c => c.Type is { Length: > 0 }).Distinct().ToList();
+        static string Describe((string? Type, bool LowRes) c) => c.Type + (c.LowRes ? " (low-res MS2)" : "");
+        if (calls.Count == 0) return ("", false, "none called by QC (the profile's own chain)");
+        if (calls.Count > 1) return (null, calls.Any(c => c.LowRes), $"the files differ: {string.Join(", ", calls.Select(Describe))}");
+        var (type, low) = calls[0];
+        string clean = new(type!.ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray());
+        string key = (clean, low) switch
+        {
+            ("hcd", false) => "",
+            ("lowcid", _) => "lowcid",
+            (_, true) => "it" + clean,
+            _ => clean,
+        };
+        return (key, low || clean == "lowcid", Describe(calls[0]));
+    }
+
+    /// <summary>
     /// Write or update for this run. The organism key is stated, never inferred from a PRIDE facet string. A registry
     /// whose current library is missing on disk is refused, never silently restarted: that would start a second chain
     /// and discard every spectrum the first had accumulated.
@@ -65,11 +94,14 @@ public static class SpectralLibrary
     /// modified peptides are all shifted"). Null is label-free: the organism's own chain.</param>
     /// <param name="cloud">The machine's <c>spectral_library_remote</c> (2026-11-11): newer versions other machines
     /// registered are fetched first, so the search reads the newest library.</param>
-    public static LibraryPlan Plan(string root, string organism, string? label = null, LibraryCloud? cloud = null)
+    /// <param name="fragmentation">2026-11-24: <see cref="FragmentationKey"/>'s suffix. Empty is Orbitrap HCD, the chain's
+    /// own name.</param>
+    public static LibraryPlan Plan(string root, string organism, string? label = null, LibraryCloud? cloud = null, string? fragmentation = null)
     {
         string key = organism.Trim().ToLowerInvariant().Replace(' ', '_');
         if (key.Length == 0) throw new UsageException("a spectral library needs an organism");
         if (label is { Length: > 0 }) key += "_" + new string(label.ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray());
+        if (fragmentation is { Length: > 0 }) key += "_" + fragmentation;
         if (cloud is not null) Pull(root, key, cloud);
         var entry = ReadRegistry(root)["organisms"]![key]?.AsObject();
         string? current = entry?["current"]?.GetValue<string>();

@@ -9,6 +9,34 @@ public class SpectralLibraryTests
     private static string Msp(string dir, string name, int spectra) =>
         TestSupport.WriteFile(dir, name, string.Concat(Enumerable.Range(0, spectra).Select(i => $"Name: PEP{i}/2\nMW: 1\n\n")));
 
+    private static JsonNode Frag(string type, bool lowRes) => new JsonObject { ["dissociation_type"] = type, ["low_res"] = lowRes };
+
+    // 2026-11-24 (the maintainer: "keep lowCID libraries separate from HCD libraries separate from ETD (and so forth)"):
+    // one chain per fragmentation type, Orbitrap HCD keeping the chains' own names.
+    [Test]
+    public void EachFragmentationTypeHasItsOwnChainKey()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(SpectralLibrary.FragmentationKey(new[] { Frag("HCD", false), Frag("HCD", false) }).Key, Is.EqualTo(""));
+            Assert.That(SpectralLibrary.FragmentationKey(new[] { Frag("CID", false) }).Key, Is.EqualTo("cid"));
+            Assert.That(SpectralLibrary.FragmentationKey(new[] { Frag("EThcD", false) }).Key, Is.EqualTo("ethcd"));
+            Assert.That(SpectralLibrary.FragmentationKey(new[] { Frag("LowCID", true) }), Is.EqualTo(((string?)"lowcid", true, "LowCID (low-res MS2)")));
+            Assert.That(SpectralLibrary.FragmentationKey(new[] { Frag("HCD", true) }), Is.EqualTo(((string?)"ithcd", true, "HCD (low-res MS2)")));
+            var mixed = SpectralLibrary.FragmentationKey(new[] { Frag("HCD", false), Frag("CID", false) });
+            Assert.That(mixed.Key, Is.Null, "files that disagree get no chain");
+            Assert.That(mixed.Description, Does.Contain("HCD").And.Contain("CID"));
+            Assert.That(SpectralLibrary.FragmentationKey(new JsonNode?[] { null, new JsonObject() }).Key, Is.EqualTo(""), "no call keeps the profile's chain");
+        });
+        string root = TestSupport.TempDir(), run = TestSupport.TempDir();
+        Msp(run, "SpectralLibrary_x.msp", 2);
+        SpectralLibrary.Register(SpectralLibrary.Plan(root, "human"), run, "r", "PXD000001", "1.1.15");
+        Assert.That(SpectralLibrary.Plan(root, "human", fragmentation: "cid"), Is.EqualTo(new LibraryPlan("human_cid", "write", null, null, root)),
+            "blank, though human (HCD) has a library");
+        Assert.That(SpectralLibrary.Plan(root, "human", "TMT10", fragmentation: "etd").Organism, Is.EqualTo("human_tmt10_etd"));
+        Assert.That(SpectralLibrary.Plan(root, "human", fragmentation: "").Mode, Is.EqualTo("update"));
+    }
+
     // v0.4.34 (the user, 2026-10-29: "tmt will have to start with a blank spectrum library"): a labelled search has its own
     // chain per kit, which starts blank beside a label-free chain that already exists, and never touches it.
     [Test]

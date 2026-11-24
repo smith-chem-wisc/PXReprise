@@ -275,8 +275,23 @@ public static class SearchStage
         // isobaric kit has a chain of its own, which starts blank (the maintainer, 2026-10-29).
         // 2026-11-11: with the machine's spectral_library_remote, the chain is fetched from the cloud first and the new version
         // is claimed there (LibraryCloud); a chain another machine moved meanwhile is merged, not refused.
-        using var libraryCloud = p.SpectralLibrary && r.UseLibrary ? LibraryCloud.Open(m.SpectralLibraryRemote) : null;
-        LibraryPlan? lib = p.SpectralLibrary && r.UseLibrary ? SpectralLibrary.Plan(m.SpectralLibraryRoot, r.Organism, kit, libraryCloud) : null;
+        // 2026-11-24: one chain per fragmentation type, as QC called the files (SpectralLibrary.FragmentationKey). Files that
+        // disagree get none. Neither does low-resolution MS2: MetaMorpheus's library mode matches every fragment charge
+        // (v0.4.34, below), so it can neither write nor update a library.
+        var libFragmentation = SpectralLibrary.FragmentationKey(files.Select(f => qc[Path.GetFileName(f)]?["fragmentation"]));
+        bool libraryWanted = p.SpectralLibrary && r.UseLibrary;
+        if (libraryWanted && libFragmentation.Key is null)
+        {
+            prov.Note($"spectral library OFF for this search: a library holds one fragmentation type, and {libFragmentation.Description}");
+            libraryWanted = false;
+        }
+        else if (libraryWanted && libFragmentation.LowRes)
+        {
+            prov.Note($"spectral library OFF for this search: its MS2 is {libFragmentation.Description}, and MetaMorpheus's library mode matches every fragment charge, which at the low-res tolerance scores decoys as targets (TMT trial, PXD034564: 0 PSMs with it)");
+            libraryWanted = false;
+        }
+        using var libraryCloud = libraryWanted ? LibraryCloud.Open(m.SpectralLibraryRemote) : null;
+        LibraryPlan? lib = libraryWanted ? SpectralLibrary.Plan(m.SpectralLibraryRoot, r.Organism, kit, libraryCloud, libFragmentation.Key) : null;
         if (p.SpectralLibrary && !r.UseLibrary)
             prov.Note("spectral library switched OFF for this search by the batch (a previous update-mode search failed)");
         // v0.4.45 (PXD025746, 2026-11-11): only the chain an earlier failed update-mode search read is off. Its iodoTMT search
@@ -290,7 +305,7 @@ public static class SearchStage
         if (lib is not null)
             prov.Set("spectral_library", new JsonObject
             {
-                ["organism"] = lib.Organism, ["mode"] = lib.Mode, ["library_in"] = lib.LibraryIn,
+                ["organism"] = lib.Organism, ["fragmentation"] = libFragmentation.Description, ["mode"] = lib.Mode, ["library_in"] = lib.LibraryIn,
                 ["parent_version"] = lib.ParentVersion, ["registry"] = SpectralLibrary.RegistryPath(lib.Root),
                 ["remote"] = libraryCloud?.Remote.Location,
                 ["route_classes"] = new JsonArray((r.LibraryRouteClasses ?? Array.Empty<string>()).Select(c => (JsonNode)c).ToArray()),

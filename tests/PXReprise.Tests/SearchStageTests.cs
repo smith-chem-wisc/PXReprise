@@ -155,6 +155,47 @@ public class SearchStageTests
     private static SearchRequest Req(Rig r, string outName, string acc = "PXD000301") =>
         new(r.Profile, "human", r.Machine, r.Spectra, Path.Combine(r.Root, "run", outName), r.Qc, Array.Empty<string>(), Array.Empty<string>(), "2026-09-28", acc);
 
+    private static void QcFragmentation(Rig r, string a, string b) => TestSupport.WriteFile(r.Qc, "qc_report.json",
+        """{"a.raw":{"pass":true,"ms2":20,"fragmentation":""" + a + """},"b.raw":{"pass":true,"ms2":20,"fragmentation":""" + b + "}}");
+
+    private const string OrbitrapCid = """{"dissociation_type":"CID","low_res":false}""";
+
+    // 2026-11-24 (the maintainer: "make sure each fragmentation type is building and using a spectrum library. When there is
+    // no library to begin with ... write spectrum library ... when there is a library ... update spectrum library"): a
+    // high-resolution CID deposit writes a chain of its own beside the HCD one, and the next CID deposit updates it.
+    // Ion-trap MS2, and files that disagree, get none.
+    [Test]
+    public async Task EachFragmentationTypeWritesThenUpdatesItsOwnChain()
+    {
+        var rig = Setup();
+        Assume.That((await SearchStage.RunAsync(Req(rig, "04_search"), CancellationToken.None)).Success, "an HCD search writes human v1");
+
+        QcFragmentation(rig, OrbitrapCid, OrbitrapCid);
+        var cid1 = await SearchStage.RunAsync(Req(rig, "04_search_2", "PXD000302"), CancellationToken.None);
+        var cid2 = await SearchStage.RunAsync(Req(rig, "04_search_3", "PXD000303"), CancellationToken.None);
+        QcFragmentation(rig, """{"dissociation_type":"LowCID","low_res":true}""", """{"dissociation_type":"LowCID","low_res":true}""");
+        var ionTrap = await SearchStage.RunAsync(Req(rig, "04_search_4", "PXD000304"), CancellationToken.None);
+        QcFragmentation(rig, OrbitrapCid, """{"dissociation_type":"HCD","low_res":false}""");
+        var mixed = await SearchStage.RunAsync(Req(rig, "04_search_5", "PXD000305"), CancellationToken.None);
+
+        JsonNode P(SearchOutcome o) => JsonNode.Parse(File.ReadAllText(o.ProvenanceFile))!;
+        IEnumerable<string> Notes(SearchOutcome o) => P(o)["notes"]!.AsArray().Select(n => n!.GetValue<string>());
+        Assert.Multiple(() =>
+        {
+            Assert.That((cid1.Success, cid2.Success, ionTrap.Success, mixed.Success), Is.EqualTo((true, true, true, true)));
+            Assert.That(P(cid1)["spectral_library"]!["organism"]!.GetValue<string>(), Is.EqualTo("human_cid"));
+            Assert.That(P(cid1)["spectral_library"]!["mode"]!.GetValue<string>(), Is.EqualTo("write"), "blank, though human (HCD) has v1");
+            Assert.That(P(cid1)["spectral_library"]!["fragmentation"]!.GetValue<string>(), Is.EqualTo("CID"));
+            Assert.That(P(cid2)["spectral_library"]!["mode"]!.GetValue<string>(), Is.EqualTo("update"));
+            Assert.That(P(cid2)["spectral_library"]!["library_in"]!.GetValue<string>(), Does.EndWith("human_cid.v001.msp"));
+            Assert.That(P(ionTrap)["spectral_library"], Is.Null);
+            Assert.That(Notes(ionTrap), Has.Some.Contains("spectral library OFF for this search: its MS2 is LowCID (low-res MS2)"));
+            Assert.That(P(mixed)["spectral_library"], Is.Null);
+            Assert.That(Notes(mixed), Has.Some.Contains("a library holds one fragmentation type, and the files differ"));
+        });
+        Assert.That(SpectralLibrary.Plan(rig.Machine.SpectralLibraryRoot, "human").ParentVersion, Is.EqualTo(1), "the HCD chain was not touched");
+    }
+
     // v0.4.45 (PXD025746, 2026-11-11): its iodoTMT search failed while updating mouse_tmt6plex, and the batch then searched
     // every deposit without a library: PXD027232 (human) and PXD034029 (mouse TMT11) too. Only the chain that failed is off.
     [Test]
