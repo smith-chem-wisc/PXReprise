@@ -109,7 +109,8 @@ public sealed record Profile(
     IReadOnlyList<MetaMorpheusSetting>? MetaMorpheusSettings = null,   // v0.4.33: [metamorpheus_settings.<scope>] Key = value
     IReadOnlyList<string>? GptmdDropMods = null,   // v0.4.38: "Type\tIdWithMotif" entries removed from the GPTMD task's default list
     bool EnrichedVariable = false,   // v0.4.40 (G66): a deposit's enriched PTM classes are variable in every task, MaxModsForPeptide 3
-    bool InputSdrf = false)   // D84: the SDRF the search's design came from is its InputSdrfPath, so the written SDRF carries its sample facts
+    bool InputSdrf = false,   // D84: the SDRF the search's design came from is its InputSdrfPath, so the written SDRF carries its sample facts
+    bool IonTrapLibrary = false)   // decision 0092: low-res MS2 reads its own chain, which PXReprise builds from the search's PSMs (LibraryFromPsms)
 {
     /// <summary>v0.4.40 (G66, D32 slice 4): <c>MaxModsForPeptide</c> in every task of a search under
     /// <see cref="EnrichedVariable"/> whose deposit enriches a PTM class. The TMT phospho trial measured it:

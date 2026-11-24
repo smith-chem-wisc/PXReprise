@@ -55,6 +55,14 @@ whether to search them again is a separate choice.
   files differ in fragmentation gets no library, and says so in its provenance notes. Ion-trap MS2 still gets none from
   MetaMorpheus (v0.4.34). The provenance's `spectral_library` record gains `fragmentation`.
 
+- **Ion-trap MS2 gets its own libraries, built by PXReprise** (decision 0092; a profile's new `engine.ion_trap_library`,
+  which needs `engine.spectral_library`). The search reads its chain (`lowcid` or `ithcd`) with neither library switch
+  set, so MetaMorpheus never matches fragments at every charge, and PXReprise then builds the next version from the
+  search's `AllPSMs.psmtsv` by MetaMorpheus's own update rule (`LibraryFromPsms`: 1% PSMs of the filter `results.txt`
+  names, targets, unambiguous, the best per precursor; a stored spectrum kept when it holds more fragments than the new
+  score). The provenance's `spectral_library` record gains `metamorpheus_mode` (`read`) and `built_from_psms`. No
+  shipped profile sets it yet; every existing profile version keeps no library for ion-trap MS2.
+
 - **`pxreprise library repair <chain> --remove-deposits PXD1,PXD2`** takes out of a spectral library what those
   deposits' searches put in it, for a deposit with a stated quality problem. Each version a deposit's search registered
   is compared with its parent. Where the current library still holds a spectrum that search added or replaced, it goes

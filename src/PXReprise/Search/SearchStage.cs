@@ -285,11 +285,14 @@ public static class SearchStage
             prov.Note($"spectral library OFF for this search: a library holds one fragmentation type, and {libFragmentation.Description}");
             libraryWanted = false;
         }
-        else if (libraryWanted && libFragmentation.LowRes)
+        else if (libraryWanted && libFragmentation.LowRes && !p.IonTrapLibrary)
         {
             prov.Note($"spectral library OFF for this search: its MS2 is {libFragmentation.Description}, and MetaMorpheus's library mode matches every fragment charge, which at the low-res tolerance scores decoys as targets (TMT trial, PXD034564: 0 PSMs with it)");
             libraryWanted = false;
         }
+        // Decision 0092 (engine.ion_trap_library): low-resolution MS2 reads its own chain (lowcid, ithcd) with neither switch
+        // set, and LibraryFromPsms builds the next version from this search's PSMs after it, by MetaMorpheus's own rule.
+        bool ionTrapLibrary = libraryWanted && libFragmentation.LowRes && p.IonTrapLibrary;
         using var libraryCloud = libraryWanted ? LibraryCloud.Open(m.SpectralLibraryRemote) : null;
         LibraryPlan? lib = libraryWanted ? SpectralLibrary.Plan(m.SpectralLibraryRoot, r.Organism, kit, libraryCloud, libFragmentation.Key) : null;
         if (p.SpectralLibrary && !r.UseLibrary)
@@ -305,7 +308,8 @@ public static class SearchStage
         if (lib is not null)
             prov.Set("spectral_library", new JsonObject
             {
-                ["organism"] = lib.Organism, ["fragmentation"] = libFragmentation.Description, ["mode"] = lib.Mode, ["library_in"] = lib.LibraryIn,
+                ["organism"] = lib.Organism, ["fragmentation"] = libFragmentation.Description, ["mode"] = lib.Mode,
+                ["metamorpheus_mode"] = ionTrapLibrary ? "read" : lib.Mode, ["library_in"] = lib.LibraryIn,
                 ["parent_version"] = lib.ParentVersion, ["registry"] = SpectralLibrary.RegistryPath(lib.Root),
                 ["remote"] = libraryCloud?.Remote.Location,
                 ["route_classes"] = new JsonArray((r.LibraryRouteClasses ?? Array.Empty<string>()).Select(c => (JsonNode)c).ToArray()),
@@ -322,7 +326,7 @@ public static class SearchStage
         var artifacts = ArtifactMods(p, chem);
         var gptmdMods = p.GptmdExtraMods.Concat(artifacts.Select(a => a.ModId)).Distinct(StringComparer.Ordinal).ToList();
         string? inputSdrf = InputSdrfFor(p, design, prov);
-        var settings = new TaskSettings(m.MaxThreads, p.MatchBetweenRuns, gptmdMods, SpectralLibraryMode: lib?.Mode,
+        var settings = new TaskSettings(m.MaxThreads, p.MatchBetweenRuns, gptmdMods, SpectralLibraryMode: lib is null ? null : ionTrapLibrary ? "read" : lib.Mode,
             Protease: chem is { ProteasePerFile: null } ? chem.Protease.Value : null,
             FixedCysMods: chem?.CysMods.Where(c => c.Fixed).Select(c => c.MetaMorpheusId!).ToList(),
             VariableCysMods: chem?.CysMods.Where(c => !c.Fixed).Select(c => c.MetaMorpheusId!).ToList(),
@@ -359,8 +363,9 @@ public static class SearchStage
         // v0.4.34: a search with low-resolution MS2 writes and reads no spectral library. MetaMorpheus's library mode matches
         // every fragment charge (ClassicSearchEngine matchAllCharges, fragmentsCanHaveDifferentCharges), and at the ion trap's
         // ±0.5 Da decoys then score as targets do: the TMT trial's PXD034564 found 0 PSMs at 1% with it, 59,028 without.
-        // The lowres profiles never had one ("ion-trap spectra must never enter the Orbitrap-HCD libraries").
-        if (lib is not null && fragmentation?.Values.Any(c => c.LowRes) == true)
+        // The lowres profiles never had one ("ion-trap spectra must never enter the Orbitrap-HCD libraries"). Decision 0092's
+        // ion-trap chains are read, never written by MetaMorpheus, so they stay on.
+        if (lib is not null && !ionTrapLibrary && fragmentation?.Values.Any(c => c.LowRes) == true)
         {
             prov.Note($"spectral library OFF for this search: {fragmentation.Values.Count(c => c.LowRes)} file(s) have low-resolution MS2, and MetaMorpheus's library mode matches every fragment charge, which at the low-res tolerance scores decoys as targets (TMT trial, PXD034564: 0 PSMs with it)");
             prov.Set("spectral_library", null);
@@ -670,6 +675,21 @@ public static class SearchStage
                         new[] { proteome }.Concat(extras),
                         blockedCTerm: !p.SearchRespectsCleavageBlocking);
                     var route = r.LibraryRouteClasses is { Count: > 0 } rc ? rc : null;
+                    if (ionTrapLibrary)
+                    {
+                        // Decision 0092: MetaMorpheus only read the chain. This search's spectra are added here, by its own
+                        // rule, into the file it would have written, and registered from it as any library is.
+                        string filter = LibraryFromPsms.FilterColumnNamed(MetaMorpheusResults.FilterNamed(File.ReadLines(Path.Combine(sd, "results.txt"))));
+                        string name = (lib.Mode == "write" ? "SpectralLibrary_" : "updateSpectralLibrary_")
+                            + DateTime.UtcNow.ToString("yyyy-MM-dd-HH-mm-ss", CultureInfo.InvariantCulture) + ".msp";
+                        var built = LibraryFromPsms.Write(Path.Combine(sd, "AllPSMs.psmtsv"), filter, lib.LibraryIn, Path.Combine(sd, name));
+                        libRec["built_from_psms"] = new JsonObject
+                        {
+                            ["filter_column"] = filter, ["psms_passing"] = built.PsmsPassing, ["precursors"] = built.Precursors,
+                            ["parent_kept"] = built.ParentKept, ["replaced"] = built.Replaced, ["added"] = built.Added,
+                        };
+                        prov.Note($"spectral library {lib.Organism}: built by PXReprise from this search's PSMs ({built.PsmsPassing:N0} passing {filter} <= 0.01; {built.Added:N0} added, {built.Replaced:N0} replaced), because MetaMorpheus cannot write or update a library for low-resolution MS2 (decision 0092)");
+                    }
                     var written = SpectralLibrary.Register(lib, sd, $"{r.RunDate}/{r.Accession}".Trim('/'), r.Accession ?? "", release, cleaning, route, libraryCloud);
                     // A copy: the registry's own node already has a parent there.
                     libRec["written"] = written.DeepClone();

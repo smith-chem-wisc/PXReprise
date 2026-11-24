@@ -25,6 +25,12 @@ public static partial class MetaMorpheusResults
     [GeneratedRegex(@"^All target (?<what>.+?) with (?<filter>pep q-value|q-value notch|q-value) <= (?<t>[0-9.eE-]+)")]
     private static partial Regex CountLine();
 
+    /// <summary>The filter the first dataset-wide PSM count line names ("pep q-value", "q-value notch", "q-value"), or
+    /// null when there is none.</summary>
+    public static string? FilterNamed(IEnumerable<string> resultsLines) =>
+        resultsLines.Select(l => CountLine().Match(l.TrimEnd('\r')))
+            .FirstOrDefault(m => m.Success && m.Groups["what"].Value == "PSMs")?.Groups["filter"].Value;
+
     /// <summary>The "Databases loaded:" blocks of one task's results.txt.</summary>
     public static List<LoadedDatabase> Databases(string task, IEnumerable<string> resultsLines)
     {

@@ -60,6 +60,11 @@ public static class ProfileLoader
             throw new ConfigException(file, "engine.gptmd_filters needs a Gptmd task");
         // One library per organism: the first search writes it, every later one updates and consumes it.
         bool library = eng.OptionalBool("spectral_library") ?? false;
+        // Decision 0092: a search of low-resolution MS2 reads its own chain (lowcid, ithcd), which PXReprise then builds from
+        // the search's PSMs; MetaMorpheus can neither write nor update one there. Off unless a profile version says so.
+        bool ionTrapLibrary = eng.OptionalBool("ion_trap_library") ?? false;
+        if (ionTrapLibrary && !library)
+            throw new ConfigException(file, "engine.ion_trap_library needs engine.spectral_library = true");
         // Read so published profiles stay valid, but no longer used: a search's limits are the machine's (search_timeout_h,
         // search_stall_minutes), because how long it takes depends on the box and its load, not on the method.
         double timeout = eng.OptionalNumber("timeout_h") ?? 6;
@@ -268,7 +273,7 @@ public static class ProfileLoader
             method, mbr, deposit, gates, Path.GetDirectoryName(Path.GetFullPath(file))!, design, chemistry, writeSdrf, shipped, fragmentation, lowResTolerance, probeSearch, probeMinutes, ionTrapHcd,
             customMods, thiolReagents, precursorWindow, ionTrapHcdLowCid, ionTrapHcdProbeLowCid, artifacts,
             gptmdFilters.Count > 0 ? gptmdFilters : null, mmSettings.Count > 0 ? mmSettings : null,
-            dropMods.Count > 0 ? dropMods : null, enrichedVariable, inputSdrf);
+            dropMods.Count > 0 ? dropMods : null, enrichedVariable, inputSdrf, ionTrapLibrary);
     }
 
     /// <summary>

@@ -19,7 +19,7 @@ public sealed record TaskSettings(
     bool MatchBetweenRuns,
     IReadOnlyList<string> GptmdExtraMods,
     string? SearchType = null,
-    string? SpectralLibraryMode = null,   // "write" | "update" | null (no library)
+    string? SpectralLibraryMode = null,   // "write" | "update" | "read" (decision 0092: low-res MS2; neither switch) | null (no library)
     string? ProductMassTolerance = null,  // written exactly as MetaMorpheus writes one, e.g. "±0.3500 Absolute"
     string? PrecursorMassTolerance = null,
     string? Protease = null,                              // G19: the deposit's protease, as mzLib's ProteaseDictionary spells it
@@ -91,11 +91,12 @@ public static class TaskFiles
                 text = Replace(text, "^SearchType = \".*\"$", $"SearchType = \"{st}\"", "SearchType", exactlyOne: true);
             }
             // The two library switches, on the SEARCH task only. Never both true: MetaMorpheus acts on them
-            // independently and would write two libraries.
+            // independently and would write two libraries. "read" (decision 0092) sets both false: the search scores against
+            // the chain it is given, and PXReprise builds the next version from its PSMs.
             if (s.SpectralLibraryMode is { } mode)
             {
-                if (mode is not ("write" or "update"))
-                    throw new SearchSetupException($"spectral library mode must be write or update, not '{mode}'");
+                if (mode is not ("write" or "update" or "read"))
+                    throw new SearchSetupException($"spectral library mode must be write, update or read, not '{mode}'");
                 text = Replace(text, @"^WriteSpectralLibrary = \w+$", $"WriteSpectralLibrary = {Bool(mode == "write")}",
                     "WriteSpectralLibrary", exactlyOne: true);
                 text = Replace(text, @"^UpdateSpectralLibrary = \w+$", $"UpdateSpectralLibrary = {Bool(mode == "update")}",
