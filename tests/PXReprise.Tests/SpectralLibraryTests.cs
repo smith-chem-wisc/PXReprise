@@ -134,6 +134,66 @@ public class SpectralLibraryTests
         Assert.That((int)SpectralLibrary.List(root)["human"]!["version"]!, Is.EqualTo(58));
     }
 
+    /// <summary>One spectrum, told apart from another of the same peptide by its retention time.</summary>
+    private static string At(string sequence, int rt, string mw = "500.25", string ion = "y1") =>
+        $"Name: {sequence}/2\nMW: {mw}\nComment: Parent={mw} RT={rt}\nNum peaks: 1\n147.11280\t1\t\"{ion}^1/0ppm\"\n";
+
+    // 2026-11-24 (D91's rule; the maintainer: "yes, take them out"): a deposit with a stated quality problem leaves the
+    // libraries too. What its search added goes; what it replaced comes back; what a later search replaced stays.
+    [Test]
+    public void ARepairCanTakeOutWhatOneDepositsSearchPutInTheChain()
+    {
+        string root = ChainWithOneBadDeposit();
+        string dir = Path.Combine(root, "human");
+
+        var r = SpectralLibrary.Repair(root, "human", "PXD044773: mouse runs searched as human", removeDeposits: new[] { "PXD044773" });
+
+        Assert.That(((bool)r["repaired"]!, (int)r["version"]!, (int)r["n_spectra"]!), Is.EqualTo((true, 4, 3)));
+        Assert.That(((int)r["removed_deposits"]!["spectra_removed"]!, (int)r["removed_deposits"]!["spectra_restored"]!), Is.EqualTo((1, 1)));
+        Assert.That((int)r["removed_deposits"]!["versions"]![0]!["spectra_added_or_replaced"]!, Is.EqualTo(2), "BBB and CCC, not AAA's new annotation");
+        // BBB's spectrum is compared without its precursor lines, which a later version had moved (500.25 -> 500.3).
+        Assert.That(File.ReadAllText(Path.Combine(dir, "human.v004.msp")), Is.EqualTo(At("AAA", 10, "500.3") + At("BBB", 2) + At("DDD", 4)));
+        Assert.That(SpectralLibrary.Plan(root, "human").ParentVersion, Is.EqualTo(4));
+
+        var again = SpectralLibrary.Repair(root, "human", "twice", removeDeposits: new[] { "PXD044773" });
+        Assert.That(((bool)again["repaired"]!, (int)again["version"]!), Is.EqualTo((false, 4)), "nothing of it is left to take out");
+    }
+
+    [Test]
+    public async Task TheLibraryVerbTakesTheDepositsToRemove()
+    {
+        string root = ChainWithOneBadDeposit(), dir = TestSupport.TempDir();
+        string machine = TestSupport.WriteFile(dir, "machine.toml",
+            $"work_root = '{dir}'\nmin_free_gb = 0\nmax_threads = 2\nspectral_library_root = '{root}'\n[metamorpheus]\n\"1.1.15\" = 'C:/nowhere/CMD.exe'\n");
+        var sw = new StringWriter();
+        int exit = await Program.RunAsync(new[] { "library", "repair", "human", "--machine", machine, "--reason", "quality",
+            "--remove-deposits", "PXD044773, PXD020462" }, sw, CancellationToken.None);
+        Assert.That(exit, Is.EqualTo(0), sw.ToString());
+        var data = JsonNode.Parse(sw.ToString())!["data"]!;
+        Assert.That(((int)data["version"]!, (int)data["removed_deposits"]!["spectra_removed"]!), Is.EqualTo((4, 1)));
+        Assert.That(data["removed_deposits"]!["deposits"]!.AsArray().Select(d => (string)d!), Is.EqualTo(new[] { "PXD020462", "PXD044773" }));
+    }
+
+    /// <summary>A human chain of three versions; the second is PXD044773's search.</summary>
+    private static string ChainWithOneBadDeposit()
+    {
+        string root = TestSupport.TempDir();
+        string dir = Path.Combine(root, "human");
+        Directory.CreateDirectory(dir);
+        TestSupport.WriteFile(dir, "human.v001.msp", At("AAA", 1) + At("BBB", 2));
+        // BAD replaced BBB and added CCC. It also rewrote AAA's annotation ("Y1"), as MetaMorpheus versions did ("D126" to
+        // "d126"): the same spectrum, which is not BAD's.
+        TestSupport.WriteFile(dir, "human.v002.msp", At("AAA", 1, ion: "Y1") + At("BBB", 20) + At("CCC", 3));
+        TestSupport.WriteFile(dir, "human.v003.msp", At("AAA", 10, "500.3") + At("BBB", 20, "500.3") + At("CCC", 3) + At("DDD", 4)); // a later search replaced AAA, added DDD
+        TestSupport.WriteFile(root, "registry.json", $$"""
+            { "schema": "{{SpectralLibrary.Schema}}", "organisms": { "human": { "current": "human/human.v003.msp", "versions": [
+              { "version": 1, "path": "human/human.v001.msp", "mode": "write", "parent_version": null, "produced_by": { "accession": "PXD000001" } },
+              { "version": 2, "path": "human/human.v002.msp", "mode": "update", "parent_version": 1, "produced_by": { "accession": "PXD044773" } },
+              { "version": 3, "path": "human/human.v003.msp", "mode": "update", "parent_version": 2, "produced_by": { "accession": "PXD000003" } } ] } } }
+            """);
+        return root;
+    }
+
     /// <summary>
     /// The premise, against mzLib's own reader (the version MetaMorpheus 1.1.12 runs): a library holding a NEM:2H(5)
     /// spectrum cannot be read back, and the same library without it can.

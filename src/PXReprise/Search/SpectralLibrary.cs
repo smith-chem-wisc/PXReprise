@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Omics.SpectrumMatch;
 using PXReprise.Cli;
 using PXReprise.Provenance;
@@ -459,7 +460,10 @@ public static class SpectralLibrary
     /// entries (mouse v065, human v057: Unimod <c>NEM:2H(5)</c>), and before v0.4.32 cleaned them. Run it with no driver
     /// running: a search that planned on the old current would then be refused at registration (nothing lost).
     /// </summary>
-    public static JsonObject Repair(string root, string organism, string reason, LibraryCleaning? cleaning = null, LibraryCloud? cloud = null)
+    /// <param name="removeDeposits">2026-11-24 (D91's rule, the maintainer: "yes, take them out"): also leave out what these
+    /// deposits' searches put in the chain (<see cref="WithoutDeposits"/>).</param>
+    public static JsonObject Repair(string root, string organism, string reason, LibraryCleaning? cleaning = null, LibraryCloud? cloud = null,
+        IReadOnlyCollection<string>? removeDeposits = null)
     {
         lock (RegistryGate)
         {
@@ -471,13 +475,20 @@ public static class SpectralLibrary
             string src = Path.Combine(root, current);
             // D84: a repair also corrects the precursors, so a chain can be corrected with no driver running rather than at its
             // next update.
-            string? correctedFile = null;
+            string? correctedFile = null, withoutFile = null;
             var correction = PrecursorCorrection.None;
+            JsonObject? removal = null;
             JsonObject rec;
             string rel, dest;
             int version;
             try
             {
+                if (removeDeposits is { Count: > 0 })
+                {
+                    withoutFile = Path.Combine(root, organism, $".without-{Guid.NewGuid():N}.msp");
+                    removal = WithoutDeposits(root, entry, src, withoutFile, removeDeposits);
+                    if ((int)removal["spectra_removed"]! + (int)removal["spectra_restored"]! > 0) src = withoutFile;
+                }
                 if (cleaning is not null)
                 {
                     correctedFile = Path.Combine(root, organism, $".precursor-{Guid.NewGuid():N}.msp");
@@ -486,7 +497,7 @@ public static class SpectralLibrary
                 }
                 (version, rel, dest) = NextVersion(root, organism, entry);
                 var dropped = CopyClean(src, dest, cleaning);
-                if (dropped.Total == 0 && !correction.Changed)
+                if (dropped.Total == 0 && !correction.Changed && src != withoutFile)
                 {
                     File.Delete(dest);
                     return new JsonObject { ["organism"] = organism, ["repaired"] = false, ["current"] = current, ["version"] = parent };
@@ -495,10 +506,12 @@ public static class SpectralLibrary
                 {
                     ["repair_of"] = current, ["reason"] = reason, ["pxreprise"] = RunRecord.Versions()["pxreprise"],
                 }, correction);
+                if (removal is not null) rec["removed_deposits"] = removal;
             }
             finally
             {
                 if (correctedFile is not null && File.Exists(correctedFile)) File.Delete(correctedFile);
+                if (withoutFile is not null && File.Exists(withoutFile)) File.Delete(withoutFile);
             }
             if (cloud is not null && !cloud.Claim(organism, rec, dest))
             {
@@ -513,6 +526,90 @@ public static class SpectralLibrary
             result["repaired"] = true;
             return result;
         }
+    }
+
+    /// <summary>
+    /// The current library without what <paramref name="deposits"/>' searches put in it, written to <paramref name="dest"/>.
+    /// A version a deposit's search registered (its <c>produced_by.accession</c>, or a split part of it, <c>PXD...-x</c>)
+    /// differs from its parent by the spectra that search added or replaced. Where the current library still holds such a
+    /// spectrum, the one its name held before the first of those searches is put back, or the spectrum is left out when the
+    /// name held none. A spectrum a later search replaced is that search's own and stays. Spectra are compared without
+    /// their precursor lines (<c>MW:</c>, <c>Parent=</c>), which a repair may correct.
+    /// </summary>
+    internal static JsonObject WithoutDeposits(string root, JsonObject chain, string current, string dest, IReadOnlyCollection<string> deposits)
+    {
+        var versions = chain["versions"]!.AsArray().Select(v => v!.AsObject()).ToList();
+        string? PathOf(int? version) => versions.FirstOrDefault(v => (int?)v["version"] == version)?["path"]?.GetValue<string>();
+        bool Named(string? acc) => acc is not null && deposits.Any(d => acc == d || acc.StartsWith(d + "-", StringComparison.Ordinal));
+        var bad = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);   // name -> the spectra those searches wrote
+        var before = new Dictionary<string, List<string>?>(StringComparer.Ordinal);  // name -> its spectrum before them (null: none)
+        var used = new JsonArray();
+        foreach (var v in versions.Where(v => Named(v["produced_by"]?["accession"]?.GetValue<string>())).OrderBy(v => (int)v["version"]!))
+        {
+            string child = Path.Combine(root, v["path"]!.GetValue<string>());
+            string? parentRel = PathOf((int?)v["parent_version"]);
+            if (parentRel is null || !File.Exists(child) || !File.Exists(Path.Combine(root, parentRel)))
+                throw new SearchSetupException($"{v["path"]} (by {v["produced_by"]!["accession"]}) or its parent is not on disk, so what it added cannot be found; nothing was registered");
+            string parentFile = Path.Combine(root, parentRel);
+            // Older versions repeat nameless entries ("Name: /3", dropped at registration since #40): the first of a name counts.
+            var parentKeys = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var e in Entries(parentFile)) parentKeys.TryAdd(e[0], SpectrumKey(e));
+            var fetch = new HashSet<string>(StringComparer.Ordinal);
+            int changed = 0;
+            foreach (var e in Entries(child))
+            {
+                string key = SpectrumKey(e);
+                bool had = parentKeys.TryGetValue(e[0], out var pk);
+                if (had && pk == key) continue;
+                changed++;
+                (bad.TryGetValue(e[0], out var set) ? set : bad[e[0]] = new HashSet<string>(StringComparer.Ordinal)).Add(key);
+                if (before.ContainsKey(e[0])) continue;
+                before[e[0]] = null;
+                if (had) fetch.Add(e[0]);
+            }
+            if (fetch.Count > 0)
+                foreach (var e in Entries(parentFile).Where(e => fetch.Remove(e[0]))) before[e[0]] = e;
+            used.Add(new JsonObject { ["version"] = (int)v["version"]!, ["accession"] = v["produced_by"]!["accession"]!.GetValue<string>(), ["spectra_added_or_replaced"] = changed });
+        }
+
+        string nl = NewlineOf(current);
+        int restored = 0, removed = 0;
+        using (var o = new StreamWriter(dest, false, new UTF8Encoding(false)) { NewLine = nl })
+            foreach (var e in Entries(current, keepPreamble: true))
+            {
+                var write = e;
+                if (e[0].StartsWith("Name:", StringComparison.Ordinal) && bad.TryGetValue(e[0], out var keys) && keys.Contains(SpectrumKey(e)))
+                {
+                    write = before[e[0]];
+                    if (write is null) { removed++; continue; }
+                    restored++;
+                }
+                foreach (string line in write) o.WriteLine(line);
+            }
+        return new JsonObject
+        {
+            ["deposits"] = new JsonArray(deposits.Order(StringComparer.Ordinal).Select(d => (JsonNode)d).ToArray()),
+            ["versions"] = used, ["spectra_restored"] = restored, ["spectra_removed"] = removed,
+            ["rule"] = "a spectrum those searches added or replaced and the current version still holds goes back to the spectrum its name held before them, or is left out when it held none",
+        };
+    }
+
+    /// <summary>A spectrum's identity across versions, hashed: its name, its retention time, and each peak's m/z and
+    /// intensity. Not its precursor lines (<c>MW:</c>, <c>Parent=</c>), which a repair may correct, nor the peaks'
+    /// annotations, whose spelling changed between MetaMorpheus versions (TMT reporter ions "D126", then "d126").</summary>
+    private static string SpectrumKey(List<string> entry) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join("\n", entry
+            .Where(l => l.Trim().Length > 0 && !l.StartsWith("MW:", StringComparison.Ordinal) && !l.StartsWith("Num peaks:", StringComparison.Ordinal))
+            .Select(l => l.StartsWith("Name:", StringComparison.Ordinal) ? l
+                : l.StartsWith("Comment:", StringComparison.Ordinal) ? Regex.Match(l, @"\bi?RT=\S+").Value
+                : string.Join("\t", l.Split('\t').Take(2)))))));
+
+    private static string NewlineOf(string path)
+    {
+        using var r = new StreamReader(path);
+        var buf = new char[8192];
+        int n = r.Read(buf, 0, buf.Length);
+        return new string(buf, 0, n).Contains("\r\n") ? "\r\n" : "\n";
     }
 
     /// <summary>Each organism's current library: its version, spectra and how many versions the chain holds.</summary>
