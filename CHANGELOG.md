@@ -49,6 +49,13 @@ whether to search them again is a separate choice.
   - **No per-file mzIdentML** (`WriteMzId = false`): MetaMorpheus wrote one per raw file even with individual-file
     tables off, and nothing read them.
 
+- **`pxreprise library repair <chain> --remove-deposits PXD1,PXD2`** takes out of a spectral library what those
+  deposits' searches put in it, for a deposit with a stated quality problem. Each version a deposit's search registered
+  is compared with its parent. Where the current library still holds a spectrum that search added or replaced, it goes
+  back to the spectrum its name held before, or is left out when the name held none. A spectrum a later search replaced
+  stays. Spectra are compared by name, retention time and peaks, not by precursor lines or peak annotations (whose
+  spelling changed between MetaMorpheus versions). The new version records what was removed and restored.
+
 - **ptmQtl's observations (its S7) are the PSMs the search's own identification filter kept** (ptmQtl D82, PXR-P23;
   replaces ptmQtl D36).
   - `datarepo run`'s ptmQtl engines (`site_pairs`, `site_traits`) took one quantified-PSM tier per search (mzLib's

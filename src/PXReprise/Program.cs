@@ -468,13 +468,15 @@ public static class Program
                 // spectra mzLib cannot read back (v0.4.20). Run it with no driver running.
                 //   --databases a.xml,b.xml (v0.4.32): also clean it (Search/LibraryCleaning.cs) against the organism's
                 //   target databases, with the modifications of every MetaMorpheus the machine names and the shipped lists.
+                //   --remove-deposits PXD1,PXD2 (2026-11-24): also leave out what those deposits' searches put in the chain
+                //   (SpectralLibrary.WithoutDeposits), for a deposit with a stated quality problem.
                 // 2026-11-11, with the machine's spectral_library_remote (the chains shared through the cloud):
                 //   pxreprise library pull <chain> --machine m.toml   fetch the cloud's newer versions and make the newest current
                 //   pxreprise library seed <chain> --machine m.toml   start the cloud's copy of a chain from this machine
                 var rest = args.Words.Skip(1).ToList();
                 if (!(rest is ["list"] || rest is ["repair", _] || rest is ["pull", _] || rest is ["seed", _]))
-                    throw new UsageException("usage: pxreprise library list --machine m.toml, library repair <organism> --machine m.toml --reason \"...\" [--databases a.xml,b.xml], library pull <chain> --machine m.toml, or library seed <chain> --machine m.toml");
-                args.AllowOnly("machine", "reason", "databases", "profiles");
+                    throw new UsageException("usage: pxreprise library list --machine m.toml, library repair <organism> --machine m.toml --reason \"...\" [--databases a.xml,b.xml] [--remove-deposits PXD1,PXD2], library pull <chain> --machine m.toml, or library seed <chain> --machine m.toml");
+                args.AllowOnly("machine", "reason", "databases", "profiles", "remove-deposits");
                 var libMachine = Machine.Load(args.Required("machine"));
                 string root = libMachine.SpectralLibraryRoot;
                 if (rest[0] == "list") return Search.SpectralLibrary.List(root);
@@ -495,7 +497,8 @@ public static class Program
                         dbList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                             .Select(x => Path.IsPathRooted(x) ? x : Path.Combine(libMachine.DatabaseDir, x)));
                 }
-                return Search.SpectralLibrary.Repair(root, rest[1], args.Required("reason"), cleaning, libCloud);
+                var removeDeposits = args.Option("remove-deposits")?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                return Search.SpectralLibrary.Repair(root, rest[1], args.Required("reason"), cleaning, libCloud, removeDeposits);
             }
 
             case "worker":
