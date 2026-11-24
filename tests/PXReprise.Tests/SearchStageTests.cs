@@ -101,7 +101,7 @@ public class SearchStageTests
 
     private sealed record Rig(string Root, Machine Machine, Profile Profile, string Spectra, string Qc);
 
-    private static Rig Setup(bool library = true, string machineExtra = "", bool depositChemistry = false, string mm = "1.1.11", bool design = false, bool writeSdrf = false)
+    private static Rig Setup(bool library = true, string machineExtra = "", bool depositChemistry = false, string mm = "1.1.11", bool design = false, bool writeSdrf = false, bool ionTrapLibrary = false)
     {
         string root = TestSupport.TempDir();
         // A MetaMorpheus "install": the fake CMD, and the Mods and Contaminants folders the engine reads beside it.
@@ -129,6 +129,7 @@ public class SearchStageTests
             spectral_library = {(library ? "true" : "false")}
             {(depositChemistry ? "chemistry = \"deposit\"" : "")}
             {(writeSdrf ? "write_sdrf = true" : "")}
+            {(ionTrapLibrary ? "ion_trap_library = true" : "")}
             [databases.human]
             proteome = "proteome.xml"
             taxon = 9606
@@ -159,6 +160,61 @@ public class SearchStageTests
         """{"a.raw":{"pass":true,"ms2":20,"fragmentation":""" + a + """},"b.raw":{"pass":true,"ms2":20,"fragmentation":""" + b + "}}");
 
     private const string OrbitrapCid = """{"dissociation_type":"CID","low_res":false}""";
+    private const string IonTrapCid = """{"dissociation_type":"LowCID","low_res":true}""";
+
+    [Test]
+    public void AnIonTrapLibraryNeedsTheProfilesLibrary()
+    {
+        var e = Assert.Throws<ConfigException>(() => Setup(library: false, ionTrapLibrary: true));
+        Assert.That(e!.Message, Does.Contain("engine.ion_trap_library needs engine.spectral_library = true"));
+    }
+
+    // Without engine.ion_trap_library (every profile version before decision 0092's), an ion-trap search still has none.
+    [Test]
+    public async Task WithoutTheProfilesIonTrapLibraryAnIonTrapSearchStillHasNone()
+    {
+        var rig = Setup();
+        QcFragmentation(rig, IonTrapCid, IonTrapCid);
+        var o = await SearchStage.RunAsync(Req(rig, "04_search"), CancellationToken.None);
+        Assert.That(JsonNode.Parse(File.ReadAllText(o.ProvenanceFile))!["spectral_library"], Is.Null);
+    }
+
+    // Decision 0092 (engine.ion_trap_library): an ion-trap deposit's search only READS its chain (neither switch set), and
+    // PXReprise builds the next version from the search's PSMs. The fake replays a real MetaMorpheus search task, whose
+    // table holds 48 precursors at q <= 0.01.
+    [Test]
+    public async Task AnIonTrapSearchReadsItsChainAndPxRepriseBuildsTheNextVersionFromItsPsms()
+    {
+        var rig = Setup(ionTrapLibrary: true);
+        QcFragmentation(rig, IonTrapCid, IonTrapCid);
+        Environment.SetEnvironmentVariable("FAKE_MM_REPLAY", LibraryFromPsmsTests.Task);
+        try
+        {
+            var first = await SearchStage.RunAsync(Req(rig, "04_search"), CancellationToken.None);
+            var second = await SearchStage.RunAsync(Req(rig, "04_search_2", "PXD000302"), CancellationToken.None);
+            JsonNode P(SearchOutcome o) => JsonNode.Parse(File.ReadAllText(o.ProvenanceFile))!;
+            string Task(string outName) => File.ReadAllText(Path.Combine(rig.Root, "run", outName, "tasks", "3_SearchTask.toml"));
+            var l1 = P(first)["spectral_library"]!;
+            var l2 = P(second)["spectral_library"]!;
+            Assert.Multiple(() =>
+            {
+                Assert.That((first.Success, second.Success), Is.EqualTo((true, true)));
+                Assert.That((l1["organism"]!.GetValue<string>(), l1["mode"]!.GetValue<string>(), l1["metamorpheus_mode"]!.GetValue<string>()),
+                    Is.EqualTo(("human_lowcid", "write", "read")));
+                Assert.That((int)l1["built_from_psms"]!["added"]!, Is.EqualTo(48));
+                Assert.That((int)l1["written"]!["version"]!, Is.EqualTo(1));
+                Assert.That(Task("04_search"), Does.Contain("WriteSpectralLibrary = false\r\n").And.Contain("UpdateSpectralLibrary = false\r\n"),
+                    "MetaMorpheus never writes an ion-trap library: either switch matches fragments at every charge");
+                Assert.That((l2["mode"]!.GetValue<string>(), l2["metamorpheus_mode"]!.GetValue<string>()), Is.EqualTo(("update", "read")));
+                Assert.That(l2["library_in"]!.GetValue<string>(), Does.EndWith("human_lowcid.v001.msp"), "the search reads the chain");
+                Assert.That(Task("04_search_2"), Does.Contain("WriteSpectralLibrary = false\r\n").And.Contain("UpdateSpectralLibrary = false\r\n"));
+                Assert.That((int)l2["built_from_psms"]!["added"]!, Is.EqualTo(0), "the same PSMs again: every precursor is in the parent");
+                Assert.That((int)l2["built_from_psms"]!["parent_kept"]! + (int)l2["built_from_psms"]!["replaced"]!, Is.EqualTo((int)l1["written"]!["n_spectra"]!));
+                Assert.That((int)l2["written"]!["version"]!, Is.EqualTo(2));
+            });
+        }
+        finally { Environment.SetEnvironmentVariable("FAKE_MM_REPLAY", null); }
+    }
 
     // 2026-11-24 (the maintainer: "make sure each fragmentation type is building and using a spectrum library. When there is
     // no library to begin with ... write spectrum library ... when there is a library ... update spectrum library"): a

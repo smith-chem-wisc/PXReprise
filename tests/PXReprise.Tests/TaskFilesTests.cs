@@ -150,6 +150,16 @@ public class TaskFilesTests
         Assert.That(text, Does.Contain("ProductMassTolerance_LowRes = \"±0.3500 Absolute\""), "the LowRes setting is never touched");
     }
 
+    // Decision 0092: an ion-trap search reads its chain with neither switch set; PXReprise builds the next version.
+    [Test]
+    public void TheReadModeSetsNeitherLibrarySwitch()
+    {
+        var (text, _) = TaskFiles.Edit(Search.Replace("WriteSpectralLibrary = false", "WriteSpectralLibrary = true"), TaskKind.Search,
+            new TaskSettings(32, false, Array.Empty<string>(), SpectralLibraryMode: "read"), Known);
+        Assert.That(text, Does.Contain("WriteSpectralLibrary = false").And.Contain("UpdateSpectralLibrary = false"));
+        Assert.Throws<SearchSetupException>(() => TaskFiles.Edit(Search, TaskKind.Search, new TaskSettings(32, false, Array.Empty<string>(), SpectralLibraryMode: "both"), Known));
+    }
+
     [Test]
     public void CrlfFilesAreEditedAndKeepTheirLineEndings()
     {
