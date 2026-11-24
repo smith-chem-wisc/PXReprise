@@ -15,8 +15,9 @@ A new version of the engine never changes a finished result. Methods live in ver
 
 ## Unreleased
 
-**MetaMorpheus** 1.1.15 for three new profile versions, label-free-dda@15, label-free-dda-lowres@9 and tmt-dda@6 (below);
-every other profile keeps its own. **Machine file:** `"1.1.15"` under `[metamorpheus]`, naming the `CMD.dll` of
+**MetaMorpheus** 1.1.15 for six new profile versions, label-free-dda@15 and @16, label-free-dda-lowres@9 and @10, and
+tmt-dda@6 and @7 (below); every other profile keeps its own. **Databases:** label-free-dda@16 and tmt-dda@7 need the
+agingPTM-v10 files in the machine's `database_dir` (UniProt 2026_04; their record is `data/ptm-db/agingPTM-v10`). **Machine file:** `"1.1.15"` under `[metamorpheus]`, naming the `CMD.dll` of
 MetaMorpheus 1.1.15's CommandLine release (its zip's sha256 is in `tests/metamorpheus-output/releases.tsv`); and
 `datarepo` must name the datarepo of this release (the `datarepo` folder of its archive): a batch refuses any other at
 its start. **Safe mid-batch?** Yes: swap the pin and its datarepo
@@ -27,6 +28,19 @@ QC refused for ion-trap HCD gets a `batch retry`. So does each deposit refused f
 text says TMT while PRIDE's quantification names label-free too (below). A question takes the MetaMorpheus 1.1.15
 profiles by naming them before their earlier versions in its `profiles`; deposits already searched keep their profile, and
 whether to search them again is a separate choice.
+
+- **Three more profile versions: `label-free-dda@16`, `label-free-dda-lowres@10` and `tmt-dda@7`** (@15, @9 and @6
+  with only these changes; the guard test checks them line by line).
+  - **agingPTM-v10 databases** in `@16` and `tmt-dda@7` (decision 0091): UniProt release 2026_04, and the first
+    cumulative build, whose sites come from every delivered deposit with a kept bundle, not only those the question's
+    catalog serves today (`tools/ptm-db/EvidenceCatalog.cs`), less `data/ptm-db/evidence_dropped.tsv`'s seven quality
+    problems. Sites on an accession 2026_04 replaced move to the gene's new entry (`BuildPtmDb.cs --previous-proteome`,
+    226 sites). Human 7,890, mouse 13,186, rat 2,147 GPTMD sites (v9: 6,398, 11,670, 2,049). `lowres@10` stays on
+    agingPTM-v3 (D44).
+  - **Ion-trap spectral libraries** in `tmt-dda@7` and `lowres@10` (`engine.ion_trap_library`, decision 0092): a search
+    of ion-trap MS2 reads its own chain and PXReprise builds the next version from its PSMs. `lowres@10` also turns its
+    spectral library on (`lowres@9` had none). Measured once with a one-deposit library: peptides -1.9%, protein groups
+    +5.3%.
 
 - **Three profile versions on MetaMorpheus 1.1.15: `label-free-dda@15`, `label-free-dda-lowres@9` and `tmt-dda@6`**
   (@14, @8 and @5 on the new release). The guard test allows each only the changes below, line by line.

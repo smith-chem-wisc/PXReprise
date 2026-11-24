@@ -131,6 +131,44 @@ public class ConfigTests
     }
 
     /// <summary>
+    /// 2026-11-24: label-free-dda@16 and tmt-dda@7 are @15 and @6 on agingPTM-v10 (UniProt 2026_04, cumulative, decision
+    /// 0091), and tmt-dda@7 and label-free-dda-lowres@10 set engine.ion_trap_library (decision 0092: ion-trap MS2 reads its
+    /// own chain, which PXReprise builds from the search's PSMs); lowres@10 also turns its spectral library on, and keeps
+    /// agingPTM-v3 (D44). Nothing else may differ: lines, not parsed fields, as above.
+    /// </summary>
+    [TestCase("label-free-dda-16.toml", "label-free-dda-15.toml", "label-free-dda@16", true, false, "")]
+    [TestCase("tmt-dda-7.toml", "tmt-dda-6.toml", "tmt-dda@7", true, true, "")]
+    [TestCase("label-free-dda-lowres-10.toml", "label-free-dda-lowres-9.toml", "label-free-dda-lowres@10", false, true, "spectral_library = false")]
+    public void TheVersionsOfDecisions0091And0092ChangeOnlyTheDatabasesAndTheIonTrapLibrary(string next, string previous, string key,
+        bool v10, bool ionTrapLibrary, string libraryWas)
+    {
+        static List<string> Settings(string name) => File.ReadAllLines(Path.Combine(TestSupport.ProfilesDir, name))
+            .Select(l => System.Text.RegularExpressions.Regex.Replace(l, @"\s+#.*$", "").TrimEnd())
+            .Where(l => l.Length > 0 && !l.StartsWith('#'))
+            .Where(l => !System.Text.RegularExpressions.Regex.IsMatch(l, @"^(id|version|description) = "))
+            .ToList();
+        string Moved(string l) =>
+            l == libraryWas ? "spectral_library = true"
+            : v10 ? l.Replace("_all_genecentric_2026_03_agingPTM-v9.xml\"", "_all_genecentric_2026_04_agingPTM-v10.xml\"") : l;
+
+        var added = ionTrapLibrary ? new[] { "ion_trap_library = true" } : Array.Empty<string>();
+        var lines = Settings(next);
+        Assert.That(lines.Where(added.Contains), Is.EqualTo(added), "the added line once");
+        Assert.That(lines.Where(l => !added.Contains(l)), Is.EqualTo(Settings(previous).Select(Moved)), "nothing else differs");
+
+        var all = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
+        var (p, old) = (all[key], all[key[..key.IndexOf('@')] + "@" + (int.Parse(key[(key.IndexOf('@') + 1)..]) - 1)]);
+        Assert.Multiple(() =>
+        {
+            Assert.That((p.SpectralLibrary, p.IonTrapLibrary), Is.EqualTo((true, ionTrapLibrary)));
+            Assert.That(old.IonTrapLibrary, Is.False, "a released profile never changes");
+            Assert.That(p.Databases.Values.Select(d => d.Proteome),
+                Has.All.EndsWith(v10 ? "_2026_04_agingPTM-v10.xml" : "_2026_03_agingPTM-v3.xml"));
+            Assert.That(p.MetaMorpheus, Is.EqualTo(old.MetaMorpheus));
+        });
+    }
+
+    /// <summary>
     /// 2026-11-08 (the user: "lets do the custom modifications now"): label-free-dda-lowres@8 is lowres@7 with the custom
     /// modification file and the NBF-Cl mapping that label-free-dda@14 ships (G40), so an ion-trap deposit whose cysteines
     /// carry NBF (PXD048079, PXD045806) can be searched. An ion-trap profile runs no GPTMD, so @14's [chemistry_artifacts],
@@ -198,8 +236,8 @@ public class ConfigTests
     {
         var profiles = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
         Assert.That(profiles.Keys, Is.EquivalentTo(new[] { "label-free-dda@1", "label-free-dda@2", "label-free-dda@3", "label-free-dda@4",
-            "label-free-dda@5", "label-free-dda@6", "label-free-dda@7", "label-free-dda@8", "label-free-dda@9", "label-free-dda@10", "label-free-dda@11", "label-free-dda@12", "label-free-dda@13", "label-free-dda@14", "label-free-dda@15", "label-free-dda-uniprot@1", "label-free-dda-lowres@1", "label-free-dda-lowres@2",
-            "label-free-dda-lowres@3", "label-free-dda-lowres@4", "label-free-dda-lowres@5", "label-free-dda-lowres@6", "label-free-dda-lowres@7", "label-free-dda-lowres@8", "label-free-dda-lowres@9", "tmt-dda@1", "tmt-dda@2", "tmt-dda@3", "tmt-dda@4", "tmt-dda@5", "tmt-dda@6" }));
+            "label-free-dda@5", "label-free-dda@6", "label-free-dda@7", "label-free-dda@8", "label-free-dda@9", "label-free-dda@10", "label-free-dda@11", "label-free-dda@12", "label-free-dda@13", "label-free-dda@14", "label-free-dda@15", "label-free-dda@16", "label-free-dda-uniprot@1", "label-free-dda-lowres@1", "label-free-dda-lowres@2",
+            "label-free-dda-lowres@3", "label-free-dda-lowres@4", "label-free-dda-lowres@5", "label-free-dda-lowres@6", "label-free-dda-lowres@7", "label-free-dda-lowres@8", "label-free-dda-lowres@9", "label-free-dda-lowres@10", "tmt-dda@1", "tmt-dda@2", "tmt-dda@3", "tmt-dda@4", "tmt-dda@5", "tmt-dda@6", "tmt-dda@7" }));
 
         // D44 (2026-10-17): @8 is @7 on agingPTM-v4; nothing else. No lowres version on v4: it cost an ion-trap run 4% of its PSMs.
         foreach (var (newer, older) in new[] { ("label-free-dda@8", "label-free-dda@7") })

@@ -1,0 +1,2 @@
+from_accession	from_position	to_accession	to_position	modification	n_psms	datasets
+A0A0H2UHK4	107	Q5BJZ6	31	Methylation on R	15	PXD032044,PXD059562

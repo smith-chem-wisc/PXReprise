@@ -1,0 +1,8 @@
+dataset	reason	source
+PXD044773	15 of its runs are mouse, searched against the human proteome (aging 063, A55)	D91, the maintainer 2026-11-24
+PXD020462	ancient bone collagen from Pompeii and Herculaneum, 1.2% of spectra identified	D91, the maintainer 2026-11-24
+PXD000572	dimethyl-labelled, searched label-free: its dimethyl sites are the label, not biology	D91's rule, applied 2026-11-24
+PXD002479	held: iodoTMT6plex (a cysteine tag) searched as TMT6 on K and the N-terminus, 0.1% of spectra identified	D91's rule, applied 2026-11-24
+PXD016932	held: tmt-dda@4 found 0.5% of spectra, cause under diagnosis	D91's rule, applied 2026-11-24
+PXD022888	held: iodoTMT6plex searched as TMT6 on K and the N-terminus, 0.4% of spectra identified	D91's rule, applied 2026-11-24
+PXD037896	held: SPS-MS3 with ion-trap CID MS2 under tmt-dda@4, 1.9% of spectra identified	D91's rule, applied 2026-11-24
