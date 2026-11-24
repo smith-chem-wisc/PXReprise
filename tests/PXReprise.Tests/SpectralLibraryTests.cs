@@ -143,6 +143,40 @@ public class SpectralLibraryTests
     [Test]
     public void ARepairCanTakeOutWhatOneDepositsSearchPutInTheChain()
     {
+        string root = ChainWithOneBadDeposit();
+        string dir = Path.Combine(root, "human");
+
+        var r = SpectralLibrary.Repair(root, "human", "PXD044773: mouse runs searched as human", removeDeposits: new[] { "PXD044773" });
+
+        Assert.That(((bool)r["repaired"]!, (int)r["version"]!, (int)r["n_spectra"]!), Is.EqualTo((true, 4, 3)));
+        Assert.That(((int)r["removed_deposits"]!["spectra_removed"]!, (int)r["removed_deposits"]!["spectra_restored"]!), Is.EqualTo((1, 1)));
+        Assert.That((int)r["removed_deposits"]!["versions"]![0]!["spectra_added_or_replaced"]!, Is.EqualTo(2), "BBB and CCC, not AAA's new annotation");
+        // BBB's spectrum is compared without its precursor lines, which a later version had moved (500.25 -> 500.3).
+        Assert.That(File.ReadAllText(Path.Combine(dir, "human.v004.msp")), Is.EqualTo(At("AAA", 10, "500.3") + At("BBB", 2) + At("DDD", 4)));
+        Assert.That(SpectralLibrary.Plan(root, "human").ParentVersion, Is.EqualTo(4));
+
+        var again = SpectralLibrary.Repair(root, "human", "twice", removeDeposits: new[] { "PXD044773" });
+        Assert.That(((bool)again["repaired"]!, (int)again["version"]!), Is.EqualTo((false, 4)), "nothing of it is left to take out");
+    }
+
+    [Test]
+    public async Task TheLibraryVerbTakesTheDepositsToRemove()
+    {
+        string root = ChainWithOneBadDeposit(), dir = TestSupport.TempDir();
+        string machine = TestSupport.WriteFile(dir, "machine.toml",
+            $"work_root = '{dir}'\nmin_free_gb = 0\nmax_threads = 2\nspectral_library_root = '{root}'\n[metamorpheus]\n\"1.1.15\" = 'C:/nowhere/CMD.exe'\n");
+        var sw = new StringWriter();
+        int exit = await Program.RunAsync(new[] { "library", "repair", "human", "--machine", machine, "--reason", "quality",
+            "--remove-deposits", "PXD044773, PXD020462" }, sw, CancellationToken.None);
+        Assert.That(exit, Is.EqualTo(0), sw.ToString());
+        var data = JsonNode.Parse(sw.ToString())!["data"]!;
+        Assert.That(((int)data["version"]!, (int)data["removed_deposits"]!["spectra_removed"]!), Is.EqualTo((4, 1)));
+        Assert.That(data["removed_deposits"]!["deposits"]!.AsArray().Select(d => (string)d!), Is.EqualTo(new[] { "PXD020462", "PXD044773" }));
+    }
+
+    /// <summary>A human chain of three versions; the second is PXD044773's search.</summary>
+    private static string ChainWithOneBadDeposit()
+    {
         string root = TestSupport.TempDir();
         string dir = Path.Combine(root, "human");
         Directory.CreateDirectory(dir);
@@ -157,18 +191,7 @@ public class SpectralLibraryTests
               { "version": 2, "path": "human/human.v002.msp", "mode": "update", "parent_version": 1, "produced_by": { "accession": "PXD044773" } },
               { "version": 3, "path": "human/human.v003.msp", "mode": "update", "parent_version": 2, "produced_by": { "accession": "PXD000003" } } ] } } }
             """);
-
-        var r = SpectralLibrary.Repair(root, "human", "PXD044773: mouse runs searched as human", removeDeposits: new[] { "PXD044773" });
-
-        Assert.That(((bool)r["repaired"]!, (int)r["version"]!, (int)r["n_spectra"]!), Is.EqualTo((true, 4, 3)));
-        Assert.That(((int)r["removed_deposits"]!["spectra_removed"]!, (int)r["removed_deposits"]!["spectra_restored"]!), Is.EqualTo((1, 1)));
-        Assert.That((int)r["removed_deposits"]!["versions"]![0]!["spectra_added_or_replaced"]!, Is.EqualTo(2), "BBB and CCC, not AAA's new annotation");
-        // BBB's spectrum is compared without its precursor lines, which a later version had moved (500.25 -> 500.3).
-        Assert.That(File.ReadAllText(Path.Combine(dir, "human.v004.msp")), Is.EqualTo(At("AAA", 10, "500.3") + At("BBB", 2) + At("DDD", 4)));
-        Assert.That(SpectralLibrary.Plan(root, "human").ParentVersion, Is.EqualTo(4));
-
-        var again = SpectralLibrary.Repair(root, "human", "twice", removeDeposits: new[] { "PXD044773" });
-        Assert.That(((bool)again["repaired"]!, (int)again["version"]!), Is.EqualTo((false, 4)), "nothing of it is left to take out");
+        return root;
     }
 
     /// <summary>
