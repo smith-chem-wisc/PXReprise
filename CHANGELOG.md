@@ -49,6 +49,12 @@ whether to search them again is a separate choice.
   - **No per-file mzIdentML** (`WriteMzId = false`): MetaMorpheus wrote one per raw file even with individual-file
     tables off, and nothing read them.
 
+- **One spectral library per fragmentation type** (decision 0092). QC's per-file fragmentation call becomes part of the
+  chain key: Orbitrap HCD keeps today's chains (all of which hold Orbitrap HCD only), and Orbitrap CID, ETD and EThcD
+  get chains of their own (`human_cid`, ...), written by their first search and updated by the next. A search whose
+  files differ in fragmentation gets no library, and says so in its provenance notes. Ion-trap MS2 still gets none from
+  MetaMorpheus (v0.4.34). The provenance's `spectral_library` record gains `fragmentation`.
+
 - **`pxreprise library repair <chain> --remove-deposits PXD1,PXD2`** takes out of a spectral library what those
   deposits' searches put in it, for a deposit with a stated quality problem. Each version a deposit's search registered
   is compared with its parent. Where the current library still holds a spectrum that search added or replaced, it goes
