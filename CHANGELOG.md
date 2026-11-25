@@ -29,6 +29,15 @@ text says TMT while PRIDE's quantification names label-free too (below). A quest
 profiles by naming them before their earlier versions in its `profiles`; deposits already searched keep their profile, and
 whether to search them again is a separate choice.
 
+- **New `labels` verb: each run's sample type and each search's cysteine chemistry** (decision 0094), for ptmQtl to
+  read in place of its hand lists. `pxreprise labels <deposit folder>... [--decisions FILE] [--out DIR]` reads what a
+  deposit's folder records (its search's spectra files, chemistry and cysteine-peptide share; the screen's
+  enrichment; the probe's per-run phospho, GG and acetyl-K shares) and writes `07_labels/labels.json`. A run is
+  `whole_proteome`, `ptm_capture`, `protein_pulldown` or `unknown`; a search's cysteine chemistry `matches`, is a
+  `mismatch` or is `unknown`. Each label carries its source, its evidence and a reason; where the text and the data
+  disagree it is `unknown`. A person's decisions (a TSV: dataset, run, label, value, target, by, date, reason)
+  outrank both. Nothing else changes: the batch does not run it yet, and no bundle carries the labels yet.
+
 - **mzLib 1.0.601** (from 1.0.600), the mzLib of the MetaMorpheus release after 1.1.15. One answer changes: on an
   isobaric differential table, `n_peptides` now counts distinct peptides, as mzLib documents it (mzLib #1622). 1.0.600
   counted model levels, one per peptide ion per plex run, so the number falls wherever a peptide was seen at more than
