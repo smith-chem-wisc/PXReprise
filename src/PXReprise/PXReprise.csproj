@@ -14,11 +14,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- 1.0.600 (D84, the user, 2026-11-21: "lets make sure pxreprise and (dataRepo) inside it are using the most recent
-         mzLib"): two ahead of MetaMorpheus 1.1.15's 1.0.598, and the version datarepo's projects here use. MetaMorpheus
-         runs as its own process, so the difference is never shared in one process. Rejoin MetaMorpheus's pin when its
-         release takes 1.0.600 or later. -->
-    <PackageReference Include="mzLib" Version="1.0.600" />
+    <!-- 1.0.601 (the user, 2026-11-24: "we will also update the mzLib nuget in pxreprise"): the same mzLib as the
+         MetaMorpheus release that follows 1.1.15 (MetaMorpheus #2997), and the version datarepo's projects here use.
+         Was 1.0.600 (D84), two ahead of MetaMorpheus 1.1.15's 1.0.598; MetaMorpheus runs as its own process, so a
+         difference is never shared in one process. -->
+    <PackageReference Include="mzLib" Version="1.0.601" />
     <PackageReference Include="Tomlyn" Version="2.10.1" />
   </ItemGroup>
 
