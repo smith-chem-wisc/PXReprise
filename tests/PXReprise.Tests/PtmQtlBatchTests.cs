@@ -24,10 +24,13 @@ public class PtmQtlBatchTests
         Assert.That(withRuns.TakeLast(2), Is.EqualTo(new[] { "--input", "capture_runs=E:/l/runs.tsv" }), "capture_runs only when the machine names it");
     }
 
-    [TestCase("store: F:/aging_data/repo/store", "F:/aging_data/repo/store")]
-    [TestCase("store: \"F:/repo/store\"", "F:/repo/store")]
-    public void TheStoreIsTheManifestsOwn(string line, string store)
+    [TestCase(false)]
+    [TestCase(true)]
+    public void TheStoreIsTheManifestsOwn(bool quoted)
     {
+        // An absolute path on this OS: a drive letter is not one on Linux, where CI runs.
+        string store = Path.Combine(TestSupport.TempDir(), "repo", "store");
+        string line = quoted ? $"store: \"{store}\"" : $"store: {store}";
         string manifest = TestSupport.WriteFile(TestSupport.TempDir(), "manifest.yaml", $"manifest_version: 1\r\ninstance: aging\r\n{line}\r\ndatasets:\r\n");
         Assert.That(PtmQtlBatch.StoreOf(manifest), Is.EqualTo(store));
     }

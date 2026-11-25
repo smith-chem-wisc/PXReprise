@@ -2516,7 +2516,8 @@ public class BatchRunnerTests
     public async Task BeforeAPublishTheCatchUpAndThePoolRunThenTheQuestionsCommand()
     {
         var (machine, args, _, _) = PtmQtlDatarepo(catchUp: 1);
-        string hook = OperatingSystem.IsWindows() ? $"echo hook>> {args}" : $"echo hook >> '{args}'";   // a temp path: no spaces
+        // A temp path, with no spaces. Double quotes on Linux: the command sits in a single-quoted TOML string.
+        string hook = OperatingSystem.IsWindows() ? $"echo hook>> {args}" : $"echo hook >> \"{args}\"";
         var (runner, _, _, dir) = Runner($"[publish]\nmanifest = \"manifest.yaml\"\ncommand = {ShellToml(hook)}\nevery_h = 6\ntimeout_h = 1\n", machine);
         File.WriteAllText(Path.Combine(dir, "manifest.yaml"), "manifest_version: 1\nstore: store\n");
         runner.Record("PXD000001", ("ingest_rc", 0), ("profile", "label-free-dda@1"));                                // delivered before the engines ran
