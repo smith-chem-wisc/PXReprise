@@ -58,7 +58,10 @@ whether to search them again is a separate choice.
     earlier one does is dropped. A covariate in `never_drop` (a batch) is written whenever it has two levels, however
     thin, and the engine judges whether the trait is still estimable. A deposit where one is incomplete is left out.
   - **A deposit is left out whole if any run lacks a curated individual,** so an injection is never counted as an
-    animal. Every deposit left out is logged with its reason.
+    animal. So is one whose trait has one value once exclusions are applied, since it has no slope. Every deposit left
+    out is logged with its reason.
+  - **Which deposits are fitted is the engine's rule.** It refuses a capture, and the log then says "file written, no
+    fit", with its reason.
   - Each result is recorded in the deposit's state (`ptmqtl_site_traits_<trait>_*`). A failure never stops the publish.
     A deposit whose file, datarepo and delivery are unchanged since its last run is not asked again, so an engine's
     refusal (a capture) is not repeated at every publish; a swap or a re-ingest asks again.

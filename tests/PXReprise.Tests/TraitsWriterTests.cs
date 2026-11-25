@@ -137,8 +137,8 @@ public class TraitsWriterTests
     public void ARangeAndARunWithNoNumberAreLeftOutAndCounted()
     {
         var f = Write(Tsv("D1\tD1:r1\tm1\t2.0\t\told\ttrue\tmale\tb1", "D1\tD1:r2\tm2\t\t\tyoung\tfalse\tmale\tb1",
-            "D1\tD1:r3\tm3\t\t\t\tfalse\tmale\tb1", "D1\tD1:r4\tm4\t1.0\t\t\tfalse\tmale\tb1")).Single();
-        Assert.That(f.Runs, Is.EqualTo(1));
+            "D1\tD1:r3\tm3\t\t\t\tfalse\tmale\tb1", "D1\tD1:r4\tm4\t1.0\t\t\tfalse\tmale\tb1", "D1\tD1:r5\tm5\t3.0\t\t\tfalse\tmale\tb1")).Single();
+        Assert.That(f.Runs, Is.EqualTo(2));
         Assert.That(f.Notes, Is.EqualTo(new[]
         {
             "1 run(s) of samples marked age_is_range left out",
@@ -206,6 +206,16 @@ public class TraitsWriterTests
 
         var oneBatch = WriteOne(keepBatch, Tsv("D1\tD1:r1\tm1\t2.0\t\t\tfalse\tmale\tb1", "D1\tD1:r2\tm2\t1.0\t\t\tfalse\tmale\tb1"));
         Assert.That(oneBatch.Covariates, Is.Empty, "one batch: no term");
+    }
+
+    [Test]
+    public void ADepositWithOneValueOfItsTraitHasNoSlopeAndIsLeftOut()
+    {
+        // aging 343: PXD047289 and PXD051644 are all 24 months.
+        var f = WriteOne(Age, Tsv("D1\tD1:r1\tm1\t2.0\t\t\tfalse\tmale\tb1", "D1\tD1:r2\tm1\t2.0\t\t\tfalse\tmale\tb1",
+            "D1\tD1:r3\tm2\t2.0\t\t\tfalse\tmale\tb1", "D1\tD1:r4\tm3\t1.0\t\t\ttrue\tmale\tb1"));
+        Assert.That(f.Path, Is.Null);
+        Assert.That(f.Notes.Last(), Is.EqualTo("one age_decades value (0.2) in 2 individual(s), so there is no slope"), "after exclusions; counted by animal");
     }
 
     [Test]

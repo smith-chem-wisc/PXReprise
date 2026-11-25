@@ -2254,7 +2254,10 @@ public sealed class BatchRunner
                     var (written, done) = PtmQtlBatch.ReadOutput(stdout);
                     string? artefact = written.Concat(done).FirstOrDefault();
                     string tail = Tail((stdout + stderr).Trim());
-                    Log($"{f.Dataset} PTMQTL site_traits ({t.Id}) rc={exit}{(artefact is null ? "" : $" artefact={artefact}")}: {f.Runs} runs, covariates "
+                    // Which deposits are fitted is the engine's rule (a capture is refused, ptmQtl S3 and S3b): a refusal
+                    // says so, so a file on disk is never read as a fit to come (aging 343).
+                    Log($"{f.Dataset} PTMQTL site_traits ({t.Id}) rc={exit}{(artefact is null ? "" : $" artefact={artefact}")}"
+                        + $"{(exit == 0 ? "" : " file written, no fit: ptmQtl's engine refused it, its reason below")}: {f.Runs} runs, covariates "
                         + $"{(f.Covariates.Count == 0 ? "none" : string.Join(", ", f.Covariates))}{(f.Notes.Count == 0 ? "" : $" ({string.Join("; ", f.Notes)})")} (full output {full})"
                         + (exit == 0 ? "" : $"\n{tail}"));
                     Record(f.Dataset, ($"ptmqtl_site_traits_{t.Id}_rc", exit), ($"ptmqtl_site_traits_{t.Id}_artefact", artefact),

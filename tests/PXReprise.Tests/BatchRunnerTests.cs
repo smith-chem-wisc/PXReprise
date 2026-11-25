@@ -2422,26 +2422,29 @@ public class BatchRunnerTests
     /// <summary>
     /// A stand-in datarepo for the ptmQtl steps: each call's arguments appended as one line to args.txt. An ingest exits 0;
     /// a run prints the line datarepo prints for a written artefact, or fails when fail.txt exists; a query prints
-    /// query.tsv and logs only "query" (its SQL is not echoed). The lists the machine names sit beside it.
+    /// query.tsv, or fails when qfail.txt exists, and logs only "query" (its SQL is not echoed). The lists the machine
+    /// names sit beside it.
     /// </summary>
     private static (string Machine, string Args, string Fail, string Tools) PtmQtlDatarepo(int catchUp = 20)
     {
         string tools = TestSupport.TempDir();
         string args = Path.Combine(tools, "args.txt"), fail = Path.Combine(tools, "fail.txt"), query = Path.Combine(tools, "query.tsv");
+        string qfail = Path.Combine(tools, "qfail.txt");
         File.WriteAllText(Path.Combine(tools, "enrichment.tsv"), "dataset\tclass\n");
         File.WriteAllText(Path.Combine(tools, "cysteine.tsv"), "dataset\tclass\treason\n");
         string datarepo;
         if (OperatingSystem.IsWindows())
         {
             datarepo = TestSupport.WriteFile(tools, "datarepo.cmd",
-                $"@echo off\r\nif \"%1\"==\"query\" (\r\necho query>> \"{args}\"\r\ntype \"{query}\"\r\nexit /b 0\r\n)\r\n"
+                $"@echo off\r\nif \"%1\"==\"query\" goto query\r\n"
                 + $"echo %*>> \"{args}\"\r\nif not \"%1\"==\"run\" exit /b 0\r\nif exist \"{fail}\" (\r\necho ptmQtl refused 1>&2\r\nexit /b 1\r\n)\r\n"
-                + "echo written  %2 artefact 0123456789abcdef  store\r\nexit /b 0\r\n");
+                + "echo written  %2 artefact 0123456789abcdef  store\r\nexit /b 0\r\n"
+                + $":query\r\necho query>> \"{args}\"\r\nif exist \"{qfail}\" (\r\necho no such table 1>&2\r\nexit /b 1\r\n)\r\ntype \"{query}\"\r\nexit /b 0\r\n");
         }
         else
         {
             datarepo = TestSupport.WriteFile(tools, "datarepo",
-                $"#!/bin/sh\nif [ \"$1\" = query ]; then echo query >> '{args}'; cat '{query}'; exit 0; fi\n"
+                $"#!/bin/sh\nif [ \"$1\" = query ]; then echo query >> '{args}'; if [ -f '{qfail}' ]; then echo 'no such table' >&2; exit 1; fi; cat '{query}'; exit 0; fi\n"
                 + $"echo \"$*\" >> '{args}'\n[ \"$1\" = run ] || exit 0\nif [ -f '{fail}' ]; then echo 'ptmQtl refused' >&2; exit 1; fi\n"
                 + "echo \"written  $2 artefact 0123456789abcdef  store\"\nexit 0\n");
             File.SetUnixFileMode(datarepo, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
@@ -2620,20 +2623,64 @@ public class BatchRunnerTests
         Assert.That(File.ReadAllLines(args).Count(l => l.Contains("ptmqtl.site_traits")), Is.EqualTo(2));
     }
 
+    /// <summary>A runner with site_traits on, a catalog file, and one label-free deposit delivered and paired.</summary>
+    private static (BatchRunner Runner, string Args, string Fail, string Tools, string Dir) SiteTraitsRunner(string traits, bool catalog = true)
+    {
+        var (machine, args, fail, tools) = PtmQtlDatarepo(catchUp: 0);
+        string cat = catalog ? TestSupport.WriteFile(tools, "catalog-x.duckdb", "") : Path.Combine(tools, "no-catalogs");
+        var (runner, _, _, dir) = Runner($"[traits]\nrequired = [\"age\"]\n{traits}"
+            + $"[publish]\nmanifest = \"manifest.yaml\"\ncommand = {ShellToml("exit 0")}\nevery_h = 6\ntimeout_h = 1\n",
+            machine + $"catalog = '{cat}'\nsite_traits = true\n");
+        File.WriteAllText(Path.Combine(dir, "manifest.yaml"), "manifest_version: 1\nstore: store\n");
+        runner.Record("PXD000001", ("ingest_rc", 0), ("profile", "label-free-dda@1"), ("ptmqtl_site_pairs_rc", 0));
+        return (runner, args, fail, tools, dir);
+    }
+
     [Test]
     public async Task SiteTraitsWithNoTraitSourcedOrNoCatalogRunsNothingAndThePublishGoesOn()
     {
-        var (machine, args, _, tools) = PtmQtlDatarepo(catchUp: 0);
-        string missing = Path.Combine(tools, "no-catalogs");
-        var (runner, _, _, dir) = Runner($"[traits]\nrequired = [\"age\"]\n[traits.age]\ndesign_factor = \"age group\"\n"
-            + $"[publish]\nmanifest = \"manifest.yaml\"\ncommand = {ShellToml("exit 0")}\nevery_h = 6\ntimeout_h = 1\n",
-            machine + $"catalog = '{missing}'\nsite_traits = true\n");
-        File.WriteAllText(Path.Combine(dir, "manifest.yaml"), "manifest_version: 1\nstore: store\n");
-        runner.Record("PXD000001", ("ingest_rc", 0), ("profile", "label-free-dda@1"), ("ptmqtl_site_pairs_rc", 0));
-
+        var (runner, args, _, _, _) = SiteTraitsRunner("[traits.age]\ndesign_factor = \"age group\"\n", catalog: false);
         Assert.That(await runner.PublishIfDueAsync(true, CancellationToken.None), Is.Zero);
         Assert.That(File.Exists(args), Is.False, "no catalog: no query, no run");
         Assert.That(runner.State()["publish"]!["ptmqtl_traits_age_rc"]!.GetValue<int>(), Is.EqualTo(-1));
+
+        var (unsourced, uargs, _, _, _) = SiteTraitsRunner("");
+        Assert.That(await unsourced.PublishIfDueAsync(true, CancellationToken.None), Is.Zero);
+        Assert.That(File.Exists(uargs), Is.False, "no [traits.<id>]: no query, no run");
+        Assert.That(unsourced.State()["publish"]!["ptmqtl_traits_age_rc"], Is.Null);
+    }
+
+    [Test]
+    public async Task AFailedTraitsQueryRunsNoSiteTraitsAndThePublishGoesOn()
+    {
+        var (runner, args, _, tools, _) = SiteTraitsRunner("[traits.age]\ndesign_factor = \"age group\"\n");
+        File.WriteAllText(Path.Combine(tools, "qfail.txt"), "");
+        Assert.That(await runner.PublishIfDueAsync(true, CancellationToken.None), Is.Zero);
+        Assert.That(File.ReadAllLines(args).Select(l => l.Trim()), Is.EqualTo(new[] { "query" }));
+        var pub = runner.State()["publish"]!;
+        Assert.That(pub["ptmqtl_traits_age_rc"]!.GetValue<int>(), Is.EqualTo(1));
+        Assert.That(File.ReadAllText(pub["ptmqtl_traits_age_log"]!.GetValue<string>()), Does.Contain("no such table"));
+    }
+
+    [Test]
+    public async Task WithAFactorRoleBothQueriesRunAndARefusedSiteTraitsIsRecordedOnItsDeposit()
+    {
+        var (runner, args, fail, tools, _) = SiteTraitsRunner("[traits.age]\ndesign_factor = \"age group\"\ncovariate_factor_role = \"condition\"\n");
+        runner.Record("PXD000003", ("ingest_rc", 0), ("profile", "tmt-dda@1"));   // isobaric: never given a file
+        // One table serves both queries: it holds the main query's columns and the role query's.
+        File.WriteAllText(Path.Combine(tools, "query.tsv"), "dataset_id\trun_id\treplicate\tsample_value\tfactor_value\tfactor_level\tfactor\trole\tlevel\n"
+            + "PXD000001\tPXD000001:r1\tm1\t\t1\told\ttreatment\tcondition\tvehicle\nPXD000001\tPXD000001:r2\tm2\t\t0.5\tyoung\ttreatment\tcondition\tvehicle\n"
+            + "PXD000003\tPXD000003:r1\tm1\t\t1\told\ttreatment\tcondition\tvehicle\nPXD000003\tPXD000003:r2\tm2\t\t0.5\tyoung\ttreatment\tcondition\tvehicle\n");
+        File.WriteAllText(fail, "");
+
+        Assert.That(await runner.PublishIfDueAsync(true, CancellationToken.None), Is.Zero);
+        var calls = File.ReadAllLines(args).Select(l => l.Trim()).ToList();
+        Assert.That(calls.Take(2), Is.EqualTo(new[] { "query", "query" }));
+        Assert.That(calls.Skip(2).Single(), Does.StartWith("run ptmqtl.site_traits PXD000001 "));
+        var d = runner.State()["datasets"]!;
+        Assert.That(d["PXD000001"]!["ptmqtl_site_traits_age_rc"]!.GetValue<int>(), Is.EqualTo(1));
+        Assert.That(d["PXD000001"]!["ptmqtl_site_traits_age_out"]!.GetValue<string>(), Does.Contain("ptmQtl refused"));
+        Assert.That(d["PXD000003"]!["ptmqtl_site_traits_age_rc"], Is.Null);
     }
 
     [Test]

@@ -97,8 +97,8 @@ public static class TraitsWriter
     /// <item>a sample an exclusion flag marks (a range, a lower bound) is left out, and counted;</item>
     /// <item>a run with no value is left out, and counted (a level such as "old" with no number is said as such);</item>
     /// <item>a deposit with any run lacking a curated individual is left out whole: an injection must never be counted
-    /// as an animal (ptmQtl D88); so is one with no value left, a run with two different rows, or a stratum factor with
-    /// two or more levels (a fit per level is not built);</item>
+    /// as an animal (ptmQtl D88); so is one with no value left, one value only (no slope), a run with two different
+    /// rows, or a stratum factor with two or more levels (a fit per level is not built);</item>
     /// <item>a covariate is written only where it is complete and has two or more levels, each held by two or more
     /// individuals; one that splits the samples exactly as an earlier one does is left out. One in <c>never_drop</c> (a
     /// batch) is written at two levels however thin, never left out to get a fit, and a deposit where it is incomplete
@@ -164,6 +164,13 @@ public static class TraitsWriter
             if (levelOnly > 0) notes.Add($"{levelOnly} run(s) with a '{t.DesignFactor}' level and no number left out");
             if (none > 0) notes.Add($"{none} run(s) with no value left out");
             if (kept.Count == 0) { written.Add(Out("no run has a value")); continue; }
+            // A trait with one value has no slope (aging 343: PXD047289 and PXD051644 are all 24 months).
+            if (kept.Select(k => k.Value).Distinct().Count() < 2)
+            {
+                written.Add(Out($"one {t.TraitId} value ({(kept[0].Value * t.Scale).ToString("R", CultureInfo.InvariantCulture)}) in "
+                    + $"{kept.Select(k => Cell(k.Row, rep)).Distinct().Count()} individual(s), so there is no slope"));
+                continue;
+            }
             // A stratum (a tissue) is fitted level by level, never pooled and never a covariate (aging D5); that fit is
             // not built, so a deposit where one varies waits.
             if (strata.Order(StringComparer.Ordinal).FirstOrDefault(s => kept.Select(k => LevelOf(k.Row, s)).Distinct().Count() > 1) is { } stratum)
