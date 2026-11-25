@@ -16,6 +16,28 @@ public class PtmQtlEngineTests
 
     private static string Dir => Path.Combine(TestContext.CurrentContext.TestDirectory, "Fixtures", "ptmqtl-reference-v3");
 
+    private sealed record Pool(string Id, IReadOnlySet<string> Members);
+
+    private static Pool P(string id, params string[] members) => new(id, members.ToHashSet(StringComparer.Ordinal));
+
+    /// <summary>D96 (G134): the batch pools a species again as its deposits arrive, and the store keeps each earlier pool.
+    /// A pool whose members all sit in a larger one is its earlier version, not a candidate; pools that do not nest are
+    /// both kept, so the catalog still refuses two.</summary>
+    [Test]
+    public void AnEarlierPoolOfASpeciesGivesWayToTheLargerOneAndPoolsThatDoNotNestBothStay()
+    {
+        var two = P("two", "a", "b");
+        var three = P("three", "a", "b", "c");
+        var four = P("four", "a", "b", "c", "d");
+        Assert.That(PXReprise.Catalog.CatalogBuilder.NotSuperseded([two, three, four], p => p.Members), Is.EqualTo(new[] { four }));
+        Assert.That(PXReprise.Catalog.CatalogBuilder.NotSuperseded([two], p => p.Members), Is.EqualTo(new[] { two }));
+        var other = P("other", "a", "c");
+        Assert.That(PXReprise.Catalog.CatalogBuilder.NotSuperseded([two, other], p => p.Members), Is.EqualTo(new[] { two, other }),
+            "neither holds the other's members: two candidates, which the catalog refuses");
+        var same = P("same", "a", "b");
+        Assert.That(PXReprise.Catalog.CatalogBuilder.NotSuperseded([two, same], p => p.Members), Has.Count.EqualTo(2), "equal members are not superseded: still two");
+    }
+
     private static List<Dictionary<string, string>> Tsv(string relative)
     {
         var lines = File.ReadAllLines(Path.Combine(Dir, relative)).Where(l => l.Length > 0).ToList();

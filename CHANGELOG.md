@@ -29,6 +29,16 @@ text says TMT while PRIDE's quantification names label-free too (below). A quest
 profiles by naming them before their earlier versions in its `profiles`; deposits already searched keep their profile, and
 whether to search them again is a separate choice.
 
+- **The batch runs ptmQtl's engines** (decision 0096), when the machine file has a `[ptmqtl]` table naming ptmQtl's
+  three lists (`enrichment`, optional `capture_runs`, `cysteine`). `ptmqtl.site_pairs` runs on each label-free deposit
+  as it is delivered, on its newest bundle. Before each publish, a catch-up pairs deposits delivered before the engines
+  ran (`catch_up_per_publish` of them, 20 by default), then `ptmqtl.pool_pairs` pools every paired deposit (one result
+  per species). Each run's result, artefact and whole output are in the deposit's state (`ptmqtl_site_pairs_*`) and the
+  publish record (`ptmqtl_pool_*`). A failed run never stops a delivery or a publish, and isobaric deposits are never
+  run. **datarepo's catalog:** a pooled artefact whose members all sit in a larger pool of the same species is that
+  pool's earlier version, and gives way to it. Before, the second pool of a species stopped the catalog build.
+  `site_traits` is not run yet: it waits for ptmQtl's engine change and the mzLib release it needs.
+
 - **New `labels` verb: each run's sample type and each search's cysteine chemistry** (decision 0094), for ptmQtl to
   read in place of its hand lists. `pxreprise labels <deposit folder>... [--decisions FILE] [--out DIR]` reads what a
   deposit's folder records (its search's spectra files, chemistry and cysteine-peptide share; the screen's
