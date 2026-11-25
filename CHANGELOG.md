@@ -107,7 +107,8 @@ whether to search them again is a separate choice.
   - **One-form runs enter as counts.** `datarepo run ptmqtl.site_traits` read only runs with both forms quantified. It
     now reads the cells as type A does (bounds), and mzLib fits a ceiling, a floor, a count-only cell or a covered zero
     as "k of N covering peptidoforms carried the modification" (`BoundCellModel.Sampling`), with each sample's depth
-    (log2 target PSMs, as type A's) in its detection link. A sample with no depth is left out of the fit, and counted.
+    (log2 target PSMs, as type A's) in its detection link. A sample with no depth, or with no trait value, is left out
+    of the fit, and counted.
   - **Peptidoform counts on every cell.** Every stored cell now takes the engine's covering and modified peptidoform
     counts for its run, not only count-only cells: a one-form cell enters as its count, and the detection link is fitted
     on every cell's counts. Type A reads them only on count-only cells, so its rows do not change. A one-form cell the

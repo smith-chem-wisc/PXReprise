@@ -281,10 +281,13 @@ public class PtmQtlEngineTests
                     new Dictionary<string, Func<object?, string>> { ["covariate_effects"] = v => string.Join(";", ((List<object?>)v!).Select(Cell)) });
             }
         }
+        // A sample with no trait value (a run the consumer gave no age) is left out, and counted.
         var d1 = Datasets().Single(d => d.DatasetId == "D1");
-        var left = PtmQtlCore.SiteTraits(d1, "t", Tsv("inputs/runs.tsv").Where(r => r["dataset"] == "D1").GroupBy(r => r["combine_to"])
-            .ToDictionary(g => g.Key, g => D(g.First()["age_months"])), d1.RunToSample.Values.Distinct().ToDictionary(s => s, s => s)).LeftOut;
+        var ages = Tsv("inputs/runs.tsv").Where(r => r["dataset"] == "D1" && r["combine_to"] != "S2").GroupBy(r => r["combine_to"])
+            .ToDictionary(g => g.Key, g => D(g.First()["age_months"]));
+        var left = PtmQtlCore.SiteTraits(d1, "t", ages, d1.RunToSample.Values.Distinct().ToDictionary(s => s, s => s)).LeftOut;
         Assert.That(left["D40 samples with the trait and no depth (left out of the fit)"], Is.EqualTo(1));
+        Assert.That(left["samples with occupancy and no trait value (left out of the fit)"], Is.EqualTo(1));
     }
 
     /// <summary>DEF-SITE-TRAIT v3's depth evidence in the run record: shown, null where it cannot be computed.</summary>

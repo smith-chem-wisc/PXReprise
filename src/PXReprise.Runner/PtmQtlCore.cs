@@ -688,6 +688,7 @@ public static class PtmQtlCore
         var depth = Depth(dataset);
         var samples = trait.Keys.Where(depth.ContainsKey).Order(StringComparer.Ordinal).ToList();
         leftOut["D40 samples with the trait and no depth (left out of the fit)"] = trait.Count - samples.Count;
+        leftOut["samples with occupancy and no trait value (left out of the fit)"] = occupancy.Select(c => c.Run).Distinct().LongCount(s => !trait.ContainsKey(s));
         var fitted = samples.ToDictionary(s => s, s => trait[s], StringComparer.Ordinal);
         var (values, terms, notFitted) = CovariateDesign(covariates ?? new Dictionary<string, IReadOnlyDictionary<string, string>>(), samples);
         if (terms.Count > 0 && !Separable(samples, fitted, values, Enumerable.Range(0, terms.Count).ToList()))
