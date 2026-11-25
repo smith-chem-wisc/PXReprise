@@ -71,7 +71,9 @@ public class TraitsWriterTests
         Assert.That(() => Config.Machine.Load(Machine("site_traits = true\n")), Throws.InstanceOf<ConfigException>().With.Message.Contains("needs 'ptmqtl.catalog'"));
         var m = Config.Machine.Load(Machine("site_traits = true\ncatalog = 'catalogs'\n"));
         Assert.That((m.PtmQtl!.SiteTraits, m.PtmQtl.Catalog), Is.EqualTo((true, Path.Combine(dir, "catalogs"))));
-        Assert.That(Config.Machine.Load(Machine("")).PtmQtl!.SiteTraits, Is.False, "off by default");
+        var plain = Config.Machine.Load(Machine("")).PtmQtl!;
+        Assert.That((plain.SiteTraits, plain.Catalog), Is.EqualTo((true, (string?)null)), "on by default; with no catalog it is logged and not run");
+        Assert.That(Config.Machine.Load(Machine("site_traits = false\ncatalog = 'catalogs'\n")).PtmQtl!.SiteTraits, Is.False, "turned off by name");
     }
 
     // ---------------------------------------------------------------- the catalog and the queries

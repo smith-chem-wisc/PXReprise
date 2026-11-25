@@ -2199,6 +2199,11 @@ public sealed class BatchRunner
     /// </summary>
     private async Task PtmQtlSiteTraitsAsync(string manifest, PtmQtlConfig c, CancellationToken ct)
     {
+        if (c.Catalog is null)
+        {
+            Log("PTMQTL site_traits not run: [ptmqtl] names no catalog (site_traits is on by default; name the catalogs folder, or set site_traits = false)");
+            return;
+        }
         if (_q.TraitSources is not { Count: > 0 } sources)
         {
             Log("PTMQTL site_traits not run: the question sources no trait ([traits.<id>])");

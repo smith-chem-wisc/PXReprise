@@ -2651,6 +2651,19 @@ public class BatchRunnerTests
     }
 
     [Test]
+    public async Task SiteTraitsIsOnByDefaultAndRunsNothingWhereNoCatalogIsNamed()
+    {
+        var (machine, args, _, _) = PtmQtlDatarepo(catchUp: 0);   // [ptmqtl] with no site_traits and no catalog
+        var (runner, _, _, dir) = Runner("[traits]\nrequired = [\"age\"]\n[traits.age]\ndesign_factor = \"age group\"\n"
+            + $"[publish]\nmanifest = \"manifest.yaml\"\ncommand = {ShellToml("exit 0")}\nevery_h = 6\ntimeout_h = 1\n", machine);
+        File.WriteAllText(Path.Combine(dir, "manifest.yaml"), "manifest_version: 1\nstore: store\n");
+        runner.Record("PXD000001", ("ingest_rc", 0), ("profile", "label-free-dda@1"), ("ptmqtl_site_pairs_rc", 0));
+        Assert.That(await runner.PublishIfDueAsync(true, CancellationToken.None), Is.Zero);
+        Assert.That(File.Exists(args), Is.False, "no catalog: no query, no run");
+        Assert.That(runner.State()["publish"]!["ptmqtl_traits_age_rc"], Is.Null);
+    }
+
+    [Test]
     public async Task AFailedTraitsQueryRunsNoSiteTraitsAndThePublishGoesOn()
     {
         var (runner, args, _, tools, _) = SiteTraitsRunner("[traits.age]\ndesign_factor = \"age group\"\n");

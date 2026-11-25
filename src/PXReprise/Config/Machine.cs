@@ -164,13 +164,16 @@ public sealed record Machine(
             string Beside(string p) => Path.GetFullPath(Path.Combine(Path.GetDirectoryName(file)!, p));
             string? captureRuns = pt.OptionalString("capture_runs");
             // D96: site_traits needs the question's curated tables joined to its runs, which the latest catalog holds: a
-            // catalog folder (its latest.json) or one .duckdb file. Off until ptmQtl's engine change and its mzLib release.
+            // catalog folder (its latest.json) or one .duckdb file. On by default with ptmQtl's DEF-SITE-TRAIT v3 (the user,
+            // 2026-11-25: "turns it on by default. that way we won't forget"): it runs wherever a catalog is named, and
+            // `site_traits = false` turns it off. Asked for by name without a catalog, it is refused.
             string? catalog = pt.OptionalString("catalog");
+            bool? siteTraits = pt.OptionalBool("site_traits");
             ptmqtl = new PtmQtlConfig(Beside(pt.RequiredString("enrichment")), captureRuns is null ? null : Beside(captureRuns),
                 Beside(pt.RequiredString("cysteine")), checked((int)(pt.OptionalInteger("catch_up_per_publish") ?? 20)),
-                catalog is null ? null : Beside(catalog), pt.OptionalBool("site_traits") ?? false);
+                catalog is null ? null : Beside(catalog), siteTraits ?? true);
             pt.RefuseUnknownKeys();
-            if (ptmqtl.SiteTraits && ptmqtl.Catalog is null) throw new ConfigException(file, "'ptmqtl.site_traits' needs 'ptmqtl.catalog': the traits come from the latest catalog");
+            if (siteTraits == true && ptmqtl.Catalog is null) throw new ConfigException(file, "'ptmqtl.site_traits' needs 'ptmqtl.catalog': the traits come from the latest catalog");
         }
         root.RefuseUnknownKeys();
         if (ptmqtl is not null)
@@ -230,11 +233,11 @@ public sealed record WorkerConfig(string Share, string RunRoot, string StateDir)
 /// The machine's <c>[ptmqtl]</c> (D96, G134): the lists ptmQtl's engines are run under (their <c>--input enrichment</c>,
 /// <c>capture_runs</c> and <c>cysteine</c>), and how many deposits delivered before the engines ran get their
 /// <c>site_pairs</c> at each publish (<c>catch_up_per_publish</c>, 20 by default; 0 turns it off). With
-/// <c>site_traits</c> on, each publish also runs <c>ptmqtl.site_traits</c> on every trait the question sources
-/// (<c>[traits.&lt;id&gt;]</c>), from the latest <c>catalog</c>.
+/// <c>site_traits</c> on (the default), each publish also runs <c>ptmqtl.site_traits</c> on every trait the question
+/// sources (<c>[traits.&lt;id&gt;]</c>), from the latest <c>catalog</c>; with no catalog named, it is logged and not run.
 /// </summary>
 public sealed record PtmQtlConfig(string Enrichment, string? CaptureRuns, string Cysteine, int CatchUpPerPublish = 20,
-    string? Catalog = null, bool SiteTraits = false);
+    string? Catalog = null, bool SiteTraits = true);
 
 /// <summary>
 /// The machine's <c>[deposit_limits]</c> (v0.4.21): the profiles' deposit gates as this box sets them. Each key left out

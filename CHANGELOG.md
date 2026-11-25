@@ -38,9 +38,10 @@ whether to search them again is a separate choice.
   run. **datarepo's catalog:** a pooled artefact whose members all sit in a larger pool of the same species is that
   pool's earlier version, and gives way to it. Before, the second pool of a species stopped the catalog build.
 
-- **The batch can run ptmQtl's per-site trait fit (`site_traits`), and writes its traits files** (decision 0096). It
-  is off by default (`[ptmqtl] site_traits = true` and `catalog`, the catalogs folder). It needs ptmQtl's engine change
-  and the mzLib release it comes with, so leave it off until the pin carries both.
+- **The batch runs ptmQtl's per-site trait fit (`site_traits`), and writes its traits files** (decision 0096). It is
+  on by default, with this release's DEF-SITE-TRAIT v3: it runs before each publish wherever `[ptmqtl]` names a
+  `catalog` (the catalogs folder), and `site_traits = false` turns it off. With no catalog named, the log says it was
+  not run.
   - **A question says where each trait comes from** in a new `[traits.<id>]` table, using its curated tables' names,
     never code:
     - `design_factor` and/or `sample_value` (`table.column`); the sample's value wins, and any disagreement is said;
