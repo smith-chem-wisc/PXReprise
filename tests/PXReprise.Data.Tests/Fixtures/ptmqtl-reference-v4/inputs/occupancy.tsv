@@ -190,3 +190,159 @@ D3	Q1	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	10
 D3	Q2	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
 D3	Q3	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
 D3	Q4	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
+D4	A10	R1	12	S	residue	Phosphorylation on S	covered_zero		0	701.8	True
+D4	A10	R1	32	S	residue	Phosphorylation on S	quantified	0.429	429	1000	True
+D4	A11	R1	12	S	residue	Phosphorylation on S	quantified	0.4464	446.4	1000	True
+D4	A11	R1	32	S	residue	Phosphorylation on S	count_only		0	0	False
+D4	A12	R1	12	S	residue	Phosphorylation on S	quantified	0.176	176	1000	True
+D4	A12	R1	32	S	residue	Phosphorylation on S	quantified	0.2593	259.3	1000	True
+D4	A1_1	R1	12	S	residue	Phosphorylation on S	quantified	0.2282	228.2	1000	True
+D4	A1_1	R1	32	S	residue	Phosphorylation on S	quantified	0.2788	278.8	1000	True
+D4	A1_2	R1	12	S	residue	Phosphorylation on S	quantified	0.2618	261.8	1000	True
+D4	A1_2	R1	32	S	residue	Phosphorylation on S	count_only		0	0	False
+D4	A2_1	R1	12	S	residue	Phosphorylation on S	quantified	0.457	457	1000	True
+D4	A2_1	R1	32	S	residue	Phosphorylation on S	quantified	1	570.7	570.7	False
+D4	A2_2	R1	12	S	residue	Phosphorylation on S	quantified	0.4955	495.5	1000	True
+D4	A2_2	R1	32	S	residue	Phosphorylation on S	quantified	0.5725	572.5	1000	True
+D4	A3_1	R1	12	S	residue	Phosphorylation on S	covered_zero		0	864.7	True
+D4	A3_1	R1	32	S	residue	Phosphorylation on S	quantified	0.135	135	1000	True
+D4	A3_2	R1	12	S	residue	Phosphorylation on S	quantified	0.1381	138.1	1000	True
+D4	A3_2	R1	32	S	residue	Phosphorylation on S	floor		0	878.6	True
+D4	A4_1	R1	12	S	residue	Phosphorylation on S	count_only		0	0	False
+D4	A4_1	R1	32	S	residue	Phosphorylation on S	quantified	0.3377	337.7	1000	True
+D4	A4_2	R1	12	S	residue	Phosphorylation on S	quantified	0.2109	210.9	1000	True
+D4	A4_2	R1	32	S	residue	Phosphorylation on S	quantified	0.3111	311.1	1000	True
+D4	A5	R1	12	S	residue	Phosphorylation on S	quantified	0.3978	397.8	1000	True
+D4	A5	R1	32	S	residue	Phosphorylation on S	quantified	0.5595	559.5	1000	True
+D4	A6	R1	12	S	residue	Phosphorylation on S	floor		0	799	True
+D4	A6	R1	32	S	residue	Phosphorylation on S	quantified	0.2207	220.7	1000	True
+D4	A7	R1	12	S	residue	Phosphorylation on S	quantified	0.1742	174.2	1000	True
+D4	A7	R1	32	S	residue	Phosphorylation on S	quantified	0.2424	242.4	1000	True
+D4	A8	R1	12	S	residue	Phosphorylation on S	quantified	0.5075	507.5	1000	True
+D4	A8	R1	32	S	residue	Phosphorylation on S	quantified	0.5298	529.8	1000	True
+D4	A9	R1	12	S	residue	Phosphorylation on S	quantified	0.1061	106.1	1000	True
+D4	A9	R1	32	S	residue	Phosphorylation on S	quantified	0.1633	163.3	1000	True
+D4	A10	R2	12	S	residue	Phosphorylation on S	quantified	0.503	503	1000	True
+D4	A10	R2	32	S	residue	Phosphorylation on S	quantified	0.5103	510.3	1000	True
+D4	A11	R2	12	S	residue	Phosphorylation on S	quantified	0.5441	544.1	1000	True
+D4	A11	R2	32	S	residue	Phosphorylation on S	quantified	0.4167	416.7	1000	True
+D4	A12	R2	12	S	residue	Phosphorylation on S	quantified	0.323	323	1000	True
+D4	A12	R2	32	S	residue	Phosphorylation on S	quantified	0.4757	475.7	1000	True
+D4	A1_1	R2	12	S	residue	Phosphorylation on S	covered_zero		0	641.7	True
+D4	A1_1	R2	32	S	residue	Phosphorylation on S	quantified	0.3742	374.2	1000	True
+D4	A1_2	R2	12	S	residue	Phosphorylation on S	floor		0	690.2	True
+D4	A1_2	R2	32	S	residue	Phosphorylation on S	quantified	0.3808	380.8	1000	True
+D4	A2_1	R2	12	S	residue	Phosphorylation on S	quantified	0.6097	609.7	1000	True
+D4	A2_1	R2	32	S	residue	Phosphorylation on S	quantified	0.4648	464.8	1000	True
+D4	A2_2	R2	12	S	residue	Phosphorylation on S	quantified	0.6639	663.9	1000	True
+D4	A2_2	R2	32	S	residue	Phosphorylation on S	quantified	0.4957	495.7	1000	True
+D4	A3_1	R2	12	S	residue	Phosphorylation on S	quantified	0.1608	160.8	1000	True
+D4	A3_1	R2	32	S	residue	Phosphorylation on S	count_only		0	0	False
+D4	A3_2	R2	12	S	residue	Phosphorylation on S	quantified	0.1656	165.6	1000	True
+D4	A3_2	R2	32	S	residue	Phosphorylation on S	quantified	0.3078	307.8	1000	True
+D4	A4_1	R2	12	S	residue	Phosphorylation on S	quantified	0.4294	429.4	1000	True
+D4	A4_1	R2	32	S	residue	Phosphorylation on S	quantified	0.4013	401.3	1000	True
+D4	A4_2	R2	12	S	residue	Phosphorylation on S	quantified	0.4757	475.7	1000	True
+D4	A4_2	R2	32	S	residue	Phosphorylation on S	covered_zero		0	570.1	True
+D4	A5	R2	12	S	residue	Phosphorylation on S	quantified	1	580.3	580.3	False
+D4	A5	R2	32	S	residue	Phosphorylation on S	floor		0	562.2	True
+D4	A6	R2	12	S	residue	Phosphorylation on S	covered_zero		0	792.5	True
+D4	A6	R2	32	S	residue	Phosphorylation on S	quantified	0.4255	425.5	1000	True
+D4	A7	R2	12	S	residue	Phosphorylation on S	quantified	0.2704	270.4	1000	True
+D4	A7	R2	32	S	residue	Phosphorylation on S	quantified	0.3519	351.9	1000	True
+D4	A8	R2	12	S	residue	Phosphorylation on S	quantified	0.6344	634.4	1000	True
+D4	A8	R2	32	S	residue	Phosphorylation on S	quantified	0.403	403	1000	True
+D4	A9	R2	12	S	residue	Phosphorylation on S	floor		0	821.2	True
+D4	A9	R2	32	S	residue	Phosphorylation on S	quantified	0.3677	367.7	1000	True
+D4	A10	R3	12	S	residue	Phosphorylation on S	quantified	0.4581	458.1	1000	True
+D4	A10	R3	32	S	residue	Phosphorylation on S	quantified	0.6398	639.8	1000	True
+D4	A11	R3	12	S	residue	Phosphorylation on S	covered_zero		0	517.5	True
+D4	A11	R3	32	S	residue	Phosphorylation on S	quantified	0.5685	568.5	1000	True
+D4	A12	R3	12	S	residue	Phosphorylation on S	floor		0	500.5	True
+D4	A12	R3	32	S	residue	Phosphorylation on S	quantified	0.6023	602.3	1000	True
+D4	A1_1	R3	12	S	residue	Phosphorylation on S	quantified	0.4538	453.8	1000	True
+D4	A1_1	R3	32	S	residue	Phosphorylation on S	floor		0	402.6	True
+D4	A1_2	R3	12	S	residue	Phosphorylation on S	quantified	0.4708	470.8	1000	True
+D4	A1_2	R3	32	S	residue	Phosphorylation on S	quantified	0.5597	559.7	1000	True
+D4	A2_1	R3	12	S	residue	Phosphorylation on S	quantified	0.6043	604.3	1000	True
+D4	A2_1	R3	32	S	residue	Phosphorylation on S	quantified	0.6603	660.3	1000	True
+D4	A2_2	R3	12	S	residue	Phosphorylation on S	quantified	0.5335	533.5	1000	True
+D4	A2_2	R3	32	S	residue	Phosphorylation on S	quantified	0.6807	680.7	1000	True
+D4	A3_1	R3	12	S	residue	Phosphorylation on S	floor		0	585.6	True
+D4	A3_1	R3	32	S	residue	Phosphorylation on S	quantified	0.5611	561.1	1000	True
+D4	A3_2	R3	12	S	residue	Phosphorylation on S	covered_zero		0	589.1	True
+D4	A3_2	R3	32	S	residue	Phosphorylation on S	quantified	1	522.6	522.6	False
+D4	A4_1	R3	12	S	residue	Phosphorylation on S	quantified	1	557.4	557.4	False
+D4	A4_1	R3	32	S	residue	Phosphorylation on S	quantified	0.6309	630.9	1000	True
+D4	A4_2	R3	12	S	residue	Phosphorylation on S	quantified	0.5581	558.1	1000	True
+D4	A4_2	R3	32	S	residue	Phosphorylation on S	count_only		0	0	False
+D4	A5	R3	12	S	residue	Phosphorylation on S	quantified	0.4317	431.7	1000	True
+D4	A5	R3	32	S	residue	Phosphorylation on S	quantified	0.5825	582.5	1000	True
+D4	A6	R3	12	S	residue	Phosphorylation on S	quantified	0.551	551	1000	True
+D4	A6	R3	32	S	residue	Phosphorylation on S	quantified	0.5908	590.8	1000	True
+D4	A7	R3	12	S	residue	Phosphorylation on S	quantified	0.4758	475.8	1000	True
+D4	A7	R3	32	S	residue	Phosphorylation on S	quantified	0.4988	498.8	1000	True
+D4	A8	R3	12	S	residue	Phosphorylation on S	quantified	0.4838	483.8	1000	True
+D4	A8	R3	32	S	residue	Phosphorylation on S	floor		0	414.8	True
+D4	A9	R3	12	S	residue	Phosphorylation on S	count_only		0	0	False
+D4	A9	R3	32	S	residue	Phosphorylation on S	covered_zero		0	505.1	True
+D4	A10	R4	12	S	residue	Phosphorylation on S	quantified	0.6752	675.2	1000	True
+D4	A10	R4	32	S	residue	Phosphorylation on S	quantified	0.7281	728.1	1000	True
+D4	A11	R4	12	S	residue	Phosphorylation on S	quantified	0.5529	552.9	1000	True
+D4	A11	R4	32	S	residue	Phosphorylation on S	floor		0	455.7	True
+D4	A12	R4	12	S	residue	Phosphorylation on S	count_only		0	0	False
+D4	A12	R4	32	S	residue	Phosphorylation on S	quantified	0.7358	735.8	1000	True
+D4	A1_1	R4	12	S	residue	Phosphorylation on S	quantified	0.5596	559.6	1000	True
+D4	A1_1	R4	32	S	residue	Phosphorylation on S	quantified	0.6842	684.2	1000	True
+D4	A1_2	R4	12	S	residue	Phosphorylation on S	quantified	0.6121	612.1	1000	True
+D4	A1_2	R4	32	S	residue	Phosphorylation on S	quantified	0.6968	696.8	1000	True
+D4	A2_1	R4	12	S	residue	Phosphorylation on S	count_only		0	0	False
+D4	A2_1	R4	32	S	residue	Phosphorylation on S	quantified	0.6303	630.3	1000	True
+D4	A2_2	R4	12	S	residue	Phosphorylation on S	quantified	0.6079	607.9	1000	True
+D4	A2_2	R4	32	S	residue	Phosphorylation on S	quantified	1	639.1	639.1	False
+D4	A3_1	R4	12	S	residue	Phosphorylation on S	quantified	1	627.3	627.3	False
+D4	A3_1	R4	32	S	residue	Phosphorylation on S	quantified	0.5696	569.6	1000	True
+D4	A3_2	R4	12	S	residue	Phosphorylation on S	quantified	0.6242	624.2	1000	True
+D4	A3_2	R4	32	S	residue	Phosphorylation on S	quantified	0.5864	586.4	1000	True
+D4	A4_1	R4	12	S	residue	Phosphorylation on S	quantified	0.6356	635.6	1000	True
+D4	A4_1	R4	32	S	residue	Phosphorylation on S	quantified	0.6546	654.6	1000	True
+D4	A4_2	R4	12	S	residue	Phosphorylation on S	floor		0	355.1	True
+D4	A4_2	R4	32	S	residue	Phosphorylation on S	quantified	0.6807	680.7	1000	True
+D4	A5	R4	12	S	residue	Phosphorylation on S	quantified	0.601	601	1000	True
+D4	A5	R4	32	S	residue	Phosphorylation on S	quantified	0.6088	608.8	1000	True
+D4	A6	R4	12	S	residue	Phosphorylation on S	quantified	0.6017	601.7	1000	True
+D4	A6	R4	32	S	residue	Phosphorylation on S	quantified	0.7099	709.9	1000	True
+D4	A7	R4	12	S	residue	Phosphorylation on S	quantified	0.5739	573.9	1000	True
+D4	A7	R4	32	S	residue	Phosphorylation on S	quantified	1	627.5	627.5	False
+D4	A8	R4	12	S	residue	Phosphorylation on S	quantified	1	627.9	627.9	False
+D4	A8	R4	32	S	residue	Phosphorylation on S	quantified	0.716	716	1000	True
+D4	A9	R4	12	S	residue	Phosphorylation on S	quantified	0.6301	630.1	1000	True
+D4	A9	R4	32	S	residue	Phosphorylation on S	quantified	0.6852	685.2	1000	True
+D4	A10	R5	12	S	residue	Phosphorylation on S	quantified	0.7304	730.4	1000	True
+D4	A10	R5	32	S	residue	Phosphorylation on S	count_only		0	0	False
+D4	A11	R5	12	S	residue	Phosphorylation on S	quantified	0.7507	750.7	1000	True
+D4	A11	R5	32	S	residue	Phosphorylation on S	quantified	0.7002	700.2	1000	True
+D4	A12	R5	12	S	residue	Phosphorylation on S	quantified	0.7661	766.1	1000	True
+D4	A12	R5	32	S	residue	Phosphorylation on S	quantified	1	785.6	785.6	False
+D4	A1_1	R5	12	S	residue	Phosphorylation on S	quantified	0.6752	675.2	1000	True
+D4	A1_1	R5	32	S	residue	Phosphorylation on S	count_only		0	0	False
+D4	A1_2	R5	32	S	residue	Phosphorylation on S	quantified	1	777.3	777.3	False
+D4	A2_1	R5	12	S	residue	Phosphorylation on S	quantified	1	765.2	765.2	False
+D4	A2_1	R5	32	S	residue	Phosphorylation on S	quantified	0.8069	806.9	1000	True
+D4	A2_2	R5	32	S	residue	Phosphorylation on S	quantified	1	770.8	770.8	False
+D4	A3_1	R5	12	S	residue	Phosphorylation on S	quantified	0.7257	725.7	1000	True
+D4	A3_1	R5	32	S	residue	Phosphorylation on S	quantified	0.6701	670.1	1000	True
+D4	A3_2	R5	32	S	residue	Phosphorylation on S	quantified	1	656.3	656.3	False
+D4	A4_1	R5	12	S	residue	Phosphorylation on S	quantified	0.7521	752.1	1000	True
+D4	A4_1	R5	32	S	residue	Phosphorylation on S	floor		0	195.1	True
+D4	A4_2	R5	32	S	residue	Phosphorylation on S	quantified	1	764.3	764.3	False
+D4	A5	R5	12	S	residue	Phosphorylation on S	quantified	0.7199	719.9	1000	True
+D4	A5	R5	32	S	residue	Phosphorylation on S	quantified	1	742.7	742.7	False
+D4	A6	R5	12	S	residue	Phosphorylation on S	quantified	1	669.9	669.9	False
+D4	A6	R5	32	S	residue	Phosphorylation on S	quantified	0.8087	808.7	1000	True
+D4	A7	R5	12	S	residue	Phosphorylation on S	floor		0	306.7	True
+D4	A7	R5	32	S	residue	Phosphorylation on S	quantified	0.7172	717.2	1000	True
+D4	A8	R5	12	S	residue	Phosphorylation on S	quantified	0.7937	793.7	1000	True
+D4	A8	R5	32	S	residue	Phosphorylation on S	quantified	0.803	803	1000	True
+D4	A9	R5	12	S	residue	Phosphorylation on S	quantified	0.6543	654.3	1000	True
+D4	A9	R5	32	S	residue	Phosphorylation on S	quantified	0.7194	719.4	1000	True
