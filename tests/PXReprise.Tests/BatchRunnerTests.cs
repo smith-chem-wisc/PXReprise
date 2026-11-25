@@ -2417,6 +2417,167 @@ public class BatchRunnerTests
             "an ingest that exits 0 marks the entry delivered");
     }
 
+    // ------------------------------------------------------------------ ptmQtl's engines (D96, G134)
+
+    /// <summary>
+    /// A stand-in datarepo for the ptmQtl steps: each call's arguments appended as one line to args.txt. An ingest exits 0;
+    /// a run prints the line datarepo prints for a written artefact, or fails when fail.txt exists. The lists the machine
+    /// names sit beside it.
+    /// </summary>
+    private static (string Machine, string Args, string Fail, string Tools) PtmQtlDatarepo(int catchUp = 20)
+    {
+        string tools = TestSupport.TempDir();
+        string args = Path.Combine(tools, "args.txt"), fail = Path.Combine(tools, "fail.txt");
+        File.WriteAllText(Path.Combine(tools, "enrichment.tsv"), "dataset\tclass\n");
+        File.WriteAllText(Path.Combine(tools, "cysteine.tsv"), "dataset\tclass\treason\n");
+        string datarepo;
+        if (OperatingSystem.IsWindows())
+        {
+            datarepo = TestSupport.WriteFile(tools, "datarepo.cmd",
+                $"@echo off\r\necho %*>> \"{args}\"\r\nif not \"%1\"==\"run\" exit /b 0\r\nif exist \"{fail}\" (\r\necho ptmQtl refused 1>&2\r\nexit /b 1\r\n)\r\n"
+                + "echo written  %2 artefact 0123456789abcdef  store\r\nexit /b 0\r\n");
+        }
+        else
+        {
+            datarepo = TestSupport.WriteFile(tools, "datarepo",
+                $"#!/bin/sh\necho \"$*\" >> '{args}'\n[ \"$1\" = run ] || exit 0\nif [ -f '{fail}' ]; then echo 'ptmQtl refused' >&2; exit 1; fi\n"
+                + "echo \"written  $2 artefact 0123456789abcdef  store\"\nexit 0\n");
+            File.SetUnixFileMode(datarepo, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+        string machine = $"datarepo = '{datarepo}'\n[ptmqtl]\nenrichment = '{Path.Combine(tools, "enrichment.tsv")}'\ncysteine = '{Path.Combine(tools, "cysteine.tsv")}'\n"
+            + $"catch_up_per_publish = {catchUp}\n";
+        return (machine, args, fail, tools);
+    }
+
+    private static void SearchedRun(string dir, string acc)
+    {
+        string run = Path.Combine(dir, "runs", acc);
+        Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
+        Directory.CreateDirectory(Path.Combine(run, "04_search"));
+        File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(("a.raw", true, Array.Empty<string>())).ToJsonString());
+        File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), "{\"success\": true, \"tools\": {\"MetaMorpheus\": {\"release\": \"1.1.11\"}}}");
+    }
+
+    [Test]
+    public async Task ALabelFreeDeliveryRunsPtmQtlsSitePairsOnItsNewestBundle()
+    {
+        var (machine, args, _, tools) = PtmQtlDatarepo();
+        var (runner, _, _, dir) = Runner("[publish]\nmanifest = \"q/manifest.yaml\"\n", machine);
+        runner.IngestJsonForTest = false;
+        SearchedRun(dir, "PXD000001");
+
+        await runner.DeliverAsync(new QueueEntry("PXD000001", "t", "human"), Profiles["label-free-dda@1"], CancellationToken.None);
+
+        var calls = File.ReadAllLines(args);
+        Assert.That(calls, Has.Length.EqualTo(2), "the ingest, then the engine");
+        Assert.That(calls[1], Does.StartWith("run ptmqtl.site_pairs PXD000001 --store ").And.Contain(Path.Combine(dir, "q", "store")),
+            "the store the question's manifest names");
+        Assert.That(calls[1], Does.Contain("--latest").And.Contain($"enrichment={Path.Combine(tools, "enrichment.tsv")}").And.Contain($"cysteine={Path.Combine(tools, "cysteine.tsv")}"));
+        var entry = runner.State()["datasets"]!["PXD000001"]!;
+        Assert.That(entry["ptmqtl_site_pairs_rc"]!.GetValue<int>(), Is.Zero);
+        Assert.That(entry["ptmqtl_site_pairs_artefact"]!.GetValue<string>(), Is.EqualTo("0123456789abcdef"));
+        Assert.That(File.Exists(entry["ptmqtl_site_pairs_log"]!.GetValue<string>()), "the whole output is kept, as an ingest's is (G38)");
+    }
+
+    [Test]
+    public async Task AFailedSitePairsIsRecordedAndTheDeliveryStands()
+    {
+        var (machine, _, fail, _) = PtmQtlDatarepo();
+        File.WriteAllText(fail, "");
+        var (runner, _, _, dir) = Runner("[publish]\nmanifest = \"q/manifest.yaml\"\n", machine);
+        runner.IngestJsonForTest = false;
+        SearchedRun(dir, "PXD000001");
+
+        await runner.DeliverAsync(new QueueEntry("PXD000001", "t", "human"), Profiles["label-free-dda@1"], CancellationToken.None);
+
+        var entry = runner.State()["datasets"]!["PXD000001"]!;
+        Assert.That(entry["ingest_rc"]!.GetValue<int>(), Is.Zero, "delivered all the same");
+        Assert.That(entry["ptmqtl_site_pairs_rc"]!.GetValue<int>(), Is.EqualTo(1));
+        Assert.That(entry["ptmqtl_site_pairs_out"]!.GetValue<string>(), Does.Contain("ptmQtl refused"));
+        Assert.That(entry["ptmqtl_site_pairs_artefact"], Is.Null);
+    }
+
+    [Test]
+    public async Task WithoutPtmqtlInTheMachineFileNoEngineRuns()
+    {
+        var (_, args, _, _) = PtmQtlDatarepo();
+        string datarepo = Path.Combine(Path.GetDirectoryName(args)!, OperatingSystem.IsWindows() ? "datarepo.cmd" : "datarepo");
+        var (runner, _, _, dir) = Runner("[publish]\nmanifest = \"q/manifest.yaml\"\n", $"datarepo = '{datarepo}'\n");
+        runner.IngestJsonForTest = false;
+        SearchedRun(dir, "PXD000001");
+
+        await runner.DeliverAsync(new QueueEntry("PXD000001", "t", "human"), Profiles["label-free-dda@1"], CancellationToken.None);
+
+        Assert.That(File.ReadAllLines(args), Has.Length.EqualTo(1), "the ingest only");
+        Assert.That(runner.State()["datasets"]!["PXD000001"]!["ptmqtl_site_pairs_rc"], Is.Null);
+    }
+
+    [Test]
+    public async Task BeforeAPublishTheCatchUpAndThePoolRunThenTheQuestionsCommand()
+    {
+        var (machine, args, _, _) = PtmQtlDatarepo(catchUp: 1);
+        // A temp path, with no spaces. Double quotes on Linux: the command sits in a single-quoted TOML string.
+        string hook = OperatingSystem.IsWindows() ? $"echo hook>> {args}" : $"echo hook >> \"{args}\"";
+        var (runner, _, _, dir) = Runner($"[publish]\nmanifest = \"manifest.yaml\"\ncommand = {ShellToml(hook)}\nevery_h = 6\ntimeout_h = 1\n", machine);
+        File.WriteAllText(Path.Combine(dir, "manifest.yaml"), "manifest_version: 1\nstore: store\n");
+        runner.Record("PXD000001", ("ingest_rc", 0), ("profile", "label-free-dda@1"));                                // delivered before the engines ran
+        runner.Record("PXD000002", ("ingest_rc", 0), ("profile", "label-free-dda@1"));                                // likewise, past this publish's catch-up of 1
+        runner.Record("PXD000003", ("ingest_rc", 0), ("profile", "tmt-dda@1"));                                       // isobaric: never
+        runner.Record("PXD000004", ("ingest_rc", 0), ("profile", "label-free-dda@1"), ("ptmqtl_site_pairs_rc", 0));  // already paired
+        runner.Record("PXD000005", ("ingest_rc", 0), ("profile", "label-free-dda@1"), ("ptmqtl_site_pairs_rc", 1));  // its run failed: not retried
+        runner.Record("PXD000006", ("ingest_rc", 1), ("profile", "label-free-dda@1"));                                // not delivered
+
+        Assert.That(await runner.PublishIfDueAsync(true, CancellationToken.None), Is.Zero);
+
+        var calls = File.ReadAllLines(args).Select(l => l.Trim()).ToList();
+        Assert.That(calls, Has.Count.EqualTo(3));
+        Assert.That(calls[0], Does.StartWith("run ptmqtl.site_pairs PXD000001 --store " + Path.Combine(dir, "store")));
+        Assert.That(calls[1], Does.StartWith("run ptmqtl.pool_pairs PXD000001 PXD000004 --store "), "every deposit paired, in order");
+        Assert.That(calls[2], Is.EqualTo("hook"), "the catalog is built after the engines");
+        var st = runner.State();
+        Assert.That(st["datasets"]!["PXD000002"]!["ptmqtl_site_pairs_rc"], Is.Null, "left for the next publish's catch-up");
+        Assert.That(st["publish"]!["ptmqtl_pool_rc"]!.GetValue<int>(), Is.Zero);
+        Assert.That(st["publish"]!["ptmqtl_pool_artefacts"]!.AsArray().Select(n => n!.GetValue<string>()), Is.EqualTo(new[] { "0123456789abcdef" }));
+    }
+
+    [Test]
+    public async Task APoolNeedsTwoPairedDepositsAndAFailedOneLetsThePublishGoOn()
+    {
+        var (machine, args, fail, _) = PtmQtlDatarepo(catchUp: 0);
+        var (runner, _, _, dir) = Runner($"[publish]\nmanifest = \"manifest.yaml\"\ncommand = {ShellToml("exit 0")}\nevery_h = 6\ntimeout_h = 1\n", machine);
+        File.WriteAllText(Path.Combine(dir, "manifest.yaml"), "manifest_version: 1\nstore: store\n");
+        runner.Record("PXD000001", ("ingest_rc", 0), ("profile", "label-free-dda@1"), ("ptmqtl_site_pairs_rc", 0));
+        runner.Record("PXD000002", ("ingest_rc", 0), ("profile", "label-free-dda@1"));   // the catch-up is off
+
+        Assert.That(await runner.PublishIfDueAsync(true, CancellationToken.None), Is.Zero);
+        Assert.That(File.Exists(args), Is.False, "one paired deposit: nothing to pool, and nothing caught up");
+
+        runner.Record("PXD000002", ("ptmqtl_site_pairs_rc", 0), ("publish_rc", null));
+        File.WriteAllText(fail, "");
+        Assert.That(await runner.PublishIfDueAsync(true, CancellationToken.None), Is.Zero, "the publish goes on");
+        Assert.That(runner.State()["publish"]!["ptmqtl_pool_rc"]!.GetValue<int>(), Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task AnEngineStepThatCannotRunIsRecordedAndThePublishGoesOn()
+    {
+        // A manifest that names no store: neither engine can be run, and each says so in the state.
+        var (machine, args, _, _) = PtmQtlDatarepo();
+        var (runner, _, _, dir) = Runner($"[publish]\nmanifest = \"manifest.yaml\"\ncommand = {ShellToml("exit 0")}\nevery_h = 6\ntimeout_h = 1\n", machine);
+        File.WriteAllText(Path.Combine(dir, "manifest.yaml"), "manifest_version: 1\n");
+        runner.Record("PXD000001", ("ingest_rc", 0), ("profile", "label-free-dda@1"), ("ptmqtl_site_pairs_rc", 0));
+        runner.Record("PXD000002", ("ingest_rc", 0), ("profile", "label-free-dda@1"), ("ptmqtl_site_pairs_rc", 0));
+        runner.Record("PXD000003", ("ingest_rc", 0), ("profile", "label-free-dda@1"));   // the catch-up's
+
+        Assert.That(await runner.PublishIfDueAsync(true, CancellationToken.None), Is.Zero, "the publish goes on");
+
+        var st = runner.State();
+        Assert.That(st["datasets"]!["PXD000003"]!["ptmqtl_site_pairs_rc"]!.GetValue<int>(), Is.EqualTo(-1));
+        Assert.That(st["datasets"]!["PXD000003"]!["ptmqtl_site_pairs_out"]!.GetValue<string>(), Does.Contain("names no store"));
+        Assert.That(st["publish"]!["ptmqtl_pool_rc"]!.GetValue<int>(), Is.EqualTo(-1));
+        Assert.That(File.Exists(args), Is.False, "nothing reached datarepo");
+    }
+
     [Test]
     public void APublishCommandNamesNoMachinePath()
     {

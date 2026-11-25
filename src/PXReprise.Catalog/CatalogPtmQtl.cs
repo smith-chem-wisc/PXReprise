@@ -11,7 +11,8 @@ namespace PXReprise.Catalog;
 /// <item>One <c>ptmqtl.site_pairs</c> artefact per bundle.</item>
 /// <item>One <c>ptmqtl.site_traits</c> artefact per bundle and trait.</item>
 /// <item>One <c>ptmqtl.pool_pairs</c> artefact per species, and only one whose every input <c>site_pairs</c> artefact
-/// is in the catalog: a pooled row must rest on the dataset rows the catalog serves.</item>
+/// is in the catalog: a pooled row must rest on the dataset rows the catalog serves. A pool whose members all sit in a
+/// larger such pool is that pool's earlier version (the batch pools again as deposits arrive), not a candidate.</item>
 /// </list>
 /// <para>Two candidates for one slot are refused, never one picked, as for go and logs. All of a catalog's ptmQtl
 /// artefacts must share one enrichment list (S3), as go's must share one go.obo and map. A pooled result built
@@ -29,6 +30,11 @@ public static partial class CatalogBuilder
         [Runner.PtmQtlPoolPairs] = "ptm_pairs",
         [Runner.PtmQtlSiteTraits] = "trait_effects",
     };
+
+    /// <summary>The pools that are candidates for one species' slot: each whose members do not all sit in another,
+    /// larger pool (D96). Pools that do not nest are all kept, so the caller still refuses two.</summary>
+    internal static List<T> NotSuperseded<T>(IReadOnlyList<T> pools, Func<T, IReadOnlySet<string>> members) where T : class =>
+        pools.Where(a => !pools.Any(b => !ReferenceEquals(a, b) && members(a).IsProperSubsetOf(members(b)))).ToList();
 
     private static IReadOnlyDictionary<string, object?>? Summary(ArtefactRef a) => a.Record.GetValueOrDefault("engine_summary") as IReadOnlyDictionary<string, object?>;
 
@@ -64,16 +70,22 @@ public static partial class CatalogBuilder
         }
 
         var pairIds = pairs.Select(a => a.ArtefactId).ToHashSet(StringComparer.Ordinal);
+        static IReadOnlySet<string> MembersOf(ArtefactRef a) =>
+            a.Inputs.Where(kv => kv.Key.StartsWith("site_pairs:", StringComparison.Ordinal)).Select(kv => kv.Value).ToHashSet(StringComparer.Ordinal);
         var pools = new List<ArtefactRef>();
         foreach (var group in Current(Runner.PtmQtlPoolPairs)
-                     .Where(a => a.Inputs.Where(kv => kv.Key.StartsWith("site_pairs:", StringComparison.Ordinal)).All(kv => pairIds.Contains(kv.Value)))
+                     .Where(a => MembersOf(a).All(pairIds.Contains))
                      .GroupBy(a => Summary(a)?.GetValueOrDefault("species") as string ?? ""))
         {
-            if (group.Count() > 1)
+            // D96 (G134): the batch pools a species again as its deposits arrive, so the store keeps each earlier pool. A pool
+            // whose members all sit in a larger pool on this catalog's datasets is that pool's earlier version, not a
+            // candidate. Two pools that do not nest are still refused.
+            var candidates = NotSuperseded(group.ToList(), MembersOf);
+            if (candidates.Count > 1)
                 throw new CatalogException(
-                    $"{Runner.PtmQtlPoolPairs}: {group.Count()} pooled artefacts for {group.Key} rest on this catalog's datasets "
-                    + $"({string.Join(", ", group.Select(a => a.ArtefactId))}). A catalog serves one; move the others out of {EngineFolder(Runner.PtmQtlPoolPairs)}.");
-            pools.Add(group.Single());
+                    $"{Runner.PtmQtlPoolPairs}: {candidates.Count} pooled artefacts for {group.Key} rest on this catalog's datasets "
+                    + $"({string.Join(", ", candidates.Select(a => a.ArtefactId))}). A catalog serves one; move the others out of {EngineFolder(Runner.PtmQtlPoolPairs)}.");
+            pools.Add(candidates.Single());
         }
 
         var all = pairs.Concat(traits).Concat(pools).ToList();
