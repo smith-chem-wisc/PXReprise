@@ -708,6 +708,13 @@ public class PtmQtlEngineTests
                 new() { ["species"] = "rat" }, pooledRows);
             Assert.That(PXReprise.Catalog.CatalogBuilder.SelectArtefacts(store, bundles).Artefacts.Count(a => a.Engine == PtmQtlEngine.PoolPairsEngine), Is.EqualTo(1));
 
+            // D96: a second mouse pool on the same member does not nest in the first (equal members), so two candidates
+            // stay, and the catalog refuses them rather than picking one.
+            WriteArtefact(store, PtmQtlEngine.PoolPairsEngine, new() { ["site_pairs:PXD999999"] = artefact.ArtefactId, ["enrichment"] = "e1", ["capture_runs"] = "c2" },
+                new() { ["species"] = "mouse" }, pooledRows);
+            Assert.That(() => PXReprise.Catalog.CatalogBuilder.SelectArtefacts(store, bundles),
+                Throws.TypeOf<PXReprise.Bundle.CatalogException>().With.Message.Contains("2 pooled artefacts for mouse rest on this catalog's datasets"));
+
             // A second enrichment list for the same bundle: two artefacts for one slot are refused, not picked.
             WriteArtefact(store, PtmQtlEngine.SitePairsEngine, new() { ["bundle"] = bundle.BundleId, ["enrichment"] = "e2" }, new() { ["species"] = "mouse" }, d1.Rows);
             Assert.That(() => PXReprise.Catalog.CatalogBuilder.SelectArtefacts(store, bundles),

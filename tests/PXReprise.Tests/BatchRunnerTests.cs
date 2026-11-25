@@ -2559,6 +2559,26 @@ public class BatchRunnerTests
     }
 
     [Test]
+    public async Task AnEngineStepThatCannotRunIsRecordedAndThePublishGoesOn()
+    {
+        // A manifest that names no store: neither engine can be run, and each says so in the state.
+        var (machine, args, _, _) = PtmQtlDatarepo();
+        var (runner, _, _, dir) = Runner($"[publish]\nmanifest = \"manifest.yaml\"\ncommand = {ShellToml("exit 0")}\nevery_h = 6\ntimeout_h = 1\n", machine);
+        File.WriteAllText(Path.Combine(dir, "manifest.yaml"), "manifest_version: 1\n");
+        runner.Record("PXD000001", ("ingest_rc", 0), ("profile", "label-free-dda@1"), ("ptmqtl_site_pairs_rc", 0));
+        runner.Record("PXD000002", ("ingest_rc", 0), ("profile", "label-free-dda@1"), ("ptmqtl_site_pairs_rc", 0));
+        runner.Record("PXD000003", ("ingest_rc", 0), ("profile", "label-free-dda@1"));   // the catch-up's
+
+        Assert.That(await runner.PublishIfDueAsync(true, CancellationToken.None), Is.Zero, "the publish goes on");
+
+        var st = runner.State();
+        Assert.That(st["datasets"]!["PXD000003"]!["ptmqtl_site_pairs_rc"]!.GetValue<int>(), Is.EqualTo(-1));
+        Assert.That(st["datasets"]!["PXD000003"]!["ptmqtl_site_pairs_out"]!.GetValue<string>(), Does.Contain("names no store"));
+        Assert.That(st["publish"]!["ptmqtl_pool_rc"]!.GetValue<int>(), Is.EqualTo(-1));
+        Assert.That(File.Exists(args), Is.False, "nothing reached datarepo");
+    }
+
+    [Test]
     public void APublishCommandNamesNoMachinePath()
     {
         var argv = BatchRunner.PublishArgv(new[] { "{datarepo}", "publish", "{manifest}", "--site", "{manifest_dir}/site" },
