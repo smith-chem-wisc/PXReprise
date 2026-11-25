@@ -8,21 +8,17 @@ namespace PXReprise.Data.Tests;
 
 /// <summary>The ptmqtl.* engines (ptmQtl 025-030; our 026, 031): ptmQtl's reference case, reproduced.</summary>
 /// <remarks>Fixtures/ptmqtl-reference-v3 is ptmQtl's own `results/reference_case_v3` (DEF-PTM-PAIR v3: bounds, depth,
-/// D78's null), and Fixtures/ptmqtl-reference-v1 its v1 (see each PROVENANCE.md). The pair tests read v3. The site-trait
-/// test reads v1, since this engine's site-trait fit is still DEF-SITE-TRAIT v1. The inputs are parsed as ptmQtl's
-/// `tools/ReferenceCase` reads them; the engine core then has to give `expected/`: numbers to 1e-12 relative, text
-/// exactly.</remarks>
+/// D78's null; DEF-SITE-TRAIT v2: log2 odds; see its PROVENANCE.md). The inputs are parsed as `tools/ptmqtl-reference`
+/// reads them; the engine core then has to give `expected/`: numbers to 1e-12 relative, text exactly.</remarks>
 public class PtmQtlEngineTests
 {
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
-    private const string V3 = "ptmqtl-reference-v3", V1 = "ptmqtl-reference-v1";
+    private static string Dir => Path.Combine(TestContext.CurrentContext.TestDirectory, "Fixtures", "ptmqtl-reference-v3");
 
-    private static string Dir(string fixture) => Path.Combine(TestContext.CurrentContext.TestDirectory, "Fixtures", fixture);
-
-    private static List<Dictionary<string, string>> Tsv(string relative, string fixture = V3)
+    private static List<Dictionary<string, string>> Tsv(string relative)
     {
-        var lines = File.ReadAllLines(Path.Combine(Dir(fixture), relative)).Where(l => l.Length > 0).ToList();
+        var lines = File.ReadAllLines(Path.Combine(Dir, relative)).Where(l => l.Length > 0).ToList();
         var names = lines[0].Split('\t');
         return lines.Skip(1).Select(l =>
         {
@@ -37,17 +33,16 @@ public class PtmQtlEngineTests
     /// <summary>The reference inputs, one <see cref="PtmQtlDataset"/> per dataset.</summary>
     /// <remarks>The reference case predates the sequence window (D35; ptmQtl 038 item 4), so every site is given one
     /// window, the same in every dataset, and v2's pooled rows stand as written.</remarks>
-    private static List<PtmQtlDataset> Datasets(string fixture = V3)
+    private static List<PtmQtlDataset> Datasets()
     {
-        var runs = Tsv("inputs/runs.tsv", fixture);
-        var enriched = Tsv("inputs/enrichment.tsv", fixture).Select(r => r["dataset"]).ToHashSet();
-        var unimod = Tsv("inputs/unimod.tsv", fixture).ToDictionary(r => r["id_with_motif"], r => r["unimod"], StringComparer.Ordinal);
-        var observations = Tsv("inputs/observations.tsv", fixture);
-        var occupancy = Tsv("inputs/occupancy.tsv", fixture);
-        // v3: each dataset's MetaMorpheus release and each run's target PSMs (D40); v1 has neither.
-        var v3 = fixture == V3;
-        var release = v3 ? Tsv("inputs/datasets.tsv", fixture).ToDictionary(r => r["dataset"], r => r["search_engine_version"]) : [];
-        var depth = v3 ? Tsv("inputs/depth.tsv", fixture) : [];
+        var runs = Tsv("inputs/runs.tsv");
+        var enriched = Tsv("inputs/enrichment.tsv").Select(r => r["dataset"]).ToHashSet();
+        var unimod = Tsv("inputs/unimod.tsv").ToDictionary(r => r["id_with_motif"], r => r["unimod"], StringComparer.Ordinal);
+        var observations = Tsv("inputs/observations.tsv");
+        var occupancy = Tsv("inputs/occupancy.tsv");
+        // Each dataset's MetaMorpheus release and each run's target PSMs (D40).
+        var release = Tsv("inputs/datasets.tsv").ToDictionary(r => r["dataset"], r => r["search_engine_version"]);
+        var depth = Tsv("inputs/depth.tsv");
         return runs.Select(r => r["dataset"]).Distinct().Select(ds => new PtmQtlDataset(
             ds,
             runs.First(r => r["dataset"] == ds)["species"],
@@ -255,13 +250,15 @@ public class PtmQtlEngineTests
     [Test]
     public void TheSiteTraitRowsAreTheReferenceCasesRows()
     {
-        var d1 = Datasets(V1).Single(d => d.DatasetId == "D1");
-        var runs = Tsv("inputs/runs.tsv", V1).Where(r => r["dataset"] == "D1").ToList();
+        var d1 = Datasets().Single(d => d.DatasetId == "D1");
+        var runs = Tsv("inputs/runs.tsv").Where(r => r["dataset"] == "D1").ToList();
         var trait = runs.GroupBy(r => r["combine_to"]).ToDictionary(g => g.Key, g => D(g.First()["age_months"]), StringComparer.Ordinal);
         var replicate = runs.GroupBy(r => r["combine_to"]).ToDictionary(g => g.Key, g => g.First()["replicate"], StringComparer.Ordinal);
         var result = PtmQtlCore.SiteTraits(d1, "age_months", trait, replicate);
 
-        var expected = Tsv("expected/trait_effects.tsv", V1);
+        var expected = Tsv("expected/trait_effects.tsv");
+        Assert.That(expected, Is.Not.Empty);
+        Assert.That(expected.Select(e => e["response"]).Distinct(), Is.EqualTo(new[] { "log2_odds_occupancy" }));
         Assert.That(result.Rows.Select(r => (string)r["feature_key"]!), Is.EquivalentTo(expected.Select(e => e["feature_key"])));
         string[] side = ["status", "df", "replicates", "median_fraction", "replicate_variance", "residual_variance"];
         foreach (var e in expected)
