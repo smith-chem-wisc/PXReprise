@@ -33,7 +33,7 @@ datarepo doctor                # what this build is, and whether an MCP server i
 ```
 datarepo 1.5.0  schema 0.0.17
   runtime          .NET 10.0.10
-  mzLib            1.0.600.0
+  mzLib            1.0.601.0
   parquet          ParquetSharp 24.0.0.0
   mcp SDK          ModelContextProtocol 2.2.0.0
 …

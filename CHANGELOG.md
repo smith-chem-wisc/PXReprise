@@ -29,6 +29,15 @@ text says TMT while PRIDE's quantification names label-free too (below). A quest
 profiles by naming them before their earlier versions in its `profiles`; deposits already searched keep their profile, and
 whether to search them again is a separate choice.
 
+- **mzLib 1.0.601** (from 1.0.600), the mzLib of the MetaMorpheus release after 1.1.15. One answer changes: on an
+  isobaric differential table, `n_peptides` now counts distinct peptides, as mzLib documents it (mzLib #1622). 1.0.600
+  counted model levels, one per peptide ion per plex run, so the number falls wherever a peptide was seen at more than
+  one charge or in more than one plex run. No estimate, standard error or p-value changes, and neither do the
+  `analysis_id` or `method_version`. The differential record's `tools.mzlib` tells the two versions apart. Label-free
+  tables do not change. mzLib now refuses a normalization setting it does not know (#1622), but the differential stage
+  passes none and gets the default, which is unchanged. The release's new capabilities (the glycoproteases, PRIDE
+  zip-entry reads, DIA precursors in the statistics) are not used yet.
+
 - **Three more profile versions: `label-free-dda@16`, `label-free-dda-lowres@10` and `tmt-dda@7`** (@15, @9 and @6
   with only these changes; the guard test checks them line by line).
   - **agingPTM-v10 databases** in `@16` and `tmt-dda@7` (decision 0091): UniProt release 2026_04, and the first
