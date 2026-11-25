@@ -93,6 +93,20 @@ whether to search them again is a separate choice.
   stays. Spectra are compared by name, retention time and peaks, not by precursor lines or peak annotations (whose
   spelling changed between MetaMorpheus versions). The new version records what was removed and restored.
 
+- **ptmQtl's site-trait fits are `ptmQtl:DEF-SITE-TRAIT v2`: effects in log2 odds** (ptmQtl D33, G64).
+  - `datarepo run ptmqtl.site_traits` fitted the natural-log odds of occupancy (v1). It now fits the log2 odds, as
+    ptmQtl reports them. A site-trait effect then shares QuantProject's `DEF-DIFF` base (`occupancy_log2_odds_*`).
+    - Every effect and standard error is v1's divided by ln 2 (about 0.693), and the variances by (ln 2)².
+    - df, p and q do not change, and neither does the model: mzLib's `SiteTraitEffects` with
+      `SiteTraitOptions.Scale = Log2Odds`.
+  - `trait_effects.response` is `log2_odds_occupancy` (v1 wrote `logit_occupancy`), so a v1 row is never read as v2.
+    `definition_id` is `ptmQtl:DEF-SITE-TRAIT v2`, and so a new artefact id.
+  - Still without bounds: the fit reads quantified cells only, as v1 did. A cell seen in one form (a ceiling, a
+    covered-zero) is left out of it, unlike type A's.
+  - **Tests.** The site-trait rows of ptmQtl's reference case v3 (`Fixtures/ptmqtl-reference-v3`) are reproduced row for
+    row. The v1 fixture, which only the site-trait test still read, is removed.
+  - No ptmQtl row is stored yet, so nothing stored changes.
+
 - **ptmQtl's observations (its S7) are the PSMs the search's own identification filter kept** (ptmQtl D82, PXR-P23;
   replaces ptmQtl D36).
   - `datarepo run`'s ptmQtl engines (`site_pairs`, `site_traits`) took one quantified-PSM tier per search (mzLib's
