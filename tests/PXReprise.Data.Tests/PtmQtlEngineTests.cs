@@ -87,9 +87,10 @@ public class PtmQtlEngineTests
         _ => throw new ArgumentException($"unexpected cell {value.GetType()}"),
     };
 
-    /// <summary>The engine's row against the expected one: every expected column, numbers to 1e-12 relative.</summary>
+    /// <summary>The engine's row against the expected one: every expected column, numbers to <paramref name="tolerance"/>
+    /// relative (1e-12 by default).</summary>
     private static void AssertRow(IReadOnlyDictionary<string, string> expected, IReadOnlyDictionary<string, object?> actual, string where,
-        IReadOnlyDictionary<string, Func<object?, string>>? overrides = null)
+        IReadOnlyDictionary<string, Func<object?, string>>? overrides = null, double tolerance = 1e-12)
     {
         foreach (var (column, want) in expected)
         {
@@ -99,7 +100,7 @@ public class PtmQtlEngineTests
             if (raw is double && want.Length > 0 && got.Length > 0)
             {
                 var (w, g) = (double.Parse(want, Inv), double.Parse(got, Inv));
-                Assert.That(Math.Abs(g - w), Is.LessThanOrEqualTo(1e-12 * Math.Max(1, Math.Abs(w))), $"{where}: {column} {got} vs {want}");
+                Assert.That(Math.Abs(g - w), Is.LessThanOrEqualTo(tolerance * Math.Max(1, Math.Abs(w))), $"{where}: {column} {got} vs {want}");
             }
             else Assert.That(got, Is.EqualTo(want), $"{where}: {column}");
         }
@@ -271,21 +272,29 @@ public class PtmQtlEngineTests
             var mine = expected.Where(e => e["scope"] == ds.DatasetId).ToList();
             Assert.That(result.Rows.Select(r => (string)r["feature_key"]!), Is.EquivalentTo(mine.Select(e => e["feature_key"])), ds.DatasetId);
             Assert.That((result.Covariates, result.TraitDepth!.N), Is.EqualTo((new[] { "sex=M" }, trait.Count - (ds.DatasetId == "D1" ? 1 : 0))), ds.DatasetId);
-            foreach (var e in mine)
+            // Every row's every mismatch is reported, not only the first.
+            Assert.Multiple(() =>
             {
-                var row = result.Rows.Single(r => (string)r["feature_key"]! == e["feature_key"]);
-                var fit = result.Fits.Single(r => (string)r["feature_key"]! == e["feature_key"]);
-                AssertRow(e.Where(kv => !side.Contains(kv.Key) && kv.Key != "covariate_effects").ToDictionary(), row, e["feature_key"],
-                    new Dictionary<string, Func<object?, string>> { ["protein_accessions"] = v => (string)((List<object?>)v!).Single()! });
-                AssertRow(e.Where(kv => side.Contains(kv.Key)).ToDictionary(), fit, e["feature_key"] + " (side file)");
-                // Each covariate's effect, as numbers to 1e-12 relative like every other number (the last digit differs by platform).
-                var want = e["covariate_effects"].Split(';').Select(D).ToArray();
-                var got = ((List<object?>)fit["covariate_effects"]!).Select(v => v is double d ? d : double.NaN).ToArray();
-                Assert.That(got, Has.Length.EqualTo(want.Length), e["feature_key"]);
-                for (var j = 0; j < want.Length; j++)
-                    Assert.That(double.IsNaN(want[j]) ? double.IsNaN(got[j]) : Math.Abs(got[j] - want[j]) <= 1e-12 * Math.Max(1, Math.Abs(want[j])),
-                        $"{e["feature_key"]}: covariate effect {j} {got[j]} vs {want[j]}");
-            }
+                foreach (var e in mine)
+                {
+                    var row = result.Rows.Single(r => (string)r["feature_key"]! == e["feature_key"]);
+                    var fit = result.Fits.Single(r => (string)r["feature_key"]! == e["feature_key"]);
+                    // A site with counted runs is fitted by the logit-normal model's optimizer, whose result differs across
+                    // platforms near the 10th digit (Linux CI against this Windows build: 1.4e-10 relative on a replicate
+                    // variance). Every other number is compared to 1e-12.
+                    var tolerance = e["counted_runs"] != "0" ? 1e-8 : 1e-12;
+                    AssertRow(e.Where(kv => !side.Contains(kv.Key) && kv.Key != "covariate_effects").ToDictionary(), row, e["feature_key"],
+                        new Dictionary<string, Func<object?, string>> { ["protein_accessions"] = v => (string)((List<object?>)v!).Single()! }, tolerance);
+                    AssertRow(e.Where(kv => side.Contains(kv.Key)).ToDictionary(), fit, e["feature_key"] + " (side file)", tolerance: tolerance);
+                    // Each covariate's effect, as numbers, like every other number (its last digits differ by platform).
+                    var want = e["covariate_effects"].Split(';').Select(D).ToArray();
+                    var got = ((List<object?>)fit["covariate_effects"]!).Select(v => v is double d ? d : double.NaN).ToArray();
+                    Assert.That(got, Has.Length.EqualTo(want.Length), e["feature_key"]);
+                    for (var j = 0; j < want.Length; j++)
+                        Assert.That(double.IsNaN(want[j]) ? double.IsNaN(got[j]) : Math.Abs(got[j] - want[j]) <= tolerance * Math.Max(1, Math.Abs(want[j])),
+                            $"{e["feature_key"]}: covariate effect {j} {got[j]} vs {want[j]}");
+                }
+            });
         }
         // A sample with no trait value (a run the consumer gave no age) is left out, and counted.
         var d1 = Datasets().Single(d => d.DatasetId == "D1");

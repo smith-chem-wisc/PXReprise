@@ -6,7 +6,9 @@ The ptmQtl engines in PXReprise (`src/PXReprise.Runner/PtmQtl*`) must reproduce 
 
     dotnet run -c Release --project tools/ptmqtl-reference -- <dir>
 
-Compare numbers to 1e-12 relative. Text columns must match exactly.
+Compare numbers to 1e-12 relative, except a site-trait row with counted runs: the logit-normal model's optimizer gives
+it, and its result differs across platforms near the 10th digit (Linux against this Windows build: 1.4e-10 relative on a
+replicate variance), so compare those rows to 1e-8. Text columns must match exactly.
 
 ## What changed from v3
 
