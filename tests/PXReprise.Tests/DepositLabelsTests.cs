@@ -136,6 +136,27 @@ public class DepositLabelsTests
     }
 
     [Test]
+    public void APulldownTheDataDoNotContradictIsOne()
+    {
+        var runs = Label("immunoprecipitation", new Dictionary<string, RunShares> { ["a.raw"] = Run() });
+        Assert.That(runs.Select(r => (r.Value, r.Target)), Is.All.EqualTo((SampleType.ProteinPulldown, "immunoprecipitation")));
+        Assert.That(runs[0].Sources, Is.EqualTo(new[] { LabelSource.RepositoryText, LabelSource.DataCheck }));
+    }
+
+    [Test]
+    public void ADecisionNamesARunByItsFileOrItsStemAndKeepsItsLabelWhenAnotherRunContradictsTheText()
+    {
+        var decisions = new List<LabelDecision>
+        {
+            new("PXD000001", "a.raw", "sample_type", SampleType.PtmCapture, "phospho", "a person", "2026-11-25", "the capture run"),
+            new("PXD000001", "b", "sample_type", SampleType.WholeProteome, null, "a person", "2026-11-25", "the lysate run"),
+        };
+        // c.raw carries phospho although the text says none: the deposit's undecided runs go unknown, the decided stay.
+        var runs = Label("none", new Dictionary<string, RunShares> { ["c.raw"] = Run(phospho: 0.4) }, decisions);
+        Assert.That(runs.Select(r => r.Value), Is.EqualTo(new[] { SampleType.PtmCapture, SampleType.WholeProteome, SampleType.Unknown, SampleType.Unknown }));
+    }
+
+    [Test]
     public void ADecisionNamingTheAccessionCoversItsSplitDatasets()
     {
         var d = new LabelDecision("PXD000001", "*", "sample_type", SampleType.Unknown, null, "a person", "2026-11-25", "held");
@@ -199,6 +220,18 @@ public class DepositLabelsTests
     }
 
     [Test]
+    public void ASearchWithNoCysteineModificationSaysSoAndADecisionWithNoReagentKeepsTheNamedOne()
+    {
+        var c = Cys("none", ChemistrySource.QuestionException, "never alkylated", 0.15, []);
+        Assert.That((c.Verdict, c.Reagent), Is.EqualTo((CysteineVerdict.Matches, "none")));
+        Assert.That(c.Reason, Does.Contain("the search declares no cysteine modification"));
+        Assert.That(c.Sources, Is.EqualTo(new[] { LabelSource.Person, LabelSource.DataCheck }), "the question's exception is a person's word");
+
+        var d = new LabelDecision("PXD000001", "*", "cysteine", CysteineVerdict.Unknown, null, "a person", "2026-11-25", "the gel's acrylamide");
+        Assert.That(Cys("Carbamidomethyl", ChemistrySource.ProtocolText, "iodoacetamide", 0.15, decisions: [d]).Reagent, Is.EqualTo("iodoacetamide"));
+    }
+
+    [Test]
     public void ACuratedSdrfsReagentIsAPersonsWord()
     {
         var c = Cys("Methylthio", ChemistrySource.CuratedSdrf, null, 0.117, [new("Methylthio", "UNIMOD:39", false)]);
@@ -215,6 +248,10 @@ public class DepositLabelsTests
     [TestCase("Propionamide", ChemistrySource.ProtocolText, "acrylamide", "acrylamide")]
     [TestCase("none", ChemistrySource.QuestionException, "never alkylated", "none")]
     [TestCase("NBF-Cl", ChemistrySource.ProtocolText, "NBF-Cl", "NBF-Cl")]
+    [TestCase("NEM:2H(5)", ChemistrySource.ProtocolText, "d5-NEM", "d5-NEM")]
+    [TestCase("Nethylmaleimide + NEM:2H(5)", ChemistrySource.PridePtm, "Nethylmaleimide | heavy partner", "NEM and d5-NEM")]
+    [TestCase("Carboxymethyl", ChemistrySource.ProtocolText, "iodoacetic acid", "iodoacetic acid")]
+    [TestCase("Pyridylethyl", ChemistrySource.ProtocolText, "4-vinylpyridine", "4-vinylpyridine")]
     public void TheReagentIsNamedInWords(string value, string source, string? evidence, string reagent) =>
         Assert.That(DepositLabeller.Reagent(new ChemistryFact(value, source, evidence)), Is.EqualTo(reagent));
 
@@ -326,6 +363,40 @@ public class DepositLabelsTests
     }
 
     [Test]
+    public void AnOlderOrSparserRecordTakesItsGapsAsUnknownsAndDefaults()
+    {
+        // A search recorded before the cysteine-peptide share existed, with a chemistry block missing its source and a
+        // modification missing "fixed"; an input with no path; an experiment record with no enrichment fact, a run the
+        // probe did not search, and a probe run with no PSM count.
+        string dir = Path.Combine(TestSupport.TempDir(), "PXD000005");
+        Directory.CreateDirectory(Path.Combine(dir, "04_search"));
+        Directory.CreateDirectory(Path.Combine(dir, ExperimentRecord.Folder));
+        TestSupport.WriteFile(Path.Combine(dir, "04_search"), "provenance.json", """
+            {"inputs": [{"root": "work_root"}, {"path": "run\\PXD000005\\02_fetch\\spectra\\a.raw"}],
+             "chemistry": {"alkylation": {"value": "Carbamidomethyl"}, "cysteine_mods": [{"name": "Carbamidomethyl", "unimod": "UNIMOD:4"}]}}
+            """);
+        TestSupport.WriteFile(Path.Combine(dir, ExperimentRecord.Folder), ExperimentRecord.JsonFile, """
+            {"facts": {}, "runs": {"a.raw": {"probe": false}, "b.raw": {"probe_search": {"psms_1pct": "n/a", "phospho_share": null, "gg_share": "n/a"}}}}
+            """);
+        var labels = DepositLabelReader.Read(dir, NoDecisions);
+        Assert.That(labels.Runs.Select(r => r.File), Is.EqualTo(new[] { "a.raw" }), "a Windows path is read too");
+        Assert.That(labels.Runs[0].Value, Is.EqualTo(SampleType.Unknown), "no enrichment fact: never screened");
+        Assert.That((labels.Cysteine.Verdict, labels.Cysteine.Reagent), Is.EqualTo((CysteineVerdict.Unknown, "not stated")));
+        Assert.That(labels.Cysteine.Reason, Does.Contain("recorded no cysteine-peptide share"));
+        Assert.That(labels.Cysteine.SearchAssumed.Single().Fixed, Is.False);
+
+        TestSupport.WriteFile(Path.Combine(dir, "04_search"), "provenance.json", """{"inputs": []}""");
+        Assert.That(() => DepositLabelReader.Read(dir, NoDecisions), Throws.InstanceOf<InvalidDataException>().With.Message.Contains("lists no spectra file"));
+        TestSupport.WriteFile(Path.Combine(dir, "04_search"), "provenance.json", "[]");
+        Assert.That(() => DepositLabelReader.Read(dir, NoDecisions), Throws.InstanceOf<InvalidDataException>().With.Message.Contains("is not a JSON object"));
+    }
+
+    [Test]
+    public void ADecisionsRowShortOfItsCellsIsRefused() =>
+        Assert.That(() => DepositLabelReader.LoadDecisions(Decisions("PXD1\t*\tsample_type\tunknown\t\ta\t2026-11-25")),
+            Throws.InstanceOf<InvalidDataException>().With.Message.Contains("by and reason are required"));
+
+    [Test]
     public void ADepositWithNoSearchIsRefused()
     {
         string dir = Path.Combine(TestSupport.TempDir(), "PXD000002");
@@ -363,10 +434,13 @@ public class DepositLabelsTests
         Assert.That(written.GetProperty("cysteine").GetProperty("verdict").GetString(), Is.EqualTo("matches"));
         Assert.That(File.Exists(Path.Combine(outDir, "PXD000001", "provenance.json")));
 
-        // One deposit and no --out: its own 07_labels.
+        // One deposit and no --out: its own 07_labels. One deposit and --out: that folder itself.
         rc = await Program.RunAsync(["labels", a], new StringWriter(), CancellationToken.None);
         Assert.That(rc, Is.EqualTo(0));
         Assert.That(File.Exists(Path.Combine(a, DepositLabelReader.Folder, DepositLabelReader.JsonFile)));
+        string single = TestSupport.TempDir();
+        Assert.That(await Program.RunAsync(["labels", a, "--out", single], new StringWriter(), CancellationToken.None), Is.EqualTo(0));
+        Assert.That(File.Exists(Path.Combine(single, DepositLabelReader.JsonFile)));
         // One deposit that cannot be labelled is a handled failure.
         Assert.That(await Program.RunAsync(["labels", none], new StringWriter(), CancellationToken.None), Is.EqualTo(1));
         Assert.That(await Program.RunAsync(["labels"], new StringWriter(), CancellationToken.None), Is.EqualTo(2));
