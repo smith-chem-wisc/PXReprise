@@ -19,6 +19,8 @@ public class TraitsWriterTests
     private static IReadOnlyList<TraitsFile> Write(string tsv, string? roles = null, params string[] datasets) =>
         TraitsWriter.Write(Age, tsv, roles, TestSupport.TempDir(), (datasets.Length == 0 ? ["D1"] : datasets).ToHashSet(StringComparer.Ordinal));
 
+    private static TraitsFile WriteOne(TraitSource t, string tsv) => TraitsWriter.Write(t, tsv, null, TestSupport.TempDir(), new HashSet<string> { "D1" }).Single();
+
     // ---------------------------------------------------------------- the question's [traits.<id>]
 
     private static Question Load(string traits) =>
@@ -29,8 +31,10 @@ public class TraitsWriterTests
     {
         var q = Load("[traits]\nrequired = [\"age\"]\n[traits.age]\ndesign_factor = \"age group\"\nsample_value = \"sample_ages.age_years\"\nscale = 0.1\n"
             + "trait_id = \"age_decades\"\nsample_exclude_when = [\"age_is_range\", \"age_is_lower_bound\"]\n"
-            + "covariates = [\"characteristics[sex]\", \"acquisition_batch\"]\ncovariate_factor_role = \"condition\"\nstratum_factor_role = \"stratum\"\n");
+            + "covariates = [\"characteristics[sex]\", \"acquisition_batch\"]\ncovariate_factor_role = \"condition\"\nstratum_factor_role = \"stratum\"\n"
+            + "never_drop = [\"acquisition_batch\"]\n");
         var t = q.TraitSources!["age"];
+        Assert.That(t.NeverDrop, Is.EqualTo(new[] { "acquisition_batch" }));
         Assert.That((t.DesignFactor, t.SampleValue, t.Scale, t.TraitId, t.CovariateFactorRole, t.StratumFactorRole),
             Is.EqualTo(("age group", "sample_ages.age_years", 0.1, "age_decades", "condition", "stratum")));
         Assert.That(t.SampleExclusions, Is.EqualTo(new[] { "age_is_range", "age_is_lower_bound" }));
@@ -49,6 +53,7 @@ public class TraitsWriterTests
     [TestCase("[traits]\nrequired = [\"age\"]\n[traits.age]\ndesign_factor = \"a\"\nsample_exclude_when = [\"x\"]\n", "needs sample_value")]
     [TestCase("[traits]\nrequired = [\"age\"]\n[traits.age]\nsample_value = \"s.v\"\nsample_exclude_when = [\"x y\"]\n", "must be a column name")]
     [TestCase("[traits]\nrequired = [\"age\"]\n[traits.age]\ndesign_factor = \"a\"\ncovariate_factor_role = \"x\"\nstratum_factor_role = \"x\"\n", "are both 'x'")]
+    [TestCase("[traits]\nrequired = [\"age\"]\n[traits.age]\ndesign_factor = \"a\"\ncovariates = [\"x\"]\nnever_drop = [\"acquisition_batch\"]\n", "is not one of its covariates")]
     [TestCase("[traits]\nrequired = [\"age\"]\n[traits.age]\ndesign_factor = \"a\"\nunit = \"years\"\n", "unit")]
     public void ABadTraitsTableIsRefused(string traits, string message)
     {
@@ -184,6 +189,23 @@ public class TraitsWriterTests
             "covariate sex has a level held by fewer than two individuals, so it is left out",
             "covariate acquisition_batch is incomplete, so it is left out",
         }), "sex is counted by animal (m3's two runs are one), not by run");
+    }
+
+    [Test]
+    public void ABatchNeverDroppedIsWrittenHoweverThinAndAnIncompleteOneLeavesTheDepositOut()
+    {
+        var keepBatch = Age with { NeverDropCovariates = ["acquisition_batch"] };
+        // b1 holds one mouse only: sex would be dropped for that, the batch is not (the engine judges confounding).
+        var thin = WriteOne(keepBatch, Tsv("D1\tD1:r1\tm1\t2.0\t\t\tfalse\tmale\tb1", "D1\tD1:r2\tm2\t2.0\t\t\tfalse\tmale\tb2",
+            "D1\tD1:r3\tm3\t1.0\t\t\tfalse\tmale\tb2"));
+        Assert.That(thin.Covariates, Is.EqualTo(new[] { "acquisition_batch" }));
+        Assert.That(File.ReadAllLines(thin.Path!)[0], Does.EndWith("\tvalue\tacquisition_batch"));
+
+        var gap = WriteOne(keepBatch, Tsv("D1\tD1:r1\tm1\t2.0\t\t\tfalse\tmale\tb1", "D1\tD1:r2\tm2\t1.0\t\t\tfalse\tmale\t"));
+        Assert.That((gap.Path, gap.Notes.Last()), Is.EqualTo(((string?)null, "covariate acquisition_batch is incomplete, and it is never dropped")));
+
+        var oneBatch = WriteOne(keepBatch, Tsv("D1\tD1:r1\tm1\t2.0\t\t\tfalse\tmale\tb1", "D1\tD1:r2\tm2\t1.0\t\t\tfalse\tmale\tb1"));
+        Assert.That(oneBatch.Covariates, Is.Empty, "one batch: no term");
     }
 
     [Test]

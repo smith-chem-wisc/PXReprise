@@ -14,14 +14,16 @@ public enum DecisionVerdict { Include, Exclude }
 /// <c>characteristics[...]</c> name from <c>curated_sample_characteristics</c>, or a <c>curated_run_design</c> column;
 /// with <see cref="CovariateFactorRole"/>, every other <c>curated_design_factors</c> factor of that role is one too. A
 /// factor of <see cref="StratumFactorRole"/> (a tissue) is never a covariate: its levels are fitted apart, so a deposit
-/// where one varies is left out until that fit is built.
+/// where one varies is left out until that fit is built. A covariate in <see cref="NeverDrop"/> (a batch) is never left
+/// out to get a fit: it is written whenever it has two levels, and a deposit where it is incomplete is left out.
 /// </summary>
 public sealed record TraitSource(string Id, string? DesignFactor, string? SampleValue, double Scale, IReadOnlyList<string> Covariates,
     string? TraitIdOverride = null, IReadOnlyList<string>? SampleExcludeWhen = null, string? CovariateFactorRole = null,
-    string? StratumFactorRole = null)
+    string? StratumFactorRole = null, IReadOnlyList<string>? NeverDropCovariates = null)
 {
     public string TraitId => TraitIdOverride ?? Id;
     public IReadOnlyList<string> SampleExclusions => SampleExcludeWhen ?? [];
+    public IReadOnlyList<string> NeverDrop => NeverDropCovariates ?? [];
 }
 
 /// <summary>A hand call on one deposit, overriding the rules (a question's <c>decisions.tsv</c>).</summary>

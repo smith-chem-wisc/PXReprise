@@ -55,7 +55,8 @@ whether to search them again is a separate choice.
     so one refused bundle stops nothing else.
   - **A covariate is written only where it can be fitted:** complete, at least two levels, and each level held by at
     least two individuals (counted by animal, not by run). A second covariate that splits the samples exactly as an
-    earlier one does is dropped.
+    earlier one does is dropped. A covariate in `never_drop` (a batch) is written whenever it has two levels, however
+    thin, and the engine judges whether the trait is still estimable. A deposit where one is incomplete is left out.
   - **A deposit is left out whole if any run lacks a curated individual,** so an injection is never counted as an
     animal. Every deposit left out is logged with its reason.
   - Each result is recorded in the deposit's state (`ptmqtl_site_traits_<trait>_*`). A failure never stops the publish.

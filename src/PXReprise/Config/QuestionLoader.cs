@@ -88,8 +88,11 @@ public static class QuestionLoader
                 throw new ConfigException(file, $"[traits.{id}] sample_exclude_when '{c}' must be a column name");
             string? role = t.OptionalString("covariate_factor_role"), stratum = t.OptionalString("stratum_factor_role");
             if (role is not null && role == stratum) throw new ConfigException(file, $"[traits.{id}] covariate_factor_role and stratum_factor_role are both '{role}'");
+            var neverDrop = t.StringList("never_drop");
+            foreach (string c in neverDrop.Where(c => !covariates.Contains(c)))
+                throw new ConfigException(file, $"[traits.{id}] never_drop '{c}' is not one of its covariates");
             t.RefuseUnknownKeys();
-            traitSources[id] = new TraitSource(id, factor, sample, scale, covariates, traitId, excludeWhen, role, stratum);
+            traitSources[id] = new TraitSource(id, factor, sample, scale, covariates, traitId, excludeWhen, role, stratum, neverDrop);
         }
         traits?.RefuseUnknownKeys();
 

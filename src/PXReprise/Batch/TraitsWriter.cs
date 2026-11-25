@@ -100,7 +100,9 @@ public static class TraitsWriter
     /// as an animal (ptmQtl D88); so is one with no value left, a run with two different rows, or a stratum factor with
     /// two or more levels (a fit per level is not built);</item>
     /// <item>a covariate is written only where it is complete and has two or more levels, each held by two or more
-    /// individuals; one that splits the samples exactly as an earlier one does is left out.</item>
+    /// individuals; one that splits the samples exactly as an earlier one does is left out. One in <c>never_drop</c> (a
+    /// batch) is written at two levels however thin, never left out to get a fit, and a deposit where it is incomplete
+    /// is left out (aging 341: a confounded batch is the engine's <c>not_estimable</c>, not a reason to drop it).</item>
     /// </list>
     /// Every deposit left out comes back with its reason.
     /// </summary>
@@ -170,28 +172,38 @@ public static class TraitsWriter
                 continue;
             }
 
-            // The covariates: the named ones, then each other factor of the role on these runs.
-            var candidates = cov.Select((index, i) => (Name: ColumnName(t.Covariates[i]), Level: (Func<string[], string>)(r => Cell(r, index))))
+            // The covariates: those never dropped first, then the other named ones, then each other factor of the role on
+            // these runs.
+            var candidates = cov.Select((index, i) => (Name: ColumnName(t.Covariates[i]), Level: (Func<string[], string>)(r => Cell(r, index)), Keep: t.NeverDrop.Contains(t.Covariates[i])))
+                .OrderBy(c => c.Keep ? 0 : 1)
                 .Concat(roleNames.Where(f => kept.Any(k => LevelOf(k.Row, f) != ""))
-                    .Select(f => (Name: ColumnName(f), Level: (Func<string[], string>)(r => LevelOf(r, f)))))
+                    .Select(f => (Name: ColumnName(f), Level: (Func<string[], string>)(r => LevelOf(r, f)), Keep: false)))
                 .ToList();
             var columns = new List<(string Name, Func<string[], string> Level)>();
             var partitions = new List<string>();
+            string? incomplete = null;
             foreach (var c in candidates)
             {
                 if (columns.Any(k => k.Name == c.Name)) continue;
                 var values = kept.Select(k => (Level: c.Level(k.Row), Individual: Cell(k.Row, rep))).ToList();
-                if (values.Any(v => Empty(v.Level))) { notes.Add($"covariate {c.Name} is incomplete, so it is left out"); continue; }
+                if (values.Any(v => Empty(v.Level)))
+                {
+                    if (c.Keep) { incomplete = c.Name; break; }
+                    notes.Add($"covariate {c.Name} is incomplete, so it is left out");
+                    continue;
+                }
                 var levels = values.GroupBy(v => v.Level).ToList();
                 if (levels.Count < 2) continue;
-                if (levels.Any(l => l.Select(v => v.Individual).Distinct().Count() < 2)) { notes.Add($"covariate {c.Name} has a level held by fewer than two individuals, so it is left out"); continue; }
+                // A covariate never dropped is written however thin: the engine says whether age is still estimable.
+                if (!c.Keep && levels.Any(l => l.Select(v => v.Individual).Distinct().Count() < 2)) { notes.Add($"covariate {c.Name} has a level held by fewer than two individuals, so it is left out"); continue; }
                 // The same split of the runs under other names is one covariate.
                 var index = values.Select(v => v.Level).Distinct().Select((l, i) => (l, i)).ToDictionary(x => x.l, x => x.i, StringComparer.Ordinal);
                 string partition = string.Join(",", values.Select(v => index[v.Level]));
                 if (partitions.Contains(partition)) { notes.Add($"covariate {c.Name} splits the samples as another does, so it is left out"); continue; }
                 partitions.Add(partition);
-                columns.Add(c);
+                columns.Add((c.Name, c.Level));
             }
+            if (incomplete is not null) { written.Add(Out($"covariate {incomplete} is incomplete, and it is never dropped")); continue; }
 
             string file = Path.Combine(outDir, $"{group.Key}.{t.TraitId}.traits.tsv");
             using (var w = new StreamWriter(file, false, new System.Text.UTF8Encoding(false)))
