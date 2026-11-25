@@ -29,6 +29,43 @@ text says TMT while PRIDE's quantification names label-free too (below). A quest
 profiles by naming them before their earlier versions in its `profiles`; deposits already searched keep their profile, and
 whether to search them again is a separate choice.
 
+- **The batch runs ptmQtl's engines** (decision 0096), when the machine file has a `[ptmqtl]` table naming ptmQtl's
+  three lists (`enrichment`, optional `capture_runs`, `cysteine`). `ptmqtl.site_pairs` runs on each label-free deposit
+  as it is delivered, on its newest bundle. Before each publish, a catch-up pairs deposits delivered before the engines
+  ran (`catch_up_per_publish` of them, 20 by default), then `ptmqtl.pool_pairs` pools every paired deposit (one result
+  per species). Each run's result, artefact and whole output are in the deposit's state (`ptmqtl_site_pairs_*`) and the
+  publish record (`ptmqtl_pool_*`). A failed run never stops a delivery or a publish, and isobaric deposits are never
+  run. **datarepo's catalog:** a pooled artefact whose members all sit in a larger pool of the same species is that
+  pool's earlier version, and gives way to it. Before, the second pool of a species stopped the catalog build.
+
+- **The batch can run ptmQtl's per-site trait fit (`site_traits`), and writes its traits files** (decision 0096). It
+  is off by default (`[ptmqtl] site_traits = true` and `catalog`, the catalogs folder). It needs ptmQtl's engine change
+  and the mzLib release it comes with, so leave it off until the pin carries both.
+  - **A question says where each trait comes from** in a new `[traits.<id>]` table, using its curated tables' names,
+    never code:
+    - `design_factor` and/or `sample_value` (`table.column`); the sample's value wins, and any disagreement is said;
+    - `scale` (0.1 turns years into decades) and `trait_id` (`age_decades`, so the unit travels with the trait);
+    - `sample_exclude_when`, flags such as a range or a lower bound, whose samples are left out and counted;
+    - `covariates` and `covariate_factor_role`: with the latter, every other design factor of that role is a covariate
+      too;
+    - `stratum_factor_role`: a factor of that role (a tissue) is never pooled. Its levels are fitted apart, so until
+      that fit is built, a deposit where one varies is left out.
+  - **Before each publish,** for each such trait, the batch reads the latest catalog (`datarepo query`) and writes one
+    traits file per delivered label-free deposit. It then runs `site_traits` on each deposit by itself, one at a time,
+    so one refused bundle stops nothing else.
+  - **A covariate is written only where it can be fitted:** complete, at least two levels, and each level held by at
+    least two individuals (counted by animal, not by run). A second covariate that splits the samples exactly as an
+    earlier one does is dropped. A covariate in `never_drop` (a batch) is written whenever it has two levels, however
+    thin, and the engine judges whether the trait is still estimable. A deposit where one is incomplete is left out.
+  - **A deposit is left out whole if any run lacks a curated individual,** so an injection is never counted as an
+    animal. So is one whose trait has one value once exclusions are applied, since it has no slope. Every deposit left
+    out is logged with its reason.
+  - **Which deposits are fitted is the engine's rule.** It refuses a capture, and the log then says "file written, no
+    fit", with its reason.
+  - Each result is recorded in the deposit's state (`ptmqtl_site_traits_<trait>_*`). A failure never stops the publish.
+    A deposit whose file, datarepo and delivery are unchanged since its last run is not asked again, so an engine's
+    refusal (a capture) is not repeated at every publish; a swap or a re-ingest asks again.
+
 - **New `labels` verb: each run's sample type and each search's cysteine chemistry** (decision 0094), for ptmQtl to
   read in place of its hand lists. `pxreprise labels <deposit folder>... [--decisions FILE] [--out DIR]` reads what a
   deposit's folder records (its search's spectra files, chemistry and cysteine-peptide share; the screen's

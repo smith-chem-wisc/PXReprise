@@ -130,6 +130,25 @@ min_free_gb = 50
 # run_root = "E:/pxreprise/runs"
 # state_dir = "E:/pxreprise/state"
 
+# OPTIONAL (unreleased; decision 0096). ptmQtl's engines, run by the batch with no one asking: `ptmqtl.site_pairs` on each
+# label-free deposit as it is delivered, and before each publish `ptmqtl.pool_pairs` over every deposit paired so far
+# (one pooled result per species). They run through `datarepo run`, so `datarepo` must be set. The three files are
+# ptmQtl's lists (their capture list, its capture runs, and S2d's cysteine list), taken beside this file when relative;
+# `capture_runs` is optional. Deposits delivered before the engines ran are caught up at each publish,
+# `catch_up_per_publish` of them at a time (20 by default; 0 turns it off). A failed run is logged and recorded in the
+# deposit's state; it never stops a delivery or a publish. Isobaric deposits are never run.
+# `site_traits = true` also runs `ptmqtl.site_traits` before each publish, for each trait the question sources in a
+# `[traits.<id>]` table. The batch writes each deposit's traits file from the latest catalog, so `catalog` (the catalogs
+# folder, or one .duckdb file) is then required. It is off by default, and stays off until the pin's datarepo carries
+# ptmQtl's site_traits change.
+# [ptmqtl]
+# enrichment = "D:/ptmQtl/results/ptm_enriched_v4/deposits.tsv"
+# capture_runs = "D:/ptmQtl/results/ptm_enriched_v4/capture_runs.tsv"
+# cysteine = "D:/ptmQtl/results/cysteine_list_v1/deposits.tsv"
+# catch_up_per_publish = 20
+# catalog = "D:/repo/catalogs"
+# site_traits = false
+
 # REQUIRED. MetaMorpheus, by release. Download MetaMorpheus_CommandLine.zip for the release a profile names
 # (1.1.13 for label-free-dda-uniprot@1, the profile a new installation runs: its databases download by themselves) from
 # https://github.com/smith-chem-wisc/MetaMorpheus/releases/tag/1.1.13, unzip it anywhere, and point at CMD.dll (run as
