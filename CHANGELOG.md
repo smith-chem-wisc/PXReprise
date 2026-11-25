@@ -116,13 +116,15 @@ whether to search them again is a separate choice.
   - **Covariates.** Every column of `--input traits` past `dataset`, `run`, `replicate`, `trait_id` and `value` is a
     categorical covariate named by its header (for example `sex`, `acquisition_batch`). The engine codes it as
     indicators against the level that sorts first, and names each term `<column>=<level>`. Every run needs a value, and
-    a sample's runs must agree. A covariate with one level is not fitted. A deposit whose covariates cannot be told
-    apart from the trait is refused (`covariate_confounded`, naming them). Which covariates to give is the consumer's
-    rule (aging's DEF-AGE-EFFECT §3.3). Run depth is never one (§3.4).
+    a sample's runs must agree. A covariate with one level is not fitted. When the covariates cannot be told apart from
+    the trait, no site is fitted and no term is dropped. Every site's row has the status `CovariateConfounded` and no
+    value (aging's `not_estimable:confounded`). Which covariates to give is the consumer's rule (aging's DEF-AGE-EFFECT
+    §3.3). Run depth is never one (§3.4).
   - **`site_trait_fits.tsv` gains three columns:** `covariates` (the terms fitted, in the order of `covariate_effects`),
     `residual_variance_borrowed` and `counted_runs`. The run record's `engine_summary` gains `covariates`,
-    `covariates_not_fitted` and `trait_depth`: the trait's Spearman correlation with depth over the samples fitted, shown
-    as evidence and never used as a filter.
+    `covariates_not_fitted`, `covariate_confounded` (which covariates, when they cannot be told apart from the trait)
+    and `trait_depth`: the trait's Spearman correlation with depth over the samples fitted, shown as evidence and never
+    used as a filter.
   - `trait_effects` keeps its columns. `definition_id` is `ptmQtl:DEF-SITE-TRAIT v3`, and so a new artefact id.
   - **Tests.** ptmQtl's reference case v4 (`Fixtures/ptmqtl-reference-v4`) replaces v3. It adds D4, a deposit built for
     the fit (12 animals, 4 of them injected twice, 10 sites with one-form runs of every kind, age and sex crossed), and

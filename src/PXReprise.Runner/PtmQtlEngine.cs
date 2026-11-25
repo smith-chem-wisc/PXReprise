@@ -559,6 +559,7 @@ public static class PtmQtlEngine
                         ["fitted"] = (long)fit.Rows.Count(r => r["estimable_int"] is true),
                         ["covariates"] = fit.Covariates.Select(c => (object?)c).ToList(),
                         ["covariates_not_fitted"] = fit.CovariatesNotFitted.Select(c => (object?)c).ToList(),
+                        ["covariate_confounded"] = fit.Confounded,
                         ["trait_depth"] = TraitDepthRecord(fit.TraitDepth),
                         ["search_gate"] = Gate(bundle),
                         ["identification_filter"] = dataset.IdentificationFilter,

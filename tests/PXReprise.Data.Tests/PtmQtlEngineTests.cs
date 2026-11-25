@@ -602,10 +602,10 @@ public class PtmQtlEngineTests
     }
 
     /// <summary>DEF-SITE-TRAIT v3's covariate coding: indicators against the level that sorts first, a one-level
-    /// covariate not fitted, a sample with no level refused; and a covariate the trait cannot be told apart from refuses
-    /// the deposit, named.</summary>
+    /// covariate not fitted, a sample with no level refused; and when a covariate cannot be told apart from the trait,
+    /// no site is fitted and no term dropped, and every site's row says so (aging's not_estimable:confounded).</summary>
     [Test]
-    public void CovariatesAreIndicatorsAndOneConfoundedWithTheTraitRefusesTheDeposit()
+    public void CovariatesAreIndicatorsAndOneConfoundedWithTheTraitFitsNoSite()
     {
         var levels = new Dictionary<string, IReadOnlyDictionary<string, string>>
         {
@@ -631,15 +631,28 @@ public class PtmQtlEngineTests
             ["acquisition_batch"] = runs.ToDictionary(r => r["combine_to"], r => "b" + r["age_months"], StringComparer.Ordinal),
             ["sex"] = runs.ToDictionary(r => r["combine_to"], r => r["sex"], StringComparer.Ordinal),
         };
-        Assert.That(() => PtmQtlCore.SiteTraits(d4, "age_months", trait, replicate, batch), Throws.TypeOf<RunnerException>()
-            .With.Message.Contains("covariate(s) acquisition_batch cannot be told apart").And.Message.Contains("covariate_confounded"));
+        var confounded = PtmQtlCore.SiteTraits(d4, "age_months", trait, replicate, batch);
+        var fine = PtmQtlCore.SiteTraits(d4, "age_months", trait, replicate,
+            new Dictionary<string, IReadOnlyDictionary<string, string>> { ["sex"] = batch["sex"] });
+        Assert.Multiple(() =>
+        {
+            Assert.That(confounded.Confounded, Does.StartWith("the covariate(s) acquisition_batch cannot be told apart from age_months"));
+            Assert.That(confounded.Fits.Select(f => f["status"]).Distinct(), Is.EqualTo(new[] { PtmQtlCore.CovariateConfounded }));
+            Assert.That(confounded.Rows.Select(r => (r["beta_int"], r["p_int"], r["q"], r["estimable_int"])).Distinct(),
+                Is.EqualTo(new[] { ((object?)null, (object?)null, (object?)null, (object?)false) }));
+            // Every site the fit would see keeps its row and mzLib's counts of its runs and replicates.
+            Assert.That(confounded.Rows.Select(r => r["feature_key"]), Is.EquivalentTo(fine.Rows.Select(r => r["feature_key"])));
+            Assert.That(confounded.Rows.Select(r => r["n_detected"]), Is.EqualTo(fine.Rows.Select(r => r["n_detected"])));
+            Assert.That(confounded.Fits.Select(f => f["covariates"]).Distinct(), Is.EqualTo(new[] { "acquisition_batch=b24;acquisition_batch=b3;sex=M" }));
+            Assert.That(fine.Confounded, Is.Null);
+        });
         var together = new Dictionary<string, IReadOnlyDictionary<string, string>>
         {
             ["sex"] = batch["sex"],
             ["sex_again"] = batch["sex"],
         };
-        Assert.That(() => PtmQtlCore.SiteTraits(d4, "age_months", trait, replicate, together), Throws.TypeOf<RunnerException>()
-            .With.Message.Contains("covariate(s) sex, sex_again cannot be told apart"));
+        Assert.That(PtmQtlCore.SiteTraits(d4, "age_months", trait, replicate, together).Confounded,
+            Does.StartWith("the covariate(s) sex, sex_again cannot be told apart"));
     }
 
     /// <summary>site_pairs on two real mouse bundles, then pool_pairs over their artefacts (scratch store; the

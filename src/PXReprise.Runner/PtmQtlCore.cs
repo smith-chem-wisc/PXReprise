@@ -103,6 +103,10 @@ public sealed record SiteTraitsResult(List<Row> Rows, List<Row> Fits, Dictionary
     /// <summary>The trait's Spearman correlation with depth over the samples fitted: evidence, never a filter
     /// (DEF-SITE-TRAIT v3).</summary>
     public StatisticalModels.SpearmanResult? TraitDepth { get; init; }
+
+    /// <summary>Why no site was fitted, when the covariates cannot be told apart from the trait (every site's status is
+    /// <see cref="PtmQtlCore.CovariateConfounded"/>); null otherwise.</summary>
+    public string? Confounded { get; init; }
 }
 
 /// <summary>ptmQtl's definitions, applied through mzLib only: <c>ptmQtl:DEF-PTM-PAIR v3</c> and
@@ -129,6 +133,10 @@ public static class PtmQtlCore
     /// ptmQtl's threshold, stated as such; not a rule from data.</summary>
     public const double DepthLikeShare = 0.10;
     public const string TraitDefinition = "ptmQtl:DEF-SITE-TRAIT v3";
+
+    /// <summary>DEF-SITE-TRAIT v3: a site's status when the deposit's covariates cannot be told apart from the trait
+    /// (aging's <c>not_estimable:confounded</c>). Its values are null.</summary>
+    public const string CovariateConfounded = "CovariateConfounded";
 
     /// <summary>S2: the mzLib categories whose modifications are biological (D26, D27).</summary>
     public static readonly IReadOnlyList<string> BiologicalCategories = ["Common Biological", "UniProt", "Trypsin Digested", "AspN Digested"];
@@ -665,7 +673,9 @@ public static class PtmQtlCore
     /// one form, a floor, a count-only cell or a covered zero enters, never dropped. mzLib fits it as a count
     /// (<see cref="BoundCellModel.Sampling"/>), with each sample's depth (<see cref="Depth"/>) in the detection link, so a
     /// sample with no depth is left out of the fit and counted. The covariates are categorical
-    /// (<see cref="CovariateDesign"/>), and a deposit whose covariates cannot be told apart from the trait is refused.
+    /// (<see cref="CovariateDesign"/>). When they cannot be told apart from the trait, no site is fitted and no term is
+    /// dropped: every site's row has the status <see cref="CovariateConfounded"/> and no value
+    /// (<see cref="SiteTraitsResult.Confounded"/> says why).
     /// Depth is never a covariate (aging's DEF-AGE-EFFECT §3.4); the trait's rank correlation with depth over the samples
     /// fitted is recorded as evidence (<see cref="SiteTraitsResult.TraitDepth"/>), never a filter.</para>
     /// <para>As v2 (D33), the response is the log2 odds of occupancy, <c>response</c> = <c>log2_odds_occupancy</c>.</para>
@@ -673,8 +683,8 @@ public static class PtmQtlCore
     /// <param name="trait">The trait per sample (after S4).</param>
     /// <param name="replicate">The biological replicate per sample: the animal, never the injection.</param>
     /// <param name="covariates">Each covariate's level per sample; none when null.</param>
-    /// <exception cref="RunnerException">The deposit is enriched (S3), has no whole-proteome run (S3b), or its covariates
-    /// cannot be told apart from the trait (<c>covariate_confounded</c>): no site-trait fit is computed on it.</exception>
+    /// <exception cref="RunnerException">The deposit is enriched (S3) or has no whole-proteome run (S3b): no site-trait fit
+    /// is computed on it.</exception>
     public static SiteTraitsResult SiteTraits(PtmQtlDataset dataset, string traitId, IReadOnlyDictionary<string, double> trait,
         IReadOnlyDictionary<string, string> replicate, IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? covariates = null)
     {
@@ -691,20 +701,24 @@ public static class PtmQtlCore
         leftOut["samples with occupancy and no trait value (left out of the fit)"] = occupancy.Select(c => c.Run).Distinct().LongCount(s => !trait.ContainsKey(s));
         var fitted = samples.ToDictionary(s => s, s => trait[s], StringComparer.Ordinal);
         var (values, terms, notFitted) = CovariateDesign(covariates ?? new Dictionary<string, IReadOnlyDictionary<string, string>>(), samples);
+        string? confounded = null;
         if (terms.Count > 0 && !Separable(samples, fitted, values, Enumerable.Range(0, terms.Count).ToList()))
         {
             var named = terms.Select((t, j) => (Covariate: t[..t.IndexOf('=')], j)).GroupBy(t => t.Covariate)
                 .Where(g => !Separable(samples, fitted, values, g.Select(t => t.j).ToList())).Select(g => g.Key).ToList();
-            throw new RunnerException($"{dataset.DatasetId}: the covariate(s) {string.Join(", ", named.Count > 0 ? named : terms.Select(t => t[..t.IndexOf('=')]).Distinct())} "
-                + $"cannot be told apart from {traitId} over the {samples.Count} samples fitted (covariate_confounded, ptmQtl DEF-SITE-TRAIT v3): "
-                + "no site-trait fit is computed on it.");
+            confounded = $"the covariate(s) {string.Join(", ", named.Count > 0 ? named : terms.Select(t => t[..t.IndexOf('=')]).Distinct())} "
+                + $"cannot be told apart from {traitId} over the {samples.Count} samples fitted";
         }
         var traitDepth = StatisticalModels.SpearmanCorrelation.Correlate(samples.Select(s => fitted[s]).ToList(), samples.Select(s => depth[s]).ToList());
         var rows = new List<Row>();
         var fits = new List<Row>();
-        var options = new SiteTraitOptions { Scale = OccupancyScale.Log2Odds, BoundCells = BoundCellModel.Sampling, RunDepth = depth };
-        foreach (var e in SiteTraitEffects.Fit(occupancy, fitted, replicate, values, terms, options))
+        // Confounded: no site is fitted, and no term is dropped to get a fit (aging's rule). Every site still gets its row,
+        // with mzLib's own counts and no value, as a site below support does: support is set out of reach, so nothing is fitted.
+        var options = new SiteTraitOptions { Scale = OccupancyScale.Log2Odds, BoundCells = BoundCellModel.Sampling, RunDepth = depth,
+            MinRuns = confounded is null ? new SiteTraitOptions().MinRuns : int.MaxValue };
+        foreach (var fit in SiteTraitEffects.Fit(occupancy, fitted, replicate, values, terms, options))
         {
+            var e = confounded is null ? fit : fit with { Status = CovariateConfounded };
             var key = Key(e.Site, false, nterms, dataset.Unimod);
             rows.Add(new Row
             {
@@ -747,6 +761,6 @@ public static class PtmQtlCore
                 ["counted_runs"] = (long)e.CountedRuns,
             });
         }
-        return new SiteTraitsResult(rows, fits, leftOut) { Covariates = terms, CovariatesNotFitted = notFitted, TraitDepth = traitDepth };
+        return new SiteTraitsResult(rows, fits, leftOut) { Covariates = terms, CovariatesNotFitted = notFitted, TraitDepth = traitDepth, Confounded = confounded };
     }
 }
