@@ -256,7 +256,7 @@ public class PtmQtlEngineTests
         Assert.That(expected.Select(e => e["scope"]).Distinct(), Is.EqualTo(new[] { "D1", "D4" }));
         Assert.That(expected.Select(e => e["response"]).Distinct(), Is.EqualTo(new[] { "log2_odds_occupancy" }));
         Assert.That(expected.Any(e => e["status"] == "Fitted" && int.Parse(e["counted_runs"], Inv) > 0), "the case fits a site with counted runs");
-        string[] side = ["status", "df", "replicates", "median_fraction", "replicate_variance", "residual_variance", "covariates", "covariate_effects",
+        string[] side = ["status", "df", "replicates", "median_fraction", "replicate_variance", "residual_variance", "covariates",
             "residual_variance_borrowed", "counted_runs"];
         foreach (var ds in Datasets().Where(d => d.DatasetId is "D1" or "D4"))
         {
@@ -275,10 +275,16 @@ public class PtmQtlEngineTests
             {
                 var row = result.Rows.Single(r => (string)r["feature_key"]! == e["feature_key"]);
                 var fit = result.Fits.Single(r => (string)r["feature_key"]! == e["feature_key"]);
-                AssertRow(e.Where(kv => !side.Contains(kv.Key)).ToDictionary(), row, e["feature_key"],
+                AssertRow(e.Where(kv => !side.Contains(kv.Key) && kv.Key != "covariate_effects").ToDictionary(), row, e["feature_key"],
                     new Dictionary<string, Func<object?, string>> { ["protein_accessions"] = v => (string)((List<object?>)v!).Single()! });
-                AssertRow(e.Where(kv => side.Contains(kv.Key)).ToDictionary(), fit, e["feature_key"] + " (side file)",
-                    new Dictionary<string, Func<object?, string>> { ["covariate_effects"] = v => string.Join(";", ((List<object?>)v!).Select(Cell)) });
+                AssertRow(e.Where(kv => side.Contains(kv.Key)).ToDictionary(), fit, e["feature_key"] + " (side file)");
+                // Each covariate's effect, as numbers to 1e-12 relative like every other number (the last digit differs by platform).
+                var want = e["covariate_effects"].Split(';').Select(D).ToArray();
+                var got = ((List<object?>)fit["covariate_effects"]!).Select(v => v is double d ? d : double.NaN).ToArray();
+                Assert.That(got, Has.Length.EqualTo(want.Length), e["feature_key"]);
+                for (var j = 0; j < want.Length; j++)
+                    Assert.That(double.IsNaN(want[j]) ? double.IsNaN(got[j]) : Math.Abs(got[j] - want[j]) <= 1e-12 * Math.Max(1, Math.Abs(want[j])),
+                        $"{e["feature_key"]}: covariate effect {j} {got[j]} vs {want[j]}");
             }
         }
         // A sample with no trait value (a run the consumer gave no age) is left out, and counted.
