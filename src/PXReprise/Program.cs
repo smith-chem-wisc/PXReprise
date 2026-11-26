@@ -13,7 +13,7 @@ namespace PXReprise;
 public static class Program
 {
     /// <summary>The verbs, listed by the <c>version</c> verb. Keep in step with <see cref="Dispatch"/>.</summary>
-    public static readonly string[] Verbs = { "version", "profiles", "validate", "census", "gate", "rank", "chemistry", "fetch", "qc", "search", "qc-payload", "differential", "batch", "library", "worker" };
+    public static readonly string[] Verbs = { "version", "profiles", "validate", "census", "gate", "rank", "chemistry", "labels", "fetch", "qc", "search", "qc-payload", "differential", "batch", "library", "worker" };
 
     /// <summary>Where profiles are read from when --profiles is not given: beside the executable.</summary>
     public static string DefaultProfilesDir => Path.Combine(AppContext.BaseDirectory, "profiles");
@@ -113,6 +113,47 @@ public static class Program
                     parked = rows.Count(r => r.Chemistry?.Park is not null),
                     errors = rows.Count(r => r.Chemistry is null),
                 };
+            }
+
+            case "labels":
+            {
+                // labels <deposit dir>... [--decisions FILE] [--out DIR]: each run's sample type and the search's cysteine
+                // chemistry (D94), from what the deposit's folder records; no spectra. Written as <out>/labels.json, by
+                // default the deposit's own 07_labels; with several deposits, --out holds one folder per dataset. A
+                // deposit that cannot be labelled (no search yet) is listed under "failed" when several are given.
+                args.AllowOnly("decisions", "out");
+                var dirs = args.Words.Skip(1).ToList();
+                if (dirs.Count == 0) throw new UsageException("labels needs a deposit folder");
+                var decisions = args.Option("decisions") is { } df ? Labels.DepositLabelReader.LoadDecisions(df) : [];
+                var written = new List<object>();
+                var failed = new List<object>();
+                foreach (var dir in dirs)
+                {
+                    Labels.DepositLabels labels;
+                    try { labels = Labels.DepositLabelReader.Read(dir, decisions); }
+                    catch (InvalidDataException e) when (dirs.Count > 1)
+                    {
+                        // One deposit that cannot be labelled (no search yet) does not stop the others; it is reported.
+                        failed.Add(new { dataset = new DirectoryInfo(dir).Name, error = e.Message });
+                        continue;
+                    }
+                    string outDir = args.Option("out") is { } o
+                        ? (dirs.Count == 1 ? o : Path.Combine(o, labels.Dataset))
+                        : Path.Combine(dir, Labels.DepositLabelReader.Folder);
+                    var record = new RunRecord("labels");
+                    foreach (var input in new[] { Path.Combine(dir, "04_search", "provenance.json"), Path.Combine(dir, Discovery.ExperimentRecord.Folder, Discovery.ExperimentRecord.JsonFile), args.Option("decisions") })
+                        if (input is not null && File.Exists(input)) record.Input(input);
+                    string file = Labels.DepositLabelReader.Write(labels, outDir);
+                    record.Output(file);
+                    record.Write(outDir);
+                    written.Add(new
+                    {
+                        dataset = labels.Dataset, file = Path.GetFullPath(file),
+                        sample_types = labels.Runs.GroupBy(r => r.Value).OrderBy(g => g.Key, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count()),
+                        cysteine = labels.Cysteine.Verdict,
+                    });
+                }
+                return new { labelled = written, failed };
             }
 
             case "rank":

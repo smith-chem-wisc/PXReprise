@@ -94,15 +94,15 @@ public sealed record DepthNullResult(long RealCalls, IReadOnlyList<long> NullCal
 /// <summary>One dataset's site-trait fits: the <c>trait_effects</c> rows and the side fields.</summary>
 public sealed record SiteTraitsResult(List<Row> Rows, List<Row> Fits, Dictionary<string, long> LeftOut);
 
-/// <summary>ptmQtl's definitions, applied through mzLib only: <c>ptmQtl:DEF-PTM-PAIR v2</c> and
-/// <c>ptmQtl:DEF-SITE-TRAIT v1</c> (<c>ptmQtl/design/DEFINITIONS.md</c>).</summary>
+/// <summary>ptmQtl's definitions, applied through mzLib only: <c>ptmQtl:DEF-PTM-PAIR v3</c> and
+/// <c>ptmQtl:DEF-SITE-TRAIT v2</c> (<c>ptmQtl/design/DEFINITIONS.md</c>).</summary>
 /// <remarks>
 /// <para>This computes nothing the definitions do not say. Every number comes from mzLib's
 /// <see cref="SiteOccupancyCalculator"/>, <see cref="PtmPairEngine"/>, <see cref="GlobalPairEngine"/> and
 /// <see cref="SiteTraitEffects"/>. What is here is the shared rules: which modifications (S2), which deposits (S3),
 /// runs and samples (S4), and site keys (S5). It also shapes the rows to the column contract.</para>
-/// <para>It follows ptmQtl's reference program (<c>tools/ReferenceCase</c>) step for step, and its output must match
-/// <c>results/reference_case_v1/expected</c> (G37).</para>
+/// <para>It follows ptmQtl's reference program (<c>tools/ptmqtl-reference</c>) step for step, and its output must match
+/// <c>tests/PXReprise.Data.Tests/Fixtures/ptmqtl-reference-v3/expected</c> (G37).</para>
 /// </remarks>
 public static class PtmQtlCore
 {
@@ -117,7 +117,7 @@ public static class PtmQtlCore
     /// <summary>D78: a deposit is depth-like when the null's calls per replicate reach this share of its real calls.
     /// ptmQtl's threshold, stated as such; not a rule from data.</summary>
     public const double DepthLikeShare = 0.10;
-    public const string TraitDefinition = "ptmQtl:DEF-SITE-TRAIT v1";
+    public const string TraitDefinition = "ptmQtl:DEF-SITE-TRAIT v2";
 
     /// <summary>S2: the mzLib categories whose modifications are biological (D26, D27).</summary>
     public static readonly IReadOnlyList<string> BiologicalCategories = ["Common Biological", "UniProt", "Trypsin Digested", "AspN Digested"];
@@ -593,7 +593,10 @@ public static class PtmQtlCore
         return new PoolResult(rows, leftOut);
     }
 
-    /// <summary><c>ptmqtl.site_traits</c> on one dataset and one trait (<c>DEF-SITE-TRAIT v1</c>).</summary>
+    /// <summary><c>ptmqtl.site_traits</c> on one dataset and one trait (<c>DEF-SITE-TRAIT v2</c>).</summary>
+    /// <remarks>v2 (ptmQtl D33) fits the log2 odds of occupancy, so every effect and standard error is v1's natural-log
+    /// value divided by ln 2, on QuantProject's <c>DEF-DIFF</c> base; df, p and q are v1's. <c>response</c> is
+    /// <c>log2_odds_occupancy</c>, so a v1 row (<c>logit_occupancy</c>) is never read as v2.</remarks>
     /// <param name="trait">The trait per sample (after S4).</param>
     /// <param name="replicate">The biological replicate per sample: the animal, never the injection.</param>
     /// <exception cref="RunnerException">The deposit is enriched (S3): no site-trait fit is computed on it.</exception>
@@ -609,7 +612,7 @@ public static class PtmQtlCore
         var occupancy = Occupancy(dataset, dataset.Categories(), leftOut);
         var rows = new List<Row>();
         var fits = new List<Row>();
-        foreach (var e in SiteTraitEffects.Fit(occupancy, trait, replicate, options: new SiteTraitOptions()))
+        foreach (var e in SiteTraitEffects.Fit(occupancy, trait, replicate, options: new SiteTraitOptions { Scale = OccupancyScale.Log2Odds }))
         {
             var key = Key(e.Site, false, nterms, dataset.Unimod);
             rows.Add(new Row
@@ -619,7 +622,7 @@ public static class PtmQtlCore
                 ["feature_key_unimod"] = Key(e.Site, true, nterms, dataset.Unimod),
                 ["protein_accessions"] = new List<object?> { e.Site.ProteinAccession },
                 ["trait_id"] = traitId,
-                ["response"] = "logit_occupancy",
+                ["response"] = "log2_odds_occupancy",
                 ["scope"] = dataset.DatasetId,
                 ["beta_detect"] = null, ["se_detect"] = null, ["p_detect"] = null,
                 ["beta_int"] = Num(e.Effect), ["se_int"] = Num(e.StandardError), ["p_int"] = Num(e.PValue),

@@ -30,16 +30,67 @@ text says TMT while PRIDE's quantification names label-free too (below). A quest
 profiles by naming them before their earlier versions in its `profiles`; deposits already searched keep their profile, and
 whether to search them again is a separate choice.
 
-- **Three profile versions on MetaMorpheus 1.1.16: `label-free-dda@17`, `label-free-dda-lowres@11` and `tmt-dda@8`**
-  (@16, @10 and @7 with only the MetaMorpheus release changed; the guard test checks them line by line).
+- **Three profile versions on MetaMorpheus 1.1.16 and the PEP q-value filter: `label-free-dda@17`,
+  `label-free-dda-lowres@11` and `tmt-dda@8`** (@16, @10 and @7 with only the MetaMorpheus release and the identification
+  filter changed; the guard test checks them line by line).
   - **Each peptide is judged by its best-scoring match, the one PEP trains on** (MetaMorpheus #2983): the peptide
     table's row, the peptide q-values, protein FDR and the peptides FlashLFQ quantifies all follow that match. 1.1.15
     re-picked each peptide's lowest-PEP match, so FlashLFQ's list held peptides the peptide table fails at 1% (2,645 on
     PXD000279, 445 on PXD031782).
   - **GPTMD may put carbamyl-K on the residue the protease cut after** (MetaMorpheus #2995).
-  - **The filter stays the q-value notch at 1%** (decision 0087): #2983 fixes how protein FDR ranks groups under the
-    PEP q-value, not PEP's top end, where decoys can get a PEP of exactly 0.
+  - **The identification filter is the PEP q-value at 1% in every task**, in place of the q-value notch decision 0087
+    set for 1.1.15 (the user, 2026-11-26: "yes. move to the pep filter"). Under that filter #2983 ranks protein groups
+    by their best peptide's PEP q-value, then by score. That ends 1.1.15's protein FDR collapse: a build of #2983 gave
+    4,720 protein groups at 1% on PXD019690-astro (114 on 1.1.15) and 6,005 on PXD031710 (907), decoys 1.0% of targets.
+    `results.txt` counts by it ("All target PSMs with pep q-value <= 0.01"), and datarepo reads its counts by the
+    same rule.
   - **Databases unchanged:** agingPTM-v10 (`lowres@11` agingPTM-v3). Nothing was delivered after v10 was built.
+
+- **The batch runs ptmQtl's engines** (decision 0096), when the machine file has a `[ptmqtl]` table naming ptmQtl's
+  three lists (`enrichment`, optional `capture_runs`, `cysteine`). `ptmqtl.site_pairs` runs on each label-free deposit
+  as it is delivered, on its newest bundle. Before each publish, a catch-up pairs deposits delivered before the engines
+  ran (`catch_up_per_publish` of them, 20 by default), then `ptmqtl.pool_pairs` pools every paired deposit (one result
+  per species). Each run's result, artefact and whole output are in the deposit's state (`ptmqtl_site_pairs_*`) and the
+  publish record (`ptmqtl_pool_*`). A failed run never stops a delivery or a publish, and isobaric deposits are never
+  run. **datarepo's catalog:** a pooled artefact whose members all sit in a larger pool of the same species is that
+  pool's earlier version, and gives way to it. Before, the second pool of a species stopped the catalog build.
+
+- **The batch can run ptmQtl's per-site trait fit (`site_traits`), and writes its traits files** (decision 0096). It
+  is off by default (`[ptmqtl] site_traits = true` and `catalog`, the catalogs folder). It needs ptmQtl's engine change
+  and the mzLib release it comes with, so leave it off until the pin carries both.
+  - **A question says where each trait comes from** in a new `[traits.<id>]` table, using its curated tables' names,
+    never code:
+    - `design_factor` and/or `sample_value` (`table.column`); the sample's value wins, and any disagreement is said;
+    - `scale` (0.1 turns years into decades) and `trait_id` (`age_decades`, so the unit travels with the trait);
+    - `sample_exclude_when`, flags such as a range or a lower bound, whose samples are left out and counted;
+    - `covariates` and `covariate_factor_role`: with the latter, every other design factor of that role is a covariate
+      too;
+    - `stratum_factor_role`: a factor of that role (a tissue) is never pooled. Its levels are fitted apart, so until
+      that fit is built, a deposit where one varies is left out.
+  - **Before each publish,** for each such trait, the batch reads the latest catalog (`datarepo query`) and writes one
+    traits file per delivered label-free deposit. It then runs `site_traits` on each deposit by itself, one at a time,
+    so one refused bundle stops nothing else.
+  - **A covariate is written only where it can be fitted:** complete, at least two levels, and each level held by at
+    least two individuals (counted by animal, not by run). A second covariate that splits the samples exactly as an
+    earlier one does is dropped. A covariate in `never_drop` (a batch) is written whenever it has two levels, however
+    thin, and the engine judges whether the trait is still estimable. A deposit where one is incomplete is left out.
+  - **A deposit is left out whole if any run lacks a curated individual,** so an injection is never counted as an
+    animal. So is one whose trait has one value once exclusions are applied, since it has no slope. Every deposit left
+    out is logged with its reason.
+  - **Which deposits are fitted is the engine's rule.** It refuses a capture, and the log then says "file written, no
+    fit", with its reason.
+  - Each result is recorded in the deposit's state (`ptmqtl_site_traits_<trait>_*`). A failure never stops the publish.
+    A deposit whose file, datarepo and delivery are unchanged since its last run is not asked again, so an engine's
+    refusal (a capture) is not repeated at every publish; a swap or a re-ingest asks again.
+
+- **New `labels` verb: each run's sample type and each search's cysteine chemistry** (decision 0094), for ptmQtl to
+  read in place of its hand lists. `pxreprise labels <deposit folder>... [--decisions FILE] [--out DIR]` reads what a
+  deposit's folder records (its search's spectra files, chemistry and cysteine-peptide share; the screen's
+  enrichment; the probe's per-run phospho, GG and acetyl-K shares) and writes `07_labels/labels.json`. A run is
+  `whole_proteome`, `ptm_capture`, `protein_pulldown` or `unknown`; a search's cysteine chemistry `matches`, is a
+  `mismatch` or is `unknown`. Each label carries its source, its evidence and a reason; where the text and the data
+  disagree it is `unknown`. A person's decisions (a TSV: dataset, run, label, value, target, by, date, reason)
+  outrank both. Nothing else changes: the batch does not run it yet, and no bundle carries the labels yet.
 
 - **mzLib 1.0.601** (from 1.0.600), the mzLib of the MetaMorpheus release after 1.1.15. One answer changes: on an
   isobaric differential table, `n_peptides` now counts distinct peptides, as mzLib documents it (mzLib #1622). 1.0.600
@@ -104,6 +155,20 @@ whether to search them again is a separate choice.
   back to the spectrum its name held before, or is left out when the name held none. A spectrum a later search replaced
   stays. Spectra are compared by name, retention time and peaks, not by precursor lines or peak annotations (whose
   spelling changed between MetaMorpheus versions). The new version records what was removed and restored.
+
+- **ptmQtl's site-trait fits are `ptmQtl:DEF-SITE-TRAIT v2`: effects in log2 odds** (ptmQtl D33, G64).
+  - `datarepo run ptmqtl.site_traits` fitted the natural-log odds of occupancy (v1). It now fits the log2 odds, as
+    ptmQtl reports them. A site-trait effect then shares QuantProject's `DEF-DIFF` base (`occupancy_log2_odds_*`).
+    - Every effect and standard error is v1's divided by ln 2 (about 0.693), and the variances by (ln 2)².
+    - df, p and q do not change, and neither does the model: mzLib's `SiteTraitEffects` with
+      `SiteTraitOptions.Scale = Log2Odds`.
+  - `trait_effects.response` is `log2_odds_occupancy` (v1 wrote `logit_occupancy`), so a v1 row is never read as v2.
+    `definition_id` is `ptmQtl:DEF-SITE-TRAIT v2`, and so a new artefact id.
+  - Still without bounds: the fit reads quantified cells only, as v1 did. A cell seen in one form (a ceiling, a
+    covered-zero) is left out of it, unlike type A's.
+  - **Tests.** The site-trait rows of ptmQtl's reference case v3 (`Fixtures/ptmqtl-reference-v3`) are reproduced row for
+    row. The v1 fixture, which only the site-trait test still read, is removed.
+  - No ptmQtl row is stored yet, so nothing stored changes.
 
 - **ptmQtl's observations (its S7) are the PSMs the search's own identification filter kept** (ptmQtl D82, PXR-P23;
   replaces ptmQtl D36).

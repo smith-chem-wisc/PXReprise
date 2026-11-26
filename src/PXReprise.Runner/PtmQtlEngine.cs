@@ -9,7 +9,7 @@ namespace PXReprise.Runner;
 /// <summary>The <c>ptmqtl.*</c> engines: site pairs per search, pooled pairs per species,
 /// and site-trait fits per search and trait.</summary>
 /// <remarks>
-/// <para>The method is ptmQtl's (<c>ptmQtl:DEF-PTM-PAIR v2</c>, <c>ptmQtl:DEF-SITE-TRAIT v1</c>), applied by
+/// <para>The method is ptmQtl's (<c>ptmQtl:DEF-PTM-PAIR v3</c>, <c>ptmQtl:DEF-SITE-TRAIT v2</c>), applied by
 /// <see cref="PtmQtlCore"/> through mzLib only. The inputs are read from the bundle by <see cref="PtmQtlBundle"/>.
 /// This class decides what to run on, keys each artefact on its inputs, and writes it.</para>
 /// <para><b>Inputs by role.</b></para>
