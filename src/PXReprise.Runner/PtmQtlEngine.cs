@@ -190,18 +190,30 @@ public static class PtmQtlEngine
 
     /// <summary>Each pair, its mzLib fields and both sites, as <see cref="PairSitesFile"/>. Numbers are written
     /// round-trip (<c>R</c>), so <see cref="ReadPairSites"/> rebuilds the pair exactly.</summary>
+    /// <remarks>Written row by row: a deposit with millions of pairs makes a file larger than one .NET string can hold
+    /// (about 10^9 characters), which once ended the run with an <see cref="OutOfMemoryException"/> whatever the free
+    /// memory (PXD006815, PXD008934, PXD026335, 2026-11-25). A failure part way deletes the file, as before nothing was
+    /// written.</remarks>
     public static string WritePairSites(IEnumerable<(PtmPair Pair, PairSite A, PairSite B)> pairs, string path)
     {
-        var text = new StringBuilder(string.Join('\t', PairSiteColumns)).Append('\n');
-        foreach (var (p, a, b) in pairs)
+        try
         {
-            foreach (var s in new[] { a.Modification, b.Modification, a.CanonicalKey, b.CanonicalKey })
-                if (s.Contains('\t') || s.Contains('\n')) throw new RunnerException($"a site name holds a tab or a newline: {s}");
-            text.Append(string.Join('\t', p.ResultType, p.Overlapping, R(p.Statistic), R(p.PValue), p.N.ToString(Inv), p.StatisticN.ToString(Inv),
-                a.Protein, a.Position.ToString(Inv), a.Residue, a.Modification, a.ProteinNTerm, a.CanonicalKey, a.Window ?? "",
-                b.Protein, b.Position.ToString(Inv), b.Residue, b.Modification, b.ProteinNTerm, b.CanonicalKey, b.Window ?? "")).Append('\n');
+            using var w = new StreamWriter(path, false, new UTF8Encoding(false));
+            w.Write(string.Join('\t', PairSiteColumns) + "\n");
+            foreach (var (p, a, b) in pairs)
+            {
+                foreach (var s in new[] { a.Modification, b.Modification, a.CanonicalKey, b.CanonicalKey })
+                    if (s.Contains('\t') || s.Contains('\n')) throw new RunnerException($"a site name holds a tab or a newline: {s}");
+                w.Write(string.Join('\t', p.ResultType, p.Overlapping, R(p.Statistic), R(p.PValue), p.N.ToString(Inv), p.StatisticN.ToString(Inv),
+                    a.Protein, a.Position.ToString(Inv), a.Residue, a.Modification, a.ProteinNTerm, a.CanonicalKey, a.Window ?? "",
+                    b.Protein, b.Position.ToString(Inv), b.Residue, b.Modification, b.ProteinNTerm, b.CanonicalKey, b.Window ?? "") + "\n");
+            }
         }
-        File.WriteAllText(path, text.ToString(), new UTF8Encoding(false));
+        catch
+        {
+            File.Delete(path);
+            throw;
+        }
         return path;
     }
 

@@ -373,6 +373,25 @@ public class PtmQtlEngineTests
         finally { Remove(dir); }
     }
 
+    [Test]
+    public void APairSitesFileIsWrittenRowByRowAndAFailureLeavesNoFile()
+    {
+        // The file is streamed (a deposit's pairs once outgrew one .NET string: PXD006815, 2026-11-25); a name that
+        // would break the TSV still refuses the write, and no half-written file is left behind.
+        var dir = Scratch();
+        try
+        {
+            var pairs = PtmQtlCore.SitePairs(Datasets().First()).Pairs;
+            var file = PtmQtlEngine.WritePairSites(pairs, Path.Combine(dir, "ok.tsv"));
+            Assert.That(File.ReadAllLines(file), Has.Length.EqualTo(pairs.Count + 1));
+            var bad = pairs.Take(1).Select(p => (p.Pair, p.A with { Modification = "Phospho\ton S" }, p.B)).Concat(pairs.Skip(1)).ToList();
+            var badPath = Path.Combine(dir, "bad.tsv");
+            Assert.That(() => PtmQtlEngine.WritePairSites(bad, badPath), Throws.InstanceOf<RunnerException>().With.Message.Contains("tab or a newline"));
+            Assert.That(File.Exists(badPath), Is.False);
+        }
+        finally { Remove(dir); }
+    }
+
     /// <summary>S2c and S2d leave a site out of type A (and site-trait fits), never out of type P; S3b with no
     /// whole-proteome run gives type P only.</summary>
     [Test]
