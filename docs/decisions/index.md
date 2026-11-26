@@ -84,3 +84,4 @@ Records marked *provisional* are good guesses, made fast on purpose. Each says w
 | [0089](0089-mbr-transfers-at-five-percent.md) | Match-between-runs transfers kept below a q-value of 5% | accepted | 2026-11-23 |
 | [0091](0091-ptm-databases-are-cumulative.md) | PTM databases are cumulative | accepted | 2026-11-24 |
 | [0092](0092-one-spectral-library-per-fragmentation-type.md) | One spectral library per fragmentation type | accepted | 2026-11-24 |
+| [0100](0100-the-reagent-probe-when-cysteines-are-suspicious.md) | The reagent probe names the cysteine reagent from spectra, when the probe's cysteines are suspicious | accepted | 2026-11-26 |
