@@ -1,6 +1,6 @@
-# label-free-dda/17 (2026-11-25): label-free-dda/16 on MetaMorpheus 1.1.16; nothing else changes (the guard test checks
-# it line by line). The profile PXReprise 1.0.0 runs (the user, 2026-11-24: "This next version will be the one used for
-# pxreprise").
+# label-free-dda/17 (2026-11-25; the filter 2026-11-26): label-free-dda/16 on MetaMorpheus 1.1.16 and the PEP q-value
+# filter; nothing else changes (the guard test checks it line by line). The profile PXReprise 1.0.0 runs (the user,
+# 2026-11-24: "This next version will be the one used for pxreprise").
 #  - MetaMorpheus 1.1.16 (its CommandLine zip's sha256 is in tests/metamorpheus-output/releases.tsv), built on mzLib
 #    1.0.601, the engine's own. What moves in a search:
 #    - #2983: the peptide-level steps and protein FDR use each peptide's best-scoring match, the one PEP trains on (D88).
@@ -8,8 +8,12 @@
 #      the lowest-PEP match, so FlashLFQ's list held peptides the peptide table fails at 1% (2,645 on PXD000279, 445 on
 #      PXD031782).
 #    - #2995: GPTMD may put carbamyl-K on the residue the protease cut after.
-#  - The identification filter stays the q-value notch at 1% in every task (D87 (4)). #2983 fixes how protein FDR ranks
-#    groups under the PEP q-value, but not PEP's top end, where decoys can get a PEP of exactly 0 (PXD019690-astro).
+#  - The identification filter is the PEP q-value at 1% in every task (D99; the user, 2026-11-26: "yes. move to the pep
+#    filter"), in place of the q-value notch D87 set for 1.1.15. Under that filter #2983 ranks protein groups by their
+#    best peptide's PEP q-value, then by score, which ends 1.1.15's protein FDR collapse: a build of #2983 gave 4,720
+#    protein groups at 1% on PXD019690-astro (114 on 1.1.15) and 6,005 on PXD031710 (907), decoys 1.0% of targets.
+#    PEP's top end is unchanged (decoys can still get a PEP of exactly 0, G120's second half); the PEP q-value tolerates
+#    those ties. results.txt's count lines say "pep q-value", and the engine and datarepo count by it.
 #  - agingPTM-v10 stands (D29): nothing was delivered after it was built (G122), so a rebuild would read the same
 #    evidence on the same UniProt release.
 #
@@ -170,7 +174,7 @@
 id = "label-free-dda"
 version = 17
 status = "available"
-description = "Label-free DDA, high-resolution HCD with MS2 read in the Orbitrap; a short probe search first (species, cysteine share, enrichment); MetaMorpheus 1.1.16 Calibrate/GPTMD/Search with cleavage-blocking modifications respected, FlashLFQ with MBR and an SDRF design; protease and cysteine chemistry read from each deposit; UniProt 2026_04 canonical proteomes, their own PTM sites kept only where non-enriched data see them, with agingPTM-v10 sites, cumulative (no GPTMD hydroxy-P/K or malonyl-K); NBF-Cl modelled by a shipped modification (G40); ring-opened NEM and gel propionamide offered to GPTMD where the chemistry makes them likely; GPTMD adds a site only where it improves the match's score, offers formyl on S/T and not malonyl-K; no individual-file tables; the q-value notch at 1% in every task; the curated SDRF passed to the search"
+description = "Label-free DDA, high-resolution HCD with MS2 read in the Orbitrap; a short probe search first (species, cysteine share, enrichment); MetaMorpheus 1.1.16 Calibrate/GPTMD/Search with cleavage-blocking modifications respected, FlashLFQ with MBR and an SDRF design; protease and cysteine chemistry read from each deposit; UniProt 2026_04 canonical proteomes, their own PTM sites kept only where non-enriched data see them, with agingPTM-v10 sites, cumulative (no GPTMD hydroxy-P/K or malonyl-K); NBF-Cl modelled by a shipped modification (G40); ring-opened NEM and gel propionamide offered to GPTMD where the chemistry makes them likely; GPTMD adds a site only where it improves the match's score, offers formyl on S/T and not malonyl-K; no individual-file tables; the PEP q-value at 1% in every task; the curated SDRF passed to the search"
 
 [accepts]
 acquisition = ["dda"]
@@ -259,7 +263,7 @@ max_excluded_frac = 0.10
 
 [metamorpheus_settings.all]
 RespectCleavageBlockingModifications = true
-IdentificationFilter = "QValueNotch"   # D87: the q-value notch at 1%, in every task (the PEP q-value can fail at protein level)
+IdentificationFilter = "PepQValue"   # D99: the PEP q-value at 1%, in every task (MetaMorpheus 1.1.16 ranks protein groups by it, #2983)
 FilterThreshold = 0.01
 
 [metamorpheus_settings.search]

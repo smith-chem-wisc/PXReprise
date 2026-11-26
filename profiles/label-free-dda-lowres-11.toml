@@ -1,7 +1,8 @@
-# label-free-dda-lowres/11 (2026-11-25): label-free-dda-lowres/10 on MetaMorpheus 1.1.16; nothing else changes (the
-# guard test checks it line by line). See label-free-dda/17's header for what 1.1.16 moves (#2983: the peptide-level
-# steps and protein FDR use each peptide's best-scoring match). The filter stays the q-value notch at 1% (D87 (4)), and
-# the databases stay agingPTM-v3 (D44).
+# label-free-dda-lowres/11 (2026-11-25; the filter 2026-11-26): label-free-dda-lowres/10 on MetaMorpheus 1.1.16 and the
+# PEP q-value filter; nothing else changes (the guard test checks it line by line). See label-free-dda/17's header for
+# what 1.1.16 moves (#2983: the peptide-level steps and protein FDR use each peptide's best-scoring match) and why the
+# filter is the PEP q-value at 1% (D99): on PXD031710, the deposit this profile was measured on, a build of #2983 gave
+# 6,005 protein groups at 1% under PEP, where 1.1.15 gave 907. The databases stay agingPTM-v3 (D44).
 #
 # label-free-dda-lowres/10 (2026-11-24): label-free-dda-lowres/9 with a spectral library of its own: engine.spectral_library
 # and engine.ion_trap_library = true (decision 0092; the user, 2026-11-24: "make sure each fragmentation type is building
@@ -99,7 +100,7 @@
 id = "label-free-dda-lowres"
 version = 11
 status = "available"
-description = "Label-free DDA with MS2 read in the ion trap; a probe search first (ion-trap HCD as LowCID there), then MetaMorpheus 1.1.16 Search only (cleavage-blocking modifications respected) (no calibration, no GPTMD) with precursor and FlashLFQ windows wide enough for the probe's measured offset, LowCID or ion-trap HCD per file, FlashLFQ with MBR and an SDRF design; its own ion-trap spectral library per fragmentation type, read by the search and built from its PSMs; UniProt canonical proteomes with agingPTM-v3 sites; no individual-file tables; NBF-Cl modelled by a shipped modification (G40); the q-value notch at 1% in every task; the curated SDRF passed to the search"
+description = "Label-free DDA with MS2 read in the ion trap; a probe search first (ion-trap HCD as LowCID there), then MetaMorpheus 1.1.16 Search only (cleavage-blocking modifications respected) (no calibration, no GPTMD) with precursor and FlashLFQ windows wide enough for the probe's measured offset, LowCID or ion-trap HCD per file, FlashLFQ with MBR and an SDRF design; its own ion-trap spectral library per fragmentation type, read by the search and built from its PSMs; UniProt canonical proteomes with agingPTM-v3 sites; no individual-file tables; NBF-Cl modelled by a shipped modification (G40); the PEP q-value at 1% in every task; the curated SDRF passed to the search"
 
 [accepts]
 acquisition = ["dda"]
@@ -165,7 +166,7 @@ max_excluded_frac = 0.10
 
 [metamorpheus_settings.all]
 RespectCleavageBlockingModifications = true
-IdentificationFilter = "QValueNotch"   # D87: the q-value notch at 1%, in every task (the PEP q-value can fail at protein level)
+IdentificationFilter = "PepQValue"   # D99: the PEP q-value at 1%, in every task (MetaMorpheus 1.1.16 ranks protein groups by it, #2983)
 FilterThreshold = 0.01
 
 [metamorpheus_settings.search]

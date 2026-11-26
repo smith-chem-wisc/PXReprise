@@ -333,6 +333,15 @@ public class ProbeSearchTests
                 Assert.That(text, Does.Contain("IdentificationFilter = \"QValueNotch\"").And.Not.Contain("PepQValue"), key);
                 Assert.That(text, Does.Contain("FilterThreshold = 0.01"), key);
             }
+            // D99 (the user, 2026-11-26: "yes. move to the pep filter"): 1.0.0's versions, and so their probes, take the PEP q-value.
+            var pep = new[] { ("IdentificationFilter", "\"PepQValue\""), ("FilterThreshold", "0.01") };
+            foreach (string key in new[] { "label-free-dda@17", "label-free-dda-lowres@11", "tmt-dda@8" })
+            {
+                var filter = ProbeSearch.FilterSettings(profiles[key]);
+                Assert.That(filter.Select(s => (s.Key, s.TomlValue)), Is.EquivalentTo(pep), key);
+                Assert.That(ProbeSearch.TaskText(defaults, m, null, known, filter),
+                    Does.Contain("IdentificationFilter = \"PepQValue\"").And.Not.Contain("QValueNotch"), key);
+            }
             Assert.That(ProbeSearch.FilterSettings(profiles["label-free-dda@14"]), Is.Empty, "no filter set: MetaMorpheus's own");
             Assert.That(ProbeSearch.FilterSettings(profiles["label-free-dda@1"]), Is.Empty, "no [metamorpheus_settings] at all");
             Assert.That(ProbeSearch.TaskText(defaults, m, null, known), Does.Contain("IdentificationFilter = \"PepQValue\""),

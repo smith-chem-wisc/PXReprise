@@ -170,24 +170,33 @@ public class ConfigTests
 
     /// <summary>
     /// 2026-11-25 (the user, 2026-11-24: "This next version will be the one used for pxreprise"): label-free-dda@17,
-    /// label-free-dda-lowres@11 and tmt-dda@8 are @16, @10 and @7 on MetaMorpheus 1.1.16, PXReprise 1.0.0's. The
-    /// MetaMorpheus line is the only setting that may differ: lines, not parsed fields, as above. The release must be in
-    /// releases.tsv, so the machine file can name a zip whose sha256 is known.
+    /// label-free-dda-lowres@11 and tmt-dda@8 are @16, @10 and @7 on MetaMorpheus 1.1.16, PXReprise 1.0.0's, and (D99,
+    /// the user, 2026-11-26: "yes. move to the pep filter") with the PEP q-value as the identification filter in place
+    /// of the q-value notch. Those two lines are the only settings that may differ: lines, not parsed fields, as above.
+    /// The release must be in releases.tsv, so the machine file can name a zip whose sha256 is known.
     /// </summary>
     [TestCase("label-free-dda-17.toml", "label-free-dda-16.toml", "label-free-dda@17")]
     [TestCase("label-free-dda-lowres-11.toml", "label-free-dda-lowres-10.toml", "label-free-dda-lowres@11")]
     [TestCase("tmt-dda-8.toml", "tmt-dda-7.toml", "tmt-dda@8")]
-    public void TheMetaMorpheus1116VersionsChangeOnlyTheMetaMorpheusRelease(string next, string previous, string key)
+    public void TheMetaMorpheus1116VersionsChangeOnlyTheReleaseAndTheFilter(string next, string previous, string key)
     {
         static List<string> Settings(string name) => File.ReadAllLines(Path.Combine(TestSupport.ProfilesDir, name))
             .Select(l => System.Text.RegularExpressions.Regex.Replace(l, @"\s+#.*$", "").TrimEnd())
             .Where(l => l.Length > 0 && !l.StartsWith('#'))
             .Where(l => !System.Text.RegularExpressions.Regex.IsMatch(l, @"^(id|version|description) = "))
             .ToList();
-        static string Moved(string l) => l == "metamorpheus = \"1.1.15\"" ? "metamorpheus = \"1.1.16\"" : l;
+        static string Moved(string l) => l switch
+        {
+            "metamorpheus = \"1.1.15\"" => "metamorpheus = \"1.1.16\"",
+            "IdentificationFilter = \"QValueNotch\"" => "IdentificationFilter = \"PepQValue\"",
+            _ => l,
+        };
 
         var lines = Settings(next);
         Assert.That(lines.Count(l => l == "metamorpheus = \"1.1.16\""), Is.EqualTo(1), "the release, once");
+        Assert.That(lines.Count(l => l.StartsWith("IdentificationFilter = ")), Is.EqualTo(1), "one filter, for every task");
+        Assert.That(lines, Does.Contain("IdentificationFilter = \"PepQValue\""), "the PEP q-value (D99)");
+        Assert.That(Settings(previous), Does.Contain("IdentificationFilter = \"QValueNotch\""), "the version before took the notch (D87)");
         Assert.That(lines, Is.EqualTo(Settings(previous).Select(Moved)), "nothing else differs");
 
         var all = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
