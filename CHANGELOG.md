@@ -13,7 +13,16 @@ One release holds the engine (`pxreprise`) and `datarepo`, under one version, fo
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
-## Unreleased
+## 1.0.1 (2026-11-26)
+
+One fix, in datarepo: it ingests an isobaric search's operator SDRF (G107), which 1.0.0 refused.
+
+**MetaMorpheus:** unchanged. The profiles and MetaMorpheus versions are 1.0.0's.
+
+**Machine file:** no new key. `datarepo` must name this release's datarepo (the `datarepo` folder of its archive), as
+for every release: a batch refuses any other at its start.
+
+**Safe mid-batch?** Yes: swap the pin and its datarepo together, as usual. No search changes.
 
 **Adopting:** a swap only, plus a re-ingest of each isobaric deposit whose manifest entry names an `operator_sdrf`
 (1.0.0 refused every one). No other bundle id moves, and the ingest path stays `cs-1.5.0`.
