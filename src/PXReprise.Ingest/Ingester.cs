@@ -343,7 +343,8 @@ public static class Ingester
         // A file the search left out is not a run, so a run map or SDRF assay naming it is dropped with it rather
         // than refused: both were written about the deposit, before the search chose.
         var excludedStems = excluded.Select(Path.GetFileNameWithoutExtension).ToHashSet(StringComparer.Ordinal);
-        if (sdrfChoice.ChosenBy == "operator_sdrf")
+        // An isobaric search's operator SDRF is checked against its TmtDesign.txt once that is read (below).
+        if (sdrfChoice.ChosenBy == "operator_sdrf" && !(rules == IngestRules.Current && Isobaric.Wrote(resultsDir)))
             CheckOperatorSdrf(sdrf, sdrfPath!, runRows, resultsDir, datasetId, log, rules);
         var enrichmentMixed = Runs.AssignEnrichment(
             runRows, datasetId, entry.Enrichment, entry.MixedEnrichment,
@@ -431,6 +432,8 @@ public static class Ingester
             writer.AddDeclaration("isobaric_reader", Isobaric.ReaderVersion);
             writer.AddSource(designPath, "isobaric_design", Isobaric.DesignFileName);
             isobaric = Isobaric.ReadDesign(designPath, datasetId, reagent, runNames, log);
+            if (sdrfChoice.ChosenBy == "operator_sdrf")
+                Isobaric.CheckOperatorSdrf(isobaric, datasetId, sdrf.Assays, Path.GetFileName(sdrfPath!));
             int fromSdrf;
             (assays, samples, characteristics, fromSdrf) = Isobaric.PlaceAssays(isobaric, datasetId, assays, samples, characteristics, DatasetEntry.Text(entry.Organism));
             findings.AddRange(IsobaricDesignFindings(isobaric, fromSdrf, sdrfPath is not null, entry.LabellingPlex, datasetId));

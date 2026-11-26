@@ -268,6 +268,73 @@ public class IsobaricIngestTests
         });
     }
 
+    // ---------------------------------------------------------------- G107 for an isobaric search: operator_sdrf
+
+    private const string SdrfHeader =
+        "source name\tcharacteristics[organism]\tcharacteristics[age]\tassay name\tcomment[label]\tcomment[technical replicate]\tcomment[fraction identifier]\tcomment[data file]";
+
+    /// <summary>Writes an operator SDRF in the real grammar, one row per (data file, label), and names it as the entry's
+    /// <c>operator_sdrf</c>.</summary>
+    private void NameOperatorSdrf(params (string Source, string File, string Label)[] rows)
+    {
+        var path = Path.Combine(_root, "curated", "operator.sdrf.tsv");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        Write(path, [SdrfHeader, .. rows.Select(r => $"{r.Source}\tHomo sapiens\t24M\t{r.File}\t{r.Label}\t1\t1\t{r.File}.raw")]);
+        var text = File.ReadAllText(Manifest);
+        var anchor = "    flags: [low_id_rate, no_design_file]\n";
+        Assert.That(text, Does.Contain(anchor), "the fixture manifest changed; find the PXD999999 entry another way");
+        File.WriteAllText(Manifest, text.Replace(anchor, anchor + $"    operator_sdrf: '{path.Replace("'", "''")}'\n"),
+            new System.Text.UTF8Encoding(false));
+    }
+
+    private static (string Source, string File, string Label)[] EveryChannel(string referenceLabel = "TMT131N") =>
+        [.. new[] { FileA, FileB }.SelectMany(f => new[] { ("young", f, "TMT126"), ("old", f, "TMT127N"), ("pool", f, referenceLabel) })];
+
+    [Test]
+    public void AnOperatorSdrfNamingEveryChannelOnceIsReadAndPridesTmt131Names131N()
+    {
+        NameOperatorSdrf(EveryChannel("TMT131"));
+        var result = Ingest();
+        var assays = Table(result, "assays").ToDictionary(a => (string)a["assay_id"]!, a => (string?)a["sample_id"]);
+        Assert.Multiple(() =>
+        {
+            Assert.That(assays[$"{Accession}:{FileA}:TMT126"], Is.EqualTo($"{Accession}:young"));
+            Assert.That(assays[$"{Accession}:{FileB}:TMT131N"], Is.EqualTo($"{Accession}:pool"));
+            Assert.That(Codes(result), Has.No.Member("isobaric_channels_not_in_sdrf"));
+            var bundle = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(result.BundlePath, BundleWriter.ManifestName)))!;
+            Assert.That((string?)bundle["sdrf"]!["chosen_by"], Is.EqualTo("operator_sdrf"));
+        });
+    }
+
+    [Test]
+    public void AnOperatorSdrfNeedNotNameAChannelTheDesignMarksEmpty()
+    {
+        MarkTheReferenceEmpty();
+        NameOperatorSdrf([.. EveryChannel().Where(r => r.Label != "TMT131N")]);
+        var assays = Table(Ingest(), "assays").ToDictionary(a => (string)a["assay_id"]!, a => (string?)a["sample_id"]);
+        Assert.Multiple(() =>
+        {
+            Assert.That(assays[$"{Accession}:{FileB}:TMT127N"], Is.EqualTo($"{Accession}:old"));
+            Assert.That(assays[$"{Accession}:{FileB}:TMT131N"], Is.Null, "an empty channel is no sample");
+        });
+    }
+
+    [Test]
+    public void AnOperatorSdrfThatNamesNoRowForAChannelIsRefused()
+    {
+        NameOperatorSdrf([.. EveryChannel().Where(r => !(r.File == FileB && r.Label == "TMT127N"))]);
+        Assert.That(() => Ingest(), Throws.TypeOf<IngestException>().With.Message
+            .Contains($"no row names the channel(s) '{FileB} TMT127N'").And.Message.Contains("operator_sdrf operator.sdrf.tsv"));
+    }
+
+    [Test]
+    public void AnOperatorSdrfThatNamesAChannelTwiceIsRefused()
+    {
+        NameOperatorSdrf([.. EveryChannel(), ("someone else", FileA, "TMT126")]);
+        Assert.That(() => Ingest(), Throws.TypeOf<IngestException>().With.Message
+            .Contains($"several rows name '{FileA} TMT126 (2 rows)'"));
+    }
+
     [Test]
     public void AColumnNoDesignRowLabelsIsRefused()
     {
