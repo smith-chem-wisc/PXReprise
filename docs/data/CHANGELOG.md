@@ -4,7 +4,14 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
-## [1.5.0] - unreleased
+## [1.5.0] - 2026-11-26, released as part of PXReprise 1.0.0
+
+datarepo's own version line ends here (decision 0073): this section shipped in PXReprise 1.0.0, under that version, with
+schema 0.0.17 and ingest path `cs-1.5.0`. Its items were written while it was unreleased, and 0.0.17's content moved
+after the 2026-11-12 re-ingest trial measured below: the 1% rule became the search's own identification filter, at or
+below 0.01 (`cs-1.5.0`, PXReprise's CHANGELOG). So that trial's counts and timing describe an earlier 0.0.17, and a
+bundle written by such a pre-release build must not be mixed into a 1.0.0 store: it carries the same schema number. Later
+changes are in PXReprise's CHANGELOG.
 
 **One new ingest path, `cs-1.3.0`, and schema 0.0.17, so an instance re-ingests once.** Fragment ions are in every
 bundle, each search's own confidence rule decides what passes 1%, and PRIDE's records are served beside the bundles. Built

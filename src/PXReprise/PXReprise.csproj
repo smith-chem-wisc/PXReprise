@@ -10,7 +10,7 @@
     <RootNamespace>PXReprise</RootNamespace>
     <!-- The release version, for the engine and datarepo alike (decision 0073): datarepo has none of its own. A release's
          pull request bumps it; the release workflow checks it against the release tag and stamps it on both programs. -->
-    <Version>0.4.50</Version>
+    <Version>1.0.0</Version>
     <!-- mzLib's FlashLFQ depends on Microsoft.ML, whose build targets refuse an executable built for any processor but
          x64 and x86. So the engine could not be published for osx-arm64, one of the release's four platforms (decision
          0073). The engine never runs FlashLFQ's engine or any Microsoft.ML code: MetaMorpheus quantifies, as its own
