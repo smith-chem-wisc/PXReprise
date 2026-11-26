@@ -19,7 +19,8 @@ against the search engine's own totals. It then builds **one catalog** from them
 It is built for questions that span datasets, such as *"which mitochondrial proteins decline with age
 in skeletal muscle, in how many datasets, and show me the spectra"*. Agents are the main users.
 
-> **Status: released**, datarepo **1.5.0**, core schema **0.0.17**. One self-contained program
+> **Status: released** with [PXReprise 1.0.0](https://github.com/smith-chem-wisc/PXReprise/releases), under
+> PXReprise's version (datarepo's own releases ended with 1.5.0, which 1.0.0 carries), core schema **0.0.17**. One self-contained program
 > for Windows, Linux and macOS: no .NET, Python or other install needed. `ingest`, `study`, `run`,
 > `build`, `publish`, `site`, `query` and the MCP server are working. They run against the
 > [aging project](https://github.com/trishorts/aging)'s corpus of about 60 reanalysed datasets,
@@ -30,12 +31,13 @@ in skeletal muscle, in how many datasets, and show me the spectra"*. Agents are 
 ## Try it in ten minutes
 
 ```bash
-# the program: one archive per platform (win-x64 .zip; linux-x64, osx-arm64, osx-x64 .tar.gz)
-curl -LO https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.5.0/datarepo-1.5.0-linux-x64.tar.gz
-tar -xzf datarepo-1.5.0-linux-x64.tar.gz && export PATH="$PWD/datarepo:$PATH"
+# the program: one PXReprise archive per platform (win-x64 .zip; linux-x64, osx-arm64, osx-x64 .tar.gz),
+# holding datarepo/ beside pxreprise/
+curl -LO https://github.com/smith-chem-wisc/PXReprise/releases/download/v1.0.0/pxreprise-1.0.0-linux-x64.tar.gz
+tar -xzf pxreprise-1.0.0-linux-x64.tar.gz && export PATH="$PWD/datarepo:$PATH"
 # the example instance, from this repository
-git clone --depth 1 --branch v1.5.0 https://github.com/smith-chem-wisc/dataRepo.git dataRepo-src
-cp -r dataRepo-src/tests/data example-instance && cd example-instance
+git clone -c core.longpaths=true --depth 1 --branch v1.0.0 https://github.com/smith-chem-wisc/PXReprise.git PXReprise-src
+cp -r PXReprise-src/tests/datarepo-instance example-instance && cd example-instance
 
 datarepo ingest  manifest.yaml PXD999999                  # one dataset's search output -> a bundle
 datarepo publish manifest.yaml --site site                # every bundle -> a catalog and a website

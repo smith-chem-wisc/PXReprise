@@ -63,7 +63,8 @@ folder. The commands, arguments and outputs are the ones in [cli.md](cli.md).
 
 Three things depend on running a release:
 
-- **A bundle id hashes the ingest path's version** (`cs-1.1.0` in 1.1.0 to 1.3.6, `cs-1.2.0` from 1.4.0). A bundle written by code
+- **A bundle id hashes the ingest path's version** (`cs-1.1.0` in 1.1.0 to 1.3.6, `cs-1.2.0` in 1.4.0 to 1.4.5, `cs-1.5.0`
+  from 1.5.0, which PXReprise 1.0.0 carries). A bundle written by code
   nobody released cannot be reproduced by anyone, so its id means nothing.
 - **`datarepo run` refuses a development build.** It records the exact build behind every engine
   output: the version and the commit the release was built from. A build that reports `0.0.0-dev`,
@@ -83,7 +84,7 @@ only, a swap and a catalog rebuild, or a full re-ingest.
 the changes its [changelog](CHANGELOG.md) lists (among them, `peptidoforms.is_unique` now means
 one gene in the searched sequences: see [limitations.md](limitations.md#6--unique-means-one-gene-in-the-searched-sequences)).
 Its first ingest path (`cs-1.0.0`) and schema 0.0.14 give every dataset a new bundle id, so
-re-ingest each dataset once with 1.0.0. 1.1.0 moves the schema to 0.0.15 (each run's start time and instrument), so a store written by 1.0.0 is re-ingested once more; an instance still on the Python package should go straight to 1.3.6. 1.2.0, 1.3.0, 1.3.1, 1.3.2, 1.3.3, 1.3.4, 1.3.5 and 1.3.6 keep the ingest path `cs-1.1.0` and schema 0.0.15, so a store written by 1.1.0 needs no re-ingest: install 1.3.6, run the go engine (1.2.0) and register the orthology snapshot (1.3.0), and rebuild. 1.3.1 ingests the searches with an experimental design that 1.3.0 refused. 1.3.2 lets a reader of the catalog (an MCP server, a script) stay open while `build` replaces it on Windows. 1.3.3 ingests the searches 1.3.2 refused over a modification name holding `:` (Unimod's isotope labels, such as `NEM:2H(5)`), and a build removes the staged catalogs that killed builds left beside the output. 1.3.4 serves a dataset's `restrictions` from the manifest and moves the aging study layer to 0.6.0 (its design tables), so an aging study bundle written before 1.3.4 is refused by the build until `datarepo study` writes it again. 1.3.5 builds a catalog folder (`--out <folder>`: views over the store, versioned files, a `latest.json` pointer) in minutes where the one-file catalog took hours; `--out <name>.duckdb` still builds the one file. 1.3.6 leaves PSMs in the bundles (no `psms` in a catalog; each dataset's PSM counts stay in `dataset_overview`) and has a folder compute each deposit's derived rows once, so a rebuild of aging's 170 deposits takes about a minute. `build` refuses a bundle written against schema 0.0.13 and
+re-ingest each dataset once with datarepo's own 1.0.0 (2026-10-05, not PXReprise's). 1.1.0 moves the schema to 0.0.15 (each run's start time and instrument), so a store written by 1.0.0 is re-ingested once more; an instance still on the Python package should go straight to 1.3.6. 1.2.0, 1.3.0, 1.3.1, 1.3.2, 1.3.3, 1.3.4, 1.3.5 and 1.3.6 keep the ingest path `cs-1.1.0` and schema 0.0.15, so a store written by 1.1.0 needs no re-ingest: install 1.3.6, run the go engine (1.2.0) and register the orthology snapshot (1.3.0), and rebuild. 1.3.1 ingests the searches with an experimental design that 1.3.0 refused. 1.3.2 lets a reader of the catalog (an MCP server, a script) stay open while `build` replaces it on Windows. 1.3.3 ingests the searches 1.3.2 refused over a modification name holding `:` (Unimod's isotope labels, such as `NEM:2H(5)`), and a build removes the staged catalogs that killed builds left beside the output. 1.3.4 serves a dataset's `restrictions` from the manifest and moves the aging study layer to 0.6.0 (its design tables), so an aging study bundle written before 1.3.4 is refused by the build until `datarepo study` writes it again. 1.3.5 builds a catalog folder (`--out <folder>`: views over the store, versioned files, a `latest.json` pointer) in minutes where the one-file catalog took hours; `--out <name>.duckdb` still builds the one file. 1.3.6 leaves PSMs in the bundles (no `psms` in a catalog; each dataset's PSM counts stay in `dataset_overview`) and has a folder compute each deposit's derived rows once, so a rebuild of aging's 170 deposits takes about a minute. `build` refuses a bundle written against schema 0.0.13 and
 names it. A Python install is no longer needed for anything.
 
 1.4.0 moves the ingest path to `cs-1.2.0` and the schema to 0.0.16, so every bundle is re-ingested once, and a catalog
@@ -97,17 +98,21 @@ it closes the MCP server's routes to writing (see the CHANGELOG), so swap the bi
 1.4.5 moves no bundle: it serves a deposit searched in parts as one deposit (catalog format 16; `split_reason`, below).
 Swap the binary and build. The first folder publish recomputes every deposit's derived rows (686 s on 205 bundles).
 
-1.5.0 moves the ingest path to `cs-1.3.0` and the schema to 0.0.17 (fragment ions in every bundle), so every bundle is
-re-ingested once, and a catalog that mixes 0.0.16 and 0.0.17 bundles or engine artefacts is refused. In order:
+1.5.0, released as part of PXReprise 1.0.0, moves the ingest path to `cs-1.5.0` and the schema to 0.0.17 (fragment ions
+in every bundle), so every bundle is re-ingested once, and a catalog that mixes 0.0.16 and 0.0.17 bundles is refused
+(engine artefacts of the other schema are skipped, and the build's `engine-coverage` checks name them). In order:
 re-ingest every dataset; run every engine again on every re-ingested dataset (`logs.register_orthology`,
 `logs.resolve_genes` for each species over all of that species' datasets, and go's three engines, which replace
-`go.annotate_groups`: `go.categorize_terms` once, `go.annotate_databases` and `go.resolve_members` over every dataset;
-section 4); `datarepo pride
+`go.annotate_groups`: `go.categorize_terms` once, `go.annotate_databases` over every dataset and `go.resolve_members`
+over every label-free one; section 4); `datarepo pride
 --store <store>` for the PRIDE record tables; `datarepo study` again for an aging study bundle (layer 0.7.0); then
 build. Read the build's `note` lines before serving it: a `logs.resolve_genes coverage` note means a database has no
 gene resolution, and the build still passes. A multiplex search by MetaMorpheus 1.1.13 or earlier is refused; re-search
-it on 1.1.14. On aging's store the re-ingest took 6 h 14 min at three at a time, about 7 h with the engines and the
-first build (`results/reingest_150_2026-11-12/`).
+it on 1.1.14 or later. A deposit whose re-ingest is refused or fails keeps only its 0.0.16 bundle. `publish` would take
+that bundle and refuse the whole catalog, so hold the deposit in the manifest until it is re-searched. On aging's store
+the re-ingest took 6 h 14 min at three at a time, about 7 h with the engines and the first build
+(`results/reingest_150_2026-11-12/`). That was measured on an earlier 0.0.17, before its 1% rule became the search's own
+filter, so read it as an estimate.
 
 ### Building from source
 
