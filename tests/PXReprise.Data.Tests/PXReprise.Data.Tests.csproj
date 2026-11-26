@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <Import Project="..\..\src\Data.Build.props" />
 
@@ -31,6 +31,7 @@
     <ProjectReference Include="..\..\src\PXReprise.Site\PXReprise.Site.csproj" />
     <ProjectReference Include="..\..\src\PXReprise.Runner\PXReprise.Runner.csproj" />
     <ProjectReference Include="..\..\src\PXReprise.Mcp\PXReprise.Mcp.csproj" />
+    <ProjectReference Include="..\..\src\PXReprise.Host\PXReprise.Host.csproj" />
     <ProjectReference Include="..\..\src\PXReprise.DataCli\PXReprise.DataCli.csproj" />
     <ProjectReference Include="..\..\src\PXReprise.Storage\PXReprise.Storage.csproj" />
   </ItemGroup>

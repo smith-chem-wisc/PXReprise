@@ -150,6 +150,17 @@ public static class Mcp
     /// schemas, and the handlers that answer them. Exposed so a test can serve over any transport.</summary>
     public static McpServerOptions ServerOptions(CatalogServer server, string name = "datarepo")
     {
+        var options = new McpServerOptions();
+        Configure(options, server, name);
+        return options;
+    }
+
+    /// <summary>Fills <paramref name="options"/> for one open catalog. The stdio server uses it through
+    /// <see cref="ServerOptions"/>; the HTTP host (<c>PXReprise.Host</c>) gives it the options of its own DI container.</summary>
+    /// <remarks>All sessions of one host share <paramref name="server"/>, so the gate makes the calls of all of them run
+    /// one at a time: the catalog connection is not shared between threads.</remarks>
+    public static void Configure(McpServerOptions options, CatalogServer server, string name = "datarepo")
+    {
         var gate = new SemaphoreSlim(1, 1);  // the catalog connection serves one call at a time
         var tools = ToolSpecs.Select(spec => new Tool
         {
@@ -159,28 +170,24 @@ public static class Mcp
             InputSchema = JsonDocument.Parse(spec.InputSchema).RootElement.Clone(),
             OutputSchema = JsonDocument.Parse(spec.OutputSchema).RootElement.Clone(),
         }).ToList();
-        var options = new McpServerOptions
+        options.ServerInfo = new Implementation { Name = name, Version = CatalogBuilder.PackageVersion };
+        options.Capabilities = new ServerCapabilities { Tools = new ToolsCapability() };
+        options.Handlers = new McpServerHandlers
         {
-            ServerInfo = new Implementation { Name = name, Version = CatalogBuilder.PackageVersion },
-            Capabilities = new ServerCapabilities { Tools = new ToolsCapability() },
-            Handlers = new McpServerHandlers
+            ListToolsHandler = (_, _) => ValueTask.FromResult(new ListToolsResult { Tools = tools }),
+            CallToolHandler = async (request, ct) =>
             {
-                ListToolsHandler = (_, _) => ValueTask.FromResult(new ListToolsResult { Tools = tools }),
-                CallToolHandler = async (request, ct) =>
+                await gate.WaitAsync(ct).ConfigureAwait(false);
+                try
                 {
-                    await gate.WaitAsync(ct).ConfigureAwait(false);
-                    try
-                    {
-                        return CallTool(server, request.Params?.Name ?? "", request.Params?.Arguments);
-                    }
-                    finally
-                    {
-                        gate.Release();
-                    }
-                },
+                    return CallTool(server, request.Params?.Name ?? "", request.Params?.Arguments);
+                }
+                finally
+                {
+                    gate.Release();
+                }
             },
         };
-        return options;
     }
 
     /// <summary>One <c>tools/call</c>: validate the arguments as the Python SDK's argument model does, call the tool,
