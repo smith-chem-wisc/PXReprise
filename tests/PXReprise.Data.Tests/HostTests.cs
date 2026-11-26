@@ -167,6 +167,119 @@ public class HostTests
         await app.StopAsync();
     }
 
+    // ---------------------------------------------------------------- the command line (HostCommandLine, Program.cs)
+
+    [TestCase("--help")]
+    [TestCase("-h")]
+    public async Task HelpPrintsTheOptionsAndTheTokenVariableAndExitsZero(string flag)
+    {
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+        Assert.That(await HostCommandLine.RunAsync([flag], Token, stdout, stderr), Is.Zero);
+        Assert.Multiple(() =>
+        {
+            Assert.That(stdout.ToString(), Does.StartWith(HostCommandLine.Usage).And.Contain("--allowed-origins A,B")
+                .And.Contain(HostCommandLine.TokenVariable));
+            Assert.That(stderr.ToString(), Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task NoCatalogIsAUsageError()
+    {
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+        Assert.That(await HostCommandLine.RunAsync(["--urls", "http://127.0.0.1:0"], Token, stdout, stderr), Is.EqualTo(2));
+        Assert.Multiple(() =>
+        {
+            Assert.That(stderr.ToString(), Does.StartWith(HostCommandLine.Usage).And.Contain("--catalog is required"));
+            Assert.That(stdout.ToString(), Is.Empty);
+        });
+    }
+
+    [TestCase("0")]
+    [TestCase("-5")]
+    [TestCase("x")]
+    [TestCase("1.5")]
+    public void ARateThatIsNotAPositiveWholeNumberIsAUsageError(string rate)
+    {
+        var (settings, exitCode, message) = HostCommandLine.Parse(["--catalog", "c", "--rate", rate], Token);
+        Assert.Multiple(() =>
+        {
+            Assert.That(settings, Is.Null);
+            Assert.That(exitCode, Is.EqualTo(2));
+            Assert.That(message, Does.Contain($"--rate must be a positive whole number, not {rate}"));
+        });
+    }
+
+    [Test]
+    public void TheDefaultsAreLoopbackPort8080ARateOf120AndTheNameDatarepo()
+    {
+        var (settings, exitCode, message) = HostCommandLine.Parse(["--catalog", "c"], null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(exitCode, Is.Zero);
+            Assert.That(message, Is.Null);
+            Assert.That(settings, Is.EqualTo(new HostSettings("c", Token: null, PermitPerMinute: 120,
+                Urls: "http://127.0.0.1:8080", Name: "datarepo", AllowedOrigins: null)));
+        });
+    }
+
+    [Test]
+    public void EveryOptionReachesTheSettingsAndTheOriginsAreTrimmed()
+    {
+        var (settings, _, _) = HostCommandLine.Parse(["--catalog", "c", "--urls", "http://0.0.0.0:9000", "--rate", "30",
+            "--name", "aging", "--allowed-origins", " https://a.example.org , ,https://b.example.org"], Token);
+        Assert.That(settings, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(settings!.Urls, Is.EqualTo("http://0.0.0.0:9000"));
+            Assert.That(settings.PermitPerMinute, Is.EqualTo(30));
+            Assert.That(settings.Name, Is.EqualTo("aging"));
+            Assert.That(settings.Token, Is.EqualTo(Token));
+            Assert.That(settings.AllowedOrigins, Is.EqualTo(new[] { "https://a.example.org", "https://b.example.org" }));
+        });
+    }
+
+    /// <summary>The token decides whether a host on an address other than loopback starts at all, so an empty variable
+    /// (set, with no value) must read as no token rather than as an empty one.</summary>
+    [TestCase(null)]
+    [TestCase("")]
+    public void AnEmptyOrMissingTokenVariableIsNoToken(string? token) =>
+        Assert.That(HostCommandLine.Parse(["--catalog", "c"], token).Settings!.Token, Is.Null);
+
+    [Test]
+    public async Task TheHostServesUntilStoppedAndThenExitsZero()
+    {
+        var (stdout, stderr) = (new StringWriter(), new LockedWriter());
+        using var stop = new CancellationTokenSource();
+        var run = HostCommandLine.RunAsync(["--catalog", _catalog, "--urls", "http://127.0.0.1:0"], Token, stdout, stderr, stop.Token);
+        var waited = System.Diagnostics.Stopwatch.StartNew();
+        while (!stderr.ToString().Contains("serving") && !run.IsCompleted && waited.Elapsed < TimeSpan.FromSeconds(60))
+            await Task.Delay(50);
+        Assert.That(stderr.ToString(), Does.Contain($"datarepo-host: serving {_catalog} at http://127.0.0.1:")
+            .And.Contain("/mcp (bearer token required)"));
+        stop.Cancel();
+        Assert.That(await run.WaitAsync(TimeSpan.FromSeconds(60)), Is.Zero);
+    }
+
+    [Test]
+    public async Task AHostThatRefusesToStartExitsOneAndSaysWhy()
+    {
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+        Assert.That(await HostCommandLine.RunAsync(["--catalog", _catalog, "--urls", "http://0.0.0.0:0"], null, stdout, stderr),
+            Is.EqualTo(1));
+        Assert.That(stderr.ToString(), Does.StartWith("datarepo-host: ").And.Contain("is not a loopback address, and no token is set"));
+    }
+
+    /// <summary>A writer the running host writes to on its own thread while the test reads it.</summary>
+    private sealed class LockedWriter : StringWriter
+    {
+        private readonly object _gate = new();
+        public override void Write(char value) { lock (_gate) base.Write(value); }
+        public override void Write(string? value) { lock (_gate) base.Write(value); }
+        public override Task WriteLineAsync(string? value) { lock (_gate) base.WriteLine(value); return Task.CompletedTask; }
+        public override string ToString() { lock (_gate) return base.ToString(); }
+    }
+
     /// <summary>A copy the host under test does not hold, to read the catalog id from.</summary>
     private string CopyOf(string catalog)
     {

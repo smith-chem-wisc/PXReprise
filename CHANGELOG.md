@@ -13,6 +13,17 @@ One release holds the engine (`pxreprise`) and `datarepo`, under one version, fo
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## Unreleased
+
+**Adopting:** nothing for a batch or a store. `datarepo-host` is a separate program, and the release archives do not
+carry it yet.
+
+- **`datarepo-host`**: the three MCP tools over Streamable HTTP at `/mcp`, a separate program (`src/PXReprise.Host`).
+  A bearer token from `DATAREPO_HOST_TOKEN` is required on any address that is not loopback, an `Origin` that is not
+  named gets 403, each client address has a rate limit, and `GET /healthz` names the catalog. Ported from dataRepo's
+  `feat/ai-contributions` branch, without its session record and save tool
+  ([mcp.md](docs/data/mcp.md#over-http-datarepo-host)).
+
 ## 1.0.1 (2026-11-26)
 
 One fix, in datarepo: it ingests an isobaric search's operator SDRF (G107), which 1.0.0 refused.
