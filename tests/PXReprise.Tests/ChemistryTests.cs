@@ -353,4 +353,38 @@ public class ChemistryTests
     [Test]
     public void SdrfCellFieldsAreRead() =>
         Assert.That(ChemistryDetector.Field("NT=Carbamidomethyl; AC=UNIMOD:4;TA=C;MT=Fixed", "AC"), Is.EqualTo("UNIMOD:4"));
+
+    // The MassIVE source, part 3: the detector reads a repository-neutral record (RepositoryChemistry). PRIDE's record
+    // gives the same facts under PRIDE's words as before; another repository's gives them under its own words, so a fact
+    // from MassIVE can never be filed as PRIDE's.
+    [Test]
+    public void AnotherRepositorysRecordGivesTheSameFactsUnderItsOwnWords()
+    {
+        var pride = ChemistryDetector.Detect(Project("t", ptms: new[] { "Carbamidomethyl" }, quant: new[] { "TMT" }), null, null, Files);
+        var other = ChemistryDetector.DetectFrom(
+            new RepositoryChemistry("t", new[] { "Carbamidomethyl" }, "repository_ptms", new[] { "TMT" }, "repository_quantification"),
+            null, null, Files);
+        Assert.Multiple(() =>
+        {
+            Assert.That((pride.Alkylation.Source, pride.Label.Source), Is.EqualTo((ChemistrySource.PridePtm, ChemistrySource.PrideQuant)));
+            Assert.That((other.Alkylation.Source, other.Label.Source), Is.EqualTo(("repository_ptms", "repository_quantification")));
+            Assert.That((other.Alkylation.Value, other.Label.Value, other.Protease.Value), Is.EqualTo((pride.Alkylation.Value, pride.Label.Value, pride.Protease.Value)));
+            Assert.That(other.CysMods, Is.EqualTo(pride.CysMods));
+        });
+    }
+
+    // A record that gives no modifications and no quantification (MassIVE's has neither protocols nor quantification
+    // methods) decides nothing from them: the text, then the defaults, decide, as for a search with no record at all.
+    [Test]
+    public void ARecordWithNoModificationsOrQuantificationDecidesNothingFromThem()
+    {
+        var none = ChemistryDetector.Detect(null, null, null, Files);
+        var empty = ChemistryDetector.DetectFrom(new RepositoryChemistry("", [], "repository_ptms", [], "repository_quantification"), null, null, Files);
+        Assert.Multiple(() =>
+        {
+            Assert.That((empty.Alkylation.Value, empty.Alkylation.Source), Is.EqualTo((none.Alkylation.Value, none.Alkylation.Source)));
+            Assert.That((empty.Label.Value, empty.Label.Source), Is.EqualTo((none.Label.Value, none.Label.Source)));
+            Assert.That((empty.Protease.Value, empty.Protease.Source), Is.EqualTo((none.Protease.Value, none.Protease.Source)));
+        });
+    }
 }

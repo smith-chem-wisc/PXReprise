@@ -19,6 +19,25 @@ public class DiscoveryTests
         Assert.That(route, Is.EqualTo(new Route(RouteKind.Search, "label-free-dda@1", "accepted")));
     }
 
+    // The MassIVE source, part 3: the screen reads a repository's words (DepositWords). PRIDE's give exactly what they
+    // gave; another repository's, with no protocols, quantification, experiment types or tags, decide from what is there.
+    [Test]
+    public void TheScreenReadsAnyRepositorysWordsAsItReadPrides()
+    {
+        var r = TestSupport.Record("PXD000901", "Aging liver, TMTpro 16-plex", "ubiquitin remnant (K-GG) enrichment",
+            instruments: new[] { "Orbitrap Exploris 480" }, files: new[] { "a.raw", "b.raw", "c.d.zip" });
+        var viaPride = AcquisitionClassifier.Classify(r);
+        var viaWords = AcquisitionClassifier.Classify(DepositWords.From(r));
+        Assert.That((viaWords.Mode, viaWords.Labelling, viaWords.Instrument, viaWords.Enrichment, viaWords.Evidence, viaWords.MsFileCount),
+            Is.EqualTo((viaPride.Mode, viaPride.Labelling, viaPride.Instrument, viaPride.Enrichment, viaPride.Evidence, viaPride.MsFileCount)));
+        Assert.That(AcquisitionClassifier.Text(DepositWords.From(r)), Is.EqualTo(AcquisitionClassifier.Text(r)));
+
+        var other = AcquisitionClassifier.Classify(new DepositWords("Aging liver, TMTpro 16-plex", "", "", "", [], [], [], [],
+            ["Orbitrap Exploris 480"], ["a.raw", "b.raw"]));
+        Assert.That((other.Mode, other.Labelling, other.Instrument, other.Enrichment, other.MsFileCount),
+            Is.EqualTo((AcquisitionMode.Dda, Labelling.Isobaric, InstrumentClass.OrbitrapHcdOnly, "none", 2)));
+    }
+
     [Test]
     public void TmtWaitsOnThePendingTmtProfileAndSaysSo()
     {

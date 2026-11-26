@@ -25,6 +25,23 @@ public static class ChemistrySource
     public const string ProbeSpectra = "probe_spectra";
 }
 
+/// <summary>
+/// What a repository's own record gives the chemistry (<see cref="ChemistryDetector.DetectFrom"/>): its free text, the
+/// modifications it names and the word for where they came from, and its quantification methods and theirs. A value
+/// read from it is filed under the record's own word, so another repository's record is never filed as PRIDE's.
+/// </summary>
+public sealed record RepositoryChemistry(string Text, IReadOnlyList<string> Ptms, string PtmSource,
+    IReadOnlyList<string> QuantificationMethods, string QuantificationSource)
+{
+    /// <summary>PRIDE's project record: the title, description and protocols, its identified PTMs
+    /// (<see cref="ChemistrySource.PridePtm"/>) and its quantification methods (<see cref="ChemistrySource.PrideQuant"/>),
+    /// as the detector always read them. Null for no record.</summary>
+    public static RepositoryChemistry? From(PrideProject? p) => p is null ? null : new(
+        string.Join(" ", p.Title, p.ProjectDescription, p.SampleProcessingProtocol, p.DataProcessingProtocol),
+        p.IdentifiedPTMStrings.Select(x => x.Name).Where(n => !string.IsNullOrWhiteSpace(n)).ToList(), ChemistrySource.PridePtm,
+        p.QuantificationMethods.Select(q => q.Name).Where(n => !string.IsNullOrWhiteSpace(n)).ToList(), ChemistrySource.PrideQuant);
+}
+
 /// <summary>One fact (a protease, an alkylation, a label), where it came from, and the words it was read from.</summary>
 public sealed record ChemistryFact(string Value, string Source, string? Evidence = null)
 {
@@ -423,11 +440,22 @@ public static class ChemistryDetector
     /// <see cref="UnmodelledThiolReagentNames"/> to the <c>Type\tIdWithMotif</c> of the profile's own modification for it.
     /// Null: every such reagent parks the deposit, as before.</param>
     public static DepositChemistry Detect(PrideProject? project, SdrfDocument? curated, SdrfDocument? deposited, IReadOnlyList<string> rawFiles,
-        IReadOnlyDictionary<string, string>? thiolReagents = null)
+        IReadOnlyDictionary<string, string>? thiolReagents = null) =>
+        DetectFrom(RepositoryChemistry.From(project), curated, deposited, rawFiles, thiolReagents);
+
+    /// <summary>
+    /// <see cref="Detect"/> over any repository's record: PRIDE's (<see cref="RepositoryChemistry.From(PrideProject?)"/>) or
+    /// another's. A value read from the record carries that record's own source word, so a fact from another repository
+    /// is never filed as PRIDE's. Null: the record is not to be read (a search outside the batch).
+    /// </summary>
+    public static DepositChemistry DetectFrom(RepositoryChemistry? repository, SdrfDocument? curated, SdrfDocument? deposited,
+        IReadOnlyList<string> rawFiles, IReadOnlyDictionary<string, string>? thiolReagents = null)
     {
         var sdrfs = new[] { (curated, ChemistrySource.CuratedSdrf), (deposited, ChemistrySource.DepositedSdrf) }
             .Where(s => s.Item1 is not null).Select(s => (Read: FromSdrf(s.Item1!), Source: s.Item2)).ToList();
-        string text = project is null ? "" : string.Join(" ", project.Title, project.ProjectDescription, project.SampleProcessingProtocol, project.DataProcessingProtocol);
+        string text = repository?.Text ?? "";
+        string ptmSource = repository?.PtmSource ?? ChemistrySource.PridePtm;
+        string quantSource = repository?.QuantificationSource ?? ChemistrySource.PrideQuant;
 
         // Protease: an SDRF that names one per file, else the protocol text, else trypsin.
         ChemistryFact protease;
@@ -457,8 +485,8 @@ public static class ChemistryDetector
         ChemistryFact alkylation;
         IReadOnlyList<CysMod> mods;
         var sdrfAlk = sdrfs.FirstOrDefault(s => s.Read.CysMods.Count > 0 || s.Read.Alkylants.Count > 0);
-        var pridePtms = project?.IdentifiedPTMStrings.Select(p => p.Name).Where(n => !string.IsNullOrWhiteSpace(n)).ToList() ?? new List<string>();
-        var fromPride = Alkylants.Where(a => pridePtms.Any(p => a.Pride.IsMatch(p))).Select(a => a.Name).ToList();
+        var recordPtms = repository?.Ptms ?? Array.Empty<string>();
+        var fromRecord = Alkylants.Where(a => recordPtms.Any(p => a.Pride.IsMatch(p))).Select(a => a.Name).ToList();
         // NEM in a lysis buffer is a deubiquitinase inhibitor (PXD047288 and eight siblings, ubiquitin studies), not the
         // alkylation: in the text, NEM counts only near an alkylation, blocking, thiol or cysteine word.
         var fromText = Alkylants.Select(a => (a.Name, M: a.Text.Matches(text).FirstOrDefault(m => !a.Name.StartsWith("N", StringComparison.Ordinal)
@@ -477,10 +505,10 @@ public static class ChemistryDetector
             mods = CysModsFor(sa);
             alkylation = new(string.Join(" + ", sa), sdrfAlk.Source);
         }
-        else if (fromPride.Count > 0)
+        else if (fromRecord.Count > 0)
         {
-            mods = CysModsFor(fromPride);
-            alkylation = new(string.Join(" + ", fromPride), ChemistrySource.PridePtm, string.Join("; ", pridePtms.Where(p => Alkylants.Any(a => a.Pride.IsMatch(p)))));
+            mods = CysModsFor(fromRecord);
+            alkylation = new(string.Join(" + ", fromRecord), ptmSource, string.Join("; ", recordPtms.Where(p => Alkylants.Any(a => a.Pride.IsMatch(p)))));
         }
         else if (NoAlkylation.Match(text) is { Success: true } none)
         {
@@ -536,10 +564,10 @@ public static class ChemistryDetector
         // quantification methods (a label, or label-free), PRIDE's PTMs or the text decide, and with none of them the deposit
         // waits for a person.
         ChemistryFact label;
-        var quant = project?.QuantificationMethods.Select(q => q.Name).Where(n => !string.IsNullOrWhiteSpace(n)).ToList() ?? new List<string>();
+        var quant = repository?.QuantificationMethods ?? Array.Empty<string>();
         string? quantLabel = quant.Select(q => LabelIn(q, out _)).FirstOrDefault(l => l is not null);
         var quantFree = quant.Where(q => LabelFreeWords.IsMatch(q) || SpectralCounting.IsMatch(q)).ToList();
-        var dimethylPtms = pridePtms.Where(p => LabelledDimethylPtm.IsMatch(p)).ToList();
+        var dimethylPtms = recordPtms.Where(p => LabelledDimethylPtm.IsMatch(p)).ToList();
         var sdrfLabel = sdrfs.FirstOrDefault(s => s.Read.Label is not null);
         string? unrecognised = sdrfLabel.Read.Label is { } raw && Labels.All(l => l.Name != raw) ? raw : null;
         string unrecognisedNote = unrecognised is null ? "" : $"; the SDRF's comment[label] \"{unrecognised}\" names no label";
@@ -552,9 +580,9 @@ public static class ChemistryDetector
         else if (sdrfLabel.Read.Label is { } sl && unrecognised is null) label = new(sl, sdrfLabel.Source);
         else if (unrecognised is not null && curated is not null && sdrfLabel.Source != ChemistrySource.CuratedSdrf)
             label = new("label_free", ChemistrySource.CuratedSdrf, "the curated SDRF names no label" + unrecognisedNote);
-        else if (quantLabel is not null) label = new(quantLabel, ChemistrySource.PrideQuant, string.Join("; ", quant) + unrecognisedNote);
-        else if (unrecognised is not null && quantFree.Count > 0) label = new("label_free", ChemistrySource.PrideQuant, string.Join("; ", quantFree) + unrecognisedNote);
-        else if (dimethylPtms.Count > 0) label = new("dimethyl", ChemistrySource.PridePtm, string.Join("; ", dimethylPtms) + unrecognisedNote);
+        else if (quantLabel is not null) label = new(quantLabel, quantSource, string.Join("; ", quant) + unrecognisedNote);
+        else if (unrecognised is not null && quantFree.Count > 0) label = new("label_free", quantSource, string.Join("; ", quantFree) + unrecognisedNote);
+        else if (dimethylPtms.Count > 0) label = new("dimethyl", ptmSource, string.Join("; ", dimethylPtms) + unrecognisedNote);
         else if (LabelIn(text, out string? ev) is { } tl) label = new(tl, ChemistrySource.ProtocolText, ev + unrecognisedNote);
         else if (unrecognised is not null)
         {
@@ -562,7 +590,7 @@ public static class ChemistryDetector
             park ??= UnknownLabelPark;
         }
         else label = new("label_free", ChemistrySource.Default);
-        string iodoText = text + " " + string.Join(" ", pridePtms);
+        string iodoText = text + " " + string.Join(" ", recordPtms);
         if (label.Value == "tmt" && label.Source != ChemistrySource.CuratedSdrf && IodoTmtWords.Match(iodoText) is { Success: true } iodo)
             label = new(IodoTmt, ChemistrySource.ProtocolText,
                 $"iodoTMT tags cysteines, not lysines and N-termini (TMT read from {label.Source}: {label.Evidence}): {Snip(iodoText, iodo)}");
@@ -592,7 +620,7 @@ public static class ChemistryDetector
             artifacts.Add(new(GelPropionamide, $"the protocol names a gel: {Snip(text, gel)}"));
 
         // v0.4.45 (PXD032900: "Label free; TMT"): PRIDE's list named label-free beside the label it gave.
-        bool labelFreeToo = label.Source == ChemistrySource.PrideQuant && label.Value != "label_free" && quantFree.Count > 0;
+        bool labelFreeToo = label.Source == quantSource && label.Value != "label_free" && quantFree.Count > 0;
         return new DepositChemistry(protease, perFile, alkylation, mods, label, park, artifacts, labelFreeToo);
     }
 

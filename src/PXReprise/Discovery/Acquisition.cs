@@ -44,6 +44,21 @@ public sealed record Acquisition(
 }
 
 /// <summary>
+/// What a repository says about a deposit, in the words the screen reads (<see cref="AcquisitionClassifier.Classify(DepositWords)"/>).
+/// The names are PRIDE's, which the screen was written against; another repository fills what it has. A field it does not
+/// give is empty, never guessed, so it decides nothing.
+/// </summary>
+public sealed record DepositWords(
+    string Title, string ProjectDescription, string SampleProcessingProtocol, string DataProcessingProtocol,
+    IReadOnlyList<string> Keywords, IReadOnlyList<string> ExperimentTypes, IReadOnlyList<string> QuantificationMethods,
+    IReadOnlyList<string> ProjectTags, IReadOnlyList<string> Instruments, IReadOnlyList<string> ProjectFileNames)
+{
+    /// <summary>PRIDE's search-index hit, field for field.</summary>
+    public static DepositWords From(PrideProjectSearchResult r) => new(r.Title, r.ProjectDescription, r.SampleProcessingProtocol,
+        r.DataProcessingProtocol, r.Keywords, r.ExperimentTypes, r.QuantificationMethods, r.ProjectTags, r.Instruments, r.ProjectFileNames);
+}
+
+/// <summary>
 /// Classifies a PRIDE record's acquisition from its free text and instrument list.
 ///
 /// The patterns are the aging pipeline's (`pipeline/params.json`, discover block, 2026-09-27), so "DIA" and "labelled"
@@ -154,11 +169,18 @@ public static class AcquisitionClassifier
     private static readonly string[] MsExtensions = { ".raw", ".d.zip", ".d.tar", ".wiff", ".mzml", ".mgf", ".tdf", ".d" };
 
     /// <summary>Every free-text field PRIDE gives for a project (the protocols alone miss labelling, aging S46).</summary>
-    public static string Text(PrideProjectSearchResult r) => string.Join(" ", new[]
+    public static string Text(PrideProjectSearchResult r) => Text(DepositWords.From(r));
+
+    /// <summary>Every free-text field a repository gives for a deposit, in the order PRIDE's were always joined.</summary>
+    public static string Text(DepositWords r) => string.Join(" ", new[]
         { r.Title, r.ProjectDescription, r.SampleProcessingProtocol, r.DataProcessingProtocol }
         .Concat(r.Keywords).Concat(r.ExperimentTypes).Concat(r.QuantificationMethods));
 
-    public static Acquisition Classify(PrideProjectSearchResult r)
+    public static Acquisition Classify(PrideProjectSearchResult r) => Classify(DepositWords.From(r));
+
+    /// <summary>The screen over a repository's words: PRIDE's (<see cref="DepositWords.From(PrideProjectSearchResult)"/>)
+    /// or another repository's. A field the repository does not give is empty and decides nothing.</summary>
+    public static Acquisition Classify(DepositWords r)
     {
         string text = Text(r);
         var dia = Dia.Match(text);
