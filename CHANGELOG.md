@@ -13,22 +13,39 @@ One release holds the engine (`pxreprise`) and `datarepo`, under one version, fo
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
-## Unreleased
+## 1.0.0 (2026-11-26)
 
-**MetaMorpheus** 1.1.16 for label-free-dda@17, label-free-dda-lowres@11 and tmt-dda@8, the versions this release runs,
-and 1.1.15 for the six before them, label-free-dda@15 and @16, label-free-dda-lowres@9 and @10, and tmt-dda@6 and @7
-(below); every other profile keeps its own. **Databases:** label-free-dda@16 and @17 and tmt-dda@7 and @8 need the
-agingPTM-v10 files in the machine's `database_dir` (UniProt 2026_04; their record is `data/ptm-db/agingPTM-v10`). **Machine file:** `"1.1.16"` under `[metamorpheus]` (and `"1.1.15"` for the six), each naming the `CMD.dll` of
-that MetaMorpheus release's CommandLine zip (each zip's sha256 is in `tests/metamorpheus-output/releases.tsv`); and
+The first release to hold the engine and datarepo as one program under one version (decision 0073). Its headline
+changes are three. The profiles run MetaMorpheus 1.1.16 with the PEP q-value at 1% (decision 0099). The reagent probe
+names a deposit's cysteine reagent from its spectra when its cysteines look suspicious (decision 0100). And ptmQtl's
+engines run in the batch (decision 0096).
+
+**MetaMorpheus:** 1.1.16 for `label-free-dda@17`, `label-free-dda-lowres@11` and `tmt-dda@8`, the versions this release
+runs. 1.1.15 for the six before them: `label-free-dda@15` and `@16`, `label-free-dda-lowres@9` and `@10`, and
+`tmt-dda@6` and `@7`. Every other profile keeps its own.
+
+**Databases:** `label-free-dda@16` and `@17`, and `tmt-dda@7` and `@8`, need the agingPTM-v10 files in the machine's
+`database_dir` (UniProt 2026_04; their record is `data/ptm-db/agingPTM-v10`).
+
+**Machine file:** `"1.1.16"` under `[metamorpheus]` (and `"1.1.15"` for the six), each naming the `CMD.dll` of that
+MetaMorpheus release's CommandLine zip; each zip's sha256 is in `tests/metamorpheus-output/releases.tsv`. And
 `datarepo` must name the datarepo of this release (the `datarepo` folder of its archive): a batch refuses any other at
-its start. **Safe mid-batch?** Yes: swap the pin and its datarepo
-together, as usual. Nothing searched under another profile changes. **Adopting:** a swap and a catalog rebuild, because
-datarepo's version is now the release's and the catalog id hashes it (a store still on datarepo 1.4.x first re-ingests
-once, as 1.5.0 asks). A question that wants it names `tmt-dda@5` before `tmt-dda@4` in its `profiles`, and each deposit
-QC refused for ion-trap HCD gets a `batch retry`. So does each deposit refused for `no_isobaric_reporters` whose record
-text says TMT while PRIDE's quantification names label-free too (below). A question takes the MetaMorpheus 1.1.15
-profiles by naming them before their earlier versions in its `profiles`; deposits already searched keep their profile, and
-whether to search them again is a separate choice.
+its start.
+
+**Safe mid-batch?** Yes: swap the pin and its datarepo together, as usual. Nothing searched under another profile
+changes.
+
+**Adopting:** a swap and a full re-ingest. This release's datarepo writes bundle schema 0.0.17 on ingest path
+`cs-1.5.0`, and a catalog never mixes schemas, so every stored deposit is ingested again before the next catalog build.
+For a store of aging's size that took 6 h 14 min of ingest, three at a time, on dataRepo's 1.5.0 trial, and about 7 h
+with the first build. Move every pin that names a datarepo at once.
+
+A question takes the MetaMorpheus 1.1.16 profiles (or the 1.1.15 ones) by naming them before their earlier versions in
+its `profiles`. Deposits already searched keep their profile, and whether to search them again is a separate choice. A
+question that wants TMT names `tmt-dda@5` before `tmt-dda@4`, and each deposit QC refused for ion-trap HCD gets a
+`batch retry`. So does each deposit refused for `no_isobaric_reporters` whose record text says TMT while PRIDE's
+quantification names label-free too (below). A probe whose cysteines look suspicious now runs the reagent probe, so
+that deposit's probe takes longer: about 2.4 times on Orbitrap.
 
 - **Three profile versions on MetaMorpheus 1.1.16 and the PEP q-value filter: `label-free-dda@17`,
   `label-free-dda-lowres@11` and `tmt-dda@8`** (@16, @10 and @7 with only the MetaMorpheus release and the identification
