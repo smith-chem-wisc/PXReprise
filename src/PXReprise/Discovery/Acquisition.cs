@@ -63,8 +63,8 @@ public sealed record DepositWords(
         d.Keywords ?? [], [], [], [], (d.Instruments ?? []).Select(InstrumentModel).Where(m => m.Length > 0).ToList(), fileNames.ToList());
 
     /// <summary>A PROXI instrument term's model: its name, or for the generic "instrument model" term (MS:1000031), which
-    /// MassIVE keeps only when it names one, its value.</summary>
-    internal static string InstrumentModel(MzLibUtil.CvParam term) => term.Accession == "MS:1000031" ? term.Value ?? "" : term.Name ?? "";
+    /// MassIVE keeps only when it names one, its value. mzLib's <c>CvParam</c> never holds a null name or value.</summary>
+    internal static string InstrumentModel(MzLibUtil.CvParam term) => term.Accession == "MS:1000031" ? term.Value : term.Name;
 }
 
 /// <summary>
