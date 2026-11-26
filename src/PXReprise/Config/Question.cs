@@ -4,6 +4,28 @@ namespace PXReprise.Config;
 
 public enum DecisionVerdict { Include, Exclude }
 
+/// <summary>
+/// D96: where one trait's value per run comes from in the question's curated tables (<c>[traits.&lt;id&gt;]</c>), for
+/// ptmQtl's per-site trait fit. <see cref="DesignFactor"/> names a <c>curated_design_factors</c> factor (its
+/// <c>level_value</c>); <see cref="SampleValue"/> a per-sample <c>table.column</c>, which wins where both give one.
+/// <see cref="Scale"/> multiplies the value (0.1 turns years into decades), and <see cref="TraitId"/> names it in the
+/// file, so the unit travels with it (<c>age_decades</c>). <see cref="SampleExcludeWhen"/> are true/false columns of the
+/// sample table that leave a sample out (a range, a lower bound). <see cref="Covariates"/> are categorical: a
+/// <c>characteristics[...]</c> name from <c>curated_sample_characteristics</c>, or a <c>curated_run_design</c> column;
+/// with <see cref="CovariateFactorRole"/>, every other <c>curated_design_factors</c> factor of that role is one too. A
+/// factor of <see cref="StratumFactorRole"/> (a tissue) is never a covariate: its levels are fitted apart, so a deposit
+/// where one varies is left out until that fit is built. A covariate in <see cref="NeverDrop"/> (a batch) is never left
+/// out to get a fit: it is written whenever it has two levels, and a deposit where it is incomplete is left out.
+/// </summary>
+public sealed record TraitSource(string Id, string? DesignFactor, string? SampleValue, double Scale, IReadOnlyList<string> Covariates,
+    string? TraitIdOverride = null, IReadOnlyList<string>? SampleExcludeWhen = null, string? CovariateFactorRole = null,
+    string? StratumFactorRole = null, IReadOnlyList<string>? NeverDropCovariates = null)
+{
+    public string TraitId => TraitIdOverride ?? Id;
+    public IReadOnlyList<string> SampleExclusions => SampleExcludeWhen ?? [];
+    public IReadOnlyList<string> NeverDrop => NeverDropCovariates ?? [];
+}
+
 /// <summary>A hand call on one deposit, overriding the rules (a question's <c>decisions.tsv</c>).</summary>
 public sealed record Decision(string Accession, DecisionVerdict Verdict, string Reason);
 
@@ -43,7 +65,8 @@ public sealed record Question(
     IReadOnlyDictionary<string, DepositException>? Exceptions = null,
     IReadOnlyDictionary<string, IReadOnlyList<string>>? Splits = null,
     GateTerms? Gate = null,
-    IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? Restrictions = null)
+    IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? Restrictions = null,
+    IReadOnlyDictionary<string, TraitSource>? TraitSources = null)
 {
     /// <summary>
     /// v0.4.46: the uses a manifest <c>restrictions</c> entry may name, as datarepo 1.3.4+

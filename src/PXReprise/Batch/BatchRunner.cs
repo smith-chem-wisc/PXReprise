@@ -2145,8 +2145,6 @@ public sealed class BatchRunner
     private async Task PtmQtlBeforePublishAsync(string manifest, CancellationToken ct)
     {
         if (_m.PtmQtl is not { } c || _m.DataRepo is null) return;
-        static bool Delivered(JsonObject o) => o["ingest_rc"] is JsonValue i && i.TryGetValue<int>(out int irc) && irc == 0;
-        Profile? ProfileOf(JsonObject o) => o["profile"] is JsonValue v && v.TryGetValue<string>(out var key) && _profiles.TryGetValue(key, out var p) ? p : null;
 
         var behind = State()["datasets"]!.AsObject()
             .Where(kv => kv.Value is JsonObject o && Delivered(o) && o["ptmqtl_site_pairs_rc"] is null && ProfileOf(o) is { } p && PtmQtlBatch.Runs(p))
@@ -2160,13 +2158,20 @@ public sealed class BatchRunner
             .Where(kv => kv.Value is JsonObject o && Delivered(o) && o["ptmqtl_site_pairs_rc"] is JsonValue r && r.TryGetValue<int>(out int src) && src == 0)
             .Select(kv => kv.Key).Order(StringComparer.Ordinal).ToList();
         if (members.Count < 2)
-        {
             Log($"PTMQTL pool_pairs not run: {members.Count} deposit(s) with site_pairs, and it pools two or more");
-            return;
-        }
+        else await PtmQtlPoolAsync(manifest, c, members, ct).ConfigureAwait(false);
+        if (c.SiteTraits) await PtmQtlSiteTraitsAsync(manifest, c, ct).ConfigureAwait(false);
+    }
+
+    private static bool Delivered(JsonObject o) => o["ingest_rc"] is JsonValue i && i.TryGetValue<int>(out int irc) && irc == 0;
+
+    private Profile? ProfileOf(JsonObject o) => o["profile"] is JsonValue v && v.TryGetValue<string>(out var key) && _profiles.TryGetValue(key, out var p) ? p : null;
+
+    private async Task PtmQtlPoolAsync(string manifest, PtmQtlConfig c, IReadOnlyList<string> members, CancellationToken ct)
+    {
         try
         {
-            var argv = PtmQtlBatch.RunArgv(_m.DataRepo, PtmQtlBatch.PoolPairs, members, PtmQtlBatch.StoreOf(manifest), c);
+            var argv = PtmQtlBatch.RunArgv(_m.DataRepo!, PtmQtlBatch.PoolPairs, members, PtmQtlBatch.StoreOf(manifest), c);
             var (exit, stdout, stderr) = await RunProcessFullAsync(argv, PtmQtlBatch.PoolPairsTimeout, ct).ConfigureAwait(false);
             string full = KeepOutput(OutputDir, _q.Name, "ptmqtl_pool_pairs", argv, exit, stdout, stderr, DateTime.UtcNow);
             var (written, done) = PtmQtlBatch.ReadOutput(stdout);
@@ -2178,6 +2183,94 @@ public sealed class BatchRunner
         {
             Log($"PTMQTL pool_pairs could not run ({ex.GetType().Name}: {ex.Message}); the publish goes on");
             RecordPublish(("ptmqtl_pool_rc", -1), ("ptmqtl_pool_log", ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// D96: with <c>[ptmqtl] site_traits</c> on, for each trait the question sources (<c>[traits.&lt;id&gt;]</c>):
+    /// <list type="number">
+    /// <item>its traits files, one per delivered label-free deposit, from the latest catalog (<see cref="TraitsWriter"/>,
+    /// through <c>datarepo query</c>); a deposit left out is logged with why;</item>
+    /// <item><c>ptmqtl.site_traits</c> on each deposit with a file, one at a time, since a refused bundle stops a run of
+    /// several (ptmQtl 065). Each result is recorded on the deposit (<c>ptmqtl_site_traits_&lt;id&gt;_*</c>).</item>
+    /// </list>
+    /// The files are written again at each publish; an unchanged one gives the same artefact, found already written.
+    /// A failure is logged and the publish goes on.
+    /// </summary>
+    private async Task PtmQtlSiteTraitsAsync(string manifest, PtmQtlConfig c, CancellationToken ct)
+    {
+        if (_q.TraitSources is not { Count: > 0 } sources)
+        {
+            Log("PTMQTL site_traits not run: the question sources no trait ([traits.<id>])");
+            return;
+        }
+        var delivered = State()["datasets"]!.AsObject()
+            .Where(kv => kv.Value is JsonObject o && Delivered(o) && ProfileOf(o) is { } p && PtmQtlBatch.Runs(p))
+            .Select(kv => kv.Key).ToHashSet(StringComparer.Ordinal);
+        foreach (var t in sources.Values)
+        {
+            try
+            {
+                string catalog = TraitsWriter.CatalogFile(c.Catalog!), store = PtmQtlBatch.StoreOf(manifest);
+                var query = PtmQtlBatch.QueryArgv(_m.DataRepo!, catalog, TraitsWriter.Sql(t));
+                var (qrc, qout, qerr) = await RunProcessFullAsync(query, PtmQtlBatch.QueryTimeout, ct).ConfigureAwait(false);
+                if (qrc != 0)
+                {
+                    string qlog = KeepOutput(OutputDir, _q.Name, $"ptmqtl_traits_{t.Id}", query, qrc, qout, qerr, DateTime.UtcNow);
+                    Log($"PTMQTL traits ({t.Id}) query rc={qrc} on {Path.GetFileName(catalog)}; site_traits not run (full output {qlog})\n{Tail(qerr.Trim())}");
+                    RecordPublish(($"ptmqtl_traits_{t.Id}_rc", qrc), ($"ptmqtl_traits_{t.Id}_log", qlog));
+                    continue;
+                }
+                string? roleOut = null;
+                if (TraitsWriter.NeedsRoles(t))
+                {
+                    var roleQuery = PtmQtlBatch.QueryArgv(_m.DataRepo!, catalog, TraitsWriter.RoleSql(t));
+                    var (rrc, rout, rerr) = await RunProcessFullAsync(roleQuery, PtmQtlBatch.QueryTimeout, ct).ConfigureAwait(false);
+                    if (rrc != 0)
+                    {
+                        string rlog = KeepOutput(OutputDir, _q.Name, $"ptmqtl_traits_{t.Id}_roles", roleQuery, rrc, rout, rerr, DateTime.UtcNow);
+                        Log($"PTMQTL traits ({t.Id}) role query rc={rrc}; site_traits not run (full output {rlog})\n{Tail(rerr.Trim())}");
+                        RecordPublish(($"ptmqtl_traits_{t.Id}_rc", rrc), ($"ptmqtl_traits_{t.Id}_log", rlog));
+                        continue;
+                    }
+                    roleOut = rout;
+                }
+                var files = TraitsWriter.Write(t, qout, roleOut, Path.Combine(_stateDir, "ptmqtl_traits", t.Id), delivered);
+                foreach (var f in files.Where(f => f.Path is null)) Log($"{f.Dataset} PTMQTL site_traits ({t.Id}) left out: {string.Join("; ", f.Notes)}");
+                Log($"PTMQTL traits ({t.Id}) from {Path.GetFileName(catalog)}: {files.Count(f => f.Path is not null)} deposit(s) with a file, {files.Count(f => f.Path is null)} left out");
+                RecordPublish(($"ptmqtl_traits_{t.Id}_rc", 0), ($"ptmqtl_traits_{t.Id}_catalog", catalog));
+                var unchanged = new List<string>();
+                foreach (var f in files.Where(f => f.Path is not null))
+                {
+                    // The same file, datarepo and delivery give the same answer, a refusal included (a capture, ptmQtl
+                    // S3): it is not asked again at every publish. A swap or a re-ingest asks again.
+                    var state = State()["datasets"]![f.Dataset] as JsonObject;
+                    string input = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(
+                        $"{Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(f.Path!)))}\n{_m.DataRepo}\n{state?["ingest_out"]}")));
+                    if (state?[$"ptmqtl_site_traits_{t.Id}_input"] is JsonValue was && was.TryGetValue<string>(out var w) && w == input) { unchanged.Add(f.Dataset); continue; }
+                    var argv = PtmQtlBatch.RunArgv(_m.DataRepo!, PtmQtlBatch.SiteTraits, [f.Dataset], store, c, f.Path);
+                    var (exit, stdout, stderr) = await RunProcessFullAsync(argv, PtmQtlBatch.SiteTraitsTimeout, ct).ConfigureAwait(false);
+                    string full = KeepOutput(OutputDir, f.Dataset, $"ptmqtl_site_traits_{t.Id}", argv, exit, stdout, stderr, DateTime.UtcNow);
+                    var (written, done) = PtmQtlBatch.ReadOutput(stdout);
+                    string? artefact = written.Concat(done).FirstOrDefault();
+                    string tail = Tail((stdout + stderr).Trim());
+                    // Which deposits are fitted is the engine's rule (a capture is refused, ptmQtl S3 and S3b): a refusal
+                    // says so, so a file on disk is never read as a fit to come (aging 343).
+                    Log($"{f.Dataset} PTMQTL site_traits ({t.Id}) rc={exit}{(artefact is null ? "" : $" artefact={artefact}")}"
+                        + $"{(exit == 0 ? "" : " file written, no fit: ptmQtl's engine refused it, its reason below")}: {f.Runs} runs, covariates "
+                        + $"{(f.Covariates.Count == 0 ? "none" : string.Join(", ", f.Covariates))}{(f.Notes.Count == 0 ? "" : $" ({string.Join("; ", f.Notes)})")} (full output {full})"
+                        + (exit == 0 ? "" : $"\n{tail}"));
+                    Record(f.Dataset, ($"ptmqtl_site_traits_{t.Id}_rc", exit), ($"ptmqtl_site_traits_{t.Id}_artefact", artefact),
+                        ($"ptmqtl_site_traits_{t.Id}_out", tail), ($"ptmqtl_site_traits_{t.Id}_log", full), ($"ptmqtl_site_traits_{t.Id}_input", input));
+                }
+                if (unchanged.Count > 0)
+                    Log($"PTMQTL site_traits ({t.Id}) not run again on {unchanged.Count} deposit(s) whose file, datarepo and delivery are unchanged since their last run: {string.Join(", ", unchanged)}");
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or System.ComponentModel.Win32Exception or InvalidOperationException or FormatException)
+            {
+                Log($"PTMQTL site_traits ({t.Id}) could not run ({ex.GetType().Name}: {ex.Message}); the publish goes on");
+                RecordPublish(($"ptmqtl_traits_{t.Id}_rc", -1), ($"ptmqtl_traits_{t.Id}_log", ex.Message));
+            }
         }
     }
 

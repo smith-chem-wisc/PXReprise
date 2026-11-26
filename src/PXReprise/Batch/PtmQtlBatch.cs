@@ -12,10 +12,17 @@ public static partial class PtmQtlBatch
 {
     public const string SitePairs = "ptmqtl.site_pairs";
     public const string PoolPairs = "ptmqtl.pool_pairs";
+    public const string SiteTraits = "ptmqtl.site_traits";
 
     /// <summary>How long one engine run may take. site_pairs takes seconds to minutes a deposit (its depth null fits it
-    /// three more times); pool_pairs reads every member's artefact.</summary>
-    public static readonly TimeSpan SitePairsTimeout = TimeSpan.FromHours(1), PoolPairsTimeout = TimeSpan.FromHours(2);
+    /// three more times); pool_pairs reads every member's artefact; a bounded site_traits fit took about 16 minutes on
+    /// ptmQtl's largest timed deposit (their 053).</summary>
+    public static readonly TimeSpan SitePairsTimeout = TimeSpan.FromHours(1), PoolPairsTimeout = TimeSpan.FromHours(2),
+        SiteTraitsTimeout = TimeSpan.FromHours(2), QueryTimeout = TimeSpan.FromMinutes(30);
+
+    /// <summary><c>datarepo query &lt;catalog&gt; &lt;sql&gt; --format tsv --limit 0</c>: every row, as TSV.</summary>
+    public static List<string> QueryArgv(string datarepo, string catalogFile, string sql) =>
+        [datarepo, "query", catalogFile, sql, "--format", "tsv", "--limit", "0"];
 
     /// <summary>Whether a profile's deliveries get ptmQtl's engines: label-free only. An isobaric bundle has no
     /// <c>ptm_stoichiometry</c> table, which every ptmQtl engine reads.</summary>
@@ -25,12 +32,13 @@ public static partial class PtmQtlBatch
     /// <c>datarepo run &lt;engine&gt; &lt;datasets&gt; --store &lt;store&gt; --latest --input ...</c>. <c>--latest</c>
     /// takes each dataset's newest bundle, the one the catalog serves (the store's newest-written rule).
     /// </summary>
-    public static List<string> RunArgv(string datarepo, string engine, IEnumerable<string> datasets, string store, PtmQtlConfig c)
+    public static List<string> RunArgv(string datarepo, string engine, IEnumerable<string> datasets, string store, PtmQtlConfig c, string? traits = null)
     {
         var argv = new List<string> { datarepo, "run", engine };
         argv.AddRange(datasets);
         argv.AddRange(new[] { "--store", store, "--latest", "--input", $"enrichment={c.Enrichment}", "--input", $"cysteine={c.Cysteine}" });
         if (c.CaptureRuns is { } runs) argv.AddRange(new[] { "--input", $"capture_runs={runs}" });
+        if (traits is not null) argv.AddRange(new[] { "--input", $"traits={traits}" });
         return argv;
     }
 
