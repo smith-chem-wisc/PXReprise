@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using UsefulProteomicsDatabases;
 
 namespace PXReprise.Cli;
 
@@ -61,6 +62,11 @@ public static class Envelope
 
     public static bool IsUnavailable(Exception e) => e switch
     {
+        // mzLib marks a failure it judged transient and stopped retrying only because its retries ran out
+        // (ServiceFailure.IsTransient). Its shape cannot say so: MassIVE's FTP client throws a status-less
+        // HttpRequestException with no inner exception for a dropped transfer, a 4xx reply or an empty listing, which
+        // the arms below read as available, so the deposit settled at once instead of being tried again next pass.
+        _ when ServiceFailure.IsTransient(e) => true,
         HttpRequestException h when h.StatusCode is { } s => IsAvailabilityStatus(s),
         HttpRequestException h => h.InnerException is not null || h.Message.Contains("failed with status 5")
                                   || h.Message.Contains("failed with status 408") || h.Message.Contains("failed with status 429"),

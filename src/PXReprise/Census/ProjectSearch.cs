@@ -21,6 +21,24 @@ public interface IProjectSearch
     Task<string?> TryGetProteomeXchangeXmlAsync(string accession, CancellationToken ct) => Task.FromResult<string?>(null);
 }
 
+/// <summary>What ProteomeXchange's GetDataset XML (<see cref="IProjectSearch.TryGetProteomeXchangeXmlAsync"/>) says.</summary>
+public static class ProteomeXchangeRecord
+{
+    /// <summary>
+    /// The repository ProteomeXchange names as hosting the dataset (<c>DatasetSummary</c>'s <c>hostingRepository</c>:
+    /// "PRIDE", "MassIVE", "iProX", "jPOST", ...), or null when the XML does not say. Checked live on 2026-11-26:
+    /// PXD057243 (an aging deposit) is "MassIVE", PXD031782 is "PRIDE". XML that does not parse says nothing, so null.
+    /// </summary>
+    public static string? HostingRepository(string xml)
+    {
+        System.Xml.Linq.XDocument doc;
+        try { doc = System.Xml.Linq.XDocument.Parse(xml); }
+        catch (System.Xml.XmlException) { return null; }
+        var summary = doc.Descendants().FirstOrDefault(e => e.Name.LocalName == "DatasetSummary");
+        return summary?.Attribute("hostingRepository")?.Value is { Length: > 0 } host ? host.Trim() : null;
+    }
+}
+
 /// <summary>
 /// mzLib's <see cref="PrideArchiveClient"/> with the engine's retry policy. mzLib never retries by design; the caller
 /// owns the policy, keyed on unavailability only (408/429/5xx, timeouts, transport). A contract break
