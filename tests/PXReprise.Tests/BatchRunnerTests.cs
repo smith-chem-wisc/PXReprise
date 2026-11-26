@@ -122,6 +122,57 @@ public class BatchRunnerTests
         return (new BatchRunner(question, Profiles, machine, files, search, "2026-09-28") { Sha1Source = NoSha1 }, search, files, dir);
     }
 
+    // D95, D100 (the user, 2026-11-26: "add the reagent probe to the worker when the cysteine count is suspicious"): a probe
+    // whose cysteines are suspicious runs the reagent probe on the same files. The reagent it names (iodoethanol, which the
+    // words left as the default carbamidomethyl, as on PXD057499) is recorded in the state, which a worker's package carries,
+    // and is the chemistry the search uses.
+    [Test]
+    public async Task ASuspiciousProbeRunsTheReagentProbe_AndTheReagentItNamesIsRecordedForTheSearch()
+    {
+        string dir = TestSupport.TempDir();
+        var question = QuestionLoader.Load(TestSupport.WriteFile(dir, "question.toml",
+            TestSupport.MinimalQuestion + "\n[batch]\nrun_root = \"runs\"\nstate_dir = \"state\"\nqueue = \"queue.json\"\n"));
+        var machine = Machine.Load(TestSupport.WriteFile(dir, "machine.toml", $"work_root = '{dir}'\nmin_free_gb = 0\n[metamorpheus]\n\"1.1.16\" = 'C:/nowhere/CMD.exe'\n"));
+        string ethanolyl = Discovery.ChemistryDetector.MetaMorpheusModId("UNIMOD:278", 'C')!.Replace('\t', ':');
+        string normal = ProbeSearchTests.Psms(Enumerable.Range(0, 40).Select(i => ProbeSearchTests.Row("r1", "PEPTIDEK" + new string('A', i)))
+            .Concat(Enumerable.Range(0, 2).Select(i => ProbeSearchTests.Row("r1", "PEPCK" + new string('A', i)))));
+        string reagent = ProbeSearchTests.Psms(Enumerable.Range(0, 120).Select(i => ProbeSearchTests.Row("r1", "PEPCK" + new string('A', i % 9),
+            full: i < 110 ? $"PEPC[{ethanolyl}]K{new string('A', i % 9)}" : null)));
+        var searched = new List<string>();
+        var runner = new BatchRunner(question, Profiles, machine, new FakeFiles(), new FakeSearch(), "2026-11-26")
+        {
+            Sha1Source = NoSha1,
+            ProbePanelAccessions = (p, m) => new HashSet<string>(),
+            ProbeSearchRunner = (p, m, spectra, chem, fr, outDir, ct) =>
+            {
+                searched.Add(chem!.Alkylation.Source);
+                return Task.FromResult(chem.Alkylation.Source == "cysteine_probe" ? reagent : normal);
+            },
+        };
+        const string acc = "PXD057499";
+        string spectra = Path.Combine(dir, "runs", acc, "02_fetch", "spectra");
+        Directory.CreateDirectory(spectra);
+        File.WriteAllText(Path.Combine(spectra, "r1.raw"), "raw");
+        var qc = new JsonObject { ["r1.raw"] = new JsonObject { ["fragmentation"] = new JsonObject { ["dissociation_type"] = "HCD", ["low_res"] = false, ["evidence"] = "Orbitrap MS2" } } };
+        var words = new DepositChemistry(new("trypsin", ChemistrySource.Default), null, new("Carbamidomethyl", ChemistrySource.Default),
+            [new CysMod("Carbamidomethyl", "UNIMOD:4", true)], new("label-free", ChemistrySource.Default), null);
+        var acq = new Acquisition(AcquisitionMode.Dda, Labelling.LabelFree, InstrumentClass.OrbitrapHcdOnly, "none", new Dictionary<string, int> { [".raw"] = 1 }, null);
+
+        await runner.ProbeSearchAsync(new QueueEntry(acc, "t", "mouse"), Profiles["label-free-dda@16"], acq, words, qc, new ExperimentRecord(acc), CancellationToken.None);
+
+        var entry = runner.State()["datasets"]![acc]!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(searched, Is.EqualTo(new[] { "default", "cysteine_probe" }), "the probe, then the reagent probe");
+            Assert.That(entry[Qc.ReagentProbe.StateKey]!["verdict"]!.GetValue<string>(), Is.EqualTo(Qc.ReagentProbe.Reagent));
+            Assert.That(entry[Qc.ReagentProbe.StateKey]!["family"]!.GetValue<string>(), Is.EqualTo("ethanolyl"));
+            Assert.That(entry[Qc.ReagentProbe.AlkylationKey]!["value"]!.GetValue<string>(), Is.EqualTo("Ethanolyl"));
+            Assert.That(entry[Qc.ReagentProbe.AlkylationKey]!["cys_mods"]![0]!["fixed"]!.GetValue<bool>(), Is.False, "110 of 120: variable");
+            Assert.That(File.Exists(Path.Combine(dir, "runs", acc, "02d_reagent_probe", "reagent_probe.json")), Is.True);
+            Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain($"{acc} REAGENT PROBE (reagent): 120 cysteines counted"));
+        });
+    }
+
     // D34: QC refusing a whole downloaded deposit used to log one line and set it aside, with no decisions row. PXD005035, 2026-11-07:
     // 142 files and 280 GB waited on one raw file flagged "still being acquired", which matches PRIDE's checksum, and nobody was told.
     [Test]

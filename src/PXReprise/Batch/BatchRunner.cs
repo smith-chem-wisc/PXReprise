@@ -1416,16 +1416,17 @@ public sealed class BatchRunner
     /// share. A measurement that contradicts the record parks the deposit and is announced; a measured enrichment is
     /// recorded beside the screen's. False when the deposit stops here.
     /// </summary>
-    private async Task<bool> ProbeSearchAsync(QueueEntry e, Profile profile, Acquisition acq, DepositChemistry? chemistry,
+    internal async Task<bool> ProbeSearchAsync(QueueEntry e, Profile profile, Acquisition acq, DepositChemistry? chemistry,
         JsonObject probeQc, ExperimentRecord xr, CancellationToken ct)
     {
         string acc = e.Accession, d = Run(acc);
         var spectra = ProbeSpectra(Path.Combine(d, "02_fetch", "spectra"), probeQc);
         IReadOnlyDictionary<string, Qc.RunMeasures> runs;
         IReadOnlyDictionary<string, double>? offsets = null;
+        IReadOnlyDictionary<string, Qc.FragmentationCall>? fragmentation;
         try
         {
-            var fragmentation = Search.SearchStage.FragmentationFromQc(probeQc, spectra, profile);
+            fragmentation = Search.SearchStage.FragmentationFromQc(probeQc, spectra, profile);
             // v0.4.21: the machine's probe_search_minutes over the profile's (larger files take longer).
             var probeProfile = ProbeMinutes is { } pm ? profile with { ProbeSearchMinutes = pm } : profile;
             string psms = await ProbeSearchRunner(probeProfile, _m, spectra, chemistry, fragmentation, Path.Combine(d, "02c_probe_search"), ct).ConfigureAwait(false);
@@ -1449,6 +1450,22 @@ public sealed class BatchRunner
                 + (window is { } w ? $"; the search takes precursors within ±{w} ppm" : "; the search keeps MetaMorpheus's windows"));
             Record(acc, ("probe_precursor_offsets_ppm", new JsonObject(offsets.OrderBy(kv => kv.Key, StringComparer.Ordinal)
                 .Select(kv => KeyValuePair.Create(kv.Key, (JsonNode?)kv.Value)))));
+        }
+        // D95, D100: when the probe's cysteines are suspicious, the reagent probe names the reagent from the same files. A
+        // reagent it names is the chemistry the judge and the full search use; a worker's travels in its package's state.
+        if (await Qc.ReagentProbe.RunAsync(ProbeSearchRunner, profile, _m, spectra, chemistry, fragmentation, runs,
+                Path.Combine(d, "02d_reagent_probe"), ct).ConfigureAwait(false) is { } reagent)
+        {
+            Log($"{acc} REAGENT PROBE ({reagent.Verdict}): {reagent.Evidence}");
+            xr.Fact("cysteine_reagent", reagent.Verdict == Qc.ReagentProbe.Reagent ? reagent.Family : reagent.Verdict, ChemistrySource.ProbeSpectra, reagent.Evidence);
+            Record(acc, (Qc.ReagentProbe.StateKey, Qc.ReagentProbe.ToJson(reagent)));
+            if (Qc.ReagentProbe.AlkylationJson(reagent, chemistry) is { } alkylation)
+            {
+                Record(acc, (Qc.ReagentProbe.AlkylationKey, alkylation));
+                chemistry = Qc.ReagentProbe.Apply(chemistry!, alkylation);
+                if (_q.ExceptionFor(acc) is { Alkylation: DepositException.NoAlkylation } noAlk) chemistry = chemistry.Unalkylated(noAlk.Reason);
+                _chemistry[acc] = chemistry;
+            }
         }
         bool expectCarbamidomethyl = chemistry is null || chemistry.CysMods.Any(c => c.Name == "Carbamidomethyl" && c.Fixed);
         var verdict = Qc.ProbeJudge.Judge(runs, Qc.ProbeJudge.SpeciesName(e.Organism), expectCarbamidomethyl, acq.Enrichment != "none",
@@ -2518,6 +2535,9 @@ public sealed class BatchRunner
         if (_q.Designs?.For(acc) is { } c && File.Exists(c)) curated = new Readers.SdrfDocument(c);
         // G40: a profile that ships a modification for a thiol reagent (NBF-Cl) searches such a deposit instead of parking it.
         var chem = ChemistryDetector.Detect(project, curated, deposited, rawFiles, profile.ThiolReagents);
+        // D95, D100: a reagent the probe's own spectra named (Qc.ReagentProbe) outranks every source read above. It is kept
+        // in the state, so a restart, a retry or the controller taking a worker's package searches with it.
+        chem = Qc.ReagentProbe.Apply(chem, Entry(acc)?[Qc.ReagentProbe.AlkylationKey]);
         // v0.4.15: the question states the cysteines were never alkylated; it outranks every source read above.
         if (_q.ExceptionFor(acc) is { Alkylation: DepositException.NoAlkylation } ex) chem = chem.Unalkylated(ex.Reason);
         // v0.4.45: a label the probe's own spectra decided (LabelFreeBySpectra) outranks PRIDE's words. It is kept in the state,

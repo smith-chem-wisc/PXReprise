@@ -29,6 +29,22 @@ text says TMT while PRIDE's quantification names label-free too (below). A quest
 profiles by naming them before their earlier versions in its `profiles`; deposits already searched keep their profile, and
 whether to search them again is a separate choice.
 
+- **The reagent probe names a deposit's cysteine reagent from its spectra** (decisions 0095 and 0100), when the probe's
+  pooled share of peptides with C is under 10%.
+  - **How:** it searches the probe's files again with no fixed cysteine modification and ten candidate reagents
+    variable. It names the reagent family holding at least 60% of the modified cysteines, and reports the unmodified
+    share apart.
+  - **What the call sets:** a named reagent is the alkylation the full search declares (source `probe_spectra`),
+    variable unless one form covers 95% of the cysteines. It outranks the deposit's words; only a question's "never
+    alkylated" exception outranks it.
+  - **Where it runs:** wherever the probe runs. The worker's call reaches the controller in its package's state.
+  - **The `labels` verb** reports such a search's cysteine chemistry as `matches`.
+  - **The other calls:** "mixed" and "unknown" change nothing. "None" removes the cysteine modification only where the
+    deposit named no reagent.
+  - **Cost:** 8 to 38 min on three Orbitrap probe files; ion trap searches one file.
+  - **Evidence:** calibrated on 13 deposits of known chemistry (it found PXD057499 and PXD057490's iodoethanol, which
+    the words left as carbamidomethyl).
+
 - **The batch runs ptmQtl's engines** (decision 0096), when the machine file has a `[ptmqtl]` table naming ptmQtl's
   three lists (`enrichment`, optional `capture_runs`, `cysteine`). `ptmqtl.site_pairs` runs on each label-free deposit
   as it is delivered, on its newest bundle. Before each publish, a catch-up pairs deposits delivered before the engines

@@ -250,6 +250,11 @@ public static class DepositLabeller
 
         if (DecisionFor(decisions, dataset, LabelDecision.CysteineLabel, null, null) is { } d)
             return new(d.Target ?? reagent, reagentSource, alkylation.Evidence, assumed, share, d.Value, [LabelSource.Person], Decided(d), d);
+        // D95, D100: the reagent probe named the reagent from the probe's own spectra, and the search declared what it named
+        // (Qc.ReagentProbe), so the data decide, not the 5% share line (ptmQtl PXR-P28).
+        if (alkylation.Source == ChemistrySource.ProbeSpectra)
+            return new(reagent, reagentSource, alkylation.Evidence, assumed, share, CysteineVerdict.Matches, [LabelSource.DataCheck],
+                $"the reagent probe named {reagent} from the probe's own spectra, and the search declares {mods}", null);
 
         bool nemNamed = reagent.Contains("NEM", StringComparison.Ordinal);
         bool nemDeclared = assumed.Any(m => m.Name is "Nethylmaleimide" or "NEM:2H(5)");
