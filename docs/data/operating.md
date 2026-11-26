@@ -266,7 +266,9 @@ manifest's folder (G107):
 
 It is read in place of any other SDRF, for its characteristics only: its factor values are left out.
 Write one row per searched file, and give the files the source names that group them exactly as the
-search's `ExperimentalDesign.tsv` does. `ingest` refuses any other grouping by name. The file's bytes
+search's `ExperimentalDesign.tsv` does. For an isobaric search, write one row per (file, channel) instead, naming
+every channel its `TmtDesign.txt` does not mark `empty` exactly once (after 1.0.0). `ingest` refuses anything else by
+name. The file's bytes
 are in the bundle id and its path is not, so editing the file needs a re-ingest and moving it does not.
 Use it when the search's own design SDRF was edited after the search: `ingest` refuses that one (its
 sha256 is not the one the search recorded).

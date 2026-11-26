@@ -13,6 +13,20 @@ One release holds the engine (`pxreprise`) and `datarepo`, under one version, fo
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## Unreleased
+
+**Adopting:** a swap only, plus a re-ingest of each isobaric deposit whose manifest entry names an `operator_sdrf`
+(1.0.0 refused every one). No other bundle id moves, and the ingest path stays `cs-1.5.0`.
+
+- **datarepo ingests an isobaric search's `operator_sdrf`** (G107). 1.0.0 checked an operator SDRF only against a
+  label-free `ExperimentalDesign.tsv`, so every TMT or iTRAQ search that named one was refused ("there is no
+  ExperimentalDesign.tsv ... to check it against"). The check now reads the search's `TmtDesign.txt`: every channel the
+  design does not mark `empty` must be named by exactly one SDRF row, by its data file and `comment[label]`. PRIDE's
+  `TMT131` names TMT10's 131N, as it already did when placing assays. A channel that no row names, or that two rows
+  name, is refused by name. Before this, a second row would have been dropped silently, and an unnamed channel would
+  have fallen back to the design's own sample. On aging's store this lets in ten TMT deposits whose operator SDRFs carry
+  aging's reference groups.
+
 ## 1.0.0 (2026-11-26)
 
 The first release to hold the engine and datarepo as one program under one version (decision 0073). Its headline

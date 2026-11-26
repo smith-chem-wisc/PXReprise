@@ -141,6 +141,60 @@ public static class Isobaric
         return dot > 0 ? name[..dot] : name;
     }
 
+    /// <summary>Each plex's channel tags, as the design names them.</summary>
+    private static Dictionary<string, HashSet<string>> PlexTags(Design design) =>
+        design.Channels.GroupBy(c => c.Plex, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Select(c => c.Tag).ToHashSet(StringComparer.Ordinal), StringComparer.Ordinal);
+
+    /// <summary>The SDRF (run id, channel) keys that name a design channel, in the order they are tried.</summary>
+    private static IEnumerable<(string Run, string Channel)> SdrfKeys(DesignChannel c, string datasetId,
+        Dictionary<string, HashSet<string>> plexTags)
+    {
+        var runId = $"{datasetId}:{c.Run}";
+        yield return (runId, c.Channel);
+        // PRIDE's CV names TMT10's one 131 channel `TMT131`; mzLib reads it as 131N (D11). Only where
+        // the plex has no 131C, so a TMT11 131N is never taken for it.
+        if (c.Channel == "TMT131N" && !plexTags[c.Plex].Contains("131C")) yield return (runId, "TMT131");
+    }
+
+    /// <summary>G107 for an isobaric search: an operator's SDRF must name every channel of the search's design that
+    /// holds a sample, each by exactly one row, because the stored values of that (file, channel) belong to the sample
+    /// the row names.</summary>
+    /// <remarks>The label-free form (<c>Ingester.CheckOperatorSdrf</c>) groups files by the design's samples, because
+    /// MetaMorpheus sums a label-free sample's files. An isobaric value is never summed across files: each column is one
+    /// (file, channel). So the rule is per (run, channel), agreed with aging and PXReprise on 2026-11-26. A channel the
+    /// design marks <c>empty</c>, and rows for files the search did not read, are not checked. Without this check
+    /// <see cref="PlaceAssays"/> would take the first of two rows, and put a channel no row names on the design's own
+    /// sample, both without a word.</remarks>
+    /// <param name="sdrfAssays">Every assay the operator's SDRF gave: one per row, keyed by its run and label.</param>
+    /// <param name="file">The SDRF's file name, for the message.</param>
+    /// <exception cref="IngestException">A channel holding a sample that no row names, or that several rows name.</exception>
+    public static void CheckOperatorSdrf(Design design, string datasetId, IReadOnlyList<Row> sdrfAssays, string file)
+    {
+        var rows = sdrfAssays.GroupBy(a => ((string)a["run_id"]!, (string)a["channel"]!))
+            .ToDictionary(g => g.Key, g => g.Count());
+        var plexTags = PlexTags(design);
+        var missing = new List<string>();
+        var several = new List<string>();
+        foreach (var c in design.Channels.Where(c => !c.IsEmpty))
+        {
+            int n = SdrfKeys(c, datasetId, plexTags).Select(k => rows.GetValueOrDefault(k)).FirstOrDefault(count => count > 0);
+            if (n == 0) missing.Add($"{c.Run} {c.Channel}");
+            else if (n > 1) several.Add($"{c.Run} {c.Channel} ({n} rows)");
+        }
+        static string Names(List<string> names) =>
+            string.Join(", ", names.Take(10).Select(n => $"'{n}'")) + (names.Count > 10 ? $" and {names.Count - 10} more" : "");
+        var problems = new List<string>();
+        if (missing.Count > 0) problems.Add($"no row names the channel(s) {Names(missing)}");
+        if (several.Count > 0) problems.Add($"several rows name {Names(several)}");
+        if (problems.Count > 0)
+            throw new IngestException(
+                $"{datasetId}: operator_sdrf {file} does not describe the search's samples: {string.Join("; ", problems)}. "
+                + $"Every channel of the search's {DesignFileName} that holds a sample must be named by exactly one row "
+                + "(its data file and comment[label]), because the stored values of that file and channel belong to the "
+                + "sample the row names.");
+    }
+
     /// <summary>The design's assays, each on the SDRF sample its (run, channel) names, or else on the design's own
     /// sample (its <c>Sample Name</c>), or on none when the design marks the channel <c>empty</c> and no SDRF names a
     /// sample for it (the user 2026-11-12: its values are kept, and it is never a sample). Every assay keeps the
@@ -154,16 +208,12 @@ public static class Isobaric
         var sdrfSample = new Dictionary<(string Run, string Channel), string>();
         foreach (var assay in sdrfAssays)
             sdrfSample.TryAdd(((string)assay["run_id"]!, (string)assay["channel"]!), (string)assay["sample_id"]!);
-        var plexTags = design.Channels.GroupBy(c => c.Plex, StringComparer.Ordinal)
-            .ToDictionary(g => g.Key, g => g.Select(c => c.Tag).ToHashSet(StringComparer.Ordinal), StringComparer.Ordinal);
+        var plexTags = PlexTags(design);
 
         string? SdrfSampleOf(DesignChannel c)
         {
-            var runId = $"{datasetId}:{c.Run}";
-            if (sdrfSample.TryGetValue((runId, c.Channel), out var id)) return id;
-            // PRIDE's CV names TMT10's one 131 channel `TMT131`; mzLib reads it as 131N (D11). Only where
-            // the plex has no 131C, so a TMT11 131N is never taken for it.
-            if (c.Channel == "TMT131N" && !plexTags[c.Plex].Contains("131C") && sdrfSample.TryGetValue((runId, "TMT131"), out id)) return id;
+            foreach (var key in SdrfKeys(c, datasetId, plexTags))
+                if (sdrfSample.TryGetValue(key, out var id)) return id;
             return null;
         }
 
