@@ -56,6 +56,15 @@ public sealed record DepositWords(
     /// <summary>PRIDE's search-index hit, field for field.</summary>
     public static DepositWords From(PrideProjectSearchResult r) => new(r.Title, r.ProjectDescription, r.SampleProcessingProtocol,
         r.DataProcessingProtocol, r.Keywords, r.ExperimentTypes, r.QuantificationMethods, r.ProjectTags, r.Instruments, r.ProjectFileNames);
+
+    /// <summary>MassIVE's dataset record: its title, summary, keywords and instrument models, and the file names its
+    /// listing gives. It has no protocols, quantification methods, experiment types or tags, so those are empty.</summary>
+    public static DepositWords From(MassiveDataset d, IEnumerable<string> fileNames) => new(d.Title ?? "", d.Summary ?? "", "", "",
+        d.Keywords ?? [], [], [], [], (d.Instruments ?? []).Select(InstrumentModel).Where(m => m.Length > 0).ToList(), fileNames.ToList());
+
+    /// <summary>A PROXI instrument term's model: its name, or for the generic "instrument model" term (MS:1000031), which
+    /// MassIVE keeps only when it names one, its value. mzLib's <c>CvParam</c> never holds a null name or value.</summary>
+    internal static string InstrumentModel(MzLibUtil.CvParam term) => term.Accession == "MS:1000031" ? term.Value : term.Name;
 }
 
 /// <summary>

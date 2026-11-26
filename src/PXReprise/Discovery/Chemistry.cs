@@ -23,6 +23,11 @@ public static class ChemistrySource
     /// label-free beside a label, and no probe file carries reporter ions (BatchRunner.LabelFreeBySpectra; PXD032900-lfq).
     /// </summary>
     public const string ProbeSpectra = "probe_spectra";
+    /// <summary>The modifications a MassIVE submitter declared on the record (UNIMOD terms): what they searched with, not
+    /// what was identified, as PRIDE's PTMs are. Never filed as <see cref="PridePtm"/>.</summary>
+    public const string MassiveDeclaredModifications = "massive_declared_modifications";
+    /// <summary>MassIVE's dataset record, for any other value read from it. It gives no quantification methods today.</summary>
+    public const string MassiveRecord = "massive_dataset_record";
 }
 
 /// <summary>
@@ -40,6 +45,14 @@ public sealed record RepositoryChemistry(string Text, IReadOnlyList<string> Ptms
         string.Join(" ", p.Title, p.ProjectDescription, p.SampleProcessingProtocol, p.DataProcessingProtocol),
         p.IdentifiedPTMStrings.Select(x => x.Name).Where(n => !string.IsNullOrWhiteSpace(n)).ToList(), ChemistrySource.PridePtm,
         p.QuantificationMethods.Select(q => q.Name).Where(n => !string.IsNullOrWhiteSpace(n)).ToList(), ChemistrySource.PrideQuant);
+
+    /// <summary>MassIVE's dataset record: its title and summary (it has no protocols), the modifications its submitter
+    /// declared (<see cref="ChemistrySource.MassiveDeclaredModifications"/>), and no quantification methods, which it does
+    /// not give. So a label is decided by an SDRF, the text or the probe's spectra, never by this record.</summary>
+    public static RepositoryChemistry From(MassiveDataset d) => new(
+        string.Join(" ", d.Title, d.Summary),
+        (d.Modifications ?? []).Select(m => m.Name).Where(n => !string.IsNullOrWhiteSpace(n)).ToList(), ChemistrySource.MassiveDeclaredModifications,
+        [], ChemistrySource.MassiveRecord);
 }
 
 /// <summary>One fact (a protease, an alkylation, a label), where it came from, and the words it was read from.</summary>
