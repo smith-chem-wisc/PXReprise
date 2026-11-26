@@ -122,6 +122,118 @@ public class BatchRunnerTests
         return (new BatchRunner(question, Profiles, machine, files, search, "2026-09-28") { Sha1Source = NoSha1 }, search, files, dir);
     }
 
+    // D95, D100 (the user, 2026-11-26: "add the reagent probe to the worker when the cysteine count is suspicious"): a probe
+    // whose cysteines are suspicious runs the reagent probe on the same files. The reagent it names (iodoethanol, which the
+    // words left as the default carbamidomethyl, as on PXD057499) is recorded in the state, which a worker's package carries,
+    // and is the chemistry the search uses.
+    private const string ReagentAcc = "PXD057499";
+
+    /// <summary>The probe's PSMs: <paramref name="withoutC"/> peptides without C and <paramref name="withC"/> with one.</summary>
+    private static string ProbePsms(int withoutC, int withC) => ProbeSearchTests.Psms(
+        Enumerable.Range(0, withoutC).Select(i => ProbeSearchTests.Row("r1", "PEPTIDEK" + new string('A', i)))
+            .Concat(Enumerable.Range(0, withC).Select(i => ProbeSearchTests.Row("r1", "PEPCK" + new string('A', i)))));
+
+    /// <summary>The reagent probe's PSMs: one C each, carrying ethanolyl, NBF or nothing.</summary>
+    private static string ReagentPsms(int ethanolyl, int nbf, int free)
+    {
+        string Mod(string unimod) => ChemistryDetector.MetaMorpheusModId(unimod, 'C')!.Replace('\t', ':');
+        var forms = Enumerable.Repeat(Mod("UNIMOD:278"), ethanolyl).Concat(Enumerable.Repeat(Mod("UNIMOD:2079"), nbf)).Concat(Enumerable.Repeat((string?)null, free).Select(x => x!));
+        return ProbeSearchTests.Psms(forms.Select((m, i) => ProbeSearchTests.Row("r1", "PEPCK" + new string('A', i % 9),
+            full: m is null ? null : $"PEPC[{m}]K{new string('A', i % 9)}")));
+    }
+
+    /// <summary>
+    /// ProbeSearchAsync on one Orbitrap file of <see cref="ReagentAcc"/>, read as the default carbamidomethyl, with a search
+    /// that answers the probe with <paramref name="probe"/> and the reagent probe with <paramref name="reagent"/>.
+    /// </summary>
+    private static async Task<(BatchRunner Runner, string Dir, List<string> Searched, JsonNode Entry)> ProbeWithTheReagentProbe(string probe, string reagent, string extraQuestion = "")
+    {
+        string dir = TestSupport.TempDir();
+        var question = QuestionLoader.Load(TestSupport.WriteFile(dir, "question.toml",
+            TestSupport.MinimalQuestion + "\n[batch]\nrun_root = \"runs\"\nstate_dir = \"state\"\nqueue = \"queue.json\"\n" + extraQuestion));
+        var machine = Machine.Load(TestSupport.WriteFile(dir, "machine.toml", $"work_root = '{dir}'\nmin_free_gb = 0\n[metamorpheus]\n\"1.1.16\" = 'C:/nowhere/CMD.exe'\n"));
+        var searched = new List<string>();
+        var runner = new BatchRunner(question, Profiles, machine, new FakeFiles(), new FakeSearch(), "2026-11-26")
+        {
+            Sha1Source = NoSha1,
+            ProbePanelAccessions = (p, m) => new HashSet<string>(),
+            ProbeSearchRunner = (p, m, spectra, chem, fr, outDir, ct) =>
+            {
+                searched.Add(chem!.Alkylation.Source);
+                return Task.FromResult(chem.Alkylation.Source == "cysteine_probe" ? reagent : probe);
+            },
+        };
+        const string acc = ReagentAcc;
+        string spectra = Path.Combine(dir, "runs", acc, "02_fetch", "spectra");
+        Directory.CreateDirectory(spectra);
+        File.WriteAllText(Path.Combine(spectra, "r1.raw"), "raw");
+        var qc = new JsonObject { ["r1.raw"] = new JsonObject { ["fragmentation"] = new JsonObject { ["dissociation_type"] = "HCD", ["low_res"] = false, ["evidence"] = "Orbitrap MS2" } } };
+        var words = new DepositChemistry(new("trypsin", ChemistrySource.Default), null, new("Carbamidomethyl", ChemistrySource.Default),
+            [new CysMod("Carbamidomethyl", "UNIMOD:4", true)], new("label-free", ChemistrySource.Default), null);
+        var acq = new Acquisition(AcquisitionMode.Dda, Labelling.LabelFree, InstrumentClass.OrbitrapHcdOnly, "none", new Dictionary<string, int> { [".raw"] = 1 }, null);
+
+        await runner.ProbeSearchAsync(new QueueEntry(acc, "t", "mouse"), Profiles["label-free-dda@16"], acq, words, qc, new ExperimentRecord(acc), CancellationToken.None);
+        return (runner, dir, searched, runner.State()["datasets"]![acc]!);
+    }
+
+    [Test]
+    public async Task ASuspiciousProbeRunsTheReagentProbe_AndTheReagentItNamesIsRecordedForTheSearch()
+    {
+        const string acc = ReagentAcc;
+        var (runner, dir, searched, entry) = await ProbeWithTheReagentProbe(ProbePsms(40, 2), ReagentPsms(110, 0, 10));
+        Assert.Multiple(() =>
+        {
+            Assert.That(runner.CachedChemistry(acc)!.Alkylation.Source, Is.EqualTo(ChemistrySource.ProbeSpectra), "the chemistry the search takes");
+            Assert.That(runner.CachedChemistry(acc)!.CysMods.Select(m => (m.Name, m.Fixed)), Is.EqualTo(new[] { ("Ethanolyl", false) }));
+            Assert.That(searched, Is.EqualTo(new[] { "default", "cysteine_probe" }), "the probe, then the reagent probe");
+            Assert.That(entry[Qc.ReagentProbe.StateKey]!["verdict"]!.GetValue<string>(), Is.EqualTo(Qc.ReagentProbe.Reagent));
+            Assert.That(entry[Qc.ReagentProbe.StateKey]!["family"]!.GetValue<string>(), Is.EqualTo("ethanolyl"));
+            Assert.That(entry[Qc.ReagentProbe.AlkylationKey]!["value"]!.GetValue<string>(), Is.EqualTo("Ethanolyl"));
+            Assert.That(entry[Qc.ReagentProbe.AlkylationKey]!["cys_mods"]![0]!["fixed"]!.GetValue<bool>(), Is.False, "110 of 120: variable");
+            Assert.That(File.Exists(Path.Combine(dir, "runs", acc, "02d_reagent_probe", "reagent_probe.json")), Is.True);
+            Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain($"{acc} REAGENT PROBE (reagent): 120 cysteines counted"));
+        });
+    }
+
+    [Test]
+    public async Task AProbeWhoseCysteinesLookNormalRunsNoReagentProbe()
+    {
+        var (runner, _, searched, entry) = await ProbeWithTheReagentProbe(ProbePsms(30, 10), ReagentPsms(110, 0, 10));
+        Assert.Multiple(() =>
+        {
+            Assert.That(searched, Is.EqualTo(new[] { "default" }), "25% of the probe's peptides carry C");
+            Assert.That(entry[Qc.ReagentProbe.StateKey], Is.Null);
+            Assert.That(runner.CachedChemistry(ReagentAcc), Is.Null, "nothing to change: the search reads the chemistry as before");
+        });
+    }
+
+    [Test]
+    public async Task AMixedCallIsRecordedAndChangesNothing()
+    {
+        var (runner, dir, _, entry) = await ProbeWithTheReagentProbe(ProbePsms(40, 2), ReagentPsms(60, 55, 5));
+        Assert.Multiple(() =>
+        {
+            Assert.That(entry[Qc.ReagentProbe.StateKey]!["verdict"]!.GetValue<string>(), Is.EqualTo(Qc.ReagentProbe.Mixed));
+            Assert.That(entry[Qc.ReagentProbe.AlkylationKey], Is.Null);
+            Assert.That(runner.CachedChemistry(ReagentAcc), Is.Null);
+            Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain($"{ReagentAcc} REAGENT PROBE (mixed):"));
+        });
+    }
+
+    // v0.4.15's question exception is a person's word, and outranks the spectra as it outranks every source the words give.
+    [Test]
+    public async Task TheQuestionsNoAlkylationExceptionStillOutranksTheReagentProbe()
+    {
+        var (runner, _, _, entry) = await ProbeWithTheReagentProbe(ProbePsms(40, 2), ReagentPsms(110, 0, 10),
+            $"\n[exceptions.{ReagentAcc}]\nreason = \"the lab says it never alkylated\"\nalkylation = \"none\"\n");
+        Assert.Multiple(() =>
+        {
+            Assert.That(entry[Qc.ReagentProbe.AlkylationKey]!["value"]!.GetValue<string>(), Is.EqualTo("Ethanolyl"), "the spectra's call is kept, for the record");
+            Assert.That(runner.CachedChemistry(ReagentAcc)!.Alkylation.Source, Is.EqualTo(ChemistrySource.QuestionException));
+            Assert.That(runner.CachedChemistry(ReagentAcc)!.CysMods, Is.Empty);
+        });
+    }
+
     // D34: QC refusing a whole downloaded deposit used to log one line and set it aside, with no decisions row. PXD005035, 2026-11-07:
     // 142 files and 280 GB waited on one raw file flagged "still being acquired", which matches PRIDE's checksum, and nobody was told.
     [Test]

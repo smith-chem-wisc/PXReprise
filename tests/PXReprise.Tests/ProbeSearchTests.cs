@@ -14,7 +14,7 @@ public class ProbeSearchTests
     private static string Fixture(params string[] parts) => Path.Combine(new[] { TestContext.CurrentContext.TestDirectory, "Fixtures" }.Concat(parts).ToArray());
 
     /// <summary>A PSM file of rows made from the template, each with the given cells changed.</summary>
-    private static string Psms(IEnumerable<Dictionary<string, string>> rows)
+    internal static string Psms(IEnumerable<Dictionary<string, string>> rows)
     {
         var lines = File.ReadAllLines(Fixture("probe", "AllPSMs_template.psmtsv"));
         var header = lines[0].Split('\t');
@@ -31,7 +31,7 @@ public class ProbeSearchTests
         return path;
     }
 
-    private static Dictionary<string, string> Row(string file, string seq, string organism = "Mus musculus", string accession = "Q8BPB5",
+    internal static Dictionary<string, string> Row(string file, string seq, string organism = "Mus musculus", string accession = "Q8BPB5",
         string? full = null, string dct = "T", string q = "0.001") => new()
     {
         ["File Name"] = file, ["Base Sequence"] = seq, ["Full Sequence"] = full ?? seq, ["Organism Name"] = organism,
