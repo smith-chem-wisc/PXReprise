@@ -195,7 +195,7 @@ that applies:
    row, and its source names must group the searched files exactly as the search's
    `ExperimentalDesign.tsv` does (one source name per design sample, and the reverse). Otherwise the
    ingest is refused, naming the files and samples, because the stored protein values belong to the
-   search's samples. For an **isobaric** search (from the release after PXReprise 1.0.0, which refused every one), the check
+   search's samples. For an **isobaric** search (from PXReprise 1.0.1; 1.0.0 refused every one), the check
    is against its `TmtDesign.txt` instead: each channel the design gives a sample (every one not marked
    `empty`) must be named by exactly one row, by its data file and `comment[label]`. That is because an
    isobaric value belongs to one file and channel, and is never summed across files. The path is not part
