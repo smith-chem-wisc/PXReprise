@@ -149,14 +149,46 @@ public class ReagentProbeTests
         var m = Machine.Load(TestSupport.WriteFile(TestSupport.TempDir(), "m.toml", "work_root = \"F:/w\"\n[metamorpheus]\n\"1.1.16\" = \"C:/mm/CMD.exe\"\n"));
         var lowRes = new Dictionary<string, FragmentationCall> { ["r1.raw"] = new("LowCID", true, null, "ion trap"), ["r2.raw"] = new("LowCID", true, null, "ion trap") };
         var runs = new Dictionary<string, RunMeasures> { ["r1"] = Run(100, 2), ["r2"] = Run(100, 6) };
+        // r0 has no measures (no PSM at 1%): it ranks last, never first.
         var call = await ReagentProbe.RunAsync((pr, mm, files, c, fr, o, ct) => { seen.Add(files); throw new TimeoutException("the probe search did not finish"); },
-            p, m, new[] { "F:/s/r1.raw", "F:/s/r2.raw" }, Read(), lowRes, runs, TestSupport.TempDir(), CancellationToken.None);
+            p, m, new[] { "F:/s/r0.raw", "F:/s/r1.raw", "F:/s/r2.raw" }, Read(), lowRes, runs, TestSupport.TempDir(), CancellationToken.None);
+        var json = ReagentProbe.ToJson(call!);
         Assert.Multiple(() =>
         {
             Assert.That(seen.Single(), Is.EqualTo(new[] { "F:/s/r2.raw" }));
             Assert.That(call!.Verdict, Is.EqualTo(ReagentProbe.Unknown));
             Assert.That(call.Evidence, Does.Contain("TimeoutException").And.Contain("did not finish"));
             Assert.That(ReagentProbe.AlkylationJson(call, Read()), Is.Null, "an unknown call sets nothing");
+            Assert.That((json["files"]![0]!.GetValue<string>(), json["forms"], json["family_share"]), Is.EqualTo(("r2.raw", (System.Text.Json.Nodes.JsonNode?)null, (System.Text.Json.Nodes.JsonNode?)null)));
+        });
+    }
+
+    [Test]
+    public void ACancelledReagentProbeIsCancelled_NotAnUnknownCall()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var p = Profiles["label-free-dda@16"];
+        var m = Machine.Load(TestSupport.WriteFile(TestSupport.TempDir(), "m.toml", "work_root = \"F:/w\"\n[metamorpheus]\n\"1.1.16\" = \"C:/mm/CMD.exe\"\n"));
+        Assert.ThrowsAsync<OperationCanceledException>(() => ReagentProbe.RunAsync((pr, mm, files, c, fr, o, ct) => throw new OperationCanceledException(ct),
+            p, m, new[] { "F:/s/r1.raw" }, Read(), null, new Dictionary<string, RunMeasures> { ["r1"] = Run(100, 2) }, TestSupport.TempDir(), cts.Token));
+    }
+
+    [Test]
+    public void TheCallsEdges()
+    {
+        var empty = ReagentProbe.Call(Counted());
+        var ringOpenedOnly = ReagentProbe.Call(Counted(("NEM, ring-opened", 300), ("unmodified", 10)));
+        var noFiles = ReagentProbe.AlkylationJson(ReagentProbe.Call(Counted(("ethanolyl", 300), ("unmodified", 30))), read: null)!;
+        var words = Read();
+        Assert.Multiple(() =>
+        {
+            Assert.That((empty.Verdict, empty.UnmodifiedShare, empty.Cysteines), Is.EqualTo((ReagentProbe.Unknown, (double?)null, 0)));
+            Assert.That(ReagentProbe.ToJson(empty)["unmodified_share"], Is.Null);
+            Assert.That((ringOpenedOnly.Verdict, ringOpenedOnly.Family), Is.EqualTo((ReagentProbe.Reagent, "NEM")));
+            Assert.That(ringOpenedOnly.Declare.Select(d => d.Name), Is.EqualTo(new[] { "Nethylmaleimide" }), "ring-opened stays GPTMD's: the reagent's own form is declared");
+            Assert.That(noFiles["evidence"]!.GetValue<string>(), Does.StartWith("the reagent probe: ").And.Not.Contain("the deposit's words"));
+            Assert.That(ReagentProbe.Apply(words, new System.Text.Json.Nodes.JsonObject { ["value"] = "Ethanolyl" }), Is.SameAs(words), "no cys_mods: not a call");
         });
     }
 

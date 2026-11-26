@@ -2512,6 +2512,9 @@ public sealed class BatchRunner
 
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, DepositChemistry> _chemistry = new(StringComparer.Ordinal);
 
+    /// <summary>The chemistry the search will take for <paramref name="acc"/>, if this driver has read it; for tests.</summary>
+    internal DepositChemistry? CachedChemistry(string acc) => _chemistry.TryGetValue(acc, out var c) ? c : null;
+
     /// <summary>
     /// G19: the deposit's chemistry (ChemistryDetector, D22-D24), from PRIDE's project record, the deposit's SDRF (downloaded
     /// into 01_chemistry, kilobytes) and the question's curated SDRF. Written to 01_chemistry/chemistry.json and the state;

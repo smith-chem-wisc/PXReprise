@@ -260,7 +260,7 @@ public static class ReagentProbe
     {
         bool none = call.Verdict == None && read?.Alkylation.Source == ChemistrySource.Default;
         if (!none && (call.Verdict != Reagent || call.Declare.Count == 0)) return null;
-        string evidence = $"the reagent probe on {string.Join(", ", call.Files ?? [])}: {call.Evidence}"
+        string evidence = $"the reagent probe{(call.Files is { Count: > 0 } files ? $" on {string.Join(", ", files)}" : "")}: {call.Evidence}"
             + (read?.Alkylation is { } was ? $" | the deposit's words: {was.Value} [{was.Source}]{(was.Evidence is { } w ? $" {w}" : "")}" : "");
         return new JsonObject
         {
