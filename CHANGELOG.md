@@ -15,10 +15,11 @@ A new version of the engine never changes a finished result. Methods live in ver
 
 ## Unreleased
 
-**MetaMorpheus** 1.1.15 for six new profile versions, label-free-dda@15 and @16, label-free-dda-lowres@9 and @10, and
-tmt-dda@6 and @7 (below); every other profile keeps its own. **Databases:** label-free-dda@16 and tmt-dda@7 need the
-agingPTM-v10 files in the machine's `database_dir` (UniProt 2026_04; their record is `data/ptm-db/agingPTM-v10`). **Machine file:** `"1.1.15"` under `[metamorpheus]`, naming the `CMD.dll` of
-MetaMorpheus 1.1.15's CommandLine release (its zip's sha256 is in `tests/metamorpheus-output/releases.tsv`); and
+**MetaMorpheus** 1.1.16 for label-free-dda@17, label-free-dda-lowres@11 and tmt-dda@8, the versions this release runs,
+and 1.1.15 for the six before them, label-free-dda@15 and @16, label-free-dda-lowres@9 and @10, and tmt-dda@6 and @7
+(below); every other profile keeps its own. **Databases:** label-free-dda@16 and @17 and tmt-dda@7 and @8 need the
+agingPTM-v10 files in the machine's `database_dir` (UniProt 2026_04; their record is `data/ptm-db/agingPTM-v10`). **Machine file:** `"1.1.16"` under `[metamorpheus]` (and `"1.1.15"` for the six), each naming the `CMD.dll` of
+that MetaMorpheus release's CommandLine zip (each zip's sha256 is in `tests/metamorpheus-output/releases.tsv`); and
 `datarepo` must name the datarepo of this release (the `datarepo` folder of its archive): a batch refuses any other at
 its start. **Safe mid-batch?** Yes: swap the pin and its datarepo
 together, as usual. Nothing searched under another profile changes. **Adopting:** a swap and a catalog rebuild, because
@@ -28,6 +29,22 @@ QC refused for ion-trap HCD gets a `batch retry`. So does each deposit refused f
 text says TMT while PRIDE's quantification names label-free too (below). A question takes the MetaMorpheus 1.1.15
 profiles by naming them before their earlier versions in its `profiles`; deposits already searched keep their profile, and
 whether to search them again is a separate choice.
+
+- **Three profile versions on MetaMorpheus 1.1.16 and the PEP q-value filter: `label-free-dda@17`,
+  `label-free-dda-lowres@11` and `tmt-dda@8`** (@16, @10 and @7 with only the MetaMorpheus release and the identification
+  filter changed; the guard test checks them line by line).
+  - **Each peptide is judged by its best-scoring match, the one PEP trains on** (MetaMorpheus #2983): the peptide
+    table's row, the peptide q-values, protein FDR and the peptides FlashLFQ quantifies all follow that match. 1.1.15
+    re-picked each peptide's lowest-PEP match, so FlashLFQ's list held peptides the peptide table fails at 1% (2,645 on
+    PXD000279, 445 on PXD031782).
+  - **GPTMD may put carbamyl-K on the residue the protease cut after** (MetaMorpheus #2995).
+  - **The identification filter is the PEP q-value at 1% in every task**, in place of the q-value notch decision 0087
+    set for 1.1.15 (the user, 2026-11-26: "yes. move to the pep filter"). Under that filter #2983 ranks protein groups
+    by their best peptide's PEP q-value, then by score. That ends 1.1.15's protein FDR collapse: a build of #2983 gave
+    4,720 protein groups at 1% on PXD019690-astro (114 on 1.1.15) and 6,005 on PXD031710 (907), decoys 1.0% of targets.
+    `results.txt` counts by it ("All target PSMs with pep q-value <= 0.01"), and datarepo reads its counts by the
+    same rule.
+  - **Databases unchanged:** agingPTM-v10 (`lowres@11` agingPTM-v3). Nothing was delivered after v10 was built.
 
 - **The reagent probe names a deposit's cysteine reagent from its spectra** (decisions 0095 and 0100), when the probe's
   pooled share of peptides with C is under 10%.

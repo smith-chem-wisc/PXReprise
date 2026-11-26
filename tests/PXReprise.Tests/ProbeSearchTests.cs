@@ -333,6 +333,15 @@ public class ProbeSearchTests
                 Assert.That(text, Does.Contain("IdentificationFilter = \"QValueNotch\"").And.Not.Contain("PepQValue"), key);
                 Assert.That(text, Does.Contain("FilterThreshold = 0.01"), key);
             }
+            // D99 (the user, 2026-11-26: "yes. move to the pep filter"): 1.0.0's versions, and so their probes, take the PEP q-value.
+            var pep = new[] { ("IdentificationFilter", "\"PepQValue\""), ("FilterThreshold", "0.01") };
+            foreach (string key in new[] { "label-free-dda@17", "label-free-dda-lowres@11", "tmt-dda@8" })
+            {
+                var filter = ProbeSearch.FilterSettings(profiles[key]);
+                Assert.That(filter.Select(s => (s.Key, s.TomlValue)), Is.EquivalentTo(pep), key);
+                Assert.That(ProbeSearch.TaskText(defaults, m, null, known, filter),
+                    Does.Contain("IdentificationFilter = \"PepQValue\"").And.Not.Contain("QValueNotch"), key);
+            }
             Assert.That(ProbeSearch.FilterSettings(profiles["label-free-dda@14"]), Is.Empty, "no filter set: MetaMorpheus's own");
             Assert.That(ProbeSearch.FilterSettings(profiles["label-free-dda@1"]), Is.Empty, "no [metamorpheus_settings] at all");
             Assert.That(ProbeSearch.TaskText(defaults, m, null, known), Does.Contain("IdentificationFilter = \"PepQValue\""),
@@ -350,7 +359,7 @@ public class ProbeSearchTests
         // The user, 2026-10-12: "Yes to the preliminary search". Profiles already used keep it off (a profile never changes).
         // lowres@3 (2026-10-17) runs it to measure the precursor offset its uncalibrated search must hold.
         Assert.That(Config.ProfileLoader.LoadDirectory(TestSupport.ProfilesDir).Where(kv => kv.Value.ProbeSearch).Select(kv => kv.Key),
-            Is.EquivalentTo(new[] { "label-free-dda@7", "label-free-dda@8", "label-free-dda@9", "label-free-dda@10", "label-free-dda@11", "label-free-dda@12", "label-free-dda@13", "label-free-dda@14", "label-free-dda@15", "label-free-dda@16", "label-free-dda-uniprot@1", "label-free-dda-lowres@3", "label-free-dda-lowres@4", "label-free-dda-lowres@5", "label-free-dda-lowres@6", "label-free-dda-lowres@7", "label-free-dda-lowres@8", "label-free-dda-lowres@9", "label-free-dda-lowres@10" }));
+            Is.EquivalentTo(new[] { "label-free-dda@7", "label-free-dda@8", "label-free-dda@9", "label-free-dda@10", "label-free-dda@11", "label-free-dda@12", "label-free-dda@13", "label-free-dda@14", "label-free-dda@15", "label-free-dda@16", "label-free-dda@17", "label-free-dda-uniprot@1", "label-free-dda-lowres@3", "label-free-dda-lowres@4", "label-free-dda-lowres@5", "label-free-dda-lowres@6", "label-free-dda-lowres@7", "label-free-dda-lowres@8", "label-free-dda-lowres@9", "label-free-dda-lowres@10", "label-free-dda-lowres@11" }));
     }
 
     [Test]
