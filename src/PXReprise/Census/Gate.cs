@@ -29,6 +29,8 @@ public static class GateTextSource
     public const string SearchIndex = "pride_search_index";
     /// <summary>No text could be had at all.</summary>
     public const string None = "none";
+    /// <summary>MassIVE's dataset record (its PROXI record), for a deposit MassIVE hosts.</summary>
+    public const string MassiveDataset = "massive_dataset";
 }
 
 /// <param name="Class">strong, weak, other_sense, watch_if_any or watch_without_strong.</param>
@@ -52,6 +54,11 @@ public sealed record GateText(string Source, IReadOnlyList<(string Field, string
 
     public static GateText From(PrideProjectSearchResult r) => new(GateTextSource.SearchIndex, Gate.Fields(r.Title, r.ProjectDescription,
         r.SampleProcessingProtocol, r.Keywords, r.OrganismParts, r.Diseases, r.References));
+
+    /// <summary>MassIVE's dataset record: its title, summary, keywords and the reference lines of its publications. It has
+    /// no protocols, organism parts or diseases, so those fields are empty and match nothing.</summary>
+    public static GateText From(MassiveDataset d) => new(GateTextSource.MassiveDataset, Gate.Fields(d.Title, d.Summary, null,
+        d.Keywords ?? [], [], [], (d.Publications ?? []).Select(p => p.Reference).OfType<string>()));
 
     /// <summary>
     /// ProteomeXchange's GetDataset XML: the DatasetSummary title, the Description, any cvParam whose name says "protocol",
