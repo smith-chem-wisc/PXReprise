@@ -395,6 +395,37 @@ public class BatchRunnerTests
         Assert.That(runner.Settled("PXD000201"), Is.EqualTo("waiting_dia"));
     }
 
+    /// <summary>A deposit PRIDE has no record of was tried again every pass for ever. ProteomeXchange names its host: one at
+    /// another repository settles by name; one PRIDE hosts (not public yet), or one ProteomeXchange cannot be asked about,
+    /// is tried again.</summary>
+    [Test]
+    public async Task ADepositAnotherRepositoryHostsSettlesByNameInsteadOfRetryingForEver()
+    {
+        var (runner, search, files, dir) = Runner();
+        search.ProteomeXchange["PXD057243"] = FakeSearch.PxXml("PXD057243", "MassIVE");
+        search.ProteomeXchange["PXD000301"] = FakeSearch.PxXml("PXD000301", "PRIDE");
+        search.ProteomeXchangeFailures["PXD000302"] = new HttpRequestException("x", null, System.Net.HttpStatusCode.ServiceUnavailable);
+
+        foreach (var acc in new[] { "PXD057243", "PXD000301", "PXD000302", "PXD000303" })
+            Assert.That(await runner.ProbeAsync(new QueueEntry(acc, "t", "human"), CancellationToken.None), Is.Null);
+
+        var ds = runner.State()["datasets"]!;
+        string log = File.ReadAllText(Path.Combine(dir, "state", "batch.log"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(ds["PXD057243"]!["status"]!.GetValue<string>(), Is.EqualTo(BatchRunner.OtherRepositoryStatus));
+            Assert.That(ds["PXD057243"]!["hosting_repository"]!.GetValue<string>(), Is.EqualTo("MassIVE"));
+            Assert.That(ds["PXD057243"]!["detail"]!.GetValue<string>(), Does.Contain("ProteomeXchange names MassIVE"));
+            Assert.That(runner.Settled("PXD057243"), Is.EqualTo(BatchRunner.OtherRepositoryStatus));
+            foreach (var acc in new[] { "PXD000301", "PXD000302", "PXD000303" })
+                Assert.That(runner.Settled(acc), Is.Empty, $"{acc} is tried again next pass");
+            Assert.That(log, Does.Contain("PXD000301 screen: PRIDE returned no record (ProteomeXchange names PRIDE as its host); retry next pass"));
+            Assert.That(log, Does.Contain("PXD000302 screen: PRIDE has no record and ProteomeXchange is unavailable"));
+            Assert.That(log, Does.Contain("PXD000303 screen: PRIDE returned no record; retry next pass"));
+            Assert.That(files.Downloads, Is.Zero, "nothing is downloaded for a deposit PRIDE has no record of");
+        });
+    }
+
     [Test]
     public async Task WholeDepositsOnlyTooManyOrTooLargeIsDeferredNotSubsampled()
     {

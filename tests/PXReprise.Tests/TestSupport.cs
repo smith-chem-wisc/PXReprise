@@ -82,6 +82,22 @@ internal sealed class FakeSearch : IProjectSearch
         Accession = accession,
         Organisms = organisms.Select(o => new MzLibUtil.CvParam { CvLabel = "NEWT", Name = o }).ToList(),
     };
+
+    /// <summary>ProteomeXchange GetDataset XML by accession; an accession with none answers null (no such dataset), as
+    /// the interface's default does.</summary>
+    public Dictionary<string, string> ProteomeXchange { get; } = new();
+    public Dictionary<string, Exception> ProteomeXchangeFailures { get; } = new();
+
+    public Task<string?> TryGetProteomeXchangeXmlAsync(string accession, CancellationToken ct)
+    {
+        if (ProteomeXchangeFailures.TryGetValue(accession, out var e)) throw e;
+        return Task.FromResult(ProteomeXchange.TryGetValue(accession, out var x) ? x : null);
+    }
+
+    /// <summary>ProteomeXchange's XML as GetDataset gives it, cut to the summary line (hostingRepository).</summary>
+    public static string PxXml(string accession, string? host) =>
+        $"<?xml version=\"1.0\"?><ProteomeXchangeDataset id=\"{accession}\"><DatasetSummary announceDate=\"2025-04-14\""
+        + (host is null ? "" : $" hostingRepository=\"{host}\"") + " title=\"t\"><Description>d</Description></DatasetSummary></ProteomeXchangeDataset>";
 }
 
 /// <summary>

@@ -1006,7 +1006,28 @@ public sealed class BatchRunner
             rec = hits.FirstOrDefault(h => h.Accession == SearchKey.Accession(acc)) is { } h ? new PrideProjectSearchResultLike(h) : null;
         }
         catch (Exception ex) when (Envelope.IsUnavailable(ex)) { Log($"{acc} screen: PRIDE unavailable ({ex.Message}); retry next pass"); return null; }
-        if (rec is null) { Log($"{acc} screen: PRIDE returned no record; retry next pass"); return null; }
+        if (rec is null)
+        {
+            // PRIDE has no record. A dataset hosted at another repository (MassIVE, iProX, jPOST) never gets one, and was
+            // retried every pass for ever. ProteomeXchange names its host: park it by name. A dataset PRIDE hosts (not
+            // public yet) or one ProteomeXchange does not know is still tried again next pass.
+            string? host;
+            try
+            {
+                host = await _search.TryGetProteomeXchangeXmlAsync(SearchKey.Accession(acc), ct).ConfigureAwait(false) is { } xml
+                    ? ProteomeXchangeRecord.HostingRepository(xml) : null;
+            }
+            catch (Exception ex) when (Envelope.IsUnavailable(ex)) { Log($"{acc} screen: PRIDE has no record and ProteomeXchange is unavailable ({ex.Message}); retry next pass"); return null; }
+            if (host is not null && !host.Equals("PRIDE", StringComparison.OrdinalIgnoreCase))
+            {
+                string why = $"PRIDE has no record of it, and ProteomeXchange names {host} as its hosting repository; the batch fetches PRIDE's deposits only";
+                Log($"{acc} SCREENED OUT ({OtherRepositoryStatus}): {why}");
+                Record(acc, ("status", OtherRepositoryStatus), ("detail", why), ("hosting_repository", host));
+                return null;
+            }
+            Log($"{acc} screen: PRIDE returned no record{(host is null ? "" : " (ProteomeXchange names PRIDE as its host)")}; retry next pass");
+            return null;
+        }
 
         var acq = AcquisitionClassifier.Classify(rec.Record);
         // 2026-11-20 (PXD033714): the record's words read non-specific cleavage (an immunopeptidome named beside a tryptic
@@ -1499,6 +1520,10 @@ public sealed class BatchRunner
     /// and the deposit gets one more look when the question's design for it changes (<see cref="DesignStamp"/>).
     /// </summary>
     internal const string IsobaricDesignStatus = "waiting_isobaric_design";
+
+    /// <summary>A deposit PRIDE has no record of, which ProteomeXchange says another repository hosts (MassIVE, iProX,
+    /// jPOST). It settles here until the engine fetches from that repository.</summary>
+    internal const string OtherRepositoryStatus = "waiting_other_repository";
 
     /// <summary>
     /// v0.4.34 (PLAN_tmt-dda-2 stage 6): which channel design an isobaric deposit will be searched with, said before the full

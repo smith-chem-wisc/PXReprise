@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using PXReprise.Census;
 using PXReprise.Cli;
+using PXReprise.Fetch;
 using UsefulProteomicsDatabases;
 
 namespace PXReprise.Tests;
@@ -335,6 +336,35 @@ public class CensusTests
             Assert.That(Envelope.IsUnavailable(new MzLibUtil.MzLibException("contract")), Is.False);
         });
     }
+
+    /// <summary>mzLib marks a failure it gave up retrying as transient (ServiceFailure.IsTransient). MassIVE's FTP client
+    /// throws a status-less HttpRequestException with no inner exception for a dropped transfer or a 4xx reply, which
+    /// reads as available by its shape alone, so without the mark a MassIVE outage would settle a deposit.</summary>
+    [Test]
+    public void AFailureMzLibMarkedTransientIsUnavailableWhateverItsShape()
+    {
+        var ftp = new HttpRequestException("MassIVE's FTP server answered 421 for 'raw/x.raw'");
+        Assert.That(Envelope.IsUnavailable(ftp), Is.False, "by its shape alone it reads as available");
+        // mzLib's retry loop leaves this mark (ServiceFailure.MarkTransient is internal to mzLib); the precondition fails
+        // loudly if mzLib ever renames the key, rather than this test passing for the wrong reason.
+        ftp.Data["ServiceFailure.Transient"] = true;
+        Assert.That(UsefulProteomicsDatabases.ServiceFailure.IsTransient(ftp), Is.True, "precondition: mzLib reads the mark");
+        Assert.Multiple(() =>
+        {
+            Assert.That(Envelope.IsUnavailable(ftp), Is.True);
+            Assert.That(FetchStage.IsTransient(ftp), Is.True, "the fetch's retry rule reads the same mark");
+        });
+    }
+
+    [TestCase("MassIVE", "MassIVE")]
+    [TestCase(" iProX ", "iProX")]
+    [TestCase(null, null)]
+    public void ProteomeXchangeNamesTheHostingRepository(string? attribute, string? expected) =>
+        Assert.That(ProteomeXchangeRecord.HostingRepository(FakeSearch.PxXml("PXD057243", attribute)), Is.EqualTo(expected));
+
+    [Test]
+    public void ProteomeXchangeXmlThatDoesNotParseNamesNoHost() =>
+        Assert.That(ProteomeXchangeRecord.HostingRepository("<DatasetSummary hostingRepository=\"MassIVE\""), Is.Null);
 
     [Test, Category("ExternalService")]
     public async Task LivePrideSearchReturnsProjects() =>

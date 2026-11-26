@@ -29,4 +29,9 @@ internal sealed class DepositSearch(IProjectSearch inner) : IProjectSearch
     public Task<List<PrideProjectSearchResult>> SearchAsync(string keyword, CancellationToken ct) => inner.SearchAsync(SearchKey.Accession(keyword), ct);
 
     public Task<PrideProject?> TryGetProjectAsync(string key, CancellationToken ct) => inner.TryGetProjectAsync(SearchKey.Accession(key), ct);
+
+    // Forwarded explicitly, as DepositFiles forwards DownloadCheckedAsync: the interface's default answers null, so without
+    // this the batch never heard ProteomeXchange, whatever the search it wraps could tell.
+    public Task<string?> TryGetProteomeXchangeXmlAsync(string key, CancellationToken ct) =>
+        inner.TryGetProteomeXchangeXmlAsync(SearchKey.Accession(key), ct);
 }

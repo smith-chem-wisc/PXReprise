@@ -15,8 +15,26 @@ A new version of the engine never changes a finished result. Methods live in ver
 
 ## Unreleased
 
-**Adopting:** nothing for a batch or a store. `datarepo-host` is a separate program, and the release archives do not
-carry it yet.
+**Adopting:** a swap only, for a batch: a deposit PRIDE has no record of, hosted at another repository, now settles
+as `waiting_other_repository` instead of being tried every pass. Nothing for a store. `datarepo-host` is a separate
+program, and the release archives do not carry it yet.
+
+- **A deposit hosted at another repository settles by name.** When PRIDE has no record of a deposit, the screen asks
+  ProteomeXchange which repository hosts it (`hostingRepository`).
+  - **Hosted elsewhere** (MassIVE, iProX, jPOST): the deposit settles as `waiting_other_repository`. The host is
+    recorded in its state entry (`hosting_repository`) and named in its detail.
+  - **Hosted by PRIDE** (not public yet), **unknown to ProteomeXchange**, or **ProteomeXchange unavailable:** the
+    deposit is tried again next pass, as before.
+  - Until now such a deposit stayed `probing` and was tried every pass for ever.
+  - The batch's PRIDE wrapper (`DepositSearch`) now passes the ProteomeXchange call through. It used to answer it with
+    the interface's default, nothing.
+- **A failure mzLib marks as transient is retried.** That is `ServiceFailure.IsTransient`: mzLib gave up only because
+  its retries ran out. Such a failure is now unavailability, whatever its shape (`Envelope.IsUnavailable`, and with it
+  `FetchStage.IsTransient`).
+  - MassIVE's FTP client throws a status-less `HttpRequestException` for a dropped transfer, a 4xx reply or an empty
+    listing. Read by its shape alone, that settled a deposit at once.
+  - For PRIDE, the one difference is EBI's 403 on its FTP host (its rate limit), which mzLib marks transient.
+    `FetchStage.IsTransient` already retried it; now every caller of `Envelope.IsUnavailable` does too.
 
 - **`datarepo-host`**: the three MCP tools over Streamable HTTP at `/mcp`, a separate program (`src/PXReprise.Host`).
   A bearer token from `DATAREPO_HOST_TOKEN` is required on any address that is not loopback, an `Origin` that is not
