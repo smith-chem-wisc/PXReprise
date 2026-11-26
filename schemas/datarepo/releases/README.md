@@ -23,7 +23,9 @@ byte the text at the version's last tag: v0.32.0 for 0.0.13, v1.0.0 for 0.0.14, 
 
 Left out:
 - 0.0.1 was never released;
-- 0.0.17 is the working version (`[1.5.0] - unreleased`).
+- 0.0.17, released with PXReprise 1.0.0 (2026-11-26), is still the working version. `FrozenSchemaTests` refuses a frozen
+  copy of the working version, so 0.0.17 is frozen here, from its text at the `v1.0.0` tag, by the first change that moves
+  the working schema to 0.0.18.
 
 | version | from commit | study layer version |
 |---|---|---|
