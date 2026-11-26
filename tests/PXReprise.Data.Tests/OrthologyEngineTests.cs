@@ -1,7 +1,3 @@
-using System.Formats.Tar;
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
 using System.Text.Json.Nodes;
 using PXReprise.Bundle;
 using PXReprise.Catalog;
@@ -11,19 +7,16 @@ using DuckDB.NET.Data;
 namespace PXReprise.Data.Tests;
 
 /// <summary><c>logs.register_orthology</c> (DATAREPO-75, logs 031): verify a released snapshot, register it, cite it.</summary>
-/// <remarks>The snapshot here is built in logs' file contract (<c>logs:DEF-ORTHOLOGY v1</c>): the real columns, the
-/// layout, and the release's own <c>views.sql</c> (Fixtures/orthology). Two species, <c>sp_a</c> and <c>sp_b</c>,
-/// with genes in each of the four <c>pair_status</c> classes. <see cref="TheReleasedSnapshotRegisters"/> runs the
-/// real release when it is on this machine.</remarks>
+/// <remarks>The snapshot here is built in logs' file contract (<c>logs:DEF-ORTHOLOGY v1</c>) by
+/// <see cref="OrthologySnapshots"/>: the real columns, the layout, and the release's own <c>views.sql</c>
+/// (Fixtures/orthology). Two species, <c>sp_a</c> and <c>sp_b</c>, with genes in each of the four <c>pair_status</c>
+/// classes. <see cref="TheReleasedSnapshotRegisters"/> runs the real release when it is on this machine.</remarks>
 public class OrthologyEngineTests
 {
-    private static readonly Dictionary<string, object?> StandInInstall = new()
-    {
-        ["distribution"] = "datarepo", ["version"] = "test", ["source"] = "test-stand-in", ["commit"] = "0",
-    };
+    private static Dictionary<string, object?> StandInInstall => OrthologySnapshots.StandInInstall;
 
-    private const string GeneSetA = "aaaa000000000000000000000000000000000000000000000000000000000000";
-    private const string GeneSetB = "bbbb000000000000000000000000000000000000000000000000000000000000";
+    private const string GeneSetA = OrthologySnapshots.GeneSetA;
+    private const string GeneSetB = OrthologySnapshots.GeneSetB;
 
     private string _root = "";
     private string Store => Path.Combine(_root, "store");
@@ -38,107 +31,14 @@ public class OrthologyEngineTests
         catch (IOException) { /* a DuckDB file still mapped on Windows; the temp folder is the OS's to clear */ }
     }
 
-    private static string ViewsSql => Path.Combine(TestContext.CurrentContext.TestDirectory, "Fixtures", "orthology", "views.sql");
+    // The snapshot, its release and its registration are OrthologySnapshots', shared with OrthologyCatalogTests.
+    private string MakeSnapshot(string name, bool extraMember = false) => OrthologySnapshots.Make(_root, name, extraMember);
 
-    private static string Sha(string path) => BundleWriter.Sha256File(path);
+    private static void WriteManifest(string dir, Action<JsonObject>? edit = null) => OrthologySnapshots.WriteManifest(dir, edit);
 
-    /// <summary>A snapshot directory in the contract's layout. <paramref name="extraMember"/> puts gene A1 in a second
-    /// tree, which makes <c>pair_status</c> give it two rows.</summary>
-    private string MakeSnapshot(string name, bool extraMember = false)
-    {
-        var dir = Path.Combine(_root, "src-" + name, name);
-        foreach (var sub in new[] { "genes", "members", "pairs" }) Directory.CreateDirectory(Path.Combine(dir, sub));
-        using (var con = new DuckDBConnection("DataSource=:memory:"))
-        {
-            con.Open();
-            void Exec(string sql)
-            {
-                using var cmd = con.CreateCommand();
-                cmd.CommandText = sql;
-                cmd.ExecuteNonQuery();
-            }
-            string P(string rel) => "'" + Path.Combine(dir, rel).Replace('\\', '/') + "'";
-            const string gene = "gene_id VARCHAR, gene_version INTEGER, gene_biotype VARCHAR, gene_name VARCHAR, seq_region VARCHAR, species VARCHAR";
-            const string member = "gene_id VARCHAR, species VARCHAR, group_id VARCHAR, source_group_id VARCHAR, canonical_protein_id VARCHAR";
-            Exec($"COPY (SELECT * FROM (VALUES ('A1',1,'protein_coding','a1','1','sp_a'),('A2',1,'protein_coding','a2','1','sp_a'),"
-                 + $"('A3',1,'protein_coding','a3','1','sp_a'),('A4',1,'lncRNA','a4','1','sp_a')) t({gene.Replace(" VARCHAR", "").Replace(" INTEGER", "")})) TO {P("genes/sp_a.parquet")}");
-            Exec($"COPY (SELECT * FROM (VALUES ('B1',1,'protein_coding','b1','1','sp_b'),('B2',1,'protein_coding','b2','1','sp_b')) "
-                 + $"t({gene.Replace(" VARCHAR", "").Replace(" INTEGER", "")})) TO {P("genes/sp_b.parquet")}");
-            var cols = member.Replace(" VARCHAR", "");
-            // A1 has an ortholog; A2 shares tree T2 with B2 but no edge; A3's tree holds no sp_b gene; A4 is in no tree.
-            Exec($"COPY (SELECT * FROM (VALUES ('A1','sp_a','T1','s1','PA1'),('A2','sp_a','T2','s2','PA2'),('A3','sp_a','T3','s3','PA3')"
-                 + (extraMember ? ",('A1','sp_a','T2','s2','PA1')" : "") + $") t({cols})) TO {P("members/sp_a.parquet")}");
-            Exec($"COPY (SELECT * FROM (VALUES ('B1','sp_b','T1','s1','PB1'),('B2','sp_b','T2','s2','PB2')) t({cols})) TO {P("members/sp_b.parquet")}");
-            const string pair = "SELECT homology_id::VARCHAR AS homology_id, relationship_type::VARCHAR AS relationship_type, "
-                + "relationship_class::VARCHAR AS relationship_class, species_a::VARCHAR AS species_a, species_b::VARCHAR AS species_b, "
-                + "gene_a::VARCHAR AS gene_a, protein_a::VARCHAR AS protein_a, identity_a::DOUBLE AS identity_a, gene_b::VARCHAR AS gene_b, "
-                + "protein_b::VARCHAR AS protein_b, identity_b::DOUBLE AS identity_b, NULL::DOUBLE AS dn, NULL::DOUBLE AS ds, "
-                + "75::INTEGER AS goc_score, 99.0::DOUBLE AS wga_coverage, true AS is_high_confidence, 'test'::VARCHAR AS source_dump FROM ";
-            const string pcols = "t(homology_id, relationship_type, relationship_class, species_a, species_b, gene_a, protein_a, identity_a, gene_b, protein_b, identity_b)";
-            Exec($"COPY ({pair}(VALUES ('1','ortholog_one2one','ortholog','sp_a','sp_b','A1','PA1',70.0,'B1','PB1',69.0)) {pcols}) TO {P("pairs/sp_a__sp_b.parquet")}");
-            Exec($"COPY ({pair}(VALUES ('2','within_species_paralog','paralog','sp_a','sp_a','A2','PA2',40.0,'A3','PA3',41.0)) {pcols}) TO {P("pairs/sp_a__sp_a.parquet")}");
-            Exec($"COPY ({pair}(VALUES ('3','within_species_paralog','paralog','sp_b','sp_b','B1','PB1',40.0,'B2','PB2',41.0)) {pcols}) TO {P("pairs/sp_b__sp_b.parquet")}");
-        }
-        File.Copy(ViewsSql, Path.Combine(dir, "views.sql"));
-        WriteManifest(dir);
-        return dir;
-    }
+    private static (Dictionary<string, string> Inputs, SnapshotRelease Release) Release(string dir) => OrthologySnapshots.Release(dir);
 
-    private static readonly Dictionary<string, long> Rows = new()
-    {
-        ["genes/sp_a.parquet"] = 4, ["genes/sp_b.parquet"] = 2, ["members/sp_b.parquet"] = 2,
-        ["pairs/sp_a__sp_b.parquet"] = 1, ["pairs/sp_a__sp_a.parquet"] = 1, ["pairs/sp_b__sp_b.parquet"] = 1,
-    };
-
-    /// <summary>Writes manifest.json listing every file as it now is (members/sp_a rows counted from the file).</summary>
-    private static void WriteManifest(string dir, Action<JsonObject>? edit = null)
-    {
-        var files = new JsonArray();
-        foreach (var path in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories)
-                     .Select(f => Path.GetRelativePath(dir, f).Replace('\\', '/')).Where(f => f != "manifest.json").Order(StringComparer.Ordinal))
-        {
-            var full = Path.Combine(dir, path);
-            var entry = new JsonObject { ["path"] = path };
-            if (path.EndsWith(".parquet", StringComparison.Ordinal))
-                entry["rows"] = Rows.TryGetValue(path, out var r) ? r : CountRows(full);
-            entry["bytes"] = new FileInfo(full).Length;
-            entry["sha256"] = BundleWriter.Sha256File(full);
-            files.Add(entry);
-        }
-        var manifest = new JsonObject
-        {
-            ["format"] = "ensembl-orthology-snapshot", ["format_version"] = 1, ["snapshot_id"] = "test-" + Path.GetFileName(dir),
-            ["source"] = "ensembl_compara", ["release"] = "116", ["species"] = new JsonArray("sp_a", "sp_b"),
-            ["gene_set_sha256"] = new JsonObject { ["sp_a"] = GeneSetA, ["sp_b"] = GeneSetB },
-            ["files"] = files,
-        };
-        edit?.Invoke(manifest);
-        File.WriteAllText(Path.Combine(dir, "manifest.json"), manifest.ToJsonString(new JsonSerializerOptions { WriteIndented = true }), new UTF8Encoding(false));
-    }
-
-    private static long CountRows(string parquet)
-    {
-        using var con = new DuckDBConnection("DataSource=:memory:");
-        con.Open();
-        using var cmd = con.CreateCommand();
-        cmd.CommandText = $"SELECT count(*) FROM read_parquet('{parquet.Replace('\\', '/')}')";
-        return Convert.ToInt64(cmd.ExecuteScalar());
-    }
-
-    /// <summary>The tar and the manifest beside it, as logs releases them, and a release entry naming both.</summary>
-    private (Dictionary<string, string> Inputs, SnapshotRelease Release) Release(string dir)
-    {
-        var tar = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(dir))!, Path.GetFileName(dir) + ".tar");
-        if (File.Exists(tar)) File.Delete(tar);
-        TarFile.CreateFromDirectory(dir, tar, includeBaseDirectory: true);
-        var manifest = Path.Combine(Path.GetDirectoryName(tar)!, Path.GetFileName(dir) + ".manifest.json");
-        File.Copy(Path.Combine(dir, "manifest.json"), manifest, overwrite: true);
-        var release = new SnapshotRelease("orthology-test-" + Path.GetFileName(dir), Sha(tar), Sha(manifest), "test attribution");
-        return (new Dictionary<string, string> { ["snapshot_tar"] = tar, ["snapshot_manifest"] = manifest }, release);
-    }
-
-    private RunResult Register(Dictionary<string, string> inputs, SnapshotRelease release) =>
-        OrthologyEngine.Run(Store, inputs, [release], StandInInstall);
+    private RunResult Register(Dictionary<string, string> inputs, SnapshotRelease release) => OrthologySnapshots.Register(Store, inputs, release);
 
     [Test]
     public void ASnapshotRegistersReadInPlaceWithEveryGeneGivenOneStatus()

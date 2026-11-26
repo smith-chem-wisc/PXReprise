@@ -41,7 +41,9 @@ public sealed record Machine(
     bool DeleteRawAfterCalibration = true,
     bool DeliverSplitDeposits = false,
     bool OutputSdrfReadOnly = true,
-    string? SpectralLibraryRemote = null)
+    string? SpectralLibraryRemote = null,
+    bool Differential = true,
+    PtmQtlConfig? PtmQtl = null)
 {
     /// <summary>The environment variable that holds the shared bucket's name (2026-11-13).</summary>
     public const string BucketVariable = "PXR_S3_BUCKET";
@@ -77,7 +79,8 @@ public sealed record Machine(
         string libraries = root.OptionalString("spectral_library_root") ?? Path.Combine(workRoot, "spectral_libraries");
         // Stop rather than fill a disk other projects share.
         double minFree = root.OptionalNumber("min_free_gb") ?? 250;
-        // The dataRepo RELEASE install used to ingest, never an editable development checkout (aging D-rule).
+        // The datarepo install used to ingest: the one of this engine's own release, never an editable development checkout
+        // (aging D-rule). A batch's start refuses a datarepo from another release (D73, BatchRunner.SameRelease).
         string? datarepo = root.OptionalString("datarepo");
         int attempts = checked((int)(root.OptionalInteger("fetch_attempts") ?? 8));
         int parallel = checked((int)(root.OptionalInteger("parallel_downloads") ?? 4));
@@ -149,7 +152,35 @@ public sealed record Machine(
         // 2026-11-13: a machine file is often committed (machines/), and the lab's bucket name must never be, so the file
         // may say s3://$PXR_S3_BUCKET/libraries and the name comes from this machine's environment.
         string? libraryRemote = ExpandBucket(file, root.OptionalString("spectral_library_remote"), Environment.GetEnvironmentVariable(BucketVariable));
+        // D84 (QuantProject 155): each finished search's differential abundance (stage 06_differential). It can take long on a
+        // design of many conditions (every pair is compared), so a machine may turn it off; the verb still runs by hand.
+        bool differential = root.OptionalBool("differential") ?? true;
+        // D96, G134 (the user, 2026-11-25: "I'd like it to be on by default in pxreprise"): with [ptmqtl], the batch runs
+        // ptmQtl's engines unasked, on each label-free delivery and before each publish, under the lists named here
+        // (ptmQtl's own, until the run labels reach the bundle, D94). Paths are taken beside this file when relative.
+        PtmQtlConfig? ptmqtl = null;
+        if (root.OptionalTable("ptmqtl") is { } pt)
+        {
+            string Beside(string p) => Path.GetFullPath(Path.Combine(Path.GetDirectoryName(file)!, p));
+            string? captureRuns = pt.OptionalString("capture_runs");
+            // D96: site_traits needs the question's curated tables joined to its runs, which the latest catalog holds: a
+            // catalog folder (its latest.json) or one .duckdb file. Off until ptmQtl's engine change and its mzLib release.
+            string? catalog = pt.OptionalString("catalog");
+            ptmqtl = new PtmQtlConfig(Beside(pt.RequiredString("enrichment")), captureRuns is null ? null : Beside(captureRuns),
+                Beside(pt.RequiredString("cysteine")), checked((int)(pt.OptionalInteger("catch_up_per_publish") ?? 20)),
+                catalog is null ? null : Beside(catalog), pt.OptionalBool("site_traits") ?? false);
+            pt.RefuseUnknownKeys();
+            if (ptmqtl.SiteTraits && ptmqtl.Catalog is null) throw new ConfigException(file, "'ptmqtl.site_traits' needs 'ptmqtl.catalog': the traits come from the latest catalog");
+        }
         root.RefuseUnknownKeys();
+        if (ptmqtl is not null)
+        {
+            if (worker is not null) throw new ConfigException(file, "a probe worker ([worker]) runs no ptmQtl engine: remove [ptmqtl]");
+            if (datarepo is null) throw new ConfigException(file, "[ptmqtl] needs 'datarepo': the engines run through 'datarepo run'");
+            foreach (var (key, path) in new[] { ("enrichment", ptmqtl.Enrichment), ("capture_runs", ptmqtl.CaptureRuns), ("cysteine", ptmqtl.Cysteine) })
+                if (path is not null && !File.Exists(path)) throw new ConfigException(file, $"'ptmqtl.{key}' = '{path}' does not exist");
+            if (ptmqtl.CatchUpPerPublish < 0) throw new ConfigException(file, "'ptmqtl.catch_up_per_publish' must not be negative (0 turns the catch-up off)");
+        }
         if (worker is not null && workers is not null) throw new ConfigException(file, "[worker] and [workers] do not go together: a machine probes for a controller, or controls workers");
         if (worker is not null && datarepo is not null) throw new ConfigException(file, "a probe worker ([worker]) never ingests: remove 'datarepo'");
         if (workers is { Window: < 1 }) throw new ConfigException(file, "'workers.window' must be 1 or more");
@@ -171,7 +202,7 @@ public sealed record Machine(
         if (passWait < 0) throw new ConfigException(file, "'pass_wait_minutes' must not be negative");
         if (searchTimeout <= 0) throw new ConfigException(file, "'search_timeout_h' must be positive");
         if (stall < 0) throw new ConfigException(file, "'search_stall_minutes' must not be negative (0 turns the stall check off)");
-        return new Machine(file, workRoot, dbDir, mm, settings, threads, dotnet, licence, libraries, minFree, datarepo, attempts, parallel, qcPython, passes, passWait, searchTimeout, stall, dotnetRoot, fetchStall, slots, catchUp, ascp, asperaKey, asperaAttempts, prideHttps, limits, probeMinutes, worker, workers, deleteCalibrated, deliverSplits, sdrfReadOnly, libraryRemote);
+        return new Machine(file, workRoot, dbDir, mm, settings, threads, dotnet, licence, libraries, minFree, datarepo, attempts, parallel, qcPython, passes, passWait, searchTimeout, stall, dotnetRoot, fetchStall, slots, catchUp, ascp, asperaKey, asperaAttempts, prideHttps, limits, probeMinutes, worker, workers, deleteCalibrated, deliverSplits, sdrfReadOnly, libraryRemote, differential, ptmqtl);
     }
 
     public string CmdFor(string release) =>
@@ -194,6 +225,16 @@ public sealed record WorkersConfig(string Share, int Window = 6, double QuietHou
 /// root and state directory (the question it runs is the controller's copy, whose <c>[batch]</c> is the controller's).
 /// </summary>
 public sealed record WorkerConfig(string Share, string RunRoot, string StateDir);
+
+/// <summary>
+/// The machine's <c>[ptmqtl]</c> (D96, G134): the lists ptmQtl's engines are run under (their <c>--input enrichment</c>,
+/// <c>capture_runs</c> and <c>cysteine</c>), and how many deposits delivered before the engines ran get their
+/// <c>site_pairs</c> at each publish (<c>catch_up_per_publish</c>, 20 by default; 0 turns it off). With
+/// <c>site_traits</c> on, each publish also runs <c>ptmqtl.site_traits</c> on every trait the question sources
+/// (<c>[traits.&lt;id&gt;]</c>), from the latest <c>catalog</c>.
+/// </summary>
+public sealed record PtmQtlConfig(string Enrichment, string? CaptureRuns, string Cysteine, int CatchUpPerPublish = 20,
+    string? Catalog = null, bool SiteTraits = false);
 
 /// <summary>
 /// The machine's <c>[deposit_limits]</c> (v0.4.21): the profiles' deposit gates as this box sets them. Each key left out

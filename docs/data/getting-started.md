@@ -2,12 +2,12 @@
 
 In about ten minutes this page takes you from a download to a working repository: one dataset
 ingested, a catalog built, a public site written, and an agent able to ask it questions. It uses the
-small example instance that ships in this repository (`tests/data/`), so you need no real data and
-no search run of your own.
+small example instance that ships in this repository (`tests/datarepo-instance/`), so you need no real
+data and no search run of your own.
 
-Every command and every line of output below was run on this example with datarepo 1.5.0. Long
+Every command and every line of output below was run on this example with datarepo 1.0.1. Long
 paths are shortened to `…`, and long lines are wrapped. On Windows the paths print with `\`. The ids
-are content hashes, so on 1.5.0 you should get the same ones; on another version they will differ (a
+are content hashes, so on 1.0.1 you should get the same ones; on another version they will differ (a
 later section says why).
 
 **Words used here.**
@@ -24,30 +24,34 @@ The [glossary](README.md#glossary) has the rest.
 
 ## 1. Install
 
-dataRepo is one self-contained program, `datarepo`. It needs no .NET, no Python and nothing else
-installed. You also need git, to fetch the example instance.
+datarepo is part of PXReprise: one PXReprise release holds two self-contained programs, the engine
+(`pxreprise`) and `datarepo`, under one version. Neither needs .NET, Python or anything else
+installed, and this tutorial uses only `datarepo`. You also need git, to fetch the example instance.
 
 Work in a new, empty folder. First fetch the repository at the release's tag. It is cloned as
-`dataRepo-src` because the program unpacks to a folder named `datarepo`, and on Windows and macOS
-those two names are the same folder:
+`PXReprise-src` because the release unpacks to a folder named `pxreprise`, and on Windows and macOS
+those two names are the same folder. `core.longpaths` lets Windows check out the repository's longest
+test file paths (without it the checkout can fail with "Filename too long"); it changes nothing
+elsewhere:
 
 ```bash
-git clone --depth 1 --branch v1.5.0 https://github.com/smith-chem-wisc/dataRepo.git dataRepo-src
+git clone -c core.longpaths=true --depth 1 --branch v1.0.1 https://github.com/smith-chem-wisc/PXReprise.git PXReprise-src
 ```
 
-Then download the program for your machine from the
-[v1.5.0 release](https://github.com/smith-chem-wisc/dataRepo/releases/tag/v1.5.0), unpack it, and
-put its folder on your `PATH` for this session:
+Then download the release for your machine from the
+[v1.0.1 release](https://github.com/smith-chem-wisc/PXReprise/releases/tag/v1.0.1), unpack it, and
+put its `datarepo` folder on your `PATH` for this session. The archive holds two folders,
+`pxreprise` and `datarepo`:
 
 | Machine | Commands |
 |---|---|
-| Linux x64 | `curl -LO https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.5.0/datarepo-1.5.0-linux-x64.tar.gz`<br>`tar -xzf datarepo-1.5.0-linux-x64.tar.gz`<br>`export PATH="$PWD/datarepo:$PATH"` |
-| macOS, Apple silicon | as Linux, with `datarepo-1.5.0-osx-arm64.tar.gz` |
-| macOS, Intel | as Linux, with `datarepo-1.5.0-osx-x64.tar.gz` |
-| Windows, PowerShell | `Invoke-WebRequest https://github.com/smith-chem-wisc/dataRepo/releases/download/v1.5.0/datarepo-1.5.0-win-x64.zip -OutFile datarepo-1.5.0-win-x64.zip`<br>`Expand-Archive datarepo-1.5.0-win-x64.zip -DestinationPath .`<br>`$env:Path = "$PWD\datarepo;" + $env:Path` |
-| Windows, Git Bash | `curl -LO` the `win-x64.zip` as above, `unzip datarepo-1.5.0-win-x64.zip`, then `export PATH="$PWD/datarepo:$PATH"` |
+| Linux x64 | `curl -LO https://github.com/smith-chem-wisc/PXReprise/releases/download/v1.0.1/pxreprise-1.0.1-linux-x64.tar.gz`<br>`tar -xzf pxreprise-1.0.1-linux-x64.tar.gz`<br>`export PATH="$PWD/datarepo:$PATH"` |
+| macOS, Apple silicon | as Linux, with `pxreprise-1.0.1-osx-arm64.tar.gz` |
+| macOS, Intel | as Linux, with `pxreprise-1.0.1-osx-x64.tar.gz` |
+| Windows, PowerShell | `Invoke-WebRequest https://github.com/smith-chem-wisc/PXReprise/releases/download/v1.0.1/pxreprise-1.0.1-win-x64.zip -OutFile pxreprise-1.0.1-win-x64.zip`<br>`Expand-Archive pxreprise-1.0.1-win-x64.zip -DestinationPath .`<br>`$env:Path = "$PWD\datarepo;" + $env:Path` |
+| Windows, Git Bash | `curl -LO` the `win-x64.zip` as above, `unzip pxreprise-1.0.1-win-x64.zip`, then `export PATH="$PWD/datarepo:$PATH"` |
 
-Unpack a `.tar.gz` with `tar`, which keeps the program's executable bit. On macOS, an archive
+Unpack a `.tar.gz` with `tar`, which keeps the programs' executable bit. On macOS, an archive
 downloaded with a browser is quarantined and the program is refused as unverified; `curl` does not
 quarantine it, or run `xattr -dr com.apple.quarantine datarepo` on the unpacked folder. You can also
 skip the `PATH` step and call the program by its path (`./datarepo/datarepo`, or
@@ -60,9 +64,9 @@ datarepo doctor
 ```
 
 ```
-datarepo 1.5.0  schema 0.0.17
+datarepo 1.0.1  schema 0.0.17
   runtime          .NET 10.0.10
-  mzLib            1.0.598.0
+  mzLib            1.0.601.0
   parquet          ParquetSharp 24.0.0.0
   mcp SDK          ModelContextProtocol 2.2.0.0
   mcp registered   no (`datarepo mcp --catalog <path> --install`)
@@ -70,8 +74,9 @@ datarepo 1.5.0  schema 0.0.17
 ready
 ```
 
-Check that the first line says `datarepo 1.5.0`. If it names another version, another `datarepo`
-(an older install, such as the Python package) is earlier on your `PATH` and answering instead, and
+Check that the first line says `datarepo 1.0.1`. If it names another version, another `datarepo`
+(an older install, such as a dataRepo 1.x release or the Python package) is earlier on your `PATH`
+and answering instead, and
 every id below will differ; repeat the `PATH` step, or call the program by its path.
 
 `doctor` names what is inside the program: the .NET runtime it carries, mzLib (which reads
@@ -86,7 +91,7 @@ have written (`work_root/`). The `go/` folder beside them holds inputs for an op
 this tutorial does not use. Copy it all out, so nothing you make lands inside the repository:
 
 ```bash
-cp -r dataRepo-src/tests/data example-instance      # PowerShell: Copy-Item -Recurse dataRepo-src\tests\data example-instance
+cp -r PXReprise-src/tests/datarepo-instance example-instance      # PowerShell: Copy-Item -Recurse PXReprise-src\tests\datarepo-instance example-instance
 cd example-instance
 datarepo manifest manifest.yaml
 ```
@@ -108,8 +113,8 @@ licence    CC-BY-4.0 - Test Working Group
      reason Not yet reviewed by the producer.
 ```
 
-The manifest is the contract between whoever ran the searches and dataRepo. It says which datasets
-may be loaded (`include`), which may not (`exclude`, or `hold` while undecided), and why. dataRepo
+The manifest is the contract between whoever ran the searches and datarepo. It says which datasets
+may be loaded (`include`), which may not (`exclude`, or `hold` while undecided), and why. datarepo
 never makes that call itself. A `?` means the manifest does not state that fact for the dataset.
 Nothing is needed for a dataset that will not be loaded.
 
@@ -121,7 +126,7 @@ datarepo ingest manifest.yaml PXD999999
 
 ```
 PXD999999
-  bundle   …/store/PXD999999/4ccf36a955a1e57d
+  bundle   …/store/PXD999999/65f1a260e95b20e1
   tables   datasets 1, samples 2, sample_characteristics 8, runs 2, assays 2, psms 60, peptidoforms 40,
            peptidoform_ions 40, protein_groups 5, proteins 62, ptm_sites 36, ptm_stoichiometry 4,
            quant_values 37, definitions 14, provenance_records 3, findings 7, metrics 18,
@@ -143,7 +148,7 @@ Three things happened:
   with no biology in it, and so on. Two are informational. They travel with the data, so nobody
   reads a count without its caveats.
 
-The bundle's name, `4ccf36a955a1e57d`, is a hash of its input files, the schema version and the
+The bundle's name, `65f1a260e95b20e1`, is a hash of its input files, the schema version and the
 ingester version. Run the command again and it says the bundle is unchanged. Change one byte of
 input and you get a second bundle beside the first, so a result someone cited never changes under
 them.
@@ -174,19 +179,21 @@ datarepo publish manifest.yaml --site site --title "Example repository" --purpos
 
 ```
 catalog  …/example-instance/catalog.duckdb
-  id       88a2166ec0d33563
-  dataset  PXD999999    bundle 4ccf36a955a1e57d
+  id       41a27182d87a87ec
+  dataset  PXD999999    bundle 65f1a260e95b20e1
   pride    0 of 1 deposit(s) have a fetched PRIDE record; `datarepo pride --store …/example-instance/store` fetches the rest
   note     logs.resolve_genes coverage (databases with an artefact): 0 of 1; no artefact for 89fb8c7a1140 (PXD999999)
-  note     go.annotate_groups coverage (bundles with an artefact): 0 of 1; no artefact for PXD999999 (4ccf36a955a1e57d)
+  note     go.categorize_terms (ontology and category map served): 0 of 1; no artefact, so no GO is served
+  note     go.annotate_databases coverage (target databases with an artefact): 0 of 1; none served without an ontology; no artefact for 89fb8c7a1140 (PXD999999)
+  note     go.resolve_members coverage (bundles served GO): 0 of 1; not served: PXD999999 (65f1a260e95b20e1): no go.resolve_members artefact
   note     logs.register_orthology (snapshots registered): 0 of 1; no snapshot registered
   note     ptmqtl.site_pairs coverage (bundles with an artefact): 0 of 1; no artefact for PXD999999
   tables   assays 2, datasets 1, definitions 14, findings 7, gene_resolutions 0, …
-  indexes  18
-  checks   64 run, all passed
+  indexes  23
+  checks   66 run, all passed
   timing   tables 0.4 s, derived: sample names 0.0 s, …
 site     site
-  catalog  88a2166ec0d33563
+  catalog  41a27182d87a87ec
   wrote    36 files, 1 dataset page
   skipped  croissant.json: no --data-url: a Croissant file describes downloadable files, …
   skipped  robots.txt: no --base-url: both need the site's absolute address
@@ -195,7 +202,7 @@ site     site
 
 `publish` does two things:
 
-- **It builds the catalog.** That is one DuckDB file holding every ingested dataset, with 64
+- **It builds the catalog.** That is one DuckDB file holding every ingested dataset, with 66
   integrity checks run on the result. Any failed check would have stopped it.
 - **It writes the site.** That is a static website with one page per dataset, an `llms.txt` for
   agents, and JSON for programs. Beside the 36 files is a hidden `.datarepo-site.json`, the marker
@@ -219,9 +226,9 @@ the site, add `--base-url` (for the sitemap) and `--data-url` (for download link
 [Croissant](https://mlcommons.org/croissant/) file, which machine-learning tools load). See
 [site.md](site.md).
 
-**Why the ids are what they are.** A bundle id hashes the version of the *ingest path* (`cs-1.3.0`),
+**Why the ids are what they are.** A bundle id hashes the version of the *ingest path* (`cs-1.5.0`),
 so it moves only when ingestion itself changes. A catalog id also hashes the *program's* version, so
-any new release of dataRepo gives a new catalog id from the same bundles. Rebuilding a catalog is
+any new release of PXReprise gives a new catalog id from the same bundles. Rebuilding a catalog is
 cheap; re-ingesting is not.
 
 ## 5. Ask it something
@@ -274,15 +281,15 @@ datarepo mcp --catalog catalog.duckdb --check
 
 ```
 catalog  catalog.duckdb
-  id       88a2166ec0d33563
-  built    … by datarepo 1.5.0
+  id       41a27182d87a87ec
+  built    … by datarepo 1.0.1
   dataset  PXD999999           58 PSMs at 1%
   tools    datarepo_describe, datarepo_search, datarepo_sql
-  empty    37 table(s) present with no rows
+  empty    48 table(s) present with no rows
 ```
 
-`37 table(s) present with no rows` is expected here. The schema has tables for data this small
-example does not have (glycopeptides, age effects, GO annotation, PRIDE records, TMT channels, runs
+`48 table(s) present with no rows` is expected here. The schema has tables for data this small
+example does not have (glycopeptides, age effects, GO annotation, orthology, PRIDE records, TMT channels, runs
 excluded from analysis). They exist and are empty, and an agent is told so. An empty table is never a negative answer.
 
 To register the catalog with [Claude Code](https://claude.com/claude-code):

@@ -39,3 +39,7 @@ Chosen option: "Numbered releases", because each running batch can then name the
 Releases were first published by a script that copied a snapshot into this repository. Since this repository holds the
 real history, a release is a version bump by pull request and then a `v<version>` tag
 ([0067](0067-smith-is-the-engine-repository.md), [0068](0068-rules-on-master.md)).
+
+[0073](0073-one-release-for-the-engine-and-datarepo.md) amends the lead: each section now leads with four things, the
+three above and **Adopting:** (a swap only, a swap and a catalog rebuild, or a full re-ingest), and the release workflow
+refuses a section whose lead does not say it.

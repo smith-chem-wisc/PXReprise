@@ -13,7 +13,7 @@ namespace PXReprise;
 public static class Program
 {
     /// <summary>The verbs, listed by the <c>version</c> verb. Keep in step with <see cref="Dispatch"/>.</summary>
-    public static readonly string[] Verbs = { "version", "profiles", "validate", "census", "gate", "rank", "chemistry", "fetch", "qc", "search", "qc-payload", "batch", "library", "worker" };
+    public static readonly string[] Verbs = { "version", "profiles", "validate", "census", "gate", "rank", "chemistry", "labels", "fetch", "qc", "search", "qc-payload", "differential", "batch", "library", "worker" };
 
     /// <summary>Where profiles are read from when --profiles is not given: beside the executable.</summary>
     public static string DefaultProfilesDir => Path.Combine(AppContext.BaseDirectory, "profiles");
@@ -113,6 +113,47 @@ public static class Program
                     parked = rows.Count(r => r.Chemistry?.Park is not null),
                     errors = rows.Count(r => r.Chemistry is null),
                 };
+            }
+
+            case "labels":
+            {
+                // labels <deposit dir>... [--decisions FILE] [--out DIR]: each run's sample type and the search's cysteine
+                // chemistry (D94), from what the deposit's folder records; no spectra. Written as <out>/labels.json, by
+                // default the deposit's own 07_labels; with several deposits, --out holds one folder per dataset. A
+                // deposit that cannot be labelled (no search yet) is listed under "failed" when several are given.
+                args.AllowOnly("decisions", "out");
+                var dirs = args.Words.Skip(1).ToList();
+                if (dirs.Count == 0) throw new UsageException("labels needs a deposit folder");
+                var decisions = args.Option("decisions") is { } df ? Labels.DepositLabelReader.LoadDecisions(df) : [];
+                var written = new List<object>();
+                var failed = new List<object>();
+                foreach (var dir in dirs)
+                {
+                    Labels.DepositLabels labels;
+                    try { labels = Labels.DepositLabelReader.Read(dir, decisions); }
+                    catch (InvalidDataException e) when (dirs.Count > 1)
+                    {
+                        // One deposit that cannot be labelled (no search yet) does not stop the others; it is reported.
+                        failed.Add(new { dataset = new DirectoryInfo(dir).Name, error = e.Message });
+                        continue;
+                    }
+                    string outDir = args.Option("out") is { } o
+                        ? (dirs.Count == 1 ? o : Path.Combine(o, labels.Dataset))
+                        : Path.Combine(dir, Labels.DepositLabelReader.Folder);
+                    var record = new RunRecord("labels");
+                    foreach (var input in new[] { Path.Combine(dir, "04_search", "provenance.json"), Path.Combine(dir, Discovery.ExperimentRecord.Folder, Discovery.ExperimentRecord.JsonFile), args.Option("decisions") })
+                        if (input is not null && File.Exists(input)) record.Input(input);
+                    string file = Labels.DepositLabelReader.Write(labels, outDir);
+                    record.Output(file);
+                    record.Write(outDir);
+                    written.Add(new
+                    {
+                        dataset = labels.Dataset, file = Path.GetFullPath(file),
+                        sample_types = labels.Runs.GroupBy(r => r.Value).OrderBy(g => g.Key, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count()),
+                        cysteine = labels.Cysteine.Verdict,
+                    });
+                }
+                return new { labelled = written, failed };
             }
 
             case "rank":
@@ -251,13 +292,15 @@ public static class Program
             case "fetch":
             {
                 string accession = Positional(args, 1)[0];
-                args.AllowOnly("out", "machine", "pick", "max-files", "max-file-mb", "parallel", "attempts");
+                args.AllowOnly("out", "machine", "pick", "max-files", "max-file-mb", "parallel", "attempts", "include", "exclude");
+                var select = FileSelection(args.Option("include"), args.Option("exclude"));
                 var machine = Machine.Load(args.Required("machine"));
                 var pick = ProfileLoader.ParseEnum<Fetch.Pick>("--pick", "pick", args.Option("pick") ?? "all");
                 var request = new Fetch.FetchRequest(accession, args.Required("out"), pick,
                     int.Parse(args.Option("max-files") ?? "60"), int.Parse(args.Option("max-file-mb") ?? "5000"), ".raw",
                     int.Parse(args.Option("parallel") ?? "4"), int.Parse(args.Option("attempts") ?? "8"),
                     TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(60), machine.WorkRoot, TimeSpan.FromMinutes(machine.FetchStallMinutes),
+                    Select: select,
                     Sha1Source: Fetch.Integrity.PrideChecksumsAsync,
                     Aspera: machine.AsperaAscp is { } ascp ? new Fetch.AsperaClient(ascp, machine.AsperaKey!, machine.AsperaAttempts, StartGap: TimeSpan.FromSeconds(10),
                         Stall: TimeSpan.FromMinutes(machine.FetchStallMinutes)) : null,
@@ -291,9 +334,13 @@ public static class Program
             {
                 Positional(args, 0);
                 args.AllowOnly("spectra", "qc", "out", "organism", "profile", "profile-file", "profiles", "machine",
-                    "extra-db", "exclude", "run-date", "accession", "design", "condition-columns", "enriched");
+                    "extra-db", "exclude", "run-date", "accession", "design", "condition-columns", "enriched", "probe-offsets");
                 var profile = ResolveProfile(args);
                 if (args.Option("design") is { } given && !File.Exists(given)) throw new UsageException($"--design {given} does not exist");
+                // D84: a probe's measured precursor offsets, as the batch passes them to a profile with
+                // engine.precursor_window = "probe" (its state entry's probe_precursor_offsets_ppm), so a search re-run by hand
+                // gets the window the batch would give it.
+                var probeOffsets = args.Option("probe-offsets") is { } po ? ReadProbeOffsets(po) : null;
                 // v0.4.40 (G66): the PTM classes the deposit enriches, as the batch reads them (library routing, and the variable
                 // mods of a profile with engine.enriched_variable): --enriched phospho,GG.
                 var enriched = List(args.Option("enriched"));
@@ -305,7 +352,7 @@ public static class Program
                     CuratedDesign: args.Option("design"), DesignConditionColumns: args.Option("condition-columns") is null ? null : List(args.Option("condition-columns")),
                     // v0.4.45: a profile that reads each deposit's chemistry takes it from --design's SDRF here.
                     Chemistry: Search.SearchStage.ChemistryOutsideTheBatch(profile, args.Required("spectra"), args.Option("design")),
-                    LibraryRouteClasses: enriched.Count > 0 ? enriched : null);
+                    LibraryRouteClasses: enriched.Count > 0 ? enriched : null, ProbePrecursorOffsets: probeOffsets);
                 return await Search.SearchStage.RunAsync(request, ct).ConfigureAwait(false);
             }
 
@@ -332,6 +379,21 @@ public static class Program
                 };
             }
 
+            case "differential":
+            {
+                // pxreprise differential --search <04_search> --out <06_differential> [--sdrf corrected.sdrf.tsv] [--threads N]
+                // D84 (QuantProject 155): mzLib's differential analysis of one finished search, with QuantProject's defaults.
+                Positional(args, 0);
+                args.AllowOnly("search", "out", "sdrf", "threads");
+                string searchDir = args.Required("search"), outDir = args.Required("out");
+                if (!Directory.Exists(searchDir)) throw new UsageException($"--search {searchDir} does not exist");
+                int threads = -1;
+                if (args.Option("threads") is { } t && (!int.TryParse(t, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out threads) || threads < 1))
+                    throw new UsageException($"--threads must be a whole number of 1 or more, not {t}");
+                var record = Differential.DifferentialStage.Run(searchDir, outDir, args.Option("sdrf"), threads);
+                return Differential.DifferentialStage.Summary(record, outDir);
+            }
+
             case "batch":
             {
                 // pxreprise batch run|status|stop <question.toml> [--machine m.toml] [--run-date D]
@@ -348,7 +410,8 @@ public static class Program
                 var b = q.Batch ?? throw new ConfigException(q.SourceFile, "a batch needs a [batch] table");
                 // A probe worker (v0.4.26) runs the controller's copy of the question, whose [batch] is the controller's: its
                 // state directory and run root are its machine file's.
-                var worker = args.Option("machine") is { } wm ? Machine.Load(wm).Worker : null;
+                var given = args.Option("machine") is { } wm ? Machine.Load(wm) : null;
+                var worker = given?.Worker;
                 if (worker is not null) b = b with { StateDir = worker.StateDir, RunRoot = worker.RunRoot };
                 Directory.CreateDirectory(b.StateDir);
                 string stop = Path.Combine(b.StateDir, "STOP"), stateFile = Path.Combine(b.StateDir, "state.json");
@@ -398,12 +461,23 @@ public static class Program
                         return new { stop_written = stop };
                     case "status":
                     {
+                        // D73: with --machine, the check a start makes on its datarepo, so a new install is checked before
+                        // the old driver is stopped.
+                        string? datarepoVersion = null;
+                        if (given?.DataRepo is { } dr)
+                        {
+                            var (started, rc, line) = await Batch.BatchRunner.DataRepoVersionAsync(dr, ct).ConfigureAwait(false);
+                            if (started && Batch.BatchRunner.OtherRelease(dr, RunRecord.Versions()["pxreprise"], rc, line) is { } refusal)
+                                throw new ConfigException(given.SourceFile, refusal);
+                            datarepoVersion = line;
+                        }
                         var ds = File.Exists(stateFile) ? System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(stateFile, ct).ConfigureAwait(false))!["datasets"]!.AsObject() : new System.Text.Json.Nodes.JsonObject();
                         string pidFile = Path.Combine(b.StateDir, "driver.pid");
                         return new
                         {
                             driver_pid = File.Exists(pidFile) ? (await File.ReadAllTextAsync(pidFile, ct).ConfigureAwait(false)).Trim() : null,
                             stop_pending = File.Exists(stop),
+                            datarepo = datarepoVersion,
                             datasets = ds.Count,
                             by_status = ds.GroupBy(kv => kv.Value?["status"]?.GetValue<string>() ?? "?").OrderByDescending(g => g.Count()).ToDictionary(g => g.Key, g => g.Count()),
                             // The question's profiles that take no new searches (status "deprecated"), if any.
@@ -435,13 +509,15 @@ public static class Program
                 // spectra mzLib cannot read back (v0.4.20). Run it with no driver running.
                 //   --databases a.xml,b.xml (v0.4.32): also clean it (Search/LibraryCleaning.cs) against the organism's
                 //   target databases, with the modifications of every MetaMorpheus the machine names and the shipped lists.
+                //   --remove-deposits PXD1,PXD2 (2026-11-24): also leave out what those deposits' searches put in the chain
+                //   (SpectralLibrary.WithoutDeposits), for a deposit with a stated quality problem.
                 // 2026-11-11, with the machine's spectral_library_remote (the chains shared through the cloud):
                 //   pxreprise library pull <chain> --machine m.toml   fetch the cloud's newer versions and make the newest current
                 //   pxreprise library seed <chain> --machine m.toml   start the cloud's copy of a chain from this machine
                 var rest = args.Words.Skip(1).ToList();
                 if (!(rest is ["list"] || rest is ["repair", _] || rest is ["pull", _] || rest is ["seed", _]))
-                    throw new UsageException("usage: pxreprise library list --machine m.toml, library repair <organism> --machine m.toml --reason \"...\" [--databases a.xml,b.xml], library pull <chain> --machine m.toml, or library seed <chain> --machine m.toml");
-                args.AllowOnly("machine", "reason", "databases", "profiles");
+                    throw new UsageException("usage: pxreprise library list --machine m.toml, library repair <organism> --machine m.toml --reason \"...\" [--databases a.xml,b.xml] [--remove-deposits PXD1,PXD2], library pull <chain> --machine m.toml, or library seed <chain> --machine m.toml");
+                args.AllowOnly("machine", "reason", "databases", "profiles", "remove-deposits");
                 var libMachine = Machine.Load(args.Required("machine"));
                 string root = libMachine.SpectralLibraryRoot;
                 if (rest[0] == "list") return Search.SpectralLibrary.List(root);
@@ -462,7 +538,8 @@ public static class Program
                         dbList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                             .Select(x => Path.IsPathRooted(x) ? x : Path.Combine(libMachine.DatabaseDir, x)));
                 }
-                return Search.SpectralLibrary.Repair(root, rest[1], args.Required("reason"), cleaning, libCloud);
+                var removeDeposits = args.Option("remove-deposits")?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                return Search.SpectralLibrary.Repair(root, rest[1], args.Required("reason"), cleaning, libCloud, removeDeposits);
             }
 
             case "worker":
@@ -517,6 +594,50 @@ public static class Program
 
     private static IReadOnlyList<string> List(string? csv) =>
         csv is null ? Array.Empty<string>() : csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    /// <summary>
+    /// <c>search --probe-offsets</c>: a JSON object of each probe run's precursor offset in ppm (<c>{"run": 9.4}</c>), the
+    /// shape of a batch state entry's <c>probe_precursor_offsets_ppm</c>.
+    /// </summary>
+    internal static IReadOnlyDictionary<string, double> ReadProbeOffsets(string path)
+    {
+        if (!File.Exists(path)) throw new UsageException($"--probe-offsets {path} does not exist");
+        System.Text.Json.Nodes.JsonNode? node;
+        try { node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(path)); }
+        catch (System.Text.Json.JsonException e) { throw new UsageException($"--probe-offsets {path} is not JSON: {e.Message}", e); }
+        if (node is not System.Text.Json.Nodes.JsonObject o || o.Count == 0)
+            throw new UsageException($"--probe-offsets {path} must be a JSON object of run name to offset in ppm, such as {{\"run\": 9.4}}");
+        var offsets = new Dictionary<string, double>(StringComparer.Ordinal);
+        foreach (var (run, value) in o)
+        {
+            if (value is not System.Text.Json.Nodes.JsonValue v || !v.TryGetValue(out double ppm))
+                throw new UsageException($"--probe-offsets {path}: run '{run}' has no number");
+            offsets[run] = ppm;
+        }
+        return offsets;
+    }
+
+    /// <summary>
+    /// <c>fetch --include / --exclude</c>: the raw files to download, as a question's <c>include_files</c> and
+    /// <c>exclude_files</c> choose them (case-insensitive regular expressions on the file name; a file is kept when it
+    /// matches the include, if given, and not the exclude, if given). Null when neither is given. Files left out are never
+    /// downloaded, so a search by hand of part of a deposit fetches only that part.
+    /// </summary>
+    internal static Fetch.FileSelection? FileSelection(string? include, string? exclude)
+    {
+        if (include is null && exclude is null) return null;
+        static System.Text.RegularExpressions.Regex? Pattern(string option, string? p)
+        {
+            if (p is null) return null;
+            if (p.Length == 0) throw new UsageException($"--{option} is empty");
+            try { return new System.Text.RegularExpressions.Regex(p, System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant); }
+            catch (ArgumentException e) { throw new UsageException($"--{option} is not a valid regular expression: '{p}' ({e.Message})", e); }
+        }
+        var (inc, exc) = (Pattern("include", include), Pattern("exclude", exclude));
+        string reason = string.Join(", ", new[] { inc is null ? null : $"include_files /{inc}/", exc is null ? null : $"exclude_files /{exc}/" }
+            .Where(s => s is not null)) + " (fetch by hand)";
+        return new Fetch.FileSelection(n => (inc is null || inc.IsMatch(n)) && (exc is null || !exc.IsMatch(n)), reason);
+    }
 
     /// <summary>Exactly <paramref name="n"/> positional arguments after the verb.</summary>
     private static IReadOnlyList<string> Positional(Arguments args, int n)

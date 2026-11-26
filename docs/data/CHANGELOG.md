@@ -4,7 +4,14 @@ All notable changes to the dataRepo **software and schema**. Data releases are v
 each instance. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions may break the schema.
 
-## [1.5.0] - unreleased
+## [1.5.0] - 2026-11-26, released as part of PXReprise 1.0.0
+
+datarepo's own version line ends here (decision 0073): this section shipped in PXReprise 1.0.0, under that version, with
+schema 0.0.17 and ingest path `cs-1.5.0`. Its items were written while it was unreleased, and 0.0.17's content moved
+after the 2026-11-12 re-ingest trial measured below: the 1% rule became the search's own identification filter, at or
+below 0.01 (`cs-1.5.0`, PXReprise's CHANGELOG). So that trial's counts and timing describe an earlier 0.0.17, and a
+bundle written by such a pre-release build must not be mixed into a 1.0.0 store: it carries the same schema number. Later
+changes are in PXReprise's CHANGELOG.
 
 **One new ingest path, `cs-1.3.0`, and schema 0.0.17, so an instance re-ingests once.** Fragment ions are in every
 bundle, each search's own confidence rule decides what passes 1%, and PRIDE's records are served beside the bundles. Built
@@ -19,6 +26,9 @@ search by MetaMorpheus 1.1.13 or earlier.
 - **`split_reason: tissue`** (PXReprise, 2026-11-15): a deposit whose runs come from different tissues, each searched on
   its own (a group may also be one sex: one TMT plex per tissue and sex, as in PXD067637 and its two sisters). The fifth
   reason; any other value is still refused. Not content, so no bundle id moves.
+- **`split_reason: plex`** (PXReprise, 2026-11-20, aging PXR-A214): a deposit of many isobaric plexes of one design,
+  searched one plex (or set of plexes) at a time because it is too large to search whole (PXD011967: twenty TMT6 sets,
+  1.9 TB). Calling it `tissue` would be untrue. The sixth reason; not content, so no bundle id moves.
 - **`peptidoform_ions`**: the six `Matched Ion *` columns of the best PSM of each peptidoform, verbatim, with
   `selected_by`, for the peptidoforms that pass the search's confidence rule (below). Contaminants are left out, as
   `peptidoforms_1pct` leaves them, and an ambiguous row is kept under its first option, whose ions MetaMorpheus writes. A
@@ -73,16 +83,59 @@ search by MetaMorpheus 1.1.13 or earlier.
 - **aging study layer 0.7.0:** `method_scope` in `age_effect_meta`'s key, `method_term_ids`, and
   `age_effect_method_terms`, one row per (isobaric dataset, response). A study bundle written at 0.6.0 is refused by the
   build until `datarepo study` writes it again.
+- **Orthology in the catalog: "every ortholog of protein X" is one query.** The registered orthology snapshot is copied,
+  through its own `views.sql`, into `orthology_species`, `orthology_genes`, `gene_orthologs` (every ortholog row of every
+  species pair, in both directions; paralogs never) and `gene_ortholog_status` (each gene's one status in each other
+  species), in both layouts. `protein_orthologs` joins every target accession with a gene resolution to its orthologs
+  in each other species and to the accessions resolving to them, with a `status` on every row, so an accession with no
+  ortholog says why (`no_gene`, `no_edge_in_shared_tree`, `tree_lacks_target_species`, `not_in_any_tree`). `no_gene` is
+  decided per accession: a gene only Ensembl's xref links answers it (logs 023). Each row carries the view columns of
+  `logs:DEF-GENE-RESOLUTION` for the accession and for its partner (`resolution_source`, `resolution_xref_agreement`,
+  `resolution_xref_agrees`, `partner_resolution_source`, `partner_xref_agreement`, `partner_xref_agrees`), so a reader
+  applies the search database's view or v2's default one, and `gene_resolution_definition_id` beside
+  `orthology_definition_id`. The five tables are in every catalog, empty without a snapshot. The build fails if the
+  status counts differ from the registration's, an accession lacks a row for some species or is both `no_gene` and
+  answered through a gene, a resolved gene is not in the snapshot's gene set, or a snapshot file does not hash to what
+  the registration recorded. On aging's 192 re-ingested deposits (human, mouse and rat): 200,649 genes, 171,792 ortholog
+  rows, 401,298 statuses and 180,930 `protein_orthologs` rows for 64,198 accessions, about 9 s of a folder build; one
+  protein's orthologs answer in about 0.1 s.
+- **GO is no longer stored per bundle: once per database file and per release, joined by the catalog** (go's agreed
+  shape: go 012, dataRepo 028, mzLib #1497). New tables, copied from go's three engines (below) in both layouts and empty
+  when nothing is served: `go_terms` and `go_closure` (the go.obo's terms and `is_a`/`part_of` closure),
+  `go_term_categories` (the map's categories over every term), `go_accession_terms` (each searched target database
+  file's entries and their direct GO terms, all aspects, once per file) and `go_group_members` (which database entry each
+  member of a search's groups takes). `protein_localizations`, `organelle_term_categories` and `annotation_sources` keep
+  their columns and their rows and are derived at build (`catalog_tables.kind` `derived`): go's
+  `go:DEF-GROUP-GO-ANNOTATION v1`, computed from the stored tables, so the definition keeps its id. The build reproduces
+  go's fixture `go-view-v1-a83d1c63` row for row and `go.annotate_groups`' rows for a search, and gives an isoform with no
+  GO of its own its entry's terms when the two are in different database files, as the annotator over all a search's
+  files did. New `go_group_status`: every non-decoy group once with go's status (`annotated`, `contaminant`, `no_entry`,
+  `no_go_terms`), so a group with no localization says why; go's five header counters are counts there at
+  `q_value <= 0.01`. The build fails if a member of a served search has no `go_group_members` row (dataRepo 028), a
+  member's entry is not in the search's databases, a database term is not in the release, or an artefact used another
+  go.obo (GO-D9). A search without its artefacts is named in three `engine-coverage` notes and served no GO.
 
 ### Changed (engines)
 - **`logs.resolve_genes` writes `logs:DEF-GENE-RESOLUTION v2`**, on every row, in `run.json` and in the artefact id,
   with the new column `gene_resolutions.ensembl_xref_agreement` (`agrees`, `silent` or `disagrees`, from mzLib's
   resolver). A resolver that writes no such column is refused.
+- **go's three engines replace `go.annotate_groups`,** which `datarepo run` now refuses, naming them; the catalog never
+  serves its artefacts. `go.categorize_terms --input ontology=... --input category_map=...` (no accession; once per
+  go.obo and map), `go.annotate_databases <PXD...> --input ontology=...` (one artefact per searched target database
+  file, `go:DEF-ACCESSION-GO-ANNOTATION v1`) and `go.resolve_members <PXD...>` (one per search; no GO). Each writes
+  mzLib's own file, reads it back with mzLib's reader as acceptance, and records its sha256 and row count in `run.json`
+  (`files`); as `go_annotation.tsv` was (G110), the file is then dropped, all but the small `go_category.tsv`, which
+  `go.annotate_groups` kept too. On six of aging's deposits that leaves 7.1 MB of artefacts where the files would have
+  added 89 MB (a human proteome's database artefact: 0.84 MB, where its file alone was 13.6 MB). A new go.obo re-runs the first two, a new map only the
+  first, a new dataset only what its files lack.
 
 ### Upgrading
 - Re-ingest every dataset. Then run every engine again over every re-ingested dataset: `logs.register_orthology`,
-  `logs.resolve_genes` for each species over all of that species' datasets, and `go.annotate_groups`. Run `datarepo
-  pride` for the PRIDE tables and `datarepo study` for an aging study bundle. Then build.
+  `logs.resolve_genes` for each species over all of that species' datasets, and go's three (`go.categorize_terms`
+  once, `go.annotate_databases` and `go.resolve_members` over every dataset), in place of `go.annotate_groups`. GO needs
+  no re-ingest of its own: the engines read each bundle's recorded files. Run `datarepo pride` for the PRIDE tables and
+  `datarepo study` for an aging study bundle. Then build. The old `go.annotate_groups` artefacts may be removed from
+  `<store>/_engine/`; the build counts any left and never serves them.
 - **Read the build's `note` lines before serving the catalog.** On aging's store, a replay of each old gene artefact for
   the datasets it was first requested for left two databases unresolved, and six deposits lost almost all their gene
   names. The build passed every check and said so only in a `logs.resolve_genes coverage` note.
@@ -90,8 +143,11 @@ search by MetaMorpheus 1.1.13 or earlier.
 ### Known limits
 - **Sample sheets are not in this release.** Keeping every SDRF made for a deposit beside its bundle, and the search's own
   SDRF in it, ships in the next release.
-- **go's annotation still skips isobaric deposits.** It reads only `AllQuantifiedProteinGroups.tsv`; reading an isobaric
-  search's `AllProteinGroups.tsv` waits on go's definition and follows in a later release.
+- **go's annotation still skips isobaric deposits.** `go.resolve_members` reads only `AllQuantifiedProteinGroups.tsv`;
+  reading an isobaric search's `AllProteinGroups.tsv` waits on go's definition and follows in a later release.
+- **GO's derived tables are materialised in a folder catalog too,** as the orthology tables are; on aging's store
+  `protein_localizations` was 16.8 million rows in 1.4.5. Per-deposit derived files for them, as `protein_datasets` has,
+  would follow if the catalog file grows too large.
 
 ## [1.4.5] - 2026-11-09
 

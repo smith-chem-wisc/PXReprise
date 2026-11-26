@@ -108,7 +108,9 @@ public sealed record Profile(
     IReadOnlyList<string>? GptmdFilters = null,   // v0.4.31: MetaMorpheus's GPTMD filters by class name; null or empty keeps the task's own (none)
     IReadOnlyList<MetaMorpheusSetting>? MetaMorpheusSettings = null,   // v0.4.33: [metamorpheus_settings.<scope>] Key = value
     IReadOnlyList<string>? GptmdDropMods = null,   // v0.4.38: "Type\tIdWithMotif" entries removed from the GPTMD task's default list
-    bool EnrichedVariable = false)   // v0.4.40 (G66): a deposit's enriched PTM classes are variable in every task, MaxModsForPeptide 3
+    bool EnrichedVariable = false,   // v0.4.40 (G66): a deposit's enriched PTM classes are variable in every task, MaxModsForPeptide 3
+    bool InputSdrf = false,   // D84: the SDRF the search's design came from is its InputSdrfPath, so the written SDRF carries its sample facts
+    bool IonTrapLibrary = false)   // decision 0092: low-res MS2 reads its own chain, which PXReprise builds from the search's PSMs (LibraryFromPsms)
 {
     /// <summary>v0.4.40 (G66, D32 slice 4): <c>MaxModsForPeptide</c> in every task of a search under
     /// <see cref="EnrichedVariable"/> whose deposit enriches a PTM class. The TMT phospho trial measured it:
@@ -124,6 +126,12 @@ public sealed record Profile(
         s.Key == "RespectCleavageBlockingModifications" && (s.Scope is "all" or "search")
         && s.TomlValue.Trim().Equals("true", StringComparison.OrdinalIgnoreCase)) == true;
 
+    /// <summary>The q-value below which FlashLFQ keeps a match-between-runs transfer in the search task: the profile's
+    /// <c>MbrFdrThreshold</c> (scope <c>all</c> or <c>search</c>), else MetaMorpheus's default. Our own counts of kept
+    /// transfers use it, so they agree with FlashLFQ's tables.</summary>
+    public double MbrFdrThreshold => MetaMorpheusSettings?.LastOrDefault(s => s.Key == "MbrFdrThreshold" && (s.Scope is "all" or "search"))
+        is { } setting ? double.Parse(setting.TomlValue.Trim(), System.Globalization.CultureInfo.InvariantCulture) : Search.SearchMetrics.MbrFdrThreshold;
+
     /// <summary>
     /// Task-file keys the engine writes itself, from the profile's other keys, the deposit or the machine. A
     /// <c>[metamorpheus_settings]</c> entry may not name them: two writers of one line would make provenance ambiguous.
@@ -133,7 +141,7 @@ public sealed record Profile(
         "MaxThreadsToUsePerFile", "MatchBetweenRuns", "SearchType", "WriteSpectralLibrary", "UpdateSpectralLibrary",
         "WriteSdrf", "ProteomeXchangeAccession", "QuantifyPpmTol", "Protease", "SpecificProtease", "ListOfModsFixed",
         "ListOfModsVariable", "ListOfModsGptmd", "GptmdFilters", "ProductMassTolerance", "PrecursorMassTolerance",
-        "DissociationType", "MaxModsForPeptide",
+        "DissociationType", "MaxModsForPeptide", "InputSdrfPath",
     };
 
     /// <summary>The GPTMD filters MetaMorpheus 1.1.12 has (EngineLayer/Gptmd/IGptmdFilter.cs). MetaMorpheus drops a name it

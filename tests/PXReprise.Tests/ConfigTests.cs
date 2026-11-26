@@ -41,6 +41,177 @@ public class ConfigTests
     }
 
     /// <summary>
+    /// 2026-11-20 (approved by the maintainer): tmt-dda@5 is tmt-dda@4 plus MS2 fragmented by HCD and read in the ion trap,
+    /// searched as LowCID. SPS-MS3 TMT methods on a Fusion, Lumos or Ascend often read the MS2 in the ion trap, and QC refused
+    /// those files under @4 (unsupported_fragmentation). On one file each of two such deposits, LowCID found 9 to 14% more
+    /// PSMs than HCD at the low-resolution tolerance. Nothing else may differ: lines, not parsed fields, as above.
+    /// </summary>
+    [Test]
+    public void TmtDda5_IsTmtDda4_WithIonTrapHcdSearchedAsLowCid()
+    {
+        static List<string> Settings(string name) => File.ReadAllLines(Path.Combine(TestSupport.ProfilesDir, name))
+            .Select(l => System.Text.RegularExpressions.Regex.Replace(l, @"\s+#.*$", "").TrimEnd())
+            .Where(l => l.Length > 0 && !l.StartsWith('#'))
+            .Where(l => !System.Text.RegularExpressions.Regex.IsMatch(l, @"^(id|version|description) = "))
+            .ToList();
+
+        string[] added = { "ion_trap_hcd = true", "ion_trap_hcd_lowcid = true" };
+        var five = Settings("tmt-dda-5.toml");
+        Assert.That(five.Where(added.Contains), Is.EqualTo(added), "@5 carries the two lines once each");
+        Assert.That(five.Where(l => !added.Contains(l)), Is.EqualTo(Settings("tmt-dda-4.toml")), "nothing else differs from tmt-dda@4");
+
+        var all = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
+        var (p4, p5) = (all["tmt-dda@4"], all["tmt-dda@5"]);
+        Assert.Multiple(() =>
+        {
+            Assert.That(p5.Status, Is.EqualTo(ProfileStatus.Available));
+            Assert.That((p5.Fragmentation, p5.IonTrapHcd, p5.IonTrapHcdLowCid, p5.IonTrapHcdProbeLowCid), Is.EqualTo(("per_file", true, true, false)));
+            Assert.That((p4.IonTrapHcd, p4.IonTrapHcdLowCid), Is.EqualTo((false, false)), "a released profile never changes");
+            Assert.That((p5.MetaMorpheus, p5.SpectralLibrary, p5.LowResProductTolerance), Is.EqualTo((p4.MetaMorpheus, p4.SpectralLibrary, p4.LowResProductTolerance)));
+            Assert.That(p5.Description, Does.Contain("LowCID for ion-trap MS2, CID or HCD"));
+            Assert.That(p5.Description.Replace("LowCID for ion-trap MS2, CID or HCD", "LowCID for ion-trap MS2"), Is.EqualTo(p4.Description));
+        });
+    }
+
+    /// <summary>
+    /// D84 (2026-11-21): label-free-dda@15, label-free-dda-lowres@9 and tmt-dda@6 are @14, @8 and @5 on MetaMorpheus 1.1.15,
+    /// with the identification filter at 1% set in every task (D82) and the design's SDRF passed to the search, and
+    /// (2026-11-22) the QC's MS2 floor lowered from 5000 to 2500. The filter is the q-value notch in all three, not 1.1.15's
+    /// default PEP q-value (D85, D87: under the PEP filter MetaMorpheus 1.1.15's protein FDR can collapse, depending on the
+    /// deposit). The databases are agingPTM-v9, except lowres@9's, which stay v3 (v9 lost to v3 on an ion-trap deposit,
+    /// 2026-11-22). The Search task writes no per-file mzIdentML (WriteMzId = false; the user, 2026-11-22: "we don't need
+    /// any per file outputs"). The two label-free versions keep match-between-runs transfers below a q-value of 5%, not
+    /// 1% (MbrFdrThreshold = 0.05; the user, 2026-11-23); TMT runs no match-between-runs. Nothing else may differ: lines,
+    /// not parsed fields, as above.
+    /// </summary>
+    [TestCase("label-free-dda-15.toml", "label-free-dda-14.toml", "label-free-dda@15", new[] { "Calibration", "Gptmd", "Search" }, "v9", true)]
+    [TestCase("label-free-dda-lowres-9.toml", "label-free-dda-lowres-8.toml", "label-free-dda-lowres@9", new[] { "Search" }, "v3", true)]
+    [TestCase("tmt-dda-6.toml", "tmt-dda-5.toml", "tmt-dda@6", new[] { "Calibration", "Search" }, "v9", false)]
+    public void TheMetaMorpheus1115VersionsChangeOnlyTheReleaseTheFilterTheInputSdrfTheDatabasesTheMs2FloorTheMzIdAndTheMbrThreshold(string next, string previous, string key, string[] tasks,
+        string db, bool mbrAtFivePercent)
+    {
+        const string filter = "QValueNotch";
+        static List<string> Settings(string name) => File.ReadAllLines(Path.Combine(TestSupport.ProfilesDir, name))
+            .Select(l => System.Text.RegularExpressions.Regex.Replace(l, @"\s+#.*$", "").TrimEnd())
+            .Where(l => l.Length > 0 && !l.StartsWith('#'))
+            .Where(l => !System.Text.RegularExpressions.Regex.IsMatch(l, @"^(id|version|description) = "))
+            .ToList();
+        string Moved(string l)
+        {
+            string m = System.Text.RegularExpressions.Regex.Replace(
+                System.Text.RegularExpressions.Regex.Replace(l, @"^metamorpheus = "".*""$", @"metamorpheus = ""1.1.15"""),
+                @"_agingPTM-v\d+\.xml""$", $@"_agingPTM-{db}.xml""");
+            return m == "min_ms2 = 5000" ? "min_ms2 = 2500" : m;
+        }
+
+        string[] added = new[] { "input_sdrf = true", $"IdentificationFilter = \"{filter}\"", "FilterThreshold = 0.01", "WriteMzId = false" }
+            .Concat(mbrAtFivePercent ? new[] { "MbrFdrThreshold = 0.05" } : Array.Empty<string>()).ToArray();
+        var lines = Settings(next);
+        Assert.That(lines.Where(added.Contains), Is.EqualTo(added), "the added lines once each");
+        Assert.That(lines.Where(l => !added.Contains(l)), Is.EqualTo(Settings(previous).Select(Moved)), "nothing else differs but the release, the databases and the MS2 floor");
+
+        var all = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
+        var (p, old) = (all[key], all[key[..key.IndexOf('@')] + "@" + (int.Parse(key[(key.IndexOf('@') + 1)..]) - 1)]);
+        Assert.Multiple(() =>
+        {
+            Assert.That((p.MetaMorpheus, p.InputSdrf, p.WriteSdrf), Is.EqualTo(("1.1.15", true, true)));
+            Assert.That(old.InputSdrf, Is.False, "a released profile never changes");
+            Assert.That((p.Qc.MinMs2, old.Qc.MinMs2), Is.EqualTo((2500, 5000)), "the MS2 floor, lowered in the new version only");
+            Assert.That(p.Tasks, Is.EqualTo(tasks));
+            Assert.That(p.MetaMorpheusSettings!.Where(s => s.Key is "IdentificationFilter" or "FilterThreshold").Select(s => (s.Scope, s.Key, s.TomlValue)),
+                Is.EqualTo(new[] { ("all", "IdentificationFilter", $"\"{filter}\""), ("all", "FilterThreshold", "0.01") }), "in every task");
+            Assert.That(p.MetaMorpheusSettings!.Where(s => s.Key == "WriteMzId").Select(s => (s.Scope, s.TomlValue)),
+                Is.EqualTo(new[] { ("search", "false") }), "no per-file mzIdentML, in the Search task");
+            Assert.That(old.MetaMorpheusSettings!.Any(s => s.Key == "WriteMzId"), Is.False, "a released profile never changes");
+            Assert.That((p.MbrFdrThreshold, old.MbrFdrThreshold), Is.EqualTo((mbrAtFivePercent ? 0.05 : 0.01, 0.01)),
+                "the transfer threshold our counts use, as the Search task runs it");
+            Assert.That(p.Databases.Values.Select(d => d.Proteome), Has.All.EndsWith($"_agingPTM-{db}.xml"));
+            Assert.That(p.Description, Does.EndWith("; the q-value notch at 1% in every task; the curated SDRF passed to the search"));
+        });
+    }
+
+    /// <summary>
+    /// 2026-11-24: label-free-dda@16 and tmt-dda@7 are @15 and @6 on agingPTM-v10 (UniProt 2026_04, cumulative, decision
+    /// 0091), and tmt-dda@7 and label-free-dda-lowres@10 set engine.ion_trap_library (decision 0092: ion-trap MS2 reads its
+    /// own chain, which PXReprise builds from the search's PSMs); lowres@10 also turns its spectral library on, and keeps
+    /// agingPTM-v3 (D44). Nothing else may differ: lines, not parsed fields, as above.
+    /// </summary>
+    [TestCase("label-free-dda-16.toml", "label-free-dda-15.toml", "label-free-dda@16", true, false, "")]
+    [TestCase("tmt-dda-7.toml", "tmt-dda-6.toml", "tmt-dda@7", true, true, "")]
+    [TestCase("label-free-dda-lowres-10.toml", "label-free-dda-lowres-9.toml", "label-free-dda-lowres@10", false, true, "spectral_library = false")]
+    public void TheVersionsOfDecisions0091And0092ChangeOnlyTheDatabasesAndTheIonTrapLibrary(string next, string previous, string key,
+        bool v10, bool ionTrapLibrary, string libraryWas)
+    {
+        static List<string> Settings(string name) => File.ReadAllLines(Path.Combine(TestSupport.ProfilesDir, name))
+            .Select(l => System.Text.RegularExpressions.Regex.Replace(l, @"\s+#.*$", "").TrimEnd())
+            .Where(l => l.Length > 0 && !l.StartsWith('#'))
+            .Where(l => !System.Text.RegularExpressions.Regex.IsMatch(l, @"^(id|version|description) = "))
+            .ToList();
+        string Moved(string l) =>
+            l == libraryWas ? "spectral_library = true"
+            : v10 ? l.Replace("_all_genecentric_2026_03_agingPTM-v9.xml\"", "_all_genecentric_2026_04_agingPTM-v10.xml\"") : l;
+
+        var added = ionTrapLibrary ? new[] { "ion_trap_library = true" } : Array.Empty<string>();
+        var lines = Settings(next);
+        Assert.That(lines.Where(added.Contains), Is.EqualTo(added), "the added line once");
+        Assert.That(lines.Where(l => !added.Contains(l)), Is.EqualTo(Settings(previous).Select(Moved)), "nothing else differs");
+
+        var all = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
+        var (p, old) = (all[key], all[key[..key.IndexOf('@')] + "@" + (int.Parse(key[(key.IndexOf('@') + 1)..]) - 1)]);
+        Assert.Multiple(() =>
+        {
+            Assert.That((p.SpectralLibrary, p.IonTrapLibrary), Is.EqualTo((true, ionTrapLibrary)));
+            Assert.That(old.IonTrapLibrary, Is.False, "a released profile never changes");
+            Assert.That(p.Databases.Values.Select(d => d.Proteome),
+                Has.All.EndsWith(v10 ? "_2026_04_agingPTM-v10.xml" : "_2026_03_agingPTM-v3.xml"));
+            Assert.That(p.MetaMorpheus, Is.EqualTo(old.MetaMorpheus));
+        });
+    }
+
+    /// <summary>
+    /// 2026-11-25 (the user, 2026-11-24: "This next version will be the one used for pxreprise"): label-free-dda@17,
+    /// label-free-dda-lowres@11 and tmt-dda@8 are @16, @10 and @7 on MetaMorpheus 1.1.16, PXReprise 1.0.0's, and (D99,
+    /// the user, 2026-11-26: "yes. move to the pep filter") with the PEP q-value as the identification filter in place
+    /// of the q-value notch. Those two lines are the only settings that may differ: lines, not parsed fields, as above.
+    /// The release must be in releases.tsv, so the machine file can name a zip whose sha256 is known.
+    /// </summary>
+    [TestCase("label-free-dda-17.toml", "label-free-dda-16.toml", "label-free-dda@17")]
+    [TestCase("label-free-dda-lowres-11.toml", "label-free-dda-lowres-10.toml", "label-free-dda-lowres@11")]
+    [TestCase("tmt-dda-8.toml", "tmt-dda-7.toml", "tmt-dda@8")]
+    public void TheMetaMorpheus1116VersionsChangeOnlyTheReleaseAndTheFilter(string next, string previous, string key)
+    {
+        static List<string> Settings(string name) => File.ReadAllLines(Path.Combine(TestSupport.ProfilesDir, name))
+            .Select(l => System.Text.RegularExpressions.Regex.Replace(l, @"\s+#.*$", "").TrimEnd())
+            .Where(l => l.Length > 0 && !l.StartsWith('#'))
+            .Where(l => !System.Text.RegularExpressions.Regex.IsMatch(l, @"^(id|version|description) = "))
+            .ToList();
+        static string Moved(string l) => l switch
+        {
+            "metamorpheus = \"1.1.15\"" => "metamorpheus = \"1.1.16\"",
+            "IdentificationFilter = \"QValueNotch\"" => "IdentificationFilter = \"PepQValue\"",
+            _ => l,
+        };
+
+        var lines = Settings(next);
+        Assert.That(lines.Count(l => l == "metamorpheus = \"1.1.16\""), Is.EqualTo(1), "the release, once");
+        Assert.That(lines.Count(l => l.StartsWith("IdentificationFilter = ")), Is.EqualTo(1), "one filter, for every task");
+        Assert.That(lines, Does.Contain("IdentificationFilter = \"PepQValue\""), "the PEP q-value (D99)");
+        Assert.That(Settings(previous), Does.Contain("IdentificationFilter = \"QValueNotch\""), "the version before took the notch (D87)");
+        Assert.That(lines, Is.EqualTo(Settings(previous).Select(Moved)), "nothing else differs");
+
+        var all = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
+        var (p, old) = (all[key], all[key[..key.IndexOf('@')] + "@" + (int.Parse(key[(key.IndexOf('@') + 1)..]) - 1)]);
+        var releases = File.ReadAllLines(Path.Combine(LibraryFromPsmsTests.RepoRoot(), "tests", "metamorpheus-output", "releases.tsv"))
+            .Skip(1).Select(l => l.Split('\t')).ToDictionary(c => c[0], c => c);
+        Assert.Multiple(() =>
+        {
+            Assert.That((p.MetaMorpheus, old.MetaMorpheus), Is.EqualTo(("1.1.16", "1.1.15")), "a released profile never changes");
+            Assert.That(releases.ContainsKey("1.1.16"), "releases.tsv lists 1.1.16");
+            Assert.That(releases.GetValueOrDefault("1.1.16")?[2], Does.Match("^[0-9a-f]{64}$"), "with its CommandLine zip's sha256");
+        });
+    }
+
+    /// <summary>
     /// 2026-11-08 (the user: "lets do the custom modifications now"): label-free-dda-lowres@8 is lowres@7 with the custom
     /// modification file and the NBF-Cl mapping that label-free-dda@14 ships (G40), so an ion-trap deposit whose cysteines
     /// carry NBF (PXD048079, PXD045806) can be searched. An ion-trap profile runs no GPTMD, so @14's [chemistry_artifacts],
@@ -108,8 +279,8 @@ public class ConfigTests
     {
         var profiles = ProfileLoader.LoadDirectory(TestSupport.ProfilesDir);
         Assert.That(profiles.Keys, Is.EquivalentTo(new[] { "label-free-dda@1", "label-free-dda@2", "label-free-dda@3", "label-free-dda@4",
-            "label-free-dda@5", "label-free-dda@6", "label-free-dda@7", "label-free-dda@8", "label-free-dda@9", "label-free-dda@10", "label-free-dda@11", "label-free-dda@12", "label-free-dda@13", "label-free-dda@14", "label-free-dda-uniprot@1", "label-free-dda-lowres@1", "label-free-dda-lowres@2",
-            "label-free-dda-lowres@3", "label-free-dda-lowres@4", "label-free-dda-lowres@5", "label-free-dda-lowres@6", "label-free-dda-lowres@7", "label-free-dda-lowres@8", "tmt-dda@1", "tmt-dda@2", "tmt-dda@3", "tmt-dda@4" }));
+            "label-free-dda@5", "label-free-dda@6", "label-free-dda@7", "label-free-dda@8", "label-free-dda@9", "label-free-dda@10", "label-free-dda@11", "label-free-dda@12", "label-free-dda@13", "label-free-dda@14", "label-free-dda@15", "label-free-dda@16", "label-free-dda@17", "label-free-dda-uniprot@1", "label-free-dda-lowres@1", "label-free-dda-lowres@2",
+            "label-free-dda-lowres@3", "label-free-dda-lowres@4", "label-free-dda-lowres@5", "label-free-dda-lowres@6", "label-free-dda-lowres@7", "label-free-dda-lowres@8", "label-free-dda-lowres@9", "label-free-dda-lowres@10", "label-free-dda-lowres@11", "tmt-dda@1", "tmt-dda@2", "tmt-dda@3", "tmt-dda@4", "tmt-dda@5", "tmt-dda@6", "tmt-dda@7", "tmt-dda@8" }));
 
         // D44 (2026-10-17): @8 is @7 on agingPTM-v4; nothing else. No lowres version on v4: it cost an ion-trap run 4% of its PSMs.
         foreach (var (newer, older) in new[] { ("label-free-dda@8", "label-free-dda@7") })

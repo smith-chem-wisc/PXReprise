@@ -20,18 +20,24 @@ public static class QcStage
     /// fragmentation from; <see cref="IonTrapHcdAsLowCid"/>.</param>
     /// <param name="kept">v0.4.45: raw files not on disk whose calibrated stand-in is searched (Search.CalibratedStandIns): each
     /// keeps its row of the earlier <c>qc_report.json</c> in <paramref name="outDir"/>, which read the raw before it was deleted.</param>
+    /// <param name="gates">The deposit's own gates, when the question's exception gives it some (<c>DepositException.Apply</c>,
+    /// <c>min_ms2</c>); the profile's otherwise. The provenance records the gates used, and says when they are the deposit's.</param>
     public static (JsonObject Report, bool AllPass) Run(string spectraDir, string outDir, Profile profile, Machine machine,
-        string paramsFile, string? runDate, IReadOnlySet<string>? only = null, bool probe = false, IReadOnlyCollection<string>? kept = null)
+        string paramsFile, string? runDate, IReadOnlySet<string>? only = null, bool probe = false, IReadOnlyCollection<string>? kept = null,
+        QcGates? gates = null)
     {
         Directory.CreateDirectory(outDir);
+        var g = gates ?? profile.Qc;
         var section = JsonSerializer.SerializeToNode(new Dictionary<string, object>
         {
-            ["min_fraction_orbitrap_hcd"] = profile.Qc.MinFractionOrbitrapHcd,
-            ["min_ms2"] = profile.Qc.MinMs2,
+            ["min_fraction_orbitrap_hcd"] = g.MinFractionOrbitrapHcd,
+            ["min_ms2"] = g.MinMs2,
         })!;
         var prov = new AgingProvenance("qc_spectra", machine.WorkRoot, paramsFile, section, runDate);
         string fetchProv = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(spectraDir))!, "provenance.json");
         if (File.Exists(fetchProv)) prov.Upstream(fetchProv);
+        if (g.MinMs2 != profile.Qc.MinMs2)
+            prov.Note($"min_ms2 {g.MinMs2} is this deposit's own floor, from the question's exception, in place of {profile.Key}'s {profile.Qc.MinMs2}");
 
         // A profile that does not take isobaric labels refuses files whose spectra carry reporter ions (G4).
         bool refuseIsobaric = profile.Accepts.Labellings.Count > 0 && !profile.Accepts.Labellings.Contains(Discovery.Labelling.Isobaric);
@@ -46,7 +52,7 @@ public static class QcStage
                      .OrderBy(f => Path.GetFileName(f), StringComparer.Ordinal))
         {
             prov.Command(new[] { "mzLib.MsDataFileReader.GetDataFile", Path.GetFileName(f), "LoadAllStaticData" });
-            var r = SpectraQc.Check(f, profile.Qc, refuseIsobaric, isobaric);
+            var r = SpectraQc.Check(f, g, refuseIsobaric, isobaric);
             report[Path.GetFileName(f)] = r.FailReasons.Contains(SpectraQc.Unreadable)
                 ? new JsonObject
                 {

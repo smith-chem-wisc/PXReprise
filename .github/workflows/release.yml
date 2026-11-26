@@ -1,9 +1,22 @@
 name: Release
 
-# A release is a tag on master: v<version>, where <version> is src/PXReprise/PXReprise.csproj's <Version> and CHANGELOG.md has a
-# dated section for it ("## 0.4.48 (2026-11-20)"). The version bump and the dated CHANGELOG go in by pull request first. Then
-# an admin pushes the tag (git tag v0.4.48 && git push upstream v0.4.48), or runs this workflow by hand with the version, which
-# tags master's head. GitHub builds and tests that commit and publishes the release with the CHANGELOG section as its notes.
+# ONE release for the engine and datarepo, under ONE version (decision 0073). A release is a tag on master: v<version>,
+# where <version> is src/PXReprise/PXReprise.csproj's <Version>, and CHANGELOG.md has a dated section for it
+# ("## 1.0.0 (2026-11-24)") whose lead lines say **Adopting:** (a swap only / a swap and a catalog rebuild / a full
+# re-ingest). datarepo has no version of its own: its `datarepo-v*` tags ended with 1.5.0, and a release stamps this
+# version on both programs.
+#
+# The version bump and the dated CHANGELOG go in by pull request first. Then an admin pushes the tag
+# (git tag v1.0.0 && git push upstream v1.0.0), or runs this workflow by hand with the version, which tags master's head.
+# GitHub then:
+#   1. checks that the commit is on master and that the csproj and the CHANGELOG agree with the version;
+#   2. runs every supported MetaMorpheus release on the small shared inputs (metamorpheus-output.yml);
+#   3. builds and runs the offline tests on Linux;
+#   4. publishes both programs self-contained for win-x64, linux-x64, osx-arm64 and osx-x64, stamped with the version and
+#      the commit, and runs each with no .NET on PATH, from its folder and again from its archive (binaries.yml);
+#   5. publishes the release "PXReprise <version>", with the CHANGELOG section as its notes and the four archives
+#      (pxreprise-<version>-<rid>, each holding a pxreprise/ and a datarepo/ folder).
+# Nothing is published unless 1 to 4 are green. (A pushed tag stays even when it is red; no release is made from it.)
 on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]
@@ -14,16 +27,20 @@ on:
         required: true
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release
   cancel-in-progress: false
 
 jobs:
-  release:
+  check:
+    name: version, commit and CHANGELOG
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      sha: ${{ steps.v.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -48,22 +65,83 @@ jobs:
           if git ls-remote --exit-code --tags origin "refs/tags/v$v" >/dev/null && [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "::error::v$v is already tagged"; exit 1
           fi
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "10.0.x"
-      - run: dotnet build -c Release
-      - run: dotnet test -c Release --no-build --filter "Category!=ExternalService"
-      - name: Release notes from the CHANGELOG section
+      - name: Release notes from the CHANGELOG section, which says what adopting the release costs
         run: |
           v="${{ steps.v.outputs.version }}"
           awk -v h="## $v (" 'index($0, h) == 1 {on = 1; next} on && /^## / {exit} on {print}' CHANGELOG.md > notes.md
           [ -s notes.md ] || { echo "::error::the CHANGELOG section for $v is empty"; exit 1; }
+          # The lead lines are the section's text before its first item.
+          awk '/^- / {exit} {print}' notes.md > lead.md
+          grep -qF '**Adopting:**' lead.md || {
+            echo "::error::the CHANGELOG section for $v does not say **Adopting:** in its lead lines (a swap only / a swap and a catalog rebuild / a full re-ingest)"
+            exit 1
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: notes.md
+          if-no-files-found: error
+
+  metamorpheus-output:
+    needs: check
+    uses: ./.github/workflows/metamorpheus-output.yml
+
+  test:
+    name: build and offline tests
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      # Built as CI builds it, not stamped: the tests expect a source build (datarepo 0.0.0-dev).
+      - run: dotnet build -c Release
+      - run: dotnet test -c Release --no-build --filter "Category!=ExternalService"
+
+  binaries:
+    needs: check
+    uses: ./.github/workflows/binaries.yml
+    with:
+      version: ${{ needs.check.outputs.version }}
+      ref: ${{ needs.check.outputs.sha }}
+
+  publish:
+    name: publish the release
+    needs: [check, metamorpheus-output, test, binaries]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+          path: notes
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pxreprise-*
+          path: dist
+          merge-multiple: true
+      - name: Four archives, one per platform
+        run: |
+          v="${{ needs.check.outputs.version }}"
+          ls -l dist
+          for f in win-x64.zip linux-x64.tar.gz osx-arm64.tar.gz osx-x64.tar.gz; do
+            test -f "dist/pxreprise-$v-$f" || { echo "::error::dist/pxreprise-$v-$f is missing"; exit 1; }
+          done
       - name: Tag (when run by hand) and publish the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          v="${{ steps.v.outputs.version }}"
+          v="${{ needs.check.outputs.version }}"
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            git tag "v$v" "${{ steps.v.outputs.sha }}" && git push origin "refs/tags/v$v"
+            git tag "v$v" "${{ needs.check.outputs.sha }}" && git push origin "refs/tags/v$v"
           fi
-          gh release create "v$v" --title "PXReprise $v" --notes-file notes.md --verify-tag
+          gh release create "v$v" dist/* --title "PXReprise $v" --notes-file notes/notes.md --verify-tag

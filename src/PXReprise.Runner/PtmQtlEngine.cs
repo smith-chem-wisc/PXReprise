@@ -9,7 +9,7 @@ namespace PXReprise.Runner;
 /// <summary>The <c>ptmqtl.*</c> engines: site pairs per search, pooled pairs per species,
 /// and site-trait fits per search and trait.</summary>
 /// <remarks>
-/// <para>The method is ptmQtl's (<c>ptmQtl:DEF-PTM-PAIR v2</c>, <c>ptmQtl:DEF-SITE-TRAIT v1</c>), applied by
+/// <para>The method is ptmQtl's (<c>ptmQtl:DEF-PTM-PAIR v3</c>, <c>ptmQtl:DEF-SITE-TRAIT v2</c>), applied by
 /// <see cref="PtmQtlCore"/> through mzLib only. The inputs are read from the bundle by <see cref="PtmQtlBundle"/>.
 /// This class decides what to run on, keys each artefact on its inputs, and writes it.</para>
 /// <para><b>Inputs by role.</b></para>
@@ -190,20 +190,51 @@ public static class PtmQtlEngine
 
     /// <summary>Each pair, its mzLib fields and both sites, as <see cref="PairSitesFile"/>. Numbers are written
     /// round-trip (<c>R</c>), so <see cref="ReadPairSites"/> rebuilds the pair exactly.</summary>
+    /// <remarks>Written row by row: a deposit with millions of pairs makes a file larger than one .NET string can hold
+    /// (about 10^9 characters), which once ended the run with an <see cref="OutOfMemoryException"/> whatever the free
+    /// memory (PXD006815, PXD008934, PXD026335, 2026-11-25). A failure part way deletes the file, as before nothing was
+    /// written.</remarks>
     public static string WritePairSites(IEnumerable<(PtmPair Pair, PairSite A, PairSite B)> pairs, string path)
     {
-        var text = new StringBuilder(string.Join('\t', PairSiteColumns)).Append('\n');
-        foreach (var (p, a, b) in pairs)
+        try
         {
-            foreach (var s in new[] { a.Modification, b.Modification, a.CanonicalKey, b.CanonicalKey })
-                if (s.Contains('\t') || s.Contains('\n')) throw new RunnerException($"a site name holds a tab or a newline: {s}");
-            text.Append(string.Join('\t', p.ResultType, p.Overlapping, R(p.Statistic), R(p.PValue), p.N.ToString(Inv), p.StatisticN.ToString(Inv),
-                a.Protein, a.Position.ToString(Inv), a.Residue, a.Modification, a.ProteinNTerm, a.CanonicalKey, a.Window ?? "",
-                b.Protein, b.Position.ToString(Inv), b.Residue, b.Modification, b.ProteinNTerm, b.CanonicalKey, b.Window ?? "")).Append('\n');
+            using var w = new StreamWriter(path, false, new UTF8Encoding(false));
+            w.Write(string.Join('\t', PairSiteColumns) + "\n");
+            foreach (var (p, a, b) in pairs)
+            {
+                foreach (var s in new[] { a.Modification, b.Modification, a.CanonicalKey, b.CanonicalKey })
+                    if (s.Contains('\t') || s.Contains('\n')) throw new RunnerException($"a site name holds a tab or a newline: {s}");
+                w.Write(string.Join('\t', p.ResultType, p.Overlapping, R(p.Statistic), R(p.PValue), p.N.ToString(Inv), p.StatisticN.ToString(Inv),
+                    a.Protein, a.Position.ToString(Inv), a.Residue, a.Modification, a.ProteinNTerm, a.CanonicalKey, a.Window ?? "",
+                    b.Protein, b.Position.ToString(Inv), b.Residue, b.Modification, b.ProteinNTerm, b.CanonicalKey, b.Window ?? "") + "\n");
+            }
         }
-        File.WriteAllText(path, text.ToString(), new UTF8Encoding(false));
+        catch
+        {
+            File.Delete(path);
+            throw;
+        }
         return path;
     }
+
+    /// <summary>D78's null in a <c>site_pairs</c> run record, or null where type A was not computed.</summary>
+    internal static Dictionary<string, object?>? DepthNullRecord(DepthNullResult? n) => n is null ? null : new Dictionary<string, object?>
+    {
+        ["call_q"] = PtmQtlCore.CallQ,
+        ["replicates"] = (long)PtmQtlCore.NullReplicates,
+        ["block"] = (long)PtmQtlCore.NullBlock,
+        ["seed"] = (long)PtmQtlCore.NullSeed,
+        ["real_calls"] = n.RealCalls,
+        ["null_calls"] = n.NullCalls.Select(c => (object?)c).ToList(),
+        ["share"] = double.IsFinite(n.Share) ? n.Share : null,
+        ["threshold"] = PtmQtlCore.DepthLikeShare,
+        ["depth_like"] = n.DepthLike,
+    };
+
+    /// <summary>Whether a <c>site_pairs</c> artefact's dataset is depth-like (D78), as its run record says.</summary>
+    internal static bool DepthLike(ArtefactRef a) =>
+        ((a.Record.GetValueOrDefault("engine_summary") as IReadOnlyDictionary<string, object?>)?.GetValueOrDefault("depth_null")
+            as IReadOnlyDictionary<string, object?>)?.GetValueOrDefault("depth_like") is true;
 
     /// <summary>The pairs a <c>site_pairs</c> artefact stored, as mzLib pairs with their sites.</summary>
     public static List<(PtmPair Pair, PairSite A, PairSite B)> ReadPairSites(string path) =>
@@ -310,7 +341,9 @@ public static class PtmQtlEngine
                         ["rows_p"] = (long)pairs.Rows.Count(r => (string)r["result_type"]! == "P"),
                         ["rows_a"] = (long)pairs.Rows.Count(r => (string)r["result_type"]! == "A"),
                         ["search_gate"] = Gate(bundle),
-                        ["quantified_psm_tier"] = dataset.Tiers.ToDictionary(kv => kv.Key, kv => (object?)kv.Value),
+                        ["identification_filter"] = dataset.IdentificationFilter,
+                        ["target_psms"] = dataset.TargetPsms.OrderBy(kv => kv.Key, StringComparer.Ordinal).ToDictionary(kv => kv.Key, kv => (object?)kv.Value),
+                        ["depth_null"] = DepthNullRecord(pairs.DepthNull),
                         ["databases"] = Databases(bundle),
                     },
                     ["acceptance"] = "passed",
@@ -390,7 +423,8 @@ public static class PtmQtlEngine
             }
             install ??= EngineRunner.InstallIdentity();
             var input = members.SelectMany(m => ReadPairSites(Path.Combine(m.Artefact.Path, PairSitesFile)).Select(p => (m.Bundle.DatasetId, p.Pair, p.A, p.B)));
-            var pooled = PtmQtlCore.Pool(group.Key, input);
+            var depthLike = members.Where(m => DepthLike(m.Artefact)).Select(m => m.Bundle.DatasetId).ToHashSet(StringComparer.Ordinal);
+            var pooled = PtmQtlCore.Pool(group.Key, input, depthLike);
             var rows = pooled.Rows;
             var record = new Dictionary<string, object?>(StringComparer.Ordinal)
             {
@@ -408,6 +442,7 @@ public static class PtmQtlEngine
                     ["rows_a"] = (long)rows.Count(r => (string)r["result_type"]! == "A"),
                     ["left_out"] = Counts(pooled.LeftOut),
                     ["not_pooled_s3b"] = notPooled,
+                    ["depth_like_datasets"] = depthLike.Order(StringComparer.Ordinal).Select(d => (object?)d).ToList(),
                     ["bundles"] = members.Select(m => (object?)BundleRecord(m.Bundle)).ToList(),
                 },
                 ["acceptance"] = "passed",
@@ -509,7 +544,7 @@ public static class PtmQtlEngine
                         ["sites"] = (long)fit.Rows.Count,
                         ["fitted"] = (long)fit.Rows.Count(r => r["estimable_int"] is true),
                         ["search_gate"] = Gate(bundle),
-                        ["quantified_psm_tier"] = dataset.Tiers.ToDictionary(kv => kv.Key, kv => (object?)kv.Value),
+                        ["identification_filter"] = dataset.IdentificationFilter,
                         ["databases"] = Databases(bundle),
                     },
                     ["acceptance"] = "passed",

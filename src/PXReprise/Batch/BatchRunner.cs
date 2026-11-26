@@ -501,12 +501,17 @@ public sealed class BatchRunner
         {
             if (_m.DataRepo is not null)
             {
-                int vrc; string vout, verr;
-                try { (vrc, vout, verr) = await RunProcessFullAsync(new[] { _m.DataRepo, "--version" }, TimeSpan.FromMinutes(2), ct).ConfigureAwait(false); }
-                catch (System.ComponentModel.Win32Exception ex) { (vrc, vout, verr) = (-1, "", ex.Message); }   // not startable: ingest will say so
-                string version = (vout + verr).Trim().Split('\n')[0].Trim();
-                _ingestJson = vrc == 0 && TakesIngestJson(version);
+                var (started, vrc, version) = await DataRepoVersionAsync(_m.DataRepo, ct, DataRepoVersionForTest).ConfigureAwait(false);
+                // A datarepo of the engine's own release takes --json too: a pair the binaries workflow stamps 0.0.0-dev,
+                // which D73 lets run together, is one build of today's code (dataRepo 149)
+                _ingestJson = vrc == 0 && (TakesIngestJson(version) || SameRelease(Provenance.RunRecord.Versions()["pxreprise"], version));
                 Log($"  datarepo version: {(version.Length > 0 ? version : $"unknown (rc {vrc})")}; ingest reads {(_ingestJson ? "the --json envelope" : "the exit code")}");
+                // D73: one release holds both programs, so a datarepo from another release stops the batch before any deposit.
+                if (started && OtherRelease(_m.DataRepo, Provenance.RunRecord.Versions()["pxreprise"], vrc, version) is { } refusal)
+                {
+                    Log($"batch refused: {refusal}");
+                    throw new ConfigException(_m.SourceFile, refusal);
+                }
             }
             SyncRestrictions();
             await ReconcileAsync(queue, ct).ConfigureAwait(false);
@@ -1004,6 +1009,15 @@ public sealed class BatchRunner
         if (rec is null) { Log($"{acc} screen: PRIDE returned no record; retry next pass"); return null; }
 
         var acq = AcquisitionClassifier.Classify(rec.Record);
+        // 2026-11-20 (PXD033714): the record's words read non-specific cleavage (an immunopeptidome named beside a tryptic
+        // study), but the question's curated SDRF names a protease for every file. The curated SDRF outranks the words (D22):
+        // the screen routes the deposit as digested, and the chemistry step reads the protease from that SDRF.
+        if (acq.NonspecificCleavage && _q.Designs?.For(acc) is { } designPath && File.Exists(designPath)
+            && ChemistryDetector.ProteaseForEveryFile(new Readers.SdrfDocument(designPath)) is { } curatedProtease)
+        {
+            Log($"{acc} screen: the record reads non-specific cleavage, but the curated SDRF names {curatedProtease} for every file; screened as digested by it");
+            acq = acq with { NonspecificCleavage = false };
+        }
         var route = Router.Assign(SearchKey.Accession(acc), acq, new RelevanceResult(RelevanceVerdict.DecidedInclude, "queued"), _q, _profiles);
         // D30/D32: what experiment this is, fact by fact with sources, written at every exit of this stage.
         var xr = new ExperimentRecord(acc);
@@ -1037,7 +1051,19 @@ public sealed class BatchRunner
             if (refusal is null) { profile = _profiles[asked]; Log($"{acc} RE-SEARCH under {asked} (routing chose {route.Profile})"); }
             else Log($"{acc} RE-SEARCH asked for {asked}, which cannot take it ({refusal}); searching under {profile.Key} as routed");
         }
+        // 2026-11-20 (PXD032900-lfq): the screen's words chose the isobaric profile. The profile a label-free reading
+        // would have had is kept, so the probe's spectra can still decide (LabelFreeBySpectra, D34). v0.4.45 kept one only when
+        // the chemistry step routed the deposit, so PXD032900-lfq, whose record text had routed it, was refused under the very
+        // release written for it. A label the spectra decided on an earlier pass takes that profile at once: the words would
+        // otherwise route it back to the isobaric profile, where its label-free probe fails again.
+        Profile? routedFrom = LabelFreeAlternative(acc, acq, profile);
+        if (routedFrom is not null && Entry(acc)?["label_from_spectra"]?["value"]?.GetValue<string>() == "label_free")
+        {
+            Log($"{acc} screen: its probe's spectra decided label-free on an earlier pass; {routedFrom.Key}, not {profile.Key}");
+            (profile, routedFrom) = (routedFrom, null);
+        }
         Record(acc, ("profile", profile.Key));
+        if (routedFrom is not null) Record(acc, ("routed_isobaric", "screen"));
         if (!profile.Databases.ContainsKey(e.Organism))
         {
             Log($"{acc} SKIPPED: {profile.Key} has no database for organism '{e.Organism}'");
@@ -1128,7 +1154,8 @@ public sealed class BatchRunner
         // G19: a profile that searches with the deposit's own chemistry reads it before any download, and a deposit it cannot
         // search as read (two proteases with no per-file map, an unknown protease or modification, a label) waits.
         DepositChemistry? chemistry = null;
-        Profile? routedFrom = null;   // v0.4.45: the profile before PRIDE's words routed the deposit to the isobaric one
+        // routedFrom (above): the profile before PRIDE's words routed the deposit to the isobaric one, by the screen (2026-11-20)
+        // or by the chemistry step below (v0.4.45).
         if (profile.Chemistry == "deposit")
         {
             DepositChemistry chem;
@@ -1143,6 +1170,18 @@ public sealed class BatchRunner
                 routedFrom = profile;
                 profile = taker;
                 Record(acc, ("profile", profile.Key), ("routed_isobaric", "chemistry"));
+                try { chem = await ChemistryAsync(acc, all, listing.Select(f => f.FileName).ToList(), profile, ct).ConfigureAwait(false); }
+                catch (Exception ex) when (Envelope.IsUnavailable(ex) || FetchStage.IsTransient(ex)) { Log($"{acc} chemistry: PRIDE unavailable ({ex.Message}); retry next pass"); return null; }
+            }
+            // 2026-11-20 (PXD015728, PXD019690's Purkinje runs): the record text said TMT and the screen chose the isobaric
+            // profile, but the question's curated SDRF names the files label-free. The curated SDRF outranks the words (D22),
+            // so the deposit goes back to the profile a label-free reading had, before anything is downloaded. A deposited SDRF
+            // does not: community SDRFs have called whole TMT deposits "label free sample" (PXD019316, PXD024356).
+            if (routedFrom is not null && chem.Label is { Value: "label_free", Source: ChemistrySource.CuratedSdrf })
+            {
+                Log($"{acc} chemistry: label label_free (curated SDRF) outranks the words that chose {profile.Key}; back to {routedFrom.Key}");
+                (profile, routedFrom) = (routedFrom, null);
+                Record(acc, ("profile", profile.Key), ("routed_isobaric", null));
                 try { chem = await ChemistryAsync(acc, all, listing.Select(f => f.FileName).ToList(), profile, ct).ConfigureAwait(false); }
                 catch (Exception ex) when (Envelope.IsUnavailable(ex) || FetchStage.IsTransient(ex)) { Log($"{acc} chemistry: PRIDE unavailable ({ex.Message}); retry next pass"); return null; }
             }
@@ -1200,7 +1239,7 @@ public sealed class BatchRunner
         int onDisk = Directory.EnumerateFiles(Path.Combine(d, "02_fetch", "spectra"), "*.raw").Count();
         if (onDisk > probeFiles.Count)
             Log($"{acc} PROBE reads its {probeFiles.Count} probe files only; {onDisk} raw files are on disk (downloaded ahead)");
-        var (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles, probe: true);
+        var (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles, probe: true, gates: QcFor(acc, profile));
         xr.Probe(report);
         // v0.4.45 (PXD032900-lfq, 2026-11-10): PRIDE's words routed the deposit to the isobaric profile, but they named label-free
         // too, and not one probe file carries reporter ions: the spectra decide (D34). Back to the profile it had, the label
@@ -1216,7 +1255,7 @@ public sealed class BatchRunner
             catch (Exception ex) when (Envelope.IsUnavailable(ex) || FetchStage.IsTransient(ex)) { Log($"{acc} chemistry: PRIDE unavailable ({ex.Message}); retry next pass"); return null; }
             xr.Chemistry(chemistry);
             Log($"{acc} chemistry: {Describe(chemistry)}");
-            (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles, probe: true);
+            (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles, probe: true, gates: QcFor(acc, profile));
             xr.Probe(report);
         }
         // v0.4.35: reporter ions in every probe file, under a profile that refuses them: the question's isobaric profile takes
@@ -1229,7 +1268,7 @@ public sealed class BatchRunner
             Log($"{acc} PROBE qc: isobaric reporter ions in all {report.Count} probe file(s); routing to {isoTaker.Key}");
             profile = isoTaker;
             Record(acc, ("profile", profile.Key), ("routed_isobaric", "spectra"));
-            (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles, probe: true);
+            (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles, probe: true, gates: QcFor(acc, profile));
             xr.Probe(report);
         }
         if (RoutedByReporters(acc, report, "PROBE"))
@@ -1248,7 +1287,7 @@ public sealed class BatchRunner
             Log($"{acc} PROBE qc: MS2 not read in the Orbitrap (low_res_ms2); routing to {low.Key}");
             profile = low;
             Record(acc, ("profile", profile.Key), ("routed_low_res", true));
-            (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles, probe: true);
+            (report, allPass) = QcStage.Run(Path.Combine(d, "02_fetch", "spectra"), Path.Combine(d, "02b_qc_probe"), profile, _m, ParamsFile(acc, profile), _runDate, probeFiles, probe: true, gates: QcFor(acc, profile));
             xr.Probe(report);
             excl = QcExclusion(report, profile.Qc);
             ok = allPass || excl is { Count: > 0 };
@@ -1377,16 +1416,17 @@ public sealed class BatchRunner
     /// share. A measurement that contradicts the record parks the deposit and is announced; a measured enrichment is
     /// recorded beside the screen's. False when the deposit stops here.
     /// </summary>
-    private async Task<bool> ProbeSearchAsync(QueueEntry e, Profile profile, Acquisition acq, DepositChemistry? chemistry,
+    internal async Task<bool> ProbeSearchAsync(QueueEntry e, Profile profile, Acquisition acq, DepositChemistry? chemistry,
         JsonObject probeQc, ExperimentRecord xr, CancellationToken ct)
     {
         string acc = e.Accession, d = Run(acc);
         var spectra = ProbeSpectra(Path.Combine(d, "02_fetch", "spectra"), probeQc);
         IReadOnlyDictionary<string, Qc.RunMeasures> runs;
         IReadOnlyDictionary<string, double>? offsets = null;
+        IReadOnlyDictionary<string, Qc.FragmentationCall>? fragmentation;
         try
         {
-            var fragmentation = Search.SearchStage.FragmentationFromQc(probeQc, spectra, profile);
+            fragmentation = Search.SearchStage.FragmentationFromQc(probeQc, spectra, profile);
             // v0.4.21: the machine's probe_search_minutes over the profile's (larger files take longer).
             var probeProfile = ProbeMinutes is { } pm ? profile with { ProbeSearchMinutes = pm } : profile;
             string psms = await ProbeSearchRunner(probeProfile, _m, spectra, chemistry, fragmentation, Path.Combine(d, "02c_probe_search"), ct).ConfigureAwait(false);
@@ -1410,6 +1450,22 @@ public sealed class BatchRunner
                 + (window is { } w ? $"; the search takes precursors within ±{w} ppm" : "; the search keeps MetaMorpheus's windows"));
             Record(acc, ("probe_precursor_offsets_ppm", new JsonObject(offsets.OrderBy(kv => kv.Key, StringComparer.Ordinal)
                 .Select(kv => KeyValuePair.Create(kv.Key, (JsonNode?)kv.Value)))));
+        }
+        // D95, D100: when the probe's cysteines are suspicious, the reagent probe names the reagent from the same files. A
+        // reagent it names is the chemistry the judge and the full search use; a worker's travels in its package's state.
+        if (await Qc.ReagentProbe.RunAsync(ProbeSearchRunner, profile, _m, spectra, chemistry, fragmentation, runs,
+                Path.Combine(d, "02d_reagent_probe"), ct).ConfigureAwait(false) is { } reagent)
+        {
+            Log($"{acc} REAGENT PROBE ({reagent.Verdict}): {reagent.Evidence}");
+            xr.Fact("cysteine_reagent", reagent.Verdict == Qc.ReagentProbe.Reagent ? reagent.Family : reagent.Verdict, ChemistrySource.ProbeSpectra, reagent.Evidence);
+            Record(acc, (Qc.ReagentProbe.StateKey, Qc.ReagentProbe.ToJson(reagent)));
+            if (Qc.ReagentProbe.AlkylationJson(reagent, chemistry) is { } alkylation)
+            {
+                Record(acc, (Qc.ReagentProbe.AlkylationKey, alkylation));
+                chemistry = Qc.ReagentProbe.Apply(chemistry!, alkylation);
+                if (_q.ExceptionFor(acc) is { Alkylation: DepositException.NoAlkylation } noAlk) chemistry = chemistry.Unalkylated(noAlk.Reason);
+                _chemistry[acc] = chemistry;
+            }
         }
         bool expectCarbamidomethyl = chemistry is null || chemistry.CysMods.Any(c => c.Name == "Carbamidomethyl" && c.Fixed);
         var verdict = Qc.ProbeJudge.Judge(runs, Qc.ProbeJudge.SpeciesName(e.Organism), expectCarbamidomethyl, acq.Enrichment != "none",
@@ -1588,7 +1644,8 @@ public sealed class BatchRunner
         string spectraDir = Path.Combine(d, "02_fetch", "spectra");
         // v0.4.45: a raw that is gone and has a calibrated stand-in keeps the verdict the last full QC gave it.
         var keptVerdicts = Search.CalibratedStandIns.In(spectraDir).Select(s => s.RawName).Where(n => !File.Exists(Path.Combine(spectraDir, n))).ToList();
-        var (report, allPass) = QcStage.Run(spectraDir, Path.Combine(d, "02b_qc"), profile, _m, ParamsFile(acc, profile), _runDate, kept: keptVerdicts);
+        var (report, allPass) = QcStage.Run(spectraDir, Path.Combine(d, "02b_qc"), profile, _m, ParamsFile(acc, profile), _runDate, kept: keptVerdicts,
+            gates: QcFor(acc, profile));
         if (RoutedByReporters(acc, report, "QC(full)")) return;
         var excl = new List<string>();
         if (!allPass)
@@ -1678,6 +1735,7 @@ public sealed class BatchRunner
         if (outcome.Success)
         {
             QcPayload(acc, profile);
+            Differential(acc);
             Cleanup(acc);
             await DeliverAsync(e, profile, ct).ConfigureAwait(false);
         }
@@ -1724,6 +1782,41 @@ public sealed class BatchRunner
         {
             Log($"{acc} QC-PAYLOAD FAILED ({ex.GetType().Name}): {ex.Message}; delivering anyway");
             Record(acc, ("qc_payload_error", $"{ex.GetType().Name}: {ex.Message}"), ("qc_payload_flags", new JsonArray("qc_payload_failed")));
+        }
+    }
+
+    /// <summary>
+    /// D84 (QuantProject 155): the search's differential abundance (stage 06_differential), unless the machine turns it off.
+    /// Never fatal: a search the stage cannot analyse is a finding in its provenance, and one it cannot read is recorded;
+    /// the deposit is delivered either way. A file that lost every match-between-runs transfer is a notice
+    /// (<see cref="Notices"/>): QuantProject's user is told each time one is found.
+    /// </summary>
+    internal void Differential(string acc)
+    {
+        if (!_m.Differential) return;
+        string d = Run(acc), outDir = Path.Combine(d, "06_differential");
+        try
+        {
+            var record = PXReprise.Differential.DifferentialStage.Run(Path.Combine(d, "04_search"), outDir, null, _m.MaxThreads);
+            var summary = PXReprise.Differential.DifferentialStage.Summary(record, outDir);
+            var analyses = record["analyses"]!.AsArray();
+            string findings = string.Join("; ", record["findings"]!.AsArray().Select(f => $"{f!["kind"]}: {f["detail"]}"));
+            Log($"{acc} DIFFERENTIAL analyses={analyses.Count} rows={string.Join("/", analyses.Select(a => a!["rows"]))}"
+                + $" left_out={record["samples_left_out"]!.AsArray().Count}" + (findings.Length > 0 ? $" findings: {findings}" : ""));
+            Record(acc, ("differential", summary));
+            var lost = record["lost_transfer_files"]!.AsArray();
+            if (lost.Count > 0)
+            {
+                string detail = $"{lost.Count} file(s) lost every match-between-runs transfer: "
+                                + string.Join(", ", lost.Select(f => $"{f!["file"]} ({f["mbr_peaks"]} MBR peaks, smallest PIP q {f["min_pip_q_value"]?.ToString() ?? "none"})"));
+                Notices.Announce(_runRoot, acc, Notices.LostTransfers, detail);
+                Log($"{acc} NOTICE ({Notices.LostTransfers}): {detail}. Tell QuantProject's user and QuantProject; listed in {Notices.FileName}.");
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log($"{acc} DIFFERENTIAL FAILED ({ex.GetType().Name}): {ex.Message}; delivering anyway");
+            Record(acc, ("differential_error", $"{ex.GetType().Name}: {ex.Message}"));
         }
     }
 
@@ -1815,15 +1908,18 @@ public sealed class BatchRunner
     internal string? BelowIdentificationFloor(string acc)
     {
         string prov = Path.Combine(Run(acc), "04_search", "provenance.json");
+        // D84: under MetaMorpheus 1.1.15's PEP q-value filter, rate and psms_1pct (the "q-value" line's) are null, and the
+        // floor reads the filter's own count and rate.
         if (!File.Exists(prov) || JsonNode.Parse(File.ReadAllText(prov))?["id_rate"] is not JsonObject id
-            || id["rate"]?.GetValue<double>() is not { } rate) return null;
+            || (id["rate"] ?? id["rate_filter"])?.GetValue<double>() is not { } rate) return null;
         double floor = _q.ExceptionFor(acc)?.MinIdentificationRate ?? MinIdentificationRate;
         if (rate >= floor) return null;
         // Invariant on purpose: "P2" is "0.07%" on Windows en-US and "0.07 %" on Linux (public CI, v0.4.44).
         var inv = System.Globalization.CultureInfo.InvariantCulture;
         string ms2 = id["ms2"]?.GetValue<long>() is { } n ? $" of {n.ToString("N0", inv)} MS2 spectra" : "";
-        string psms = id["psms_1pct"]?.GetValue<long>() is { } p ? p.ToString("N0", inv) : "?";
-        return $"the full search's {psms} PSMs at 1% are {(rate * 100).ToString("0.00", inv)}%{ms2}, under the identification floor of {(floor * 100).ToString("0.##", inv)}%";
+        string psms = (id["psms_1pct"] ?? id["psms_filter_1pct"])?.GetValue<long>() is { } p ? p.ToString("N0", inv) : "?";
+        string filter = id["rate"] is null && id["filter"]?.GetValue<string>() is { } f ? $" ({f})" : "";
+        return $"the full search's {psms} PSMs at 1%{filter} are {(rate * 100).ToString("0.00", inv)}%{ms2}, under the identification floor of {(floor * 100).ToString("0.##", inv)}%";
     }
 
     private readonly SemaphoreSlim _delivering = new(1, 1);
@@ -1865,7 +1961,7 @@ public sealed class BatchRunner
         }
         try
         {
-            ManifestEntry.EnsureExists(manifest, _q.Name, _runRoot);
+            ManifestEntry.EnsureExists(manifest, _q.Name, _m.WorkRoot);
             var split = _q.ExceptionFor(e.Accession)?.Split;
             ManifestEntry.Append(manifest, e, profile, Run(e.Accession), Entry(e.Accession), _m.WorkRoot, split, _q.RestrictionsFor(e.Accession));
             Log($"{e.Accession} MANIFEST entry appended" + (split is null ? "" : $" (split by {split.By}; {split.Accession}'s own entry, if served, retired as superseded)"));
@@ -1882,7 +1978,7 @@ public sealed class BatchRunner
         if (_ingestJson)
         {
             // datarepo 1.0+: one JSON envelope on stdout, the human report on stderr.
-            var argv = new[] { _m.DataRepo, "ingest", manifest, e.Accession, "--json" };
+            var argv = IngestCommand(_m.DataRepo, manifest, e.Accession, json: true);
             var (exit, stdout, stderr) = await RunProcessFullAsync(argv, TimeSpan.FromHours(3), ct).ConfigureAwait(false);
             string full = KeepOutput(OutputDir, e.Accession, "ingest", argv, exit, stdout, stderr, DateTime.UtcNow);
             var o = IngestEnvelope.Read(stdout, e.Accession, exit);
@@ -1895,7 +1991,7 @@ public sealed class BatchRunner
         }
         else
         {
-            var argv = new[] { _m.DataRepo, "ingest", manifest, e.Accession };
+            var argv = IngestCommand(_m.DataRepo, manifest, e.Accession, json: false);
             var (exit, stdout, stderr) = await RunProcessFullAsync(argv, TimeSpan.FromHours(3), ct).ConfigureAwait(false);
             string full = KeepOutput(OutputDir, e.Accession, "ingest", argv, exit, stdout, stderr, DateTime.UtcNow);
             rc = exit;
@@ -1917,6 +2013,7 @@ public sealed class BatchRunner
                 Log($"{e.Accession} MANIFEST delivery not recorded ({ex.GetType().Name}: {ex.Message}); the ingest itself succeeded");
             }
             Prune(e.Accession);
+            await PtmQtlSitePairsAsync(e.Accession, profile, manifest, ct).ConfigureAwait(false);
         }
         if (rc != 0 || _q.Publish.Command.Count == 0) return;
         // D41 rule 6: publishing is scheduled (PublishLoopAsync), no longer run after each ingest. A new delivery waits for
@@ -2001,6 +2098,7 @@ public sealed class BatchRunner
             DateTime started = DateTime.UtcNow;
             RecordPublish(("last_started_utc", started.ToString("o")), ("waiting", Names(waiting)));
             Log($"PUBLISH start: {waiting.Count} deposit(s) delivered since the last successful publish ({Brief(waiting)}); limit {pub.TimeoutHours:0.#} h, free {FreeGb():0} GB");
+            await PtmQtlBeforePublishAsync(pub.Manifest!, ct).ConfigureAwait(false);
             // G38 (promised to dataRepo): the whole output goes to a file; batch.log and state keep only the tail.
             var argv = PublishArgv(pub.Command, pub.Manifest!, _m.DataRepo!);
             var (rc, stdout, stderr) = await RunProcessFullAsync(argv, TimeSpan.FromHours(pub.TimeoutHours), ct).ConfigureAwait(false);
@@ -2020,6 +2118,178 @@ public sealed class BatchRunner
     }
 
     private static string Brief(IReadOnlyList<string> accs) => string.Join(", ", accs.Take(8)) + (accs.Count > 8 ? $", +{accs.Count - 8} more" : "");
+
+    // ------------------------------------------------------------------ ptmQtl's engines (D96, G134)
+
+    /// <summary>
+    /// D96, G134: after a label-free delivery, ptmQtl's <c>site_pairs</c> on the deposit's newest bundle, under the machine's
+    /// <c>[ptmqtl]</c> lists. It runs under the delivery lock, as the ingest does. A failure is logged and recorded, never
+    /// a failed delivery: the bundle is delivered. A recorded result is not retried by the publish's catch-up; a re-ingest
+    /// runs it again.
+    /// </summary>
+    private async Task PtmQtlSitePairsAsync(string acc, Profile profile, string manifest, CancellationToken ct)
+    {
+        if (_m.PtmQtl is not { } c || _m.DataRepo is null || !PtmQtlBatch.Runs(profile)) return;
+        try
+        {
+            var argv = PtmQtlBatch.RunArgv(_m.DataRepo, PtmQtlBatch.SitePairs, [acc], PtmQtlBatch.StoreOf(manifest), c);
+            var (exit, stdout, stderr) = await RunProcessFullAsync(argv, PtmQtlBatch.SitePairsTimeout, ct).ConfigureAwait(false);
+            string full = KeepOutput(OutputDir, acc, "ptmqtl_site_pairs", argv, exit, stdout, stderr, DateTime.UtcNow);
+            var (written, done) = PtmQtlBatch.ReadOutput(stdout);
+            string? artefact = written.Concat(done).FirstOrDefault();
+            string tail = Tail((stdout + stderr).Trim());
+            Log($"{acc} PTMQTL site_pairs rc={exit}{(artefact is null ? "" : $" artefact={artefact}{(written.Count == 0 ? " (already written)" : "")}")} (full output {full})"
+                + (exit == 0 ? "" : $"\n{tail}"));
+            Record(acc, ("ptmqtl_site_pairs_rc", exit), ("ptmqtl_site_pairs_artefact", artefact), ("ptmqtl_site_pairs_out", tail), ("ptmqtl_site_pairs_log", full));
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            Log($"{acc} PTMQTL site_pairs could not run ({ex.GetType().Name}: {ex.Message}); the delivery stands");
+            Record(acc, ("ptmqtl_site_pairs_rc", -1), ("ptmqtl_site_pairs_out", ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// D96, G134: before the question's publish builds the catalog, under the delivery lock:
+    /// <list type="number">
+    /// <item>a bounded catch-up, <c>site_pairs</c> on at most <c>catch_up_per_publish</c> label-free deposits delivered
+    /// with no <c>site_pairs</c> result recorded (those delivered before the engines ran);</item>
+    /// <item><c>pool_pairs</c> over every delivered deposit whose <c>site_pairs</c> succeeded. It writes one pooled
+    /// artefact per species with two or more poolable members, and nothing when they are unchanged.</item>
+    /// </list>
+    /// A failure is logged and the publish goes on: the catalog serves the artefacts the store holds.
+    /// </summary>
+    private async Task PtmQtlBeforePublishAsync(string manifest, CancellationToken ct)
+    {
+        if (_m.PtmQtl is not { } c || _m.DataRepo is null) return;
+
+        var behind = State()["datasets"]!.AsObject()
+            .Where(kv => kv.Value is JsonObject o && Delivered(o) && o["ptmqtl_site_pairs_rc"] is null && ProfileOf(o) is { } p && PtmQtlBatch.Runs(p))
+            .Select(kv => (kv.Key, Profile: ProfileOf(kv.Value!.AsObject())!)).OrderBy(x => x.Key, StringComparer.Ordinal).ToList();
+        if (behind.Count > 0)
+            Log($"PTMQTL catch-up: site_pairs on {Math.Min(behind.Count, c.CatchUpPerPublish)} of {behind.Count} label-free deposit(s) delivered without it");
+        foreach (var (acc, profile) in behind.Take(c.CatchUpPerPublish))
+            await PtmQtlSitePairsAsync(acc, profile, manifest, ct).ConfigureAwait(false);
+
+        var members = State()["datasets"]!.AsObject()
+            .Where(kv => kv.Value is JsonObject o && Delivered(o) && o["ptmqtl_site_pairs_rc"] is JsonValue r && r.TryGetValue<int>(out int src) && src == 0)
+            .Select(kv => kv.Key).Order(StringComparer.Ordinal).ToList();
+        if (members.Count < 2)
+            Log($"PTMQTL pool_pairs not run: {members.Count} deposit(s) with site_pairs, and it pools two or more");
+        else await PtmQtlPoolAsync(manifest, c, members, ct).ConfigureAwait(false);
+        if (c.SiteTraits) await PtmQtlSiteTraitsAsync(manifest, c, ct).ConfigureAwait(false);
+    }
+
+    private static bool Delivered(JsonObject o) => o["ingest_rc"] is JsonValue i && i.TryGetValue<int>(out int irc) && irc == 0;
+
+    private Profile? ProfileOf(JsonObject o) => o["profile"] is JsonValue v && v.TryGetValue<string>(out var key) && _profiles.TryGetValue(key, out var p) ? p : null;
+
+    private async Task PtmQtlPoolAsync(string manifest, PtmQtlConfig c, IReadOnlyList<string> members, CancellationToken ct)
+    {
+        try
+        {
+            var argv = PtmQtlBatch.RunArgv(_m.DataRepo!, PtmQtlBatch.PoolPairs, members, PtmQtlBatch.StoreOf(manifest), c);
+            var (exit, stdout, stderr) = await RunProcessFullAsync(argv, PtmQtlBatch.PoolPairsTimeout, ct).ConfigureAwait(false);
+            string full = KeepOutput(OutputDir, _q.Name, "ptmqtl_pool_pairs", argv, exit, stdout, stderr, DateTime.UtcNow);
+            var (written, done) = PtmQtlBatch.ReadOutput(stdout);
+            Log($"PTMQTL pool_pairs rc={exit} over {members.Count} deposit(s): {written.Count} pooled artefact(s) written, {done.Count} already written (full output {full})"
+                + (exit == 0 ? "" : $"\n{Tail((stdout + stderr).Trim())}"));
+            RecordPublish(("ptmqtl_pool_rc", exit), ("ptmqtl_pool_artefacts", new JsonArray(written.Concat(done).Select(a => (JsonNode?)a).ToArray())), ("ptmqtl_pool_log", full));
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            Log($"PTMQTL pool_pairs could not run ({ex.GetType().Name}: {ex.Message}); the publish goes on");
+            RecordPublish(("ptmqtl_pool_rc", -1), ("ptmqtl_pool_log", ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// D96: with <c>[ptmqtl] site_traits</c> on, for each trait the question sources (<c>[traits.&lt;id&gt;]</c>):
+    /// <list type="number">
+    /// <item>its traits files, one per delivered label-free deposit, from the latest catalog (<see cref="TraitsWriter"/>,
+    /// through <c>datarepo query</c>); a deposit left out is logged with why;</item>
+    /// <item><c>ptmqtl.site_traits</c> on each deposit with a file, one at a time, since a refused bundle stops a run of
+    /// several (ptmQtl 065). Each result is recorded on the deposit (<c>ptmqtl_site_traits_&lt;id&gt;_*</c>).</item>
+    /// </list>
+    /// The files are written again at each publish; an unchanged one gives the same artefact, found already written.
+    /// A failure is logged and the publish goes on.
+    /// </summary>
+    private async Task PtmQtlSiteTraitsAsync(string manifest, PtmQtlConfig c, CancellationToken ct)
+    {
+        if (_q.TraitSources is not { Count: > 0 } sources)
+        {
+            Log("PTMQTL site_traits not run: the question sources no trait ([traits.<id>])");
+            return;
+        }
+        var delivered = State()["datasets"]!.AsObject()
+            .Where(kv => kv.Value is JsonObject o && Delivered(o) && ProfileOf(o) is { } p && PtmQtlBatch.Runs(p))
+            .Select(kv => kv.Key).ToHashSet(StringComparer.Ordinal);
+        foreach (var t in sources.Values)
+        {
+            try
+            {
+                string catalog = TraitsWriter.CatalogFile(c.Catalog!), store = PtmQtlBatch.StoreOf(manifest);
+                var query = PtmQtlBatch.QueryArgv(_m.DataRepo!, catalog, TraitsWriter.Sql(t));
+                var (qrc, qout, qerr) = await RunProcessFullAsync(query, PtmQtlBatch.QueryTimeout, ct).ConfigureAwait(false);
+                if (qrc != 0)
+                {
+                    string qlog = KeepOutput(OutputDir, _q.Name, $"ptmqtl_traits_{t.Id}", query, qrc, qout, qerr, DateTime.UtcNow);
+                    Log($"PTMQTL traits ({t.Id}) query rc={qrc} on {Path.GetFileName(catalog)}; site_traits not run (full output {qlog})\n{Tail(qerr.Trim())}");
+                    RecordPublish(($"ptmqtl_traits_{t.Id}_rc", qrc), ($"ptmqtl_traits_{t.Id}_log", qlog));
+                    continue;
+                }
+                string? roleOut = null;
+                if (TraitsWriter.NeedsRoles(t))
+                {
+                    var roleQuery = PtmQtlBatch.QueryArgv(_m.DataRepo!, catalog, TraitsWriter.RoleSql(t));
+                    var (rrc, rout, rerr) = await RunProcessFullAsync(roleQuery, PtmQtlBatch.QueryTimeout, ct).ConfigureAwait(false);
+                    if (rrc != 0)
+                    {
+                        string rlog = KeepOutput(OutputDir, _q.Name, $"ptmqtl_traits_{t.Id}_roles", roleQuery, rrc, rout, rerr, DateTime.UtcNow);
+                        Log($"PTMQTL traits ({t.Id}) role query rc={rrc}; site_traits not run (full output {rlog})\n{Tail(rerr.Trim())}");
+                        RecordPublish(($"ptmqtl_traits_{t.Id}_rc", rrc), ($"ptmqtl_traits_{t.Id}_log", rlog));
+                        continue;
+                    }
+                    roleOut = rout;
+                }
+                var files = TraitsWriter.Write(t, qout, roleOut, Path.Combine(_stateDir, "ptmqtl_traits", t.Id), delivered);
+                foreach (var f in files.Where(f => f.Path is null)) Log($"{f.Dataset} PTMQTL site_traits ({t.Id}) left out: {string.Join("; ", f.Notes)}");
+                Log($"PTMQTL traits ({t.Id}) from {Path.GetFileName(catalog)}: {files.Count(f => f.Path is not null)} deposit(s) with a file, {files.Count(f => f.Path is null)} left out");
+                RecordPublish(($"ptmqtl_traits_{t.Id}_rc", 0), ($"ptmqtl_traits_{t.Id}_catalog", catalog));
+                var unchanged = new List<string>();
+                foreach (var f in files.Where(f => f.Path is not null))
+                {
+                    // The same file, datarepo and delivery give the same answer, a refusal included (a capture, ptmQtl
+                    // S3): it is not asked again at every publish. A swap or a re-ingest asks again.
+                    var state = State()["datasets"]![f.Dataset] as JsonObject;
+                    string input = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(
+                        $"{Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(f.Path!)))}\n{_m.DataRepo}\n{state?["ingest_out"]}")));
+                    if (state?[$"ptmqtl_site_traits_{t.Id}_input"] is JsonValue was && was.TryGetValue<string>(out var w) && w == input) { unchanged.Add(f.Dataset); continue; }
+                    var argv = PtmQtlBatch.RunArgv(_m.DataRepo!, PtmQtlBatch.SiteTraits, [f.Dataset], store, c, f.Path);
+                    var (exit, stdout, stderr) = await RunProcessFullAsync(argv, PtmQtlBatch.SiteTraitsTimeout, ct).ConfigureAwait(false);
+                    string full = KeepOutput(OutputDir, f.Dataset, $"ptmqtl_site_traits_{t.Id}", argv, exit, stdout, stderr, DateTime.UtcNow);
+                    var (written, done) = PtmQtlBatch.ReadOutput(stdout);
+                    string? artefact = written.Concat(done).FirstOrDefault();
+                    string tail = Tail((stdout + stderr).Trim());
+                    // Which deposits are fitted is the engine's rule (a capture is refused, ptmQtl S3 and S3b): a refusal
+                    // says so, so a file on disk is never read as a fit to come (aging 343).
+                    Log($"{f.Dataset} PTMQTL site_traits ({t.Id}) rc={exit}{(artefact is null ? "" : $" artefact={artefact}")}"
+                        + $"{(exit == 0 ? "" : " file written, no fit: ptmQtl's engine refused it, its reason below")}: {f.Runs} runs, covariates "
+                        + $"{(f.Covariates.Count == 0 ? "none" : string.Join(", ", f.Covariates))}{(f.Notes.Count == 0 ? "" : $" ({string.Join("; ", f.Notes)})")} (full output {full})"
+                        + (exit == 0 ? "" : $"\n{tail}"));
+                    Record(f.Dataset, ($"ptmqtl_site_traits_{t.Id}_rc", exit), ($"ptmqtl_site_traits_{t.Id}_artefact", artefact),
+                        ($"ptmqtl_site_traits_{t.Id}_out", tail), ($"ptmqtl_site_traits_{t.Id}_log", full), ($"ptmqtl_site_traits_{t.Id}_input", input));
+                }
+                if (unchanged.Count > 0)
+                    Log($"PTMQTL site_traits ({t.Id}) not run again on {unchanged.Count} deposit(s) whose file, datarepo and delivery are unchanged since their last run: {string.Join(", ", unchanged)}");
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or System.ComponentModel.Win32Exception or InvalidOperationException or FormatException)
+            {
+                Log($"PTMQTL site_traits ({t.Id}) could not run ({ex.GetType().Name}: {ex.Message}); the publish goes on");
+                RecordPublish(($"ptmqtl_traits_{t.Id}_rc", -1), ($"ptmqtl_traits_{t.Id}_log", ex.Message));
+            }
+        }
+    }
 
     /// <summary>Checks once a minute until <paramref name="stop"/>; a publish under way is never stopped by it (STOP drains).</summary>
     private async Task PublishLoopAsync(CancellationToken stop, CancellationToken ct)
@@ -2138,7 +2408,67 @@ public sealed class BatchRunner
         System.Text.RegularExpressions.Regex.Match(versionLine, @"datarepo\s+(\d+)\.(\d+)\.(\d+)") is { Success: true } m
         && int.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture) >= 1;
 
+    /// <summary>
+    /// The command a delivery runs to ingest one search: <c>datarepo ingest &lt;manifest&gt; &lt;key&gt;</c>, with
+    /// <c>--json</c> when the machine's datarepo takes it (<see cref="TakesIngestJson"/>). The test that runs both
+    /// programs together (<c>tests/PXReprise.Seam.Tests</c>) calls it with <c>json: true</c>, so it runs what a batch
+    /// runs with a datarepo that takes <c>--json</c>: 1.0.0 or later, or a datarepo of the engine's own release, as a pair
+    /// the binaries workflow stamps 0.0.0-dev is.
+    /// </summary>
+    internal static string[] IngestCommand(string datarepo, string manifest, string key, bool json) =>
+        json ? new[] { datarepo, "ingest", manifest, key, "--json" } : new[] { datarepo, "ingest", manifest, key };
+
     private bool _ingestJson;
+
+    /// <summary>Tests only: whether a delivery's ingest takes <c>--json</c>, which a batch's start otherwise decides from
+    /// <c>datarepo --version</c> (<see cref="TakesIngestJson"/>), for a test that delivers without starting a batch.</summary>
+    internal bool IngestJsonForTest { set => _ingestJson = value; }
+
+    /// <summary>Tests only: replaces the run of <c>datarepo --version</c> at the batch's start (exit code, stdout, stderr).</summary>
+    internal Func<CancellationToken, Task<(int Rc, string Stdout, string Stderr)>>? DataRepoVersionForTest { get; set; }
+
+    /// <summary>
+    /// Runs <c>datarepo --version</c> (or <paramref name="run"/>): whether the program started, its exit code and the first line
+    /// it printed. A program that cannot be started at all gives its error as the line; its ingest fails and says so.
+    /// </summary>
+    internal static async Task<(bool Started, int Rc, string Line)> DataRepoVersionAsync(string dataRepo, CancellationToken ct,
+        Func<CancellationToken, Task<(int Rc, string Stdout, string Stderr)>>? run = null)
+    {
+        int rc; string stdout, stderr;
+        try
+        {
+            (rc, stdout, stderr) = await (run ?? (c => RunProcessFullAsync(new[] { dataRepo, "--version" }, TimeSpan.FromMinutes(2), c)))(ct)
+                .ConfigureAwait(false);
+        }
+        catch (System.ComponentModel.Win32Exception ex) { return (false, -1, ex.Message.Split('\n')[0].Trim()); }
+        return (true, rc, (stdout + stderr).Trim().Split('\n')[0].Trim());
+    }
+
+    /// <summary>
+    /// D73: whether <paramref name="datarepoVersionLine"/> (<c>datarepo --version</c>: "datarepo 1.0.0") is the datarepo of the
+    /// engine's own release. One release stamps one version on both programs, so its version, a pre-release suffix included,
+    /// must equal <paramref name="engineVersion"/> without the engine's <c>+build</c> metadata (the commit it reports).
+    /// </summary>
+    internal static bool SameRelease(string engineVersion, string datarepoVersionLine) =>
+        System.Text.RegularExpressions.Regex.Match(datarepoVersionLine.Trim(), @"^datarepo\s+(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$") is { Success: true } m
+        && string.Equals(m.Groups[1].Value, ReleaseOf(engineVersion), StringComparison.Ordinal);
+
+    /// <summary>A version without its <c>+build</c> metadata: "1.0.0+f9483dd" is release 1.0.0.</summary>
+    internal static string ReleaseOf(string version) => version.Split('+')[0].Trim();
+
+    /// <summary>
+    /// D73: why the datarepo at <paramref name="dataRepo"/> may not deliver for this engine, or null when it is the datarepo of
+    /// the engine's own release. Read by a batch's start and by <c>batch status --machine</c>, so a new install is checked
+    /// before the old driver is stopped.
+    /// </summary>
+    internal static string? OtherRelease(string dataRepo, string engineVersion, int rc, string line)
+    {
+        if (SameRelease(engineVersion, line)) return null;
+        string release = ReleaseOf(engineVersion);
+        string said = (line.Length > 0 ? $"'{line}'" : "no version") + (rc == 0 ? "" : $" (rc {rc})");
+        return $"datarepo {dataRepo} reports {said}, and this engine is pxreprise {release}: use the datarepo from the same "
+            + $"PXReprise release (the datarepo folder of the pxreprise-{release} archive; its --version prints 'datarepo {release}')";
+    }
 
     // ------------------------------------------------------------------ helpers
 
@@ -2182,6 +2512,9 @@ public sealed class BatchRunner
 
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, DepositChemistry> _chemistry = new(StringComparer.Ordinal);
 
+    /// <summary>The chemistry the search will take for <paramref name="acc"/>, if this driver has read it; for tests.</summary>
+    internal DepositChemistry? CachedChemistry(string acc) => _chemistry.TryGetValue(acc, out var c) ? c : null;
+
     /// <summary>
     /// G19: the deposit's chemistry (ChemistryDetector, D22-D24), from PRIDE's project record, the deposit's SDRF (downloaded
     /// into 01_chemistry, kilobytes) and the question's curated SDRF. Written to 01_chemistry/chemistry.json and the state;
@@ -2205,6 +2538,9 @@ public sealed class BatchRunner
         if (_q.Designs?.For(acc) is { } c && File.Exists(c)) curated = new Readers.SdrfDocument(c);
         // G40: a profile that ships a modification for a thiol reagent (NBF-Cl) searches such a deposit instead of parking it.
         var chem = ChemistryDetector.Detect(project, curated, deposited, rawFiles, profile.ThiolReagents);
+        // D95, D100: a reagent the probe's own spectra named (Qc.ReagentProbe) outranks every source read above. It is kept
+        // in the state, so a restart, a retry or the controller taking a worker's package searches with it.
+        chem = Qc.ReagentProbe.Apply(chem, Entry(acc)?[Qc.ReagentProbe.AlkylationKey]);
         // v0.4.15: the question states the cysteines were never alkylated; it outranks every source read above.
         if (_q.ExceptionFor(acc) is { Alkylation: DepositException.NoAlkylation } ex) chem = chem.Unalkylated(ex.Reason);
         // v0.4.45: a label the probe's own spectra decided (LabelFreeBySpectra) outranks PRIDE's words. It is kept in the state,
@@ -2306,6 +2642,20 @@ public sealed class BatchRunner
     internal static string? UnsearchableChemistry(DepositChemistry chem) =>
         chem.Park ?? (chem.Label.Value == "label_free" || IsIsobaricLabel(chem.Label.Value) ? null : $"waiting_{Slug(chem.Label.Value)}_labelling");
 
+    /// <summary>
+    /// 2026-11-20: when the screen read the deposit as isobaric and routed it to <paramref name="chosen"/>, an isobaric profile,
+    /// the profile the question would have routed it to read as label-free; otherwise null. The probe keeps it so that its
+    /// spectra can still decide (<see cref="LabelFreeBySpectra"/>), as it keeps the profile the chemistry step routes from.
+    /// </summary>
+    internal Profile? LabelFreeAlternative(string acc, Acquisition acq, Profile chosen)
+    {
+        if (acq.Labelling != Labelling.Isobaric || !chosen.Accepts.Labellings.Contains(Labelling.Isobaric)) return null;
+        var route = Router.Assign(SearchKey.Accession(acc), acq with { Labelling = Labelling.LabelFree },
+            new RelevanceResult(RelevanceVerdict.DecidedInclude, "queued"), _q, _profiles);
+        return route is { Kind: RouteKind.Search, Profile: { } key } && !_profiles[key].Accepts.Labellings.Contains(Labelling.Isobaric)
+            ? _profiles[key] : null;
+    }
+
     /// <summary>The first profile the question names, in its order, that is available and takes this deposit as isobaric.</summary>
     internal Profile? IsobaricTaker(Acquisition acq) =>
         _q.Profiles.Select(k => _profiles[k]).FirstOrDefault(p => p.Status == ProfileStatus.Available
@@ -2400,6 +2750,10 @@ public sealed class BatchRunner
         var dep = Limits?.Apply(profile.Deposit) ?? profile.Deposit;
         return _q.ExceptionFor(acc)?.Apply(dep) ?? dep;
     }
+
+    /// <summary>The profile's QC gates with the question's exception for this deposit or split group over them (its own
+    /// <c>min_ms2</c>; aging 316, PXR-A217). The probe's QC and the full QC both judge by these.</summary>
+    internal QcGates QcFor(string acc, Profile profile) => _q.ExceptionFor(acc)?.Apply(profile.Qc) ?? profile.Qc;
 
     /// <summary>The machine limits a size deferral was decided under, so a change gives the deposit one more look (Settled).</summary>
     private (string, JsonNode?) LimitsField() => ("machine_limits", Limits?.Describe());

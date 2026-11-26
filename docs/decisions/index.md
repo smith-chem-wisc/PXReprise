@@ -44,7 +44,7 @@ Records marked *provisional* are good guesses, made fast on purpose. Each says w
 | [0007](0007-profile-versions-never-edited.md) | A profile version is never edited | accepted | 2026-09-29 |
 | [0008](0008-no-python.md) | No Python | accepted | 2026-09-29 |
 | [0009](0009-limits-belong-to-the-machine.md) | Time and size limits belong to the machine, not the profile | accepted | 2026-09-29 |
-| [0010](0010-numbered-releases.md) | Every user-visible change is a numbered release | accepted | 2026-09-29 |
+| [0010](0010-numbered-releases.md) | Every user-visible change is a numbered release | accepted (amended by 0073) | 2026-09-29 |
 | [0011](0011-pipeline-number-definitions.md) | PXReprise owns the definitions of its pipeline numbers | accepted | 2026-09-29 |
 | [0013](0013-pride-index-for-discovery-only.md) | PRIDE's search index is for discovery only | accepted | 2026-09-30 |
 | [0014](0014-new-engines-join-through-metamorpheus.md) | A new search engine joins as a MetaMorpheus task and a profile | accepted | 2026-09-30 |
@@ -74,7 +74,15 @@ Records marked *provisional* are good guesses, made fast on purpose. Each says w
 | [0065](0065-sdrf-for-every-deposit.md) | PXReprise makes every deposit's SDRF | accepted | 2026-11-07 |
 | [0066](0066-sdrf-makes-the-design.md) | PXReprise's SDRF makes the design; the default design retires | accepted | 2026-11-12 |
 | [0067](0067-smith-is-the-engine-repository.md) | This repository is the engine's real home | accepted | 2026-11-13 |
-| [0068](0068-rules-on-master.md) | Rules on master, and how a release is made | accepted | 2026-11-13 |
-| [0069](0069-datarepo-code-in-pxreprise.md) | The data repository's code lives here, with its history | accepted | 2026-11-13 |
+| [0068](0068-rules-on-master.md) | Rules on master, and how a release is made | accepted (amended by 0073) | 2026-11-13 |
+| [0069](0069-datarepo-code-in-pxreprise.md) | The data repository's code lives here, with its history | accepted (amended by 0073) | 2026-11-13 |
 | [0070](0070-record-engine-decisions-as-madr.md) | Record engine decisions as MADR records in this repository | accepted | 2026-11-14 |
 | [0072](0072-dia-search-mode.md) | A DIA search mode keyed on the DIA task's own tables | accepted | 2026-11-16 |
+| [0073](0073-one-release-for-the-engine-and-datarepo.md) | One release for the engine and datarepo | accepted | 2026-11-22 |
+| [0082](0082-pep-q-value-from-the-next-metamorpheus-version.md) | The PEP q-value at 1% from the next MetaMorpheus version | superseded by [0087](0087-one-filter-the-q-value-notch.md) | 2026-11-23 |
+| [0087](0087-one-filter-the-q-value-notch.md) | One identification filter, the q-value notch at 1%, set in the search only | accepted (amended by 0099) | 2026-11-23 |
+| [0089](0089-mbr-transfers-at-five-percent.md) | Match-between-runs transfers kept below a q-value of 5% | accepted | 2026-11-23 |
+| [0091](0091-ptm-databases-are-cumulative.md) | PTM databases are cumulative | accepted | 2026-11-24 |
+| [0092](0092-one-spectral-library-per-fragmentation-type.md) | One spectral library per fragmentation type | accepted | 2026-11-24 |
+| [0099](0099-pxreprise-1-0-0-profiles-take-the-pep-q-value.md) | PXReprise 1.0.0's profiles take the PEP q-value at 1% | accepted | 2026-11-26 |
+| [0100](0100-the-reagent-probe-when-cysteines-are-suspicious.md) | The reagent probe names the cysteine reagent from spectra, when the probe's cysteines are suspicious | accepted | 2026-11-26 |

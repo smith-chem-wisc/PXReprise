@@ -7,27 +7,20 @@ using Quantification;
 
 namespace PXReprise.Data.Tests;
 
-/// <summary>1.5.0 build list item 11 (D55, catalog format 17): <c>peptidoforms_1pct</c> reads each search's recorded
-/// confidence rule, with exactly the test the ingest applied to <c>peptidoform_ions</c>
-/// (<see cref="Identifications.PassesConfidence"/>, mzLib's <c>QuantifiedPsmRule.PassesConfidence</c>).</summary>
+/// <summary>Catalog format 17 (D78, replacing D55): <c>peptidoforms_1pct</c> reads each search's recorded 1% rule, the
+/// filter its results.txt names, with exactly the test the ingest applied to <c>peptidoform_ions</c>
+/// (<see cref="Identifications.PassesRule(string?, IReadOnlyDictionary{string, object?})"/>).</summary>
 public class PeptidoformsOnePercentTests
 {
-    /// <summary>Every value a peptidoform's three q-values can take that the rule could read differently: none, NaN, 0,
-    /// below, just below, at and just above 0.01, MetaMorpheus's unset 2, and real values above 1 (PXD020462).</summary>
-    private static readonly double?[] Values = [null, double.NaN, 0.0, 0.005, 0.00999999, 0.01, 0.01000001, 0.5, 1.0, 1.0212, 2.0];
+    /// <summary>Every value a peptidoform's three q-values can take that the rule could read differently: none, NaN,
+    /// negative, 0, below, just below, at and just above 0.01, MetaMorpheus's unset 2, and real values above 1
+    /// (PXD020462).</summary>
+    private static readonly double?[] Values = [null, double.NaN, -1.0, 0.0, 0.005, 0.00999999, 0.01, 0.01000001, 0.5, 1.0, 1.0212, 2.0];
 
     private static readonly string[] Statuses = ["target", "decoy", "contaminant"];
 
-    /// <summary>The schema's three rules, a word it does not hold, and none.</summary>
-    private static readonly string?[] Rules = ["pep_q_value", "q_value_notch", "q_value", "pep", null];
-
-    private static QuantifiedPsmTier? Tier(string? rule) => rule switch
-    {
-        "pep_q_value" => QuantifiedPsmTier.PepQValue,
-        "q_value_notch" => QuantifiedPsmTier.QValueNotch,
-        "q_value" => QuantifiedPsmTier.QValue,
-        _ => null,
-    };
+    /// <summary>The schema's rules, D55's word for one it no longer holds, a word it never held, and none.</summary>
+    private static readonly string?[] Rules = [.. Identifications.RuleValues, "pep", null];
 
     private static string Sql(double? v) =>
         v is not { } d ? "NULL" : double.IsNaN(d) ? "'NaN'::DOUBLE" : d.ToString("R", CultureInfo.InvariantCulture) + "::DOUBLE";
@@ -83,7 +76,7 @@ public class PeptidoformsOnePercentTests
                             {
                                 ["target_decoy"] = status, ["best_q_value"] = q, ["best_q_value_notch"] = notch, ["best_pep_q_value"] = pepQ,
                             };
-                            if (status == "target" && Tier(Rules[d]) is { } tier && Identifications.PassesConfidence(tier, row)) expected.Add(id);
+                            if (status == "target" && Identifications.PassesRule(Rules[d], row)) expected.Add(id);
                         }
         }
         foreach (var chunk in rows.Chunk(2000)) Exec(con, "INSERT INTO peptidoforms VALUES " + string.Join(", ", chunk));
@@ -97,7 +90,8 @@ public class PeptidoformsOnePercentTests
             foreach (var (rule, d) in Rules.Select((r, i) => (r, i)))
             {
                 var any = passed.Any(id => id.StartsWith($"PXD{d}:", StringComparison.Ordinal));
-                Assert.That(any, Is.EqualTo(Tier(rule) is not null), $"rule {rule ?? "NULL"}: a rule the schema does not hold passes nothing");
+                Assert.That(any, Is.EqualTo(rule is not null && Identifications.RuleValues.Contains(rule)),
+                    $"rule {rule ?? "NULL"}: a rule the schema does not hold passes nothing");
             }
             Assert.That(passed, Has.Count.GreaterThan(100), "the grid reaches passing rows on every rule");
         });
@@ -126,7 +120,8 @@ public class PeptidoformsOnePercentTests
         Assert.Multiple(() =>
         {
             Assert.That(parity, Does.Contain("best_q_value <= {t}").And.Not.Contain("confidence_rule"));
-            Assert.That(ViewBody(), Does.Contain("CASE d.confidence_rule").And.Not.Contain("<="));
+            Assert.That(ViewBody(), Does.Contain("CASE d.confidence_rule").And.Contain("WHEN 'q_value_and_notch'").And.Not.Contain(" < "),
+                "the search's own cut, at or below the threshold (D78), never D55's strict one");
         });
     }
 }

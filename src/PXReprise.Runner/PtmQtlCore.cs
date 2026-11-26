@@ -29,8 +29,18 @@ public sealed record PtmQtlDataset(string DatasetId, string Species, IReadOnlyLi
     /// it has none.</summary>
     public IReadOnlyDictionary<(string, int), string?> Windows { get; init; } = new Dictionary<(string, int), string?>();
 
-    /// <summary>Each search's quantified-PSM tier (S7), for the run record.</summary>
-    public IReadOnlyDictionary<string, string> Tiers { get; init; } = new Dictionary<string, string>(StringComparer.Ordinal);
+    /// <summary>The search's own identification filter (S7, D82), for the run record; null where the dataset was not read
+    /// from a bundle, as in ptmQtl's reference case.</summary>
+    public string? IdentificationFilter { get; init; }
+
+    /// <summary>Each run's target PSMs that S7's filter keeps, at any ambiguity level and on any protein: what its depth
+    /// counts (D40, <see cref="PtmQtlCore.Depth"/>). A run with none is absent.</summary>
+    public IReadOnlyDictionary<string, long> TargetPsms { get; init; } = new Dictionary<string, long>(StringComparer.Ordinal);
+
+    /// <summary>The MetaMorpheus release of the search (<c>datasets.search_engine_version</c>). It says where type A's
+    /// covered-zero cells come from (S1): MetaMorpheus writes them from 1.1.13 on, and up to 1.1.12 the engine reads them
+    /// from the observations' coverage.</summary>
+    public string? SearchEngineVersion { get; init; }
 
     /// <summary>The runs (and pooled samples' keys) whose occupancy enters type A and site-trait fits (S3, S3b): the
     /// whole-proteome ones. Null means every run, as in ptmQtl's reference case.</summary>
@@ -67,25 +77,47 @@ public sealed record PairSite(string Protein, int Position, char Residue, string
 public sealed record PoolResult(List<Row> Rows, Dictionary<string, long> LeftOut);
 
 /// <summary>One dataset's pairs: the <c>ptm_pairs</c> rows, and the mzLib pairs behind them, for pooling.</summary>
-public sealed record SitePairsResult(List<Row> Rows, List<(PtmPair Pair, PairSite A, PairSite B)> Pairs, Dictionary<string, long> LeftOut);
+public sealed record SitePairsResult(List<Row> Rows, List<(PtmPair Pair, PairSite A, PairSite B)> Pairs, Dictionary<string, long> LeftOut)
+{
+    /// <summary>D78's depth null for the dataset's type A, or null where type A was not computed (S3, S3b).</summary>
+    public DepthNullResult? DepthNull { get; init; }
+}
+
+/// <summary>D78: a deposit's type A calls against those of a null that keeps each site's relation to depth and breaks
+/// every link between sites (<see cref="PtmQtlCore.DepthNull"/>).</summary>
+/// <param name="RealCalls">Type A pairs tested, not overlapping, at q &lt;= <see cref="PtmQtlCore.CallQ"/>.</param>
+/// <param name="NullCalls">The same count in each null replicate.</param>
+/// <param name="Share">Null calls per replicate over real calls; NaN when there is no real call.</param>
+/// <param name="DepthLike">Share at least <see cref="PtmQtlCore.DepthLikeShare"/>.</param>
+public sealed record DepthNullResult(long RealCalls, IReadOnlyList<long> NullCalls, double Share, bool DepthLike);
 
 /// <summary>One dataset's site-trait fits: the <c>trait_effects</c> rows and the side fields.</summary>
 public sealed record SiteTraitsResult(List<Row> Rows, List<Row> Fits, Dictionary<string, long> LeftOut);
 
-/// <summary>ptmQtl's definitions, applied through mzLib only: <c>ptmQtl:DEF-PTM-PAIR v2</c> and
-/// <c>ptmQtl:DEF-SITE-TRAIT v1</c> (<c>ptmQtl/design/DEFINITIONS.md</c>).</summary>
+/// <summary>ptmQtl's definitions, applied through mzLib only: <c>ptmQtl:DEF-PTM-PAIR v3</c> and
+/// <c>ptmQtl:DEF-SITE-TRAIT v2</c> (<c>ptmQtl/design/DEFINITIONS.md</c>).</summary>
 /// <remarks>
 /// <para>This computes nothing the definitions do not say. Every number comes from mzLib's
 /// <see cref="SiteOccupancyCalculator"/>, <see cref="PtmPairEngine"/>, <see cref="GlobalPairEngine"/> and
 /// <see cref="SiteTraitEffects"/>. What is here is the shared rules: which modifications (S2), which deposits (S3),
 /// runs and samples (S4), and site keys (S5). It also shapes the rows to the column contract.</para>
-/// <para>It follows ptmQtl's reference program (<c>tools/ReferenceCase</c>) step for step, and its output must match
-/// <c>results/reference_case_v1/expected</c> (G37).</para>
+/// <para>It follows ptmQtl's reference program (<c>tools/ptmqtl-reference</c>) step for step, and its output must match
+/// <c>tests/PXReprise.Data.Tests/Fixtures/ptmqtl-reference-v3/expected</c> (G37).</para>
 /// </remarks>
 public static class PtmQtlCore
 {
-    public const string PairDefinition = "ptmQtl:DEF-PTM-PAIR v2";
-    public const string TraitDefinition = "ptmQtl:DEF-SITE-TRAIT v1";
+    public const string PairDefinition = "ptmQtl:DEF-PTM-PAIR v3";
+
+    /// <summary>D78: the q-value at or below which a type A pair is a call, for the depth null.</summary>
+    public const double CallQ = 0.1;
+
+    /// <summary>D78: the null's replicates, its block of samples adjacent in depth, and its seed (deterministic).</summary>
+    public const int NullReplicates = 3, NullBlock = 3, NullSeed = 20261110;
+
+    /// <summary>D78: a deposit is depth-like when the null's calls per replicate reach this share of its real calls.
+    /// ptmQtl's threshold, stated as such; not a rule from data.</summary>
+    public const double DepthLikeShare = 0.10;
+    public const string TraitDefinition = "ptmQtl:DEF-SITE-TRAIT v2";
 
     /// <summary>S2: the mzLib categories whose modifications are biological (D26, D27).</summary>
     public static readonly IReadOnlyList<string> BiologicalCategories = ["Common Biological", "UniProt", "Trypsin Digested", "AspN Digested"];
@@ -174,20 +206,42 @@ public static class PtmQtlCore
         "floor" => OccupancyState.Floor,
         "count_only" => OccupancyState.CountOnly,
         "not_detected" => OccupancyState.NotDetected,
+        // MetaMorpheus 1.1.13 on (#2889): covered, the modified form never seen. A bound below (S1, D37).
+        "covered_zero" => OccupancyState.NotDetected,
         "intensity_unassigned" => null,
         _ => throw new RunnerException($"occupancy state '{state}' is not one ptmQtl S1 knows"),
     };
 
     private static void Count(Dictionary<string, long> counts, string reason) => counts[reason] = counts.GetValueOrDefault(reason) + 1;
 
+    /// <summary>D40: each sample's depth, log2 of the target PSMs that S7's filter keeps in all of its runs (S4: a
+    /// sample's fractions are summed; an injection is its own sample), keyed as <see cref="Occupancy"/> keys its cells.
+    /// A sample with no such PSM has no depth and is absent.</summary>
+    /// <remarks>D40 partials it out of type A's correlation when one-form cells enter as bounds, since a shallow run
+    /// sees fewer of a site's forms (<c>results/g46_bounds_v1</c>: the covered-zero share falls with depth in 31 of 68
+    /// deposits).</remarks>
+    public static Dictionary<string, double> Depth(PtmQtlDataset dataset)
+    {
+        var psms = new Dictionary<string, long>(StringComparer.Ordinal);
+        foreach (var (run, sample) in dataset.RunToSample)
+            if (dataset.TargetPsms.TryGetValue(run, out var n)) psms[sample] = psms.GetValueOrDefault(sample) + n;
+        return psms.Where(kv => kv.Value > 0).ToDictionary(kv => kv.Key, kv => Math.Log2(kv.Value), StringComparer.Ordinal);
+    }
+
     /// <summary>S1 + S2 (with S2c, S2d) + S3b + S4: the stored cells as mzLib cells, biological and not left out by an
     /// artefact rule, of whole-proteome runs only, combined per sample.</summary>
-    public static List<SiteRunOccupancy> Occupancy(PtmQtlDataset dataset, Dictionary<string, string> categories, Dictionary<string, long> leftOut)
+    /// <param name="bounds">Type A's reading (DEF-PTM-PAIR v3, D37, D40, D44): a cell seen in one form is a bound. A
+    /// stored covered-zero enters (MetaMorpheus 1.1.13 on), and so do the engine's own (up to 1.1.12) and each
+    /// count-only cell's peptidoform counts (<see cref="WithEngineBounds"/>). Without it, as site-trait fits read the
+    /// cells, a stored covered-zero is left out and counted.</param>
+    public static List<SiteRunOccupancy> Occupancy(PtmQtlDataset dataset, Dictionary<string, string> categories, Dictionary<string, long> leftOut,
+        bool bounds = false)
     {
         var anyModification = dataset.Excluded.Where(e => e.Modification is null).Select(e => (e.Protein, e.Position)).ToHashSet();
         var oneModification = dataset.Excluded.Where(e => e.Modification is not null).Select(e => (e.Protein, e.Position, e.Modification!)).ToHashSet();
         var ruleOf = dataset.Excluded.GroupBy(e => (e.Protein, e.Position, e.Modification)).ToDictionary(g => g.Key, g => g.First().Rule);
         var cells = new List<SiteRunOccupancy>();
+        var unassigned = new HashSet<(string, int, string, string)>();
         foreach (var c in dataset.Occupancy)
         {
             if (dataset.OccupancyRuns is { } runs && !runs.Contains(c.Run))
@@ -205,6 +259,12 @@ public static class PtmQtlCore
             if (StateOf(c.State) is not OccupancyState state)
             {
                 Count(leftOut, "S1 intensity_unassigned");
+                unassigned.Add((c.Protein, c.Position, c.Modification, c.Run));
+                continue;
+            }
+            if (c.State == "covered_zero" && !bounds)
+            {
+                Count(leftOut, "S1 covered_zero: a bound, read by type A only");
                 continue;
             }
             if (!categories.TryGetValue(c.Modification, out var category))
@@ -224,7 +284,73 @@ public static class PtmQtlCore
                 ReportedFraction = state == OccupancyState.Quantified ? c.Fraction : null,
             });
         }
-        return SiteOccupancyCalculator.CombineRuns(MergeDuplicateSites(cells, leftOut), dataset.RunToSample).ToList();
+        cells = MergeDuplicateSites(cells, leftOut);
+        if (bounds) cells = WithEngineBounds(dataset, cells, unassigned, leftOut);
+        return SiteOccupancyCalculator.CombineRuns(cells, dataset.RunToSample).ToList();
+    }
+
+    /// <summary>What type A's bounds need beyond the stored cells, from the engine's own reading of the observations
+    /// (DEF-PTM-PAIR v3; S1, D37, D44): after the artefact rules and the duplicate merge, so a site left out or merged
+    /// gains nothing.</summary>
+    /// <remarks>
+    /// <para>The engine reads the whole-proteome runs' observations with mzLib's <see cref="SiteOccupancyCalculator"/>,
+    /// per run, and per design sample for the files MetaMorpheus pooled into one (P32). Its cells are matched to the
+    /// stored sites by accession, position and IdWithMotif; a key two stored sites share is ambiguous, gains nothing, and
+    /// is counted.</para>
+    /// <list type="bullet">
+    /// <item><b>Covered-zeros, searches up to MetaMorpheus 1.1.12 only:</b> an engine cell covered and never seen modified
+    /// (<see cref="OccupancyState.NotDetected"/>) is added where no cell is stored for that site and run (an
+    /// <c>intensity_unassigned</c> cell counts as stored). From 1.1.13 on MetaMorpheus writes its own (#2889), and the
+    /// two are never mixed: a search up to 1.1.12 that stores covered-zeros is refused.</item>
+    /// <item><b>Count-only cells, every release:</b> each takes the engine's distinct covering and modified peptidoforms
+    /// for its run, by which type A ranks it: all modified, a bound above; both forms, no rank.</item>
+    /// <item>An engine cell that saw the modified form where nothing is stored is counted, never added.</item>
+    /// </list>
+    /// </remarks>
+    /// <exception cref="RunnerException">The search's MetaMorpheus release is unknown, or a search up to 1.1.12 stores
+    /// covered-zero cells.</exception>
+    public static List<SiteRunOccupancy> WithEngineBounds(PtmQtlDataset dataset, List<SiteRunOccupancy> cells,
+        IReadOnlySet<(string Protein, int Position, string IdWithMotif, string Run)> unassigned, Dictionary<string, long> leftOut)
+    {
+        if (!Version.TryParse(dataset.SearchEngineVersion, out var release))
+            throw new RunnerException($"{dataset.DatasetId}: type A's bounds need the search's MetaMorpheus release, to know whether it wrote "
+                + $"covered-zero cells itself (ptmQtl S1); the bundle records '{dataset.SearchEngineVersion ?? "none"}'.");
+        var engineCoveredZeros = release < new Version(1, 1, 13);
+        if (engineCoveredZeros && dataset.Occupancy.Any(c => c.State == "covered_zero"))
+            throw new RunnerException($"{dataset.DatasetId}: a MetaMorpheus {release} search stores covered-zero cells, which only 1.1.13 on writes; "
+                + "the engine's and MetaMorpheus's are never mixed (ptmQtl S1).");
+
+        // The engine's cells keyed as the stored ones: a file MetaMorpheus pooled into a design sample (P32) by that sample.
+        var storedKeys = cells.Select(c => c.Run).ToHashSet(StringComparer.Ordinal);
+        var pooled = dataset.RunToSample.Where(kv => kv.Key != kv.Value && storedKeys.Contains(kv.Value)).Select(kv => kv.Value).ToHashSet(StringComparer.Ordinal);
+        var engineKey = dataset.RunToSample.ToDictionary(kv => kv.Key, kv => pooled.Contains(kv.Value) ? kv.Value : kv.Key, StringComparer.Ordinal);
+        var observations = dataset.Observations.Where(o => (dataset.OccupancyRuns is not { } runs || runs.Contains(o.Run)) && engineKey.ContainsKey(o.Run));
+        var engine = SiteOccupancyCalculator.Calculate(observations, engineKey, IsBiological);
+
+        var byName = cells.Select(c => c.Site).Distinct().GroupBy(s => (s.ProteinAccession, s.Position, IdWithMotif(s.Modification))).ToList();
+        var siteOf = byName.Where(g => g.Count() == 1).ToDictionary(g => g.Key, g => g.Single());
+        var seen = cells.Select(c => (c.Site, c.Run)).ToHashSet();
+        var countsOf = new Dictionary<(ModificationSite, string), (int? Covering, int? Modified)>();
+        var added = new List<SiteRunOccupancy>();
+        long modifiedNotStored = 0;
+        foreach (var e in engine)
+        {
+            var name = (e.Site.ProteinAccession, e.Site.Position, IdWithMotif(e.Site.Modification));
+            if (!siteOf.TryGetValue(name, out var site)) continue;
+            if (e.State != OccupancyState.NotDetected) countsOf[(site, e.Run)] = (e.CoveringPeptidoforms, e.ModifiedPeptidoforms);
+            if (seen.Contains((site, e.Run)) || unassigned.Contains((name.ProteinAccession, name.Position, name.Item3, e.Run))) continue;
+            if (e.State != OccupancyState.NotDetected) modifiedNotStored++;
+            else if (engineCoveredZeros) added.Add(e with { Site = site });
+        }
+        var result = cells.Select(c => c.State == OccupancyState.CountOnly && countsOf.TryGetValue((c.Site, c.Run), out var k)
+            ? c with { CoveringPeptidoforms = k.Covering, ModifiedPeptidoforms = k.Modified } : c).ToList();
+        result.AddRange(added);
+        leftOut["v3 bounds: covered-zero cells from MetaMorpheus"] = cells.LongCount(c => c.State == OccupancyState.NotDetected);
+        leftOut["v3 bounds: covered-zero cells added from the engine's coverage"] = added.Count;
+        leftOut["v3 bounds: count-only cells given peptidoform counts"] = cells.LongCount(c => c.State == OccupancyState.CountOnly && countsOf.ContainsKey((c.Site, c.Run)));
+        leftOut["v3 bounds: engine saw the modified form, nothing stored (not added)"] = modifiedNotStored;
+        leftOut["v3 bounds: site names two stored sites share (gain nothing)"] = byName.Count(g => g.Count() > 1);
+        return result;
     }
 
     /// <summary>S5: one physical site under several accessions is one site within a dataset. MetaMorpheus
@@ -262,11 +388,16 @@ public static class PtmQtlCore
 
     private static double? Num(double v) => double.IsFinite(v) ? v : null;
 
-    /// <summary>A <c>ptm_pairs</c> row, columns as <c>DEF-PTM-PAIR v2</c> gives them.</summary>
+    /// <summary>A <c>ptm_pairs</c> row, columns as <c>DEF-PTM-PAIR v3</c> gives them.</summary>
+    /// <param name="depthLike">D78: a type A row of a depth-like deposit, or a pooled row with one behind it; flagged
+    /// <c>depth_like</c>, never dropped.</param>
     private static Row PairRow(bool isA, string scope, string keyA, string keyB, string proteinA, string proteinB, bool overlapping,
-        double value, long? n, double p, double q, IReadOnlyList<string>? datasets = null, long? agreeing = null, bool meta = false)
+        double value, long? n, double p, double q, IReadOnlyList<string>? datasets = null, long? agreeing = null, bool meta = false,
+        bool depthLike = false)
     {
         string? sign = isA && double.IsFinite(value) ? (value >= 0 ? "+" : "-") : null;
+        var flags = overlapping || !isA ? new List<object?> { "overlapping" } : new List<object?>();
+        if (isA && depthLike) flags.Add("depth_like");
         return new Row
         {
             ["result_type"] = isA ? "A" : "P",
@@ -280,7 +411,7 @@ public static class PtmQtlCore
             ["feature_key_b"] = keyB,
             ["protein_accessions_b"] = new List<object?> { proteinB },
             ["same_protein"] = proteinA == proteinB,
-            ["flags"] = overlapping || !isA ? new List<object?> { "overlapping" } : new List<object?>(),
+            ["flags"] = flags,
             ["class_pair"] = "biological x biological",
             ["trait_id"] = null,
             ["stratum"] = null,
@@ -301,8 +432,14 @@ public static class PtmQtlCore
 
     /// <summary><c>ptmqtl.site_pairs</c> on one dataset: type P always, from every run (S3, S3b); type A from its
     /// whole-proteome runs, unless the deposit captures a modified form (S3).</summary>
-    /// <remarks>Type P leaves out only what S2d (a) says of it: an NEM deposit's Cys-containing peptidoforms. S2c's and
-    /// S2d's site exclusions reach the occupancy-based results, type A and site-trait fits.</remarks>
+    /// <remarks>
+    /// <para>Type P leaves out only what S2d (a) says of it: an NEM deposit's Cys-containing peptidoforms. S2c's and
+    /// S2d's site exclusions reach the occupancy-based results, type A and site-trait fits.</para>
+    /// <para>Type A is <c>DEF-PTM-PAIR v3</c>: a cell seen in one form is a bound, tied at its end of the site's ranks
+    /// (<see cref="Occupancy"/> with bounds), and the correlation is partial given each sample's depth
+    /// (<see cref="Depth"/>, D40). A sample with no depth is left out of every pair. D78's null labels the deposit
+    /// (<see cref="DepthNull"/>).</para>
+    /// </remarks>
     public static SitePairsResult SitePairs(PtmQtlDataset dataset)
     {
         var leftOut = new Dictionary<string, long>(StringComparer.Ordinal);
@@ -311,14 +448,19 @@ public static class PtmQtlCore
         if (dataset.PhysicalObservations is not null)
             leftOut["S2d (a) observations left out of type P: Cys-containing peptidoform"] = dataset.Observations.Count - dataset.PhysicalObservations.Count;
         var produced = PtmPairEngine.Physical(physical, IsBiological).Select(p => (p, isA: false)).ToList();
+        DepthNullResult? depthNull = null;
         if (HasOccupancyResults(dataset))
         {
             // The observation side of type A (which sites share a peptide) reads the runs its occupancy reads.
             var observations = SiteOccupancyCalculator.CombineObservations(
                 dataset.OccupancyRuns is { } runs ? dataset.Observations.Where(o => runs.Contains(o.Run)).ToList() : dataset.Observations, dataset.RunToSample);
-            var occupancy = Occupancy(dataset, dataset.Categories(), leftOut);
-            produced.AddRange(PtmPairEngine.CoVarying(occupancy, observations, minQuantifiedFraction: MinQuantifiedFraction, excludeCeiling: true)
-                .Select(p => (p, isA: true)));
+            var occupancy = Occupancy(dataset, dataset.Categories(), leftOut, bounds: true);
+            var depth = Depth(dataset);
+            leftOut["D40 samples with occupancy and no depth (left out of every pair)"] =
+                occupancy.Select(c => c.Run).Distinct().LongCount(s => !depth.ContainsKey(s));
+            var typeA = TypeA(occupancy, observations, depth);
+            depthNull = DepthNull(dataset.DatasetId, occupancy, observations, depth, typeA);
+            produced.AddRange(typeA.Select(p => (p, isA: true)));
         }
         else if (dataset.Enriched) leftOut["S3 enriched deposit: type A not computed"] = 1;
         else leftOut["S3b no whole-proteome run: type A not computed"] = 1;
@@ -331,10 +473,80 @@ public static class PtmQtlCore
             var (ka, kb) = (Key(p.SiteA, false, nterms, dataset.Unimod), Key(p.SiteB, false, nterms, dataset.Unimod));
             if (string.CompareOrdinal(ka, kb) > 0) (ka, kb) = (kb, ka);
             rows.Add(PairRow(isA, dataset.DatasetId, ka, kb, p.SiteA.ProteinAccession, p.SiteB.ProteinAccession, p.Overlapping,
-                p.Statistic, p.N, isA ? p.PValue : double.NaN, isA ? p.Q : double.NaN));
+                p.Statistic, p.N, isA ? p.PValue : double.NaN, isA ? p.Q : double.NaN, depthLike: depthNull?.DepthLike == true));
             pairs.Add((p, a, b));
         }
-        return new SitePairsResult(rows, pairs, leftOut);
+        return new SitePairsResult(rows, pairs, leftOut) { DepthNull = depthNull };
+    }
+
+    /// <summary>Type A under <c>DEF-PTM-PAIR v3</c>: mzLib's <see cref="PtmPairEngine.CoVarying"/> with bounds, partial
+    /// given depth. A site enters when measured, in either form or both, in at least <see cref="MinQuantifiedFraction"/>
+    /// of the samples.</summary>
+    public static IReadOnlyList<PtmPair> TypeA(IReadOnlyList<SiteRunOccupancy> occupancy, IReadOnlyList<PeptidoformObservation> observations,
+        IReadOnlyDictionary<string, double> depth) =>
+        PtmPairEngine.CoVarying(occupancy, observations, minQuantifiedFraction: MinQuantifiedFraction, includeBounds: true, runCovariate: depth);
+
+    private static long Calls(IEnumerable<PtmPair> pairs) =>
+        pairs.LongCount(p => p.TestStatus == PairTestStatus.Tested && !p.Overlapping && p.Q <= CallQ);
+
+    /// <summary>D78: the deposit's depth-preserving null. Each site's sample cells are permuted within blocks of
+    /// <see cref="NullBlock"/> samples adjacent in depth, independently of every other site, <see cref="NullReplicates"/>
+    /// times, and type A is taken again (<see cref="TypeA"/>) with the same observations and depths.</summary>
+    /// <remarks>
+    /// <para>It keeps each site's own relation to depth, and anything else samples of similar depth share, biology
+    /// included, and breaks every link between sites. A call it makes again cannot be told from depth acting on each
+    /// site alone, so a deposit whose null calls per replicate reach <see cref="DepthLikeShare"/> of its real calls is
+    /// depth-like; with no real call, it is not.</para>
+    /// <para>Samples are ordered by depth (a sample with none first), then by name; blocks are taken from the start.
+    /// Sites are drawn in the occupancy's order, each replicate from its own seed of <see cref="NullSeed"/>, the dataset
+    /// and the replicate, so a run reproduces exactly. As ptmQtl's harness (<c>results/g59_runlevel_sim_v1/sim</c>,
+    /// <c>perm</c>), except that the observations are passed, so overlapping pairs are counted in neither.</para>
+    /// </remarks>
+    public static DepthNullResult DepthNull(string datasetId, IReadOnlyList<SiteRunOccupancy> occupancy, IReadOnlyList<PeptidoformObservation> observations,
+        IReadOnlyDictionary<string, double> depth, IReadOnlyList<PtmPair> real)
+    {
+        var samples = occupancy.Select(c => c.Run).Distinct()
+            .OrderBy(s => depth.TryGetValue(s, out var d) ? d : double.NaN).ThenBy(s => s, StringComparer.Ordinal).ToArray();
+        var index = samples.Select((s, i) => (s, i)).ToDictionary(t => t.s, t => t.i, StringComparer.Ordinal);
+        var nullCalls = new List<long>();
+        for (var rep = 1; rep <= NullReplicates; rep++)
+        {
+            var rng = new Random(Seed(NullSeed, Text(datasetId), NullBlock, rep));
+            var permuted = new List<SiteRunOccupancy>(occupancy.Count);
+            foreach (var site in occupancy.GroupBy(c => c.Site))
+            {
+                var perm = Enumerable.Range(0, samples.Length).ToArray();
+                for (var start = 0; start < samples.Length; start += NullBlock)
+                {
+                    var end = Math.Min(samples.Length, start + NullBlock);
+                    for (var i = end - 1; i > start; i--)
+                    {
+                        var j = rng.Next(start, i + 1);
+                        (perm[i], perm[j]) = (perm[j], perm[i]);
+                    }
+                }
+                foreach (var c in site) permuted.Add(c with { Run = samples[perm[index[c.Run]]] });
+            }
+            nullCalls.Add(Calls(TypeA(permuted, observations, depth)));
+        }
+        var realCalls = Calls(real);
+        var share = realCalls > 0 ? nullCalls.Average() / realCalls : double.NaN;
+        return new DepthNullResult(realCalls, nullCalls, share, share >= DepthLikeShare);
+    }
+
+    /// <summary>Seeds combined deterministically (.NET's <c>HashCode.Combine</c> is randomized per process).</summary>
+    private static int Seed(params long[] parts)
+    {
+        long h = 1469598103;
+        foreach (var p in parts) h = unchecked(h * 1099511 + p);
+        return (int)(h & 0x7fffffff);
+    }
+
+    private static long Text(string s)
+    {
+        long h = 0;
+        foreach (var c in s) h = unchecked(h * 31 + c);
+        return h;
     }
 
     /// <summary><c>ptmqtl.pool_pairs</c>: one species' dataset pairs matched on the cross-dataset key, in two or more datasets.</summary>
@@ -342,7 +554,10 @@ public static class PtmQtlCore
     /// <remarks>D35: a site joins only where its sequence window agrees. When the datasets holding a site (by its
     /// cross-dataset key) disagree on its window, or any of them has none, the site is left out of the pooled rows and
     /// counted, and so is every pair holding it. Datasets are never refused for their search databases.</remarks>
-    public static PoolResult Pool(string species, IEnumerable<(string Scope, PtmPair Pair, PairSite A, PairSite B)> pairs)
+    /// <param name="depthLike">D78: the datasets labelled depth-like; a pooled type A row with any of them behind it is
+    /// flagged <c>depth_like</c>.</param>
+    public static PoolResult Pool(string species, IEnumerable<(string Scope, PtmPair Pair, PairSite A, PairSite B)> pairs,
+        IReadOnlySet<string>? depthLike = null)
     {
         var keys = new Dictionary<ModificationSite, string>();
         var windows = new Dictionary<string, HashSet<string?>>(StringComparer.Ordinal);
@@ -373,12 +588,15 @@ public static class PtmQtlCore
             var isA = g.ResultType == PairResultType.A;
             rows.Add(PairRow(isA, $"meta:{species}", g.SiteA, g.SiteB, g.ProteinA, g.ProteinB, false,
                 isA ? g.CombinedZ : g.Statistic, null, isA ? g.PValue : double.NaN, isA ? g.Q : double.NaN,
-                g.Scopes, g.ScopesAgreeing, meta: true));
+                g.Scopes, g.ScopesAgreeing, meta: true, depthLike: depthLike is not null && g.Scopes.Any(depthLike.Contains)));
         }
         return new PoolResult(rows, leftOut);
     }
 
-    /// <summary><c>ptmqtl.site_traits</c> on one dataset and one trait (<c>DEF-SITE-TRAIT v1</c>).</summary>
+    /// <summary><c>ptmqtl.site_traits</c> on one dataset and one trait (<c>DEF-SITE-TRAIT v2</c>).</summary>
+    /// <remarks>v2 (ptmQtl D33) fits the log2 odds of occupancy, so every effect and standard error is v1's natural-log
+    /// value divided by ln 2, on QuantProject's <c>DEF-DIFF</c> base; df, p and q are v1's. <c>response</c> is
+    /// <c>log2_odds_occupancy</c>, so a v1 row (<c>logit_occupancy</c>) is never read as v2.</remarks>
     /// <param name="trait">The trait per sample (after S4).</param>
     /// <param name="replicate">The biological replicate per sample: the animal, never the injection.</param>
     /// <exception cref="RunnerException">The deposit is enriched (S3): no site-trait fit is computed on it.</exception>
@@ -394,7 +612,7 @@ public static class PtmQtlCore
         var occupancy = Occupancy(dataset, dataset.Categories(), leftOut);
         var rows = new List<Row>();
         var fits = new List<Row>();
-        foreach (var e in SiteTraitEffects.Fit(occupancy, trait, replicate, options: new SiteTraitOptions()))
+        foreach (var e in SiteTraitEffects.Fit(occupancy, trait, replicate, options: new SiteTraitOptions { Scale = OccupancyScale.Log2Odds }))
         {
             var key = Key(e.Site, false, nterms, dataset.Unimod);
             rows.Add(new Row
@@ -404,7 +622,7 @@ public static class PtmQtlCore
                 ["feature_key_unimod"] = Key(e.Site, true, nterms, dataset.Unimod),
                 ["protein_accessions"] = new List<object?> { e.Site.ProteinAccession },
                 ["trait_id"] = traitId,
-                ["response"] = "logit_occupancy",
+                ["response"] = "log2_odds_occupancy",
                 ["scope"] = dataset.DatasetId,
                 ["beta_detect"] = null, ["se_detect"] = null, ["p_detect"] = null,
                 ["beta_int"] = Num(e.Effect), ["se_int"] = Num(e.StandardError), ["p_int"] = Num(e.PValue),

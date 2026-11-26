@@ -122,6 +122,118 @@ public class BatchRunnerTests
         return (new BatchRunner(question, Profiles, machine, files, search, "2026-09-28") { Sha1Source = NoSha1 }, search, files, dir);
     }
 
+    // D95, D100 (the user, 2026-11-26: "add the reagent probe to the worker when the cysteine count is suspicious"): a probe
+    // whose cysteines are suspicious runs the reagent probe on the same files. The reagent it names (iodoethanol, which the
+    // words left as the default carbamidomethyl, as on PXD057499) is recorded in the state, which a worker's package carries,
+    // and is the chemistry the search uses.
+    private const string ReagentAcc = "PXD057499";
+
+    /// <summary>The probe's PSMs: <paramref name="withoutC"/> peptides without C and <paramref name="withC"/> with one.</summary>
+    private static string ProbePsms(int withoutC, int withC) => ProbeSearchTests.Psms(
+        Enumerable.Range(0, withoutC).Select(i => ProbeSearchTests.Row("r1", "PEPTIDEK" + new string('A', i)))
+            .Concat(Enumerable.Range(0, withC).Select(i => ProbeSearchTests.Row("r1", "PEPCK" + new string('A', i)))));
+
+    /// <summary>The reagent probe's PSMs: one C each, carrying ethanolyl, NBF or nothing.</summary>
+    private static string ReagentPsms(int ethanolyl, int nbf, int free)
+    {
+        string Mod(string unimod) => ChemistryDetector.MetaMorpheusModId(unimod, 'C')!.Replace('\t', ':');
+        var forms = Enumerable.Repeat(Mod("UNIMOD:278"), ethanolyl).Concat(Enumerable.Repeat(Mod("UNIMOD:2079"), nbf)).Concat(Enumerable.Repeat((string?)null, free).Select(x => x!));
+        return ProbeSearchTests.Psms(forms.Select((m, i) => ProbeSearchTests.Row("r1", "PEPCK" + new string('A', i % 9),
+            full: m is null ? null : $"PEPC[{m}]K{new string('A', i % 9)}")));
+    }
+
+    /// <summary>
+    /// ProbeSearchAsync on one Orbitrap file of <see cref="ReagentAcc"/>, read as the default carbamidomethyl, with a search
+    /// that answers the probe with <paramref name="probe"/> and the reagent probe with <paramref name="reagent"/>.
+    /// </summary>
+    private static async Task<(BatchRunner Runner, string Dir, List<string> Searched, JsonNode Entry)> ProbeWithTheReagentProbe(string probe, string reagent, string extraQuestion = "")
+    {
+        string dir = TestSupport.TempDir();
+        var question = QuestionLoader.Load(TestSupport.WriteFile(dir, "question.toml",
+            TestSupport.MinimalQuestion + "\n[batch]\nrun_root = \"runs\"\nstate_dir = \"state\"\nqueue = \"queue.json\"\n" + extraQuestion));
+        var machine = Machine.Load(TestSupport.WriteFile(dir, "machine.toml", $"work_root = '{dir}'\nmin_free_gb = 0\n[metamorpheus]\n\"1.1.16\" = 'C:/nowhere/CMD.exe'\n"));
+        var searched = new List<string>();
+        var runner = new BatchRunner(question, Profiles, machine, new FakeFiles(), new FakeSearch(), "2026-11-26")
+        {
+            Sha1Source = NoSha1,
+            ProbePanelAccessions = (p, m) => new HashSet<string>(),
+            ProbeSearchRunner = (p, m, spectra, chem, fr, outDir, ct) =>
+            {
+                searched.Add(chem!.Alkylation.Source);
+                return Task.FromResult(chem.Alkylation.Source == "cysteine_probe" ? reagent : probe);
+            },
+        };
+        const string acc = ReagentAcc;
+        string spectra = Path.Combine(dir, "runs", acc, "02_fetch", "spectra");
+        Directory.CreateDirectory(spectra);
+        File.WriteAllText(Path.Combine(spectra, "r1.raw"), "raw");
+        var qc = new JsonObject { ["r1.raw"] = new JsonObject { ["fragmentation"] = new JsonObject { ["dissociation_type"] = "HCD", ["low_res"] = false, ["evidence"] = "Orbitrap MS2" } } };
+        var words = new DepositChemistry(new("trypsin", ChemistrySource.Default), null, new("Carbamidomethyl", ChemistrySource.Default),
+            [new CysMod("Carbamidomethyl", "UNIMOD:4", true)], new("label-free", ChemistrySource.Default), null);
+        var acq = new Acquisition(AcquisitionMode.Dda, Labelling.LabelFree, InstrumentClass.OrbitrapHcdOnly, "none", new Dictionary<string, int> { [".raw"] = 1 }, null);
+
+        await runner.ProbeSearchAsync(new QueueEntry(acc, "t", "mouse"), Profiles["label-free-dda@16"], acq, words, qc, new ExperimentRecord(acc), CancellationToken.None);
+        return (runner, dir, searched, runner.State()["datasets"]![acc]!);
+    }
+
+    [Test]
+    public async Task ASuspiciousProbeRunsTheReagentProbe_AndTheReagentItNamesIsRecordedForTheSearch()
+    {
+        const string acc = ReagentAcc;
+        var (runner, dir, searched, entry) = await ProbeWithTheReagentProbe(ProbePsms(40, 2), ReagentPsms(110, 0, 10));
+        Assert.Multiple(() =>
+        {
+            Assert.That(runner.CachedChemistry(acc)!.Alkylation.Source, Is.EqualTo(ChemistrySource.ProbeSpectra), "the chemistry the search takes");
+            Assert.That(runner.CachedChemistry(acc)!.CysMods.Select(m => (m.Name, m.Fixed)), Is.EqualTo(new[] { ("Ethanolyl", false) }));
+            Assert.That(searched, Is.EqualTo(new[] { "default", "cysteine_probe" }), "the probe, then the reagent probe");
+            Assert.That(entry[Qc.ReagentProbe.StateKey]!["verdict"]!.GetValue<string>(), Is.EqualTo(Qc.ReagentProbe.Reagent));
+            Assert.That(entry[Qc.ReagentProbe.StateKey]!["family"]!.GetValue<string>(), Is.EqualTo("ethanolyl"));
+            Assert.That(entry[Qc.ReagentProbe.AlkylationKey]!["value"]!.GetValue<string>(), Is.EqualTo("Ethanolyl"));
+            Assert.That(entry[Qc.ReagentProbe.AlkylationKey]!["cys_mods"]![0]!["fixed"]!.GetValue<bool>(), Is.False, "110 of 120: variable");
+            Assert.That(File.Exists(Path.Combine(dir, "runs", acc, "02d_reagent_probe", "reagent_probe.json")), Is.True);
+            Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain($"{acc} REAGENT PROBE (reagent): 120 cysteines counted"));
+        });
+    }
+
+    [Test]
+    public async Task AProbeWhoseCysteinesLookNormalRunsNoReagentProbe()
+    {
+        var (runner, _, searched, entry) = await ProbeWithTheReagentProbe(ProbePsms(30, 10), ReagentPsms(110, 0, 10));
+        Assert.Multiple(() =>
+        {
+            Assert.That(searched, Is.EqualTo(new[] { "default" }), "25% of the probe's peptides carry C");
+            Assert.That(entry[Qc.ReagentProbe.StateKey], Is.Null);
+            Assert.That(runner.CachedChemistry(ReagentAcc), Is.Null, "nothing to change: the search reads the chemistry as before");
+        });
+    }
+
+    [Test]
+    public async Task AMixedCallIsRecordedAndChangesNothing()
+    {
+        var (runner, dir, _, entry) = await ProbeWithTheReagentProbe(ProbePsms(40, 2), ReagentPsms(60, 55, 5));
+        Assert.Multiple(() =>
+        {
+            Assert.That(entry[Qc.ReagentProbe.StateKey]!["verdict"]!.GetValue<string>(), Is.EqualTo(Qc.ReagentProbe.Mixed));
+            Assert.That(entry[Qc.ReagentProbe.AlkylationKey], Is.Null);
+            Assert.That(runner.CachedChemistry(ReagentAcc), Is.Null);
+            Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain($"{ReagentAcc} REAGENT PROBE (mixed):"));
+        });
+    }
+
+    // v0.4.15's question exception is a person's word, and outranks the spectra as it outranks every source the words give.
+    [Test]
+    public async Task TheQuestionsNoAlkylationExceptionStillOutranksTheReagentProbe()
+    {
+        var (runner, _, _, entry) = await ProbeWithTheReagentProbe(ProbePsms(40, 2), ReagentPsms(110, 0, 10),
+            $"\n[exceptions.{ReagentAcc}]\nreason = \"the lab says it never alkylated\"\nalkylation = \"none\"\n");
+        Assert.Multiple(() =>
+        {
+            Assert.That(entry[Qc.ReagentProbe.AlkylationKey]!["value"]!.GetValue<string>(), Is.EqualTo("Ethanolyl"), "the spectra's call is kept, for the record");
+            Assert.That(runner.CachedChemistry(ReagentAcc)!.Alkylation.Source, Is.EqualTo(ChemistrySource.QuestionException));
+            Assert.That(runner.CachedChemistry(ReagentAcc)!.CysMods, Is.Empty);
+        });
+    }
+
     // D34: QC refusing a whole downloaded deposit used to log one line and set it aside, with no decisions row. PXD005035, 2026-11-07:
     // 142 files and 280 GB waited on one raw file flagged "still being acquired", which matches PRIDE's checksum, and nobody was told.
     [Test]
@@ -438,6 +550,42 @@ public class BatchRunnerTests
         Assert.That(ex.Apply(Profiles["label-free-dda@4"].Deposit).MaxEstimatedMs2, Is.Zero);
     }
 
+    // 2026-11-20 (aging 316, PXR-A217): a deposit's own MS2 floor. PXD016039's 19 high-pH fractions hold 2,790 to 4,978 MS2:
+    // real fractions under the profiles' floor of 5,000. The question lowers it for that deposit, or for one group of a split,
+    // and the probe's QC and the full QC both judge by it.
+    [Test]
+    public void AMinMs2ExceptionLowersOneDepositsMs2Floor()
+    {
+        var (runner, _, _, dir) = Runner("[exceptions.PXD016039]\nreason = \"19 thin but real fractions (aging D218)\"\nmin_ms2 = 2500\n"
+            + "exclude_files = '_iTRAQ3_f2\\.raw$|_iTRAQ4_f3\\.raw$'\n");
+        var profile = Profiles["tmt-dda@5"];
+        Assert.That(profile.Qc.MinMs2, Is.EqualTo(5000), "the premise: the profile's floor is above the thin fractions");
+        Assert.That(runner.QcFor("PXD016039", profile), Is.EqualTo(profile.Qc with { MinMs2 = 2500 }), "only the floor changes");
+        Assert.That(runner.QcFor("PXD000001", profile), Is.SameAs(profile.Qc), "every other deposit keeps the profile's");
+
+        string Block(string v) => TestSupport.MinimalQuestion + $"\n[exceptions.PXD016039]\nreason = \"x\"\nmin_ms2 = {v}\n";
+        var alone = QuestionLoader.Load(TestSupport.WriteFile(dir, "alone.toml", Block("2500"))).ExceptionFor("PXD016039")!;
+        Assert.That(alone.Describe(), Is.EqualTo("min_ms2 2500 (x)"), "a floor alone is a change, and the manifest note quotes it");
+        Assert.Throws<ConfigException>(() => QuestionLoader.Load(TestSupport.WriteFile(dir, "zero.toml", Block("0"))), "a file with no MS2 is a blank, whatever the floor");
+        Assert.Throws<ConfigException>(() => QuestionLoader.Load(TestSupport.WriteFile(dir, "text.toml", Block("\"2500\""))));
+
+        var split = QuestionLoader.Load(TestSupport.WriteFile(dir, "split.toml", SplitQuestion(
+            "[splits.PXD076192]\nreason = \"x\"\nby = \"species\"\n[splits.PXD076192.mouse]\nspecies = \"mouse\"\ninclude_files = \"_mouse_\"\nmin_ms2 = 3000\n"
+            + "[splits.PXD076192.human]\nspecies = \"human\"\ninclude_files = \"_human_\"\n")));
+        Assert.That((split.ExceptionFor("PXD076192-mouse")!.MinMs2, split.ExceptionFor("PXD076192-human")!.MinMs2), Is.EqualTo(((int?)3000, (int?)null)),
+            "a split group takes it like every other exception key");
+
+        // The QC's provenance records the floor it judged by, and says it is the deposit's own.
+        string spectra = Directory.CreateDirectory(Path.Combine(dir, "PXD016039", "02_fetch", "spectra")).FullName;
+        string qc = Directory.CreateDirectory(Path.Combine(dir, "PXD016039", "02b_qc")).FullName;
+        TestSupport.WriteFile(qc, "qc_report.json", """{"a.raw":{"pass":true,"fail_reasons":[],"ms2":2790}}""");
+        var machine = Machine.Load(TestSupport.WriteFile(dir, "qc-machine.toml", $"work_root = '{dir}'\nmin_free_gb = 0\n[metamorpheus]\n\"1.1.11\" = 'C:/nowhere/CMD.exe'\n"));
+        PXReprise.Qc.QcStage.Run(spectra, qc, profile, machine, TestSupport.WriteFile(dir, "params.json", "{}"), null,
+            kept: new[] { "a.raw" }, gates: runner.QcFor("PXD016039", profile));
+        string prov = File.ReadAllText(Path.Combine(qc, "provenance.json"));
+        Assert.That(prov, Does.Match("\"min_ms2\":\\s*2500").And.Contain("this deposit's own floor").And.Contain("tmt-dda@5's 5000"));
+    }
+
     // v0.4.39 (aging 197, PXR-A158): a question names a local replacement for a raw file damaged at PRIDE, keyed by PRIDE's
     // file name, with PRIDE's SHA-1, the replacement's SHA-256 and why; a path relative to the question resolves beside it.
     [Test]
@@ -675,6 +823,30 @@ public class BatchRunnerTests
         QuestionLoader.CheckAgainstProfiles(q, Profiles);
     }
 
+    // 2026-11-20 (aging PXR-A214): PXD011967 is twenty TMT6 sets of one design, 1.9 TB, searched one set at a time. "tissue"
+    // would pass and be untrue in the manifest's split_reason, so the reason is "plex". BRPhsFr right after the set number
+    // keeps Set1 off Set10, Set11 and Set12; set 7 is deposited as reruns only.
+    private const string GestaltSplit =
+        "[splits.PXD011967]\nreason = \"TMT6 sets of five age groups, one search a set (aging D211)\"\nby = \"plex\"\n"
+        + "[splits.PXD011967.set01]\ninclude_files = '^ScltlMsclSet1BRPhsFr[0-9]+\\.raw$'\n"
+        + "[splits.PXD011967.set07]\ninclude_files = '^ScltlMsclSet7(rern)?BRPhsFr[0-9]+\\.raw$'\n"
+        + "[splits.PXD011967.set10]\ninclude_files = '^ScltlMsclSet10BRPhsFr[0-9]+\\.raw$'\n";
+
+    [Test]
+    public void ADepositSplitsByPlexAndEachRawFileIsInOneGroup()
+    {
+        string dir = TestSupport.TempDir();
+        var q = QuestionLoader.Load(TestSupport.WriteFile(dir, "q.toml", SplitQuestion(GestaltSplit)));
+        var keys = q.SplitKeysOf("PXD011967");
+        Assert.That(keys, Is.EqualTo(new[] { "PXD011967-set01", "PXD011967-set07", "PXD011967-set10" }));
+        foreach (string file in new[] { "ScltlMsclSet1BRPhsFr3.raw", "ScltlMsclSet7rernBRPhsFr3.raw", "ScltlMsclSet10BRPhsFr3.raw" })
+            Assert.That(keys.Count(k => q.ExceptionFor(k)!.Keeps(file)), Is.EqualTo(1), $"{file} is in exactly one group");
+        Assert.That(keys.Count(k => q.ExceptionFor(k)!.Keeps("ScltlMsclSet_13BRPhsFr3.raw")), Is.Zero, "a set in no group is left out");
+        var g = q.ExceptionFor("PXD011967-set07")!;
+        Assert.That((g.Split!.By, g.Species), Is.EqualTo(("plex", (string?)null)), "a split by plex names no species");
+        QuestionLoader.CheckAgainstProfiles(q, Profiles);
+    }
+
     [Test]
     public void AQuestionSplitsADepositIntoOneSearchPerGroup()
     {
@@ -697,7 +869,7 @@ public class BatchRunnerTests
         Assert.That(Refused(Pxd076192Split.Replace("include_files = \"_human_\"\n", "")), Does.Contain("splits.PXD076192.human selects no files"));
         Assert.That(Refused(Pxd076192Split.Replace("species = \"human\"\n", "")), Does.Contain("names each group's species"));
         Assert.That(Refused(Pxd076192Split.Replace("species = \"human\"", "species = \"mouse\"")), Does.Contain("two groups name the same species"));
-        Assert.That(Refused(Pxd076192Split.Replace("by = \"species\"", "by = \"organism\"")), Does.Contain("by must be one of species, enrichment, label, chemistry, tissue"));
+        Assert.That(Refused(Pxd076192Split.Replace("by = \"species\"", "by = \"organism\"")), Does.Contain("by must be one of species, enrichment, label, chemistry, tissue, plex"));
         Assert.That(Refused("[splits.PXD076192]\nreason = \"r\"\nby = \"species\"\n[splits.PXD076192.mouse]\nspecies = \"mouse\"\ninclude_files = \"_mouse_\"\n"),
             Does.Contain("names 1 group"));
         var zebrafish = QuestionLoader.Load(TestSupport.WriteFile(dir, "q3.toml", SplitQuestion(Pxd076192Split.Replace("species = \"human\"", "species = \"zebrafish\""))));
@@ -905,6 +1077,38 @@ public class BatchRunnerTests
         });
     }
 
+    // D84: under MetaMorpheus 1.1.15's PEP q-value filter, id_rate's rate and psms_1pct (the "q-value" line's definition)
+    // are null, and the floor reads the filter's own count and rate, so a low search is still held, never passed silently.
+    [Test]
+    public async Task UnderThePepFilterTheFloorReadsTheFiltersOwnRate()
+    {
+        string dir = TestSupport.TempDir();
+        string manifest = TestSupport.WriteFile(dir, "manifest.yaml", "manifest_version: 1\nwork_root: runs\ndatasets:\n\n");
+        var runner = new BatchRunner(QuestionLoader.Load(TestSupport.WriteFile(dir, "question.toml", TestSupport.MinimalQuestion
+                + "\n[batch]\nrun_root = \"runs\"\nstate_dir = \"state\"\nqueue = \"queue.json\"\n[publish]\nmanifest = \"manifest.yaml\"\n")),
+            Profiles, Machine.Load(TestSupport.WriteFile(dir, "machine.toml", $"work_root = '{dir}'\nmin_free_gb = 0\n[metamorpheus]\n\"1.1.11\" = 'C:/nowhere/CMD.exe'\n")),
+            new FakeFiles(), new FakeSearch(), "2026-11-21");
+        string run = Path.Combine(dir, "runs", "PXD002479");
+        Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
+        Directory.CreateDirectory(Path.Combine(run, "04_search"));
+        File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(("a.raw", true, Array.Empty<string>())).ToJsonString());
+        File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), new JsonObject
+        {
+            ["success"] = true, ["tools"] = new JsonObject { ["MetaMorpheus"] = new JsonObject { ["release"] = "1.1.15" } },
+            ["id_rate"] = new JsonObject
+            {
+                ["definition"] = "aging DEF-PSM-1PCT v1", ["psms_1pct"] = null, ["ms2"] = 163_293, ["rate"] = null,
+                ["filter"] = "pep q-value", ["psms_filter_1pct"] = 120, ["rate_filter"] = Math.Round(120.0 / 163_293, 4),
+            },
+        }.ToJsonString());
+        runner.Record("PXD002479", ("status", "searched"));
+        await runner.DeliverAsync(new QueueEntry("PXD002479", "t", "mouse"), Profiles["label-free-dda@1"], CancellationToken.None);
+
+        Assert.That(ManifestEntry.ReadLf(manifest), Does.Not.Contain("PXD002479"), "held");
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")), Does.Contain(
+            "PXD002479 DELIVERY HELD (waiting_low_identifications): the full search's 120 PSMs at 1% (pep q-value) are 0.07% of 163,293 MS2 spectra"));
+    }
+
     // v0.4.15 (PXR-A99, aging 098): PXD015239's protocol has no reduction or alkylation step.
     [Test]
     public void AnAlkylationExceptionSaysNoneAndNothingElse()
@@ -1075,8 +1279,11 @@ public class BatchRunnerTests
         await runner.RunAsync(queue, CancellationToken.None);
 
         Assert.That(most, Is.EqualTo(2), "two searches ran at once");
-        Assert.That(started, Is.EqualTo(new[] { "PXD000901", "PXD000903", "PXD000902", "PXD000904" }),
-            "the human deposit jumps the second mouse one while a mouse search runs; then queue order");
+        // The first two start together, one per slot, so which records its start first is a race (master ea6d529's CI saw
+        // 903 before 901). The rule is in which two start first and in what follows them.
+        Assert.That(started.Take(2), Is.EquivalentTo(new[] { "PXD000901", "PXD000903" }),
+            "the human deposit jumps the second mouse one while a mouse search runs");
+        Assert.That(started.Skip(2), Is.EqualTo(new[] { "PXD000902", "PXD000904" }), "then queue order");
         Assert.That(runner.Searching, Is.Empty);
     }
 
@@ -1772,6 +1979,107 @@ public class BatchRunnerTests
         Assert.That(onDisk["label"]!["source"]!.GetValue<string>(), Is.EqualTo(ChemistrySource.ProbeSpectra));
     }
 
+    // 2026-11-20 (PXD032900-lfq): its record text says TMT, so the screen itself routed it to the TMT profile, and the
+    // v0.4.45 rule above was never asked: the probe kept a label-free profile to go back to only when the chemistry step had
+    // routed the deposit. It was refused (no_isobaric_reporters) under v0.4.45, the release written for it. Now the screen
+    // keeps that profile too, and a label the spectra decided on an earlier pass takes it at once.
+    [Test]
+    public async Task WhenTheRecordTextChoseTmtTheProbeStillKeepsTheLabelFreeProfileForItsSpectra()
+    {
+        const string tmtText = "digested with trypsin and labelled with TMT10plex reagents";
+        void Deposit(FakeSearch search, string acc)
+        {
+            search.Results[acc] = new() { TestSupport.Record(acc, "Type 2 diabetes muscle", tmtText, instruments: new[] { "Q Exactive HF" }, files: new[] { "run1.raw" }) };
+            search.Projects[acc] = new PrideProject
+            {
+                Accession = acc, Title = "Type 2 diabetes muscle", SampleProcessingProtocol = tmtText,
+                QuantificationMethods = new List<MzLibUtil.CvParam> { new() { Name = "Label free" }, new() { Name = "TMT" } },
+            };
+        }
+
+        var (runner, search, _, dir) = DepositChemistryRunner("\"label-free-dda@3\", \"tmt-dda@2\"");
+        Deposit(search, "PXD000417");
+        await runner.ProbeAsync(new QueueEntry("PXD000417", "t", "human"), CancellationToken.None);
+        var routed = runner.State()["datasets"]!["PXD000417"]!;
+        Assert.That((routed["profile"]!.GetValue<string>(), routed["routed_isobaric"]?.GetValue<string>()), Is.EqualTo(("tmt-dda@2", "screen")),
+            "the words route it to the TMT profile, and the label-free profile is kept for its spectra");
+
+        Deposit(search, "PXD000418");
+        runner.Record("PXD000418", ("label_from_spectra", new JsonObject { ["value"] = "label_free", ["evidence"] = "no isobaric reporter ions in any of the 3 probe files" }));
+        await runner.ProbeAsync(new QueueEntry("PXD000418", "t", "human"), CancellationToken.None);
+        var kept = runner.State()["datasets"]!["PXD000418"]!;
+        Assert.That(kept["profile"]!.GetValue<string>(), Is.EqualTo("label-free-dda@3"), "a retry keeps the spectra's label-free");
+        Assert.That(kept["routed_isobaric"], Is.Null);
+        Assert.That(kept["chemistry"]!["label"]!["value"]!.GetValue<string>(), Is.EqualTo("label_free"));
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")),
+            Does.Contain("PXD000418 screen: its probe's spectra decided label-free on an earlier pass; label-free-dda@3, not tmt-dda@2"));
+
+        // A question with no label-free profile has nothing to go back to: the words route it as before.
+        var (tmtOnly, tmtSearch, _, _) = DepositChemistryRunner("\"tmt-dda@2\"");
+        Deposit(tmtSearch, "PXD000419");
+        await tmtOnly.ProbeAsync(new QueueEntry("PXD000419", "t", "human"), CancellationToken.None);
+        var alone = tmtOnly.State()["datasets"]!["PXD000419"]!;
+        Assert.That((alone["profile"]!.GetValue<string>(), alone["routed_isobaric"]), Is.EqualTo(("tmt-dda@2", (JsonNode?)null)));
+    }
+
+    // 2026-11-20 (PXD015728, PXD019690's Purkinje runs): the record text says TMT, but the question's curated SDRF names every
+    // file label-free. The curated SDRF outranks the words, so the deposit goes to the label-free profile before any download.
+    // PRIDE's list says TMT alone here, so the spectra rule above could never send it back.
+    [Test]
+    public async Task ACuratedSdrfNamingTheFilesLabelFreeOutranksTheWordsThatChoseTmt()
+    {
+        const string tmtText = "digested with trypsin and labelled with TMT10plex reagents";
+        const string acc = "PXD000420";
+        var (runner, search, _, dir) = DepositChemistryRunner("\"label-free-dda@3\", \"tmt-dda@2\"", designs: true);
+        search.Results[acc] = new() { TestSupport.Record(acc, "Type 2 diabetes muscle", tmtText, instruments: new[] { "Q Exactive HF" }, files: new[] { "run1.raw" }) };
+        search.Projects[acc] = new PrideProject
+        {
+            Accession = acc, Title = "Type 2 diabetes muscle", SampleProcessingProtocol = tmtText,
+            QuantificationMethods = new List<MzLibUtil.CvParam> { new() { Name = "TMT" } },
+        };
+        TestSupport.WriteFile(Path.Combine(dir, "designs"), $"{acc}.sdrf.tsv", "source name\tcomment[data file]\tcomment[label]\n"
+            + string.Concat(Enumerable.Range(1, 6).Select(i => $"s{i}\trun{i}.raw\tlabel free sample\n")));
+
+        await runner.ProbeAsync(new QueueEntry(acc, "t", "human"), CancellationToken.None);
+        var st = runner.State()["datasets"]![acc]!;
+        Assert.That(st["profile"]!.GetValue<string>(), Is.EqualTo("label-free-dda@3"));
+        Assert.That(st["routed_isobaric"], Is.Null);
+        Assert.That((st["chemistry"]!["label"]!["value"]!.GetValue<string>(), st["chemistry"]!["label"]!["source"]!.GetValue<string>()),
+            Is.EqualTo(("label_free", ChemistrySource.CuratedSdrf)));
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")),
+            Does.Contain($"{acc} chemistry: label label_free (curated SDRF) outranks the words that chose tmt-dda@2; back to label-free-dda@3"));
+    }
+
+    // 2026-11-20 (PXD033714): the record names an immunopeptidome beside its tryptic study, so the screen read non-specific
+    // cleavage and parked the deposit before any SDRF was read. The question's curated SDRF names trypsin for every file;
+    // it now outranks the words, and the chemistry step takes the protease from it.
+    [Test]
+    public async Task ACuratedSdrfNamingAProteaseForEveryFileOutranksTheScreensNonspecificReading()
+    {
+        const string text = "plasma membrane proteins were digested with trypsin; the immunopeptidome was analysed separately";
+        var (runner, search, _, dir) = DepositChemistryRunner("\"label-free-dda@3\"", designs: true);
+        void Deposit(string acc)
+        {
+            search.Results[acc] = new() { TestSupport.Record(acc, "Senescence surfaceome", text, instruments: new[] { "Q Exactive HF" }, files: new[] { "run1.raw" }) };
+            search.Projects[acc] = new PrideProject { Accession = acc, Title = "Senescence surfaceome", SampleProcessingProtocol = text };
+        }
+
+        Deposit("PXD000421");
+        await runner.ProbeAsync(new QueueEntry("PXD000421", "t", "human"), CancellationToken.None);
+        Assert.That(runner.State()["datasets"]!["PXD000421"]!["status"]!.GetValue<string>(), Is.EqualTo("waiting_nonspecific_cleavage"),
+            "no curated SDRF: parked as before");
+
+        Deposit("PXD000422");
+        TestSupport.WriteFile(Path.Combine(dir, "designs"), "PXD000422.sdrf.tsv", "source name\tcomment[data file]\tcomment[cleavage agent details]\tcomment[label]\n"
+            + string.Concat(Enumerable.Range(1, 6).Select(i => $"s{i}\trun{i}.raw\tNT=Trypsin;AC=MS:1001251\tlabel free sample\n")));
+        await runner.ProbeAsync(new QueueEntry("PXD000422", "t", "human"), CancellationToken.None);
+        var st = runner.State()["datasets"]!["PXD000422"]!;
+        Assert.That(st["status"]?.GetValue<string>(), Is.Not.EqualTo("waiting_nonspecific_cleavage"));
+        Assert.That(st["chemistry"]!["protease"]!["source"]!.GetValue<string>(), Is.EqualTo(ChemistrySource.CuratedSdrf));
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")),
+            Does.Contain("PXD000422 screen: the record reads non-specific cleavage, but the curated SDRF names trypsin for every file"));
+    }
+
     // G18: a reboot mid-search left the deposit at "searching" with a half-written 04_search/mm, which MetaMorpheus refuses
     // to reuse; the restart would have settled it as search_failed.
     [Test]
@@ -2120,29 +2428,371 @@ public class BatchRunnerTests
     }
 
     [Test]
-    public void ANewQuestionGetsAManifestWhoseRunsAreRelativeToItsOwnWorkRoot()
+    public void ANewQuestionsManifestNamesTheMachinesWorkRootAndItsRunsUnderIt()
     {
-        string dir = TestSupport.TempDir(), runRoot = Path.Combine(dir, "work", "runs"), run = Path.Combine(runRoot, "PXD000210");
+        // dataRepo's seam test (G139): the provenance names the databases and the upstream records relative to the
+        // MACHINE's work root, and datarepo reads them against the manifest's. A manifest naming the run root instead
+        // gave bundles with no databases, unresolved Carbamidomethyl and no fetch or QC record, and an ingest exiting 0.
+        string dir = TestSupport.TempDir(), workRoot = Path.Combine(dir, "work"), runRoot = Path.Combine(workRoot, "runs"), run = Path.Combine(runRoot, "PXD000210");
         Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
         Directory.CreateDirectory(Path.Combine(run, "04_search"));
         File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(("a.raw", true, Array.Empty<string>())).ToJsonString());
         File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), """{"tools":{"MetaMorpheus":{"release":"1.1.11"}}}""");
-        string manifest = Path.Combine(dir, "work", "manifest.yaml");
+        string manifest = Path.Combine(workRoot, "first-run", "manifest.yaml");
 
-        ManifestEntry.EnsureExists(manifest, "first-run", runRoot);
-        // The machine's work root is somewhere else entirely: the manifest's own root decides the entry's `run`.
+        ManifestEntry.EnsureExists(manifest, "first-run", workRoot);
+        // The fallback root passed to Append is never used once the manifest names its own: that root decides `run`.
         ManifestEntry.Append(manifest, new QueueEntry("PXD000210", "t", "human"), Profiles["label-free-dda@1"], run, null, "Z:/elsewhere");
         string text = File.ReadAllText(manifest).ReplaceLineEndings("\n");
-        Assert.That(text, Does.Contain("instance: first-run\n").And.Contain("work_root: runs\n").And.Contain("store: store\n")
-            .And.Contain("run: PXD000210\n").And.Contain("files: 1\n"));
-        Assert.That(ManifestEntry.WorkRootOf(manifest), Is.EqualTo(Path.GetFullPath(runRoot)));
+        Assert.That(text, Does.Contain("instance: first-run\n").And.Contain("work_root: ..\n").And.Contain("store: store\n")
+            .And.Contain("run: runs/PXD000210\n").And.Contain("files: 1\n"));
+        Assert.That(ManifestEntry.WorkRootOf(manifest), Is.EqualTo(Path.GetFullPath(workRoot)));
+
+        // A work root below the manifest's folder is relative too; one in another tree is written absolute, so the
+        // manifest does not depend on where the two trees sit relative to each other.
+        string below = Path.Combine(dir, "q2", "manifest.yaml");
+        ManifestEntry.EnsureExists(below, "q2", Path.Combine(dir, "q2", "work"));
+        Assert.That(File.ReadAllText(below).ReplaceLineEndings("\n"), Does.Contain("work_root: work\n"));
+        string apart = Path.Combine(dir, "q3", "manifest.yaml"), machine = Path.GetFullPath(Path.Combine(dir, "m", "work"));
+        ManifestEntry.EnsureExists(apart, "q3", machine);
+        Assert.That(File.ReadAllText(apart).ReplaceLineEndings("\n"), Does.Contain($"work_root: {machine.Replace('\\', '/')}\n"));
+        Assert.That(ManifestEntry.WorkRootOf(apart), Is.EqualTo(machine));
 
         // An absolute root, as aging's hand-written manifest has (F:/aging_data there; absolute on every OS here).
         string absolute = Path.GetFullPath(Path.Combine(dir, "aging_data")).Replace('\\', '/');
         File.WriteAllText(manifest, $"manifest_version: 1\nwork_root: {absolute}   # by hand\ndatasets:\n");
-        ManifestEntry.EnsureExists(manifest, "first-run", runRoot);
+        ManifestEntry.EnsureExists(manifest, "first-run", workRoot);
         Assert.That(File.ReadAllText(manifest), Does.StartWith($"manifest_version: 1\nwork_root: {absolute}"), "an existing manifest is never rewritten");
         Assert.That(ManifestEntry.WorkRootOf(manifest), Is.EqualTo(Path.GetFullPath(absolute)));
+    }
+
+    [Test]
+    public async Task TheBatchWritesANewQuestionsManifestAgainstTheMachinesWorkRootNotItsRunRoot()
+    {
+        // The machine's work root is the test folder; the question's runs are in runs/ below it, its manifest in q/.
+        var (runner, _, _, dir) = Runner("[publish]\nmanifest = \"q/manifest.yaml\"\n");
+        string run = Path.Combine(dir, "runs", "PXD000210");
+        Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
+        Directory.CreateDirectory(Path.Combine(run, "04_search"));
+        File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(("a.raw", true, Array.Empty<string>())).ToJsonString());
+        File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), "{\"success\": true, \"tools\": {\"MetaMorpheus\": {\"release\": \"1.1.11\"}}}");
+
+        await runner.DeliverAsync(new QueueEntry("PXD000210", "t", "human"), Profiles["label-free-dda@1"], CancellationToken.None);
+
+        string manifest = Path.Combine(dir, "q", "manifest.yaml");
+        Assert.That(File.ReadAllText(manifest).ReplaceLineEndings("\n"), Does.Contain("work_root: ..\n").And.Contain("run: runs/PXD000210\n"));
+        Assert.That(ManifestEntry.WorkRootOf(manifest), Is.EqualTo(Path.GetFullPath(dir)));
+    }
+
+    /// <summary>
+    /// A delivery's ingest runs the command <see cref="BatchRunner.IngestCommand"/> builds, with <c>--json</c> exactly when
+    /// the machine's datarepo takes it, and reads datarepo's reply. The stand-in datarepo is a script that records its
+    /// arguments and, given <c>--json</c>, prints a real 1.0.0 envelope (the IngestEnvelopeTests fixture).
+    /// </summary>
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task ADeliverysIngestRunsTheIngestCommandAndReadsTheReply(bool json)
+    {
+        const string acc = "PXD034059";   // the envelope fixture's deposit
+        string tools = TestSupport.TempDir();
+        string args = Path.Combine(tools, "args.txt"), envelope = Path.Combine(tools, "envelope.json");
+        File.Copy(Path.Combine(TestContext.CurrentContext.TestDirectory, "Fixtures", "datarepo", "ingest-1.0.0-ingested.json"), envelope);
+        string datarepo;
+        if (OperatingSystem.IsWindows())
+        {
+            datarepo = TestSupport.WriteFile(tools, "datarepo.cmd",
+                $"@echo off\r\necho %*> \"{args}\"\r\nif \"%4\"==\"--json\" type \"{envelope}\"\r\nexit /b 0\r\n");
+        }
+        else
+        {
+            datarepo = TestSupport.WriteFile(tools, "datarepo",
+                $"#!/bin/sh\nprintf '%s ' \"$@\" > '{args}'\nif [ \"$4\" = \"--json\" ]; then cat '{envelope}'; fi\nexit 0\n");
+            File.SetUnixFileMode(datarepo, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+        var (runner, _, _, dir) = Runner("[publish]\nmanifest = \"q/manifest.yaml\"\n", $"datarepo = '{datarepo}'\n");   // a TOML literal string: backslashes stay
+        runner.IngestJsonForTest = json;
+        string run = Path.Combine(dir, "runs", acc);
+        Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
+        Directory.CreateDirectory(Path.Combine(run, "04_search"));
+        File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(("a.raw", true, Array.Empty<string>())).ToJsonString());
+        File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), "{\"success\": true, \"tools\": {\"MetaMorpheus\": {\"release\": \"1.1.11\"}}}");
+
+        await runner.DeliverAsync(new QueueEntry(acc, "t", "human"), Profiles["label-free-dda@1"], CancellationToken.None);
+
+        string said = File.ReadAllText(args).Trim();
+        Assert.That(said, Does.StartWith("ingest ").And.Contain("manifest.yaml"), "datarepo is asked to ingest the question's manifest");
+        Assert.That(said, json ? Does.EndWith($"{acc} --json") : Does.EndWith(acc), "--json exactly when the machine's datarepo takes it");
+        var entry = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "state", "state.json")))!["datasets"]![acc]!;
+        Assert.That(entry["ingest_rc"]!.GetValue<int>(), Is.EqualTo(0));
+        Assert.That(entry["bundle_id"]?.GetValue<string>(), json ? Is.EqualTo("24e3acd215f6ceb5") : Is.Null, "the bundle id comes from the envelope");
+        Assert.That(File.ReadAllText(Path.Combine(dir, "q", "manifest.yaml")).ReplaceLineEndings("\n"), Does.Contain("delivery: delivered"),
+            "an ingest that exits 0 marks the entry delivered");
+    }
+
+    // ------------------------------------------------------------------ ptmQtl's engines (D96, G134)
+
+    /// <summary>
+    /// A stand-in datarepo for the ptmQtl steps: each call's arguments appended as one line to args.txt. An ingest exits 0;
+    /// a run prints the line datarepo prints for a written artefact, or fails when fail.txt exists; a query prints
+    /// query.tsv, or fails when qfail.txt exists, and logs only "query" (its SQL is not echoed). The lists the machine
+    /// names sit beside it.
+    /// </summary>
+    private static (string Machine, string Args, string Fail, string Tools) PtmQtlDatarepo(int catchUp = 20)
+    {
+        string tools = TestSupport.TempDir();
+        string args = Path.Combine(tools, "args.txt"), fail = Path.Combine(tools, "fail.txt"), query = Path.Combine(tools, "query.tsv");
+        string qfail = Path.Combine(tools, "qfail.txt");
+        File.WriteAllText(Path.Combine(tools, "enrichment.tsv"), "dataset\tclass\n");
+        File.WriteAllText(Path.Combine(tools, "cysteine.tsv"), "dataset\tclass\treason\n");
+        string datarepo;
+        if (OperatingSystem.IsWindows())
+        {
+            datarepo = TestSupport.WriteFile(tools, "datarepo.cmd",
+                $"@echo off\r\nif \"%1\"==\"query\" goto query\r\n"
+                + $"echo %*>> \"{args}\"\r\nif not \"%1\"==\"run\" exit /b 0\r\nif exist \"{fail}\" (\r\necho ptmQtl refused 1>&2\r\nexit /b 1\r\n)\r\n"
+                + "echo written  %2 artefact 0123456789abcdef  store\r\nexit /b 0\r\n"
+                + $":query\r\necho query>> \"{args}\"\r\nif exist \"{qfail}\" (\r\necho no such table 1>&2\r\nexit /b 1\r\n)\r\ntype \"{query}\"\r\nexit /b 0\r\n");
+        }
+        else
+        {
+            datarepo = TestSupport.WriteFile(tools, "datarepo",
+                $"#!/bin/sh\nif [ \"$1\" = query ]; then echo query >> '{args}'; if [ -f '{qfail}' ]; then echo 'no such table' >&2; exit 1; fi; cat '{query}'; exit 0; fi\n"
+                + $"echo \"$*\" >> '{args}'\n[ \"$1\" = run ] || exit 0\nif [ -f '{fail}' ]; then echo 'ptmQtl refused' >&2; exit 1; fi\n"
+                + "echo \"written  $2 artefact 0123456789abcdef  store\"\nexit 0\n");
+            File.SetUnixFileMode(datarepo, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+        string machine = $"datarepo = '{datarepo}'\n[ptmqtl]\nenrichment = '{Path.Combine(tools, "enrichment.tsv")}'\ncysteine = '{Path.Combine(tools, "cysteine.tsv")}'\n"
+            + $"catch_up_per_publish = {catchUp}\n";
+        return (machine, args, fail, tools);
+    }
+
+    private static void SearchedRun(string dir, string acc)
+    {
+        string run = Path.Combine(dir, "runs", acc);
+        Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
+        Directory.CreateDirectory(Path.Combine(run, "04_search"));
+        File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(("a.raw", true, Array.Empty<string>())).ToJsonString());
+        File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), "{\"success\": true, \"tools\": {\"MetaMorpheus\": {\"release\": \"1.1.11\"}}}");
+    }
+
+    [Test]
+    public async Task ALabelFreeDeliveryRunsPtmQtlsSitePairsOnItsNewestBundle()
+    {
+        var (machine, args, _, tools) = PtmQtlDatarepo();
+        var (runner, _, _, dir) = Runner("[publish]\nmanifest = \"q/manifest.yaml\"\n", machine);
+        runner.IngestJsonForTest = false;
+        SearchedRun(dir, "PXD000001");
+
+        await runner.DeliverAsync(new QueueEntry("PXD000001", "t", "human"), Profiles["label-free-dda@1"], CancellationToken.None);
+
+        var calls = File.ReadAllLines(args);
+        Assert.That(calls, Has.Length.EqualTo(2), "the ingest, then the engine");
+        Assert.That(calls[1], Does.StartWith("run ptmqtl.site_pairs PXD000001 --store ").And.Contain(Path.Combine(dir, "q", "store")),
+            "the store the question's manifest names");
+        Assert.That(calls[1], Does.Contain("--latest").And.Contain($"enrichment={Path.Combine(tools, "enrichment.tsv")}").And.Contain($"cysteine={Path.Combine(tools, "cysteine.tsv")}"));
+        var entry = runner.State()["datasets"]!["PXD000001"]!;
+        Assert.That(entry["ptmqtl_site_pairs_rc"]!.GetValue<int>(), Is.Zero);
+        Assert.That(entry["ptmqtl_site_pairs_artefact"]!.GetValue<string>(), Is.EqualTo("0123456789abcdef"));
+        Assert.That(File.Exists(entry["ptmqtl_site_pairs_log"]!.GetValue<string>()), "the whole output is kept, as an ingest's is (G38)");
+    }
+
+    [Test]
+    public async Task AFailedSitePairsIsRecordedAndTheDeliveryStands()
+    {
+        var (machine, _, fail, _) = PtmQtlDatarepo();
+        File.WriteAllText(fail, "");
+        var (runner, _, _, dir) = Runner("[publish]\nmanifest = \"q/manifest.yaml\"\n", machine);
+        runner.IngestJsonForTest = false;
+        SearchedRun(dir, "PXD000001");
+
+        await runner.DeliverAsync(new QueueEntry("PXD000001", "t", "human"), Profiles["label-free-dda@1"], CancellationToken.None);
+
+        var entry = runner.State()["datasets"]!["PXD000001"]!;
+        Assert.That(entry["ingest_rc"]!.GetValue<int>(), Is.Zero, "delivered all the same");
+        Assert.That(entry["ptmqtl_site_pairs_rc"]!.GetValue<int>(), Is.EqualTo(1));
+        Assert.That(entry["ptmqtl_site_pairs_out"]!.GetValue<string>(), Does.Contain("ptmQtl refused"));
+        Assert.That(entry["ptmqtl_site_pairs_artefact"], Is.Null);
+    }
+
+    [Test]
+    public async Task WithoutPtmqtlInTheMachineFileNoEngineRuns()
+    {
+        var (_, args, _, _) = PtmQtlDatarepo();
+        string datarepo = Path.Combine(Path.GetDirectoryName(args)!, OperatingSystem.IsWindows() ? "datarepo.cmd" : "datarepo");
+        var (runner, _, _, dir) = Runner("[publish]\nmanifest = \"q/manifest.yaml\"\n", $"datarepo = '{datarepo}'\n");
+        runner.IngestJsonForTest = false;
+        SearchedRun(dir, "PXD000001");
+
+        await runner.DeliverAsync(new QueueEntry("PXD000001", "t", "human"), Profiles["label-free-dda@1"], CancellationToken.None);
+
+        Assert.That(File.ReadAllLines(args), Has.Length.EqualTo(1), "the ingest only");
+        Assert.That(runner.State()["datasets"]!["PXD000001"]!["ptmqtl_site_pairs_rc"], Is.Null);
+    }
+
+    [Test]
+    public async Task BeforeAPublishTheCatchUpAndThePoolRunThenTheQuestionsCommand()
+    {
+        var (machine, args, _, _) = PtmQtlDatarepo(catchUp: 1);
+        // A temp path, with no spaces. Double quotes on Linux: the command sits in a single-quoted TOML string.
+        string hook = OperatingSystem.IsWindows() ? $"echo hook>> {args}" : $"echo hook >> \"{args}\"";
+        var (runner, _, _, dir) = Runner($"[publish]\nmanifest = \"manifest.yaml\"\ncommand = {ShellToml(hook)}\nevery_h = 6\ntimeout_h = 1\n", machine);
+        File.WriteAllText(Path.Combine(dir, "manifest.yaml"), "manifest_version: 1\nstore: store\n");
+        runner.Record("PXD000001", ("ingest_rc", 0), ("profile", "label-free-dda@1"));                                // delivered before the engines ran
+        runner.Record("PXD000002", ("ingest_rc", 0), ("profile", "label-free-dda@1"));                                // likewise, past this publish's catch-up of 1
+        runner.Record("PXD000003", ("ingest_rc", 0), ("profile", "tmt-dda@1"));                                       // isobaric: never
+        runner.Record("PXD000004", ("ingest_rc", 0), ("profile", "label-free-dda@1"), ("ptmqtl_site_pairs_rc", 0));  // already paired
+        runner.Record("PXD000005", ("ingest_rc", 0), ("profile", "label-free-dda@1"), ("ptmqtl_site_pairs_rc", 1));  // its run failed: not retried
+        runner.Record("PXD000006", ("ingest_rc", 1), ("profile", "label-free-dda@1"));                                // not delivered
+
+        Assert.That(await runner.PublishIfDueAsync(true, CancellationToken.None), Is.Zero);
+
+        var calls = File.ReadAllLines(args).Select(l => l.Trim()).ToList();
+        Assert.That(calls, Has.Count.EqualTo(3));
+        Assert.That(calls[0], Does.StartWith("run ptmqtl.site_pairs PXD000001 --store " + Path.Combine(dir, "store")));
+        Assert.That(calls[1], Does.StartWith("run ptmqtl.pool_pairs PXD000001 PXD000004 --store "), "every deposit paired, in order");
+        Assert.That(calls[2], Is.EqualTo("hook"), "the catalog is built after the engines");
+        var st = runner.State();
+        Assert.That(st["datasets"]!["PXD000002"]!["ptmqtl_site_pairs_rc"], Is.Null, "left for the next publish's catch-up");
+        Assert.That(st["publish"]!["ptmqtl_pool_rc"]!.GetValue<int>(), Is.Zero);
+        Assert.That(st["publish"]!["ptmqtl_pool_artefacts"]!.AsArray().Select(n => n!.GetValue<string>()), Is.EqualTo(new[] { "0123456789abcdef" }));
+    }
+
+    [Test]
+    public async Task APoolNeedsTwoPairedDepositsAndAFailedOneLetsThePublishGoOn()
+    {
+        var (machine, args, fail, _) = PtmQtlDatarepo(catchUp: 0);
+        var (runner, _, _, dir) = Runner($"[publish]\nmanifest = \"manifest.yaml\"\ncommand = {ShellToml("exit 0")}\nevery_h = 6\ntimeout_h = 1\n", machine);
+        File.WriteAllText(Path.Combine(dir, "manifest.yaml"), "manifest_version: 1\nstore: store\n");
+        runner.Record("PXD000001", ("ingest_rc", 0), ("profile", "label-free-dda@1"), ("ptmqtl_site_pairs_rc", 0));
+        runner.Record("PXD000002", ("ingest_rc", 0), ("profile", "label-free-dda@1"));   // the catch-up is off
+
+        Assert.That(await runner.PublishIfDueAsync(true, CancellationToken.None), Is.Zero);
+        Assert.That(File.Exists(args), Is.False, "one paired deposit: nothing to pool, and nothing caught up");
+
+        runner.Record("PXD000002", ("ptmqtl_site_pairs_rc", 0), ("publish_rc", null));
+        File.WriteAllText(fail, "");
+        Assert.That(await runner.PublishIfDueAsync(true, CancellationToken.None), Is.Zero, "the publish goes on");
+        Assert.That(runner.State()["publish"]!["ptmqtl_pool_rc"]!.GetValue<int>(), Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task AnEngineStepThatCannotRunIsRecordedAndThePublishGoesOn()
+    {
+        // A manifest that names no store: neither engine can be run, and each says so in the state.
+        var (machine, args, _, _) = PtmQtlDatarepo();
+        var (runner, _, _, dir) = Runner($"[publish]\nmanifest = \"manifest.yaml\"\ncommand = {ShellToml("exit 0")}\nevery_h = 6\ntimeout_h = 1\n", machine);
+        File.WriteAllText(Path.Combine(dir, "manifest.yaml"), "manifest_version: 1\n");
+        runner.Record("PXD000001", ("ingest_rc", 0), ("profile", "label-free-dda@1"), ("ptmqtl_site_pairs_rc", 0));
+        runner.Record("PXD000002", ("ingest_rc", 0), ("profile", "label-free-dda@1"), ("ptmqtl_site_pairs_rc", 0));
+        runner.Record("PXD000003", ("ingest_rc", 0), ("profile", "label-free-dda@1"));   // the catch-up's
+
+        Assert.That(await runner.PublishIfDueAsync(true, CancellationToken.None), Is.Zero, "the publish goes on");
+
+        var st = runner.State();
+        Assert.That(st["datasets"]!["PXD000003"]!["ptmqtl_site_pairs_rc"]!.GetValue<int>(), Is.EqualTo(-1));
+        Assert.That(st["datasets"]!["PXD000003"]!["ptmqtl_site_pairs_out"]!.GetValue<string>(), Does.Contain("names no store"));
+        Assert.That(st["publish"]!["ptmqtl_pool_rc"]!.GetValue<int>(), Is.EqualTo(-1));
+        Assert.That(File.Exists(args), Is.False, "nothing reached datarepo");
+    }
+
+    [Test]
+    public async Task WithSiteTraitsOnAPublishWritesEachDepositsTraitsFileAndRunsSiteTraitsOneDepositAtATime()
+    {
+        var (machine, args, _, tools) = PtmQtlDatarepo(catchUp: 0);
+        string catalog = TestSupport.WriteFile(tools, "catalog-x.duckdb", "");
+        File.WriteAllText(Path.Combine(tools, "query.tsv"), "dataset_id\trun_id\treplicate\tsample_value\tfactor_value\tfactor_level\n"
+            + "PXD000001\tPXD000001:r1\tm1\t\t1\told\nPXD000001\tPXD000001:r2\tm2\t\t0.5\tyoung\n"
+            + "PXD000002\tPXD000002:r1\t\t\t1\told\n");   // a run with no individual: left out
+        var (runner, _, _, dir) = Runner($"[traits]\nrequired = [\"age\"]\n[traits.age]\ndesign_factor = \"age group\"\ntrait_id = \"age_decades\"\nscale = 0.1\n"
+            + $"[publish]\nmanifest = \"manifest.yaml\"\ncommand = {ShellToml("exit 0")}\nevery_h = 6\ntimeout_h = 1\n",
+            machine + $"catalog = '{catalog}'\nsite_traits = true\n");
+        File.WriteAllText(Path.Combine(dir, "manifest.yaml"), "manifest_version: 1\nstore: store\n");
+        runner.Record("PXD000001", ("ingest_rc", 0), ("profile", "label-free-dda@1"), ("ptmqtl_site_pairs_rc", 0));
+        runner.Record("PXD000002", ("ingest_rc", 0), ("profile", "label-free-dda@1"), ("ptmqtl_site_pairs_rc", 0));
+
+        Assert.That(await runner.PublishIfDueAsync(true, CancellationToken.None), Is.Zero);
+
+        var calls = File.ReadAllLines(args).Select(l => l.Trim()).ToList();
+        Assert.That(calls, Has.Count.EqualTo(3));
+        Assert.That(calls[0], Does.StartWith("run ptmqtl.pool_pairs PXD000001 PXD000002 "));
+        Assert.That(calls[1], Is.EqualTo("query"));
+        string file = Path.Combine(dir, "state", "ptmqtl_traits", "age", "PXD000001.age_decades.traits.tsv");
+        Assert.That(calls[2], Does.StartWith("run ptmqtl.site_traits PXD000001 --store ").And.EndWith($"--input traits={file}"), "one deposit a run");
+        Assert.That(File.ReadAllLines(file)[1], Is.EqualTo("PXD000001\tPXD000001:r1\tm1\tage_decades\t0.1"));
+        var st = runner.State();
+        Assert.That(st["datasets"]!["PXD000001"]!["ptmqtl_site_traits_age_rc"]!.GetValue<int>(), Is.Zero);
+        Assert.That(st["datasets"]!["PXD000001"]!["ptmqtl_site_traits_age_artefact"]!.GetValue<string>(), Is.EqualTo("0123456789abcdef"));
+        Assert.That(st["datasets"]!["PXD000002"]!["ptmqtl_site_traits_age_rc"], Is.Null, "left out: no run of it reached the engine");
+        Assert.That(st["publish"]!["ptmqtl_traits_age_rc"]!.GetValue<int>(), Is.Zero);
+
+        // The next publish (another deposit delivered): the same file, datarepo and delivery are not asked again; a
+        // re-ingest asks again.
+        runner.Record("PXD000002", ("publish_rc", null));
+        Assert.That(await runner.PublishIfDueAsync(true, CancellationToken.None), Is.Zero);
+        Assert.That(File.ReadAllLines(args).Count(l => l.Contains("ptmqtl.site_traits")), Is.EqualTo(1));
+        runner.Record("PXD000001", ("ingest_out", "re-ingested"), ("publish_rc", null));
+        Assert.That(await runner.PublishIfDueAsync(true, CancellationToken.None), Is.Zero);
+        Assert.That(File.ReadAllLines(args).Count(l => l.Contains("ptmqtl.site_traits")), Is.EqualTo(2));
+    }
+
+    /// <summary>A runner with site_traits on, a catalog file, and one label-free deposit delivered and paired.</summary>
+    private static (BatchRunner Runner, string Args, string Fail, string Tools, string Dir) SiteTraitsRunner(string traits, bool catalog = true)
+    {
+        var (machine, args, fail, tools) = PtmQtlDatarepo(catchUp: 0);
+        string cat = catalog ? TestSupport.WriteFile(tools, "catalog-x.duckdb", "") : Path.Combine(tools, "no-catalogs");
+        var (runner, _, _, dir) = Runner($"[traits]\nrequired = [\"age\"]\n{traits}"
+            + $"[publish]\nmanifest = \"manifest.yaml\"\ncommand = {ShellToml("exit 0")}\nevery_h = 6\ntimeout_h = 1\n",
+            machine + $"catalog = '{cat}'\nsite_traits = true\n");
+        File.WriteAllText(Path.Combine(dir, "manifest.yaml"), "manifest_version: 1\nstore: store\n");
+        runner.Record("PXD000001", ("ingest_rc", 0), ("profile", "label-free-dda@1"), ("ptmqtl_site_pairs_rc", 0));
+        return (runner, args, fail, tools, dir);
+    }
+
+    [Test]
+    public async Task SiteTraitsWithNoTraitSourcedOrNoCatalogRunsNothingAndThePublishGoesOn()
+    {
+        var (runner, args, _, _, _) = SiteTraitsRunner("[traits.age]\ndesign_factor = \"age group\"\n", catalog: false);
+        Assert.That(await runner.PublishIfDueAsync(true, CancellationToken.None), Is.Zero);
+        Assert.That(File.Exists(args), Is.False, "no catalog: no query, no run");
+        Assert.That(runner.State()["publish"]!["ptmqtl_traits_age_rc"]!.GetValue<int>(), Is.EqualTo(-1));
+
+        var (unsourced, uargs, _, _, _) = SiteTraitsRunner("");
+        Assert.That(await unsourced.PublishIfDueAsync(true, CancellationToken.None), Is.Zero);
+        Assert.That(File.Exists(uargs), Is.False, "no [traits.<id>]: no query, no run");
+        Assert.That(unsourced.State()["publish"]!["ptmqtl_traits_age_rc"], Is.Null);
+    }
+
+    [Test]
+    public async Task AFailedTraitsQueryRunsNoSiteTraitsAndThePublishGoesOn()
+    {
+        var (runner, args, _, tools, _) = SiteTraitsRunner("[traits.age]\ndesign_factor = \"age group\"\n");
+        File.WriteAllText(Path.Combine(tools, "qfail.txt"), "");
+        Assert.That(await runner.PublishIfDueAsync(true, CancellationToken.None), Is.Zero);
+        Assert.That(File.ReadAllLines(args).Select(l => l.Trim()), Is.EqualTo(new[] { "query" }));
+        var pub = runner.State()["publish"]!;
+        Assert.That(pub["ptmqtl_traits_age_rc"]!.GetValue<int>(), Is.EqualTo(1));
+        Assert.That(File.ReadAllText(pub["ptmqtl_traits_age_log"]!.GetValue<string>()), Does.Contain("no such table"));
+    }
+
+    [Test]
+    public async Task WithAFactorRoleBothQueriesRunAndARefusedSiteTraitsIsRecordedOnItsDeposit()
+    {
+        var (runner, args, fail, tools, _) = SiteTraitsRunner("[traits.age]\ndesign_factor = \"age group\"\ncovariate_factor_role = \"condition\"\n");
+        runner.Record("PXD000003", ("ingest_rc", 0), ("profile", "tmt-dda@1"));   // isobaric: never given a file
+        // One table serves both queries: it holds the main query's columns and the role query's.
+        File.WriteAllText(Path.Combine(tools, "query.tsv"), "dataset_id\trun_id\treplicate\tsample_value\tfactor_value\tfactor_level\tfactor\trole\tlevel\n"
+            + "PXD000001\tPXD000001:r1\tm1\t\t1\told\ttreatment\tcondition\tvehicle\nPXD000001\tPXD000001:r2\tm2\t\t0.5\tyoung\ttreatment\tcondition\tvehicle\n"
+            + "PXD000003\tPXD000003:r1\tm1\t\t1\told\ttreatment\tcondition\tvehicle\nPXD000003\tPXD000003:r2\tm2\t\t0.5\tyoung\ttreatment\tcondition\tvehicle\n");
+        File.WriteAllText(fail, "");
+
+        Assert.That(await runner.PublishIfDueAsync(true, CancellationToken.None), Is.Zero);
+        var calls = File.ReadAllLines(args).Select(l => l.Trim()).ToList();
+        Assert.That(calls.Take(2), Is.EqualTo(new[] { "query", "query" }));
+        Assert.That(calls.Skip(2).Single(), Does.StartWith("run ptmqtl.site_traits PXD000001 "));
+        var d = runner.State()["datasets"]!;
+        Assert.That(d["PXD000001"]!["ptmqtl_site_traits_age_rc"]!.GetValue<int>(), Is.EqualTo(1));
+        Assert.That(d["PXD000001"]!["ptmqtl_site_traits_age_out"]!.GetValue<string>(), Does.Contain("ptmQtl refused"));
+        Assert.That(d["PXD000003"]!["ptmqtl_site_traits_age_rc"], Is.Null);
     }
 
     [Test]
@@ -2591,6 +3241,104 @@ public class BatchRunnerTests
             .And.Contain("Expected here: the cysteines were not alkylated (alkylation none, question_exception)")
             .And.Contain("cysteine unmodified (question_exception)"));
         Assert.That(text, Does.Contain("cysteine_poor").And.Contain("question_exception"));
+    }
+
+    // D73 (G112): one PXReprise release holds the engine and datarepo under one version, and a batch delivers only with the
+    // datarepo of its own engine's release. `datarepo --version` prints "datarepo <version>"; the engine reports its version
+    // with the commit as +build metadata ("1.0.0+f9483dd...").
+    [TestCase("1.0.0", "datarepo 1.0.0", true)]
+    [TestCase("1.0.0", "  datarepo 1.0.0\r", true)]                                       // as read, with its line ending
+    [TestCase("1.0.0+f9483dd3e9814e7ed1135ba5a611d200e41ac8eb", "datarepo 1.0.0", true)]  // the engine's commit is no part of the release
+    [TestCase("1.1.0-rc.1+f9483dd", "datarepo 1.1.0-rc.1", true)]                         // a pre-release suffix is part of it
+    [TestCase("0.0.0-dev+f9483dd", "datarepo 0.0.0-dev", true)]                           // two builds stamped alike, by this rule
+    [TestCase("1.0.1", "datarepo 1.0.0", false)]                                          // another patch
+    [TestCase("1.0.0+f9483dd", "datarepo 1.0.1", false)]
+    [TestCase("1.0.0", "datarepo 1.5.0", false)]                                          // datarepo's last version of its own
+    [TestCase("1.0.0", "datarepo 0.0.0-dev", false)]                                      // a source build of datarepo
+    [TestCase("1.0.0", "datarepo 1.0.0-dev", false)]                                      // the suffix counts
+    [TestCase("1.0.0", "Unhandled exception. System.IO.FileNotFoundException: Could not load file", false)]
+    [TestCase("1.0.0", "pxreprise 1.0.0", false)]
+    [TestCase("1.0.0", "datarepo 1.0", false)]
+    [TestCase("1.0.0", "datarepo 1.0.0 (dev)", false)]
+    [TestCase("1.0.0", "", false)]
+    [TestCase("unknown", "datarepo 1.0.0", false)]
+    public void SameReleaseIsTheEnginesVersionWithoutItsBuildMetadata(string engine, string line, bool same) =>
+        Assert.That(BatchRunner.SameRelease(engine, line), Is.EqualTo(same));
+
+    [Test]
+    public void ABatchStartRefusesADatarepoFromAnotherReleaseBeforeAnyDeposit()
+    {
+        var (runner, _, _, dir) = Runner("", "datarepo = 'D:/tools/datarepo/datarepo.exe'\n");
+        runner.DataRepoVersionForTest = ct => Task.FromResult((0, "datarepo 1.5.0\n", ""));
+        var prepared = new List<string>();
+        runner.PrepareForTest = (e, ct) => { prepared.Add(e.Accession); return Task.FromResult<Profile?>(null); };
+
+        var ex = Assert.ThrowsAsync<ConfigException>(() => runner.RunAsync(new[] { new QueueEntry("PXD000961", "t", "mouse") }, CancellationToken.None));
+
+        string engine = BatchRunner.ReleaseOf(Provenance.RunRecord.Versions()["pxreprise"]);
+        Assert.That(ex!.Message, Does.StartWith("machine.toml: datarepo D:/tools/datarepo/datarepo.exe reports 'datarepo 1.5.0', ")
+            .And.Contain($"this engine is pxreprise {engine}: use the datarepo from the same PXReprise release")
+            .And.Contain($"prints 'datarepo {engine}'"));
+        Assert.That(prepared, Is.Empty, "no deposit is touched");
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")),
+            Does.Contain("batch refused: datarepo D:/tools/datarepo/datarepo.exe reports 'datarepo 1.5.0'"));
+        Assert.That(File.Exists(Path.Combine(dir, "state", "driver.pid")), Is.False, "the refused driver gives up its claim");
+
+        runner.DataRepoVersionForTest = ct => Task.FromResult((134, "", "Segmentation fault\n"));
+        Assert.That(Assert.ThrowsAsync<ConfigException>(() => runner.RunAsync(Array.Empty<QueueEntry>(), CancellationToken.None))!.Message,
+            Does.Contain("reports 'Segmentation fault' (rc 134), and this engine is"), "a datarepo that fails to say its version is refused too");
+        runner.DataRepoVersionForTest = ct => Task.FromResult((1, "", ""));
+        Assert.That(Assert.ThrowsAsync<ConfigException>(() => runner.RunAsync(Array.Empty<QueueEntry>(), CancellationToken.None))!.Message,
+            Does.Contain("reports no version (rc 1), and this engine is"));
+    }
+
+    [Test]
+    public async Task ABatchStartGoesOnWithTheDatarepoOfItsOwnRelease()
+    {
+        // One fetch pass: the stub prepares no profile, which the batch reads as a deposit to retry, and each later pass
+        // waits 30 minutes.
+        var (runner, _, _, dir) = Runner("", "datarepo = 'D:/tools/datarepo/datarepo.exe'\nfetch_passes = 1\n");
+        string engine = BatchRunner.ReleaseOf(Provenance.RunRecord.Versions()["pxreprise"]);
+        runner.DataRepoVersionForTest = ct => Task.FromResult((0, $"datarepo {engine}\n", ""));
+        var prepared = new List<string>();
+        runner.PrepareForTest = (e, ct) => { prepared.Add(e.Accession); return Task.FromResult<Profile?>(null); };
+
+        await runner.RunAsync(new[] { new QueueEntry("PXD000962", "t", "mouse") }, CancellationToken.None);
+
+        Assert.That(prepared, Is.EqualTo(new[] { "PXD000962" }));
+        // The datarepo of the engine's own release takes --json, a source-built pair (0.0.0-dev) included (dataRepo 149).
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")),
+            Does.Contain($"  datarepo version: datarepo {engine}; ingest reads the --json envelope").And.Not.Contain("batch refused"));
+    }
+
+    // `batch status --machine` is the check of a new install before its swap: it makes the start's check, so a datarepo from
+    // another release is found before the old driver is stopped. `dotnet --version` stands in for a program that is not datarepo.
+    [Test]
+    public async Task BatchStatusWithTheMachineFileRefusesADatarepoFromAnotherRelease()
+    {
+        var (_, _, _, dir) = Runner("", "datarepo = 'dotnet'\n");
+        string q = Path.Combine(dir, "question.toml"), m = Path.Combine(dir, "machine.toml");
+        async Task<(int Exit, System.Text.Json.JsonElement Envelope)> Status(params string[] extra)
+        {
+            var sw = new StringWriter();
+            int rc = await Program.RunAsync(new[] { "batch", "status", q, "--profiles", TestSupport.ProfilesDir }.Concat(extra).ToArray(), sw, CancellationToken.None);
+            return (rc, System.Text.Json.JsonDocument.Parse(sw.ToString()).RootElement.Clone());
+        }
+
+        var (exit, envelope) = await Status("--machine", m);
+        Assert.That(exit, Is.EqualTo(Cli.Envelope.ExitUsage), envelope.ToString());
+        Assert.That(envelope.GetProperty("error").GetProperty("message").GetString(),
+            Does.StartWith("machine.toml: datarepo dotnet reports ").And.Contain("this engine is pxreprise").And.Contain("same PXReprise release"));
+
+        (exit, envelope) = await Status();
+        Assert.That(exit, Is.Zero, "without the machine file there is nothing to check");
+        Assert.That(envelope.GetProperty("data").TryGetProperty("datarepo", out _), Is.False);
+
+        // A program that cannot be started has no version to compare: its ingest fails and says so, as before.
+        File.WriteAllText(m, File.ReadAllText(m).Replace("datarepo = 'dotnet'", "datarepo = 'no-such-datarepo-program'"));
+        (exit, envelope) = await Status("--machine", m);
+        Assert.That(exit, Is.Zero, envelope.ToString());
+        Assert.That(envelope.GetProperty("data").GetProperty("datarepo").GetString(), Is.Not.Empty);
     }
 
     private sealed class FakeFiles : IPrideFiles

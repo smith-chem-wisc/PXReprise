@@ -689,36 +689,25 @@ public static class Identifications
         return groups.Contains(candidate) ? candidate : null;
     }
 
-    /// <summary>A search's confidence rule (D55; schema 0.0.17's <c>datasets.confidence_rule</c>) and what decided it.</summary>
+    /// <summary>What mzLib's whole-search PEP test makes of a search's target PSMs (<see cref="ChooseConfidence"/>).</summary>
     /// <param name="Tier">mzLib's tier for the whole search.</param>
     /// <param name="TargetPsms">How many target PSMs it was decided from.</param>
     /// <param name="PepQValueInRange">Whether any target PSM's PEP q-value is in [0, 1].</param>
     /// <param name="NotchQValueInRange">Whether any target PSM's notch q-value is in [0, 1].</param>
     /// <param name="SolePep">The one PEP every target PSM carries, when they carry one value only (PEP not trained);
     /// otherwise null.</param>
-    public sealed record ConfidenceChoice(QuantifiedPsmTier Tier, long TargetPsms, bool PepQValueInRange, bool NotchQValueInRange, double? SolePep)
-    {
-        /// <summary>The <c>ConfidenceRule</c> value: the column the rule reads.</summary>
-        public string Rule => RuleName(Tier);
-    }
+    public sealed record ConfidenceChoice(QuantifiedPsmTier Tier, long TargetPsms, bool PepQValueInRange, bool NotchQValueInRange, double? SolePep);
 
-    /// <summary>The schema's <c>ConfidenceRule</c> value for an mzLib tier: the name of the column it reads.</summary>
-    public static string RuleName(QuantifiedPsmTier tier) => tier switch
-    {
-        QuantifiedPsmTier.PepQValue => "pep_q_value",
-        QuantifiedPsmTier.QValueNotch => "q_value_notch",
-        _ => "q_value",
-    };
-
-    /// <summary>Which q-value the search's 1% rule reads, decided once for the whole search by mzLib's
-    /// <see cref="QuantifiedPsmRule.ChooseTier"/> over its target PSMs (D55, the user 2026-11-11).</summary>
+    /// <summary>mzLib's <see cref="QuantifiedPsmRule.ChooseTier"/> over a search's target PSMs. It no longer chooses the
+    /// 1% rule (D78 replaced D55: the rule is the search's own filter, <see cref="RuleOf"/>). It is kept for one question
+    /// the filter cannot answer: under the PEP q-value filter, whether the search's PEP training failed as a whole
+    /// (<see cref="PepIsUsable"/>).</summary>
     /// <remarks>
-    /// <para>Target PSMs only, PEPs included, as ptmQtl's S7 decides it (<c>PtmQtlBundle.Tiers</c>), so the two can never
-    /// put one search on different rules. mzLib's own comment asks for every match's PEP, decoys included; on every
-    /// served deposit the two give the same tier.</para>
-    /// <para>The values are reduced to what the rule reads before it is called, as S7 does: whether any PEP q-value or
-    /// notch q-value is a probability, and up to two distinct finite PEPs. A row's own PEP q-value never decides:
-    /// PXD058775 trained no PEP and still wrote 229 target rows at or below 1% in <c>PEP_QValue</c>.</para>
+    /// <para>Target PSMs only, PEPs included, as ptmQtl's S7 reads them for the same question (<c>PtmQtlBundle.Filter</c>,
+    /// ptmQtl D82). mzLib's own comment asks for every match's PEP, decoys included; on every served deposit the two give
+    /// the same tier. The values are reduced to what the rule reads before it is called: whether any PEP q-value or notch
+    /// q-value is a probability, and up to two distinct finite PEPs. A row's own PEP q-value never decides: PXD058775
+    /// trained no PEP and still wrote 229 target rows at or below 1% in <c>PEP_QValue</c>.</para>
     /// </remarks>
     public static ConfidenceChoice ChooseConfidence(IEnumerable<IReadOnlyDictionary<string, object?>> psmRows)
     {
@@ -738,19 +727,86 @@ public static class Identifications
         return new ConfidenceChoice(tier, targets, pepQ, notch, peps.Count == 1 ? peps[0] : null);
     }
 
-    /// <summary>Whether a peptidoform row passes <paramref name="tier"/> at 1%: the value it names is strictly below
-    /// 0.01, as mzLib's <see cref="QuantifiedPsmRule.PassesConfidence"/> has it. A row with no value for it fails.</summary>
-    public static bool PassesConfidence(QuantifiedPsmTier tier, IReadOnlyDictionary<string, object?> peptidoform) =>
-        QuantifiedPsmRule.PassesConfidence(tier,
-            peptidoform.GetValueOrDefault("best_q_value") as double? ?? double.NaN,
-            peptidoform.GetValueOrDefault("best_q_value_notch") as double?,
-            peptidoform.GetValueOrDefault("best_pep_q_value") as double?);
+    /// <summary>Whether a search's PEP training failed as a whole, by mzLib's test (<see cref="QuantifiedPsmRule.PepIsUsable"/>
+    /// through <see cref="ChooseConfidence"/>): false when no target PSM has a PEP q-value in [0, 1], or every one
+    /// carries the same PEP.</summary>
+    public static bool PepIsUsable(IEnumerable<IReadOnlyDictionary<string, object?>> psmRows) =>
+        ChooseConfidence(psmRows).Tier == QuantifiedPsmTier.PepQValue;
 
-    /// <summary>Whether a peptidoform row passes the q-value rule <c>peptidoforms_1pct</c> held up to datarepo 1.4.5:
-    /// <c>best_q_value</c> at or below 0.01, and <c>best_q_value_notch</c> too where there is one.</summary>
-    public static bool PassesQValueRule(IReadOnlyDictionary<string, object?> peptidoform) =>
-        peptidoform.GetValueOrDefault("best_q_value") is double q && q <= ProducerThreshold
-        && (peptidoform.GetValueOrDefault("best_q_value_notch") is not double notch || notch <= ProducerThreshold);
+    // --- the search's own 1% rule (D78, PXR-R81) --------------------------------------------------------------------
+
+    /// <summary><c>ConfidenceRule</c> values (<c>datasets.confidence_rule</c>, <c>peptidoform_ions.selected_by</c>). Each
+    /// names one row test (<see cref="PassesRule"/>), at or below the threshold as the search cuts.</summary>
+    public const string RuleQValueAndNotch = "q_value_and_notch", RuleQValue = "q_value", RuleQValueNotch = "q_value_notch",
+        RulePepQValue = "pep_q_value", RulePepQValueOrNotch = "pep_q_value_or_notch";
+
+    /// <summary>Every <c>ConfidenceRule</c> value, in the schema's order.</summary>
+    public static readonly IReadOnlyList<string> RuleValues = [RuleQValueAndNotch, RuleQValueNotch, RuleQValue, RulePepQValue, RulePepQValueOrNotch];
+
+    /// <summary>
+    /// A search's 1% rule: the identification filter its results.txt names (<see cref="FilterOf(string?, string?, bool?)"/>),
+    /// read as MetaMorpheus applies it (D78, the user 2026-11-22: "just setting the one notch filter in the search should
+    /// accomplish everything ideally"). It replaces D55's choice by mzLib's <c>ChooseTier</c>.
+    /// </summary>
+    /// <param name="training">Under the PEP q-value filter, for how many target matches at the level the rule serves PEP
+    /// was trained (<see cref="PepTrainingOf"/>). MetaMorpheus judges a trained match by its PEP q-value and the others by
+    /// their notch, so the training decides the row test. Ignored under the other filters.</param>
+    public static string RuleOf(ProducerFilter filter, PepTraining training = PepTraining.Every) => filter switch
+    {
+        ProducerFilter.QValue => RuleQValue,
+        ProducerFilter.QValueNotch => RuleQValueNotch,
+        ProducerFilter.PepQValue => training switch
+        {
+            PepTraining.Every => RulePepQValue,
+            PepTraining.None => RuleQValueNotch,
+            _ => RulePepQValueOrNotch,
+        },
+        _ => RuleQValueAndNotch,
+    };
+
+    /// <summary>Whether a row passes <paramref name="rule"/>: the search's own test, at or below
+    /// <paramref name="threshold"/> as MetaMorpheus cuts. It is <see cref="ProducerCounts"/>' per-row test, without the notch
+    /// clauses: those are PSM rules (<see cref="PsmPassesSql"/> adds the one the stored columns allow). A rule this does not
+    /// name passes nothing.</summary>
+    /// <param name="q">The row's q-value (<c>q_value</c>, or a peptidoform's <c>best_q_value</c>).</param>
+    /// <param name="notch">Its notch q-value, or null where there is none.</param>
+    /// <param name="pepQ">Its PEP q-value, or null.</param>
+    public static bool PassesRule(string? rule, double? q, double? notch, double? pepQ, double threshold = ProducerThreshold) => rule switch
+    {
+        RuleQValueAndNotch => q is { } v && v <= threshold && (notch is null || notch <= threshold),
+        RuleQValue => q is { } v && v <= threshold,
+        RuleQValueNotch => (notch ?? q) is { } v && v <= threshold,
+        RulePepQValue => pepQ is { } v && v >= 0 && v <= threshold,
+        RulePepQValueOrNotch => (pepQ is { } p && p is >= 0 and <= 1 ? p : notch ?? q) is { } v && v <= threshold,
+        _ => false,
+    };
+
+    /// <summary><see cref="PassesRule"/> over a peptidoform row (<c>best_q_value</c>, <c>best_q_value_notch</c>,
+    /// <c>best_pep_q_value</c>).</summary>
+    public static bool PassesRule(string? rule, IReadOnlyDictionary<string, object?> peptidoform) =>
+        PassesRule(rule, peptidoform.GetValueOrDefault("best_q_value") as double?,
+            peptidoform.GetValueOrDefault("best_q_value_notch") as double?, peptidoform.GetValueOrDefault("best_pep_q_value") as double?);
+
+    /// <summary><see cref="PassesRule"/> as SQL: <c>coalesce(&lt;test&gt;, false)</c>, so a NULL value fails. The caller
+    /// adds the target test.</summary>
+    /// <param name="columnPrefix">Prefixed to <c>q_value</c>, <c>q_value_notch</c> and <c>pep_q_value</c>: <c>""</c> over
+    /// <c>psms</c>, <c>"best_"</c> over <c>peptidoforms</c>, with any table alias (<c>"p.best_"</c>).</param>
+    /// <param name="threshold">The threshold as SQL text: a number, or a placeholder the caller replaces (<c>{t}</c>).</param>
+    public static string PassesRuleSql(string rule, string columnPrefix = "", string? threshold = null)
+    {
+        var t = threshold ?? ProducerThreshold.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+        string q = columnPrefix + "q_value", notch = columnPrefix + "q_value_notch", pep = columnPrefix + "pep_q_value";
+        var test = rule switch
+        {
+            RuleQValueAndNotch => $"({q} <= {t} AND ({notch} IS NULL OR {notch} <= {t}))",
+            RuleQValue => $"{q} <= {t}",
+            RuleQValueNotch => $"coalesce({notch}, {q}) <= {t}",
+            RulePepQValue => $"({pep} >= 0 AND {pep} <= {t})",
+            RulePepQValueOrNotch => $"(CASE WHEN {pep} BETWEEN 0 AND 1 THEN {pep} ELSE coalesce({notch}, {q}) END) <= {t}",
+            _ => "false",
+        };
+        return $"coalesce({test}, false)";
+    }
 
     /// <summary>How many PSMs support each peptidoform, for <c>Peptidoform.n_psms</c>.</summary>
     public static Dictionary<string, long> PsmCountsByPeptidoform(IEnumerable<IReadOnlyDictionary<string, object?>> rows)
@@ -771,18 +827,54 @@ public static class Identifications
         return text.Length == 0 ? null : text.Contains(NotchSeparator);
     }
 
-    /// <summary>Counts target matches the way the producing search engine counts them: target,
-    /// <c>q_value &lt;= threshold</c> and <c>q_value_notch &lt;= threshold</c>, plus, for PSMs only, a notch that
-    /// resolved.</summary>
-    /// <remarks><b>The notch clause is a PSM rule and must not be carried to peptidoforms</b>: on PXD032202 the
-    /// producer's peptide count agrees with the un-clause number exactly.</remarks>
+    /// <summary>Does a psmtsv cell hold several values, joined with <c>|</c> as MetaMorpheus joins a match's candidates'?</summary>
+    private static bool SeveralValues(object? raw) => NotchAmbiguous(raw) == true;
+
+    /// <summary>
+    /// Counts target matches the way the producing search engine counts them, under its identification filter: target,
+    /// and the filter's value <c>&lt;= threshold</c>. Under <see cref="ProducerFilter.QValueAndNotch"/> (every MetaMorpheus
+    /// up to 1.1.14) that is <c>q_value</c> and <c>q_value_notch</c> both, and, for PSMs only, a notch that resolved.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The notch clauses are PSM rules, and differ by filter.</b> None is ever carried to peptidoforms: on PXD032202
+    /// the producer's peptide count agrees with the un-clause number exactly, and so does every 1.1.15 trial arm's.
+    /// <list type="bullet">
+    /// <item>Under <see cref="ProducerFilter.QValueAndNotch"/>, a notch-ambiguous match is left out. On eight served 1.1.11
+    /// and 1.1.12 searches (2026-11-21) that reproduces results.txt's PSM count exactly, with 1 to 124 such matches
+    /// each.</item>
+    /// <item>Where 1.1.15 judges a match by its notch (<see cref="ProducerFilter.QValueNotch"/>, and the PEP q-value where
+    /// PEP was not trained), only a match whose own candidates sat at different notches with different full sequences is
+    /// left out: MetaMorpheus sets each candidate's notch q-value but leaves the match's at its default, 2
+    /// (<c>FdrAnalysisEngine.QValueInverted</c>; <c>SpectralMatch.ResolveAllAmbiguities</c> resolves it only when every
+    /// candidate's notch q-value is the same), while the psmtsv prints the best candidate's. The psmtsv shows it as a
+    /// <c>Notch</c> and a <c>Mass Diff (Da)</c> that both hold several values. A match that became notch-ambiguous only at
+    /// parsimony keeps its notch q-value and counts. On the three 1.1.15 notch arms (PXD031782, PXD019690, PXD007683;
+    /// PXReprise's trial, review of smith #42) this gives 64,457, 34,044 and 104,274 exactly. No clause gave PXD031782 8
+    /// over, and the notch alone 2 short.</item>
+    /// <item>Under the pooled q-value, and the PEP q-value where PEP was trained, no clause: 1.1.15 counts every
+    /// notch-ambiguous match (<c>TargetPsmsAboveThreshold</c> over a list filtered with <c>includeAmbiguous: true</c>).
+    /// On PXD058082's filter trial (2026-11-18, #2982's builds) the filter's own column reproduces results.txt exactly:
+    /// 42,392 (notch) and 52,778 (PEP q-value). PXD031782's trained PEP arm (84,532) includes the matches the notch arm
+    /// leaves out.</item>
+    /// </list></para>
+    /// <para><b>Under the PEP q-value, whether PEP was trained is the search's, never the row's</b> (<paramref name="pepTraining"/>).
+    /// MetaMorpheus judges a match by its PEP q-value where PEP was trained for it and by its notch where it was not
+    /// (<c>FilteredPsms.Value</c>), and the psmtsv does not say which. A trained match can still read PEP q-value 2 and fail:
+    /// on the trial's PEP arm one such peptide passes on its notch, and the per-row reading counted it (6,773, against
+    /// results.txt's 6,772).</para>
+    /// </remarks>
+    /// <param name="pepTraining">Under <see cref="ProducerFilter.PepQValue"/>, whether PEP was trained for the target
+    /// matches at this level (<see cref="PepTrainingOf"/>). Ignored under the other filters.</param>
     public static long ProducerCounts(
-        IReadOnlyDictionary<string, List<object?>> columns, double threshold = ProducerThreshold, bool requireResolvedNotch = true)
+        IReadOnlyDictionary<string, List<object?>> columns, double threshold = ProducerThreshold, bool requireResolvedNotch = true,
+        ProducerFilter filter = ProducerFilter.QValueAndNotch, PepTraining pepTraining = PepTraining.Every)
     {
         var n = Length(columns, "q_value");
         var qs = columns.TryGetValue("q_value", out var c) ? c : [];
         var notches = Get(columns, "q_value_notch", n);
+        var peps = Get(columns, "pep_q_value", n);
         var rawNotches = Get(columns, "notch", n);
+        var massDiffs = Get(columns, "mass_diff_da", n);
         var status = Get(columns, "decoy_contam_target", n, "");
         long total = 0;
         for (var i = 0; i < n; i++)
@@ -790,11 +882,121 @@ public static class Identifications
             if ((IsFalsy(status[i]) ? "" : PyFormat.Str(status[i]!)).Trim() != "T") continue;
             var q = Float(qs[i]);
             var notch = Float(notches[i]);
-            if (q is null || q > threshold) continue;
-            if (notch is not null && notch > threshold) continue;
-            if (requireResolvedNotch && NotchAmbiguous(rawNotches[i]) == true) continue;
+            // Whether 1.1.15 judges this match by its notch q-value: the notch filter, and the PEP q-value where PEP was
+            // not trained for it (for some: a PEP q-value outside [0, 1], as below).
+            bool judgedByNotch = filter switch
+            {
+                ProducerFilter.QValueNotch => true,
+                ProducerFilter.PepQValue => pepTraining switch
+                {
+                    PepTraining.Every => false,
+                    PepTraining.None => true,
+                    _ => !(Float(peps[i]) is >= 0 and <= 1),
+                },
+                _ => false,
+            };
+            bool passes = filter switch
+            {
+                ProducerFilter.QValue => q is not null && q <= threshold,
+                ProducerFilter.QValueNotch => (notch ?? q) is { } v && v <= threshold,
+                ProducerFilter.PepQValue => pepTraining switch
+                {
+                    // Trained for every match: its PEP q-value alone, so a 2 ("not computed") fails. A negative value is
+                    // none MetaMorpheus writes, and is no value.
+                    PepTraining.Every => Float(peps[i]) is { } pq && pq >= 0 && pq <= threshold,
+                    // Trained for none: MetaMorpheus judges every match by its notch.
+                    PepTraining.None => (notch ?? q) is { } v && v <= threshold,
+                    // Trained for some, and the psmtsv does not say which: a PEP q-value in [0, 1] is taken as trained,
+                    // anything else is judged by the notch. Approximate; the reconciliation's note says so.
+                    _ => (Float(peps[i]) is { } pq && pq is >= 0 and <= 1 ? pq : notch ?? q) is { } v && v <= threshold,
+                },
+                _ => q is not null && q <= threshold && (notch is null || notch <= threshold),
+            };
+            if (!passes) continue;
+            if (requireResolvedNotch && filter == ProducerFilter.QValueAndNotch && NotchAmbiguous(rawNotches[i]) == true) continue;
+            if (requireResolvedNotch && judgedByNotch && SeveralValues(rawNotches[i]) && SeveralValues(massDiffs[i])) continue;
             total++;
         }
         return total;
     }
+
+    /// <summary>
+    /// <see cref="ProducerCounts"/>'s PSM test as SQL over a bundle's <c>psms</c> row: whether the search's own
+    /// identification filter keeps the match, with the filter's value <c>&lt;= threshold</c>. The caller says which rows
+    /// are targets. A NULL value fails.
+    /// </summary>
+    /// <remarks>
+    /// <para>Under <see cref="ProducerFilter.QValueAndNotch"/> it is <c>psms_1pct</c>'s predicate, the notch-ambiguous
+    /// clause included (the bundle's <c>notch_ambiguous</c> is <see cref="NotchAmbiguous"/> of the psmtsv's notch).</para>
+    /// <para>1.1.15's clause for a match judged by its notch (a <c>Notch</c> and a <c>Mass Diff (Da)</c> that both hold
+    /// several values) is not applied: <c>psms</c> stores no mass difference. It concerns a match whose candidates have
+    /// different full sequences, which a match at ambiguity level 1 does not have.</para>
+    /// <para>It is the bundle's 1% rule (D78, <see cref="RuleOf"/> and <see cref="PassesRuleSql"/>) with the PSM clause
+    /// added, so ptmQtl's S7, <c>peptidoforms_1pct</c> and <c>peptidoform_ions</c> rest on one predicate.</para>
+    /// </remarks>
+    /// <param name="pepTraining">Under <see cref="ProducerFilter.PepQValue"/>, whether PEP was trained for the search's
+    /// target PSMs (<see cref="PepTrainingOf"/>). Ignored under the other filters.</param>
+    public static string PsmPassesSql(ProducerFilter filter, PepTraining pepTraining = PepTraining.Every, double threshold = ProducerThreshold)
+    {
+        var passes = PassesRuleSql(RuleOf(filter, pepTraining), "", threshold.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+        return filter == ProducerFilter.QValueAndNotch ? $"coalesce({passes} AND coalesce(notch_ambiguous, false) = false, false)" : passes;
+    }
+
+    /// <summary>
+    /// The filter a search's counts follow, from the filter its results.txt count lines name (<paramref name="named"/>)
+    /// and the MetaMorpheus release that wrote them. "q-value" is the q-value AND notch rule up to 1.1.14, and the pooled
+    /// q-value alone from 1.1.15 (#2989), so a commit pin, which names no release, keeps the older rule. No named filter
+    /// (a search before the count lines named one, or no results.txt) is the older rule too.
+    /// </summary>
+    public static ProducerFilter FilterOf(string? named, string? metamorpheusRelease) => FilterOf(named, metamorpheusRelease, null);
+
+    /// <summary>As <see cref="FilterOf(string?, string?)"/>, with the FDR engine line's wording
+    /// (<see cref="ResultsTxtFilter.FdrEngineLineNamesFilter"/>) deciding what a bare "q-value" means wherever results.txt has
+    /// that line. The wording does not depend on how the release was written: "v1.1.15", "1.1.15-rc" or a commit pin after
+    /// #2989 fail <see cref="Version.TryParse(string?, out Version?)"/>, and would read as the older rule.</summary>
+    public static ProducerFilter FilterOf(string? named, string? metamorpheusRelease, bool? fdrEngineLineNamesFilter) => named switch
+    {
+        "pep q-value" => ProducerFilter.PepQValue,
+        "q-value notch" => ProducerFilter.QValueNotch,
+        "q-value" when fdrEngineLineNamesFilter ?? (Version.TryParse(metamorpheusRelease, out var v) && v >= new Version(1, 1, 15))
+            => ProducerFilter.QValue,
+        _ => ProducerFilter.QValueAndNotch,
+    };
+
+    /// <summary>Whether PEP was trained for a search's target matches at one level, under the PEP q-value filter.</summary>
+    /// <param name="sentenceAbove">results.txt has MetaMorpheus's "PEP filtering was requested, but ..." sentence above
+    /// this level's dataset-wide count (<see cref="ResultsTxtFilter.PepNotTrained"/>): some or all of its matches were
+    /// judged by the notch.</param>
+    /// <param name="pepUsable">mzLib's whole-search test (<see cref="QuantifiedPsmRule.PepIsUsable"/>, as
+    /// <see cref="ChooseConfidence"/> applies it) passes: some PEP q-value is in [0, 1] and the PEPs are not all one value.
+    /// It fails on a search too small to train (every PEP q-value 2) and on one whose training failed (every PEP 0).</param>
+    public static PepTraining PepTrainingOf(bool sentenceAbove, bool pepUsable) =>
+        !sentenceAbove ? PepTraining.Every : pepUsable ? PepTraining.Some : PepTraining.None;
+}
+
+/// <summary>The identification filter a search's own counts follow (MetaMorpheus's <c>IdentificationFilter</c>).</summary>
+public enum ProducerFilter
+{
+    /// <summary><c>q_value</c> and <c>q_value_notch</c> both: every MetaMorpheus up to 1.1.14.</summary>
+    QValueAndNotch,
+    /// <summary><c>q_value_notch</c> alone (1.1.15's "q-value notch").</summary>
+    QValueNotch,
+    /// <summary><c>q_value</c> alone (1.1.15's "q-value", the pooled q-value).</summary>
+    QValue,
+    /// <summary><c>pep_q_value</c> where PEP was trained, else <c>q_value_notch</c> (1.1.15's "pep q-value").</summary>
+    PepQValue,
+}
+
+/// <summary>Under the PEP q-value filter, for how many of a search's target matches at one level PEP was trained. MetaMorpheus
+/// records it per match (<c>FdrInfo.PepTrained</c>, set per digestion agent and cleavage-specificity category) and writes it
+/// to no psmtsv column, so the ingest reads it from results.txt (<see cref="Identifications.PepTrainingOf"/>).</summary>
+public enum PepTraining
+{
+    /// <summary>Every match: no "PEP filtering was requested, but ..." sentence above the level's count.</summary>
+    Every,
+    /// <summary>None: the sentence is there, and the search's PEP is not usable at all.</summary>
+    None,
+    /// <summary>Some: the sentence is there, but the search's PEP is usable, so one agent or category trained and another
+    /// did not. Which rows were which is not recorded.</summary>
+    Some,
 }

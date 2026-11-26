@@ -11,6 +11,16 @@ using Readers;
 
 namespace PXReprise.Ingest;
 
+/// <summary>What a results.txt says about the identification filter its counts were taken with.</summary>
+/// <param name="Named">The filter the first dataset-wide count line names (<c>pep q-value</c>, <c>q-value notch</c> or
+/// <c>q-value</c>), or null when none does.</param>
+/// <param name="FdrEngineLineNamesFilter">True when the FDR engine's line names the filter (<c>PSMs with q-value &lt;= 0.01:</c>,
+/// MetaMorpheus 1.1.15 on), false when it reads <c>PSMs within 1% FDR:</c> (up to 1.1.14), null when there is no such line.</param>
+/// <param name="PepNotTrained">The dataset-wide counts (<c>psms</c>, <c>peptides</c>) whose line has MetaMorpheus's "PEP
+/// filtering was requested, but ..." sentence just above it: PEP was not trained for some or all of the target matches
+/// at that level, and those were judged by the notch.</param>
+public sealed record ResultsTxtFilter(string? Named, bool? FdrEngineLineNamesFilter, IReadOnlySet<string> PepNotTrained);
+
 /// <summary>Which backend read which file, for the bundle manifest's <c>readers</c> block.</summary>
 public sealed class ReaderLog
 {
@@ -510,17 +520,36 @@ public static class Readers
         }
     }
 
+    // MetaMorpheus 1.1.15 (#2982, #2989) names the search's identification filter on each count line, and prints its
+    // threshold as set: "All target PSMs with pep q-value <= 0.01: N", "... with q-value notch <= 0.01: N". Up to 1.1.14
+    // the filter was "q-value" (a q-value AND notch rule) and the threshold was rounded to two places.
+    private const string ResultsFilterPattern =
+        @"with (?<filter>pep q-value|q-value notch|q-value) <= (?<t>\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)";
+
     private static readonly Regex ResultsTotal = new(
-        @"^All target (?<what>\w+(?: \w+)*) with q-value <= 0\.01.*?:\s*(?<n>\d+)", RegexOptions.CultureInvariant);
+        @"^All target (?<what>\w+(?: \w+)*) " + ResultsFilterPattern + @".*?:\s*(?<n>\d+)", RegexOptions.CultureInvariant);
 
     private static readonly Regex ResultsPerFile = new(
-        @"^(?<run>\S+) - Target (?<what>\w+(?: \w+)*) with q-value <= 0\.01.*?:\s*(?<n>\d+)", RegexOptions.CultureInvariant);
+        @"^(?<run>\S+) - Target (?<what>\w+(?: \w+)*) " + ResultsFilterPattern + @".*?:\s*(?<n>\d+)", RegexOptions.CultureInvariant);
+
+    /// <summary>The threshold of the counts read: only a count at 0.01 is a 1% count.</summary>
+    private const double ResultsThreshold = 0.01;
 
     private static readonly Regex ResultsScans = new(
         @"^(?:(?<run>\S+) - )?All (?<what>MS2 Scans|Precursors):\s*(?<n>\d+)", RegexOptions.CultureInvariant);
 
     private static readonly Regex ResultsScansPerFile = new(
         @"^(?<run>\S+) - (?<what>MS2 Scans|Precursors):\s*(?<n>\d+)", RegexOptions.CultureInvariant);
+
+    // MetaMorpheus 1.1.15 (FilteredPsms.PepNotTrainedSentence): under the PEP q-value filter, when PEP was not trained for
+    // some target matches at one level, the line just above that level's count line says how many, by digestion agent,
+    // and that they were judged by the notch instead (PostSearchAnalysisTask.WithPepFilteringNotDone).
+    private static readonly Regex ResultsPepNotDone = new(@"^PEP filtering was requested, but ", RegexOptions.CultureInvariant);
+
+    // The FDR engine's own line (FdrAnalysisResults): "PSMs within 1% FDR: N" up to 1.1.14, "PSMs with <filter> <= t: N"
+    // from 1.1.15, so it says which wording the count lines were written in without the release string.
+    private static readonly Regex ResultsFdrEngine = new(@"^PSMs (?:(?<within>within 1% FDR)|" + ResultsFilterPattern + @"):\s*\d+",
+        RegexOptions.CultureInvariant);
 
     /// <summary>Pulls the counted totals out of MetaMorpheus's free-text <c>results.txt</c>.</summary>
     /// <remarks>
@@ -529,28 +558,66 @@ public static class Readers
     /// own log line that older provenance records as <c>psms_1pct</c>.
     /// </remarks>
     /// <returns><c>{scope: {name: count}}</c> where scope is <c>""</c> for dataset-wide totals or the run name.</returns>
-    public static Dictionary<string, Dictionary<string, long>> ReadResultsTxt(string path, ReaderLog? log = null)
+    public static Dictionary<string, Dictionary<string, long>> ReadResultsTxt(string path, ReaderLog? log = null) =>
+        ReadResultsTxtAndFilter(path, out ResultsTxtFilter _, log);
+
+    /// <summary>As <see cref="ReadResultsTxt(string, ReaderLog?)"/>, and the identification filter the counts were taken
+    /// with, as the first dataset-wide count line names it (<c>pep q-value</c>, <c>q-value notch</c> or <c>q-value</c>),
+    /// or null when no count line names one. A count at another threshold than 0.01 is not read.</summary>
+    public static Dictionary<string, Dictionary<string, long>> ReadResultsTxt(string path, out string? filter, ReaderLog? log = null)
     {
+        var output = ReadResultsTxtAndFilter(path, out ResultsTxtFilter read, log);
+        filter = read.Named;
+        return output;
+    }
+
+    /// <summary>As <see cref="ReadResultsTxt(string, out string?, ReaderLog?)"/>, with everything else results.txt says
+    /// about its filter: the FDR engine line's wording, and which dataset-wide counts the PEP q-value filter took partly
+    /// or wholly by the notch because PEP was not trained.</summary>
+    public static Dictionary<string, Dictionary<string, long>> ReadResultsTxtAndFilter(string path, out ResultsTxtFilter filter, ReaderLog? log = null)
+    {
+        string? named = null;
+        bool? engineLineNamesFilter = null;
+        var pepNotTrained = new HashSet<string>(StringComparer.Ordinal);
+        bool pepSentenceAbove = false;
         var output = new Dictionary<string, Dictionary<string, long>>(StringComparer.Ordinal);
         string text = PyText.DecodeUtf8Sig(File.ReadAllBytes(path), strict: false);
         foreach (string raw in PyText.SplitLines(text))
         {
             string line = PyText.Strip(raw);
+            if (ResultsPepNotDone.IsMatch(line))
+            {
+                pepSentenceAbove = true;
+                continue;
+            }
+            if (engineLineNamesFilter is null && ResultsFdrEngine.Match(line) is { Success: true } engine)
+                engineLineNamesFilter = !engine.Groups["within"].Success;
+            bool sentenceAbove = pepSentenceAbove;
+            pepSentenceAbove = false;
             foreach (Regex pattern in (Regex[])[ResultsPerFile, ResultsTotal, ResultsScansPerFile, ResultsScans])
             {
                 Match m = pattern.Match(line);
                 if (!m.Success)
                     continue;
+                if (m.Groups["t"].Success)
+                {
+                    if (!double.TryParse(m.Groups["t"].Value, System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out double t) || Math.Abs(t - ResultsThreshold) > 1e-12)
+                        break;
+                    if (pattern == ResultsTotal) named ??= m.Groups["filter"].Value;
+                }
                 Group run = m.Groups["run"];
                 string scope = PyText.Strip(run.Success ? run.Value : "");
                 string name = PyText.Strip(m.Groups["what"].Value).ToLowerInvariant().Replace(" ", "_");
                 if (!output.TryGetValue(scope, out var counts))
                     output[scope] = counts = new Dictionary<string, long>(StringComparer.Ordinal);
                 counts[name] = PyText.ParseDecimalDigits(m.Groups["n"].Value);
+                if (pattern == ResultsTotal && sentenceAbove) pepNotTrained.Add(name);
                 break;
             }
         }
         log?.Record(path, "datarepo-text", output.Values.Sum(v => (long)v.Count));
+        filter = new ResultsTxtFilter(named, engineLineNamesFilter, pepNotTrained);
         return output;
     }
 

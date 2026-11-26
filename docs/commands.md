@@ -113,7 +113,7 @@ Reads each deposit's protease, cysteine alkylation and label, without downloadin
 
 ```
 pxreprise batch run    question.toml --machine my-machine.toml
-pxreprise batch status question.toml
+pxreprise batch status question.toml [--machine my-machine.toml]
 pxreprise batch stop   question.toml
 pxreprise batch retry  question.toml PXD000000 --reason "why"
 pxreprise batch research question.toml PXD000000 --reason "why" [--profile label-free-dda@14]
@@ -122,8 +122,12 @@ pxreprise batch restrictions question.toml [--manifest copy.yaml] [--write]
 
 - `run` works through the queue, one deposit at a time, until the queue is done, the disk is full, or it is stopped.
   Run it again at any time: deposits already settled are skipped, and it carries on where it stopped. Each downloaded
-  file is logged as it finishes, and each retry with its error.
+  file is logged as it finishes, and each retry with its error. A machine file whose `datarepo` is from another
+  PXReprise release than the engine stops it at its start, before any deposit, with both versions named: one release
+  holds both programs, under one version.
 - `status` counts the deposits by status (see [Reading the results](results.md)) and shows whether a batch is running.
+  With `--machine` it also makes the start's datarepo check, and refuses as the start would, so a new install can be
+  checked before a running batch is stopped.
 - `stop` asks a running batch to start no new search, finish the searches under way, then exit. Meanwhile it keeps
   downloading the next deposits; the next `run` checks those files instead of downloading them again, and searches
   them first. A download still under way when the last search ends is cut and taken up again by the next `run`.
@@ -231,10 +235,12 @@ For testing a stage by hand. The batch runs all of these for you.
 
 | Command | Does |
 |---|---|
-| `pxreprise fetch PXD012345 --out folder --machine m.toml` | Downloads one deposit's raw files, verified. `--pick` (`all`, `probe_spread`, `median_size` or `first_by_name`), `--max-files`, `--max-file-mb`, `--parallel` and `--attempts` adjust it. |
+| `pxreprise fetch PXD012345 --out folder --machine m.toml` | Downloads one deposit's raw files, verified. `--pick` (`all`, `probe_spread`, `median_size` or `first_by_name`), `--max-files`, `--max-file-mb`, `--parallel` and `--attempts` adjust it. `--include` and `--exclude` choose the files to download as a question's `include_files` and `exclude_files` do (case-insensitive regular expressions on the file name); files left out are never downloaded, and the fetch provenance records the selection. |
 | `pxreprise qc --spectra folder --out folder --profile label-free-dda-uniprot@1 --machine m.toml` | Checks raw files against the profile's quality gates. |
-| `pxreprise search --spectra folder --qc folder --out folder --organism human --profile label-free-dda@2 --machine m.toml` | Runs the MetaMorpheus search on checked files. It takes only a profile with fixed chemistry: one that reads each deposit's chemistry, such as `label-free-dda-uniprot@1`, runs through `batch run`, which reads it first. With a profile that takes a design (`[quant] design = "sdrf"`), `--design PXD012345.sdrf.tsv` gives the SDRF to use, and `--condition-columns` the factor columns its condition is built from when it has several. `--enriched phospho,GG` names the PTM classes the deposit enriches (`phospho`, `acetylK`, `succinylK`, `GG`), as the batch reads them: their library spectra go to class chains, and a profile with `engine.enriched_variable` (`tmt-dda@3`) searches them as variable modifications. |
+| `pxreprise search --spectra folder --qc folder --out folder --organism human --profile label-free-dda@2 --machine m.toml` | Runs the MetaMorpheus search on checked files. It takes only a profile with fixed chemistry: one that reads each deposit's chemistry, such as `label-free-dda-uniprot@1`, runs through `batch run`, which reads it first. With a profile that takes a design (`[quant] design = "sdrf"`), `--design PXD012345.sdrf.tsv` gives the SDRF to use, and `--condition-columns` the factor columns its condition is built from when it has several. `--enriched phospho,GG` names the PTM classes the deposit enriches (`phospho`, `acetylK`, `succinylK`, `GG`), as the batch reads them: their library spectra go to class chains, and a profile with `engine.enriched_variable` (`tmt-dda@3`) searches them as variable modifications. `--probe-offsets offsets.json` gives a probe's measured precursor offsets (`{"run": 9.4}`, in ppm, the shape of a batch state entry's `probe_precursor_offsets_ppm`), so a profile whose window comes from the probe (`precursor_window = "probe"`, the ion-trap profiles) gets the window the batch would give it; without it, MetaMorpheus's own windows apply. |
 | `pxreprise qc-payload <search folder> <qc folder> <out folder> --accession PXD012345` | Builds the QC report from a finished search. |
+| `pxreprise differential --search <04_search folder> --out <06_differential folder>` | The differential abundance of a finished search: mzLib's analysis (QuantProject's `DEF-DIFF v1`) of every pair of the design's conditions. It runs on the tables the search wrote, so it also works on a search delivered before this version. A label-free search gets one analysis per match-between-runs basis (`msms_only`, and `mbr_kept` when the search transferred values); a TMT search gets one on the PSMs MetaMorpheus quantified. Each writes `DifferentialResults.tsv`, `DifferentialResults.metadata.json`, `DifferentialDecisions.tsv`, `StatisticalReport.md` and `DifferentialAssumptions.md`. Samples whose condition is `not available`, and files that lost every transfer, are listed in its `provenance.json`. A search it cannot analyse (one condition, no replicates, a design the runner refuses) is recorded there, not an error. `--sdrf corrected.sdrf.tsv` gives a TMT search a corrected SDRF, for example one that marks a pooled standard `pooled`. It is refused unless its design matches the search's in every column but `Sample Type`. `--threads N` limits the threads. The batch runs this as stage `06_differential` after each search, unless the machine file says `differential = false`. |
+| `pxreprise labels <deposit folder>... [--decisions decisions.tsv] [--out folder]` | Labels a searched deposit for ptmQtl (decision 0094), from what its folder records; it reads no spectra. Each run's sample type is `whole_proteome`, `ptm_capture`, `protein_pulldown` or `unknown`, from the screen's reading of the record's text checked against the probe search's phospho, GG and acetyl-K shares. The search's cysteine chemistry is `matches`, `mismatch` or `unknown`, from the reagent named, what the search assumed on C and the share of its 1% target peptides that contain C. Each label carries its sources, its evidence and a reason; where the text and the data disagree it is `unknown`. `--decisions` gives a person's decisions, a TSV with the columns `dataset`, `run` (a run, or `*` for every run), `label` (`sample_type` or `cysteine`), `value`, `target`, `by`, `date` and `reason`; they outrank the text and the data. Writes `labels.json` (schema `pxreprise-labels/1`) and its `provenance.json` to `07_labels` in the deposit's folder, or to `--out` (one folder per dataset when several deposits are given). With several deposits, one that has no search yet is listed under `failed`. The batch does not run it yet. |
 
 ## Information
 

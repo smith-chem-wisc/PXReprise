@@ -4,6 +4,28 @@ namespace PXReprise.Config;
 
 public enum DecisionVerdict { Include, Exclude }
 
+/// <summary>
+/// D96: where one trait's value per run comes from in the question's curated tables (<c>[traits.&lt;id&gt;]</c>), for
+/// ptmQtl's per-site trait fit. <see cref="DesignFactor"/> names a <c>curated_design_factors</c> factor (its
+/// <c>level_value</c>); <see cref="SampleValue"/> a per-sample <c>table.column</c>, which wins where both give one.
+/// <see cref="Scale"/> multiplies the value (0.1 turns years into decades), and <see cref="TraitId"/> names it in the
+/// file, so the unit travels with it (<c>age_decades</c>). <see cref="SampleExcludeWhen"/> are true/false columns of the
+/// sample table that leave a sample out (a range, a lower bound). <see cref="Covariates"/> are categorical: a
+/// <c>characteristics[...]</c> name from <c>curated_sample_characteristics</c>, or a <c>curated_run_design</c> column;
+/// with <see cref="CovariateFactorRole"/>, every other <c>curated_design_factors</c> factor of that role is one too. A
+/// factor of <see cref="StratumFactorRole"/> (a tissue) is never a covariate: its levels are fitted apart, so a deposit
+/// where one varies is left out until that fit is built. A covariate in <see cref="NeverDrop"/> (a batch) is never left
+/// out to get a fit: it is written whenever it has two levels, and a deposit where it is incomplete is left out.
+/// </summary>
+public sealed record TraitSource(string Id, string? DesignFactor, string? SampleValue, double Scale, IReadOnlyList<string> Covariates,
+    string? TraitIdOverride = null, IReadOnlyList<string>? SampleExcludeWhen = null, string? CovariateFactorRole = null,
+    string? StratumFactorRole = null, IReadOnlyList<string>? NeverDropCovariates = null)
+{
+    public string TraitId => TraitIdOverride ?? Id;
+    public IReadOnlyList<string> SampleExclusions => SampleExcludeWhen ?? [];
+    public IReadOnlyList<string> NeverDrop => NeverDropCovariates ?? [];
+}
+
 /// <summary>A hand call on one deposit, overriding the rules (a question's <c>decisions.tsv</c>).</summary>
 public sealed record Decision(string Accession, DecisionVerdict Verdict, string Reason);
 
@@ -43,7 +65,8 @@ public sealed record Question(
     IReadOnlyDictionary<string, DepositException>? Exceptions = null,
     IReadOnlyDictionary<string, IReadOnlyList<string>>? Splits = null,
     GateTerms? Gate = null,
-    IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? Restrictions = null)
+    IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? Restrictions = null,
+    IReadOnlyDictionary<string, TraitSource>? TraitSources = null)
 {
     /// <summary>
     /// v0.4.46: the uses a manifest <c>restrictions</c> entry may name, as datarepo 1.3.4+
@@ -122,6 +145,9 @@ public sealed record DesignSettings(string Dir, IReadOnlyList<string> ConditionC
 /// <c>[databases]</c> (<c>"rat"</c>), over the one the queue read from PRIDE's record (PXD068498: rat, filed as mouse).
 /// <see cref="MinIdentificationRate"/> (v0.4.44): the deposit's own identification floor, under which its full search is
 /// held instead of delivered (<c>BatchRunner.MinIdentificationRate</c>); <c>0</c> delivers it whatever it found.
+/// <see cref="MinMs2"/> (2026-11-20; aging 316, PXR-A217): the deposit's own MS2 floor for QC's <c>too_few_ms2</c>, in place of
+/// the profile's <c>[qc] min_ms2</c>, for files that are thin but real (PXD016039's high-pH fractions: 2,790 to 4,978 MS2
+/// under a floor of 5,000).
 /// </summary>
 public sealed record DepositException(
     string Accession,
@@ -136,7 +162,8 @@ public sealed record DepositException(
     string? Species = null,
     IReadOnlyDictionary<string, FileReplacement>? ReplaceFiles = null,
     SplitGroup? Split = null,
-    double? MinIdentificationRate = null)
+    double? MinIdentificationRate = null,
+    int? MinMs2 = null)
 {
     public const string NoAlkylation = "none";
 
@@ -154,6 +181,9 @@ public sealed record DepositException(
         DeferIfMedianFileMb = DeferIfMedianFileMb ?? p.DeferIfMedianFileMb,
     };
 
+    /// <summary>The profile's QC gates with this deposit's own MS2 floor.</summary>
+    public QcGates Apply(QcGates g) => MinMs2 is { } floor ? g with { MinMs2 = floor } : g;
+
     /// <summary>One line for logs, provenance and the manifest note.</summary>
     public string Describe()
     {
@@ -168,6 +198,7 @@ public sealed record DepositException(
         if (Species is { } sp) parts.Add($"species {sp}");
         if (ReplaceFiles is { Count: > 0 } rf) parts.Add($"replace_files {rf.Count} ({string.Join(", ", rf.Keys.Order(StringComparer.Ordinal))})");
         if (MinIdentificationRate is { } floor) parts.Add($"min_identification_rate {floor.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+        if (MinMs2 is { } minMs2) parts.Add($"min_ms2 {minMs2}");
         return $"{string.Join(", ", parts)} ({Reason})";
     }
 }
@@ -192,10 +223,13 @@ public sealed record SplitGroup(string Accession, string Group, string By, strin
 {
     /// <remarks><c>tissue</c> (2026-11-15, the maintainer: "split them the same way"): a deposit
     /// whose runs come from different tissues (a group may also be one sex: one TMT plex each, as in PXD067637 and its two
-    /// sisters), searched apart so that protein inference and site localisation stay within a tissue. Only
-    /// <c>species</c> changes what a group must state; the others are reasons, written to the manifest's
-    /// <c>split_reason</c>, whose list datarepo keeps too (<c>DatasetEntry.SplitReasons</c>).</remarks>
-    public static readonly IReadOnlyList<string> Reasons = new[] { "species", "enrichment", "label", "chemistry", "tissue" };
+    /// sisters), searched apart so that protein inference and site localisation stay within a tissue. <c>plex</c>
+    /// (2026-11-20, aging PXR-A214): a deposit of many isobaric plexes of one design (PXD011967: twenty TMT6 sets of five age
+    /// groups, 1.9 TB), searched one plex or set of plexes at a time because it is too large to search whole. Calling such a
+    /// split <c>tissue</c> would write an untrue <c>split_reason</c>. Only <c>species</c> changes what a group must state; the
+    /// others are reasons, written to the manifest's <c>split_reason</c>, whose list datarepo keeps too
+    /// (<c>DatasetEntry.SplitReasons</c>).</remarks>
+    public static readonly IReadOnlyList<string> Reasons = new[] { "species", "enrichment", "label", "chemistry", "tissue", "plex" };
 
     public string Key => SearchKey.Of(Accession, Group);
 

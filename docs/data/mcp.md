@@ -16,7 +16,7 @@ datarepo doctor                                            # which servers are r
 
 `--install` writes the Claude Code config so no JSON is hand-edited. The entry it writes starts
 the program that ran `--install`, by its absolute path, with the catalog's absolute path:
-`{"command": "/opt/datarepo-1.5.0/datarepo/datarepo", "args": ["mcp", "--catalog", "/data/repo/catalog.duckdb"]}`.
+`{"command": "/opt/pxreprise-1.0.0/datarepo/datarepo", "args": ["mcp", "--catalog", "/data/repo/catalog.duckdb"]}`.
 So after moving or upgrading the program, run `--install --force` again from the new one. It refuses to repoint an entry
 it did not write (`--force` overrides, `--name` registers a second catalog alongside), keeps the
 rest of the file, and writes through a temporary file — that config is your whole Claude Code
@@ -132,8 +132,9 @@ and the hits it gave. That list is the point:
 searched: [ {source: "protein_localizations", rows: 0, hits: 0}, ... ]
 ```
 
-`protein_localizations` holds 0 rows in every catalog built so far — the organelle map belongs to
-`go`, and dataRepo only stores it — so a search for `mitochondria` that returned a bare "no hits"
+`protein_localizations` holds 0 rows in a catalog that serves no GO — the organelle map belongs to
+`go`, and from 1.5.0 the catalog joins it from go's reference tables only when go's engines have run
+([build.md](build.md#cross-dataset-tables)) — so a search for `mitochondria` that returned a bare "no hits"
 would let an agent conclude that no protein is mitochondrial. Instead the result names the empty
 table and says in as many words that an undelivered table is not a negative answer. An absence is
 also scoped to the datasets actually held, never to proteomics.
@@ -161,7 +162,7 @@ NULL there is not "unknown" (aging 078).
 
 Prefer the acceptance views — `peptidoforms_1pct`, `protein_groups_1pct` — which apply
 a 1% rule once so no caller restates it. Each one states the rule it applies in its own `describe`.
-From catalog format 17, `peptidoforms_1pct` reads each search's own confidence rule
+From catalog format 17, `peptidoforms_1pct` reads each search's own identification filter
 (`dataset_overview.confidence_rule`), so its counts are not the search engine's own peptide count. PSMs are not in the catalog (format 13): `dataset_overview` has each
 dataset's PSM counts, and a query or `describe` that names `psms` or `psms_1pct` is told so.
 

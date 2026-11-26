@@ -77,19 +77,23 @@ The search engine is MetaMorpheus, a separate program. The profile says which re
 2. Unzip it to `<TOOLS>/MetaMorpheus-1.1.11/`.
 3. Check: `dotnet <TOOLS>/MetaMorpheus-1.1.11/CMD.dll --help` prints MetaMorpheus's help text.
 
-### 3b. Get dataRepo
+### 3b. Get datarepo
 
-dataRepo turns search results into a queryable repository and a website. It is a separate program, downloaded ready
-to run: no Python.
+datarepo turns search results into a queryable repository and a website. It is part of PXReprise: one release holds
+the engine and datarepo under one version, ready to run, with no .NET or Python (from 1.0.0; earlier releases carried
+neither program). **A batch delivers only with the datarepo of its engine's own release**, and refuses any other at its
+start.
 
-1. From https://github.com/smith-chem-wisc/dataRepo/releases/tag/v1.4.3 download the file for this computer:
-   `datarepo-1.4.3-win-x64.zip`, `datarepo-1.4.3-linux-x64.tar.gz`, `datarepo-1.4.3-osx-arm64.tar.gz` (Apple silicon) or
-   `datarepo-1.4.3-osx-x64.tar.gz` (Intel).
-2. Unpack it into `<TOOLS>/`: `tar -xzf` on Linux and macOS (it keeps the executable bit), unzip on Windows. It makes
-   `<TOOLS>/datarepo/`.
-3. On macOS only, if the program is blocked: `xattr -dr com.apple.quarantine <TOOLS>/datarepo`.
-4. Check: `<TOOLS>/datarepo/datarepo --version` (`datarepo.exe` on Windows) prints `datarepo 1.4.3`, and
-   `<TOOLS>/datarepo/datarepo doctor` ends with `ready`.
+1. Run `pxreprise version`. `<VERSION>` is its `pxreprise` value up to the `+` (what follows is the commit).
+2. From https://github.com/smith-chem-wisc/PXReprise/releases/tag/v<VERSION> download the file for this computer:
+   `pxreprise-<VERSION>-win-x64.zip`, `pxreprise-<VERSION>-linux-x64.tar.gz`, `pxreprise-<VERSION>-osx-arm64.tar.gz`
+   (Apple silicon) or `pxreprise-<VERSION>-osx-x64.tar.gz` (Intel). If that release has no such file (it is older than
+   1.0.0), stop and tell the person: this engine cannot deliver to a repository.
+3. Unpack it into `<TOOLS>/pxreprise-<VERSION>/`: `tar -xzf` on Linux and macOS (it keeps the executable bit), unzip on
+   Windows. It holds `pxreprise/` and `datarepo/`.
+4. On macOS only, if the program is blocked: `xattr -dr com.apple.quarantine <TOOLS>/pxreprise-<VERSION>`.
+5. Check: `<TOOLS>/pxreprise-<VERSION>/datarepo/datarepo --version` (`datarepo.exe` on Windows) prints
+   `datarepo <VERSION>`, and `<TOOLS>/pxreprise-<VERSION>/datarepo/datarepo doctor` ends with `ready`.
 
 ## 4. Write the machine file
 
@@ -106,7 +110,8 @@ In `machines/my-machine.toml`:
 - `accept_thermo_licence`: Thermo `.raw` files can only be read under Thermo's RawFileReader licence
   (https://github.com/thermofisherlsms/RawFileReader). **Ask the person** whether they accept it. Set it to `true`
   only if they say yes. If they say no, PXReprise cannot process `.raw` data; stop and tell them.
-- `datarepo`: the absolute path to the dataRepo program from step 3b, e.g. `<TOOLS>/datarepo/datarepo.exe`.
+- `datarepo`: the absolute path to the datarepo program from step 3b, e.g.
+  `<TOOLS>/pxreprise-<VERSION>/datarepo/datarepo.exe`. Leave it out if step 3b stopped.
 - Leave `qc_python` out. It is an optional integration with another project's tool.
 
 `machines/my-*.toml` is ignored by git, so the person's paths never get committed.
@@ -241,8 +246,9 @@ Do this when the person asks to update, or when `pxreprise version` is older tha
 https://github.com/smith-chem-wisc/PXReprise/releases.
 
 1. Read the new releases' entries in `CHANGELOG.md` (or on the releases page). Each says whether it needs a different
-   MetaMorpheus, whether the machine file needs a change, and whether it is safe mid-batch. Tell the person what it
-   says before going on.
+   MetaMorpheus, whether the machine file needs a change, whether it is safe mid-batch, and what adopting it costs the
+   repository (a swap only, a swap and a catalog rebuild, or a full re-ingest). Tell the person what it says before
+   going on.
 2. If a batch is running, **ask the person** before stopping it. Then run `pxreprise batch stop <question.toml>` and wait
    until `<state_dir>/driver.pid` is gone. On Windows the program cannot be replaced while it runs.
 3. In the clone, run `git pull`, `dotnet build -c Release`, then
@@ -252,7 +258,10 @@ https://github.com/smith-chem-wisc/PXReprise/releases.
 4. `dotnet publish src/PXReprise -c Release -o <TOOLS>/pxreprise`, then `pxreprise version`. Success: the version shown
    is the new one.
 5. Do what the release notes ask: a new MetaMorpheus (step 3), or a machine-file line (step 4). Never edit `profiles/`.
-6. If a batch was stopped, **ask the person**, then start it again with `batch run`. It resumes where it stopped.
+6. If the machine file names `datarepo`, get the new release's (step 3b) and point `datarepo` at it: a batch refuses a
+   datarepo from another release. Then check: `pxreprise batch status <question.toml> --machine machines/my-machine.toml`
+   must say `"ok": true` (it makes the start's check and changes nothing).
+7. If a batch was stopped, **ask the person**, then start it again with `batch run`. It resumes where it stopped.
 
 The person's machine file (`machines/my-*.toml`), questions, `state.json` and results are never touched by an update.
 
@@ -292,6 +301,7 @@ delivered: only `INGEST rc=0` in `batch.log` does.
 | `"type":"ServiceUnavailable"` | PRIDE or UniProt is down. Wait, then rerun; the batch also retries on its next pass. |
 | `names no MetaMorpheus 1.1.11` | The machine file's `[metamorpheus]` table does not name that release (step 4). |
 | `contaminant database missing` | `[metamorpheus]` points somewhere other than the unzipped release folder (step 3). |
+| `use the datarepo from the same PXReprise release` | The machine file's `datarepo` is from another release than the engine; the batch did not start. Point it at the `datarepo/` folder of the engine's release (step 3b). |
 | log says `free space ... below ... floor: stopping` | The work disk is fuller than `min_free_gb`; free space or lower it. |
 | `failed on availability, pass 1 of 3: retry next pass` | PRIDE dropped the downloads through every attempt. The batch waits `pass_wait_minutes` (default 30) and tries again; nothing to do. |
 | `failed on availability, pass 3 of 3: settled` | PRIDE failed the deposit on every pass; it is settled as `fetch_failed`. Report it; do not edit `state.json` by hand. To try it again, **ask the person**, stop the batch, then `pxreprise batch retry <question.toml> <PXD> --reason "..."`. |

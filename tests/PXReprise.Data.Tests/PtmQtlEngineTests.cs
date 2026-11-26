@@ -1,19 +1,42 @@
 using System.Globalization;
 using PXReprise.Bundle;
+using PXReprise.Ingest;
 using PXReprise.Runner;
 using Quantification.PtmQtl;
 
 namespace PXReprise.Data.Tests;
 
 /// <summary>The ptmqtl.* engines (ptmQtl 025-030; our 026, 031): ptmQtl's reference case, reproduced.</summary>
-/// <remarks>Fixtures/ptmqtl-reference-v1 is ptmQtl's own `results/reference_case_v1` (see its PROVENANCE.md). The
-/// inputs are parsed as ptmQtl's `tools/ReferenceCase` reads them; the engine core then has to give `expected/`:
-/// numbers to 1e-12 relative, text exactly.</remarks>
+/// <remarks>Fixtures/ptmqtl-reference-v3 is ptmQtl's own `results/reference_case_v3` (DEF-PTM-PAIR v3: bounds, depth,
+/// D78's null; DEF-SITE-TRAIT v2: log2 odds; see its PROVENANCE.md). The inputs are parsed as `tools/ptmqtl-reference`
+/// reads them; the engine core then has to give `expected/`: numbers to 1e-12 relative, text exactly.</remarks>
 public class PtmQtlEngineTests
 {
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
-    private static string Dir => Path.Combine(TestContext.CurrentContext.TestDirectory, "Fixtures", "ptmqtl-reference-v1");
+    private static string Dir => Path.Combine(TestContext.CurrentContext.TestDirectory, "Fixtures", "ptmqtl-reference-v3");
+
+    private sealed record Pool(string Id, IReadOnlySet<string> Members);
+
+    private static Pool P(string id, params string[] members) => new(id, members.ToHashSet(StringComparer.Ordinal));
+
+    /// <summary>D96 (G134): the batch pools a species again as its deposits arrive, and the store keeps each earlier pool.
+    /// A pool whose members all sit in a larger one is its earlier version, not a candidate; pools that do not nest are
+    /// both kept, so the catalog still refuses two.</summary>
+    [Test]
+    public void AnEarlierPoolOfASpeciesGivesWayToTheLargerOneAndPoolsThatDoNotNestBothStay()
+    {
+        var two = P("two", "a", "b");
+        var three = P("three", "a", "b", "c");
+        var four = P("four", "a", "b", "c", "d");
+        Assert.That(PXReprise.Catalog.CatalogBuilder.NotSuperseded([two, three, four], p => p.Members), Is.EqualTo(new[] { four }));
+        Assert.That(PXReprise.Catalog.CatalogBuilder.NotSuperseded([two], p => p.Members), Is.EqualTo(new[] { two }));
+        var other = P("other", "a", "c");
+        Assert.That(PXReprise.Catalog.CatalogBuilder.NotSuperseded([two, other], p => p.Members), Is.EqualTo(new[] { two, other }),
+            "neither holds the other's members: two candidates, which the catalog refuses");
+        var same = P("same", "a", "b");
+        Assert.That(PXReprise.Catalog.CatalogBuilder.NotSuperseded([two, same], p => p.Members), Has.Count.EqualTo(2), "equal members are not superseded: still two");
+    }
 
     private static List<Dictionary<string, string>> Tsv(string relative)
     {
@@ -39,6 +62,9 @@ public class PtmQtlEngineTests
         var unimod = Tsv("inputs/unimod.tsv").ToDictionary(r => r["id_with_motif"], r => r["unimod"], StringComparer.Ordinal);
         var observations = Tsv("inputs/observations.tsv");
         var occupancy = Tsv("inputs/occupancy.tsv");
+        // Each dataset's MetaMorpheus release and each run's target PSMs (D40).
+        var release = Tsv("inputs/datasets.tsv").ToDictionary(r => r["dataset"], r => r["search_engine_version"]);
+        var depth = Tsv("inputs/depth.tsv");
         return runs.Select(r => r["dataset"]).Distinct().Select(ds => new PtmQtlDataset(
             ds,
             runs.First(r => r["dataset"] == ds)["species"],
@@ -53,6 +79,8 @@ public class PtmQtlEngineTests
             enriched.Contains(ds))
         {
             Windows = new OneWindowEach(),
+            SearchEngineVersion = release.GetValueOrDefault(ds),
+            TargetPsms = depth.Where(r => r["dataset"] == ds).ToDictionary(r => r["run"], r => long.Parse(r["target_psms"], Inv), StringComparer.Ordinal),
         }).ToList();
     }
 
@@ -111,13 +139,15 @@ public class PtmQtlEngineTests
     {
         var produced = new List<Row>();
         var pooled = new List<(string, PtmPair, PairSite, PairSite)>();
+        var depthLike = new HashSet<string>(StringComparer.Ordinal);
         foreach (var ds in Datasets())
         {
             var result = PtmQtlCore.SitePairs(ds);
             produced.AddRange(result.Rows);
             pooled.AddRange(result.Pairs.Select(p => (ds.DatasetId, p.Pair, p.A, p.B)));
+            if (result.DepthNull?.DepthLike == true) depthLike.Add(ds.DatasetId);
         }
-        produced.AddRange(PtmQtlCore.Pool("mouse", pooled).Rows);
+        produced.AddRange(PtmQtlCore.Pool("mouse", pooled, depthLike).Rows);
 
         var expected = Tsv("expected/ptm_pairs.tsv");
         string Key(Func<string, string> get) => string.Join("|", get("result_type"), get("scope"), get("feature_key_a"), get("feature_key_b"));
@@ -125,6 +155,118 @@ public class PtmQtlEngineTests
         Assert.That(byKey.Keys, Is.EquivalentTo(expected.Select(e => Key(c => e[c]))), "the same pairs, no more and no fewer");
         foreach (var e in expected)
             AssertRow(e, byKey[Key(c => e[c])], Key(c => e[c]), PairCells);
+    }
+
+    /// <summary>D78 (D83): each deposit's depth null, its counts and its label, as the reference case has them.</summary>
+    [Test]
+    public void TheDepthNullIsTheReferenceCasesNull()
+    {
+        var expected = Tsv("expected/depth_null.tsv");
+        var datasets = Datasets().ToDictionary(d => d.DatasetId);
+        Assert.That(expected.Select(e => e["dataset"]), Is.EquivalentTo(datasets.Values.Where(PtmQtlCore.HasOccupancyResults).Select(d => d.DatasetId)));
+        foreach (var e in expected)
+        {
+            var n = PtmQtlCore.SitePairs(datasets[e["dataset"]]).DepthNull!;
+            Assert.Multiple(() =>
+            {
+                Assert.That(n.RealCalls.ToString(Inv), Is.EqualTo(e["real_calls"]), e["dataset"]);
+                Assert.That(string.Join(",", n.NullCalls), Is.EqualTo(e["null_calls"]), e["dataset"]);
+                Assert.That(Cell(n.Share), Is.EqualTo(e["share"]), e["dataset"]);
+                Assert.That(Cell(n.DepthLike), Is.EqualTo(e["depth_like"]), e["dataset"]);
+            });
+        }
+        Assert.That(expected.Select(e => e["depth_like"]).Distinct().Order(), Is.EqualTo(new[] { "False", "True" }), "the case holds a labelled deposit and one not");
+    }
+
+    /// <summary>D1 is MetaMorpheus 1.1.12, so its covered-zeros are the engine's; D2 is 1.1.13, so they are its own and
+    /// the engine adds none (S1). Every count-only cell is given its peptidoform counts.</summary>
+    [Test]
+    public void CoveredZerosComeFromTheEngineUpTo1112AndFromMetaMorpheusAfter()
+    {
+        var leftOut = Datasets().ToDictionary(d => d.DatasetId, d => PtmQtlCore.SitePairs(d).LeftOut);
+        Assert.Multiple(() =>
+        {
+            Assert.That(leftOut["D1"]["v3 bounds: covered-zero cells added from the engine's coverage"], Is.GreaterThan(0));
+            Assert.That(leftOut["D1"]["v3 bounds: covered-zero cells from MetaMorpheus"], Is.EqualTo(0));
+            Assert.That(leftOut["D1"]["v3 bounds: count-only cells given peptidoform counts"], Is.EqualTo(2));
+            Assert.That(leftOut["D2"]["v3 bounds: covered-zero cells added from the engine's coverage"], Is.EqualTo(0));
+            Assert.That(leftOut["D2"]["v3 bounds: covered-zero cells from MetaMorpheus"], Is.GreaterThan(0));
+            Assert.That(leftOut["D1"]["D40 samples with occupancy and no depth (left out of every pair)"], Is.EqualTo(1));
+        });
+        var d1 = Datasets().Single(d => d.DatasetId == "D1");
+        Assert.That(() => PtmQtlCore.SitePairs(d1 with { SearchEngineVersion = null }), Throws.TypeOf<RunnerException>().With.Message.Contains("S1"));
+        var mixed = d1 with { Occupancy = [.. d1.Occupancy, d1.Occupancy[0] with { Run = "S2", State = "covered_zero" }] };
+        Assert.That(() => PtmQtlCore.SitePairs(mixed), Throws.TypeOf<RunnerException>().With.Message.Contains("never mixed"));
+    }
+
+    /// <summary>v3's bounds at their edges, each counted, none guessed: an <c>intensity_unassigned</c> cell counts as
+    /// stored, so no covered-zero is added there; an engine cell that saw the modified form where nothing is stored is
+    /// counted, never added; the files of a design sample MetaMorpheus pooled (P32) are read as that sample; the
+    /// site-trait reading leaves a stored <c>covered_zero</c> out; a deposit with no real call has no share and no
+    /// label.</summary>
+    [Test]
+    public void TheBoundsEdgesAreCountedNeverGuessed()
+    {
+        const string Added = "v3 bounds: covered-zero cells added from the engine's coverage";
+        var all = Datasets().ToDictionary(d => d.DatasetId);
+        var d1 = all["D1"];
+        Dictionary<string, long> Counts(PtmQtlDataset d, bool bounds = true)
+        {
+            var left = new Dictionary<string, long>(StringComparer.Ordinal);
+            PtmQtlCore.Occupancy(d, d.Categories(), left, bounds);
+            return left;
+        }
+        var baseline = Counts(d1);
+
+        // S3: P2 S5's covered-zero is the engine's, since nothing is stored there; an intensity_unassigned cell is.
+        var p2 = d1.Occupancy.First(c => c.Protein == "P2");
+        var unassigned = d1 with { Occupancy = [.. d1.Occupancy, p2 with { Run = "S3", State = "intensity_unassigned" }] };
+        // S2: P1 S13's stored cell removed; the engine still sees the modified form there.
+        var dropped = d1 with { Occupancy = d1.Occupancy.Where(c => !(c.Protein == "P1" && c.Position == 13 && c.Run == "S2")).ToList() };
+        // S14's two injections stored as one design sample, as MetaMorpheus writes a pooled sample (P32); S2 is not a
+        // whole proteome (S3b), so neither its cells nor its observations reach type A.
+        var pooledRuns = d1.RunToSample.ToDictionary(kv => kv.Key, kv => kv.Key.StartsWith("S14", StringComparison.Ordinal) ? "S14" : kv.Value, StringComparer.Ordinal);
+        pooledRuns["S14"] = "S14";
+        var pooled = d1 with
+        {
+            RunToSample = pooledRuns,
+            Occupancy = d1.Occupancy.Where(c => c.Run != "S14_2").Select(c => c.Run == "S14_1" ? c with { Run = "S14" } : c).ToList(),
+            OccupancyRuns = pooledRuns.Keys.Where(r => r != "S2").ToHashSet(StringComparer.Ordinal),
+        };
+        var pooledCells = PtmQtlCore.Occupancy(pooled, pooled.Categories(), new Dictionary<string, long>(), bounds: true);
+        var none = PtmQtlCore.DepthNull("D0", [], [], new Dictionary<string, double>(), []);
+        Assert.Multiple(() =>
+        {
+            Assert.That(Counts(unassigned)[Added], Is.EqualTo(baseline[Added] - 1));
+            Assert.That(Counts(unassigned)["S1 intensity_unassigned"], Is.EqualTo(1));
+            Assert.That(baseline["v3 bounds: engine saw the modified form, nothing stored (not added)"], Is.EqualTo(0));
+            Assert.That(Counts(dropped)["v3 bounds: engine saw the modified form, nothing stored (not added)"], Is.EqualTo(1));
+            Assert.That(pooledCells.Select(c => c.Run), Has.Some.EqualTo("S14").And.None.StartsWith("S14_").And.None.EqualTo("S2"));
+            Assert.That(Counts(all["D2"], bounds: false)["S1 covered_zero: a bound, read by type A only"], Is.GreaterThan(0));
+            Assert.That((none.RealCalls, none.NullCalls, double.IsNaN(none.Share), none.DepthLike), Is.EqualTo((0L, new long[] { 0, 0, 0 }, true, false)));
+        });
+    }
+
+    /// <summary>D78 in the run records: <c>site_pairs</c> stores the null's counts, and <c>pool_pairs</c> reads the label
+    /// back to flag a depth-like dataset's pooled rows. A deposit with no real call stores no share.</summary>
+    [Test]
+    public void ADepthLikeLabelIsReadBackFromItsRunRecord()
+    {
+        var store = Scratch();
+        try
+        {
+            Assert.That(PtmQtlEngine.DepthNullRecord(null), Is.Null);
+            Assert.That(PtmQtlEngine.DepthNullRecord(new DepthNullResult(0, [0, 0, 0], double.NaN, false))!["share"], Is.Null);
+            foreach (var (like, share) in new[] { (true, 0.25), (false, 0.05) })
+            {
+                var record = PtmQtlEngine.DepthNullRecord(new DepthNullResult(4, [1, 1, 1], share, like))!;
+                Assert.That((record["real_calls"], record["share"], record["depth_like"]), Is.EqualTo(((object?)4L, (object?)share, (object?)like)));
+                var artefact = WriteArtefact(store, PtmQtlEngine.SitePairsEngine, new() { ["bundle"] = $"b-{like}", ["enrichment"] = "e1" },
+                    new() { ["species"] = "mouse", ["depth_null"] = record }, []);
+                Assert.That(PtmQtlEngine.DepthLike(artefact), Is.EqualTo(like), $"depth_like {like}");
+            }
+        }
+        finally { Remove(store); }
     }
 
     [Test]
@@ -137,6 +279,8 @@ public class PtmQtlEngineTests
         var result = PtmQtlCore.SiteTraits(d1, "age_months", trait, replicate);
 
         var expected = Tsv("expected/trait_effects.tsv");
+        Assert.That(expected, Is.Not.Empty);
+        Assert.That(expected.Select(e => e["response"]).Distinct(), Is.EqualTo(new[] { "log2_odds_occupancy" }));
         Assert.That(result.Rows.Select(r => (string)r["feature_key"]!), Is.EquivalentTo(expected.Select(e => e["feature_key"])));
         string[] side = ["status", "df", "replicates", "median_fraction", "replicate_variance", "residual_variance"];
         foreach (var e in expected)
@@ -229,6 +373,25 @@ public class PtmQtlEngineTests
         finally { Remove(dir); }
     }
 
+    [Test]
+    public void APairSitesFileIsWrittenRowByRowAndAFailureLeavesNoFile()
+    {
+        // The file is streamed (a deposit's pairs once outgrew one .NET string: PXD006815, 2026-11-25); a name that
+        // would break the TSV still refuses the write, and no half-written file is left behind.
+        var dir = Scratch();
+        try
+        {
+            var pairs = PtmQtlCore.SitePairs(Datasets().First()).Pairs;
+            var file = PtmQtlEngine.WritePairSites(pairs, Path.Combine(dir, "ok.tsv"));
+            Assert.That(File.ReadAllLines(file), Has.Length.EqualTo(pairs.Count + 1));
+            var bad = pairs.Take(1).Select(p => (p.Pair, p.A with { Modification = "Phospho\ton S" }, p.B)).Concat(pairs.Skip(1)).ToList();
+            var badPath = Path.Combine(dir, "bad.tsv");
+            Assert.That(() => PtmQtlEngine.WritePairSites(bad, badPath), Throws.InstanceOf<RunnerException>().With.Message.Contains("tab or a newline"));
+            Assert.That(File.Exists(badPath), Is.False);
+        }
+        finally { Remove(dir); }
+    }
+
     /// <summary>S2c and S2d leave a site out of type A (and site-trait fits), never out of type P; S3b with no
     /// whole-proteome run gives type P only.</summary>
     [Test]
@@ -258,39 +421,85 @@ public class PtmQtlEngineTests
         });
     }
 
-    /// <summary>S7 (D36): one tier per search, as mzLib's QuantifiedPsmRule chooses it, and a PSM passes only strictly
-    /// below 0.01 on that tier's value.</summary>
-    [Test]
-    public void EachSearchFiltersOnTheTierMzLibChoosesForIt()
+    /// <summary>Six target PSMs for S7's filter tests, in a table named <paramref name="table"/>. a sits at exactly 0.01
+    /// on every value; b fails the notch; c has no notch; d is notch-ambiguous; e passes on its notch alone; f fails
+    /// everything. PEP q-values: a 0.01, b 2 (MetaMorpheus's "not computed"), c 0.5, d 0.001, e and f none. With
+    /// <paramref name="pepsDiffer"/> the targets' PEPs differ, so mzLib's whole-search test finds PEP usable; without, every
+    /// target's PEP is 0 (training failed), and a decoy's different PEP must not change that.</summary>
+    private static DuckDB.NET.Data.DuckDBConnection FilterPsms(string table, bool pepsDiffer)
     {
-        using var con = new DuckDB.NET.Data.DuckDBConnection("DataSource=:memory:");
+        var con = new DuckDB.NET.Data.DuckDBConnection("DataSource=:memory:");
         con.Open();
-        using (var c = con.CreateCommand())
-        {
-            // trained: PEP q-values, and target PEPs that differ. untrained: MetaMorpheus's 2 for every PEP q-value,
-            // with notch q-values. failed: PEP 0 for every target, and no notch. The tier is read from target PSMs
-            // only (S7), so the decoys' and the contaminant's values change nothing.
-            c.CommandText = """
-                CREATE TABLE t AS SELECT * FROM (VALUES
-                  ('trained', 'target', 0.0, 0.005, 0.5, 0.5), ('trained', 'target', 0.02, 0.01, 0.001, 0.001), ('trained', 'decoy', 0.95, 0.9, 0.9, 0.9),
-                  ('untrained', 'target', 2.0, 2.0, 0.009, 0.5), ('untrained', 'target', 2.0, 2.0, NULL, 0.001), ('untrained', 'decoy', 2.0, 2.0, 0.9, 0.9),
-                  ('failed', 'target', 0.0, 0.001, NULL, 0.009), ('failed', 'contaminant', 0.7, 0.001, 0.001, 0.01), ('failed', 'decoy', 0.9, 0.5, 0.5, 0.5)
-                ) v(search, target_decoy, pep, pep_q_value, q_value_notch, q_value)
-                """;
-            c.ExecuteNonQuery();
-        }
-        var tiers = PtmQtlBundle.Tiers(con, "t");
-        Assert.That(tiers, Is.EquivalentTo(new Dictionary<string, Quantification.QuantifiedPsmTier>
-        {
-            ["trained"] = Quantification.QuantifiedPsmTier.PepQValue,
-            ["untrained"] = Quantification.QuantifiedPsmTier.QValueNotch,
-            ["failed"] = Quantification.QuantifiedPsmTier.QValue,
-        }));
+        using var c = con.CreateCommand();
+        c.CommandText = $"""
+            CREATE TABLE {table} AS SELECT id, 'target' AS target_decoy, CASE WHEN {(pepsDiffer ? "true" : "false")} THEN pep ELSE 0.0 END AS pep,
+                   pep_q_value, q_value_notch, q_value, notch_ambiguous
+            FROM (VALUES
+              ('a', 0.001, 0.01, 0.01, 0.01, false), ('b', 0.002, 2.0, 0.02, 0.005, false), ('c', 0.003, 0.5, NULL, 0.005, NULL),
+              ('d', 0.004, 0.001, 0.005, 0.005, true), ('e', 0.005, NULL, 0.005, 0.02, false), ('f', 0.006, NULL, 0.0101, 0.0101, false)
+            ) v(id, pep, pep_q_value, q_value_notch, q_value, notch_ambiguous)
+            UNION ALL SELECT 'decoy', 'decoy', 0.9, 0.9, 0.9, 0.9, false
+            """;
+        c.ExecuteNonQuery();
+        return con;
+    }
+
+    /// <summary>S7 (ptmQtl D82): the search's own filter, as results.txt names it and the ingest reads it
+    /// (<c>Identifications.FilterOf</c>), cut as the search cut it: a value of exactly 0.01 passes. Up to 1.1.14 the
+    /// filter is the q-value and notch, and a notch-ambiguous PSM fails it; 1.1.15 names its filter.</summary>
+    [TestCase(null, null, "1.1.14", false, true, "QValueAndNotch", "a c")]
+    [TestCase("q-value", false, "1.1.12", false, true, "QValueAndNotch", "a c")]
+    [TestCase("q-value", true, "1.1.15", false, true, "QValue", "a b c d")]
+    [TestCase("q-value notch", true, "1.1.15", false, true, "QValueNotch", "a c d e")]
+    [TestCase("pep q-value", true, "1.1.15", false, true, "PepQValue (Every)", "a d")]
+    [TestCase("pep q-value", true, "1.1.15", true, true, "PepQValue (Some)", "a d e")]
+    [TestCase("pep q-value", true, "1.1.15", true, false, "PepQValue (None)", "a c d e")]
+    public void S7KeepsWhatTheSearchsOwnFilterKept(string? named, bool? fdrLineNamesFilter, string version, bool pepNotTrained,
+        bool pepsDiffer, string filter, string kept)
+    {
+        using var con = FilterPsms("t", pepsDiffer);
+        var results = named is null && fdrLineNamesFilter is null ? null
+            : new ResultsTxtFilter(named, fdrLineNamesFilter, pepNotTrained ? new HashSet<string> { "psms" } : new HashSet<string>());
+        var chosen = PtmQtlBundle.Filter(con, "t", results, version, "test");
         using var q = con.CreateCommand();
-        q.CommandText = $"SELECT string_agg(search || ':' || CAST(q_value AS DOUBLE), ' ' ORDER BY search, q_value) FROM t WHERE target_decoy = 'target' AND {PtmQtlBundle.PassesSql(tiers)}";
-        // trained keeps its PEP q 0.005 (not 0.01: strictly below); untrained keeps notch 0.009, never a NULL notch;
-        // failed keeps q 0.009, not 0.01.
-        Assert.That(q.ExecuteScalar(), Is.EqualTo("failed:0.009 trained:0.5 untrained:0.5"));
+        q.CommandText = $"SELECT string_agg(id, ' ' ORDER BY id) FROM t WHERE target_decoy = 'target' AND {chosen.Sql}";
+        Assert.Multiple(() =>
+        {
+            Assert.That(chosen.ToString(), Is.EqualTo(filter));
+            Assert.That(q.ExecuteScalar(), Is.EqualTo(kept));
+        });
+    }
+
+    /// <summary>S7 (D82) never guesses a filter: a search from 1.1.15 on, or from a release that cannot be read as one,
+    /// whose results.txt names none (or that has no results.txt) is refused.</summary>
+    [TestCase(false, "1.1.15")]
+    [TestCase(true, "1.1.15")]
+    [TestCase(false, null)]
+    [TestCase(false, "a1b2c3d")]
+    public void S7RefusesASearchWhoseFilterIsUnknown(bool hasResultsTxt, string? version)
+    {
+        using var con = FilterPsms("t", pepsDiffer: true);
+        var results = hasResultsTxt ? new ResultsTxtFilter(null, null, new HashSet<string>()) : null;
+        Assert.That(() => PtmQtlBundle.Filter(con, "t", results, version, "test"),
+            Throws.TypeOf<RunnerException>().With.Message.Contains("ptmQtl S7 (D82)"));
+    }
+
+    /// <summary>D40 with S4: a sample's depth is log2 of the target PSMs of all its runs, so its fractions add up; an
+    /// injection is its own sample; a sample with no target PSM, and a run with no sample, give no depth.</summary>
+    [Test]
+    public void DepthIsLog2OfASamplesTargetPsmsOverAllItsRuns()
+    {
+        var dataset = new PtmQtlDataset("D", "mouse", [], [], new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["f1"] = "s1", ["f2"] = "s1", ["inj1"] = "inj1", ["inj2"] = "inj2", ["empty"] = "empty",
+        }, new Dictionary<string, string>(), Enriched: false)
+        {
+            TargetPsms = new Dictionary<string, long>(StringComparer.Ordinal) { ["f1"] = 1000, ["f2"] = 3000, ["inj1"] = 512, ["inj2"] = 0, ["stray"] = 7 },
+        };
+        Assert.That(PtmQtlCore.Depth(dataset), Is.EquivalentTo(new Dictionary<string, double>
+        {
+            ["s1"] = Math.Log2(4000), ["inj1"] = 9.0,
+        }));
     }
 
     /// <summary>D35: a site is pooled only where every dataset holding it gives it one window; otherwise it, and every
@@ -517,6 +726,13 @@ public class PtmQtlEngineTests
             WriteArtefact(store, PtmQtlEngine.PoolPairsEngine, new() { ["site_pairs:PXD999999"] = "0000000000000000", ["enrichment"] = "e1" },
                 new() { ["species"] = "rat" }, pooledRows);
             Assert.That(PXReprise.Catalog.CatalogBuilder.SelectArtefacts(store, bundles).Artefacts.Count(a => a.Engine == PtmQtlEngine.PoolPairsEngine), Is.EqualTo(1));
+
+            // D96: a second mouse pool on the same member does not nest in the first (equal members), so two candidates
+            // stay, and the catalog refuses them rather than picking one.
+            WriteArtefact(store, PtmQtlEngine.PoolPairsEngine, new() { ["site_pairs:PXD999999"] = artefact.ArtefactId, ["enrichment"] = "e1", ["capture_runs"] = "c2" },
+                new() { ["species"] = "mouse" }, pooledRows);
+            Assert.That(() => PXReprise.Catalog.CatalogBuilder.SelectArtefacts(store, bundles),
+                Throws.TypeOf<PXReprise.Bundle.CatalogException>().With.Message.Contains("2 pooled artefacts for mouse rest on this catalog's datasets"));
 
             // A second enrichment list for the same bundle: two artefacts for one slot are refused, not picked.
             WriteArtefact(store, PtmQtlEngine.SitePairsEngine, new() { ["bundle"] = bundle.BundleId, ["enrichment"] = "e2" }, new() { ["species"] = "mouse" }, d1.Rows);

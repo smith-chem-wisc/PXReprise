@@ -30,8 +30,9 @@ dotnet publish src/PXReprise -c Release -o <tools>/pxreprise
 ```
 
 Then download [MetaMorpheus 1.1.13](https://github.com/smith-chem-wisc/MetaMorpheus/releases/tag/1.1.13)
-(`MetaMorpheus_CommandLine.zip`) and [dataRepo 1.4.4](https://github.com/smith-chem-wisc/dataRepo/releases/tag/v1.4.4)
-(optional: it turns the results into a repository you can query, and a website). Copy `machines/example.toml` to
+(`MetaMorpheus_CommandLine.zip`) and, optionally, datarepo, which turns the results into a repository you can query, and
+a website. datarepo comes in the archive of [the PXReprise release](https://github.com/smith-chem-wisc/PXReprise/releases)
+your engine is (from 1.0.0): one release holds both programs, and a batch takes no other datarepo. Copy `machines/example.toml` to
 `machines/my-machine.toml`, and fill in its paths. The full walk-through, including a one-hour test run, is in
 [Getting started](https://smith-chem-wisc.github.io/PXReprise/getting-started.html).
 
@@ -76,7 +77,7 @@ dotnet test --filter "Category!=ExternalService&Category!=LocalCorpus"   # offli
 dotnet test --filter "Category=ExternalService"                         # live PRIDE/UniProt canaries; skip when a service is down
 ```
 
-.NET 10; mzLib 1.0.598 from NuGet (MetaMorpheus, a separate process, uses the mzLib its own release was built with). Every command prints one JSON envelope
+.NET 10; mzLib 1.0.601 from NuGet (MetaMorpheus, a separate process, uses the mzLib its own release was built with). Every command prints one JSON envelope
 (`{"ok":true,"data":...}` or `{"ok":false,"error":{...}}`) and exits 0 (ok), 1 (handled failure) or 2 (usage).
 
 ## Licence

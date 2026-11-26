@@ -19,7 +19,7 @@ public sealed record TaskSettings(
     bool MatchBetweenRuns,
     IReadOnlyList<string> GptmdExtraMods,
     string? SearchType = null,
-    string? SpectralLibraryMode = null,   // "write" | "update" | null (no library)
+    string? SpectralLibraryMode = null,   // "write" | "update" | "read" (decision 0092: low-res MS2; neither switch) | null (no library)
     string? ProductMassTolerance = null,  // written exactly as MetaMorpheus writes one, e.g. "±0.3500 Absolute"
     string? PrecursorMassTolerance = null,
     string? Protease = null,                              // G19: the deposit's protease, as mzLib's ProteaseDictionary spells it
@@ -33,7 +33,8 @@ public sealed record TaskSettings(
     string? DissociationType = null,                      // v0.4.34: every task's, when one call holds for every file (SearchStage)
     IReadOnlyList<string>? GptmdDropMods = null,          // v0.4.38: "Type\tIdWithMotif" (a real TAB) removed from ListOfModsGptmd
     IReadOnlyList<string>? EnrichedVariableMods = null,   // v0.4.40 (G66): the deposit's enriched classes, variable in EVERY task
-    int? MaxModsForPeptide = null);                       //   with them; null keeps the task's own (MetaMorpheus's 2)
+    int? MaxModsForPeptide = null,                        //   with them; null keeps the task's own (MetaMorpheus's 2)
+    string? InputSdrfPath = null);                        // D84: the SDRF the design came from, copied into the written one
 
 public static class TaskFiles
 {
@@ -90,20 +91,23 @@ public static class TaskFiles
                 text = Replace(text, "^SearchType = \".*\"$", $"SearchType = \"{st}\"", "SearchType", exactlyOne: true);
             }
             // The two library switches, on the SEARCH task only. Never both true: MetaMorpheus acts on them
-            // independently and would write two libraries.
+            // independently and would write two libraries. "read" (decision 0092) sets both false: the search scores against
+            // the chain it is given, and PXReprise builds the next version from its PSMs.
             if (s.SpectralLibraryMode is { } mode)
             {
-                if (mode is not ("write" or "update"))
-                    throw new SearchSetupException($"spectral library mode must be write or update, not '{mode}'");
+                if (mode is not ("write" or "update" or "read"))
+                    throw new SearchSetupException($"spectral library mode must be write, update or read, not '{mode}'");
                 text = Replace(text, @"^WriteSpectralLibrary = \w+$", $"WriteSpectralLibrary = {Bool(mode == "write")}",
                     "WriteSpectralLibrary", exactlyOne: true);
                 text = Replace(text, @"^UpdateSpectralLibrary = \w+$", $"UpdateSpectralLibrary = {Bool(mode == "update")}",
                     "UpdateSpectralLibrary", exactlyOne: true);
             }
             if (s.WriteSdrf)
-                text = WriteSdrfLines(text, s.ProteomeXchangeAccession);
+                text = WriteSdrfLines(text, s.ProteomeXchangeAccession, s.InputSdrfPath);
             else if (s.ProteomeXchangeAccession is not null)
                 throw new SearchSetupException("a ProteomeXchange accession is stamped only into a written SDRF (WriteSdrf)");
+            else if (s.InputSdrfPath is not null)
+                throw new SearchSetupException("an input SDRF is copied only into a written SDRF (WriteSdrf)");
             if (s.QuantifyPpmTol is { } qt)
                 text = Replace(text, @"^QuantifyPpmTol = [\d.]+$", $"QuantifyPpmTol = {qt.ToString("0.0###", System.Globalization.CultureInfo.InvariantCulture)}",
                     "QuantifyPpmTol", exactlyOne: true);
@@ -279,17 +283,42 @@ public static class TaskFiles
     /// <c>WriteSdrf = true</c> (MetaMorpheus #2816), and the deposit's accession (#2870). <c>CMD -g</c> of 1.1.12 writes
     /// <c>WriteSdrf</c> but not <c>ProteomeXchangeAccession</c>, so the accession is inserted on the next line, inside the
     /// same [SearchParameters] table; an accession line already there is replaced.
+    /// D84: the input SDRF (MetaMorpheus 1.1.14+, #2934 and #2951), whose row for each file or channel gives the written
+    /// SDRF's sample half, cell for cell. <c>CMD -g</c> writes no <c>InputSdrfPath</c> line (the setting is null), so it is
+    /// inserted after the accession, or after <c>WriteSdrf</c>; a line already there is replaced. A full path, as
+    /// MetaMorpheus 1.1.14's notes ask, written as a TOML basic string.
     /// </summary>
-    private static string WriteSdrfLines(string text, string? accession)
+    private static string WriteSdrfLines(string text, string? accession, string? inputSdrfPath = null)
     {
         text = Replace(text, @"^WriteSdrf = \w+$", "WriteSdrf = true", "WriteSdrf", exactlyOne: true);
-        if (accession is null) return text;
-        if (!PxAccession.IsMatch(accession)) throw new SearchSetupException($"'{accession}' is not a ProteomeXchange accession (PXD followed by digits)");
-        string line = $"ProteomeXchangeAccession = \"{accession}\"";
-        return Regex.IsMatch(text, "^ProteomeXchangeAccession = .*$", RegexOptions.Multiline)
-            ? Replace(text, "^ProteomeXchangeAccession = .*$", line, "ProteomeXchangeAccession", exactlyOne: true)
-            : Regex.Replace(text, @"^WriteSdrf = true$", "WriteSdrf = true\n" + line, RegexOptions.Multiline);
+        if (accession is not null)
+        {
+            if (!PxAccession.IsMatch(accession)) throw new SearchSetupException($"'{accession}' is not a ProteomeXchange accession (PXD followed by digits)");
+            text = InsertOrReplace(text, "ProteomeXchangeAccession", $"\"{accession}\"", after: "WriteSdrf = true");
+        }
+        if (inputSdrfPath is not null)
+        {
+            if (!Path.IsPathFullyQualified(inputSdrfPath))
+                throw new SearchSetupException($"the input SDRF must be a full path, not '{inputSdrfPath}'");
+            text = InsertOrReplace(text, "InputSdrfPath", TomlBasicString(inputSdrfPath),
+                after: accession is not null ? "ProteomeXchangeAccession = .*" : "WriteSdrf = true");
+        }
+        return text;
     }
+
+    /// <summary>Sets the <c>key = value</c> line where the key has one, or inserts it after the first line matching
+    /// <paramref name="after"/> (a pattern for the whole line), so it stays in that line's table.</summary>
+    private static string InsertOrReplace(string text, string key, string tomlValue, string after)
+    {
+        string line = $"{key} = {tomlValue}";
+        string own = $"^{Regex.Escape(key)} = .*$";
+        return Regex.IsMatch(text, own, RegexOptions.Multiline)
+            ? Replace(text, own, line, key, exactlyOne: true)
+            : new Regex($"^(?:{after})$", RegexOptions.Multiline).Replace(text, m => m.Value + "\n" + line, 1);
+    }
+
+    /// <summary>A TOML basic string, its backslashes and double quotes escaped (a Windows path's separators included).</summary>
+    internal static string TomlBasicString(string value) => "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
 
     private static string Bool(bool b) => b ? "true" : "false";
 

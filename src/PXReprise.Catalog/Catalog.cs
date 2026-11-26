@@ -257,9 +257,17 @@ public static partial class CatalogBuilder
     /// <c>dataset_overview.accession</c>, <c>split_group</c> and <c>split_reason</c> (the manifest's, also in
     /// <c>dataset_annotations</c>), the <c>deposits</c> table, <c>protein_index</c>'s and <c>peptide_index</c>'s
     /// <c>n_datasets*</c> counting deposits, the census matched by accession, and a <c>split</c> check refusing a deposit
-    /// served both whole and in parts. "17" (1.5.0, D55) makes <c>peptidoforms_1pct</c> follow each search's
-    /// <c>datasets.confidence_rule</c>, so every count built from it moves, and adds <c>dataset_overview.confidence_rule</c>
-    /// beside <c>n_peptidoforms_1pct</c>.</remarks>
+    /// served both whole and in parts. "17" (unreleased; D78, replacing D55) makes <c>peptidoforms_1pct</c> follow each
+    /// search's <c>datasets.confidence_rule</c>, its own identification filter, which for every search up to 1.1.14 is
+    /// format 16's rule, and adds <c>dataset_overview.confidence_rule</c> beside <c>n_peptidoforms_1pct</c>. "17", still unreleased, also copies the registered orthology snapshot into
+    /// <c>orthology_species</c>, <c>orthology_genes</c>, <c>gene_orthologs</c> and <c>gene_ortholog_status</c>, and derives
+    /// <c>protein_orthologs</c> from them (<c>CatalogOrthology.cs</c>), with <c>engine-consistency</c> checks and a sha256
+    /// check of the snapshot's files; the five tables are in every catalog, empty when no snapshot is registered. "17" also
+    /// stops storing GO per bundle (<c>CatalogGo.cs</c>): <c>go.annotate_groups</c>' artefacts are never served, go's three
+    /// reference engines are copied into <c>go_accession_terms</c>, <c>go_terms</c>, <c>go_closure</c>,
+    /// <c>go_term_categories</c> and <c>go_group_members</c>, and <c>protein_localizations</c>,
+    /// <c>organelle_term_categories</c>, <c>annotation_sources</c> and the new <c>go_group_status</c> are derived from them
+    /// (kind <c>derived</c>), with the same rows go's definition gives.</remarks>
     public static string CatalogVersion => SchemaContract.IsPython0320 ? "8" : "17";
 
     /// <summary>Bundle tables a catalog does not hold. PSMs are archived per deposit, never in a catalog (PXReprise's
@@ -436,10 +444,11 @@ public static partial class CatalogBuilder
     /// reconciliation compares against; these views are how the catalog selects <i>rows</i>, and on a dataset
     /// where the predicate is imperfect they will differ from the canonical count by a small margin and the
     /// <c>count_mismatch</c> finding will say by how much.</para>
-    /// <para><b>From catalog format 17, <c>peptidoforms_1pct</c> follows each search's own confidence rule instead</b>
-    /// (D55, <see cref="PeptidoformsConfidenceRule"/>), so it no longer restates the producer's acceptance rule and stops
-    /// matching its <c>results.txt</c> peptide count. The reconciliation keeps the q-value rule for peptidoforms
-    /// (<c>CatalogReconciliation</c>), or nearly every deposit would read <c>count_mismatch</c>.</para>
+    /// <para><b>From catalog format 17, <c>peptidoforms_1pct</c> reads each search's own 1% rule</b>
+    /// (<see cref="PeptidoformsConfidenceRule"/>): the filter its results.txt names, as the ingest recorded it in
+    /// <c>datasets.confidence_rule</c> (D78, which replaced D55's mzLib tier before any release carried it). For every
+    /// search up to MetaMorpheus 1.1.14 that is the q-value rule above, so it reads what format 16 read. The
+    /// reconciliation keeps the q-value rule for peptidoforms (<c>CatalogReconciliation</c>).</para>
     /// </remarks>
     public static IReadOnlyList<KeyValuePair<string, string>> AcceptedViews =>
     [
@@ -458,18 +467,15 @@ public static partial class CatalogBuilder
         "SELECT * FROM peptidoforms WHERE target_decoy = 'target' AND best_q_value <= {t} "
         + "AND (best_q_value_notch IS NULL OR best_q_value_notch <= {t})";
 
-    /// <summary><c>peptidoforms_1pct</c> from catalog format 17 (D55): each search's own confidence rule, as the ingest
-    /// recorded it in <c>datasets.confidence_rule</c> and applied it to <c>peptidoform_ions</c>
-    /// (<see cref="Identifications.PassesConfidence"/>, which is mzLib's <c>QuantifiedPsmRule.PassesConfidence</c>): a
-    /// target, and the value the rule names strictly below the threshold.</summary>
-    /// <remarks>A NULL value fails, as mzLib has it. So does a rule this text does not name: it passes nothing rather than
-    /// falling back on another column, since a fallback would read a q-value the search's rule did not choose.</remarks>
-    private const string PeptidoformsConfidenceRule =
+    /// <summary><c>peptidoforms_1pct</c> from catalog format 17 (D78): each search's own 1% rule, as the ingest recorded
+    /// it in <c>datasets.confidence_rule</c> and applied it to <c>peptidoform_ions</c>: a target, and the rule's test at or
+    /// below the threshold (<see cref="Identifications.PassesRuleSql"/>, the one predicate ptmQtl's S7 also reads).</summary>
+    /// <remarks>A NULL value fails. So does a rule this text does not name: it passes nothing rather than falling back on
+    /// another column, since a fallback would read a q-value the search's filter did not name.</remarks>
+    private static readonly string PeptidoformsConfidenceRule =
         "SELECT p.* FROM peptidoforms p JOIN datasets d ON d.dataset_id = p.dataset_id "
         + "WHERE p.target_decoy = 'target' AND CASE d.confidence_rule "
-        + "WHEN 'pep_q_value' THEN p.best_pep_q_value < {t} "
-        + "WHEN 'q_value_notch' THEN p.best_q_value_notch < {t} "
-        + "WHEN 'q_value' THEN p.best_q_value < {t} "
+        + string.Concat(Identifications.RuleValues.Select(r => $"WHEN '{r}' THEN {Identifications.PassesRuleSql(r, "p.best_", "{t}")} "))
         + "ELSE false END";
 
     /// <summary>The <see cref="AcceptedViews"/> this build creates: those over a table it holds. <c>psms_1pct</c>'s rule
@@ -533,35 +539,41 @@ public static partial class CatalogBuilder
         ("protein_index", "protein_accession"),
         ("protein_datasets", "protein_accession"),
         ("peptide_index", "base_sequence"),
+        // The orthology tables (CatalogOrthology.cs): "every ortholog of protein X" starts from an accession or a gene.
+        (ProteinOrthologsTable, "protein_accession"),
+        (GeneOrthologsTable, "gene"),
+        (GeneOrthologStatusTable, "gene_id"),
+        // go's reference tables (CatalogGo.cs): "the GO terms of protein X" starts from an accession.
+        (GoAccessionTermsTable, "accession"),
+        (GoGroupMembersTable, "accession"),
     ];
 
-    /// <summary><c>peptidoforms_1pct</c>'s description: its rule (D55, <see cref="PeptidoformsConfidenceRule"/>), and that
+    /// <summary><c>peptidoforms_1pct</c>'s description: its rule (D78, <see cref="PeptidoformsConfidenceRule"/>), and that
     /// it is not the producer's peptide count.</summary>
     private const string PeptidoformsOnePercentDoc =
-        "`peptidoforms` at 1% under each search's own confidence rule (D55): target only, and the q-value its "
-          + "`datasets.confidence_rule` names strictly below 0.01: `best_pep_q_value` under `pep_q_value` (the search "
-          + "trained PEP), `best_q_value_notch` under `q_value_notch`, `best_q_value` under `q_value`. A row with no value "
-          + "for its rule fails. It is the test the ingest applied to `peptidoform_ions`, so the two hold the same "
-          + "peptidoforms wherever the search left the AllPeptides.psmtsv the ions are read from. Contaminants are left out. **It is NOT the producer's own peptide count:** MetaMorpheus "
-          + "counts on the q-value, and its count is in `metrics` (`name = 'peptides'`, `scope = 'dataset'`); "
-          + "`dataset_overview.n_peptidoforms_1pct` counts this view. Up to datarepo 1.4.5 this view read "
-          + "`best_q_value` (and `best_q_value_notch`) at or below 0.01 for every search. The PEP q-value passes "
-          + "more peptidoforms than that on most deposits and far fewer on some low-resolution ones, where a "
-          + "`confidence_rule_fewer_peptides` finding gives both counts. PEP is trained afresh by every search and "
-          + "its training changed between MetaMorpheus releases, so compare counts across datasets on one rule and "
-          + "one release (`datasets.search_engine_version`).";
+        "`peptidoforms` at 1% under each search's own identification filter, the one its results.txt names, as "
+          + "`datasets.confidence_rule` records it: target only, and at or below 0.01 as the search cuts. "
+          + "`q_value_and_notch` (every MetaMorpheus up to 1.1.14): `best_q_value`, and `best_q_value_notch` where there "
+          + "is one. `q_value_notch`: `best_q_value_notch` (`best_q_value` where there is none). `q_value`: `best_q_value`. "
+          + "`pep_q_value`: `best_pep_q_value`. `pep_q_value_or_notch`: the PEP q-value where it is between 0 and 1, else "
+          + "the notch. A row with no value for its rule fails. It is the test the ingest applied to `peptidoform_ions`, "
+          + "so the two hold the same peptidoforms wherever the search left the AllPeptides.psmtsv the ions are read from. "
+          + "Contaminants are left out. **It is not the producer's own peptide count:** that is in `metrics` "
+          + "(`name = 'peptides'`, `scope = 'dataset'`); `dataset_overview.n_peptidoforms_1pct` counts this view. For "
+          + "every search up to 1.1.14 this is the rule datarepo 1.4.5 used. Compare counts across datasets on one rule "
+          + "(`confidence_rule`) and one MetaMorpheus release (`datasets.search_engine_version`).";
 
-    /// <summary>The sentence <c>dataset_overview</c>'s description gains at catalog format 17 (D55): one count is not
+    /// <summary>The sentence <c>dataset_overview</c>'s description gains at catalog format 17: one count is not
     /// reconciled against the producer.</summary>
     internal const string OverviewPeptidoformException =
         "`n_peptidoforms_1pct` is the exception from catalog format 17: it counts `peptidoforms_1pct`, which follows "
-        + "each search's own confidence rule (`confidence_rule`), not the producer's q-value count. ";
+        + "each search's own identification filter (`confidence_rule`), and is not reconciled against the producer's count. ";
 
     /// <summary><c>dataset_overview.n_peptidoforms_1pct</c>'s description, which Python 0.32.0 never gave it.</summary>
     internal const string OverviewPeptidoformsDoc =
-        "Target peptidoforms in `peptidoforms_1pct`: those whose q-value named by `confidence_rule` is strictly below "
-        + "0.01 (D55). NOT the producer's peptide count, which counts on the q-value and is in `metrics` "
-        + "(`name = 'peptides'`, `scope = 'dataset'`): compare the two to see what the rule did.";
+        "Target peptidoforms in `peptidoforms_1pct`: those that pass the search's own filter, as `confidence_rule` names "
+        + "it, at or below 0.01. Not the producer's peptide count, which is in `metrics` (`name = 'peptides'`, "
+        + "`scope = 'dataset'`).";
 
     /// <summary>What the derived tables and views MEAN, for <c>datarepo mcp</c>'s describe tool.</summary>
     /// <remarks>
@@ -608,10 +620,11 @@ public static partial class CatalogBuilder
                     + "other method. **Never pool values across `quant_scale`**; effects may be combined under "
                     + "`aging:DEF-AGE-EFFECT-META` v1.4, TMT read at MS3 only, with one method term per dataset. A dataset "
                     + "`reporter_level_mixed` or `reporter_level_not_recorded` is on neither track.",
-                ["confidence_rule"] = "The search's confidence rule, as `datasets.confidence_rule` records it: which "
-                    + "q-value `n_peptidoforms_1pct` counted on. `pep_q_value` where the search trained PEP, "
-                    + "`q_value_notch` or `q_value` where it did not (D55). Two datasets' peptide counts on different rules "
-                    + "rest on different q-values.",
+                ["confidence_rule"] = "The search's 1% rule, as `datasets.confidence_rule` records it: the identification "
+                    + "filter its results.txt names, which `n_peptidoforms_1pct` counted on. `q_value_and_notch` for every "
+                    + "MetaMorpheus up to 1.1.14; from 1.1.15 the filter the search was set to (`q_value_notch`, `q_value`, "
+                    + "`pep_q_value`, or `pep_q_value_or_notch` where PEP trained for only some peptides). Two datasets' "
+                    + "peptide counts on different rules rest on different q-values.",
                 ["n_protein_groups_1pct"] = "Protein groups at 1% group-level FDR, contaminants included.",
                 ["unique_peptides_scope"] = "What `protein_groups.unique_peptides` and `shared_peptides` count in this dataset, "
                     + "decided by the MetaMorpheus release that searched it: `database` before 1.1.13 (a peptide no other "
@@ -733,6 +746,265 @@ public static partial class CatalogBuilder
                 ["gene_id"] = "Stable Ensembl gene id, or NULL when the outcome has none.",
                 ["gene_symbol"] = "The pinned Ensembl release's symbol, for display. Group on `gene_id`.",
                 ["artefact_id"] = "The engine artefact the row came from (`catalog_engine_artefacts`).",
+            }),
+        [OrthologySpeciesTable] = new(
+            "One row per species of the registered orthology snapshot (`logs.register_orthology`: logs' "
+            + "`logs:DEF-ORTHOLOGY v1`, from Ensembl Compara), with the Ensembl gene set it was built from. A "
+            + "`gene_resolutions` row belongs to a species here through `gene_set_sha256`, and the build fails if one used "
+            + "a gene set that is not here. The snapshot's release, tag and attribution are in `catalog_engine_artefacts`. "
+            + "The five orthology tables are in every catalog: EMPTY means no snapshot is served (the `catalog_checks` row "
+            + "of kind `engine-coverage` says so), never that a protein has no ortholog.",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["species"] = "Ensembl's production name, e.g. `homo_sapiens`, `mus_musculus`.",
+                ["gene_set_sha256"] = "sha256 of the Ensembl gene set (GTF) the snapshot's genes are, as its manifest records it: "
+                    + "the value `gene_resolutions.gene_set_sha256` carries for this species.",
+                ["n_genes"] = "Rows of `orthology_genes` for the species: every gene of its primary-assembly gene set, all "
+                    + "biotypes, not only protein-coding ones.",
+                ["artefact_id"] = "The snapshot's engine artefact (`catalog_engine_artefacts`).",
+            }),
+        [OrthologyGenesTable] = new(
+            "Every gene of each snapshot species' primary-assembly gene set, all biotypes, copied from the snapshot's "
+            + "`genes/<species>.parquet`. It is the denominator of `gene_ortholog_status`. Every gene `protein_orthologs` "
+            + "reads is here for its species: the build fails otherwise, since the resolutions and the snapshot would then "
+            + "disagree about the gene set.",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["gene_id"] = "Stable Ensembl gene id, unversioned. Joins `gene_resolutions.gene_id` within one species.",
+                ["gene_version"] = "Ensembl's version of the gene, verbatim.",
+                ["gene_biotype"] = "Ensembl's biotype (`protein_coding`, `lncRNA`, ...). Every biotype is here, so name the "
+                    + "ones you count over.",
+                ["gene_name"] = "Ensembl's gene name, for display; NULL where Ensembl gives none. Never join on it.",
+                ["seq_region"] = "The chromosome or scaffold the gene is on.",
+                ["species"] = "Ensembl's production name (`orthology_species.species`).",
+                ["artefact_id"] = "The snapshot's engine artefact (`catalog_engine_artefacts`).",
+            }),
+        [GeneOrthologsTable] = new(
+            "Every ortholog relationship Ensembl Compara asserts between two snapshot species, once in EACH direction: the "
+            + "rows of the snapshot's own `orthologs(root, a, b)` view for every ordered pair, `gene` being `species`' gene "
+            + "and `partner_gene` `partner_species`'. Orthologs only: paralogs are never here. One row per relationship, "
+            + "never collapsed: a gene with several orthologs (`ortholog_one2many`, `ortholog_many2many`) has a row for each. "
+            + "Compara asserts pairs only, so join the pair you need directly and never chain two (human to mouse to rat). "
+            + "A gene with no row here has its reason in `gene_ortholog_status`.",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["species"] = "The species of `gene` (Ensembl's production name).",
+                ["partner_species"] = "The species of `partner_gene`.",
+                ["homology_id"] = "Compara's id for the relationship. It appears once in each direction.",
+                ["relationship_type"] = "Compara's `homology_type`, verbatim: `ortholog_one2one`, `ortholog_one2many` or "
+                    + "`ortholog_many2many`.",
+                ["gene"] = "`species`' Ensembl gene id: joins `orthology_genes.gene_id` and `gene_resolutions.gene_id`.",
+                ["protein"] = "Compara's canonical protein for `gene`, an Ensembl protein id (ENSP...), not a UniProt accession.",
+                ["identity"] = "Percentage of `protein` identical to `partner_protein`: Compara's figure for this side.",
+                ["partner_gene"] = "`partner_species`' Ensembl gene id.",
+                ["partner_protein"] = "Compara's canonical protein for `partner_gene`.",
+                ["partner_identity"] = "Percentage of `partner_protein` identical to `protein`.",
+                ["dn"] = "Compara's dN, verbatim; NULL where Compara gives none, never 0.",
+                ["ds"] = "Compara's dS, verbatim; NULL where Compara gives none, never 0.",
+                ["goc_score"] = "Compara's gene-order conservation score (0 to 100), verbatim; NULL where not computed.",
+                ["wga_coverage"] = "Compara's whole-genome alignment coverage, verbatim; NULL where not computed.",
+                ["is_high_confidence"] = "Compara's high-confidence flag. NULL means Compara declined to say, not false.",
+                ["artefact_id"] = "The snapshot's engine artefact (`catalog_engine_artefacts`).",
+            }),
+        [GeneOrthologStatusTable] = new(
+            "Every gene of each snapshot species with exactly one status in each OTHER species: the snapshot's own "
+            + "`pair_status(root, a, b)` for every ordered pair. Why a gene has no ortholog is a row here, never an absence: "
+            + "`has_ortholog` (rows in `gene_orthologs`), `no_edge_in_shared_tree` (its gene tree holds a gene of the target "
+            + "species and Compara called no ortholog), `tree_lacks_target_species` (its tree holds no gene of the target, so "
+            + "nothing was compared) or `not_in_any_tree` (in no tree; no call was attempted). The build checks each "
+            + "direction's counts against the snapshot's registration (`catalog_checks` kind `engine-consistency`).",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["species"] = "The gene's species.",
+                ["gene_id"] = "The gene (`orthology_genes.gene_id`).",
+                ["gene_biotype"] = "As `orthology_genes.gene_biotype`. Every biotype is here: a denominator of protein-coding "
+                    + "genes is a filter you write and name.",
+                ["target_species"] = "The species the status is about.",
+                ["status"] = "One of `has_ortholog`, `no_edge_in_shared_tree`, `tree_lacks_target_species`, `not_in_any_tree`.",
+                ["artefact_id"] = "The snapshot's engine artefact (`catalog_engine_artefacts`).",
+            }),
+        [ProteinOrthologsTable] = new(
+            "The repository's proteins to their orthologs, so \"every ortholog of protein X\" is one query. For every TARGET "
+            + "accession a search held with logs' gene resolution (the accessions of `protein_genes`: no decoy, no "
+            + "contaminant) and every OTHER snapshot species: each gene logs links the accession to (each gene of a "
+            + "`multi_gene` accession, and a gene only Ensembl's xref links), its `status` in that species, and for "
+            + "`has_ortholog` one row per ortholog gene, times each accession some search held that resolves to that gene. "
+            + "**Refusals are rows**: every accession has at least one row per target species, and a `status` other than "
+            + "`has_ortholog` says why there is no ortholog, so an empty join to the evidence never reads as 'not detected' "
+            + "before `status` is read (`catalog_checks` rows of kind `engine-consistency` check both, and that no accession is "
+            + "both `no_gene` and answered through a gene). **The rows are every link logs wrote, both of its views "
+            + "together**: `resolution_source` and the agreement columns (and their `partner_` twins) let you apply one. The "
+            + "search database's view is `resolution_source = 'search_database_dbreference'`; logs' v2 default view (aging's) "
+            + "is `resolution_xref_agreement IN ('agrees', 'silent')`, or `resolution_xref_agrees` on a v1 row. A view can "
+            + "leave an accession with no gene (one only Ensembl's xref links has no gene in the search database's view) and "
+            + "an ortholog with no accession, so read the unfiltered rows before calling anything absent. Everything joins on "
+            + "Ensembl gene ids within one gene set, never on gene symbols, and pairs are never chained. Like `protein_genes`, "
+            + "it spans the search DATABASES: a row is not evidence that either protein was identified "
+            + "(`partner_n_datasets_1pct`, `peptidoforms_1pct`). Built at `build` from `gene_resolutions`, `gene_orthologs` "
+            + "and `gene_ortholog_status`.",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["protein_accession"] = "The accession as the search database carried it (`protein_index.protein_accession`).",
+                ["species"] = "The snapshot species of the gene set the accession was resolved against "
+                    + "(`gene_resolutions.gene_set_sha256`, through `orthology_species`).",
+                ["resolution_outcome"] = "logs' outcome for the accession on this row's `gene_resolutions` row: `resolved`, "
+                    + "`multi_gene`, or an outcome naming no gene of the search database (`not_in_source`, `off_primary_only`, "
+                    + "`unrecognized_accession`). A no-gene outcome can stand beside a gene and any status: that is a "
+                    + "`resolution_source = 'ensembl_xref'` row, which keeps the outcome while Ensembl's xref supplies the gene. "
+                    + "`status` is `no_gene` only when the accession has no gene at all in its species.",
+                ["resolution_source"] = "Where the accession's gene link comes from (`gene_resolutions.source`): "
+                    + "`search_database_dbreference` (the search database's own reference) or `ensembl_xref` (only Ensembl's xref "
+                    + "links it). On a `no_gene` row, the source of the no-gene answer.",
+                ["resolution_xref_agreement"] = "Whether Ensembl's xref agrees with the link (`gene_resolutions.ensembl_xref_agreement`, "
+                    + "logs' v2): `agrees`, `silent` or `disagrees`. NULL on a v1 row and on a `no_gene` row.",
+                ["resolution_xref_agrees"] = "The same as a boolean (`gene_resolutions.ensembl_xref_agrees`), on v1 and v2 rows: "
+                    + "v1's only agreement column. False covers both `silent` and `disagrees`. NULL on a `no_gene` row.",
+                ["gene_id"] = "The accession's Ensembl gene; NULL only on a `no_gene` row.",
+                ["target_species"] = "The other snapshot species the row answers for. Each one has a row.",
+                ["status"] = "`no_gene` (no gene of the accession's species is linked to it at all), or the gene's "
+                    + "`gene_ortholog_status.status` in `target_species`: `has_ortholog`, `no_edge_in_shared_tree`, "
+                    + "`tree_lacks_target_species` or `not_in_any_tree`. Only `has_ortholog` rows have a partner. An accession "
+                    + "with several genes has a status per gene.",
+                ["relationship_type"] = "For `has_ortholog`: Compara's type of this partner (`ortholog_one2one`, "
+                    + "`ortholog_one2many`, `ortholog_many2many`). NULL otherwise.",
+                ["is_high_confidence"] = "For `has_ortholog`: Compara's flag (NULL: Compara declined to say). NULL otherwise.",
+                ["partner_gene"] = "For `has_ortholog`: the ortholog's Ensembl gene in `target_species`. NULL otherwise.",
+                ["partner_gene_name"] = "Ensembl's name of `partner_gene`, for display (`orthology_genes.gene_name`).",
+                ["partner_accession"] = "An accession of `target_species` that some search held (`protein_genes`) and that "
+                    + "resolves to `partner_gene`, one row per accession and link (isoforms included). NULL when none does: an "
+                    + "ortholog in Compara with no accession of it in any search here, which is its own answer, not a missing row.",
+                ["partner_resolution_outcome"] = "logs' outcome for `partner_accession`'s link to `partner_gene`: `resolved` or "
+                    + "`multi_gene`, or a no-gene outcome (`not_in_source`, `off_primary_only`) on an `ensembl_xref` link "
+                    + "(`partner_resolution_source`). Two databases that disagree give both, joined by `; `.",
+                ["partner_resolution_source"] = "Where `partner_accession`'s link to `partner_gene` comes from, as "
+                    + "`resolution_source`.",
+                ["partner_xref_agreement"] = "Ensembl's xref on `partner_accession`'s link, as `resolution_xref_agreement` "
+                    + "(NULL on a v1 row).",
+                ["partner_xref_agrees"] = "The same as a boolean, as `resolution_xref_agrees`.",
+                ["partner_n_datasets_1pct"] = "`protein_index.n_datasets_1pct` of `partner_accession`: deposits with accepted "
+                    + "evidence for it (a protein group or a peptidoform), 0 when none has. NULL when there is no partner "
+                    + "accession.",
+                ["gene_resolution_definition_id"] = "The definition of the accession's gene resolution "
+                    + "(`gene_resolutions.definition_id`, e.g. `logs:DEF-GENE-RESOLUTION v2`); several, joined by `; `, when the "
+                    + "databases that resolved the accession differ.",
+                ["orthology_definition_id"] = "The orthology snapshot's definition, as its registration recorded it "
+                    + "(`logs:DEF-ORTHOLOGY v1`).",
+                ["artefact_id"] = "The orthology snapshot's engine artefact (`catalog_engine_artefacts`), not the gene "
+                    + "resolution's.",
+            }),
+        [GoTermsTable] = new(
+            "Every term of the served GO release (go.obo), obsolete ones included, from `go.categorize_terms` (mzLib's "
+            + "`GoOntologyTsv`). A catalog serves ONE go.obo and one category map (go GO-D9). The GO tables are in every "
+            + "catalog: EMPTY means no GO is served (the `catalog_checks` rows of kind `engine-coverage` say why), never that a "
+            + "protein has no GO term.",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["go_id"] = "The primary GO id, e.g. `GO:0005739`.",
+                ["go_name"] = "The term's name in this release.",
+                ["aspect"] = "`cellular_component`, `molecular_function` or `biological_process`.",
+                ["obsolete"] = "True for an obsolete term. It is kept, and nothing propagates from it (go D42).",
+                ["go_release"] = "The release's `data-version`, e.g. `releases/2026-07-26`: `protein_localizations.go_release`.",
+                ["artefact_id"] = "The `go.categorize_terms` artefact (`catalog_engine_artefacts`).",
+            }),
+        [GoClosureTable] = new(
+            "Each term of the release and each of its ancestors over `is_a` and `part_of` (no other relationship), the term "
+            + "itself always included: a term's annotations hold for every `ancestor_go_id` here (go D5, D8). An obsolete term "
+            + "has only its own pair. Join a direct term (`go_accession_terms.go_id`) to `go_id` to propagate it.",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["go_id"] = "A term.",
+                ["ancestor_go_id"] = "The term itself or one of its ancestors over `is_a` and `part_of`.",
+                ["artefact_id"] = "The `go.categorize_terms` artefact (`catalog_engine_artefacts`).",
+            }),
+        [GoTermCategoriesTable] = new(
+            "One consumer map's categories over every term of the release (go D14, D28): one row per (term, category, "
+            + "subcategory) for each term at or below an anchor of the map, the most specific anchor winning within a "
+            + "category. A term under no anchor has no row: it is outside the map, never an unknown category. "
+            + "`organelle_term_categories` holds the same rows per dataset, for the terms its groups carry.",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["go_id"] = "The term (`go_terms.go_id`).",
+                ["category"] = "The map's category, e.g. `mitochondrion`.",
+                ["subcategory"] = "The qualified subcategory, e.g. `mitochondrion:inner_membrane`; NULL when the term reaches "
+                    + "the category only through a category-level anchor.",
+                ["category_map_name"] = "The map's name, e.g. `aging-organelle-map` (the consumer's content; go owns only the format).",
+                ["category_map_version"] = "The map's version (`organelle_term_categories.organelle_map_version`).",
+                ["go_release"] = "The release the categories were computed under.",
+                ["artefact_id"] = "The `go.categorize_terms` artefact (`catalog_engine_artefacts`).",
+            }),
+        [GoAccessionTermsTable] = new(
+            "Every entry of each target database file a served search read, with the GO terms it is annotated to DIRECTLY "
+            + "and its own evidence (`go:DEF-ACCESSION-GO-ANNOTATION v1`, `go.annotate_databases`, mzLib's "
+            + "`GoAccessionAnnotation`). Stored once per FILE and shared by every search that read it, never per bundle. All "
+            + "three aspects. **Every entry has at least one row**: an entry with no term has one term-less row (`go_id` "
+            + "NULL), so 'in the database with no GO' is not 'not in the database'. Ancestors are not rows: join `go_id` to "
+            + "`go_closure`. The rows are the file's alone: an `inherited` row is an isoform taking its entry's terms where "
+            + "both are in THIS file (D37). A search that read the isoform and its entry from two files still gives the "
+            + "isoform its entry's terms in `protein_localizations`, which joins over all the search's files through "
+            + "`isoform_of`. With mzLib 1.0.598 a shuffled entrapment entry carries no GO; a foreign-proteome one keeps its own.",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["database_sha256"] = "sha256 of the database file (`dataset_databases.sha256`, `gene_resolutions.search_database_sha256`).",
+                ["accession"] = "The database entry's accession, verbatim.",
+                ["go_id"] = "A primary GO id the entry is annotated to directly (an alternative id cited by UniProt lands on "
+                    + "its primary); NULL on the entry's one term-less row.",
+                ["aspect"] = "The term's aspect in the release; NULL on a term-less row.",
+                ["evidence"] = "The entry's own ECO codes for the term, `;`-joined; NULL when it cites none.",
+                ["inherited"] = "True when the entry is a UniProt isoform with no GO of its own and this is its entry's term, "
+                    + "the entry being in the same file (D37). NULL on a term-less row.",
+                ["isoform_of"] = "For a UniProt isoform accession (`P04406-2`), its entry (`P04406`), by mzLib's accession "
+                    + "parser; NULL otherwise. The catalog applies D37 across a search's files through it.",
+                ["artefact_id"] = "The `go.annotate_databases` artefact (`catalog_engine_artefacts`).",
+            }),
+        [GoGroupMembersTable] = new(
+            "For each served search, every distinct member accession of its non-decoy protein groups and the database entry "
+            + "it takes (`go.resolve_members`, mzLib's `MemberResolver`; dataRepo 028). It holds no GO and does not restate "
+            + "group membership (that is `protein_groups.protein_accessions`). **Refusals are rows**: a member the search's "
+            + "databases do not hold, and that UniProt's or mzLib's grammar gives no other entry, is `no_entry`. The build "
+            + "fails if a member of a served search has no row here.",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["dataset_id"] = "The served search.",
+                ["bundle_id"] = "Its bundle.",
+                ["accession"] = "The member exactly as the search wrote it.",
+                ["annotated_as"] = "The database entry whose rows in `go_accession_terms` the member takes: itself, the entry of "
+                    + "a UniProt isoform the databases lack (`P04406-3` takes `P04406`), or the accession a sequence variant "
+                    + "was applied to (`P04406_A20T` takes `P04406`). NULL for `no_entry`. An accession outside UniProt's "
+                    + "grammar (entrapment, `NP_`, a prefixed name) never takes another's.",
+                ["resolution"] = "`self`, `inherited` or `no_entry` (go D6, D34).",
+                ["entrapment"] = "The member is entrapment, by the loader's accession rule or the database's mark (go D32, D36). "
+                    + "Exclude entrapment groups from any biological count (go D3).",
+                ["sequence_accession"] = "The sequence the member is: the member with mzLib's variant suffix removed when what "
+                    + "remains is a UniProt accession (`P04406-2_A20T` is `P04406-2`), else the member; NULL for `no_entry`.",
+                ["annotation_db_sha256"] = "go's `annotation_db_sha256` for the search's target databases (GO-D6): the file's "
+                    + "sha256 with one, else a sha256 over their sorted sha256s.",
+                ["artefact_id"] = "The `go.resolve_members` artefact (`catalog_engine_artefacts`).",
+            }),
+        [GoGroupStatusTable] = new(
+            "Every non-decoy protein group of each served search, whatever its q-value, ONCE, with go's "
+            + "`annotation_status` (`go:DEF-GROUP-GO-ANNOTATION v1`, D19's precedence): `annotated` (a member carries a term, "
+            + "of any aspect), else `contaminant` (the group is marked contaminant), else `no_entry` (a member is not in the "
+            + "search's databases), else `no_go_terms`. **This is where a group with no `protein_localizations` row says "
+            + "why**: no term at all, or terms but none in `cellular_component` (`n_cc_terms = 0`). go's five header counters "
+            + "(D26) are counts here at `q_value <= 0.01`: `count(*) FILTER (WHERE n_members > 1)` and one count per "
+            + "`annotation_status`. An annotated keratin reads `annotated`: use `is_contaminant` to find contaminant groups.",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["dataset_id"] = "The served search.",
+                ["bundle_id"] = "Its bundle.",
+                ["protein_group_id"] = "The group (`protein_groups.protein_group_id`).",
+                ["protein_group"] = "The group's accessions `|`-joined in the bundle's order, as `protein_localizations.protein_group`.",
+                ["n_members"] = "Distinct member accessions.",
+                ["annotation_status"] = "`annotated`, `contaminant`, `no_entry` or `no_go_terms` (above).",
+                ["n_terms"] = "Distinct GO terms, all aspects, any member carries directly or by propagation.",
+                ["n_cc_terms"] = "Of those, the `cellular_component` ones: the terms `protein_localizations` holds for the group.",
+                ["n_members_no_entry"] = "Members the search's databases do not hold (`go_group_members.resolution = 'no_entry'`).",
+                ["entrapment_members"] = "The group's entrapment members, sorted, whether or not they carry a term (go D36). "
+                    + "Empty for a group with none. Exclude a group with any from biological counts (go D3).",
+                ["is_contaminant"] = "The group's contaminant mark, from the search (`protein_groups.target_decoy = 'contaminant'`).",
+                ["q_value"] = "The group's protein q-value (`protein_groups.q_value`). Nothing is filtered on it.",
+                ["go_release"] = "The GO release.",
+                ["source_id"] = "The search's `annotation_sources` row.",
             }),
         [AnnotationsTable] = new(
             "One row per dataset: what the producer's manifest says ABOUT it that is not identity -- its "
@@ -1376,7 +1648,7 @@ public static partial class CatalogBuilder
         }
         if (GoActive)
         {
-            SelectGoArtefacts(store, bundles, chosen, checks);
+            SelectGo(store, bundles, chosen, checks);
             SelectOrthology(store, chosen, checks);
             SelectPtmQtl(store, bundles, chosen, checks);
         }
@@ -1385,9 +1657,10 @@ public static partial class CatalogBuilder
 
     /// <summary>The registered orthology snapshot a catalog cites: at most one.</summary>
     /// <remarks>
-    /// <para>A snapshot belongs to no bundle and fills no table: it is read in place, from the artefact's
-    /// <c>snapshot/</c> directory, through its own <c>views.sql</c>. Loading it puts one row in
-    /// <c>catalog_engine_artefacts</c> and its id into the catalog id, so a catalog names exactly the snapshot it serves.</para>
+    /// <para>A snapshot belongs to no bundle: it is kept whole in the artefact's <c>snapshot/</c> directory, and the build
+    /// copies its rows, through its own <c>views.sql</c>, into the orthology tables (<see cref="BuildOrthology"/>, from
+    /// catalog format 17). Loading it also puts one row in <c>catalog_engine_artefacts</c> and its id into the catalog id,
+    /// so a catalog names exactly the snapshot it serves.</para>
     /// <para>Two registered snapshots are refused rather than one picked, as two go or logs artefacts for one input
     /// are: which one a catalog serves is the operator's decision. None is not a failure; the check says so.</para>
     /// </remarks>
@@ -1437,178 +1710,6 @@ public static partial class CatalogBuilder
                     : $"gene_resolutions used gene set(s) {string.Join(", ", foreign.Select(s => s[..Math.Min(12, s.Length)]))} that the "
                       + "snapshot was not built from: re-resolve with logs' gene sets, or register the snapshot built from these"),
         ];
-    }
-
-    /// <summary>What a go artefact for this bundle must have been run on, from the bundle's own <c>sources</c>:
-    /// its protein-group file's sha256, and the sha256 of every TARGET database it searched.</summary>
-    /// <remarks>The contaminant panel is not an annotation input (GoEngine's remarks say why), so it is not part
-    /// of the match either.</remarks>
-    public static (string? ProteinGroups, SortedSet<string> Databases) GoInputsOf(BundleRef bundle)
-    {
-        string? proteinGroups = null;
-        var databases = new SortedSet<string>(StringComparer.Ordinal);
-        foreach (var item in SourcesPy.Get(bundle.Manifest, "sources") as IEnumerable<object?> ?? [])
-        {
-            if (item is not IReadOnlyDictionary<string, object?> source) continue;
-            var role = SourcesPy.Str(SourcesPy.Get(source, "role", ""));
-            var sha = SourcesPy.Get(source, "sha256") is string s ? s : null;
-            if (role == "protein_group_quant") proteinGroups = sha;
-            else if (role.StartsWith("protein_database:", StringComparison.Ordinal) && sha is not null
-                     && !ProteinDb.IsContaminantDatabase(SourcesPy.Str(SourcesPy.Get(source, "path", ""))))
-                databases.Add(sha);
-        }
-        return (proteinGroups, databases);
-    }
-
-    /// <summary>A go artefact belongs to a bundle when it annotated that bundle's protein-group file against that
-    /// bundle's target databases, by sha256. Keyed on inputs, as logs' are: a re-ingest that reads the same files
-    /// is served by the same artefact.</summary>
-    public static bool GoArtefactMatches(ArtefactRef artefact, BundleRef bundle)
-    {
-        if (artefact.Engine != Runner.GoEngine) return false;
-        var (proteinGroups, databases) = GoInputsOf(bundle);
-        var inputs = artefact.Inputs;
-        if (proteinGroups is null || inputs.GetValueOrDefault(Runner.GoProteinGroupsRole) != proteinGroups) return false;
-        var annotated = inputs.Where(kv => kv.Key.StartsWith(Runner.GoDatabaseRolePrefix, StringComparison.Ordinal))
-            .Select(kv => kv.Value).ToHashSet(StringComparer.Ordinal);
-        return databases.Count > 0 && annotated.SetEquals(databases);
-    }
-
-    /// <summary>go's artefacts for these bundles (one per bundle at most) and the coverage check (G86).</summary>
-    /// <remarks>As for logs: two artefacts for one bundle (another go.obo release, another category map) are
-    /// refused rather than one picked, and a bundle with none builds without go rows and is named in the check,
-    /// which always passes.</remarks>
-    private static void SelectGoArtefacts(string store, IReadOnlyList<BundleRef> bundles, List<ArtefactRef> chosen, List<CatalogCheck> checks)
-    {
-        var byBundle = new Dictionary<string, List<ArtefactRef>>(StringComparer.Ordinal);
-        var stale = new List<string>();
-        foreach (var r in Runner.DiscoverArtefacts(store, Runner.GoEngine))
-        {
-            var matched = bundles.Where(b => GoArtefactMatches(r, b)).ToList();
-            if (matched.Count == 0) continue;
-            if (r.SchemaVersion != SchemaContract.Version)
-            {
-                stale.Add($"{r.ArtefactId} (schema {r.SchemaVersion})");
-                continue;
-            }
-            foreach (var b in matched)
-            {
-                if (!byBundle.TryGetValue(b.BundleId, out var list)) byBundle[b.BundleId] = list = [];
-                list.Add(r);
-            }
-        }
-        var uncovered = new List<BundleRef>();
-        foreach (var b in bundles.OrderBy(b => b.DatasetId, SourcesPy.CodePointOrder))
-        {
-            if (!byBundle.TryGetValue(b.BundleId, out var refs))
-            {
-                uncovered.Add(b);
-                continue;
-            }
-            if (refs.Count > 1)
-                throw new CatalogException(
-                    $"{Runner.GoEngine}: {refs.Count} artefacts ({string.Join(", ", refs.Select(r => r.ArtefactId))}) annotate "
-                    + $"{b.DatasetId} bundle {b.BundleId} (another go.obo release or category map). A catalog serves one. "
-                    + $"Move the ones it should not serve out of {SourcesPy.PathStr(System.IO.Path.Combine(store, Runner.EngineDir, Runner.GoEngine))}.");
-            if (!chosen.Any(c => c.Engine == refs[0].Engine && c.ArtefactId == refs[0].ArtefactId)) chosen.Add(refs[0]);
-        }
-        RequireOneOntologyAndMap(store, bundles.Where(b => byBundle.ContainsKey(b.BundleId))
-            .Select(b => (b.DatasetId, byBundle[b.BundleId][0])).ToList());
-        string? detail = null;
-        if (uncovered.Count > 0)
-            detail = "no artefact for " + string.Join("; ", uncovered.Select(b => $"{b.DatasetId} ({b.BundleId})"));
-        if (stale.Count > 0)
-            detail = (detail is not null ? detail + "; " : "") + "skipped, other schema: " + string.Join(", ", stale);
-        checks.Add(new CatalogCheck(
-            $"{Runner.GoEngine} coverage (bundles with an artefact)", "engine-coverage", true,
-            bundles.Count - uncovered.Count, bundles.Count, detail));
-    }
-
-    /// <summary>go GO-D9: one catalog serves one go.obo and one category map, by sha256, so a category
-    /// compared across its datasets was assigned under one ontology and one map.</summary>
-    /// <remarks>A go.obo or map change re-annotates every dataset together (re-annotation needs no re-search). The
-    /// UniProt annotation database is per dataset by GO-D5 and is not part of this rule.</remarks>
-    /// <exception cref="CatalogException">The artefacts these bundles matched used two or more of either.</exception>
-    public static void RequireOneOntologyAndMap(string store, IReadOnlyList<(string DatasetId, ArtefactRef Artefact)> annotated)
-    {
-        foreach (var role in new[] { "ontology", "category_map" })
-        {
-            var used = annotated.GroupBy(p => p.Artefact.Inputs.GetValueOrDefault(role) ?? "(none)", StringComparer.Ordinal).ToList();
-            if (used.Count < 2) continue;
-            static string Datasets(IEnumerable<(string DatasetId, ArtefactRef Artefact)> pairs) =>
-                string.Join(", ", pairs.Select(p => p.DatasetId).Distinct(StringComparer.Ordinal).Order(SourcesPy.CodePointOrder));
-            throw new CatalogException(
-                $"{Runner.GoEngine}: these bundles were annotated under {used.Count} different {role} files ("
-                + string.Join("; ", used.OrderBy(g => g.Key, SourcesPy.CodePointOrder).Select(g => $"{g.Key[..Math.Min(12, g.Key.Length)]}: {Datasets(g)}"))
-                + "). A catalog serves one go.obo and one category map, so a category means the same thing in every "
-                + "dataset (go GO-D9). Re-annotate the others with the same --input, or move their artefacts out of "
-                + $"{SourcesPy.PathStr(System.IO.Path.Combine(store, Runner.EngineDir, Runner.GoEngine))}.");
-        }
-    }
-
-    /// <summary>Each bundle and the go artefact that annotated it, in dataset order.</summary>
-    private static List<(BundleRef Bundle, ArtefactRef Artefact)> GoPairs(IReadOnlyList<BundleRef> bundles, IReadOnlyList<ArtefactRef> artefacts) =>
-        bundles.OrderBy(b => b.DatasetId, SourcesPy.CodePointOrder)
-            .SelectMany(b => artefacts.Where(a => GoArtefactMatches(a, b)).Select(a => (b, a)))
-            .ToList();
-
-    /// <summary>go's rows into its three core tables, with the matched bundle's provenance columns.</summary>
-    /// <returns><c>{table: total rows}</c> for the tables that received any.</returns>
-    /// <remarks>With <paramref name="views"/> each go table is a view over the artefacts' Parquet, or a typed empty view
-    /// when none holds it: <see cref="LoadTables"/> left them for this.</remarks>
-    private static Dictionary<string, long> LoadGoRows(DuckDBConnection con, IReadOnlyList<BundleRef> bundles, IReadOnlyList<ArtefactRef> artefacts, bool views = false)
-    {
-        var counts = new Dictionary<string, long>(StringComparer.Ordinal);
-        if (!GoActive) return counts;
-        if (views)
-        {
-            var pairs = GoPairs(bundles, artefacts);
-            foreach (var table in Runner.GoTables)
-            {
-                var parts = pairs
-                    .Select(p => (p.Bundle, Path: p.Artefact.TablePath(table)))
-                    .Where(p => p.Path is not null)
-                    .Select(p => $"SELECT {Quote(p.Bundle.DatasetId)} AS dataset_id, {Quote(p.Bundle.BundleId)} AS bundle_id, * "
-                        + $"FROM read_parquet({Quote(AsPosix(p.Path!))})")
-                    .ToList();
-                if (parts.Count == 0)
-                {
-                    CreateEmptyView(con, table, DatasetProvenance, SchemaContract.Columns(Tables.ByName[table]).Where(c => c.Name != "dataset_id"));
-                    continue;
-                }
-                Exec(con, $"CREATE VIEW \"{table}\" AS\n{string.Join("\nUNION ALL BY NAME\n", parts)}");
-                counts[table] = Count(con, $"SELECT count(*) FROM \"{table}\"");
-            }
-            return counts;
-        }
-        foreach (var (bundle, artefact) in GoPairs(bundles, artefacts))
-            foreach (var table in Runner.GoTables)
-            {
-                var path = artefact.TablePath(table);
-                if (path is null) continue;
-                Exec(con,
-                    $"INSERT INTO \"{table}\" BY NAME SELECT {Quote(bundle.DatasetId)} AS dataset_id, "
-                    + $"{Quote(bundle.BundleId)} AS bundle_id, * FROM read_parquet({Quote(AsPosix(path))})");
-                counts[table] = Count(con, $"SELECT count(*) FROM \"{table}\"");
-            }
-        return counts;
-    }
-
-    /// <summary>Every go artefact's rows are all there, under the bundle it was matched to.</summary>
-    private static List<CatalogCheck> CheckGo(DuckDBConnection con, IReadOnlyList<BundleRef> bundles, IReadOnlyList<ArtefactRef> artefacts)
-    {
-        var checks = new List<CatalogCheck>();
-        if (!GoActive) return checks;
-        foreach (var (bundle, artefact) in GoPairs(bundles, artefacts))
-            foreach (var (table, expected) in artefact.RowCounts.OrderBy(kv => kv.Key, SourcesPy.CodePointOrder))
-            {
-                var observed = IsView(con, table)
-                    ? FooterRowsOf(con, artefact.TablePath(table))
-                    : CountAndExample(con, $"SELECT count(*), NULL FROM \"{table}\" WHERE bundle_id = ?", bundle.BundleId).Count;
-                checks.Add(new CatalogCheck($"{artefact.Engine}/{artefact.ArtefactId}/{table}", "row_count", observed == expected,
-                    observed, expected, $"engine artefact {artefact.ArtefactId} for {bundle.DatasetId} bundle {bundle.BundleId}"));
-            }
-        return checks;
     }
 
     // --- the build -------------------------------------------------------------------------------------
@@ -1776,10 +1877,13 @@ public static partial class CatalogBuilder
                 var derivedChecks = BuildDerived(con, bundles, Lap, derivedRoot, out derivedComputed, out derivedReused, out var reconciliationTerms);
                 studyCounts = CreateStudyTables(con, study);
                 foreach (var (k, v) in CreateEngineTables(con, engines, views)) rowCounts[k] = v;
-                foreach (var (k, v) in LoadGoRows(con, bundles, engines, views)) rowCounts[k] = v;
                 foreach (var (k, v) in LoadPtmQtlRows(con, bundles, engines, views)) rowCounts[k] = v;
                 BuildEngineDerived(con, bundles);
                 Lap("study and engines");
+                foreach (var (k, v) in BuildOrthology(con, engines)) rowCounts[k] = v;
+                Lap("orthology");
+                foreach (var (k, v) in BuildGo(con, bundles, engines)) rowCounts[k] = v;
+                Lap("go");
                 if (AnnotationsActive)
                 {
                     CreateAnnotations(con, annotations);
@@ -1799,9 +1903,10 @@ public static partial class CatalogBuilder
                 Lap("checks: bundles");
                 checks.AddRange(CheckStudy(con, study));
                 Lap("checks: study");
-                checks.AddRange(CheckEngines(con, engines.Where(r => r.Engine != Runner.GoEngine && !PtmQtlTables.ContainsKey(r.Engine)).ToList()));
-                checks.AddRange(CheckGo(con, bundles, engines));
+                checks.AddRange(CheckEngines(con, engines.Where(r => !Runner.GoEngines.Contains(r.Engine) && !PtmQtlTables.ContainsKey(r.Engine)).ToList()));
+                checks.AddRange(CheckGoTables(con, bundles, engines));
                 checks.AddRange(CheckOrthology(con, engines));
+                checks.AddRange(CheckOrthologyTables(con, engines));
                 checks.AddRange(CheckPtmQtl(con, engines));
                 Lap("checks: engines");
                 checks = [
@@ -2280,6 +2385,8 @@ public static partial class CatalogBuilder
         taken.UnionWith(AcceptedViews.Select(kv => kv.Key));
         taken.UnionWith(GrainViews.Select(kv => kv.Key));
         taken.UnionWith(RunViews.Select(kv => kv.Key));
+        taken.UnionWith(OrthologyTables);
+        taken.UnionWith(GoReferenceTables);
         foreach (var (layer, tables) in SchemaContract.StudyLayers)
         {
             var r = byLayer.GetValueOrDefault(layer);
@@ -2400,8 +2507,9 @@ public static partial class CatalogBuilder
     /// <summary>Every schema table as the union of the bundles that hold it: a copy, or with <paramref name="views"/> a
     /// view over the bundles' Parquet (D48 step 1).</summary>
     /// <remarks>In a views catalog <c>samples</c> is still copied (a few thousand rows): its <c>&lt;column&gt;_name</c>
-    /// columns are added by ALTER and UPDATE (G74), which a view cannot take. go's and ptmQtl's tables come from their
-    /// artefacts (<see cref="LoadGoRows"/>, <see cref="LoadPtmQtlRows"/>), so here they are left for that.</remarks>
+    /// columns are added by ALTER and UPDATE (G74), which a view cannot take. ptmQtl's tables come from their artefacts
+    /// (<see cref="LoadPtmQtlRows"/>), and go's three are derived by <see cref="BuildGo"/> in both layouts, so here they are
+    /// left for that.</remarks>
     private static Dictionary<string, long> LoadTables(DuckDBConnection con, IReadOnlyList<BundleRef> bundles, bool views = false)
     {
         var rowCounts = new Dictionary<string, long>(StringComparer.Ordinal);
@@ -2409,7 +2517,8 @@ public static partial class CatalogBuilder
         {
             var table = spec.Name;
             if (Runner.EngineTables.ContainsKey(table)) continue;  // never in a bundle; filled from artefacts
-            if (views && GoActive && (Runner.GoTables.Contains(table) || PtmQtlTables.Values.Contains(table))) continue;
+            if (GoActive && Runner.GoTables.Contains(table)) continue;  // never in a bundle; derived from go's reference tables
+            if (views && GoActive && PtmQtlTables.Values.Contains(table)) continue;
             if (LeftInBundles.Contains(table)) continue;
             var asView = views && table != "samples";
             var parts = new List<string>();
@@ -2581,7 +2690,7 @@ public static partial class CatalogBuilder
                 END AS quant_scale,
             ";
 
-    /// <summary>The rule <c>n_peptidoforms_1pct</c> counted by (D55), beside it. Python 0.32.0's schema records none, so a
+    /// <summary>The rule <c>n_peptidoforms_1pct</c> counted by (D78), beside it. Python 0.32.0's schema records none, so a
     /// parity build writes no such column.</summary>
     internal static string ConfidenceRuleColumn => SchemaContract.IsPython0320 ? "" : @"d.confidence_rule,
             ";
@@ -3076,7 +3185,8 @@ public static partial class CatalogBuilder
         {
             var name = spec.Name;
             var kind = Runner.EngineTables.TryGetValue(name, out var engine) ? $"engine:{engine}"
-                : GoActive && Runner.GoTables.Contains(name) ? $"engine:{Runner.GoEngine}"
+                // From format 17 go's three core tables are joined at build from go's reference tables (CatalogGo.cs).
+                : GoActive && Runner.GoTables.Contains(name) ? GoTableKind(name)
                 : GoActive && PtmQtlTables.Values.Contains(name) ? "engine:ptmqtl"
                 // The census is the manifest's, not a bundle's. Only when one was loaded: without it the table is
                 // the empty core table it always was.
@@ -3092,6 +3202,14 @@ public static partial class CatalogBuilder
             var rows = Count(con, $"SELECT count(*) FROM \"{name}\"");
             Exec(con, "INSERT INTO catalog_tables VALUES (?, ?, ?)", name, rows, views.Contains(name) ? "view" : "derived");
         }
+        // The orthology tables, in every catalog of the current rules: the snapshot's own rows, and the derived bridge.
+        if (GoActive)
+            foreach (var name in OrthologyTables)
+                Exec(con, "INSERT INTO catalog_tables VALUES (?, ?, ?)", name, Count(con, $"SELECT count(*) FROM \"{name}\""), OrthologyTableKind(name));
+        // go's reference tables and go_group_status, likewise in every catalog of the current rules.
+        if (GoActive)
+            foreach (var name in GoReferenceTables)
+                Exec(con, "INSERT INTO catalog_tables VALUES (?, ?, ?)", name, Count(con, $"SELECT count(*) FROM \"{name}\""), GoTableKind(name));
         foreach (var (layer, tables) in SchemaContract.StudyLayers)
             foreach (var spec in tables)
                 Exec(con, "INSERT INTO catalog_tables VALUES (?, ?, ?)", spec.Name, studyCounts.GetValueOrDefault(spec.Name, 0), $"study:{layer}");

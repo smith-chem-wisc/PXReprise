@@ -1,0 +1,192 @@
+dataset	run	protein	position	residue	site_type	modification	state	fraction	intensity_modified	intensity_total	unmodified_quantified
+D1	S10	P1	13	S	residue	Phosphorylation on S	quantified	0.55	550	1000	True
+D1	S10	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.35	350	1000	True
+D1	S10	P1	32	K	residue	Formylation on K	quantified	0.1	100	1000	True
+D1	S11	P1	13	S	residue	Phosphorylation on S	quantified	0.58	580	1000	True
+D1	S11	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.45	450	1000	True
+D1	S11	P1	32	K	residue	Formylation on K	quantified	0.1	100	1000	True
+D1	S12	P1	13	S	residue	Phosphorylation on S	quantified	0.61	610	1000	True
+D1	S12	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.15	150	1000	True
+D1	S12	P1	32	K	residue	Formylation on K	quantified	0.1	100	1000	True
+D1	S13	P1	13	S	residue	Phosphorylation on S	quantified	0.64	640	1000	True
+D1	S13	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.5	500	1000	True
+D1	S13	P1	32	K	residue	Formylation on K	quantified	0.1	100	1000	True
+D1	S14_1	P1	13	S	residue	Phosphorylation on S	quantified	0.3	300	1000	True
+D1	S14_1	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.15	150	1000	True
+D1	S14_1	P1	32	K	residue	Formylation on K	quantified	0.1	100	1000	True
+D1	S14_2	P1	13	S	residue	Phosphorylation on S	quantified	0.32	320	1000	True
+D1	S14_2	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.12	120	1000	True
+D1	S14_2	P1	32	K	residue	Formylation on K	quantified	0.1	100	1000	True
+D1	S1_F1	P1	13	S	residue	Phosphorylation on S	quantified	0.28	168	600	True
+D1	S1_F1	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.5	300	600	True
+D1	S1_F1	P1	32	K	residue	Formylation on K	quantified	0.1	60	600	True
+D1	S1_F2	P1	13	S	residue	Phosphorylation on S	quantified	0.28	112	400	True
+D1	S1_F2	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.5	200	400	True
+D1	S1_F2	P1	32	K	residue	Formylation on K	quantified	0.1	40	400	True
+D1	S2	P1	13	S	residue	Phosphorylation on S	quantified	0.31	310	1000	True
+D1	S2	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.2	200	1000	True
+D1	S2	P1	32	K	residue	Formylation on K	quantified	0.1	100	1000	True
+D1	S3	P1	13	S	residue	Phosphorylation on S	quantified	0.34	340	1000	True
+D1	S3	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.6	600	1000	True
+D1	S3	P1	32	K	residue	Formylation on K	quantified	0.1	100	1000	True
+D1	S4	P1	13	S	residue	Phosphorylation on S	quantified	0.37	370	1000	True
+D1	S4	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.3	300	1000	True
+D1	S4	P1	32	K	residue	Formylation on K	quantified	0.1	100	1000	True
+D1	S5	P1	13	S	residue	Phosphorylation on S	floor		0	600	True
+D1	S5	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.7	420	600	True
+D1	S5	P1	32	K	residue	Formylation on K	quantified	0.1	100	1000	True
+D1	S6	P1	13	S	residue	Phosphorylation on S	quantified	0.43	430	1000	True
+D1	S6	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.4	400	1000	True
+D1	S6	P1	32	K	residue	Formylation on K	quantified	0.1	100	1000	True
+D1	S7	P1	13	S	residue	Phosphorylation on S	quantified	0.46	460	1000	True
+D1	S7	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.55	550	1000	True
+D1	S7	P1	32	K	residue	Formylation on K	quantified	0.1	100	1000	True
+D1	S8	P1	13	S	residue	Phosphorylation on S	quantified	0.49	490	1000	True
+D1	S8	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.25	250	1000	True
+D1	S8	P1	32	K	residue	Formylation on K	quantified	0.1	100	1000	True
+D1	S9	P1	13	S	residue	Phosphorylation on S	quantified	0.52	520	1000	True
+D1	S9	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.65	650	1000	True
+D1	S9	P1	32	K	residue	Formylation on K	quantified	0.1	100	1000	True
+D1	S10	P2	5	S	residue	Phosphoserine on S	quantified	0.479	239.5	500	True
+D1	S11	P2	5	S	residue	Phosphoserine on S	quantified	0.525	262.5	500	True
+D1	S12	P2	5	S	residue	Phosphoserine on S	quantified	0.557	278.5	500	True
+D1	S13	P2	5	S	residue	Phosphoserine on S	quantified	0.564	282	500	True
+D1	S14_1	P2	5	S	residue	Phosphoserine on S	quantified	0.28	140	500	True
+D1	S14_2	P2	5	S	residue	Phosphoserine on S	quantified	0.3	150	500	True
+D1	S1_F1	P2	5	S	residue	Phosphoserine on S	quantified	0.264	79.2	300	True
+D1	S1_F2	P2	5	S	residue	Phosphoserine on S	quantified	0.264	52.8	200	True
+D1	S2	P2	5	S	residue	Phosphoserine on S	quantified	0.261	130.5	500	True
+D1	S4	P2	5	S	residue	Phosphoserine on S	quantified	0.348	174	500	True
+D1	S5	P2	5	S	residue	Phosphoserine on S	quantified	0.351	175.5	500	True
+D1	S6	P2	5	S	residue	Phosphoserine on S	count_only		0	0	False
+D1	S7	P2	5	S	residue	Phosphoserine on S	count_only		0	0	False
+D1	S8	P2	5	S	residue	Phosphoserine on S	quantified	0.437	218.5	500	True
+D1	S9	P2	5	S	residue	Phosphoserine on S	quantified	0.479	239.5	500	True
+D1	S10	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	0.6575	328.7	500	True
+D1	S11	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	0.6335	316.8	500	True
+D1	S12	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	0.601	300.5	500	True
+D1	S13	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	0.596	298	500	True
+D1	S14_1	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	0.88	440	500	True
+D1	S14_2	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	0.86	430	500	True
+D1	S1_F1	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	0.824	247.2	300	True
+D1	S1_F2	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	0.824	164.8	200	True
+D1	S2	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	0.814	407	500	True
+D1	S3	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	0.7915	395.8	500	True
+D1	S4	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	1	381	381	False
+D1	S5	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	0.7555	377.8	500	True
+D1	S6	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	0.728	364	500	True
+D1	S7	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	0.7195	359.7	500	True
+D1	S8	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	0.683	341.5	500	True
+D1	S9	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	0.6655	332.8	500	True
+D1	S10	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
+D1	S11	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
+D1	S12	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
+D1	S13	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
+D1	S14_1	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
+D1	S14_2	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
+D1	S1_F1	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	30	600	True
+D1	S1_F2	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	20	400	True
+D1	S2	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
+D1	S3	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
+D1	S4	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
+D1	S5	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
+D1	S6	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
+D1	S7	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
+D1	S8	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
+D1	S9	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
+D2	R1	P1	13	S	residue	Phosphorylation on S	quantified	0.606	606	1000	True
+D2	R1	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.4	400	1000	True
+D2	R1	P1	32	K	residue	Formylation on K	quantified	0.1	100	1000	True
+D2	R10	P1	13	S	residue	Phosphorylation on S	quantified	0.354	354	1000	True
+D2	R10	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.15	150	1000	True
+D2	R10	P1	32	K	residue	Formylation on K	quantified	0.1	100	1000	True
+D2	R11	P1	13	S	residue	Phosphorylation on S	quantified	0.4693	469.3	1000	True
+D2	R11	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.55	550	1000	True
+D2	R11	P1	32	K	residue	Formylation on K	quantified	0.1	100	1000	True
+D2	R12	P1	13	S	residue	Phosphorylation on S	quantified	0.604	604	1000	True
+D2	R12	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.35	350	1000	True
+D2	R12	P1	32	K	residue	Formylation on K	quantified	0.1	100	1000	True
+D2	R2	P1	13	S	residue	Phosphorylation on S	quantified	0.4588	458.8	1000	True
+D2	R2	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.1	100	1000	True
+D2	R2	P1	32	K	residue	Formylation on K	quantified	0.1	100	1000	True
+D2	R3	P1	13	S	residue	Phosphorylation on S	quantified	0.3655	365.5	1000	True
+D2	R3	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.5	500	1000	True
+D2	R3	P1	32	K	residue	Formylation on K	quantified	0.1	100	1000	True
+D2	R4	P1	13	S	residue	Phosphorylation on S	quantified	0.2901	290.1	1000	True
+D2	R4	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.2	200	1000	True
+D2	R4	P1	32	K	residue	Formylation on K	quantified	0.1	100	1000	True
+D2	R5	P1	13	S	residue	Phosphorylation on S	quantified	0.2253	225.3	1000	True
+D2	R5	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.6	600	1000	True
+D2	R5	P1	32	K	residue	Formylation on K	quantified	0.1	100	1000	True
+D2	R6	P1	13	S	residue	Phosphorylation on S	quantified	0.1963	196.3	1000	True
+D2	R6	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.3	300	1000	True
+D2	R6	P1	32	K	residue	Formylation on K	quantified	0.1	100	1000	True
+D2	R7	P1	13	S	residue	Phosphorylation on S	quantified	0.2128	212.8	1000	True
+D2	R7	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.7	700	1000	True
+D2	R7	P1	32	K	residue	Formylation on K	quantified	0.1	100	1000	True
+D2	R8	P1	13	S	residue	Phosphorylation on S	quantified	0.2278	227.8	1000	True
+D2	R8	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.25	250	1000	True
+D2	R8	P1	32	K	residue	Formylation on K	quantified	0.1	100	1000	True
+D2	R9	P1	13	S	residue	Phosphorylation on S	quantified	0.2881	288.1	1000	True
+D2	R9	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.45	450	1000	True
+D2	R9	P1	32	K	residue	Formylation on K	quantified	0.1	100	1000	True
+D2	R1	P2	5	S	residue	Phosphoserine on S	quantified	0.496	248	500	True
+D2	R10	P2	5	S	residue	Phosphoserine on S	quantified	0.2882	144.1	500	True
+D2	R11	P2	5	S	residue	Phosphoserine on S	quantified	0.3933	196.6	500	True
+D2	R12	P2	5	S	residue	Phosphoserine on S	quantified	0.494	247	500	True
+D2	R2	P2	5	S	residue	Phosphoserine on S	quantified	0.3828	191.4	500	True
+D2	R3	P2	5	S	residue	Phosphoserine on S	covered_zero		0	350.1	True
+D2	R4	P2	5	S	residue	Phosphoserine on S	quantified	0.2168	108.4	500	True
+D2	R5	P2	5	S	residue	Phosphoserine on S	quantified	0.178	89.02	500	True
+D2	R6	P2	5	S	residue	Phosphoserine on S	quantified	0.1434	71.7	500	True
+D2	R7	P2	5	S	residue	Phosphoserine on S	quantified	0.1599	79.95	500	True
+D2	R8	P2	5	S	residue	Phosphoserine on S	quantified	0.1805	90.27	500	True
+D2	R9	P2	5	S	residue	Phosphoserine on S	quantified	0.2148	107.4	500	True
+D2	R1	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	0.8	400	500	True
+D2	R10	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	0.8	400	500	True
+D2	R11	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	0.8	400	500	True
+D2	R12	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	0.8	400	500	True
+D2	R2	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	0.8	400	500	True
+D2	R3	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	0.8	400	500	True
+D2	R4	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	0.8	400	500	True
+D2	R5	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	1	400	400	False
+D2	R6	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	0.8	400	500	True
+D2	R7	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	0.8	400	500	True
+D2	R8	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	0.8	400	500	True
+D2	R9	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	0.8	400	500	True
+D2	R1	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
+D2	R10	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
+D2	R11	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
+D2	R12	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
+D2	R2	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
+D2	R3	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
+D2	R4	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
+D2	R5	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
+D2	R6	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
+D2	R7	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
+D2	R8	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
+D2	R9	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
+D3	Q1	P1	13	S	residue	Phosphorylation on S	quantified	0.5	500	1000	True
+D3	Q1	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.3	300	1000	True
+D3	Q1	P1	32	K	residue	Formylation on K	quantified	0.1	100	1000	True
+D3	Q2	P1	13	S	residue	Phosphorylation on S	quantified	0.6	600	1000	True
+D3	Q2	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.3	300	1000	True
+D3	Q2	P1	32	K	residue	Formylation on K	quantified	0.1	100	1000	True
+D3	Q3	P1	13	S	residue	Phosphorylation on S	quantified	0.7	700	1000	True
+D3	Q3	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.3	300	1000	True
+D3	Q3	P1	32	K	residue	Formylation on K	quantified	0.1	100	1000	True
+D3	Q4	P1	13	S	residue	Phosphorylation on S	quantified	0.8	800	1000	True
+D3	Q4	P1	17	K	residue	GG (Ubiquitination Site) on K	quantified	0.3	300	1000	True
+D3	Q4	P1	32	K	residue	Formylation on K	quantified	0.1	100	1000	True
+D3	Q1	P2	5	S	residue	Phosphoserine on S	quantified	0.4	200	500	True
+D3	Q2	P2	5	S	residue	Phosphoserine on S	quantified	0.4	200	500	True
+D3	Q3	P2	5	S	residue	Phosphoserine on S	quantified	0.4	200	500	True
+D3	Q4	P2	5	S	residue	Phosphoserine on S	quantified	0.4	200	500	True
+D3	Q1	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	0.8	400	500	True
+D3	Q2	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	0.8	400	500	True
+D3	Q3	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	0.8	400	500	True
+D3	Q4	P3	2	A	protein_n_term	N-acetylalanine on A	quantified	0.8	400	500	True
+D3	Q1	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
+D3	Q2	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
+D3	Q3	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True
+D3	Q4	P4	8	D	residue	DVIEVYQEQTGG (SUMO-1 Site human) on D	quantified	0.05	50	1000	True

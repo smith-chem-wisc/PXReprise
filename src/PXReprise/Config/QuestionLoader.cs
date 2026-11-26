@@ -63,6 +63,37 @@ public static class QuestionLoader
         var requiredTraits = traits?.StringList("required") ?? Array.Empty<string>();
         var optionalTraits = traits?.StringList("optional") ?? Array.Empty<string>();
         string? traitsSource = traits?.OptionalString("source");
+        // D96: [traits.<id>] says where a trait's value per run comes from in the question's curated tables, for ptmQtl's
+        // per-site trait fit. Names, never code: the engine builds the catalog query from them.
+        var traitSources = new SortedDictionary<string, TraitSource>(StringComparer.Ordinal);
+        foreach (string id in (traits?.Keys ?? Enumerable.Empty<string>()).Where(k => k is not ("required" or "optional" or "source")).ToList())
+        {
+            var t = traits!.OptionalTable(id) ?? throw new ConfigException(file, $"[traits] '{id}' must be a table, [traits.{id}]");
+            if (!requiredTraits.Contains(id) && !optionalTraits.Contains(id))
+                throw new ConfigException(file, $"[traits.{id}] names a trait that [traits] neither requires nor allows");
+            string? factor = t.OptionalString("design_factor"), sample = t.OptionalString("sample_value");
+            if (factor is null && sample is null) throw new ConfigException(file, $"[traits.{id}] needs design_factor, sample_value, or both");
+            if (sample is not null && !Regex.IsMatch(sample, "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$"))
+                throw new ConfigException(file, $"[traits.{id}] sample_value '{sample}' must be <table>.<column>");
+            double scale = t.OptionalNumber("scale") ?? 1;
+            if (!(scale > 0)) throw new ConfigException(file, $"[traits.{id}] scale must be positive");
+            var covariates = t.StringList("covariates");
+            foreach (string c in covariates.Where(c => !Regex.IsMatch(c, "^(characteristics\\[[^\\]'\\r\\n]+\\]|[a-z][a-z0-9_]*)$")))
+                throw new ConfigException(file, $"[traits.{id}] covariate '{c}' must be characteristics[...] or a curated_run_design column");
+            string? traitId = t.OptionalString("trait_id");
+            if (traitId is not null && !Regex.IsMatch(traitId, "^[a-z][a-z0-9_]*$")) throw new ConfigException(file, $"[traits.{id}] trait_id '{traitId}' must be lower-case letters, digits and _");
+            var excludeWhen = t.StringList("sample_exclude_when");
+            if (excludeWhen.Count > 0 && sample is null) throw new ConfigException(file, $"[traits.{id}] sample_exclude_when needs sample_value: they are columns of its table");
+            foreach (string c in excludeWhen.Where(c => !Regex.IsMatch(c, "^[a-z][a-z0-9_]*$")))
+                throw new ConfigException(file, $"[traits.{id}] sample_exclude_when '{c}' must be a column name");
+            string? role = t.OptionalString("covariate_factor_role"), stratum = t.OptionalString("stratum_factor_role");
+            if (role is not null && role == stratum) throw new ConfigException(file, $"[traits.{id}] covariate_factor_role and stratum_factor_role are both '{role}'");
+            var neverDrop = t.StringList("never_drop");
+            foreach (string c in neverDrop.Where(c => !covariates.Contains(c)))
+                throw new ConfigException(file, $"[traits.{id}] never_drop '{c}' is not one of its covariates");
+            t.RefuseUnknownKeys();
+            traitSources[id] = new TraitSource(id, factor, sample, scale, covariates, traitId, excludeWhen, role, stratum, neverDrop);
+        }
         traits?.RefuseUnknownKeys();
 
         var holds = new SortedDictionary<string, string>(StringComparer.Ordinal);
@@ -113,8 +144,8 @@ public static class QuestionLoader
                 var e = ParseException(file, dir, t, $"exceptions.{acc}", acc, t.RequiredString("reason"), null);
                 t.RefuseUnknownKeys();
                 if (!e.SelectsFiles && e.MaxFiles is null && e.MaxFileMb is null && e.MaxEstimatedMs2 is null && e.DeferIfMedianFileMb is null
-                    && e.Alkylation is null && e.Species is null && e.ReplaceFiles is null && e.MinIdentificationRate is null)
-                    throw new ConfigException(file, $"exceptions.{acc} changes nothing: give a cap, include_files / exclude_files, alkylation, species, replace_files or min_identification_rate");
+                    && e.Alkylation is null && e.Species is null && e.ReplaceFiles is null && e.MinIdentificationRate is null && e.MinMs2 is null)
+                    throw new ConfigException(file, $"exceptions.{acc} changes nothing: give a cap, include_files / exclude_files, alkylation, species, replace_files, min_identification_rate or min_ms2");
                 exceptions[acc] = e;
             }
             ex.RefuseUnknownKeys();
@@ -214,7 +245,7 @@ public static class QuestionLoader
             new RelevanceRules(require, exclude, unless, decisions), overlays, requiredTraits, optionalTraits,
             traitsSource, holds, studyLayer, batch,
             new PublishSettings(manifest is null ? null : Abs(dir, manifest), command, everyHours, publishTimeout), designs,
-            new DiscoverLists(diseaseKeywords, watchKeywords), exceptions, splits, gate, restrictions);
+            new DiscoverLists(diseaseKeywords, watchKeywords), exceptions, splits, gate, restrictions, traitSources);
     }
 
     /// <summary>
@@ -265,9 +296,14 @@ public static class QuestionLoader
         double? minIdRate = t.OptionalNumber("min_identification_rate");
         if (minIdRate is < 0 or > 1)
             throw new ConfigException(file, $"{where}.min_identification_rate is a share of the MS2 spectra, from 0 to 1 (got {minIdRate})");
+        // 2026-11-20 (aging 316, PXR-A217): the deposit's own MS2 floor for QC's too_few_ms2. At least 1: a file with no MS2 at
+        // all is a blank or failed injection (BatchRunner.NoMs2AtAll), whatever the floor.
+        int? minMs2 = Int("min_ms2");
+        if (minMs2 is < 1)
+            throw new ConfigException(file, $"{where}.min_ms2 is a number of MS2 spectra, at least 1 (got {minMs2})");
         return new DepositException(key, reason, Rx("include_files"), Rx("exclude_files"),
             Int("max_files"), Int("max_file_mb"), t.OptionalInteger("max_est_ms2"), Int("defer_if_median_file_mb"), alkylation, species, replace, split,
-            minIdRate);
+            minIdRate, minMs2);
     }
 
     /// <summary>

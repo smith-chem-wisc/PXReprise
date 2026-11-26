@@ -1,11 +1,438 @@
 # Changelog
 
-Every release says three things before anything else: whether it needs a different MetaMorpheus, whether your machine
-file needs a change, and whether it is safe to update while a batch is part-way through a queue. How to update:
-section 7, "Updating", of [Getting started](https://smith-chem-wisc.github.io/PXReprise/getting-started.html).
+Every release says four things before anything else: whether it needs a different MetaMorpheus, whether your machine
+file needs a change, whether it is safe to update while a batch is part-way through a queue, and what adopting it costs
+your repository (**Adopting:** a swap only, a swap and a catalog rebuild, or a full re-ingest). The release workflow
+refuses a section whose lead does not say **Adopting:**. How to update: section 7, "Updating", of
+[Getting started](https://smith-chem-wisc.github.io/PXReprise/getting-started.html).
+
+One release holds the engine (`pxreprise`) and `datarepo`, under one version, for Windows, Linux and macOS
+([decision 0073](docs/decisions/0073-one-release-for-the-engine-and-datarepo.md)). datarepo's own version line ended at
+1.5.0; its changes up to then are in [docs/data/CHANGELOG.md](docs/data/CHANGELOG.md).
 
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
+
+## 1.0.1 (2026-11-26)
+
+One fix, in datarepo: it ingests an isobaric search's operator SDRF (G107), which 1.0.0 refused.
+
+**MetaMorpheus:** unchanged. The profiles and MetaMorpheus versions are 1.0.0's.
+
+**Machine file:** no new key. `datarepo` must name this release's datarepo (the `datarepo` folder of its archive), as
+for every release: a batch refuses any other at its start.
+
+**Safe mid-batch?** Yes: swap the pin and its datarepo together, as usual. No search changes.
+
+**Adopting:** a swap only, plus a re-ingest of each isobaric deposit whose manifest entry names an `operator_sdrf`
+(1.0.0 refused every one). No other bundle id moves, and the ingest path stays `cs-1.5.0`.
+
+- **datarepo ingests an isobaric search's `operator_sdrf`** (G107). 1.0.0 checked an operator SDRF only against a
+  label-free `ExperimentalDesign.tsv`, so every TMT or iTRAQ search that named one was refused ("there is no
+  ExperimentalDesign.tsv ... to check it against"). The check now reads the search's `TmtDesign.txt`: every channel the
+  design does not mark `empty` must be named by exactly one SDRF row, by its data file and `comment[label]`. PRIDE's
+  `TMT131` names TMT10's 131N, as it already did when placing assays. A channel that no row names, or that two rows
+  name, is refused by name. Before this, a second row would have been dropped silently, and an unnamed channel would
+  have fallen back to the design's own sample. On aging's store this lets in ten TMT deposits whose operator SDRFs carry
+  aging's reference groups.
+
+## 1.0.0 (2026-11-26)
+
+The first release to hold the engine and datarepo as one program under one version (decision 0073). Its headline
+changes are three. The profiles run MetaMorpheus 1.1.16 with the PEP q-value at 1% (decision 0099). The reagent probe
+names a deposit's cysteine reagent from its spectra when its cysteines look suspicious (decision 0100). And ptmQtl's
+engines run in the batch (decision 0096).
+
+**MetaMorpheus:** 1.1.16 for `label-free-dda@17`, `label-free-dda-lowres@11` and `tmt-dda@8`, the versions this release
+runs. 1.1.15 for the six before them: `label-free-dda@15` and `@16`, `label-free-dda-lowres@9` and `@10`, and
+`tmt-dda@6` and `@7`. Every other profile keeps its own.
+
+**Databases:** `label-free-dda@16` and `@17`, and `tmt-dda@7` and `@8`, need the agingPTM-v10 files in the machine's
+`database_dir` (UniProt 2026_04; their record is `data/ptm-db/agingPTM-v10`).
+
+**Machine file:** `"1.1.16"` under `[metamorpheus]` (and `"1.1.15"` for the six), each naming the `CMD.dll` of that
+MetaMorpheus release's CommandLine zip; each zip's sha256 is in `tests/metamorpheus-output/releases.tsv`. And
+`datarepo` must name the datarepo of this release (the `datarepo` folder of its archive): a batch refuses any other at
+its start.
+
+**Safe mid-batch?** Yes: swap the pin and its datarepo together, as usual. Nothing searched under another profile
+changes.
+
+**Adopting:** a swap and a full re-ingest. This release's datarepo writes bundle schema 0.0.17 on ingest path
+`cs-1.5.0`, and a catalog never mixes schemas, so every stored deposit is ingested again before the next catalog build.
+For a store of aging's size that took 6 h 14 min of ingest, three at a time, on dataRepo's 1.5.0 trial, and about 7 h
+with the first build. Move every pin that names a datarepo at once.
+
+A question takes the MetaMorpheus 1.1.16 profiles (or the 1.1.15 ones) by naming them before their earlier versions in
+its `profiles`. Deposits already searched keep their profile, and whether to search them again is a separate choice. A
+question that wants TMT names `tmt-dda@5` before `tmt-dda@4`, and each deposit QC refused for ion-trap HCD gets a
+`batch retry`. So does each deposit refused for `no_isobaric_reporters` whose record text says TMT while PRIDE's
+quantification names label-free too (below). A probe whose cysteines look suspicious now runs the reagent probe, so
+that deposit's probe takes longer: about 2.4 times on Orbitrap.
+
+- **Three profile versions on MetaMorpheus 1.1.16 and the PEP q-value filter: `label-free-dda@17`,
+  `label-free-dda-lowres@11` and `tmt-dda@8`** (@16, @10 and @7 with only the MetaMorpheus release and the identification
+  filter changed; the guard test checks them line by line).
+  - **Each peptide is judged by its best-scoring match, the one PEP trains on** (MetaMorpheus #2983): the peptide
+    table's row, the peptide q-values, protein FDR and the peptides FlashLFQ quantifies all follow that match. 1.1.15
+    re-picked each peptide's lowest-PEP match, so FlashLFQ's list held peptides the peptide table fails at 1% (2,645 on
+    PXD000279, 445 on PXD031782).
+  - **GPTMD may put carbamyl-K on the residue the protease cut after** (MetaMorpheus #2995).
+  - **The identification filter is the PEP q-value at 1% in every task**, in place of the q-value notch decision 0087
+    set for 1.1.15 (the user, 2026-11-26: "yes. move to the pep filter"). Under that filter #2983 ranks protein groups
+    by their best peptide's PEP q-value, then by score. That ends 1.1.15's protein FDR collapse: a build of #2983 gave
+    4,720 protein groups at 1% on PXD019690-astro (114 on 1.1.15) and 6,005 on PXD031710 (907), decoys 1.0% of targets.
+    `results.txt` counts by it ("All target PSMs with pep q-value <= 0.01"), and datarepo reads its counts by the
+    same rule.
+  - **Databases unchanged:** agingPTM-v10 (`lowres@11` agingPTM-v3). Nothing was delivered after v10 was built.
+
+- **The reagent probe names a deposit's cysteine reagent from its spectra** (decisions 0095 and 0100), when the probe's
+  pooled share of peptides with C is under 10%.
+  - **How:** it searches the probe's files again with no fixed cysteine modification and ten candidate reagents
+    variable. It names the reagent family holding at least 60% of the modified cysteines, and reports the unmodified
+    share apart.
+  - **What the call sets:** a named reagent is the alkylation the full search declares (source `probe_spectra`),
+    variable unless one form covers 95% of the cysteines. It outranks the deposit's words; only a question's "never
+    alkylated" exception outranks it.
+  - **Where it runs:** wherever the probe runs. The worker's call reaches the controller in its package's state.
+  - **The `labels` verb** reports such a search's cysteine chemistry as `matches`.
+  - **The other calls:** "mixed" and "unknown" change nothing. "None" removes the cysteine modification only where the
+    deposit named no reagent.
+  - **Cost:** 8 to 38 min on three Orbitrap probe files; ion trap searches one file.
+  - **Evidence:** calibrated on 13 deposits of known chemistry (it found PXD057499 and PXD057490's iodoethanol, which
+    the words left as carbamidomethyl).
+
+- **The batch runs ptmQtl's engines** (decision 0096), when the machine file has a `[ptmqtl]` table naming ptmQtl's
+  three lists (`enrichment`, optional `capture_runs`, `cysteine`). `ptmqtl.site_pairs` runs on each label-free deposit
+  as it is delivered, on its newest bundle. Before each publish, a catch-up pairs deposits delivered before the engines
+  ran (`catch_up_per_publish` of them, 20 by default), then `ptmqtl.pool_pairs` pools every paired deposit (one result
+  per species). Each run's result, artefact and whole output are in the deposit's state (`ptmqtl_site_pairs_*`) and the
+  publish record (`ptmqtl_pool_*`). A failed run never stops a delivery or a publish, and isobaric deposits are never
+  run. **datarepo's catalog:** a pooled artefact whose members all sit in a larger pool of the same species is that
+  pool's earlier version, and gives way to it. Before, the second pool of a species stopped the catalog build.
+
+- **The batch can run ptmQtl's per-site trait fit (`site_traits`), and writes its traits files** (decision 0096). It
+  is off by default (`[ptmqtl] site_traits = true` and `catalog`, the catalogs folder). It needs ptmQtl's engine change
+  and the mzLib release it comes with, so leave it off until the pin carries both.
+  - **A question says where each trait comes from** in a new `[traits.<id>]` table, using its curated tables' names,
+    never code:
+    - `design_factor` and/or `sample_value` (`table.column`); the sample's value wins, and any disagreement is said;
+    - `scale` (0.1 turns years into decades) and `trait_id` (`age_decades`, so the unit travels with the trait);
+    - `sample_exclude_when`, flags such as a range or a lower bound, whose samples are left out and counted;
+    - `covariates` and `covariate_factor_role`: with the latter, every other design factor of that role is a covariate
+      too;
+    - `stratum_factor_role`: a factor of that role (a tissue) is never pooled. Its levels are fitted apart, so until
+      that fit is built, a deposit where one varies is left out.
+  - **Before each publish,** for each such trait, the batch reads the latest catalog (`datarepo query`) and writes one
+    traits file per delivered label-free deposit. It then runs `site_traits` on each deposit by itself, one at a time,
+    so one refused bundle stops nothing else.
+  - **A covariate is written only where it can be fitted:** complete, at least two levels, and each level held by at
+    least two individuals (counted by animal, not by run). A second covariate that splits the samples exactly as an
+    earlier one does is dropped. A covariate in `never_drop` (a batch) is written whenever it has two levels, however
+    thin, and the engine judges whether the trait is still estimable. A deposit where one is incomplete is left out.
+  - **A deposit is left out whole if any run lacks a curated individual,** so an injection is never counted as an
+    animal. So is one whose trait has one value once exclusions are applied, since it has no slope. Every deposit left
+    out is logged with its reason.
+  - **Which deposits are fitted is the engine's rule.** It refuses a capture, and the log then says "file written, no
+    fit", with its reason.
+  - Each result is recorded in the deposit's state (`ptmqtl_site_traits_<trait>_*`). A failure never stops the publish.
+    A deposit whose file, datarepo and delivery are unchanged since its last run is not asked again, so an engine's
+    refusal (a capture) is not repeated at every publish; a swap or a re-ingest asks again.
+
+- **New `labels` verb: each run's sample type and each search's cysteine chemistry** (decision 0094), for ptmQtl to
+  read in place of its hand lists. `pxreprise labels <deposit folder>... [--decisions FILE] [--out DIR]` reads what a
+  deposit's folder records (its search's spectra files, chemistry and cysteine-peptide share; the screen's
+  enrichment; the probe's per-run phospho, GG and acetyl-K shares) and writes `07_labels/labels.json`. A run is
+  `whole_proteome`, `ptm_capture`, `protein_pulldown` or `unknown`; a search's cysteine chemistry `matches`, is a
+  `mismatch` or is `unknown`. Each label carries its source, its evidence and a reason; where the text and the data
+  disagree it is `unknown`. A person's decisions (a TSV: dataset, run, label, value, target, by, date, reason)
+  outrank both. Nothing else changes: the batch does not run it yet, and no bundle carries the labels yet.
+
+- **mzLib 1.0.601** (from 1.0.600), the mzLib of the MetaMorpheus release after 1.1.15. One answer changes: on an
+  isobaric differential table, `n_peptides` now counts distinct peptides, as mzLib documents it (mzLib #1622). 1.0.600
+  counted model levels, one per peptide ion per plex run, so the number falls wherever a peptide was seen at more than
+  one charge or in more than one plex run. No estimate, standard error or p-value changes, and neither do the
+  `analysis_id` or `method_version`. The differential record's `tools.mzlib` tells the two versions apart. Label-free
+  tables do not change. mzLib now refuses a normalization setting it does not know (#1622), but the differential stage
+  passes none and gets the default, which is unchanged. The release's new capabilities (the glycoproteases, PRIDE
+  zip-entry reads, DIA precursors in the statistics) are not used yet.
+
+- **Three more profile versions: `label-free-dda@16`, `label-free-dda-lowres@10` and `tmt-dda@7`** (@15, @9 and @6
+  with only these changes; the guard test checks them line by line).
+  - **agingPTM-v10 databases** in `@16` and `tmt-dda@7` (decision 0091): UniProt release 2026_04, and the first
+    cumulative build, whose sites come from every delivered deposit with a kept bundle, not only those the question's
+    catalog serves today (`tools/ptm-db/EvidenceCatalog.cs`), less `data/ptm-db/evidence_dropped.tsv`'s seven quality
+    problems. Sites on an accession 2026_04 replaced move to the gene's new entry (`BuildPtmDb.cs --previous-proteome`,
+    226 sites). Human 7,890, mouse 13,186, rat 2,147 GPTMD sites (v9: 6,398, 11,670, 2,049). `lowres@10` stays on
+    agingPTM-v3 (D44).
+  - **Ion-trap spectral libraries** in `tmt-dda@7` and `lowres@10` (`engine.ion_trap_library`, decision 0092): a search
+    of ion-trap MS2 reads its own chain and PXReprise builds the next version from its PSMs. `lowres@10` also turns its
+    spectral library on (`lowres@9` had none). Measured once with a one-deposit library: peptides -1.9%, protein groups
+    +5.3%.
+
+- **Three profile versions on MetaMorpheus 1.1.15: `label-free-dda@15`, `label-free-dda-lowres@9` and `tmt-dda@6`**
+  (@14, @8 and @5 on the new release). The guard test allows each only the changes below, line by line.
+  - **One identification filter, the q-value notch at 1%, in every task** (decision 0087, which replaces 0082):
+    `IdentificationFilter = "QValueNotch"` and `FilterThreshold = 0.01`, set in the profile, never MetaMorpheus 1.1.15's
+    default (the PEP q-value for bottom-up searches). Under the PEP q-value, 1.1.15's protein FDR collapsed on some
+    deposits (an isobaric ion-trap one kept 106 target protein groups at 1%, against 4,590 under the notch). The probe
+    search takes its profile's filter, and its measures read only what that filter passed.
+  - **Match-between-runs transfers kept below a q-value of 5%** in the two label-free versions (decision 0089):
+    `MbrFdrThreshold = 0.05`, mzLib FlashLFQ's own default (MetaMorpheus sets 0.01). At 1%, FlashLFQ refuses a whole
+    file's transfers when its decoys run just over 1 in 100; on a 143-file deposit, 27 files kept none at 1% and 2 at
+    5%. About 1 kept transfer in 20 is then estimated wrong, against 1 in 100. The provenance's `mbr` block and the QC
+    payload count kept transfers at the search's own threshold.
+  - **agingPTM-v9 databases** (decision 0029; built on aging's catalog of 215 deposits). `label-free-dda-lowres@9` stays
+    on agingPTM-v3: v9 lost 1.5% of an ion-trap deposit's PSMs, mostly hydroxylation.
+  - **The design's curated SDRF passed to the search** (`engine.input_sdrf = true`, MetaMorpheus's `InputSdrfPath`), so
+    the SDRF the search writes carries the sample facts it states.
+  - **The QC's MS2 floor at 2,500 spectra a file** (`[qc] min_ms2`; 5,000 in every earlier version), so thin but real
+    files such as a fractionated deposit's late fractions pass.
+  - **No per-file mzIdentML** (`WriteMzId = false`): MetaMorpheus wrote one per raw file even with individual-file
+    tables off, and nothing read them.
+
+- **One spectral library per fragmentation type** (decision 0092). QC's per-file fragmentation call becomes part of the
+  chain key: Orbitrap HCD keeps today's chains (all of which hold Orbitrap HCD only), and Orbitrap CID, ETD and EThcD
+  get chains of their own (`human_cid`, ...), written by their first search and updated by the next. A search whose
+  files differ in fragmentation gets no library, and says so in its provenance notes. Ion-trap MS2 still gets none from
+  MetaMorpheus (v0.4.34). The provenance's `spectral_library` record gains `fragmentation`.
+
+- **Ion-trap MS2 gets its own libraries, built by PXReprise** (decision 0092; a profile's new `engine.ion_trap_library`,
+  which needs `engine.spectral_library`). The search reads its chain (`lowcid` or `ithcd`) with neither library switch
+  set, so MetaMorpheus never matches fragments at every charge, and PXReprise then builds the next version from the
+  search's `AllPSMs.psmtsv` by MetaMorpheus's own update rule (`LibraryFromPsms`: 1% PSMs of the filter `results.txt`
+  names, targets, unambiguous, the best per precursor; a stored spectrum kept when it holds more fragments than the new
+  score). The provenance's `spectral_library` record gains `metamorpheus_mode` (`read`) and `built_from_psms`. No
+  shipped profile sets it yet; every existing profile version keeps no library for ion-trap MS2.
+
+- **`pxreprise library repair <chain> --remove-deposits PXD1,PXD2`** takes out of a spectral library what those
+  deposits' searches put in it, for a deposit with a stated quality problem. Each version a deposit's search registered
+  is compared with its parent. Where the current library still holds a spectrum that search added or replaced, it goes
+  back to the spectrum its name held before, or is left out when the name held none. A spectrum a later search replaced
+  stays. Spectra are compared by name, retention time and peaks, not by precursor lines or peak annotations (whose
+  spelling changed between MetaMorpheus versions). The new version records what was removed and restored.
+
+- **ptmQtl's site-trait fits are `ptmQtl:DEF-SITE-TRAIT v2`: effects in log2 odds** (ptmQtl D33, G64).
+  - `datarepo run ptmqtl.site_traits` fitted the natural-log odds of occupancy (v1). It now fits the log2 odds, as
+    ptmQtl reports them. A site-trait effect then shares QuantProject's `DEF-DIFF` base (`occupancy_log2_odds_*`).
+    - Every effect and standard error is v1's divided by ln 2 (about 0.693), and the variances by (ln 2)².
+    - df, p and q do not change, and neither does the model: mzLib's `SiteTraitEffects` with
+      `SiteTraitOptions.Scale = Log2Odds`.
+  - `trait_effects.response` is `log2_odds_occupancy` (v1 wrote `logit_occupancy`), so a v1 row is never read as v2.
+    `definition_id` is `ptmQtl:DEF-SITE-TRAIT v2`, and so a new artefact id.
+  - Still without bounds: the fit reads quantified cells only, as v1 did. A cell seen in one form (a ceiling, a
+    covered-zero) is left out of it, unlike type A's.
+  - **Tests.** The site-trait rows of ptmQtl's reference case v3 (`Fixtures/ptmqtl-reference-v3`) are reproduced row for
+    row. The v1 fixture, which only the site-trait test still read, is removed.
+  - No ptmQtl row is stored yet, so nothing stored changes.
+
+- **ptmQtl's observations (its S7) are the PSMs the search's own identification filter kept** (ptmQtl D82, PXR-P23;
+  replaces ptmQtl D36).
+  - `datarepo run`'s ptmQtl engines (`site_pairs`, `site_traits`) took one quantified-PSM tier per search (mzLib's
+    `QuantifiedPsmRule.ChooseTier`: the PEP q-value wherever PEP trained) and cut strictly below 0.01. MetaMorpheus
+    quantifies, and builds the occupancy cells the engines read, from the PSMs its own filter keeps, so a site could
+    count as covered by PSMs it never quantified.
+  - Now a bundle's filter is the one its `results.txt` names, read as the ingest reads it (`Identifications.FilterOf`),
+    and the cut is the search's, `<= 0.01`. Up to 1.1.14 that is the q-value and the notch, with the notch resolved
+    (`psms_1pct`'s rule); from 1.1.15 it is the filter the search names. A search from 1.1.15 on whose results.txt names
+    no filter is refused, never read on a guess.
+  - The run record's `quantified_psm_tier` (one tier per search) becomes `identification_filter` (the bundle's filter).
+  - Every served search is 1.1.14 or earlier, so S7 keeps about 19 % fewer target PSMs than under D36: 105.3 M against
+    129.3 M over aging's 215 served bundles, from 0.38 to 1.63 times per bundle (dataRepo's measure, 2026-11-23, before
+    S7's ambiguity-level-1 cut). No ptmQtl row is stored yet, so nothing stored changes.
+
+- **ptmQtl's co-varying pairs (type A) are `ptmQtl:DEF-PTM-PAIR v3`: one-form cells as bounds, correlated given depth,
+  with a depth null per deposit** (ptmQtl D37, D40, D42-D44, D78, D83). This is ptmQtl's reported method (their v5).
+  - **Bounds.** A run where a site was seen in one form is no longer dropped. A covered-zero or a floor is tied lowest
+    in the site's ranks; a ceiling, or a count-only cell with only the modified form, is tied highest.
+    - Covered-zeros are MetaMorpheus's own from 1.1.13 on (`covered_zero`, which the engines now read).
+    - Up to 1.1.12, MetaMorpheus wrote none, so the engine reads them from the observations' coverage. The two are
+      never mixed.
+  - **Depth.** The correlation is partial, given each sample's depth: log2 of the target PSMs that S7's filter keeps,
+    over all of the sample's runs. A sample with none is left out of every pair.
+  - **The depth null.** Per deposit, each site's cells are permuted within blocks of 3 samples of similar depth, 3
+    times. A deposit whose null calls reach 10 % of its real calls is depth-like.
+    - Its type A rows, and pooled rows with it behind them, carry the new `PairFlag` value `depth_like` (schema
+      0.0.17). The rows are kept.
+    - The null's counts are in the `site_pairs` run record, beside each run's `target_psms`.
+  - **Python parity.** `SchemaContract.AddedEnumValues` hides enum values added since Python's schema 0.0.13 inside a
+    parity scope, as `AddedColumns` hides columns, so the MCP parity answers stand.
+  - **Tests.** ptmQtl's reference case v3 (`tests/PXReprise.Data.Tests/Fixtures/ptmqtl-reference-v3`) is reproduced
+    row for row. The site-trait fit is unchanged (`DEF-SITE-TRAIT v1`), and is still checked against v1's fixture.
+  - **The reference builder moved here:** `tools/ptmqtl-reference`, from ptmQtl's `tools/ReferenceCase`. It applies
+    ptmQtl's definitions through mzLib calls only, not through `PXReprise.Runner`, and regenerates the v3 fixture.
+  - **Cost.** The null takes type A three more times per deposit. ptmQtl's v5 pairs took 37 min for 121 deposits on 64
+    cores, so expect about four times that. No ptmQtl row is stored yet.
+
+- **A bundle's 1% rule is the search's own identification filter too** (dataRepo D78, PXR-R81; ingest path `cs-1.5.0`).
+  - datarepo 1.5.0's plan (D55, never released) had `peptidoforms_1pct` and `peptidoform_ions` read the tier mzLib's
+    `ChooseTier` picks, the PEP q-value wherever PEP trained, cut strictly below 0.01. Our maintainer ruled one filter,
+    set in the search and nowhere else.
+  - Now `datasets.confidence_rule` is the filter the search's results.txt names, cut at or below 0.01 as the search
+    cuts:
+    - `q_value_and_notch` for every MetaMorpheus up to 1.1.14 (a new value), which is exactly the rule datarepo 1.4.5's
+      `peptidoforms_1pct` read, so the 1% peptidoforms aging serves do not move;
+    - from 1.1.15, `q_value_notch`, `q_value` or `pep_q_value`;
+    - `pep_q_value_or_notch` where a PEP filter trained for only some peptides, with a finding saying so.
+  - One predicate serves all three readers: `Identifications.PassesRuleSql` for `peptidoforms_1pct`,
+    `Identifications.PassesRule` for `peptidoform_ions`, and `Identifications.PsmPassesSql` (that predicate with the PSM
+    notch clause) for ptmQtl's S7.
+  - D55's two findings, `confidence_rule_fallback` and `confidence_rule_fewer_peptides`, are gone. A search from 1.1.15
+    whose results.txt names no filter is refused, as S7 refuses it.
+
+- **One release for the engine and datarepo, under one version** (decision 0073).
+  - **The problem.** The two programs were released apart. The engine's `v<version>` tags published notes only, and
+    datarepo's own `datarepo-v<version>` tags made draft releases of its programs. Nothing tied a machine's two programs
+    together: an engine release's notes said which datarepo it needed, and a batch ran with any.
+  - **One tag, one version, both programs.** A `v<version>` tag now publishes "PXReprise <version>" with one archive per
+    platform, `pxreprise-<version>-<rid>` (`.zip` for win-x64; `.tar.gz`, which keeps the executable bit, for linux-x64,
+    osx-arm64 and osx-x64). Each holds a `pxreprise/` and a `datarepo/` folder, both self-contained. Before anything is
+    published, each platform's programs run with no .NET on `PATH`: the engine's `version` must report the release,
+    `datarepo --version` must print `datarepo <version>`, and datarepo runs the fixture instance end to end, from its
+    folder and again from the unpacked archive.
+  - **The version is the csproj's `<Version>`;** datarepo has none of its own (`src/Data.Build.props` keeps `0.0.0-dev`
+    for every build that is not a release). The `datarepo-v*` tags end. datarepo's last own numbers were 1.4.5 and 1.5.0,
+    and its version restarts at the joint 1.0.0.
+  - **A batch refuses a datarepo from another release.** At its start a batch reads `datarepo --version`; any version but
+    the engine's own (its `+commit` aside) stops it before any deposit, naming both versions ("use the datarepo from the
+    same PXReprise release"). `batch status --machine` makes the same check and shows the datarepo's version, so check a
+    new install with it before stopping a running batch. A datarepo that cannot be started at all is left to its ingest,
+    as before. A datarepo of the engine's own release is read through its `--json` envelope, a pair the binaries
+    workflow stamps `0.0.0-dev` included: before, only datarepo 1.0 or later was, so a developer's pair read only the
+    exit code.
+  - **Every release says what adopting it costs:** a swap only, a swap and a catalog rebuild, or a full re-ingest, in its
+    lead (above). The catalog id hashes datarepo's version, which is now every release's, so adopting any release, even
+    one that changes only the engine, costs at least a swap and a catalog rebuild.
+  - The push-time `datarepo-binaries` workflow now checks both programs on every platform, with the release's own steps
+    (`.github/workflows/binaries.yml`).
+  - **datarepo's tutorial follows** (`docs/data/getting-started.md`). It clones PXReprise at the release's tag, downloads
+    the release's archive, and copies the example instance from `tests/datarepo-instance`. It had pointed at dataRepo's
+    own 1.5.0 release and its `tests/data`. Its test now fails on a page that names another repository, archive or
+    instance folder.
+
+- **A new question's manifest now names the machine's `work_root`, not the question's run root** (dataRepo's seam test).
+  - **The problem.** When a question's `[publish] manifest` did not exist yet, the batch wrote it with `work_root` set to
+    the question's `run_root`. But every `provenance.json` names its inputs relative to the machine's `work_root`: the
+    searched databases, the fetch and QC records, and (by default) MetaMorpheus's settings folder. datarepo reads all of
+    them against the manifest's `work_root`, so it found none of them. Each bundle then had no databases, left
+    Carbamidomethyl and other modifications unresolved, and kept only the search's own provenance record, and
+    `datarepo ingest` still exited 0. Measured on a replayed real search: 0 database rows instead of 2, 26 PTM sites
+    instead of 36, no stoichiometry instead of 4 rows.
+  - **Now the manifest names the machine's `work_root`,** relative to the manifest where one folder holds the other and
+    absolute otherwise, and each entry's `run` is relative to that root (`runs/PXD000210`).
+  - **An existing manifest is never rewritten.** One the batch wrote under an earlier version needs its `work_root` set
+    to the machine's by hand, and each entry's `run` changed to match. A hand-written manifest whose `work_root` is
+    already the machine's (aging's) is not affected.
+
+- **datarepo names a searched database or settings folder that is not on disk** (ingest path `cs-1.4.0`).
+  - **The problem.** A protein database the search provenance names, or the MetaMorpheus settings folder, could be
+    missing where the manifest's `work_root` puts it, and the ingest still exited 0. A missing database was named
+    only at the end of the `unplaced_ptm_sites` finding, which is about sites. A missing settings folder only showed as
+    a longer `unresolved_modifications` list. The manifest the batch wrote before the fix above lost both for every
+    deposit.
+  - **Now each is a warning of its own.** `search_database_missing` gives each missing path and the sha256 the search
+    recorded, and says what the bundle lacks without it. `search_settings_missing` names the folder, and whether it
+    came from `--mm-settings` or the default `<work_root>/mm_settings/<release>`.
+  - **The ingest path moves to `cs-1.4.0`,** which also covers 1.1.15's reconciliation counts (#38, #42). So a
+    re-ingest writes a new bundle id for every deposit. A bundle written at `cs-1.3.0` (schema 0.0.17) is still served
+    as it is; a store on datarepo 1.4.x re-ingests once anyway, as the lead above says.
+
+- **The spectra now decide when the record text, not PRIDE's list, chose the TMT profile** (PXD032900-lfq, 2026-11-20).
+  - **The problem.** Since 0.4.45, a deposit routed to the isobaric profile by PRIDE's words goes back to its label-free
+    profile when those words name label-free too and no probe file carries reporter ions (D34: spectra beat text). But the
+    probe kept a profile to go back to only when the chemistry step (PRIDE's quantification list) had routed the deposit.
+    When the record text itself said TMT, the screen routed it first, and the rule was never asked. PXD032900-lfq, the
+    case the rule was written for, has "TMT-based quantification" in its record, so it was refused under 0.4.45 anyway:
+    KMS_1Y, KMS_4Ag and KMS_6Ag, all `no_isobaric_reporters`.
+  - **Now the screen keeps the profile a label-free reading would have had** (`routed_isobaric: screen` in the state), so
+    the same rule applies to it. A label the spectra decided on an earlier pass takes that profile at once, before any
+    download. A deposit PRIDE files as TMT alone, or with a kit in any probe file, is still not second-guessed by the
+    spectra.
+  - **A question's curated SDRF that names every file `label free sample` now decides the label** (PXD015728, PXD019690's
+    Purkinje runs). Before, a label-free cell decided nothing, in any SDRF, and the text's TMT stood. A curated SDRF is a
+    person's statement for the deposit, so it now outranks PRIDE's list and the text. When the text had chosen the TMT
+    profile, the deposit goes back to the label-free profile before anything is downloaded. A deposited SDRF saying the
+    same still decides nothing: community SDRFs have called whole TMT deposits label-free (PXD019316, PXD024356).
+  - **A question's curated SDRF that names a protease for every file now outranks the screen's reading of non-specific
+    cleavage** (PXD033714). The record of a tryptic plasma-membrane screen also named an immunopeptidome, so the screen read
+    non-specific cleavage and parked the deposit (`waiting_nonspecific_cleavage`) before any SDRF was read. Now such a curated
+    SDRF lets the screen route it as digested, and the chemistry step reads the protease from that SDRF.
+  - **A deposit refused or parked this way does not reopen by itself:** run `batch retry` on it once its curated SDRF
+    is in place.
+
+- **A deposit can be split by plex** (`[splits.<acc>] by = "plex"`; aging PXR-A214, 2026-11-20). It is for a deposit of
+  many isobaric plexes of one design, too large to search whole, searched one plex (or set of plexes) at a time: PXD011967
+  is twenty TMT6 sets, 1.9 TB. `tissue` would pass and be untrue. Groups name their raw files with `include_files`, as for
+  any split. Delivering such a group needs a datarepo that reads `split_reason: plex` (1.5.0 here); 1.4.5 refuses it at
+  ingest.
+
+- **Ahead of MetaMorpheus 1.1.15: a bare `q-value` count is the 1% definition's only up to 1.1.14, and the search
+  provenance says whether PEP was trained** (dataRepo PXR-R80).
+  - Up to 1.1.14 a results.txt line "All target PSMs with q-value <= 0.01" counts by the q-value and the notch together,
+    the rule `DEF-PSM-1PCT v1` describes; from 1.1.15 the same words mean the q-value alone. The search's `id_rate`
+    files the count under the definition (`psms_1pct`, `rate`) only where the line means the older rule, decided as
+    datarepo decides it: by the FDR engine's own line ("PSMs within 1% FDR" up to 1.1.14, "PSMs with <filter> <= t" from
+    1.1.15), else by the release. Otherwise it stays under `psms_filter_1pct` and `rate_filter`, beside `filter`.
+  - `identification_filter.pep_trained`: under the PEP q-value filter, `true` when PEP was trained for every target PSM,
+    or one entry per digestion agent results.txt names as untrained (`{"trypsin": false}`); null under any other filter.
+  - A search under MetaMorpheus 1.1.14 or earlier records the same counts as before.
+
+- **A new TMT profile, `tmt-dda@5`: `tmt-dda@4` plus MS2 fragmented by HCD and read in the ion trap,** searched as
+  MetaMorpheus's LowCID.
+  - **The problem.** Many SPS-MS3 TMT methods on an Orbitrap Fusion, Lumos or Ascend fragment by HCD and read the MS2 in
+    the ion trap, while the reporters are read in the Orbitrap MS3. `tmt-dda@4` accepts ion-trap MS2 only when it is CID,
+    so QC refused these files (`unsupported_fragmentation`) and their deposits waited.
+  - **Why LowCID, not HCD at the low-resolution tolerance.** On one file each of two such deposits (TMT6 and TMT10, both
+    Fusion Lumos), LowCID found more on every count: target PSMs at 1% +14% and +9%, peptides +12% and +18%, protein
+    groups +13% and +11%, at about half the peak memory. In 78 of 80 sampled PSMs the reporter intensities equal the peaks
+    of the linked Orbitrap MS3.
+  - **What stays the same.** It uses no new engine code: the two settings (`ion_trap_hcd`, `ion_trap_hcd_lowcid`) have been
+    in the engine since 0.4.28, for the label-free ion-trap profiles. The call is made per file from its MS2 headers, so
+    files with Orbitrap MS2 or ion-trap CID are searched exactly as under `@4`. A search with any low-resolution MS2 uses
+    no spectral library, as under `@4`. MetaMorpheus and the databases are `@4`'s, so no PTM database is rebuilt.
+
+- **A deposit's own MS2 floor: `min_ms2` in `[exceptions]` and in each group of a split.**
+  - **The problem.** QC refuses a file with fewer MS2 spectra than its profile's `[qc] min_ms2` (5,000) as `too_few_ms2`.
+    PXD016039's 19 high-pH fractions hold 2,790 to 4,978 MS2 each, against medians of 5,919 and 5,471 in the same plexes:
+    real fractions, not blanks. Refused, they were more than a tenth of the deposit, so the whole deposit waited.
+  - **The change.** A question can now lower (or raise) the floor for one deposit, for example `min_ms2 = 2500`. The probe's
+    QC and the full QC both judge by it. The QC's `provenance.json` records the floor it used, with a note when it is the
+    deposit's own, and the delivery's manifest note quotes the exception, as for every exception key. It must be at least
+    1, so a file with no MS2 at all is still a blank.
+  - **Adopting:** a swap only. A deposit already refused at full QC (`skipped_acquisition_full`) needs a `batch retry`
+    once the block is in its question; the exception alone does not reopen it.
+
+- **Differential abundance for each finished search: the `differential` command and the batch's stage `06_differential`**
+  (D84; QuantProject 155).
+  - **The problem.** The pipeline delivered per-sample peptide and protein intensities, but no comparison between a
+    deposit's conditions. mzLib 1.0.600 carries QuantProject's runner (`DifferentialAnalysis.Run`, mzLib #1591), and
+    nothing called it.
+  - **The change.** After each search, the batch runs mzLib's analysis on the tables the search wrote, with
+    QuantProject's defaults: every pair of the design's conditions, one model per protein group. `pxreprise differential
+    --search <04_search> --out <06_differential>` runs it by hand, also on a search delivered before this version.
+    - Label-free: the peptide table, once per basis (`msms_only`, and `mbr_kept` when the search ran match-between-runs).
+    - TMT: the PSMs MetaMorpheus quantified.
+    - Each analysis writes mzLib's `DifferentialResults.tsv`, `DifferentialResults.metadata.json`, `DifferentialDecisions.tsv`
+      and `StatisticalReport.md` with its figures, and QuantProject's `DifferentialAssumptions.md`.
+    - A sample whose condition is `not available` is left out and listed. The individual comes from the SDRF the search
+      wrote.
+    - A search that cannot be analysed, such as one condition, no replicates or a design the runner refuses, is recorded
+      in the stage's `provenance.json`, and the deposit is delivered as before.
+  - **A file that lost every match-between-runs transfer** while its sibling files kept theirs is named in the stage's
+    provenance. The batch also writes it to the run's `notices.tsv` and to `batch.log` as a `NOTICE (lost_transfers)`, to be
+    told to QuantProject (their PXR-T19).
+  - **The release notes say:** "Differential abundance by QuantProject's `DEF-DIFF v1` (mzLib 1.0.600): a peptide-level
+    model per protein group, one comparison per pair of conditions. A peptide with no value in a sample is treated as
+    missing at random; a value below detection is not modelled, so where absence means low abundance the size of a change
+    can be understated. Rows with match-between-runs values are reported separately (`quant_basis`), and a file that lost
+    every transfer is named in the deposit's provenance."
+  - **A TMT design whose SDRF marks a pooled reference channel can now be searched.** mzLib writes its own `Sample Type`
+    column for such a design. The engine refused the design at set-up, so a curated SDRF that wrote `pooled` could not be
+    used. `--sdrf` gives the differential step such a corrected SDRF for a search already made. Its design must match the
+    search's in every column but `Sample Type`.
+  - **Machine file:** optional `differential = false` turns the stage off; it is on by default.
+  - **Not yet in the bundle:** datarepo does not ingest these files yet (dataRepo's part). Until it does, they stay in the
+    run folder.
 
 ## 0.4.50 (2026-11-17)
 

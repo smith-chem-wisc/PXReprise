@@ -59,6 +59,7 @@ public sealed record DatasetEntry
         ["label"] = "the deposit's runs differ in labelling (e.g. label-free and TMT), each searched on its own",
         ["chemistry"] = "the deposit's runs differ in sample chemistry (e.g. digestion or alkylation), each searched on its own",
         ["tissue"] = "the deposit's runs come from different tissues (a group may also be one sex), each searched on its own, so protein inference and site localisation stay within a tissue",
+        ["plex"] = "the deposit's runs come from several isobaric plexes (TMT or iTRAQ sets) of one design, each searched on its own because the deposit is too large to search whole",
     };
 
     /// <summary>The uses a <c>restrictions</c> entry may name, each with what it rules out.</summary>

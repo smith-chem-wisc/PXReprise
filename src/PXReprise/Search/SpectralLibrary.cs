@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Omics.SpectrumMatch;
 using PXReprise.Cli;
 using PXReprise.Provenance;
@@ -54,6 +55,35 @@ public static class SpectralLibrary
     }
 
     /// <summary>
+    /// 2026-11-24 (the maintainer: "keep lowCID libraries separate from HCD libraries separate from ETD (and so forth). We
+    /// will use these libraries for dia and so having a bunch of spectra that don't belong will be problematic"): the
+    /// fragmentation a search's spectra share, as QC called it per file (<c>qc_report.json</c> <c>fragmentation</c>), as a
+    /// chain-key suffix. Orbitrap HCD, all that the chains held until then, is empty, so its chains keep their names. Every
+    /// other type has a chain of its own: <c>cid</c>, <c>etd</c>, <c>ethcd</c>, and, for MS2 read in the ion trap,
+    /// <c>lowcid</c> or <c>ithcd</c>. A file QC called nothing does not count; with no call at all the profile's own chain
+    /// is kept, as before. Files that disagree give no chain (<c>Key</c> null): their spectra would mix.
+    /// </summary>
+    public static (string? Key, bool LowRes, string Description) FragmentationKey(IEnumerable<JsonNode?> perFile)
+    {
+        var calls = perFile.OfType<JsonObject>()
+            .Select(o => (Type: o["dissociation_type"]?.GetValue<string>(), LowRes: o["low_res"]?.GetValue<bool>() ?? false))
+            .Where(c => c.Type is { Length: > 0 }).Distinct().ToList();
+        static string Describe((string? Type, bool LowRes) c) => c.Type + (c.LowRes ? " (low-res MS2)" : "");
+        if (calls.Count == 0) return ("", false, "none called by QC (the profile's own chain)");
+        if (calls.Count > 1) return (null, calls.Any(c => c.LowRes), $"the files differ: {string.Join(", ", calls.Select(Describe))}");
+        var (type, low) = calls[0];
+        string clean = new(type!.ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray());
+        string key = (clean, low) switch
+        {
+            ("hcd", false) => "",
+            ("lowcid", _) => "lowcid",
+            (_, true) => "it" + clean,
+            _ => clean,
+        };
+        return (key, low || clean == "lowcid", Describe(calls[0]));
+    }
+
+    /// <summary>
     /// Write or update for this run. The organism key is stated, never inferred from a PRIDE facet string. A registry
     /// whose current library is missing on disk is refused, never silently restarted: that would start a second chain
     /// and discard every spectrum the first had accumulated.
@@ -64,11 +94,14 @@ public static class SpectralLibrary
     /// modified peptides are all shifted"). Null is label-free: the organism's own chain.</param>
     /// <param name="cloud">The machine's <c>spectral_library_remote</c> (2026-11-11): newer versions other machines
     /// registered are fetched first, so the search reads the newest library.</param>
-    public static LibraryPlan Plan(string root, string organism, string? label = null, LibraryCloud? cloud = null)
+    /// <param name="fragmentation">2026-11-24: <see cref="FragmentationKey"/>'s suffix. Empty is Orbitrap HCD, the chain's
+    /// own name.</param>
+    public static LibraryPlan Plan(string root, string organism, string? label = null, LibraryCloud? cloud = null, string? fragmentation = null)
     {
         string key = organism.Trim().ToLowerInvariant().Replace(' ', '_');
         if (key.Length == 0) throw new UsageException("a spectral library needs an organism");
         if (label is { Length: > 0 }) key += "_" + new string(label.ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray());
+        if (fragmentation is { Length: > 0 }) key += "_" + fragmentation;
         if (cloud is not null) Pull(root, key, cloud);
         var entry = ReadRegistry(root)["organisms"]![key]?.AsObject();
         string? current = entry?["current"]?.GetValue<string>();
@@ -149,12 +182,24 @@ public static class SpectralLibrary
                 merged = LibraryMerge.Onto(plan.LibraryIn, src, currentPath!, mergeFile);
                 input = mergeFile;
             }
+            string? correctedFile = null;
             try
             {
+                // D84: every entry's precursor at its theoretical m/z, and no nameless entry, before anything else reads it,
+                // so the version, its routed class chains and a merge all carry the corrected spectra.
+                var correction = PrecursorCorrection.None;
+                if (cleaning is not null)
+                {
+                    correctedFile = Path.Combine(plan.Root, plan.Organism, $".precursor-{Guid.NewGuid():N}.msp");
+                    Directory.CreateDirectory(Path.GetDirectoryName(correctedFile)!);
+                    correction = CorrectPrecursors(input, correctedFile, cleaning);
+                    if (correction.Changed) input = correctedFile;
+                }
                 var (version, rel, dest) = NextVersion(plan.Root, plan.Organism, entry);
                 // COPY, not move: a search that is not delivered keeps what MetaMorpheus wrote. After delivery the run
                 // folder's copy is deleted when its bytes still match this version's sha256 (PruneStage, v0.4.18); a copy that
-                // lost unreadable entries, or was merged, never matches, so MetaMorpheus's whole file stays in the run folder.
+                // lost unreadable entries, or was merged or corrected, never matches, so MetaMorpheus's whole file stays in the
+                // run folder.
                 Routed? routed = null;
                 Dropped dropped;
                 if (routeClasses is { Count: > 0 })
@@ -165,7 +210,7 @@ public static class SpectralLibrary
                     dropped = routed.Dropped;
                 }
                 else dropped = CopyClean(input, dest, cleaning);
-                var rec = VersionRecord(version, rel, plan.Mode, plan.ParentVersion, dest, dropped, cleaning, ProducedBy());
+                var rec = VersionRecord(version, rel, plan.Mode, plan.ParentVersion, dest, dropped, cleaning, ProducedBy(), correction);
                 if (merged is not null)
                     rec["merged_onto"] = new JsonObject
                     {
@@ -208,6 +253,7 @@ public static class SpectralLibrary
             finally
             {
                 if (mergeFile is not null && File.Exists(mergeFile)) File.Delete(mergeFile);
+                if (correctedFile is not null && File.Exists(correctedFile)) File.Delete(correctedFile);
             }
         }
     }
@@ -446,7 +492,10 @@ public static class SpectralLibrary
     /// entries (mouse v065, human v057: Unimod <c>NEM:2H(5)</c>), and before v0.4.32 cleaned them. Run it with no driver
     /// running: a search that planned on the old current would then be refused at registration (nothing lost).
     /// </summary>
-    public static JsonObject Repair(string root, string organism, string reason, LibraryCleaning? cleaning = null, LibraryCloud? cloud = null)
+    /// <param name="removeDeposits">2026-11-24 (D91's rule, the maintainer: "yes, take them out"): also leave out what these
+    /// deposits' searches put in the chain (<see cref="WithoutDeposits"/>).</param>
+    public static JsonObject Repair(string root, string organism, string reason, LibraryCleaning? cleaning = null, LibraryCloud? cloud = null,
+        IReadOnlyCollection<string>? removeDeposits = null)
     {
         lock (RegistryGate)
         {
@@ -456,17 +505,46 @@ public static class SpectralLibrary
             string current = entry["current"]?.GetValue<string>() ?? throw new UsageException($"{organism} has no current library");
             int parent = VersionOf(entry, current) ?? throw new SearchSetupException($"{organism}'s current library {current} is not a registered version");
             string src = Path.Combine(root, current);
-            var (version, rel, dest) = NextVersion(root, organism, entry);
-            var dropped = CopyClean(src, dest, cleaning);
-            if (dropped.Total == 0)
+            // D84: a repair also corrects the precursors, so a chain can be corrected with no driver running rather than at its
+            // next update.
+            string? correctedFile = null, withoutFile = null;
+            var correction = PrecursorCorrection.None;
+            JsonObject? removal = null;
+            JsonObject rec;
+            string rel, dest;
+            int version;
+            try
             {
-                File.Delete(dest);
-                return new JsonObject { ["organism"] = organism, ["repaired"] = false, ["current"] = current, ["version"] = parent };
+                if (removeDeposits is { Count: > 0 })
+                {
+                    withoutFile = Path.Combine(root, organism, $".without-{Guid.NewGuid():N}.msp");
+                    removal = WithoutDeposits(root, entry, src, withoutFile, removeDeposits);
+                    if ((int)removal["spectra_removed"]! + (int)removal["spectra_restored"]! > 0) src = withoutFile;
+                }
+                if (cleaning is not null)
+                {
+                    correctedFile = Path.Combine(root, organism, $".precursor-{Guid.NewGuid():N}.msp");
+                    correction = CorrectPrecursors(src, correctedFile, cleaning);
+                    if (correction.Changed) src = correctedFile;
+                }
+                (version, rel, dest) = NextVersion(root, organism, entry);
+                var dropped = CopyClean(src, dest, cleaning);
+                if (dropped.Total == 0 && !correction.Changed && src != withoutFile)
+                {
+                    File.Delete(dest);
+                    return new JsonObject { ["organism"] = organism, ["repaired"] = false, ["current"] = current, ["version"] = parent };
+                }
+                rec = VersionRecord(version, rel, "repair", parent, dest, dropped, cleaning, new JsonObject
+                {
+                    ["repair_of"] = current, ["reason"] = reason, ["pxreprise"] = RunRecord.Versions()["pxreprise"],
+                }, correction);
+                if (removal is not null) rec["removed_deposits"] = removal;
             }
-            var rec = VersionRecord(version, rel, "repair", parent, dest, dropped, cleaning, new JsonObject
+            finally
             {
-                ["repair_of"] = current, ["reason"] = reason, ["pxreprise"] = RunRecord.Versions()["pxreprise"],
-            });
+                if (correctedFile is not null && File.Exists(correctedFile)) File.Delete(correctedFile);
+                if (withoutFile is not null && File.Exists(withoutFile)) File.Delete(withoutFile);
+            }
             if (cloud is not null && !cloud.Claim(organism, rec, dest))
             {
                 File.Delete(dest);
@@ -480,6 +558,90 @@ public static class SpectralLibrary
             result["repaired"] = true;
             return result;
         }
+    }
+
+    /// <summary>
+    /// The current library without what <paramref name="deposits"/>' searches put in it, written to <paramref name="dest"/>.
+    /// A version a deposit's search registered (its <c>produced_by.accession</c>, or a split part of it, <c>PXD...-x</c>)
+    /// differs from its parent by the spectra that search added or replaced. Where the current library still holds such a
+    /// spectrum, the one its name held before the first of those searches is put back, or the spectrum is left out when the
+    /// name held none. A spectrum a later search replaced is that search's own and stays. Spectra are compared without
+    /// their precursor lines (<c>MW:</c>, <c>Parent=</c>), which a repair may correct.
+    /// </summary>
+    internal static JsonObject WithoutDeposits(string root, JsonObject chain, string current, string dest, IReadOnlyCollection<string> deposits)
+    {
+        var versions = chain["versions"]!.AsArray().Select(v => v!.AsObject()).ToList();
+        string? PathOf(int? version) => versions.FirstOrDefault(v => (int?)v["version"] == version)?["path"]?.GetValue<string>();
+        bool Named(string? acc) => acc is not null && deposits.Any(d => acc == d || acc.StartsWith(d + "-", StringComparison.Ordinal));
+        var bad = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);   // name -> the spectra those searches wrote
+        var before = new Dictionary<string, List<string>?>(StringComparer.Ordinal);  // name -> its spectrum before them (null: none)
+        var used = new JsonArray();
+        foreach (var v in versions.Where(v => Named(v["produced_by"]?["accession"]?.GetValue<string>())).OrderBy(v => (int)v["version"]!))
+        {
+            string child = Path.Combine(root, v["path"]!.GetValue<string>());
+            string? parentRel = PathOf((int?)v["parent_version"]);
+            if (parentRel is null || !File.Exists(child) || !File.Exists(Path.Combine(root, parentRel)))
+                throw new SearchSetupException($"{v["path"]} (by {v["produced_by"]!["accession"]}) or its parent is not on disk, so what it added cannot be found; nothing was registered");
+            string parentFile = Path.Combine(root, parentRel);
+            // Older versions repeat nameless entries ("Name: /3", dropped at registration since #40): the first of a name counts.
+            var parentKeys = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var e in Entries(parentFile)) parentKeys.TryAdd(e[0], SpectrumKey(e));
+            var fetch = new HashSet<string>(StringComparer.Ordinal);
+            int changed = 0;
+            foreach (var e in Entries(child))
+            {
+                string key = SpectrumKey(e);
+                bool had = parentKeys.TryGetValue(e[0], out var pk);
+                if (had && pk == key) continue;
+                changed++;
+                (bad.TryGetValue(e[0], out var set) ? set : bad[e[0]] = new HashSet<string>(StringComparer.Ordinal)).Add(key);
+                if (before.ContainsKey(e[0])) continue;
+                before[e[0]] = null;
+                if (had) fetch.Add(e[0]);
+            }
+            if (fetch.Count > 0)
+                foreach (var e in Entries(parentFile).Where(e => fetch.Remove(e[0]))) before[e[0]] = e;
+            used.Add(new JsonObject { ["version"] = (int)v["version"]!, ["accession"] = v["produced_by"]!["accession"]!.GetValue<string>(), ["spectra_added_or_replaced"] = changed });
+        }
+
+        string nl = NewlineOf(current);
+        int restored = 0, removed = 0;
+        using (var o = new StreamWriter(dest, false, new UTF8Encoding(false)) { NewLine = nl })
+            foreach (var e in Entries(current, keepPreamble: true))
+            {
+                var write = e;
+                if (e[0].StartsWith("Name:", StringComparison.Ordinal) && bad.TryGetValue(e[0], out var keys) && keys.Contains(SpectrumKey(e)))
+                {
+                    write = before[e[0]];
+                    if (write is null) { removed++; continue; }
+                    restored++;
+                }
+                foreach (string line in write) o.WriteLine(line);
+            }
+        return new JsonObject
+        {
+            ["deposits"] = new JsonArray(deposits.Order(StringComparer.Ordinal).Select(d => (JsonNode)d).ToArray()),
+            ["versions"] = used, ["spectra_restored"] = restored, ["spectra_removed"] = removed,
+            ["rule"] = "a spectrum those searches added or replaced and the current version still holds goes back to the spectrum its name held before them, or is left out when it held none",
+        };
+    }
+
+    /// <summary>A spectrum's identity across versions, hashed: its name, its retention time, and each peak's m/z and
+    /// intensity. Not its precursor lines (<c>MW:</c>, <c>Parent=</c>), which a repair may correct, nor the peaks'
+    /// annotations, whose spelling changed between MetaMorpheus versions (TMT reporter ions "D126", then "d126").</summary>
+    private static string SpectrumKey(List<string> entry) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join("\n", entry
+            .Where(l => l.Trim().Length > 0 && !l.StartsWith("MW:", StringComparison.Ordinal) && !l.StartsWith("Num peaks:", StringComparison.Ordinal))
+            .Select(l => l.StartsWith("Name:", StringComparison.Ordinal) ? l
+                : l.StartsWith("Comment:", StringComparison.Ordinal) ? Regex.Match(l, @"\bi?RT=\S+").Value
+                : string.Join("\t", l.Split('\t').Take(2)))))));
+
+    private static string NewlineOf(string path)
+    {
+        using var r = new StreamReader(path);
+        var buf = new char[8192];
+        int n = r.Read(buf, 0, buf.Length);
+        return new string(buf, 0, n).Contains("\r\n") ? "\r\n" : "\n";
     }
 
     /// <summary>Each organism's current library: its version, spectra and how many versions the chain holds.</summary>
@@ -553,6 +715,97 @@ public static class SpectralLibrary
         return new Dropped(unreadable, blocked, doubtful, byMod);
     }
 
+    /// <summary>What <see cref="CorrectPrecursors"/> changed: entries whose precursor m/z it set, entries with no full
+    /// sequence it dropped, and entries it could not judge (a modification that does not resolve, an ambiguous sequence).</summary>
+    public sealed record PrecursorCorrection(int Corrected, int Nameless, int Unresolved)
+    {
+        public static readonly PrecursorCorrection None = new(0, 0, 0);
+        public bool Changed => Corrected > 0 || Nameless > 0;
+    }
+
+    /// <summary>The rule <see cref="CorrectPrecursors"/> applies, as a version record states it.</summary>
+    public const string PrecursorRule = "pxreprise-library-precursor/1: each entry's MW and Comment Parent= set to its full sequence's theoretical m/z at its charge (mzLib), where they differ by more than 0.001 ppm; entries with no full sequence (\"Name: /2\") dropped (MetaMorpheus #2961, #2962; D84)";
+
+    /// <summary>The relative difference up to which a stored precursor m/z is taken as the theoretical one, so its line is
+    /// kept byte for byte (MetaMorpheus 1.1.15's own entries: the same double, written by two programs).</summary>
+    internal const double PrecursorTolerance = 1e-9;
+
+    private static readonly System.Text.RegularExpressions.Regex ParentToken =
+        new(@"Parent=(\S+)", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// D84 (the user, 2026-11-21: "yes add the library clean"). MetaMorpheus before 1.1.15 stored each library precursor at
+    /// the m/z its scan measured, about 1.003 Da / z off where the 13C peak was taken for the monoisotopic one (#2961: 18-20%
+    /// of targets more than 5 ppm off in two of our libraries), and wrote a match with no full sequence under an empty name,
+    /// "Name: /2" (#2962: 19 in the human library, 22 in mouse). 1.1.15 fixes both for the spectra it writes, but an
+    /// updated library carries every older entry over as it was. So a registration writes <paramref name="dest"/> with
+    /// each entry's <c>MW:</c> and <c>Parent=</c> at its theoretical m/z and without the nameless entries, and each chain is
+    /// corrected at its first update. Nothing else in an entry changes. When nothing differs nothing is written, and the
+    /// caller keeps <paramref name="src"/>: a version 1.1.15 writes onto a corrected parent stays MetaMorpheus's file.
+    /// </summary>
+    public static PrecursorCorrection CorrectPrecursors(string src, string dest, LibraryCleaning cleaning)
+    {
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        int corrected = 0, nameless = 0, unresolved = 0;
+        bool skipping = false, changedThis = false;
+        double? theoretical = null;
+        string Fix(string value, out bool changed)
+        {
+            changed = false;
+            if (theoretical is not { } t || !double.TryParse(value, System.Globalization.NumberStyles.Float, inv, out double v)) return value;
+            if (Math.Abs(v - t) <= PrecursorTolerance * Math.Abs(t)) return value;
+            changed = true;
+            return t.ToString("R", inv);
+        }
+        string tmp = dest + ".partial";
+        try
+        {
+            using (var w = new StreamWriter(new FileStream(tmp, FileMode.CreateNew), new UTF8Encoding(false)) { NewLine = NewLineOf(src) })
+            {
+                foreach (string line in File.ReadLines(src))
+                {
+                    if (line.StartsWith("Name:", StringComparison.Ordinal))
+                    {
+                        if (changedThis) corrected++;
+                        changedThis = false;
+                        string name = NameOf(line);
+                        int slash = name.LastIndexOf('/');
+                        string full = slash >= 0 ? name[..slash] : name;
+                        skipping = full.Length == 0;
+                        if (skipping) { nameless++; continue; }
+                        theoretical = slash >= 0 && int.TryParse(name[(slash + 1)..], System.Globalization.NumberStyles.Integer, inv, out int z)
+                            ? cleaning.TheoreticalPrecursorMz(full, z) : null;
+                        if (theoretical is null) unresolved++;
+                        w.WriteLine(line);
+                        continue;
+                    }
+                    if (skipping) continue;
+                    string outLine = line;
+                    if (line.StartsWith("MW:", StringComparison.Ordinal))
+                    {
+                        string value = Fix(line[3..].Trim(), out bool changed);
+                        if (changed) { outLine = "MW: " + value; changedThis = true; }
+                    }
+                    else if (line.StartsWith("Comment:", StringComparison.Ordinal) && ParentToken.Match(line) is { Success: true } m)
+                    {
+                        var g = m.Groups[1];
+                        string value = Fix(g.Value, out bool changed);
+                        if (changed) { outLine = line[..g.Index] + value + line[(g.Index + g.Length)..]; changedThis = true; }
+                    }
+                    w.WriteLine(outLine);
+                }
+                if (changedThis) corrected++;
+            }
+            var result = new PrecursorCorrection(corrected, nameless, unresolved);
+            if (result.Changed) File.Move(tmp, dest);
+            return result;
+        }
+        finally
+        {
+            if (File.Exists(tmp)) File.Delete(tmp);
+        }
+    }
+
     internal static string NewLineOf(string path)
     {
         using var s = File.OpenRead(path);
@@ -572,7 +825,7 @@ public static class SpectralLibrary
     }
 
     private static JsonObject VersionRecord(int version, string rel, string mode, int? parent, string dest, Dropped dropped,
-        LibraryCleaning? cleaning, JsonObject producedBy)
+        LibraryCleaning? cleaning, JsonObject producedBy, PrecursorCorrection? correction = null)
     {
         var rec = new JsonObject
         {
@@ -590,6 +843,14 @@ public static class SpectralLibrary
             var by = new JsonObject();
             foreach (var (mod, n) in dropped.ByModification) by[mod] = n;
             c["dropped_by_modification"] = by;
+            // D84: what the precursor correction did; checked on every version registered with the cleaning rules.
+            if (correction is not null)
+            {
+                c["precursor_rule"] = PrecursorRule;
+                c["precursor_corrected"] = correction.Corrected;
+                c["dropped_nameless"] = correction.Nameless;
+                c["precursor_unresolved"] = correction.Unresolved;
+            }
             rec["cleaning"] = c;
         }
         rec["produced_by"] = producedBy;

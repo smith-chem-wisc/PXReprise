@@ -1,5 +1,7 @@
 using PXReprise.Bundle;
 using PXReprise.Catalog;
+using PXReprise.Ingest;
+using PXReprise.Ingest.Sources;
 using DuckDB.NET.Data;
 using Quantification;
 using Quantification.PtmQtl;
@@ -12,9 +14,9 @@ namespace PXReprise.Runner;
 /// Each rule below is ptmQtl's (S1-S5), or what ptmQtl's own export (`tools/export_observations.py`, which built bundle
 /// v3) did where the definitions do not say. Those places are marked, and asked of ptmQtl.</para>
 /// <list type="bullet">
-/// <item><b>Observations (S7):</b> target PSMs that pass the shared quantified-PSM rule (ptmQtl D36; mzLib
-/// <see cref="QuantifiedPsmRule"/>, #1425) and are at ambiguity level 1, on one accession with one start, per (run,
-/// peptidoform, protein). The rule's tier is chosen once per search (<see cref="Tiers"/>). The MetaMorpheus name is the
+/// <item><b>Observations (S7):</b> target PSMs that pass the search's own identification filter (ptmQtl D82, which
+/// replaced D36's quantified-PSM tier; <see cref="Filter"/>) and are at ambiguity level 1, on one accession with one
+/// start, per (run, peptidoform, protein). The MetaMorpheus name is the
 /// peptidoform's `engine_full_sequences`. A peptidoform written under two names is left out and counted, since its
 /// category would be ambiguous. The intensity is `QuantProject:DEF-PEP-INT`, MS/MS, value &gt; 0; without one, the
 /// observation is NaN (identified, not quantified).</item>
@@ -101,46 +103,42 @@ public static class PtmQtlBundle
         return map;
     }
 
-    /// <summary>S7: each search's quantified-PSM tier, as mzLib's <see cref="QuantifiedPsmRule.ChooseTier"/>
-    /// decides it from the search's PSMs.</summary>
-    /// <remarks>From the search's target PSMs only, PEPs included, as S7 says ("from the search's target PSMs") and
-    /// ptmQtl's export does (<c>export_observations.py</c>, <c>search_tier</c>). mzLib's own FlashLFQ caller passes every
-    /// match's PEP, decoys included; on a search file holding every PSM the two differ only if all its targets share one
-    /// PEP. The values are reduced in SQL to what the rule reads, so a search of millions of PSMs is not streamed: whether
-    /// any PEP q-value or notch q-value is a probability, and the finite PEPs' smallest and largest value.</remarks>
-    public static Dictionary<string, QuantifiedPsmTier> Tiers(DuckDBConnection con, string psms)
+    /// <summary>S7 (ptmQtl D82): the search's own identification filter, as the ingest decides it for the producer's
+    /// counts: the filter the bundle's copy of results.txt names, read by
+    /// <see cref="Identifications.FilterOf(string?, string?, bool?)"/> with the search's MetaMorpheus release, and cut as
+    /// the search cut it (<see cref="Identifications.PsmPassesSql"/>, <c>&lt;= 0.01</c>).</summary>
+    /// <remarks>
+    /// <para>D82 replaced D36's quantified-PSM tier (mzLib's <see cref="QuantifiedPsmRule.ChooseTier"/>, strictly below
+    /// 0.01): MetaMorpheus quantifies, and builds the occupancy cells S1 reads, from the PSMs its own filter keeps, so S7's
+    /// observations and coverage read the same PSMs.</para>
+    /// <para>Results.txt naming no filter means the q-value and notch rule only for a release that had no other (up to
+    /// 1.1.14). For a later release, or one that cannot be read as a version, the filter is unknown and the bundle is
+    /// refused, never read on a guess.</para>
+    /// <para>Under the PEP q-value, whether PEP was trained is decided as the ingest decides it: results.txt's sentence
+    /// above the PSM count, and mzLib's whole-search test over the search's target PSMs (reduced in SQL to what the test
+    /// reads, so a search of millions of PSMs is not streamed).</para>
+    /// </remarks>
+    /// <param name="results">What results.txt says of its filter (<see cref="PXReprise.Ingest.Readers.ReadResultsTxtAndFilter"/>), or null
+    /// when the bundle holds no results.txt.</param>
+    /// <exception cref="RunnerException">The filter is unknown.</exception>
+    public static SearchFilter Filter(DuckDBConnection con, string psms, ResultsTxtFilter? results, string? engineVersion, string where)
     {
-        var tiers = new Dictionary<string, QuantifiedPsmTier>(StringComparer.Ordinal);
-        foreach (var r in Query(con, $"""
-            SELECT search,
-                   bool_or(pep_q_value BETWEEN 0 AND 1),
-                   bool_or(q_value_notch BETWEEN 0 AND 1),
+        if (results?.Named is null && !(Version.TryParse(engineVersion, out var release) && release < new Version(1, 1, 15)))
+            throw new RunnerException($"{where}: {(results is null ? "the bundle holds no results.txt" : "results.txt names no identification filter")} "
+                + $"and the search's MetaMorpheus release ({engineVersion ?? "not recorded"}) is not one with a single filter (up to 1.1.14), "
+                + "so ptmQtl S7 (D82) cannot tell which PSMs the search kept.");
+        var filter = Identifications.FilterOf(results?.Named, engineVersion, results?.FdrEngineLineNamesFilter);
+        if (filter != ProducerFilter.PepQValue) return new SearchFilter(filter, PepTraining.Every);
+        var r = Query(con, $"""
+            SELECT bool_or(pep_q_value BETWEEN 0 AND 1), bool_or(q_value_notch BETWEEN 0 AND 1),
                    min(pep) FILTER (WHERE isfinite(pep)), max(pep) FILTER (WHERE isfinite(pep))
-            FROM {psms} WHERE target_decoy = 'target' GROUP BY search
-            """))
-        {
-            if (r[0] is not string search) throw new RunnerException("a PSM names no search, so its quantified-PSM tier cannot be chosen (ptmQtl S7)");
-            double[] Probability(object? any) => any is true ? [0.0] : [];
-            var peps = r[3] is null ? Array.Empty<double>()
-                : Convert.ToDouble(r[3]) == Convert.ToDouble(r[4]) ? [Convert.ToDouble(r[3])] : [Convert.ToDouble(r[3]), Convert.ToDouble(r[4])];
-            tiers[search] = QuantifiedPsmRule.ChooseTier(Probability(r[1]), Probability(r[2]), peps);
-        }
-        return tiers;
-    }
-
-    /// <summary>S7's filter as SQL over a <c>psms</c> row: the value each search's tier names is strictly below
-    /// <see cref="QuantifiedPsmRule.DefaultThreshold"/>, as <see cref="QuantifiedPsmRule.PassesConfidence"/> has it. A
-    /// PSM with no value for its tier fails.</summary>
-    public static string PassesSql(IReadOnlyDictionary<string, QuantifiedPsmTier> tiers)
-    {
-        if (tiers.Count == 0) return "false";
-        var cases = tiers.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => $"WHEN {Q(kv.Key)} THEN " + kv.Value switch
-        {
-            QuantifiedPsmTier.PepQValue => "pep_q_value",
-            QuantifiedPsmTier.QValueNotch => "q_value_notch",
-            _ => "q_value",
-        });
-        return $"coalesce((CASE search {string.Join(" ", cases)} END) < {QuantifiedPsmRule.DefaultThreshold.ToString(System.Globalization.CultureInfo.InvariantCulture)}, false)";
+            FROM {psms} WHERE target_decoy = 'target'
+            """)[0];
+        double[] Probability(object? any) => any is true ? [0.0] : [];
+        var peps = r[2] is null ? Array.Empty<double>()
+            : Convert.ToDouble(r[2]) == Convert.ToDouble(r[3]) ? [Convert.ToDouble(r[2])] : [Convert.ToDouble(r[2]), Convert.ToDouble(r[3])];
+        var pepUsable = QuantifiedPsmRule.ChooseTier(Probability(r[0]), Probability(r[1]), peps) == QuantifiedPsmTier.PepQValue;
+        return new SearchFilter(filter, Identifications.PepTrainingOf(results!.PepNotTrained.Contains("psms"), pepUsable));
     }
 
     /// <summary>The bundle as one dataset's engine inputs, with the deposit a PTM capture (S3) or not.</summary>
@@ -183,8 +181,16 @@ public static class PtmQtlBundle
         con.Open();
         string psms = Table(bundle, "psms"), peptidoforms = Table(bundle, "peptidoforms"), quant = Table(bundle, "quant_values"),
             assays = Table(bundle, "assays"), runs = Table(bundle, "runs"), sites = Table(bundle, "ptm_sites"), stoich = Table(bundle, "ptm_stoichiometry");
-        var tiers = Tiers(con, psms);
-        var passes = PassesSql(tiers);
+        var engineVersion = Query(con, $"SELECT search_engine_version FROM {Table(bundle, "datasets")}").Select(r => r[0] as string).FirstOrDefault();
+        var resultsTxt = Path.Combine(bundle.Path, "sources", "results.txt");
+        ResultsTxtFilter? results = null;
+        if (File.Exists(resultsTxt))
+        {
+            PXReprise.Ingest.Readers.ReadResultsTxtAndFilter(resultsTxt, out ResultsTxtFilter read);
+            results = read;
+        }
+        var filter = Filter(con, psms, results, engineVersion, where);
+        var passes = filter.Sql;
 
         var species = Query(con, $"SELECT DISTINCT unnest(organisms) FROM {Table(bundle, "datasets")}").Select(r => (string)r[0]!).ToList();
         if (species.Count != 1)
@@ -254,6 +260,10 @@ public static class PtmQtlBundle
                 r[5] is null ? double.NaN : Convert.ToDouble(r[5]), previous));
         }
         counts["observations"] = observations.Count;
+        // D40: each run's depth counts its target PSMs under S7's filter, at any ambiguity level and on any protein.
+        var targetPsms = Query(con, $"SELECT run_id, count(*) FROM {psms} WHERE target_decoy = 'target' AND {passes} GROUP BY run_id")
+            .ToDictionary(r => (string)r[0]!, r => Convert.ToInt64(r[1]), StringComparer.Ordinal);
+        counts["runs with target PSMs (depth)"] = targetPsms.Count;
         // ptmQtl's three counters (their summary.tsv): distinct name combinations, not rows.
         counts["several_names_kept_unimod"] = verdicts.Count(v => v.Value == PtmQtlRules.SameByUnimod);
         counts["several_names_kept_formula"] = verdicts.Count(v => v.Value == PtmQtlRules.SameByFormula);
@@ -368,7 +378,6 @@ public static class PtmQtlBundle
                 .Where(t => t.Order is not null).OrderBy(t => t.Order)
                 .Select(t => File.ReadAllText(t.File)).ToList()
             : [];
-        var engineVersion = Query(con, $"SELECT search_engine_version FROM {Table(bundle, "datasets")}").Select(r => r[0] as string).FirstOrDefault();
         var s2c = PtmQtlRules.Gate(taskTomls, engineVersion);
         if (s2c.Refusal is not null)
             throw new RunnerException($"{where} is refused by ptmQtl S2c (D60): {s2c.Refusal}. Nothing is written for it.");
@@ -470,7 +479,9 @@ public static class PtmQtlBundle
         return (new PtmQtlDataset(bundle.DatasetId, species[0], observations, occupancy, runToSample, unimod, deposit.Enriched, categoryNames)
         {
             Windows = windows,
-            Tiers = tiers.ToDictionary(kv => kv.Key, kv => kv.Value.ToString(), StringComparer.Ordinal),
+            IdentificationFilter = filter.ToString(),
+            TargetPsms = targetPsms,
+            SearchEngineVersion = engineVersion,
             RunTypes = runTypes,
             OccupancyRuns = occupancyRuns,
             Excluded = excluded,
@@ -478,4 +489,15 @@ public static class PtmQtlBundle
             Poolable = !deposit.Enriched && runTypes.Values.All(t => t == PtmQtlRules.WholeProteome),
         }, counts, rules);
     }
+}
+
+/// <summary>A search's own identification filter (ptmQtl S7, D82), and under the PEP q-value whether PEP was trained.</summary>
+/// <param name="PepTraining">Read only under <see cref="ProducerFilter.PepQValue"/>.</param>
+public sealed record SearchFilter(ProducerFilter Filter, PepTraining PepTraining)
+{
+    /// <summary>The filter as SQL over a <c>psms</c> row (<see cref="Identifications.PsmPassesSql"/>).</summary>
+    public string Sql => Identifications.PsmPassesSql(Filter, PepTraining);
+
+    /// <summary>The run record's name for it, e.g. <c>QValueAndNotch</c>, or <c>PepQValue (Some)</c>.</summary>
+    public override string ToString() => Filter == ProducerFilter.PepQValue ? $"{Filter} ({PepTraining})" : Filter.ToString();
 }

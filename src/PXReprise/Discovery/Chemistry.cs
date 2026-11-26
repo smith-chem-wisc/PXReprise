@@ -329,6 +329,24 @@ public static class ChemistryDetector
     private static readonly Regex LabelFreeWords = new(@"label[- ]?free", Opt);
     private static readonly Regex SpectralCounting = new(@"spectr(um|al) count", Opt);
 
+    /// <summary>
+    /// 2026-11-20 (PXD033714): the protease <paramref name="doc"/> names for every one of its files (several joined by ", "
+    /// when the files differ), or null when a row names no file or no protease, or a non-specific one.
+    /// </summary>
+    internal static string? ProteaseForEveryFile(SdrfDocument doc)
+    {
+        var files = doc.Results.Select(r => r["comment[data file]"]?.Trim() ?? "").ToList();
+        if (files.Count == 0 || files.Any(f => f.Length == 0)) return null;
+        var perFile = FromSdrf(doc).ProteasePerFile;
+        if (perFile is null || files.Any(f => !perFile.ContainsKey(f)) || perFile.Values.Any(p => p == NonSpecific)) return null;
+        return string.Join(", ", perFile.Values.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal));
+    }
+
+    /// <summary>True when every row of <paramref name="doc"/> names its file and says label-free in <c>comment[label]</c>.</summary>
+    internal static bool EveryFileLabelFree(SdrfDocument doc) =>
+        doc.Results.Any() && doc.Results.All(row => row["comment[data file]"] is { Length: > 0 }
+            && row["comment[label]"] is { Length: > 0 } l && LabelFreeWords.IsMatch(l));
+
     /// <summary>Dimethyl labelling in a deposit's words, shared with the screen: "dimethyl label(l)ed", "dimethyl isotope
     /// labeling", "dimethylation labeling", "reductive dimethylation", "stable isotope dimethyl". Never DiLeu's "N,N-dimethyl
     /// leucine", which has no "label" right after it.</summary>
@@ -525,7 +543,13 @@ public static class ChemistryDetector
         var sdrfLabel = sdrfs.FirstOrDefault(s => s.Read.Label is not null);
         string? unrecognised = sdrfLabel.Read.Label is { } raw && Labels.All(l => l.Name != raw) ? raw : null;
         string unrecognisedNote = unrecognised is null ? "" : $"; the SDRF's comment[label] \"{unrecognised}\" names no label";
-        if (sdrfLabel.Read.Label is { } sl && unrecognised is null) label = new(sl, sdrfLabel.Source);
+        // 2026-11-20 (PXD015728, PXD019690's Purkinje runs): the question's curated SDRF naming every file "label free sample"
+        // decides. It is a person's statement for this deposit, so it outranks a deposited SDRF, PRIDE's list and the text. A
+        // deposited SDRF saying so still decides nothing: community SDRFs have called whole TMT deposits label-free (PXD019316,
+        // PXD024356).
+        if (curated is not null && EveryFileLabelFree(curated))
+            label = new("label_free", ChemistrySource.CuratedSdrf, "the curated SDRF names every file label free sample");
+        else if (sdrfLabel.Read.Label is { } sl && unrecognised is null) label = new(sl, sdrfLabel.Source);
         else if (unrecognised is not null && curated is not null && sdrfLabel.Source != ChemistrySource.CuratedSdrf)
             label = new("label_free", ChemistrySource.CuratedSdrf, "the curated SDRF names no label" + unrecognisedNote);
         else if (quantLabel is not null) label = new(quantLabel, ChemistrySource.PrideQuant, string.Join("; ", quant) + unrecognisedNote);

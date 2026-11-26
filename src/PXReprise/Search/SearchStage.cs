@@ -275,8 +275,26 @@ public static class SearchStage
         // isobaric kit has a chain of its own, which starts blank (the maintainer, 2026-10-29).
         // 2026-11-11: with the machine's spectral_library_remote, the chain is fetched from the cloud first and the new version
         // is claimed there (LibraryCloud); a chain another machine moved meanwhile is merged, not refused.
-        using var libraryCloud = p.SpectralLibrary && r.UseLibrary ? LibraryCloud.Open(m.SpectralLibraryRemote) : null;
-        LibraryPlan? lib = p.SpectralLibrary && r.UseLibrary ? SpectralLibrary.Plan(m.SpectralLibraryRoot, r.Organism, kit, libraryCloud) : null;
+        // 2026-11-24: one chain per fragmentation type, as QC called the files (SpectralLibrary.FragmentationKey). Files that
+        // disagree get none. Neither does low-resolution MS2: MetaMorpheus's library mode matches every fragment charge
+        // (v0.4.34, below), so it can neither write nor update a library.
+        var libFragmentation = SpectralLibrary.FragmentationKey(files.Select(f => qc[Path.GetFileName(f)]?["fragmentation"]));
+        bool libraryWanted = p.SpectralLibrary && r.UseLibrary;
+        if (libraryWanted && libFragmentation.Key is null)
+        {
+            prov.Note($"spectral library OFF for this search: a library holds one fragmentation type, and {libFragmentation.Description}");
+            libraryWanted = false;
+        }
+        else if (libraryWanted && libFragmentation.LowRes && !p.IonTrapLibrary)
+        {
+            prov.Note($"spectral library OFF for this search: its MS2 is {libFragmentation.Description}, and MetaMorpheus's library mode matches every fragment charge, which at the low-res tolerance scores decoys as targets (TMT trial, PXD034564: 0 PSMs with it)");
+            libraryWanted = false;
+        }
+        // Decision 0092 (engine.ion_trap_library): low-resolution MS2 reads its own chain (lowcid, ithcd) with neither switch
+        // set, and LibraryFromPsms builds the next version from this search's PSMs after it, by MetaMorpheus's own rule.
+        bool ionTrapLibrary = libraryWanted && libFragmentation.LowRes && p.IonTrapLibrary;
+        using var libraryCloud = libraryWanted ? LibraryCloud.Open(m.SpectralLibraryRemote) : null;
+        LibraryPlan? lib = libraryWanted ? SpectralLibrary.Plan(m.SpectralLibraryRoot, r.Organism, kit, libraryCloud, libFragmentation.Key) : null;
         if (p.SpectralLibrary && !r.UseLibrary)
             prov.Note("spectral library switched OFF for this search by the batch (a previous update-mode search failed)");
         // v0.4.45 (PXD025746, 2026-11-11): only the chain an earlier failed update-mode search read is off. Its iodoTMT search
@@ -290,7 +308,8 @@ public static class SearchStage
         if (lib is not null)
             prov.Set("spectral_library", new JsonObject
             {
-                ["organism"] = lib.Organism, ["mode"] = lib.Mode, ["library_in"] = lib.LibraryIn,
+                ["organism"] = lib.Organism, ["fragmentation"] = libFragmentation.Description, ["mode"] = lib.Mode,
+                ["metamorpheus_mode"] = ionTrapLibrary ? "read" : lib.Mode, ["library_in"] = lib.LibraryIn,
                 ["parent_version"] = lib.ParentVersion, ["registry"] = SpectralLibrary.RegistryPath(lib.Root),
                 ["remote"] = libraryCloud?.Remote.Location,
                 ["route_classes"] = new JsonArray((r.LibraryRouteClasses ?? Array.Empty<string>()).Select(c => (JsonNode)c).ToArray()),
@@ -306,14 +325,15 @@ public static class SearchStage
         int? window = PrecursorWindow(p, r.ProbePrecursorOffsets, prov);
         var artifacts = ArtifactMods(p, chem);
         var gptmdMods = p.GptmdExtraMods.Concat(artifacts.Select(a => a.ModId)).Distinct(StringComparer.Ordinal).ToList();
-        var settings = new TaskSettings(m.MaxThreads, p.MatchBetweenRuns, gptmdMods, SpectralLibraryMode: lib?.Mode,
+        string? inputSdrf = InputSdrfFor(p, design, prov);
+        var settings = new TaskSettings(m.MaxThreads, p.MatchBetweenRuns, gptmdMods, SpectralLibraryMode: lib is null ? null : ionTrapLibrary ? "read" : lib.Mode,
             Protease: chem is { ProteasePerFile: null } ? chem.Protease.Value : null,
             FixedCysMods: chem?.CysMods.Where(c => c.Fixed).Select(c => c.MetaMorpheusId!).ToList(),
             VariableCysMods: chem?.CysMods.Where(c => !c.Fixed).Select(c => c.MetaMorpheusId!).ToList(),
             // v0.4.43: PRIDE's accession, never a split search's key (PXD027754-mouse is no ProteomeXchange accession).
             WriteSdrf: p.WriteSdrf, ProteomeXchangeAccession: p.WriteSdrf && r.Accession is { } px ? Config.SearchKey.Accession(px) : null,
             PrecursorMassTolerance: window is { } w ? $"±{w}.0000 PPM" : null, QuantifyPpmTol: window,
-            GptmdFilters: p.GptmdFilters, MultiplexKit: kit, GptmdDropMods: p.GptmdDropMods);
+            GptmdFilters: p.GptmdFilters, MultiplexKit: kit, GptmdDropMods: p.GptmdDropMods, InputSdrfPath: inputSdrf);
         // v0.4.40 (G66): the classes the deposit enriches, the ones its library spectra are routed by, variable in every task.
         if (p.EnrichedVariable && r.LibraryRouteClasses is { Count: > 0 } enrichedClasses)
         {
@@ -343,8 +363,9 @@ public static class SearchStage
         // v0.4.34: a search with low-resolution MS2 writes and reads no spectral library. MetaMorpheus's library mode matches
         // every fragment charge (ClassicSearchEngine matchAllCharges, fragmentsCanHaveDifferentCharges), and at the ion trap's
         // ±0.5 Da decoys then score as targets do: the TMT trial's PXD034564 found 0 PSMs at 1% with it, 59,028 without.
-        // The lowres profiles never had one ("ion-trap spectra must never enter the Orbitrap-HCD libraries").
-        if (lib is not null && fragmentation?.Values.Any(c => c.LowRes) == true)
+        // The lowres profiles never had one ("ion-trap spectra must never enter the Orbitrap-HCD libraries"). Decision 0092's
+        // ion-trap chains are read, never written by MetaMorpheus, so they stay on.
+        if (lib is not null && !ionTrapLibrary && fragmentation?.Values.Any(c => c.LowRes) == true)
         {
             prov.Note($"spectral library OFF for this search: {fragmentation.Values.Count(c => c.LowRes)} file(s) have low-resolution MS2, and MetaMorpheus's library mode matches every fragment charge, which at the low-res tolerance scores decoys as targets (TMT trial, PXD034564: 0 PSMs with it)");
             prov.Set("spectral_library", null);
@@ -607,12 +628,16 @@ public static class SearchStage
             }
             if (sd is not null && File.Exists(Path.Combine(sd, "results.txt")))
             {
-                var (counts, notes) = MetaMorpheusResults.Filter(File.ReadLines(Path.Combine(sd, "results.txt")));
+                var resultsLines = File.ReadAllLines(Path.Combine(sd, "results.txt"));
+                var (counts, notes) = MetaMorpheusResults.Filter(resultsLines);
                 if (counts.Count > 0 || notes.Count > 0)
                     prov.Set("identification_filter", new JsonObject
                     {
                         ["counts"] = new JsonArray(counts.Select(c => (JsonNode?)new JsonObject { ["of"] = c.What, ["filter"] = c.Filter, ["threshold"] = c.Threshold }).ToArray()),
                         ["notes"] = new JsonArray(notes.Select(n => (JsonNode?)n).ToArray()),
+                        // PXR-R80 (dataRepo's ingest reads it): under the PEP q-value filter, whether PEP was trained, true or per
+                        // digestion agent; null under any other filter.
+                        ["pep_trained"] = MetaMorpheusResults.PepTrained(resultsLines),
                     });
             }
             var gaps = MetaMorpheusResults.DesignGaps(log.Split('\n'));
@@ -650,6 +675,21 @@ public static class SearchStage
                         new[] { proteome }.Concat(extras),
                         blockedCTerm: !p.SearchRespectsCleavageBlocking);
                     var route = r.LibraryRouteClasses is { Count: > 0 } rc ? rc : null;
+                    if (ionTrapLibrary)
+                    {
+                        // Decision 0092: MetaMorpheus only read the chain. This search's spectra are added here, by its own
+                        // rule, into the file it would have written, and registered from it as any library is.
+                        string filter = LibraryFromPsms.FilterColumnNamed(MetaMorpheusResults.FilterNamed(File.ReadLines(Path.Combine(sd, "results.txt"))));
+                        string name = (lib.Mode == "write" ? "SpectralLibrary_" : "updateSpectralLibrary_")
+                            + DateTime.UtcNow.ToString("yyyy-MM-dd-HH-mm-ss", CultureInfo.InvariantCulture) + ".msp";
+                        var built = LibraryFromPsms.Write(Path.Combine(sd, "AllPSMs.psmtsv"), filter, lib.LibraryIn, Path.Combine(sd, name));
+                        libRec["built_from_psms"] = new JsonObject
+                        {
+                            ["filter_column"] = filter, ["psms_passing"] = built.PsmsPassing, ["precursors"] = built.Precursors,
+                            ["parent_kept"] = built.ParentKept, ["replaced"] = built.Replaced, ["added"] = built.Added,
+                        };
+                        prov.Note($"spectral library {lib.Organism}: built by PXReprise from this search's PSMs ({built.PsmsPassing:N0} passing {filter} <= 0.01; {built.Added:N0} added, {built.Replaced:N0} replaced), because MetaMorpheus cannot write or update a library for low-resolution MS2 (decision 0092)");
+                    }
                     var written = SpectralLibrary.Register(lib, sd, $"{r.RunDate}/{r.Accession}".Trim('/'), r.Accession ?? "", release, cleaning, route, libraryCloud);
                     // A copy: the registry's own node already has a parent there.
                     libRec["written"] = written.DeepClone();
@@ -685,21 +725,18 @@ public static class SearchStage
         int? psms = null;
         if (sd is not null && File.Exists(Path.Combine(sd, "results.txt")))
         {
-            var summary = SearchSummary.Read(Path.Combine(sd, "results.txt"));
+            // PXR-R80: the release as the provenance records it (none for a commit pin) decides what a bare "q-value" means
+            // only where results.txt lacks the FDR engine's line.
+            var summary = SearchSummary.Read(Path.Combine(sd, "results.txt"), pin.IsRelease ? banner : null);
             int ms2 = qc.Where(kv => !r.ExcludeFiles.Contains(kv.Key)).Sum(kv => kv.Value!["ms2"]!.GetValue<int>());
-            var idr = SearchMetrics.IdRate(summary, ms2);
-            psms = idr.Psms1Pct;
-            prov.Set("id_rate", new JsonObject
-            {
-                ["definition"] = Search.IdRate.Definition, ["psms_1pct"] = idr.Psms1Pct, ["ms2"] = idr.Ms2, ["rate"] = idr.Rate,
-                ["psms_fdr_engine_1pct"] = idr.PsmsFdrEngine1Pct, ["psms_fdr_engine_definition"] = Search.IdRate.FdrEngineDefinition,
-            });
-            if (idr.Psms1Pct is { } n && ms2 > 0 && (double)n / ms2 < FlagMinIdRate)
-                flags.Add($"low_id_rate: {n}/{ms2} = {Pct((double)n / ms2)} of MS2 identified (S3)");
+            var (block, identified, flag) = IdRateBlock(summary, ms2);
+            psms = identified;
+            prov.Set("id_rate", block);
+            if (flag is not null) flags.Add(flag);
         }
         if (sd is not null && File.Exists(Path.Combine(sd, "AllQuantifiedPeaks.tsv")))
         {
-            var mb = SearchMetrics.Mbr(Path.Combine(sd, "AllQuantifiedPeaks.tsv"));
+            var mb = SearchMetrics.Mbr(Path.Combine(sd, "AllQuantifiedPeaks.tsv"), p.MbrFdrThreshold);
             prov.Set("mbr", new JsonObject
             {
                 ["definition"] = MbrCounts.Definition, ["mbr_rows"] = mb.MbrRows, ["mbr_random_rt_won"] = mb.MbrRandomRtWon,
@@ -793,6 +830,28 @@ public static class SearchStage
         string[] header = (File.ReadLines(proteinGroupQuant).FirstOrDefault() ?? "").TrimEnd('\r').Split('\t');
         var missing = samples.Where(s => !header.Any(h => h.StartsWith(s + "_", StringComparison.Ordinal))).ToList();
         return missing.Count == 0 ? null : $"{missing.Count} of {samples.Count} design samples have no reporter column ({string.Join(", ", missing.Take(5))})";
+    }
+
+    /// <summary>
+    /// D84: the SDRF a search under <c>engine.input_sdrf</c> gives MetaMorpheus as <c>InputSdrfPath</c>: the search's own
+    /// copy of the SDRF its design came from (<c>design/</c> in the output, the bytes the design used), so the SDRF the search
+    /// writes copies the sample columns of each file's or channel's row. Null for a profile without the key, or a search
+    /// with no SDRF design, which provenance says. MetaMorpheus refuses an SDRF that cannot describe the search one row per
+    /// file or channel by writing no SDRF, and the results stand (<c>no_output_sdrf</c> below).
+    /// </summary>
+    internal static string? InputSdrfFor(Profile p, JsonObject? design, AgingProvenance prov)
+    {
+        if (!p.InputSdrf) return null;
+        string? sdrf = design is not null && design["written"]?.GetValue<bool>() == true ? design["sdrf"]?.GetValue<string>() : null;
+        if (sdrf is null || !File.Exists(sdrf))
+        {
+            prov.Set("input_sdrf", null);
+            prov.Note("input_sdrf: the profile passes the design's SDRF to MetaMorpheus, and this search has no SDRF design, so its written SDRF describes the search only");
+            return null;
+        }
+        string full = Path.GetFullPath(sdrf);
+        prov.Set("input_sdrf", full);
+        return full;
     }
 
     /// <summary>A released MetaMorpheus older than 1.1.13, which refuses a design with a numbering gap. A commit pin is not.</summary>
@@ -1050,6 +1109,29 @@ public static class SearchStage
     }
 
     private static string Pct(double x) => (x * 100).ToString("0.00", CultureInfo.InvariantCulture) + "%";
+
+    /// <summary>
+    /// The search's <c>id_rate</c> provenance block, the PSM count the stage reports, and the <c>low_id_rate</c> flag (S3),
+    /// from results.txt's summary and the MS2 spectra of the files searched. D84: <c>psms_1pct</c> and <c>rate</c> stay their
+    /// definition's, the "q-value" line's, so under another filter (MetaMorpheus 1.1.15) they are null; <c>filter</c>,
+    /// <c>psms_filter_1pct</c> and <c>rate_filter</c> carry the filter results.txt names, its count and that count's rate.
+    /// The count reported and the flag then read the filter's own count, and the flag names the filter.
+    /// </summary>
+    internal static (JsonObject Block, int? Psms, string? Flag) IdRateBlock(SearchSummary summary, int ms2)
+    {
+        var idr = SearchMetrics.IdRate(summary, ms2);
+        int? psms = idr.Psms1Pct ?? idr.PsmsFilter1Pct;
+        var block = new JsonObject
+        {
+            ["definition"] = Search.IdRate.Definition, ["psms_1pct"] = idr.Psms1Pct, ["ms2"] = idr.Ms2, ["rate"] = idr.Rate,
+            ["psms_fdr_engine_1pct"] = idr.PsmsFdrEngine1Pct, ["psms_fdr_engine_definition"] = Search.IdRate.FdrEngineDefinition,
+            ["filter"] = idr.Filter, ["psms_filter_1pct"] = idr.PsmsFilter1Pct, ["rate_filter"] = idr.RateFilter,
+        };
+        string? flag = psms is { } n && ms2 > 0 && (double)n / ms2 < FlagMinIdRate
+            ? $"low_id_rate: {n}/{ms2} = {Pct((double)n / ms2)} of MS2 identified (S3{(idr.Psms1Pct is null ? $", {idr.Filter}" : "")})"
+            : null;
+        return (block, psms, flag);
+    }
 
     private static JsonObject Obj(IReadOnlyDictionary<string, double?> d)
     {

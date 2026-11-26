@@ -19,7 +19,8 @@ producer's work root                          bundle store
 ## Install
 
 `datarepo` is one self-contained program: download the archive for your platform from a
-[release](https://github.com/smith-chem-wisc/dataRepo/releases) and unpack it (see
+[PXReprise release](https://github.com/smith-chem-wisc/PXReprise/releases) (from 1.0.0; it holds the
+engine and datarepo) and unpack it (see
 [operating.md](operating.md#1-install-one-released-version)). It reads MetaMorpheus output with
 mzLib, which is inside it, so nothing else is installed.
 
@@ -30,9 +31,9 @@ datarepo doctor                # what this build is, and whether an MCP server i
 `doctor` is the first thing to run on a new machine:
 
 ```
-datarepo 1.5.0  schema 0.0.17
+datarepo 1.0.0  schema 0.0.17
   runtime          .NET 10.0.10
-  mzLib            1.0.598.0
+  mzLib            1.0.601.0
   parquet          ParquetSharp 24.0.0.0
   mcp SDK          ModelContextProtocol 2.2.0.0
 …
@@ -92,6 +93,11 @@ datasets:
     metamorpheus: "1.1.11"
     flags: [low_id_rate, no_design_file, no_output_sdrf]
 ```
+
+`work_root` must be the root the producer's provenance names its inputs against (`"root": "work_root"`): for PXReprise,
+the machine file's `work_root`. The searched databases, the earlier stages' records and `<work_root>/mm_settings/<release>`
+are all read under it, and a database that is not there is skipped, so a wrong root is no error. It costs the bundle its
+databases, its sites in shared peptides and its modification definitions.
 
 Only `include` is ingested. `hold` and `exclude` are **refused with the producer's own reason**:
 
@@ -189,7 +195,11 @@ that applies:
    row, and its source names must group the searched files exactly as the search's
    `ExperimentalDesign.tsv` does (one source name per design sample, and the reverse). Otherwise the
    ingest is refused, naming the files and samples, because the stored protein values belong to the
-   search's samples. The path is not part of the bundle id, but the file's bytes are.
+   search's samples. For an **isobaric** search (from PXReprise 1.0.1; 1.0.0 refused every one), the check
+   is against its `TmtDesign.txt` instead: each channel the design gives a sample (every one not marked
+   `empty`) must be named by exactly one row, by its data file and `comment[label]`. That is because an
+   isobaric value belongs to one file and channel, and is never summed across files. The path is not part
+   of the bundle id, but the file's bytes are.
 2. **The SDRF the search's design came from**, when its provenance's `experimental_design.source` is
    `question` or `deposit`. It is read only if its sha256 is the recorded `sdrf_sha256`. A file edited
    after the search is not that search's record, so the ingest is refused by name; restore the recorded
@@ -525,7 +535,8 @@ is what they have always effectively been. Asked as DATAREPO-26.
 ## Reproducing a bundle
 
 A bundle id is a hash of every input, the schema version and the ingest path's version
-(`BundleWriter.IngesterVersion`, `cs-1.1.0` in 1.1.0 to 1.3.6, `cs-1.2.0` from 1.4.0), so **two sites get the same bundle id exactly
+(`BundleWriter.IngesterVersion`, `cs-1.1.0` in 1.1.0 to 1.3.6, `cs-1.2.0` in 1.4.0 to 1.4.5, `cs-1.5.0` from 1.5.0, which
+PXReprise 1.0.0 carries), so **two sites get the same bundle id exactly
 when they would write the same rows**. To reproduce one:
 
 1. **Use the release that wrote it.** `bundle.json`'s `ingester.version` names the program's version
@@ -542,11 +553,18 @@ when they would write the same rows**. To reproduce one:
 **If a database is missing, the ingest does not fail.** It writes the bundle anyway, and the
 result is not the same bundle:
 
+- a `search_database_missing` finding names each missing file, where it was looked for (against the manifest's
+  `work_root`), and the sha256 the search recorded, which finds a copy kept by hash;
 - sites on single-accession PSMs are still placed, from the producer's own spans;
 - sites for shared peptides on proteins it cannot see are **not written** and are counted in the
-  `unplaced_ptm_sites` finding, which names the missing file;
+  `unplaced_ptm_sites` finding;
 - the missing database is absent from `sources`, so **the bundle id differs** -- which is
   correct, because the rows do.
+
+A MetaMorpheus settings folder that is not on disk (`--mm-settings`, or `<work_root>/mm_settings/<release>`) is the
+same kind of loss: no modification definitions are loaded, so more modifications are left unresolved. It raises
+`search_settings_missing`, naming the folder. A manifest whose `work_root` is not the root the provenance names its
+inputs against raises both at once.
 
 A database that is present but **differs** from the searched one (wrong sha256) stops the ingest, and so does one
 that reads as having **no entries**. A UniProt XML is read in any namespace (UniProt's `http://` or `https://`, or
@@ -586,11 +604,14 @@ It exits 1 on any failure. Against aging's 0.9.0 bundles it fails (PXD036557: 29
 | `sdrf_conflicting_rows` | warning | The SDRF's rows for one source name write different values in a sample-level column (a characteristic, a factor value, material type or their source comments). That sample gets no value there: no `sample_characteristics` row, and the `samples` column read from it is NULL. No row's value is taken over another's. The message names each column, its values and the runs of the rows that wrote them. |
 | `no_sdrf` | warning | No SDRF; each run was given a synthetic, unannotated sample. |
 | `count_mismatch` | warning | A count disagrees with the producer's summary. |
+| `confidence_rule_partly_trained` | warning | The search filtered on the PEP q-value and results.txt says PEP was trained for only some of its target peptides, without saying which. `peptidoforms_1pct` reads each one's PEP q-value where it is in [0, 1] and its notch otherwise (`pep_q_value_or_notch`), which can differ from the producer's set. |
 | `peptide_rows_localization_ambiguous` | warning | Rows of `AllQuantifiedPeptides.tsv` name several full sequences joined by `|`: peptides whose modification site the search did not settle (MetaMorpheus #2917). Their values are not stored, since storing them under one sequence would place them on a site the search never decided. The message gives the number of rows and values, and examples. |
 | `unresolved_modifications` | warning | A modification has neither a UNIMOD accession nor a mass. Its `ptm_sites` rows exist and carry `modification_name`, with `modification` null. |
 | `unmatched_runs` | warning | A run the search reported is not a deposited file. |
 | `ptm_site_residue_mismatch` | warning | A written site names a residue that is not at its position in the searched sequence, or lies beyond the protein. Should never fire; it is the self-check for DATAREPO-32. |
 | `unplaced_ptm_sites` | warning | Some (PSM, protein) pairs got no `ptm_sites` row because the stored peptide is not in that protein's sequence (typically a level 4/5 PSM whose protein carries a different candidate peptide), the protein has no sequence in the searched databases, or a database was missing. Counts are in `bundle.json` under `protein_databases`. |
+| `search_database_missing` | warning | A protein database the search provenance names is not on disk where the manifest's `work_root` puts it. None of its proteins was read: no `dataset_databases` row, specificity decided without them, shared-peptide sites on them not placed. The message gives each path and the sha256 the search recorded. |
+| `search_settings_missing` | warning | The MetaMorpheus settings folder (`--mm-settings`, or `<work_root>/mm_settings/<release>`) is not on disk, so no modification definitions were loaded; those left unresolved are in `unresolved_modifications`. |
 | `collapsed_duplicate_rows` | info | The producer wrote a row more than once, identical in every column; the copies were dropped. |
 | `metric_conflict` | warning | One metric reached the bundle from two sources under one definition, and they disagree. |
 | `isobaric_channels_not_in_sdrf` | warning | Channels of the search's `TmtDesign.txt` that no SDRF row names by file and label; their assays sit on the design's own sample. |

@@ -8,14 +8,24 @@
     <Nullable>enable</Nullable>
     <AssemblyName>pxreprise</AssemblyName>
     <RootNamespace>PXReprise</RootNamespace>
-    <Version>0.4.50</Version>
+    <!-- The release version, for the engine and datarepo alike (decision 0073): datarepo has none of its own. A release's
+         pull request bumps it; the release workflow checks it against the release tag and stamps it on both programs. -->
+    <Version>1.0.1</Version>
+    <!-- mzLib's FlashLFQ depends on Microsoft.ML, whose build targets refuse an executable built for any processor but
+         x64 and x86. So the engine could not be published for osx-arm64, one of the release's four platforms (decision
+         0073). The engine never runs FlashLFQ's engine or any Microsoft.ML code: MetaMorpheus quantifies, as its own
+         process, and the engine only reads FlashLFQ's types (the differential stage's SpectraFileInfo and tables). Across
+         the offline tests no Microsoft.ML assembly is ever loaded (2026-11-25). So the check is switched off here. Code
+         that runs a Microsoft.ML trainer in the engine would need native libraries no arm64 build ships. -->
+    <EnableMLUnsupportedPlatformTargetCheck>false</EnableMLUnsupportedPlatformTargetCheck>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- 1.0.598 (v0.4.49): one ahead of MetaMorpheus 1.1.14's 1.0.597, and the version datarepo's projects here use.
-         MetaMorpheus runs as its own process, so the difference is never shared in one process. Rejoin MetaMorpheus's
-         pin at its next release. -->
-    <PackageReference Include="mzLib" Version="1.0.598" />
+    <!-- 1.0.601 (the user, 2026-11-24: "we will also update the mzLib nuget in pxreprise"): the same mzLib as the
+         MetaMorpheus release that follows 1.1.15 (MetaMorpheus #2997), and the version datarepo's projects here use.
+         Was 1.0.600 (D84), two ahead of MetaMorpheus 1.1.15's 1.0.598; MetaMorpheus runs as its own process, so a
+         difference is never shared in one process. -->
+    <PackageReference Include="mzLib" Version="1.0.601" />
     <PackageReference Include="Tomlyn" Version="2.10.1" />
   </ItemGroup>
 
@@ -27,6 +37,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="PXReprise.Tests" />
+    <InternalsVisibleTo Include="PXReprise.Seam.Tests" />
   </ItemGroup>
 
   <ItemGroup>

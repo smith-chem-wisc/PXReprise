@@ -40,6 +40,20 @@ public static class ProbeSearch
     };
 
     /// <summary>
+    /// The identification-filter keys a probe takes from its profile (D87, the user 2026-11-22: one notch filter, set in
+    /// the search, for every stage of it). The probe is a search of the deposit's own files, so it filters its matches as
+    /// the profile's search does. It writes only the matches that pass (WriteHighQValuePsms = false), and nothing after it
+    /// filters again (<see cref="ProbeMeasures"/>). A profile that sets no filter (every version before MetaMorpheus
+    /// 1.1.15) leaves the pinned MetaMorpheus's own, as before.
+    /// </summary>
+    public static readonly string[] FilterKeys = { "IdentificationFilter", "FilterThreshold" };
+
+    /// <summary>The profile's <see cref="FilterKeys"/> settings that reach a Search task (scope <c>all</c> or <c>search</c>).</summary>
+    public static IReadOnlyList<MetaMorpheusSetting> FilterSettings(Profile p) =>
+        p.MetaMorpheusSettings?.Where(s => FilterKeys.Contains(s.Key) && s.Scope is "all" or "search").ToList()
+        ?? new List<MetaMorpheusSetting>();
+
+    /// <summary>
     /// The probe's precursor window. The probe runs no calibration, and MetaMorpheus's default ±5 ppm missed nearly every
     /// match on an instrument off by +7.6 ppm (PXD051644, 2026-10-17: 12-31 PSMs a run, parked waiting_no_identifications;
     /// its calibrated search found 24,449). ±20 ppm takes such an offset; the probe only counts, it delivers nothing.
@@ -47,7 +61,10 @@ public static class ProbeSearch
     public const string PrecursorTolerance = "±20.0000 PPM";
 
     /// <summary>The probe's Search task text, from the pinned MetaMorpheus's default (pure; tested without MetaMorpheus).</summary>
-    public static string TaskText(string defaultSearchToml, Machine m, DepositChemistry? chem, IReadOnlySet<(string, string)> known)
+    /// <param name="filter">The profile's identification filter (<see cref="FilterSettings"/>); each must land, or the probe
+    /// would filter otherwise than the search.</param>
+    public static string TaskText(string defaultSearchToml, Machine m, DepositChemistry? chem, IReadOnlySet<(string, string)> known,
+        IReadOnlyList<MetaMorpheusSetting>? filter = null)
     {
         var settings = new TaskSettings(m.MaxThreads, MatchBetweenRuns: false, GptmdExtraMods: Array.Empty<string>(), SearchType: "Classic",
             Protease: chem is { ProteasePerFile: null } ? chem.Protease.Value : null,
@@ -56,6 +73,13 @@ public static class ProbeSearch
             PrecursorMassTolerance: PrecursorTolerance);
         var (text, _) = TaskFiles.Edit(defaultSearchToml, TaskKind.Search, settings, known);
         foreach (var (key, value) in FastSettings) text = TaskFiles.Set(text, key, value);
+        if (filter is { Count: > 0 })
+        {
+            var (filtered, applied) = TaskFiles.ApplySettings(text, TaskKind.Search, filter);
+            if (applied.Count != filter.Count)
+                throw new SearchSetupException($"the pinned MetaMorpheus's Search task has no {string.Join(", ", filter.Except(applied).Select(s => s.Key))}: the probe cannot filter its matches as the profile's search does");
+            text = filtered;
+        }
         return TaskFiles.AddVariableMods(text, EnrichmentMods, known);
     }
 
@@ -80,7 +104,7 @@ public static class ProbeSearch
         string release = pin.Name;
         var known = TaskFiles.KnownMods(Path.Combine(Path.GetDirectoryName(cmd)!, "Mods"));
         string toml = Path.Combine(tasksDir, "probe_SearchTask.toml");
-        File.WriteAllText(toml, TaskText(File.ReadAllText(Path.Combine(tasksDir, TaskFiles.FileName(TaskKind.Search))), m, chem, known));
+        File.WriteAllText(toml, TaskText(File.ReadAllText(Path.Combine(tasksDir, TaskFiles.FileName(TaskKind.Search))), m, chem, known, FilterSettings(p)));
 
         // Per-file settings (protease, fragmentation) apply to the probe files as to the search.
         var prov = new AgingProvenance("probe_search", m.WorkRoot, toml, new JsonObject(), null);

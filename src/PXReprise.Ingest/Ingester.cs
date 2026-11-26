@@ -293,6 +293,9 @@ public static class Ingester
         // Current: mzLib's loaders over the install, as MetaMorpheus loads them (G26); Python0320: 0.32.0's file reader.
         var registry = settings is null ? new ModRegistry()
             : rules == IngestRules.Current ? ModRegistry.FromMzLib(settings) : ModRegistry.FromMetaMorpheus(settings, rules);
+        // A folder that is not there loads no definitions, and the only sign was a longer unresolved_modifications list.
+        if (settings is not null && rules == IngestRules.Current && !Directory.Exists(settings))
+            findings.Add(SearchSettingsMissing(settings, named: mmSettings is not null, datasetId));
         var proforma = new ProformaCache(registry, rules);
 
         // --- samples and runs -----------------------------------------------------------------------------
@@ -340,7 +343,8 @@ public static class Ingester
         // A file the search left out is not a run, so a run map or SDRF assay naming it is dropped with it rather
         // than refused: both were written about the deposit, before the search chose.
         var excludedStems = excluded.Select(Path.GetFileNameWithoutExtension).ToHashSet(StringComparer.Ordinal);
-        if (sdrfChoice.ChosenBy == "operator_sdrf")
+        // An isobaric search's operator SDRF is checked against its TmtDesign.txt once that is read (below).
+        if (sdrfChoice.ChosenBy == "operator_sdrf" && !(rules == IngestRules.Current && Isobaric.Wrote(resultsDir)))
             CheckOperatorSdrf(sdrf, sdrfPath!, runRows, resultsDir, datasetId, log, rules);
         var enrichmentMixed = Runs.AssignEnrichment(
             runRows, datasetId, entry.Enrichment, entry.MixedEnrichment,
@@ -428,6 +432,8 @@ public static class Ingester
             writer.AddDeclaration("isobaric_reader", Isobaric.ReaderVersion);
             writer.AddSource(designPath, "isobaric_design", Isobaric.DesignFileName);
             isobaric = Isobaric.ReadDesign(designPath, datasetId, reagent, runNames, log);
+            if (sdrfChoice.ChosenBy == "operator_sdrf")
+                Isobaric.CheckOperatorSdrf(isobaric, datasetId, sdrf.Assays, Path.GetFileName(sdrfPath!));
             int fromSdrf;
             (assays, samples, characteristics, fromSdrf) = Isobaric.PlaceAssays(isobaric, datasetId, assays, samples, characteristics, DatasetEntry.Text(entry.Organism));
             findings.AddRange(IsobaricDesignFindings(isobaric, fromSdrf, sdrfPath is not null, entry.LabellingPlex, datasetId));
@@ -520,12 +526,17 @@ public static class Ingester
 
         var psmColumns = Readers.ReadPsmtsv(allPsmsPath, log);
         var psmRows = Identifications.PsmRows(psmColumns, datasetId, proforma, runNames, searchLabel);
-        // D55 (schema 0.0.17): which q-value this search's 1% rule reads, decided once for the whole search.
-        var confidence = rules == IngestRules.Current ? Identifications.ChooseConfidence(psmRows) : null;
+        // D78 (PXR-R81, replacing D55): the search's 1% rule is the filter its results.txt names, read here because the
+        // peptidoform ions below are kept by it. The reconciliation further down reads the same file for its counts.
+        var rule = rules == IngestRules.Current ? SearchRule(Join(resultsDir, "results.txt"), engineVersion, psmRows) : null;
         // Sites are placed by finding each peptide in the searched proteins, because the producer's spans cannot
         // be paired with its accessions. The databases are inputs to every ptm_sites
         // row, so they are in the content hash; they are not copied.
         var sequences = ProteinDb.Load(searchProvenance, manifest.WorkRoot, rules);
+        if (sequences.Missing.Count > 0 && rules == IngestRules.Current)
+            findings.Add(SearchDatabasesMissing(
+                ProteinDb.SearchedDatabases(searchProvenance, manifest.WorkRoot).Where(d => sequences.Missing.Contains(d.Path)).ToList(),
+                manifest.WorkRoot, datasetId));
         foreach (var db in sequences.Files)
         {
             // The role carries the file name: sources are hashed in (role, path) order, and a path is absolute and
@@ -572,12 +583,12 @@ public static class Ingester
                 row["is_isoform_specific"] = isIsoformSpecific;
             }
         }
-        // 1.5.0 item 3 (schema 0.0.17): the matched fragment ions of every AllPeptides.psmtsv row the search's confidence
-        // rule passes, verbatim, joined to the peptidoforms just built.
+        // 1.5.0 item 3 (schema 0.0.17): the matched fragment ions of every AllPeptides.psmtsv row the search's 1% rule
+        // passes, verbatim, joined to the peptidoforms just built.
         var ionRows = new List<Row>();
         PeptidoformIons.Report? ionReport = null;
-        if (confidence is not null && File.Exists(allPeptidesPath))
-            (ionRows, ionReport) = PeptidoformIons.Read(allPeptidesPath, datasetId, proforma, confidence,
+        if (rule is not null && File.Exists(allPeptidesPath))
+            (ionRows, ionReport) = PeptidoformIons.Read(allPeptidesPath, datasetId, proforma, rule,
                 peptidoforms.Select(p => (string)p["peptidoform_id"]!).ToHashSet(StringComparer.Ordinal), log);
         // A protein's contaminant label comes from the database it was read from, not from the PSM row it shares
         // with a contaminant (G66). An accession in BOTH is whatever the search's TCAmbiguity made it.
@@ -672,11 +683,22 @@ public static class Ingester
 
         var resultsPath = Join(resultsDir, "results.txt");
         var results = new Dictionary<string, Dictionary<string, long>>(StringComparer.Ordinal);
+        string? resultsFilter = null;
+        var resultsNotTrained = (IReadOnlySet<string>)new HashSet<string>(StringComparer.Ordinal);
+        var producerFilter = ProducerFilter.QValueAndNotch;
         if (File.Exists(resultsPath))
         {
             writer.AddSource(resultsPath, "results_txt", "results.txt");
-            results = Readers.ReadResultsTxt(resultsPath, log);
-            metrics.AddRange(ResultsMetrics(results, datasetId, runNames, searchNamespace, rules));
+            results = Readers.ReadResultsTxtAndFilter(resultsPath, out ResultsTxtFilter read, log);
+            resultsFilter = read.Named;
+            resultsNotTrained = read.PepNotTrained;
+            // D84: the search's own counts follow its identification filter (MetaMorpheus 1.1.15, #2982 and #2989), as its
+            // results.txt names it; up to 1.1.14 the rule was the q-value and the notch together. The 1% counts become
+            // metrics only under that older rule, the one their definitions (DEF-*-1PCT v1) describe; under another
+            // filter they serve the reconciliation alone until the definitions say what they count.
+            producerFilter = Identifications.FilterOf(resultsFilter, engineVersion, read.FdrEngineLineNamesFilter);
+            metrics.AddRange(ResultsMetrics(results, datasetId, runNames, searchNamespace, rules,
+                onePercentCounts: producerFilter == ProducerFilter.QValueAndNotch));
         }
         // Here rather than with the other provenance metrics because the per-run rows need the deposited run
         // names, which only exist once the runs are built.
@@ -734,7 +756,7 @@ public static class Ingester
             ["first_release_id"] = null,
             ["latest_release_id"] = null,
         };
-        if (confidence is not null) datasetRow["confidence_rule"] = confidence.Rule;
+        if (rule is not null) datasetRow["confidence_rule"] = rule;
 
         // --- exact duplicates the producer wrote ----------------------------------------------------------
         // MetaMorpheus can write one row twice, identical in every column. Collapsing is lossless and
@@ -768,9 +790,9 @@ public static class Ingester
             findings.AddRange(DuplicateFindings(collapsed, datasetId));
         }
         // After the collapse, so the counts describe the rows the bundle holds.
-        if (confidence is not null)
+        if (rule is not null)
         {
-            findings.AddRange(ConfidenceRuleFindings(confidence, peptidoforms, datasetId));
+            findings.AddRange(ConfidenceRuleFindings(rule, datasetId));
             findings.AddRange(PeptidoformIonFindings(ionReport, datasetId));
             writer.Notes["peptidoform_ions"] = ionReport is null
                 ? new OrderedDictionary<string, object?> { ["read"] = false, ["reason"] = "no AllPeptides.psmtsv" }
@@ -778,7 +800,7 @@ public static class Ingester
                 {
                     ["read"] = ionReport.MissingHeaders.Count == 0,
                     ["source"] = "AllPeptides.psmtsv",
-                    ["rule"] = confidence.Rule,
+                    ["rule"] = rule,
                     ["rows_read"] = ionReport.Rows,
                     ["passed"] = ionReport.Passed,
                     ["written"] = (long)ionRows.Count,
@@ -837,17 +859,33 @@ public static class Ingester
 
         // --- reconciliation -------------------------------------------------------------------------------
         var searchMs2 = Get(Map(Get(searchProvenance, "id_rate")), "ms2");
+        // Under the PEP q-value filter, whether PEP was trained is decided per search and level, from results.txt's
+        // sentence and mzLib's whole-search test, never from a row's own PEP q-value (G148).
+        var pepUsable = producerFilter == ProducerFilter.PepQValue && Identifications.PepIsUsable(psmRows);
+        var psmTraining = Identifications.PepTrainingOf(resultsNotTrained.Contains("psms"), pepUsable);
+        var peptideTraining = Identifications.PepTrainingOf(resultsNotTrained.Contains("peptides"), pepUsable);
+        string? TrainingNote(PepTraining training, string level) =>
+            producerFilter == ProducerFilter.PepQValue && training == PepTraining.Some
+                ? $"PEP was not trained for some of this search's target {level} (results.txt says so above its count), and the "
+                  + "psmtsv does not say which, so each was judged by its PEP q-value where that is in [0, 1] and by its notch "
+                  + "otherwise; a difference here can come from that."
+                : null;
         var checks = Reconcile.Build(
-            Identifications.ProducerCounts(psmColumns),
+            Identifications.ProducerCounts(psmColumns, filter: producerFilter, pepTraining: psmTraining),
             // No notch clause for peptidoforms: it is a PSM rule, and applying it cost exactly 3 on
             // two datasets, making one count_mismatch spurious.
-            Identifications.ProducerCounts(peptideColumns.Count > 0 ? peptideColumns : psmColumns, requireResolvedNotch: false),
+            Identifications.ProducerCounts(peptideColumns.Count > 0 ? peptideColumns : psmColumns, requireResolvedNotch: false,
+                filter: producerFilter, pepTraining: peptideTraining),
             proteinGroupCount,
             runRows,
             results,
             entry.Files is null ? null : Convert.ToInt64(entry.Files),
             searchMs2 is null ? null : Convert.ToInt64(searchMs2),
-            Definitions.ById[Definitions.Cite(Definitions.Psm1pct, searchNamespace)]);
+            Definitions.ById[Definitions.Cite(Definitions.Psm1pct, searchNamespace)],
+            resultsFilter,
+            definitionDescribesCount: producerFilter == ProducerFilter.QValueAndNotch,
+            psmNote: TrainingNote(psmTraining, "PSMs"),
+            peptideNote: TrainingNote(peptideTraining, "peptides"));
         findings.AddRange(Reconcile.FindingRows(checks, datasetId));
         findings.AddRange(Reconcile.MetricConflicts(metrics, datasetId));
         findings.AddRange(ModificationFindings(proforma, datasetId));
@@ -989,54 +1027,57 @@ public static class Ingester
         _ => false,
     };
 
-    /// <summary>What a search's confidence rule (D55) does to its 1% peptidoforms, said where a reader would otherwise
-    /// misread it. Neither changes a row.</summary>
-    /// <remarks>
-    /// <para><c>confidence_rule_fallback</c>: the search trained no PEP, so its 1% set is read on another q-value than
-    /// every search on <c>pep_q_value</c>. Today one served deposit, PXD058775.</para>
-    /// <para><c>confidence_rule_fewer_peptides</c>: the rule passes fewer target peptidoforms than the q-value rule
-    /// <c>peptidoforms_1pct</c> held up to 1.4.5, with both counts. On 21 served deposits, mostly low-resolution, the PEP
-    /// rule passes 0 to 0.88 of the q-value rule's rows (PXD057502: 0), and without this a reader takes them for small
-    /// studies (the maintainer, 2026-11-11).</para>
-    /// </remarks>
-    public static IEnumerable<Row> ConfidenceRuleFindings(Identifications.ConfidenceChoice choice, IReadOnlyList<Row> peptidoforms, string datasetId)
+    /// <summary>The search's 1% rule (D78, PXR-R81): the filter its results.txt names, as
+    /// <see cref="Identifications.FilterOf(string?, string?, bool?)"/> reads it for the reconciliation, with PEP training read at
+    /// the peptide level, the level <c>peptidoforms_1pct</c> and <c>peptidoform_ions</c> serve. A search with no results.txt,
+    /// or one whose count lines name no filter, is on the rule every MetaMorpheus up to 1.1.14 applied, when its release is
+    /// one of those.</summary>
+    /// <exception cref="IngestException">No filter is named and the search's MetaMorpheus release is not one known to have
+    /// had a single filter (up to 1.1.14). The column is required, and a guessed rule would be a false one; ptmQtl's S7
+    /// refuses the same search (<c>PtmQtlBundle.Filter</c>).</exception>
+    private static string SearchRule(string resultsPath, string? engineVersion, IEnumerable<IReadOnlyDictionary<string, object?>> psmRows)
     {
-        if (choice.Tier != Quantification.QuantifiedPsmTier.PepQValue)
+        ResultsTxtFilter? read = null;
+        if (File.Exists(resultsPath))
         {
-            var why = !choice.PepQValueInRange
-                ? "no target PSM has a PEP q-value between 0 and 1"
-                : $"all {choice.TargetPsms} target PSMs carry one PEP value ({PyFormat.Str(choice.SolePep!.Value)}), as MetaMorpheus leaves them when PEP training fails, so they cannot show that it trained";
-            var fallback = choice.Tier == Quantification.QuantifiedPsmTier.QValueNotch
-                ? "its notch q-value: `peptidoforms_1pct` takes target peptidoforms whose `best_q_value_notch` is strictly below 0.01"
-                : "its plain q-value, since no target PSM has a notch q-value between 0 and 1 either: `peptidoforms_1pct` takes target "
-                  + "peptidoforms whose `best_q_value` is strictly below 0.01";
-            yield return Finding(datasetId, "confidence_rule_fallback", "warning",
-                $"PEP was not trained for this search: {why} (mzLib's `QuantifiedPsmRule.ChooseTier`, over the search's target PSMs). "
-                + $"So its confidence rule (`datasets.confidence_rule` = `{choice.Rule}`) reads {fallback}, where a search with "
-                + "trained PEP reads `best_pep_q_value` (D55). The search still wrote numbers in `PEP_QValue`; they are stored as "
-                + "written and are not read here. Compare this deposit's 1% counts with others' knowing they rest on another q-value.");
+            Readers.ReadResultsTxtAndFilter(resultsPath, out ResultsTxtFilter filterRead);
+            read = filterRead;
         }
-        long passes = 0, qValueRule = 0;
-        foreach (var row in peptidoforms)
-        {
-            if (!Equals(row.GetValueOrDefault("target_decoy"), "target")) continue;
-            if (Identifications.PassesConfidence(choice.Tier, row)) passes++;
-            if (Identifications.PassesQValueRule(row)) qValueRule++;
-        }
-        if (passes < qValueRule)
-            yield return Finding(datasetId, "confidence_rule_fewer_peptides", "warning",
-                $"This search's confidence rule (`{choice.Rule}`, strictly below 0.01) passes {passes} target peptidoform(s); the "
-                + "q-value rule `peptidoforms_1pct` held up to datarepo 1.4.5 (`best_q_value`, and `best_q_value_notch` where "
-                + $"there is one, at or below 0.01) passed {qValueRule}. `peptidoforms_1pct` follows the confidence rule (D55), so "
-                + "this deposit's 1% peptide count is lower than its search's q-value count: the rule did that, not a small study. "
-                + "results.txt's own peptide count, where the search wrote one, is in `metrics` (`name = 'peptides'`, "
-                + "`scope = 'dataset'`). Whether peptide-level PEP q-value is rightly this strict on such a search is pep's to say "
-                + "(DATAREPO-89).");
+        if (read?.Named is null && !(Version.TryParse(engineVersion, out var release) && release < new Version(1, 1, 15)))
+            throw new IngestException(
+                $"{(read is null ? "the search left no results.txt" : "results.txt names no identification filter")}, and its "
+                + $"MetaMorpheus release ({engineVersion ?? "not recorded"}) is not one with a single filter (up to 1.1.14), so "
+                + "the search's 1% rule (datasets.confidence_rule) cannot be told. A search from 1.1.15 names its filter in "
+                + "results.txt's count lines.");
+        var filter = Identifications.FilterOf(read?.Named, engineVersion, read?.FdrEngineLineNamesFilter);
+        var training = filter == ProducerFilter.PepQValue
+            ? Identifications.PepTrainingOf(read!.PepNotTrained.Contains("peptides"), Identifications.PepIsUsable(psmRows))
+            : PepTraining.Every;
+        return Identifications.RuleOf(filter, training);
     }
 
-    /// <summary>Where <c>peptidoform_ions</c> (schema 0.0.17) is short of what the confidence rule passes, why: no rows
+    /// <summary>What the search's 1% rule cannot settle, said where a reader would otherwise misread a count. It changes
+    /// no row. D55's <c>confidence_rule_fallback</c> and <c>confidence_rule_fewer_peptides</c> are gone (1.5.0 was never
+    /// released): the search's own filter has no fallback and no second rule to compare against.</summary>
+    /// <remarks><c>confidence_rule_partly_trained</c>: under the PEP q-value filter, results.txt says PEP was trained for
+    /// some of the search's target peptides but not all, and the psmtsv does not say which. MetaMorpheus judged the others
+    /// by their notch; the rule reads each row's PEP q-value where it is in [0, 1] and its notch otherwise, which can
+    /// differ from the producer's set. No profile of PXReprise's uses this filter (their D87).</remarks>
+    public static IEnumerable<Row> ConfidenceRuleFindings(string rule, string datasetId)
+    {
+        if (rule == Identifications.RulePepQValueOrNotch)
+            yield return Finding(datasetId, "confidence_rule_partly_trained", "warning",
+                "This search filtered on the PEP q-value, and results.txt says PEP was trained for only some of its target "
+                + "peptides (the sentence above its peptide count). The psmtsv does not say which, so `peptidoforms_1pct` reads "
+                + "each peptidoform's PEP q-value where it is between 0 and 1 and its notch q-value otherwise "
+                + "(`confidence_rule = pep_q_value_or_notch`). MetaMorpheus judged the untrained ones by their notch, so its own "
+                + "set can differ by the rows read otherwise; its peptide count is in `metrics` (`name = 'peptides'`, "
+                + "`scope = 'dataset'`).");
+    }
+
+    /// <summary>Where <c>peptidoform_ions</c> (schema 0.0.17) is short of what the search's 1% rule passes, why: no rows
     /// read at all is unknown, never "no ion matched", and a row left out is counted. A table that is empty because
-    /// nothing passes the rule (PXD057502) needs none: <c>confidence_rule_fewer_peptides</c> says that.</summary>
+    /// nothing passes the rule needs none.</summary>
     /// <param name="report">The read, or null when the search left no AllPeptides.psmtsv.</param>
     public static IEnumerable<Row> PeptidoformIonFindings(PeptidoformIons.Report? report, string datasetId)
     {
@@ -1276,8 +1317,12 @@ public static class Ingester
     /// <see cref="IngestRules.Current"/> it cites aging's per-file definition (1.5.0 item 7), which has no pxreprise twin;
     /// before, it cited the deposit-wide one. A scan or precursor count partitions, so one definition serves both grains.</remarks>
     private static List<Row> ResultsMetrics(Dictionary<string, Dictionary<string, long>> results, string datasetId, RunNameMap runNames, string ns,
-        IngestRules rules = IngestRules.Current)
+        IngestRules rules = IngestRules.Current, bool onePercentCounts = true)
     {
+        // D84: without the 1% counts (a search under another filter than their definitions'), only the scans and precursors.
+        if (!onePercentCounts)
+            results = results.ToDictionary(kv => kv.Key, kv => kv.Value.Where(c => c.Key is not ("psms" or "peptides" or "protein_groups"))
+                .ToDictionary(c => c.Key, c => c.Value, StringComparer.Ordinal), StringComparer.Ordinal);
         var definitionFor = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["psms"] = Definitions.Cite(Definitions.Psm1pct, ns),
@@ -1396,6 +1441,39 @@ public static class Ingester
                 + "bundle.json under protein_databases."),
         ];
     }
+
+    /// <summary><c>search_database_missing</c>: protein databases the search provenance names that are not on disk where the
+    /// manifest's work_root puts them. The ingest still writes the bundle (ingest.md), and until this finding the only word
+    /// was the tail of <c>unplaced_ptm_sites</c>, which is about sites. A manifest naming the wrong work_root loses every
+    /// database this way (PXReprise #46, found by the seam test).</summary>
+    /// <param name="missing">Each missing database's path, as the provenance resolves against work_root, and the sha256
+    /// the search recorded for it.</param>
+    internal static Row SearchDatabasesMissing(IReadOnlyList<(string Path, object? Sha256)> missing, string workRoot, string datasetId) =>
+        Finding(datasetId, "search_database_missing", "warning",
+            $"{missing.Count} protein database(s) the search provenance names are not on disk, resolved against the manifest's "
+            + $"work_root ({workRoot}): "
+            + string.Join("; ", missing.Select(d => d.Path + (d.Sha256 is string sha && sha.Length > 0 ? $" (sha256 {sha})" : "")))
+            + ". None of their proteins was read: the catalog's `dataset_databases` has no row for them, so nothing keyed by "
+            + "database (gene names, GO) reaches those proteins; peptide specificity (`is_unique`, `is_isoform_specific`) was "
+            + "decided without them; and sites of shared peptides on their proteins were not placed (`unplaced_ptm_sites`). "
+            + "The bundle id differs from an ingest with them present, because a database is an input. If the file is "
+            + "elsewhere, the manifest's `work_root` is probably not the root the search provenance names its inputs against "
+            + "(operating.md); the sha256 finds a copy kept by hash.");
+
+    /// <summary><c>search_settings_missing</c>: the MetaMorpheus settings folder the ingest reads modification definitions
+    /// from is not on disk. The registry is then empty, so the search's modifications are resolved without its own
+    /// definitions, and until this finding nothing said why <c>unresolved_modifications</c> grew (Carbamidomethyl among
+    /// them on the seam test's rig).</summary>
+    /// <param name="named">The folder was given by <c>--mm-settings</c>, not the manifest default.</param>
+    internal static Row SearchSettingsMissing(string settings, bool named, string datasetId) =>
+        Finding(datasetId, "search_settings_missing", "warning",
+            $"The MetaMorpheus settings folder {settings} ("
+            + (named ? "given by --mm-settings" : "the default, <work_root>/mm_settings/<the manifest's MetaMorpheus release>")
+            + ") is not on disk, so no modification definitions were loaded from the release that ran the search. Its "
+            + "modifications were resolved without them; those left with neither a UNIMOD accession nor a mass are in "
+            + "`unresolved_modifications`, and their `ptm_sites` rows carry `modification_name` with `modification` null. Put "
+            + "the install's folder (the one holding `Mods/` and `Data/`) there, or name it with `--mm-settings`, and ingest "
+            + "again.");
 
     private static List<Row> SiteResidueFindings(OrderedDictionary<string, long> check, string datasetId)
     {

@@ -217,6 +217,26 @@ public class ChemistryTests
         Assert.That(c.Label.Source, Is.EqualTo(ChemistrySource.PrideQuant), "a label-free SDRF label says nothing; PRIDE's TMT is next");
     }
 
+    // 2026-11-20 (PXD015728, PXD019690's Purkinje runs): the question's curated SDRF naming every file label-free decides,
+    // over PRIDE's TMT and the text; the same SDRF deposited still decides nothing (above), and a curated one that leaves a
+    // file's label empty decides nothing either.
+    [Test]
+    public void ACuratedSdrfNamingEveryFileLabelFreeDecidesTheLabel()
+    {
+        string dir = TestSupport.TempDir();
+        string LabelFree(string second) => "source name\tcomment[data file]\tcomment[label]\n" + "s1\ta.raw\tlabel free sample\n" + $"s2\tb.raw\t{second}\n";
+        var curated = new SdrfDocument(TestSupport.WriteFile(dir, "curated.sdrf.tsv", LabelFree("label free sample")));
+        var c = ChemistryDetector.Detect(Project("peptides were labelled with TMT10plex", quant: new[] { "TMT" }), curated, null, Files);
+        Assert.That((c.Label.Value, c.Label.Source), Is.EqualTo(("label_free", ChemistrySource.CuratedSdrf)));
+
+        var deposited = ChemistryDetector.Detect(Project("peptides were labelled with TMT10plex", quant: new[] { "TMT" }), null, curated, Files);
+        Assert.That((deposited.Label.Value, deposited.Label.Source), Is.EqualTo(("tmt", ChemistrySource.PrideQuant)), "deposited: says nothing");
+
+        var gap = new SdrfDocument(TestSupport.WriteFile(dir, "gap.sdrf.tsv", LabelFree("")));
+        var partial = ChemistryDetector.Detect(Project("peptides were labelled with TMT10plex", quant: new[] { "TMT" }), gap, null, Files);
+        Assert.That(partial.Label.Value, Is.EqualTo("tmt"), "one file with no label: the curated SDRF does not say every file is label-free");
+    }
+
     // v0.4.45 (aging PXR-A181, PXD080133 at MassIVE): `pxreprise search` under a profile that reads each deposit's chemistry
     // refused every search ("none was given"), so a deposit PRIDE does not host could not be searched under the current
     // profile at all. Outside the batch the chemistry comes from the SDRF given with --design, else the defaults, never PRIDE.

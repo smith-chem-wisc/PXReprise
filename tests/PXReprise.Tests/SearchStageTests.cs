@@ -101,7 +101,7 @@ public class SearchStageTests
 
     private sealed record Rig(string Root, Machine Machine, Profile Profile, string Spectra, string Qc);
 
-    private static Rig Setup(bool library = true, string machineExtra = "", bool depositChemistry = false, string mm = "1.1.11", bool design = false, bool writeSdrf = false)
+    private static Rig Setup(bool library = true, string machineExtra = "", bool depositChemistry = false, string mm = "1.1.11", bool design = false, bool writeSdrf = false, bool ionTrapLibrary = false)
     {
         string root = TestSupport.TempDir();
         // A MetaMorpheus "install": the fake CMD, and the Mods and Contaminants folders the engine reads beside it.
@@ -129,6 +129,7 @@ public class SearchStageTests
             spectral_library = {(library ? "true" : "false")}
             {(depositChemistry ? "chemistry = \"deposit\"" : "")}
             {(writeSdrf ? "write_sdrf = true" : "")}
+            {(ionTrapLibrary ? "ion_trap_library = true" : "")}
             [databases.human]
             proteome = "proteome.xml"
             taxon = 9606
@@ -154,6 +155,102 @@ public class SearchStageTests
 
     private static SearchRequest Req(Rig r, string outName, string acc = "PXD000301") =>
         new(r.Profile, "human", r.Machine, r.Spectra, Path.Combine(r.Root, "run", outName), r.Qc, Array.Empty<string>(), Array.Empty<string>(), "2026-09-28", acc);
+
+    private static void QcFragmentation(Rig r, string a, string b) => TestSupport.WriteFile(r.Qc, "qc_report.json",
+        """{"a.raw":{"pass":true,"ms2":20,"fragmentation":""" + a + """},"b.raw":{"pass":true,"ms2":20,"fragmentation":""" + b + "}}");
+
+    private const string OrbitrapCid = """{"dissociation_type":"CID","low_res":false}""";
+    private const string IonTrapCid = """{"dissociation_type":"LowCID","low_res":true}""";
+
+    [Test]
+    public void AnIonTrapLibraryNeedsTheProfilesLibrary()
+    {
+        var e = Assert.Throws<ConfigException>(() => Setup(library: false, ionTrapLibrary: true));
+        Assert.That(e!.Message, Does.Contain("engine.ion_trap_library needs engine.spectral_library = true"));
+    }
+
+    // Without engine.ion_trap_library (every profile version before decision 0092's), an ion-trap search still has none.
+    [Test]
+    public async Task WithoutTheProfilesIonTrapLibraryAnIonTrapSearchStillHasNone()
+    {
+        var rig = Setup();
+        QcFragmentation(rig, IonTrapCid, IonTrapCid);
+        var o = await SearchStage.RunAsync(Req(rig, "04_search"), CancellationToken.None);
+        Assert.That(JsonNode.Parse(File.ReadAllText(o.ProvenanceFile))!["spectral_library"], Is.Null);
+    }
+
+    // Decision 0092 (engine.ion_trap_library): an ion-trap deposit's search only READS its chain (neither switch set), and
+    // PXReprise builds the next version from the search's PSMs. The fake replays a real MetaMorpheus search task, whose
+    // table holds 48 precursors at q <= 0.01.
+    [Test]
+    public async Task AnIonTrapSearchReadsItsChainAndPxRepriseBuildsTheNextVersionFromItsPsms()
+    {
+        var rig = Setup(ionTrapLibrary: true);
+        QcFragmentation(rig, IonTrapCid, IonTrapCid);
+        Environment.SetEnvironmentVariable("FAKE_MM_REPLAY", LibraryFromPsmsTests.Task);
+        try
+        {
+            var first = await SearchStage.RunAsync(Req(rig, "04_search"), CancellationToken.None);
+            var second = await SearchStage.RunAsync(Req(rig, "04_search_2", "PXD000302"), CancellationToken.None);
+            JsonNode P(SearchOutcome o) => JsonNode.Parse(File.ReadAllText(o.ProvenanceFile))!;
+            string Task(string outName) => File.ReadAllText(Path.Combine(rig.Root, "run", outName, "tasks", "3_SearchTask.toml"));
+            var l1 = P(first)["spectral_library"]!;
+            var l2 = P(second)["spectral_library"]!;
+            Assert.Multiple(() =>
+            {
+                Assert.That((first.Success, second.Success), Is.EqualTo((true, true)));
+                Assert.That((l1["organism"]!.GetValue<string>(), l1["mode"]!.GetValue<string>(), l1["metamorpheus_mode"]!.GetValue<string>()),
+                    Is.EqualTo(("human_lowcid", "write", "read")));
+                Assert.That((int)l1["built_from_psms"]!["added"]!, Is.EqualTo(48));
+                Assert.That((int)l1["written"]!["version"]!, Is.EqualTo(1));
+                Assert.That(Task("04_search"), Does.Contain("WriteSpectralLibrary = false\r\n").And.Contain("UpdateSpectralLibrary = false\r\n"),
+                    "MetaMorpheus never writes an ion-trap library: either switch matches fragments at every charge");
+                Assert.That((l2["mode"]!.GetValue<string>(), l2["metamorpheus_mode"]!.GetValue<string>()), Is.EqualTo(("update", "read")));
+                Assert.That(l2["library_in"]!.GetValue<string>(), Does.EndWith("human_lowcid.v001.msp"), "the search reads the chain");
+                Assert.That(Task("04_search_2"), Does.Contain("WriteSpectralLibrary = false\r\n").And.Contain("UpdateSpectralLibrary = false\r\n"));
+                Assert.That((int)l2["built_from_psms"]!["added"]!, Is.EqualTo(0), "the same PSMs again: every precursor is in the parent");
+                Assert.That((int)l2["built_from_psms"]!["parent_kept"]! + (int)l2["built_from_psms"]!["replaced"]!, Is.EqualTo((int)l1["written"]!["n_spectra"]!));
+                Assert.That((int)l2["written"]!["version"]!, Is.EqualTo(2));
+            });
+        }
+        finally { Environment.SetEnvironmentVariable("FAKE_MM_REPLAY", null); }
+    }
+
+    // 2026-11-24 (the maintainer: "make sure each fragmentation type is building and using a spectrum library. When there is
+    // no library to begin with ... write spectrum library ... when there is a library ... update spectrum library"): a
+    // high-resolution CID deposit writes a chain of its own beside the HCD one, and the next CID deposit updates it.
+    // Ion-trap MS2, and files that disagree, get none.
+    [Test]
+    public async Task EachFragmentationTypeWritesThenUpdatesItsOwnChain()
+    {
+        var rig = Setup();
+        Assume.That((await SearchStage.RunAsync(Req(rig, "04_search"), CancellationToken.None)).Success, "an HCD search writes human v1");
+
+        QcFragmentation(rig, OrbitrapCid, OrbitrapCid);
+        var cid1 = await SearchStage.RunAsync(Req(rig, "04_search_2", "PXD000302"), CancellationToken.None);
+        var cid2 = await SearchStage.RunAsync(Req(rig, "04_search_3", "PXD000303"), CancellationToken.None);
+        QcFragmentation(rig, """{"dissociation_type":"LowCID","low_res":true}""", """{"dissociation_type":"LowCID","low_res":true}""");
+        var ionTrap = await SearchStage.RunAsync(Req(rig, "04_search_4", "PXD000304"), CancellationToken.None);
+        QcFragmentation(rig, OrbitrapCid, """{"dissociation_type":"HCD","low_res":false}""");
+        var mixed = await SearchStage.RunAsync(Req(rig, "04_search_5", "PXD000305"), CancellationToken.None);
+
+        JsonNode P(SearchOutcome o) => JsonNode.Parse(File.ReadAllText(o.ProvenanceFile))!;
+        IEnumerable<string> Notes(SearchOutcome o) => P(o)["notes"]!.AsArray().Select(n => n!.GetValue<string>());
+        Assert.Multiple(() =>
+        {
+            Assert.That((cid1.Success, cid2.Success, ionTrap.Success, mixed.Success), Is.EqualTo((true, true, true, true)));
+            Assert.That(P(cid1)["spectral_library"]!["organism"]!.GetValue<string>(), Is.EqualTo("human_cid"));
+            Assert.That(P(cid1)["spectral_library"]!["mode"]!.GetValue<string>(), Is.EqualTo("write"), "blank, though human (HCD) has v1");
+            Assert.That(P(cid1)["spectral_library"]!["fragmentation"]!.GetValue<string>(), Is.EqualTo("CID"));
+            Assert.That(P(cid2)["spectral_library"]!["mode"]!.GetValue<string>(), Is.EqualTo("update"));
+            Assert.That(P(cid2)["spectral_library"]!["library_in"]!.GetValue<string>(), Does.EndWith("human_cid.v001.msp"));
+            Assert.That(P(ionTrap)["spectral_library"], Is.Null);
+            Assert.That(Notes(ionTrap), Has.Some.Contains("spectral library OFF for this search: its MS2 is LowCID (low-res MS2)"));
+            Assert.That(P(mixed)["spectral_library"], Is.Null);
+            Assert.That(Notes(mixed), Has.Some.Contains("a library holds one fragmentation type, and the files differ"));
+        });
+        Assert.That(SpectralLibrary.Plan(rig.Machine.SpectralLibraryRoot, "human").ParentVersion, Is.EqualTo(1), "the HCD chain was not touched");
+    }
 
     // v0.4.45 (PXD025746, 2026-11-11): its iodoTMT search failed while updating mouse_tmt6plex, and the batch then searched
     // every deposit without a library: PXD027232 (human) and PXD034029 (mouse TMT11) too. Only the chain that failed is off.
@@ -295,6 +392,46 @@ public class SearchStageTests
             });
         }
         finally { Environment.SetEnvironmentVariable("FAKE_MM_RELEASE", null); }
+    }
+
+    // PXR-R80 (dataRepo): a MetaMorpheus 1.1.15 search records, in its identification_filter, whether PEP was trained under
+    // the PEP q-value filter, and none under another; and its id_rate files no count under the q-value-and-notch
+    // definition, a bare "q-value" one included. results.txt is 1.1.15's own (ResultsTxtSamples).
+    [Test]
+    public async Task A1115SearchRecordsWhetherPepTrainedAndFilesNoCountUnderTheOldDefinition()
+    {
+        var rig = Setup(library: false, mm: "1.1.15");
+        Environment.SetEnvironmentVariable("FAKE_MM_RELEASE", "1.1.15");
+        try
+        {
+            async Task<JsonNode> Search(string outName, string results)
+            {
+                Environment.SetEnvironmentVariable("FAKE_MM_RESULTS", TestSupport.WriteFile(rig.Root, outName + ".results.txt", results));
+                var o = await SearchStage.RunAsync(Req(rig, outName), CancellationToken.None);
+                Assert.That(o.Success, Is.True);
+                return JsonNode.Parse(File.ReadAllText(o.ProvenanceFile))!;
+            }
+
+            var pep = await Search("04_search_pep", ResultsTxtSamples.Lfq1115PepNotTrained);
+            var q = await Search("04_search_q", ResultsTxtSamples.Lfq1115QValue);
+            Assert.Multiple(() =>
+            {
+                Assert.That(pep["identification_filter"]!["pep_trained"]!.ToJsonString(), Is.EqualTo("""{"trypsin":false}"""));
+                Assert.That(pep["identification_filter"]!["notes"]!.AsArray(), Has.Count.EqualTo(2), "the sentences stay in the notes");
+                Assert.That(pep["id_rate"]!["psms_1pct"], Is.Null);
+                Assert.That((pep["id_rate"]!["filter"]!.GetValue<string>(), (int)pep["id_rate"]!["psms_filter_1pct"]!), Is.EqualTo(("pep q-value", 332)));
+
+                Assert.That(q["identification_filter"]!.AsObject().TryGetPropertyValue("pep_trained", out var none) && none is null, Is.True,
+                    "another filter: null");
+                Assert.That(q["id_rate"]!["psms_1pct"], Is.Null, "1.1.15's bare q-value is not the definition's rule");
+                Assert.That((q["id_rate"]!["filter"]!.GetValue<string>(), (int)q["id_rate"]!["psms_filter_1pct"]!), Is.EqualTo(("q-value", 332)));
+            });
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("FAKE_MM_RELEASE", null);
+            Environment.SetEnvironmentVariable("FAKE_MM_RESULTS", null);
+        }
     }
 
     [TestCase("master@fedcba9876", null, "built from commit 0123456789abcdef")]
