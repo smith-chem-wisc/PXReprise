@@ -13,13 +13,31 @@ One release holds the engine (`pxreprise`) and `datarepo`, under one version, fo
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
-## Unreleased
+## 1.0.2 (2026-11-27)
 
-**Adopting:** a swap only, for a batch: a deposit PRIDE has no record of, hosted at another repository, now settles
-as `waiting_other_repository` instead of being tried every pass, and a probe searches each of its files on its own, so a
-slow file no longer loses the other two, starting each while the next file downloads. A requeued deposit whose manifest
-entry an earlier search wrote is now delivered from its new search. Nothing for a store. `datarepo-host` is a separate program, and the release
-archives do not carry it yet.
+Three changes to the batch: a requeued deposit is delivered from its new search (G144), each probe file is searched on
+its own (G143), and a deposit hosted at another repository settles by name. Also the v2 texts of the dataset 1% counts
+and the ID rate, and `datarepo-host`, a separate program that serves a catalog's MCP tools over HTTP.
+
+**MetaMorpheus:** unchanged. The profiles and MetaMorpheus versions are 1.0.0's.
+
+**Machine file:** no new key. `datarepo` must name this release's datarepo (the `datarepo` folder of its archive), as
+for every release: a batch refuses any other at its start.
+
+**Safe mid-batch?** Yes: swap the pin and its datarepo together, as usual. No search changes, and a deposit already
+delivered keeps its bundle. The probe changes apply from the next deposit probed.
+
+**Adopting:** a swap only. No bundle id moves, and the ingest path stays `cs-1.5.0`. For a batch:
+- a deposit PRIDE has no record of, hosted at another repository, settles as `waiting_other_repository` at its next pass,
+  instead of being tried every pass;
+- a probe searches each of its files on its own, each while the next file downloads, so a slow file no longer loses the
+  other two;
+- a requeued deposit whose manifest entry an earlier search wrote is delivered from its new search. A deposit that 1.0.1
+  searched again this way, and delivered from its old search, is delivered from a new one when it is next searched (a
+  requeue, or `batch research`).
+
+Nothing for a store. `datarepo-host` is a separate program (`src/PXReprise.Host`), and the release archives do not carry
+it yet: build it from the source.
 
 - **A requeued deposit is delivered from its new search, not its old one** (G144).
   - **Before:** the manifest kept a deposit's existing entry unless the deposit had been re-searched with
