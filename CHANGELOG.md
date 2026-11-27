@@ -17,9 +17,21 @@ A new version of the engine never changes a finished result. Methods live in ver
 
 **Adopting:** a swap only, for a batch: a deposit PRIDE has no record of, hosted at another repository, now settles
 as `waiting_other_repository` instead of being tried every pass, and a probe searches each of its files on its own, so a
-slow file no longer loses the other two, starting each while the next file downloads. Nothing for a store. `datarepo-host` is a separate program, and the release
+slow file no longer loses the other two, starting each while the next file downloads. A requeued deposit whose manifest
+entry an earlier search wrote is now delivered from its new search. Nothing for a store. `datarepo-host` is a separate program, and the release
 archives do not carry it yet.
 
+- **A requeued deposit is delivered from its new search, not its old one** (G144).
+  - **Before:** the manifest kept a deposit's existing entry unless the deposit had been re-searched with
+    `batch research`. So a deposit requeued another way (`batch retry`, a requeue) was searched again, but its ingest read
+    the outputs the old entry named.
+    - The ingest reported `unchanged`, yet the log said `MANIFEST entry appended` and `delivery: delivered`.
+    - On aging, 2026-11-27: PXD027318 and PXD036557, whose entries were the Python batch's (MetaMorpheus 1.1.11).
+  - **Now:** an entry is kept only when it describes this search: the same run folder and search results, MetaMorpheus
+    release and file count.
+    - Any other entry is replaced, as a re-search replaces one. It keeps what its owner wrote (status, owner's fields,
+      flags, enrichment) and quotes its old notes, under a `REPLACED:` note naming the search it described.
+    - The log says `MANIFEST entry appended`, `replaced` or `kept`.
 - **Each probe file is searched on its own** (G143; the user, 2026-11-27: "it could run three separate 1 file runs").
   - **Before:** a profile with a probe search searched its three probe files in one MetaMorpheus run. A run that ran
     out of time lost all three: PXD031710's ion-trap files did so at 240 min.

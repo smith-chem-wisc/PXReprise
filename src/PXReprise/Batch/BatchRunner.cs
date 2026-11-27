@@ -2148,8 +2148,16 @@ public sealed class BatchRunner
         {
             ManifestEntry.EnsureExists(manifest, _q.Name, _m.WorkRoot);
             var split = _q.ExceptionFor(e.Accession)?.Split;
-            ManifestEntry.Append(manifest, e, profile, Run(e.Accession), Entry(e.Accession), _m.WorkRoot, split, _q.RestrictionsFor(e.Accession));
-            Log($"{e.Accession} MANIFEST entry appended" + (split is null ? "" : $" (split by {split.By}; {split.Accession}'s own entry, if served, retired as superseded)"));
+            // G144: the log says what was written. Until 2026-11-27 it said "appended" also when an earlier search's entry was
+            // kept, and the ingest then read that search's outputs (PXD027318, PXD036557: "unchanged").
+            var wrote = ManifestEntry.Append(manifest, e, profile, Run(e.Accession), Entry(e.Accession), _m.WorkRoot, split, _q.RestrictionsFor(e.Accession));
+            Log($"{e.Accession} MANIFEST entry " + wrote switch
+                {
+                    ManifestWrite.Replaced => "replaced: it described another search (its notes say which)",
+                    ManifestWrite.Kept => "kept: it already describes this search",
+                    _ => "appended",
+                }
+                + (split is null ? "" : $" (split by {split.By}; {split.Accession}'s own entry, if served, retired as superseded)"));
             var qcNames = JsonNode.Parse(File.ReadAllText(Path.Combine(Run(e.Accession), "02b_qc", "qc_report.json")))!.AsObject().Select(kv => kv.Key);
             if (MixedSamples.Detect(qcNames) is { } mixed)
                 Log($"{e.Accession} POSSIBLY MIXED SAMPLES (flagged in the manifest; curate run_enrichment): {MixedSamples.Describe(mixed)}");
