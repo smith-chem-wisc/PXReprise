@@ -993,6 +993,49 @@ public sealed class BatchRunner
     /// </summary>
     public async Task<Profile?> ProbeAsync(QueueEntry e, CancellationToken ct)
     {
+        try { return await ProbeCoreAsync(e, ct).ConfigureAwait(false); }
+        finally
+        {
+            // G143: an early search still running when the probe ends, however it ends, is stopped.
+            if (_headStarts.TryRemove(e.Accession, out var early)) await early.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>The probe's early searches, by accession, while its files download (G143, <see cref="ProbeHeadStart"/>).</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, ProbeHeadStart> _headStarts = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Tests only: the head start's QC of one probe file, (file, profile) -> (passes, fragmentation). Null in production
+    /// means the probe's own QC on that file alone, into <c>02b_qc_probe_early</c>.
+    /// </summary>
+    internal Func<string, Profile, (bool Pass, IReadOnlyDictionary<string, Qc.FragmentationCall>? Fragmentation)>? HeadStartQcForTest { get; init; }
+
+    /// <summary>
+    /// G143: starts the early searches of <paramref name="acc"/>'s probe files, under the profile and chemistry the probe
+    /// has before its download. The fetch names each file to it once that file is verified.
+    /// </summary>
+    internal ProbeHeadStart StartHeadStart(string acc, Profile profile, DepositChemistry? chemistry, CancellationToken ct)
+    {
+        string d = Run(acc), spectraDir = Path.Combine(d, "02_fetch", "spectra");
+        var probeProfile = ProbeMinutes is { } pm ? profile with { ProbeSearchMinutes = pm } : profile;
+        var qc = HeadStartQcForTest is { } test ? file => test(file, profile) : (Func<string, (bool, IReadOnlyDictionary<string, Qc.FragmentationCall>?)>)(file =>
+        {
+            string name = Path.GetFileName(file);
+            var (report, _) = QcStage.Run(spectraDir, Path.Combine(d, "02b_qc_probe_early"), profile, _m, ParamsFile(acc, profile), _runDate,
+                new HashSet<string>(StringComparer.Ordinal) { name }, probe: true, gates: QcFor(acc, profile));
+            bool pass = report[name]?["pass"]?.GetValue<bool>() == true;
+            return (pass, pass ? Search.SearchStage.FragmentationFromQc(report, new[] { file }, profile) : null);
+        });
+        var early = new ProbeHeadStart(probeProfile, chemistry, qc,
+            (file, fragmentation, token) => ProbeSearchRunner(probeProfile, _m, new[] { file }, chemistry, fragmentation,
+                Path.Combine(d, "02c_probe_search", Path.GetFileNameWithoutExtension(file)), token),
+            m => Log($"{acc} PROBE SEARCH head start: {m}"), ct);
+        _headStarts[acc] = early;
+        return early;
+    }
+
+    private async Task<Profile?> ProbeCoreAsync(QueueEntry e, CancellationToken ct)
+    {
         string acc = e.Accession;
         // Screen the LIVE PRIDE record before any download: acquisition, labelling and enrichment are read from every text
         // field (a labelling time course once reached the queue because discovery read only the protocols).
@@ -1246,7 +1289,10 @@ public sealed class BatchRunner
         IReadOnlySet<string> probeFiles;
         try
         {
-            var fetched = await FetchStage.RunAsync(FetchRequestFor(acc, Pick.ProbeSpread, dep), _files, ct, m => Log($"{acc} PROBE fetch {m}")).ConfigureAwait(false);
+            // G143: under a probe search, each file is searched while the next one downloads (ProbeHeadStart).
+            var early = profile.ProbeSearch ? StartHeadStart(acc, profile, chemistry, ct) : null;
+            var fetched = await FetchStage.RunAsync(FetchRequestFor(acc, Pick.ProbeSpread, dep) with { OnFileReady = early is null ? null : early.Ready },
+                _files, ct, m => Log($"{acc} PROBE fetch {m}")).ConfigureAwait(false);
             probeFiles = ProbeFileNames(fetched);
         }
         // Not the caller's cancellation: an HttpClient timeout is a TaskCanceledException too, and it is unavailability.
@@ -1471,34 +1517,64 @@ public sealed class BatchRunner
         var finished = new List<string>();
         var unfinished = new List<string>();
         bool outOfTime = false;
+        // Part 2: the files searched while the others downloaded, when they were searched as this probe searches them.
+        IReadOnlyDictionary<string, ProbeHeadStart.Outcome>? early = null;
+        if (_headStarts.TryRemove(acc, out var headStart))
+        {
+            if (headStart.Serves(profile, chemistry))
+            {
+                early = await headStart.FinishAsync().ConfigureAwait(false);
+                outOfTime = headStart.RanOutOfTime;
+            }
+            else Log($"{acc} PROBE SEARCH: the early searches used {headStart.Profile.Key} and the chemistry read before the download, "
+                     + $"but the probe searches under {profile.Key} with the chemistry it has now; every file is searched again");
+            await headStart.DisposeAsync().ConfigureAwait(false);
+        }
         for (int i = 0; i < spectra.Count; i++)
         {
             string file = spectra[i], name = Path.GetFileName(file);
             string head = $"{acc} PROBE SEARCH file {i + 1} of {spectra.Count} ({name})";
-            if (outOfTime)
+            string? psms = null;
+            Exception? failure = null;
+            double minutes;
+            string when = "";
+            if (early is not null && early.TryGetValue(name, out var o)
+                && Equals(o.Fragmentation?.GetValueOrDefault(name), fragmentation?.GetValueOrDefault(name)))
+                (psms, failure, minutes, when) = (o.Psms, o.Failure, o.Minutes, ", while the other probe files downloaded");
+            else if (outOfTime)
             {
                 unfinished.Add($"{name}: not searched, since an earlier file's search ran out of time");
                 continue;
             }
-            var clock = Stopwatch.StartNew();
-            try
+            else
             {
-                string psms = await ProbeSearchRunner(profile, _m, new[] { file }, chemistry, fragmentation,
-                    Path.Combine(outRoot, Path.GetFileNameWithoutExtension(file)), ct).ConfigureAwait(false);
-                var measured = Qc.ProbeMeasures.FromAllPsms(psms, panel);
-                foreach (var (run, m) in measured) runs[run] = m;
-                if (profile.PrecursorWindow == "probe")
-                    foreach (var (run, ppm) in Qc.ProbeMeasures.PrecursorOffsets(psms)) offsets[run] = ppm;
-                finished.Add(file);
-                Log($"{head}: {measured.Values.Sum(m => m.Psms)} PSMs at 1% in {clock.Elapsed.TotalMinutes:0.0} min");
+                var clock = Stopwatch.StartNew();
+                try
+                {
+                    psms = await ProbeSearchRunner(profile, _m, new[] { file }, chemistry, fragmentation,
+                        Path.Combine(outRoot, Path.GetFileNameWithoutExtension(file)), ct).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (!ct.IsCancellationRequested) { failure = ex; }
+                minutes = clock.Elapsed.TotalMinutes;
             }
-            catch (Exception ex) when (!ct.IsCancellationRequested)
+            if (failure is null)
             {
-                outOfTime = ex is TimeoutException;
-                string what = outOfTime ? "ran out of time" : "failed";
-                unfinished.Add($"{name}: {what} after {clock.Elapsed.TotalMinutes:0.0} min ({ex.GetType().Name}: {ex.Message})");
-                Log($"{head} {what.ToUpperInvariant()} after {clock.Elapsed.TotalMinutes:0.0} min ({ex.GetType().Name}): {ex.Message}");
+                try
+                {
+                    var measured = Qc.ProbeMeasures.FromAllPsms(psms!, panel);
+                    foreach (var (run, m) in measured) runs[run] = m;
+                    if (profile.PrecursorWindow == "probe")
+                        foreach (var (run, ppm) in Qc.ProbeMeasures.PrecursorOffsets(psms!)) offsets[run] = ppm;
+                    finished.Add(file);
+                    Log($"{head}: {measured.Values.Sum(m => m.Psms)} PSMs at 1% in {minutes:0.0} min{when}");
+                    continue;
+                }
+                catch (Exception ex) when (!ct.IsCancellationRequested) { failure = ex; }
             }
+            outOfTime |= failure is TimeoutException;
+            string what = failure is TimeoutException ? "ran out of time" : "failed";
+            unfinished.Add($"{name}: {what} after {minutes:0.0} min{when} ({failure.GetType().Name}: {failure.Message})");
+            Log($"{head} {what.ToUpperInvariant()} after {minutes:0.0} min{when} ({failure.GetType().Name}): {failure.Message}");
         }
         return new ProbeFileSearches(runs, offsets, finished, unfinished);
     }

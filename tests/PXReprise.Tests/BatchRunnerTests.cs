@@ -238,8 +238,13 @@ public class BatchRunnerTests
         public readonly List<(string[] Spectra, string OutDir)> Calls = new();
     }
 
+    /// <summary>The chemistry <see cref="ProbeThreeFiles"/> probes with: one object, so a head start under it serves the probe.</summary>
+    private static readonly DepositChemistry PerFileWords = new(new("trypsin", ChemistrySource.Default), null, new("Carbamidomethyl", ChemistrySource.Default),
+        [new CysMod("Carbamidomethyl", "UNIMOD:4", true)], new("label-free", ChemistrySource.Default), null);
+
     /// <summary>A runner with three Orbitrap probe files, r1 to r3, of <see cref="PerFileAcc"/>, and a fake probe search.</summary>
-    private static (BatchRunner Runner, string Dir, FileSearch Search) PerFileRunner()
+    private static (BatchRunner Runner, string Dir, FileSearch Search) PerFileRunner(
+        Func<string, Profile, (bool, IReadOnlyDictionary<string, Qc.FragmentationCall>?)>? headStartQc = null)
     {
         string dir = TestSupport.TempDir();
         var question = QuestionLoader.Load(TestSupport.WriteFile(dir, "question.toml",
@@ -252,9 +257,10 @@ public class BatchRunnerTests
             ProbePanelAccessions = (p, m) => new HashSet<string>(),
             ProbeSearchRunner = (p, m, spectra, chem, fr, outDir, ct) =>
             {
-                search.Calls.Add((spectra.Select(s => Path.GetFileName(s)).ToArray(), outDir));
+                lock (search.Calls) search.Calls.Add((spectra.Select(s => Path.GetFileName(s)).ToArray(), outDir));
                 return Task.FromResult(search.Answer(Path.GetFileNameWithoutExtension(spectra.Single())));
             },
+            HeadStartQcForTest = headStartQc,
         };
         string spectraDir = Path.Combine(dir, "runs", PerFileAcc, "02_fetch", "spectra");
         Directory.CreateDirectory(spectraDir);
@@ -269,10 +275,8 @@ public class BatchRunnerTests
         var qc = new JsonObject();
         foreach (string r in new[] { "r1", "r2", "r3" })
             qc[r + ".raw"] = new JsonObject { ["fragmentation"] = new JsonObject { ["dissociation_type"] = "HCD", ["low_res"] = false, ["evidence"] = "Orbitrap MS2" } };
-        var words = new DepositChemistry(new("trypsin", ChemistrySource.Default), null, new("Carbamidomethyl", ChemistrySource.Default),
-            [new CysMod("Carbamidomethyl", "UNIMOD:4", true)], new("label-free", ChemistrySource.Default), null);
         var acq = new Acquisition(AcquisitionMode.Dda, Labelling.LabelFree, InstrumentClass.OrbitrapHcdOnly, "none", new Dictionary<string, int> { [".raw"] = 3 }, null);
-        bool continued = await runner.ProbeSearchAsync(new QueueEntry(PerFileAcc, "t", "mouse"), Profiles["label-free-dda@16"], acq, words, qc,
+        bool continued = await runner.ProbeSearchAsync(new QueueEntry(PerFileAcc, "t", "mouse"), Profiles["label-free-dda@16"], acq, PerFileWords, qc,
             new ExperimentRecord(PerFileAcc), CancellationToken.None);
         return (continued, runner.State()["datasets"]![PerFileAcc]!, File.ReadAllText(Path.Combine(dir, "state", "batch.log")));
     }
@@ -350,6 +354,65 @@ public class BatchRunnerTests
             Assert.That(entry["status"]!.GetValue<string>(), Is.EqualTo("probe_search_failed"));
             Assert.That(entry["detail"]!.GetValue<string>(), Does.StartWith("no probe file's search finished: r1.raw: ran out of time after ")
                 .And.Contain("r2.raw: not searched").And.Contain("r3.raw: not searched"));
+        });
+    }
+
+    // G143, part 2: a file searched while the others downloaded is not searched again, when it was searched as the probe
+    // searches it. Otherwise it is set aside, and searched again.
+    private static ProbeHeadStart StartedEarly(BatchRunner runner, string dir, string profileKey)
+    {
+        var early = runner.StartHeadStart(PerFileAcc, Profiles[profileKey], PerFileWords, CancellationToken.None);
+        foreach (string r in new[] { "r1", "r2", "r3" }) early.Ready(Path.Combine(dir, "runs", PerFileAcc, "02_fetch", "spectra", r + ".raw"));
+        return early;
+    }
+
+    [Test]
+    public async Task FilesSearchedWhileTheOthersDownloadedAreNotSearchedAgain()
+    {
+        var (runner, dir, search) = PerFileRunner(headStartQc: (file, p) => (true, null));
+        StartedEarly(runner, dir, "label-free-dda@16");
+        var (continued, entry, log) = await ProbeThreeFiles(runner, dir);
+        Assert.Multiple(() =>
+        {
+            Assert.That(continued, Is.True);
+            Assert.That(search.Calls.Select(c => Path.GetFileName(c.OutDir)), Is.EqualTo(new[] { "r1", "r2", "r3" }), "each file once, early");
+            Assert.That(log, Does.Contain($"{PerFileAcc} PROBE SEARCH head start: r1.raw: searching while the other probe files download"));
+            Assert.That(log, Does.Contain($"{PerFileAcc} PROBE SEARCH file 1 of 3 (r1.raw): 60 PSMs at 1% in "));
+            Assert.That(log, Does.Contain(" min, while the other probe files downloaded"));
+            Assert.That(entry[BatchRunner.ProbeUnfinishedKey], Is.Null);
+        });
+    }
+
+    [Test]
+    public async Task AFileSearchedEarlyWithAnotherFragmentationIsSearchedAgain_TheOthersAreNot()
+    {
+        var hcd = new Dictionary<string, Qc.FragmentationCall> { ["r2.raw"] = new("HCD", false, null, "Orbitrap MS2") };
+        var (runner, dir, search) = PerFileRunner(headStartQc: (file, p) => (true, Path.GetFileName(file) == "r2.raw" ? hcd : null));
+        StartedEarly(runner, dir, "label-free-dda@16");
+        var (continued, _, log) = await ProbeThreeFiles(runner, dir);
+        Assert.Multiple(() =>
+        {
+            Assert.That(continued, Is.True);
+            Assert.That(search.Calls.Select(c => Path.GetFileName(c.OutDir)), Is.EqualTo(new[] { "r1", "r2", "r3", "r2" }),
+                "the probe's QC gives r2 no per-file fragmentation under this profile, so r2's early search is set aside");
+            Assert.That(log, Does.Match(@"file 2 of 3 \(r2\.raw\): 60 PSMs at 1% in [0-9.]+ min\r?\n"), "r2's result is its new search");
+        });
+    }
+
+    [Test]
+    public async Task EarlySearchesUnderAnotherProfileAreSetAside_AndEveryFileIsSearchedAgain()
+    {
+        var (runner, dir, search) = PerFileRunner(headStartQc: (file, p) => (true, null));
+        StartedEarly(runner, dir, "label-free-dda@17");
+        var (continued, entry, log) = await ProbeThreeFiles(runner, dir);
+        Assert.Multiple(() =>
+        {
+            Assert.That(continued, Is.True);
+            Assert.That(log, Does.Contain($"{PerFileAcc} PROBE SEARCH: the early searches used label-free-dda@17 and the chemistry read before the download, "
+                + "but the probe searches under label-free-dda@16 with the chemistry it has now; every file is searched again"));
+            Assert.That(search.Calls.TakeLast(3).Select(c => Path.GetFileName(c.OutDir)), Is.EqualTo(new[] { "r1", "r2", "r3" }));
+            Assert.That(log, Does.Not.Contain(", while the other probe files downloaded"));
+            Assert.That(entry[BatchRunner.ProbeUnfinishedKey], Is.Null);
         });
     }
 

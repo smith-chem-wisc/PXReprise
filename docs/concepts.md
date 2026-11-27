@@ -183,6 +183,12 @@ one after another, into `02c_probe_search\<file>`, under the probe's time limit.
 - **Only a probe in which no file finished is `probe_search_failed`.** Until then one joint search ran out of time and
   lost all three files.
 - **Each file's FDR is its own.** The judge's floors were already per run.
+- **A file is searched while the next one downloads.** Once a probe file is verified, it is checked by its own QC and
+  searched, one search at a time, under the profile and chemistry the probe had before the download. The log says
+  `PROBE SEARCH head start`.
+  - Every decision is still taken after the download, on all the probe files.
+  - A file's early result is used only when the probe then searches under the same profile, chemistry and
+    fragmentation. Otherwise it is set aside, and the file is searched again.
 
 **Mass windows without calibration** (`[engine] precursor_window = "probe"`, `label-free-dda-lowres@3`).
 - **Why:** the `label-free-dda` profiles calibrate each file before they search it, so MetaMorpheus's 5 ppm windows suit
