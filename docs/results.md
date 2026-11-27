@@ -50,6 +50,13 @@ An entry written before an engine wrote this field has none. For it, delivered s
 (`ingest_rc` 0 in `state.json`), which stays the record either way. A delivery reaches a website at the next scheduled
 publish (`PUBLISH rc=0`).
 
+**One entry per deposit, for its latest search.** When a deposit is searched again, the batch keeps its entry only if
+the entry already describes this search: the same run folder and search results, MetaMorpheus release and file count.
+Any other entry is replaced, keeping what its owner wrote in it (status, flags, enrichment, fields of their own) and
+quoting its old notes. `batch.log` says which: `MANIFEST entry appended`, `replaced` or `kept`. Until the release after
+1.0.1, an entry was replaced only after `batch research`, so a deposit requeued another way was delivered again from the
+search its old entry named (G144).
+
 MetaMorpheus's output formats are documented in the
 [MetaMorpheus wiki](https://github.com/smith-chem-wisc/MetaMorpheus/wiki).
 

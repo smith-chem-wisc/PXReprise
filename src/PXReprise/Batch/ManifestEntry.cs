@@ -4,10 +4,25 @@ using PXReprise.Config;
 
 namespace PXReprise.Batch;
 
+/// <summary>What <see cref="ManifestEntry.Append"/> did with a deposit's entry (G144).</summary>
+public enum ManifestWrite
+{
+    /// <summary>The deposit had no entry: this search's is added.</summary>
+    Appended,
+
+    /// <summary>The entry described another search (after a re-search, or an earlier search's entry for a requeued
+    /// deposit): this search's replaces it, keeping what its owner wrote.</summary>
+    Replaced,
+
+    /// <summary>The entry already describes this search (a restart delivering it again): left as it is.</summary>
+    Kept,
+}
+
 /// <summary>
 /// Appends a dataset's <c>include</c> entry to the question's dataRepo manifest, in the shape `datarepo ingest` reads
-/// (the aging batch's entry, field for field). Idempotent: an accession already present is left alone, except once after
-/// a re-search, which replaces its entry and keeps what was written in the old one.
+/// (the aging batch's entry, field for field). Idempotent: an entry that already describes this search is left alone. One
+/// that describes another search is replaced, keeping what was written in it: once after a re-search, and (G144) when a
+/// requeued deposit's entry is an earlier search's.
 /// </summary>
 public static class ManifestEntry
 {
@@ -73,36 +88,49 @@ public static class ManifestEntry
     /// serves the bare bundle and both halves side by side, silently, while it is not (R31).</param>
     /// <param name="restrictions">v0.4.46: the uses the question declares for this entry (<c>[restrictions.&lt;key&gt;]</c>);
     /// <see cref="Restrictions"/> adds its rule and writes the key in the same write as the entry.</param>
-    public static void Append(string manifestPath, QueueEntry e, Profile profile, string runDir, JsonObject? state, string workRoot, SplitGroup? split = null,
+    /// <returns>What it did (G144): the batch logs it, so the log never says an entry was appended when it was not.</returns>
+    public static ManifestWrite Append(string manifestPath, QueueEntry e, Profile profile, string runDir, JsonObject? state, string workRoot, SplitGroup? split = null,
         IReadOnlyDictionary<string, string>? restrictions = null)
     {
         workRoot = WorkRootOf(manifestPath) ?? workRoot;
         // Parsed as LF, written back in the file's own line ends (aging's is CRLF).
         bool crlf = File.ReadAllText(manifestPath).Contains("\r\n");
         string text = ReadLf(manifestPath);
+        // Count from qc_report.json, never from the raw files: cleanup has already deleted them (dataRepo hashes `files`
+        // into the bundle id and reconciles it against the runs, and caught `files: 0` on the very first dataset).
+        var qc = JsonNode.Parse(File.ReadAllText(Path.Combine(runDir, "02b_qc", "qc_report.json")))!.AsObject();
+        var excluded = state?["qc_excluded"]?.AsArray().Select(x => x!.GetValue<string>()).ToList() ?? new List<string>();
+        int nfiles = qc.Count - excluded.Count;
+        var search = JsonNode.Parse(File.ReadAllText(Path.Combine(runDir, "04_search", "provenance.json")))!;
+        string mm = search["tools"]?["MetaMorpheus"]?["release"]?.GetValue<string>() ?? profile.MetaMorpheus;
+        string run = Path.GetRelativePath(workRoot, runDir).Replace('\\', '/');
+        string results = $"04_search/mm/{SearchTaskFolder(profile, runDir)}";
         // A re-search (batch research) replaces the deposit's entry once, keeping what its owner wrote in it: the old
         // status, any flags, its enrichment (v0.4.24), and the old notes, quoted as what the entry said before (aging
         // curates notes by hand).
         var research = state?["researched"] is JsonArray rs && rs.Count > 0 ? rs[^1] as JsonObject : null;
         string marker = research is null ? "" : $"RE-SEARCHED {research["utc"]}";
+        bool reSearch = research is not null;
         (string Status, List<string> Flags, string Enrichment, string Notes, string Kept)? earlier = null;
+        string? replacing = null;
         if (text.Contains($"accession: {e.Accession}\n"))
         {
-            if (research is null) return;
             var (start, end) = Block(text, e.Accession);
             string old = text[start..end];
-            if (old.Contains(marker, StringComparison.Ordinal)) return;
+            // The first write after a research replaces the entry, whatever it says. Otherwise an entry that describes this
+            // search (a restart delivering it again) is kept. G144 (2026-11-27): until now every other entry was kept too, so
+            // a requeued deposit whose entry an earlier search wrote (PXD027318 and PXD036557: the Python batch's, under
+            // MetaMorpheus 1.1.11) was ingested from that search's outputs, "unchanged", while the log said "appended".
+            reSearch = research is not null && !old.Contains(marker, StringComparison.Ordinal);
+            if (!reSearch && DescribesSearch(old, run, results, mm, nfiles)) return ManifestWrite.Kept;
+            if (!reSearch)
+                replacing = $"run {Value(Field(old, "run")) ?? "none"}, MetaMorpheus {Value(Field(old, "metamorpheus")) ?? "none"}, {Value(Field(old, "files")) ?? "no"} files";
             earlier = (Field(old, "status") ?? "include",
                        (Field(old, "flags") ?? "").Trim('[', ']').Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).ToList(),
                        (Field(old, "enrichment") ?? "").Trim('[', ']').Trim(),
                        Notes(old), Unowned(old));
             text = text[..start].TrimEnd('\n') + (end < text.Length ? "\n\n" : "\n") + text[end..];
         }
-        // Count from qc_report.json, never from the raw files: cleanup has already deleted them (dataRepo hashes `files`
-        // into the bundle id and reconciles it against the runs, and caught `files: 0` on the very first dataset).
-        var qc = JsonNode.Parse(File.ReadAllText(Path.Combine(runDir, "02b_qc", "qc_report.json")))!.AsObject();
-        var excluded = state?["qc_excluded"]?.AsArray().Select(x => x!.GetValue<string>()).ToList() ?? new List<string>();
-        int nfiles = qc.Count - excluded.Count;
         int taxon = profile.Databases[e.Organism].Taxon
                     ?? throw new InvalidOperationException($"{profile.Key} gives no taxon for '{e.Organism}'");
         // v0.4.24: a re-search keeps the entry's enrichment. The screen reads only the deposit's text, which has not changed,
@@ -110,8 +138,6 @@ public static class ManifestEntry
         // global arm 'none', and v0.4.23's re-search wrote back the screen's 'none' and 'phospho'.
         string screened = state?["enrichment"]?.GetValue<string>() ?? "none";
         string enrichment = earlier?.Enrichment is { Length: > 0 } curated ? curated : screened;
-        var search = JsonNode.Parse(File.ReadAllText(Path.Combine(runDir, "04_search", "provenance.json")))!;
-        string mm = search["tools"]?["MetaMorpheus"]?["release"]?.GetValue<string>() ?? profile.MetaMorpheus;
         // v0.4.26: an overlay keeps its name when its content changes, so the note gives
         // each one's sha256 prefix from the search's own inputs: that is what tells two versions apart.
         string Sha12(string name) =>
@@ -200,17 +226,18 @@ public static class ManifestEntry
             notes.Add($"QC REPORT: the qc-payload stage recorded {string.Join(", ", qcFlags)}; see 05_qc/provenance.json. The search and its results are unaffected.");
         notes.Add($"Searched by PXReprise under profile {profile.Key}" + (extras.Count > 0 ? $", with extra databases {string.Join(", ", extras)}" : "") + ".");
         notes.Add($"{Capitalise(e.Organism)}; {Uncapitalise(profile.Description)}. Raw spectra were deleted after the search; PRIDE is the source of truth and the fetch provenance holds every SHA-256.");
-        if (research is not null)
+        if (reSearch)
+            notes.Add($"{marker} (was {research!["previous_profile"] ?? "?"}; the earlier output is in {research["moved_to"]}): {research["reason"]}.");
+        if (replacing is not null)
+            notes.Add($"REPLACED: this entry described an earlier search ({replacing}). The deposit was searched again without `batch research`, and this search's entry replaces it, keeping what its owner wrote (G144).");
+        if (earlier is { } was)
         {
-            notes.Add($"{marker} (was {research["previous_profile"] ?? "?"}; the earlier output is in {research["moved_to"]}): {research["reason"]}.");
-            if (earlier is { } was)
-            {
-                // The two the search decides are the NEW search's, never carried over.
-                foreach (string f in was.Flags) if (!flags.Contains(f) && f is not ("no_design_file" or "no_output_sdrf")) flags.Add(f);
-                if (enrichment != screened)
-                    notes.Add($"ENRICHMENT KEPT: this entry said [{enrichment}] before the re-search and keeps it; the screen of the deposit's text reads [{screened}]. Change `enrichment` here if the screen is right.");
-                if (was.Notes.Length > 0) notes.Add($"BEFORE THE RE-SEARCH this entry said: \"{was.Notes.Replace('"', '\'')}\"");
-            }
+            string since = reSearch ? "the re-search" : "this search";
+            // The two the search decides are the NEW search's, never carried over.
+            foreach (string f in was.Flags) if (!flags.Contains(f) && f is not ("no_design_file" or "no_output_sdrf")) flags.Add(f);
+            if (enrichment != screened)
+                notes.Add($"ENRICHMENT KEPT: this entry said [{enrichment}] before {since} and keeps it; the screen of the deposit's text reads [{screened}]. Change `enrichment` here if the screen is right.");
+            if (was.Notes.Length > 0) notes.Add($"BEFORE {since.ToUpperInvariant()} this entry said: \"{was.Notes.Replace('"', '\'')}\"");
         }
 
         // v0.4.37 (our 074 promised it): an isobaric search's entry names the reagent and its plex, which
@@ -225,7 +252,6 @@ public static class ManifestEntry
             quant = $"{labelling}\n    labelling: {labelling}\n    labelling_plex: {plex}";
         }
 
-        string run = Path.GetRelativePath(workRoot, runDir).Replace('\\', '/');
         string entry = $"""
 
   - accession: {e.Accession}
@@ -236,7 +262,7 @@ public static class ManifestEntry
     stages:
       qc: 02b_qc
       search: 04_search
-    search_results: 04_search/mm/{SearchTaskFolder(profile, runDir)}
+    search_results: {results}
     files: {nfiles}
     organism: NCBITaxon:{taxon}
     acquisition: DDA
@@ -259,6 +285,29 @@ public static class ManifestEntry
             search["experimental_design"]?["flag"]?.GetValue<string>() == Search.DesignStage.NoChannelDesign);
         File.WriteAllText(tmp, crlf ? written.ReplaceLineEndings("\r\n") : written);
         File.Move(tmp, manifestPath, overwrite: true);
+        return earlier is null ? ManifestWrite.Appended : ManifestWrite.Replaced;
+    }
+
+    /// <summary>
+    /// G144: whether an entry describes the search in <paramref name="run"/>: the same run folder and search results, the
+    /// same MetaMorpheus release and the same file count, as this writer writes them. An entry an earlier search wrote
+    /// does not (PXD036557's names the Python batch's <c>run_2026-09-18/PXD036557_n18</c> and MetaMorpheus 1.1.11).
+    /// </summary>
+    internal static bool DescribesSearch(string block, string run, string results, string mm, int files) =>
+        SamePath(Value(Field(block, "run")), run) && SamePath(Value(Field(block, "search_results")), results)
+        && Value(Field(block, "metamorpheus")) == mm
+        && Value(Field(block, "files")) == files.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    private static bool SamePath(string? a, string b) => a is not null
+        && string.Equals(a.Replace('\\', '/').TrimEnd('/'), b.Replace('\\', '/').TrimEnd('/'), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>A scalar as an entry holds it: a trailing YAML comment and the quotes removed (aging's hand-written
+    /// entries carry both: <c>metamorpheus: "1.1.11"</c>, <c>provenance_schema: aging-provenance/3   # re-derived ...</c>).</summary>
+    private static string? Value(string? raw)
+    {
+        if (raw is null) return null;
+        int hash = raw.IndexOf(" #", StringComparison.Ordinal);
+        return (hash >= 0 ? raw[..hash] : raw).Trim().Trim('"', '\'');
     }
 
     /// <summary>

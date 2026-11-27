@@ -2729,6 +2729,32 @@ public class BatchRunnerTests
         Assert.That(ManifestEntry.WorkRootOf(manifest), Is.EqualTo(Path.GetFullPath(dir)));
     }
 
+    // G144 (2026-11-27): the log says what the manifest write did. PXD027318 and PXD036557's requeues logged "MANIFEST entry
+    // appended" while the manifest kept the Python batch's entries, and their ingests re-read those searches: "unchanged".
+    [Test]
+    public async Task TheDeliveryLogSaysWhetherTheEntryWasAppendedReplacedOrKept()
+    {
+        var (runner, _, _, dir) = Runner("[publish]\nmanifest = \"q/manifest.yaml\"\n");
+        string run = Path.Combine(dir, "runs", "PXD000211");
+        Directory.CreateDirectory(Path.Combine(run, "02b_qc"));
+        Directory.CreateDirectory(Path.Combine(run, "04_search"));
+        File.WriteAllText(Path.Combine(run, "02b_qc", "qc_report.json"), Report(("a.raw", true, Array.Empty<string>())).ToJsonString());
+        File.WriteAllText(Path.Combine(run, "04_search", "provenance.json"), "{\"success\": true, \"tools\": {\"MetaMorpheus\": {\"release\": \"1.1.16\"}}}");
+        TestSupport.WriteFile(Directory.CreateDirectory(Path.Combine(dir, "q")).FullName, "manifest.yaml", "manifest_version: 1\nwork_root: ..\ndatasets:\n\n  - accession: PXD000211\n    status: include\n"
+            + "    delivery: delivered\n    run: run_2026-09-18/PXD000211_n1\n    files: 1\n    metamorpheus: \"1.1.11\"\n");
+        var e = new QueueEntry("PXD000211", "t", "human");
+        var lf = Profiles["label-free-dda@1"];
+
+        await runner.DeliverAsync(e, lf, CancellationToken.None);
+        await runner.DeliverAsync(e, lf, CancellationToken.None);
+
+        string log = File.ReadAllText(Path.Combine(dir, "state", "batch.log"));
+        Assert.That(log, Does.Contain("PXD000211 MANIFEST entry replaced: it described another search (its notes say which)")
+            .And.Contain("PXD000211 MANIFEST entry kept: it already describes this search"));
+        Assert.That(log, Does.Not.Contain("PXD000211 MANIFEST entry appended"));
+        Assert.That(File.ReadAllText(Path.Combine(dir, "q", "manifest.yaml")).ReplaceLineEndings("\n"), Does.Contain("run: runs/PXD000211\n"));
+    }
+
     /// <summary>
     /// A delivery's ingest runs the command <see cref="BatchRunner.IngestCommand"/> builds, with <c>--json</c> exactly when
     /// the machine's datarepo takes it, and reads datarepo's reply. The stand-in datarepo is a script that records its
