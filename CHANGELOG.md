@@ -44,7 +44,8 @@ program, and the release archives do not carry it yet.
     any filter. A later datarepo files them under v2 (dataRepo's thread 145).
   - Until then the counts stay in each search's provenance (`id_rate.filter`, `psms_filter_1pct`, `rate_filter`) and in
     its `results.txt`.
-  - The per-run counts keep v1.
+  - The per-run counts in the QC payload keep v1. The engine still computes them under v1's rule, whatever the
+    search's filter, so v1 still describes them. Their v2, under the search's own filter, is a later engine change.
 
 - **`datarepo-host`**: the three MCP tools over Streamable HTTP at `/mcp`, a separate program (`src/PXReprise.Host`).
   A bearer token from `DATAREPO_HOST_TOKEN` is required on any address that is not loopback, an `Origin` that is not

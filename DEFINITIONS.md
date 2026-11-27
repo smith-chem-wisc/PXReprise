@@ -30,9 +30,12 @@ own identification filter in each count line, and v1's rule (the q-value and the
 number a search prints. So `DEF-PSM-1PCT`, `DEF-PEPTIDE-1PCT` and `DEF-PROTEINGROUP-1PCT` have a v2, "at 1% under the
 search's own identification filter", each the twin of the `aging:` v2 with the same short ID (aging's D239, thread 353,
 option A of PXR-A218). `DEF-ID-RATE` has a v2 built on `DEF-PSM-1PCT v2`. A search under MetaMorpheus 1.1.14 or earlier
-keeps v1. The filter is part of the number, so counts are compared only under one filter. The per-run counts keep v1:
-the engine computes them from `AllPSMs.psmtsv` under v1's rule whatever the search's filter, and their v2 comes with the
-pipeline's filter (G30, below).
+keeps v1. The filter is part of the number, so counts are compared only under one filter.
+
+The per-run counts keep v1 for now. The engine still computes them from `AllPSMs.psmtsv` under v1's rule, whatever the
+search's filter, so v1 still describes them. PXReprise 1.0.0's profiles take the PEP q-value filter, which is the
+pipeline filter their text names (G30, below). So their v2, under the search's own filter, is owed as a change to the
+engine's QC payload (G141).
 
 ---
 
