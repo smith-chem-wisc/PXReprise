@@ -142,6 +142,25 @@ public class ManifestReplaceTests
         Assert.That(ManifestEntry.Append(manifest, e, Profiles["label-free-dda@1"], run, state, dir), Is.EqualTo(ManifestWrite.Kept));
     }
 
+    // Entries written by hand (aging's manifest holds many): a field may be missing, a value may carry a YAML comment,
+    // and an earlier search may have used another search folder.
+    [TestCase("", ManifestWrite.Replaced, "(run none, MetaMorpheus none, no files)", Description = "none of the four fields")]
+    [TestCase("    run: runs/PXD000405   # by hand\n    search_results: 04_search/mm/Task3SearchTask\n    files: 1\n    metamorpheus: \"1.1.16\"   # by hand\n",
+        ManifestWrite.Kept, null, Description = "comments after the values")]
+    [TestCase("    run: runs/PXD000405\n    search_results: 04_search_mm1111/mm/Task3SearchTask\n    files: 1\n    metamorpheus: \"1.1.16\"\n",
+        ManifestWrite.Replaced, "(run runs/PXD000405, MetaMorpheus 1.1.16, 1 files)", Description = "another search folder")]
+    public void AHandWrittenEntryIsJudgedOnItsRunSearchReleaseAndFiles(string fields, ManifestWrite expected, string? replacedNote)
+    {
+        var (dir, run, manifest) = Searched("PXD000405", "1.1.16", 1, "\n  - accession: PXD000405\n    status: include\n" + fields);
+        Directory.CreateDirectory(Path.Combine(run, "04_search", "mm", "Task3SearchTask"));   // the search folder, as MetaMorpheus writes it
+        string before = File.ReadAllText(manifest);
+
+        Assert.That(ManifestEntry.Append(manifest, new QueueEntry("PXD000405", "t", "human"), Profiles["label-free-dda@1"], run, new JsonObject(), dir),
+            Is.EqualTo(expected));
+        if (replacedNote is null) Assert.That(File.ReadAllText(manifest), Is.EqualTo(before), "kept byte for byte");
+        else Assert.That(EntryOf(manifest, "PXD000405"), Does.Contain("REPLACED: this entry described an earlier search " + replacedNote));
+    }
+
     [Test]
     public void AReSearchReportsThatItReplacedTheEntry()
     {
