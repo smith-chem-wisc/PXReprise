@@ -36,6 +36,17 @@ program, and the release archives do not carry it yet.
   - For PRIDE, the one difference is EBI's 403 on its FTP host (its rate limit), which mzLib marks transient.
     `FetchStage.IsTransient` already retried it; now every caller of `Envelope.IsUnavailable` does too.
 
+- **v2 of the dataset 1% counts and the ID rate** ([DEFINITIONS.md](DEFINITIONS.md)): `pxreprise:DEF-PSM-1PCT`,
+  `DEF-PEPTIDE-1PCT`, `DEF-PROTEINGROUP-1PCT` and `DEF-ID-RATE`, for searches by MetaMorpheus 1.1.15 or later.
+  - Each is the count at 1% under the search's own identification filter, as `results.txt` names it. The filter is part
+    of the number. Each is the twin of aging's v2 (aging thread 353).
+  - **These are texts only.** datarepo 1.0.x files no 1% count and no ID rate into `metrics` for such a search, under
+    any filter. A later datarepo files them under v2 (dataRepo's thread 145).
+  - Until then the counts stay in each search's provenance (`id_rate.filter`, `psms_filter_1pct`, `rate_filter`) and in
+    its `results.txt`.
+  - The per-run counts in the QC payload keep v1. The engine still computes them under v1's rule, whatever the
+    search's filter, so v1 still describes them. Their v2, under the search's own filter, is a later engine change.
+
 - **`datarepo-host`**: the three MCP tools over Streamable HTTP at `/mcp`, a separate program (`src/PXReprise.Host`).
   A bearer token from `DATAREPO_HOST_TOKEN` is required on any address that is not loopback, an `Origin` that is not
   named gets 403, each client address has a rate limit, and `GET /healthz` names the catalog. Ported from dataRepo's

@@ -25,6 +25,18 @@ The first ten were checked against MetaMorpheus 1.1.11's source code and its out
 (`...-1PCT-RUN`, 2026-10-11) were checked against MetaMorpheus 1.1.12's output columns. They have no `aging:` twin with
 the same meaning (below).
 
+**v2 of the dataset 1% counts and the ID rate (2026-11-26).** From MetaMorpheus 1.1.15, `results.txt` names the search's
+own identification filter in each count line, and v1's rule (the q-value and the notch q-value together) describes no
+number a search prints. So `DEF-PSM-1PCT`, `DEF-PEPTIDE-1PCT` and `DEF-PROTEINGROUP-1PCT` have a v2, "at 1% under the
+search's own identification filter", each the twin of the `aging:` v2 with the same short ID (aging's D239, thread 353,
+option A of PXR-A218). `DEF-ID-RATE` has a v2 built on `DEF-PSM-1PCT v2`. A search under MetaMorpheus 1.1.14 or earlier
+keeps v1. The filter is part of the number, so counts are compared only under one filter.
+
+The per-run counts keep v1 for now. The engine still computes them from `AllPSMs.psmtsv` under v1's rule, whatever the
+search's filter, so v1 still describes them. PXReprise 1.0.0's profiles take the PEP q-value filter, which is the
+pipeline filter their text names (G30, below). So their v2, under the search's own filter, is owed as a change to the
+engine's QC payload (G141).
+
 ---
 
 ## pxreprise:DEF-PSM-1PCT v1
@@ -40,6 +52,31 @@ a file-side test that MetaMorpheus's own count rejects. No file-side predicate c
 coincides with a printable value. The canonical number is always the one MetaMorpheus prints. A consumer that selects rows
 with the predicate should expect a small disagreement in either direction (measured: 0, -14 and -6 PSMs on three datasets),
 and report it rather than reconcile it away.
+
+## pxreprise:DEF-PSM-1PCT v2
+
+**Grain:** dataset. **For searches by MetaMorpheus 1.1.15 or later;** an earlier search keeps v1.
+
+Target PSMs at 1% under the search's own identification filter, as MetaMorpheus's `results.txt` summary line reports
+them: `All target PSMs with <filter> <= 0.01`. `<filter>` is the filter as MetaMorpheus names it
+(`FilteredPsms.Describe`): `pep q-value`, `q-value notch`, or `q-value` (the pooled q-value alone).
+
+- **The filter is part of the number.** The search's provenance names it (`id_rate.filter`, `identification_filter`),
+  and two counts are compared only under one filter. On PXD031782 (12 files, MetaMorpheus 1.1.16) the same files give
+  85,111 PSMs under `pep q-value` and 64,463 under `q-value notch`.
+- **Target PSMs only;** decoys and contaminants are excluded (`TargetPsmsAboveThreshold`).
+- **Under `pep q-value`,** a match is judged by its PEP q-value where PEP was trained for it, and by its notch q-value
+  where it was not. `results.txt` then says how many (`PEP filtering was requested, but ...`), and the provenance's
+  `identification_filter.pep_trained` records it.
+- **Reproducing it from `AllPSMs.psmtsv`:** `Decoy/Contaminant/Target` is exactly `T`, and the filter's column
+  (`PEP_QValue`, `QValue Notch` or `QValue`) is `<= 0.01`. v1's notch-ambiguous exclusion
+  (`pxreprise:DEF-PSM-NOTCH-AMBIGUOUS`) does not apply: from 1.1.15 MetaMorpheus counts those matches.
+  - Measured on PXD031782 under 1.1.16: `pep q-value` 85,111 printed and 85,111 reproduced; `q-value notch` 64,463
+    printed and 64,471 reproduced.
+  - So, as in v1, the reproduction is an approximation, and the canonical number is the one MetaMorpheus prints.
+- **Why v1 does not describe it.** From 1.1.15 the words `with q-value <= 0.01` mean the pooled q-value alone, and the
+  notch filter has a line of its own. On PXD031782 v1's rule gives 64,125 and 64,168 PSMs on the two arms, so it
+  describes neither.
 
 ## pxreprise:DEF-PSM-NOTCH-AMBIGUOUS v1
 
@@ -69,6 +106,21 @@ predicate is `Decoy/Contaminant/Target` is exactly `T`, `QValue <= 0.01` and `QV
 at peptide-level FDR and collapses it to one row per full sequence (lowest PEP). No ambiguous-notch rows survive the
 collapse, so `pxreprise:DEF-PSM-NOTCH-AMBIGUOUS` does not apply here. Verified on PXD036557: 5,541.
 
+## pxreprise:DEF-PEPTIDE-1PCT v2
+
+**Grain:** dataset. **For searches by MetaMorpheus 1.1.15 or later;** an earlier search keeps v1.
+
+Target peptides at 1% under the search's own identification filter: the `results.txt` line
+`All target peptides with <filter> <= 0.01`, the filter as in `pxreprise:DEF-PSM-1PCT v2`.
+
+- **Judged at peptide level:** one row per full sequence (its first match in MetaMorpheus's default ordering,
+  `CollapseToPeptides`), by its peptide-level value.
+- **A peptide without a peptide-level value never passes,** so a few confident peptides can be left out (MetaMorpheus
+  #3004).
+- **Reproducing it from `AllPeptides.psmtsv`:** `Decoy/Contaminant/Target` is exactly `T`, and the filter's column is
+  `<= 0.01`. Measured on PXD031782 under 1.1.16: `pep q-value` 15,541 and `q-value notch` 11,836, both reproduced
+  exactly.
+
 ## pxreprise:DEF-PROTEINGROUP-1PCT v1
 
 **Grain:** dataset.
@@ -78,6 +130,19 @@ predicate is `Protein QValue <= 0.01` and not decoy, so **contaminant groups are
 lines, which exclude them. Verified on PXD036557: 1,652 groups that are not decoys, against 1,623 that are strictly `T`.
 MetaMorpheus has no leading, razor or representative protein. A group is an unordered set whose accession string is
 sorted alphabetically, so no quantity may be built on "the first member".
+
+## pxreprise:DEF-PROTEINGROUP-1PCT v2
+
+**Grain:** dataset. **For searches by MetaMorpheus 1.1.15 or later;** an earlier search keeps v1.
+
+Target protein groups at 1% for a search under its own identification filter: the `results.txt` line
+`All target protein groups with <filter> <= 0.01 (1% FDR)`, the filter as in `pxreprise:DEF-PSM-1PCT v2`.
+
+- **The line names the search's filter, but the count's predicate on file is v1's:** `Protein QValue <= 0.01` and not
+  decoy, so **contaminant groups are counted**, unlike the PSM and peptide lines.
+- Measured on PXD031782 under 1.1.16, from `AllQuantifiedProteinGroups.tsv`: `pep q-value` 2,633 (2,611 strictly `T`)
+  and `q-value notch` 1,865 (1,836), both reproduced exactly.
+- As in v1, a group has no leading member.
 
 ## pxreprise:DEF-PSM-1PCT-RUN v1
 
@@ -157,6 +222,16 @@ version that produced them.
 The identified fraction of MS2 spectra, as the search stage records it in `provenance.json` `id_rate.rate`:
 `pxreprise:DEF-PSM-1PCT` divided by `pxreprise:DEF-MS2` summed over the searched files. A file that QC excluded from
 the search is left out of both. The `low_id_rate` flag uses this value.
+
+## pxreprise:DEF-ID-RATE v2
+
+**Grain:** dataset. **For searches by MetaMorpheus 1.1.15 or later;** an earlier search keeps v1.
+
+The identified fraction of MS2 spectra under the search's own identification filter, as the search stage records it in
+`provenance.json` `id_rate.rate_filter`, beside the filter's name (`id_rate.filter`): `pxreprise:DEF-PSM-1PCT v2`
+(`id_rate.psms_filter_1pct`) divided by `pxreprise:DEF-MS2` summed over the searched files. A file that QC excluded from
+the search is left out of both. For such a search v1's `id_rate.rate` is null, and the `low_id_rate` flag uses this value
+and names the filter.
 
 ## pxreprise:DEF-MS2 v1
 
