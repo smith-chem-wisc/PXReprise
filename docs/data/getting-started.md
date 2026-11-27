@@ -5,9 +5,9 @@ ingested, a catalog built, a public site written, and an agent able to ask it qu
 small example instance that ships in this repository (`tests/datarepo-instance/`), so you need no real
 data and no search run of your own.
 
-Every command and every line of output below was run on this example with datarepo 1.0.1. Long
+Every command and every line of output below was run on this example with datarepo 1.0.2. Long
 paths are shortened to `…`, and long lines are wrapped. On Windows the paths print with `\`. The ids
-are content hashes, so on 1.0.1 you should get the same ones; on another version they will differ (a
+are content hashes, so on 1.0.2 you should get the same ones; on another version they will differ (a
 later section says why).
 
 **Words used here.**
@@ -35,21 +35,21 @@ test file paths (without it the checkout can fail with "Filename too long"); it 
 elsewhere:
 
 ```bash
-git clone -c core.longpaths=true --depth 1 --branch v1.0.1 https://github.com/smith-chem-wisc/PXReprise.git PXReprise-src
+git clone -c core.longpaths=true --depth 1 --branch v1.0.2 https://github.com/smith-chem-wisc/PXReprise.git PXReprise-src
 ```
 
 Then download the release for your machine from the
-[v1.0.1 release](https://github.com/smith-chem-wisc/PXReprise/releases/tag/v1.0.1), unpack it, and
+[v1.0.2 release](https://github.com/smith-chem-wisc/PXReprise/releases/tag/v1.0.2), unpack it, and
 put its `datarepo` folder on your `PATH` for this session. The archive holds two folders,
 `pxreprise` and `datarepo`:
 
 | Machine | Commands |
 |---|---|
-| Linux x64 | `curl -LO https://github.com/smith-chem-wisc/PXReprise/releases/download/v1.0.1/pxreprise-1.0.1-linux-x64.tar.gz`<br>`tar -xzf pxreprise-1.0.1-linux-x64.tar.gz`<br>`export PATH="$PWD/datarepo:$PATH"` |
-| macOS, Apple silicon | as Linux, with `pxreprise-1.0.1-osx-arm64.tar.gz` |
-| macOS, Intel | as Linux, with `pxreprise-1.0.1-osx-x64.tar.gz` |
-| Windows, PowerShell | `Invoke-WebRequest https://github.com/smith-chem-wisc/PXReprise/releases/download/v1.0.1/pxreprise-1.0.1-win-x64.zip -OutFile pxreprise-1.0.1-win-x64.zip`<br>`Expand-Archive pxreprise-1.0.1-win-x64.zip -DestinationPath .`<br>`$env:Path = "$PWD\datarepo;" + $env:Path` |
-| Windows, Git Bash | `curl -LO` the `win-x64.zip` as above, `unzip pxreprise-1.0.1-win-x64.zip`, then `export PATH="$PWD/datarepo:$PATH"` |
+| Linux x64 | `curl -LO https://github.com/smith-chem-wisc/PXReprise/releases/download/v1.0.2/pxreprise-1.0.2-linux-x64.tar.gz`<br>`tar -xzf pxreprise-1.0.2-linux-x64.tar.gz`<br>`export PATH="$PWD/datarepo:$PATH"` |
+| macOS, Apple silicon | as Linux, with `pxreprise-1.0.2-osx-arm64.tar.gz` |
+| macOS, Intel | as Linux, with `pxreprise-1.0.2-osx-x64.tar.gz` |
+| Windows, PowerShell | `Invoke-WebRequest https://github.com/smith-chem-wisc/PXReprise/releases/download/v1.0.2/pxreprise-1.0.2-win-x64.zip -OutFile pxreprise-1.0.2-win-x64.zip`<br>`Expand-Archive pxreprise-1.0.2-win-x64.zip -DestinationPath .`<br>`$env:Path = "$PWD\datarepo;" + $env:Path` |
+| Windows, Git Bash | `curl -LO` the `win-x64.zip` as above, `unzip pxreprise-1.0.2-win-x64.zip`, then `export PATH="$PWD/datarepo:$PATH"` |
 
 Unpack a `.tar.gz` with `tar`, which keeps the programs' executable bit. On macOS, an archive
 downloaded with a browser is quarantined and the program is refused as unverified; `curl` does not
@@ -64,7 +64,7 @@ datarepo doctor
 ```
 
 ```
-datarepo 1.0.1  schema 0.0.17
+datarepo 1.0.2  schema 0.0.17
   runtime          .NET 10.0.10
   mzLib            1.0.601.0
   parquet          ParquetSharp 24.0.0.0
@@ -74,7 +74,7 @@ datarepo 1.0.1  schema 0.0.17
 ready
 ```
 
-Check that the first line says `datarepo 1.0.1`. If it names another version, another `datarepo`
+Check that the first line says `datarepo 1.0.2`. If it names another version, another `datarepo`
 (an older install, such as a dataRepo 1.x release or the Python package) is earlier on your `PATH`
 and answering instead, and
 every id below will differ; repeat the `PATH` step, or call the program by its path.
@@ -179,7 +179,7 @@ datarepo publish manifest.yaml --site site --title "Example repository" --purpos
 
 ```
 catalog  …/example-instance/catalog.duckdb
-  id       41a27182d87a87ec
+  id       1493799624723b57
   dataset  PXD999999    bundle 65f1a260e95b20e1
   pride    0 of 1 deposit(s) have a fetched PRIDE record; `datarepo pride --store …/example-instance/store` fetches the rest
   note     logs.resolve_genes coverage (databases with an artefact): 0 of 1; no artefact for 89fb8c7a1140 (PXD999999)
@@ -193,7 +193,7 @@ catalog  …/example-instance/catalog.duckdb
   checks   66 run, all passed
   timing   tables 0.4 s, derived: sample names 0.0 s, …
 site     site
-  catalog  41a27182d87a87ec
+  catalog  1493799624723b57
   wrote    36 files, 1 dataset page
   skipped  croissant.json: no --data-url: a Croissant file describes downloadable files, …
   skipped  robots.txt: no --base-url: both need the site's absolute address
@@ -281,8 +281,8 @@ datarepo mcp --catalog catalog.duckdb --check
 
 ```
 catalog  catalog.duckdb
-  id       41a27182d87a87ec
-  built    … by datarepo 1.0.1
+  id       1493799624723b57
+  built    … by datarepo 1.0.2
   dataset  PXD999999           58 PSMs at 1%
   tools    datarepo_describe, datarepo_search, datarepo_sql
   empty    48 table(s) present with no rows

@@ -174,7 +174,7 @@ experiment record. The spectra win over the text:
 
 Each of these waits is listed for a person in `decisions_needed.tsv`. A deposit that passes is searched as under `@6`.
 
-**Each probe file is searched on its own** (from the release after 1.0.1). Each runs in its own MetaMorpheus search,
+**Each probe file is searched on its own** (from 1.0.2). Each runs in its own MetaMorpheus search,
 one after another, into `02c_probe_search\<file>`, under the probe's time limit.
 - **A file whose search fails loses only itself.** The deposit is judged on the files that finished, and the state
   names the others (`probe_search_unfinished`).
