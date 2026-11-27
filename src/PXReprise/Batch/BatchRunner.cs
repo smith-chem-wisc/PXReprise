@@ -1432,6 +1432,77 @@ public sealed class BatchRunner
     internal Func<Profile, Machine, IReadOnlyList<string>, DepositChemistry?, IReadOnlyDictionary<string, Qc.FragmentationCall>?, string, CancellationToken, Task<string>>
         ProbeSearchRunner { get; init; } = Search.ProbeSearch.RunAsync;
 
+    /// <summary>The state key that names the probe files whose search did not finish (G143). It is absent when every one
+    /// finished.</summary>
+    internal const string ProbeUnfinishedKey = "probe_search_unfinished";
+
+    /// <summary>What the per-file probe searches gave:
+    /// <list type="bullet">
+    /// <item>the runs' measures and precursor offsets;</item>
+    /// <item>the files whose search finished;</item>
+    /// <item>one line for each file whose search did not.</item>
+    /// </list></summary>
+    internal sealed record ProbeFileSearches(IReadOnlyDictionary<string, Qc.RunMeasures> Runs, IReadOnlyDictionary<string, double> Offsets,
+        IReadOnlyList<string> Finished, IReadOnlyList<string> Unfinished);
+
+    /// <summary>
+    /// G143 (the user, 2026-11-27: "it could run three separate 1 file runs ... we don't need the three together
+    /// necesseraily"): each probe file is searched in its own MetaMorpheus run, one after another, into
+    /// <c>&lt;outRoot&gt;\&lt;file&gt;</c>. Each run has the probe's whole time limit.
+    /// <para>
+    /// Until now the files were searched together, and a search that ran out of time lost them all. PXD031710's three
+    /// ion-trap files did so at 240 min on 2026-11-05.
+    /// </para>
+    /// <para>
+    /// The measures and the judge were already per run, so the runs' measures are the union of the files'. Each file's
+    /// FDR is now its own.
+    /// </para>
+    /// <para>
+    /// A file whose search fails is named, and the next is searched. A file that runs out of time ends the searching: the
+    /// probe files are alike, so the next would run out of time too, and the probe's wall clock stays near one limit.
+    /// </para>
+    /// </summary>
+    internal async Task<ProbeFileSearches> SearchProbeFilesAsync(string acc, Profile profile, IReadOnlyList<string> spectra,
+        DepositChemistry? chemistry, IReadOnlyDictionary<string, Qc.FragmentationCall>? fragmentation, string outRoot, CancellationToken ct)
+    {
+        var panel = ProbePanelAccessions(profile, _m);
+        var runs = new Dictionary<string, Qc.RunMeasures>(StringComparer.Ordinal);
+        var offsets = new Dictionary<string, double>(StringComparer.Ordinal);
+        var finished = new List<string>();
+        var unfinished = new List<string>();
+        bool outOfTime = false;
+        for (int i = 0; i < spectra.Count; i++)
+        {
+            string file = spectra[i], name = Path.GetFileName(file);
+            string head = $"{acc} PROBE SEARCH file {i + 1} of {spectra.Count} ({name})";
+            if (outOfTime)
+            {
+                unfinished.Add($"{name}: not searched, since an earlier file's search ran out of time");
+                continue;
+            }
+            var clock = Stopwatch.StartNew();
+            try
+            {
+                string psms = await ProbeSearchRunner(profile, _m, new[] { file }, chemistry, fragmentation,
+                    Path.Combine(outRoot, Path.GetFileNameWithoutExtension(file)), ct).ConfigureAwait(false);
+                var measured = Qc.ProbeMeasures.FromAllPsms(psms, panel);
+                foreach (var (run, m) in measured) runs[run] = m;
+                if (profile.PrecursorWindow == "probe")
+                    foreach (var (run, ppm) in Qc.ProbeMeasures.PrecursorOffsets(psms)) offsets[run] = ppm;
+                finished.Add(file);
+                Log($"{head}: {measured.Values.Sum(m => m.Psms)} PSMs at 1% in {clock.Elapsed.TotalMinutes:0.0} min");
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                outOfTime = ex is TimeoutException;
+                string what = outOfTime ? "ran out of time" : "failed";
+                unfinished.Add($"{name}: {what} after {clock.Elapsed.TotalMinutes:0.0} min ({ex.GetType().Name}: {ex.Message})");
+                Log($"{head} {what.ToUpperInvariant()} after {clock.Elapsed.TotalMinutes:0.0} min ({ex.GetType().Name}): {ex.Message}");
+            }
+        }
+        return new ProbeFileSearches(runs, offsets, finished, unfinished);
+    }
+
     /// <summary>
     /// D32/D34/D35 slice 3: a short search of the probe files measures each run's species, cysteine share and phospho/GG
     /// share. A measurement that contradicts the record parks the deposit and is announced; a measured enrichment is
@@ -1442,17 +1513,14 @@ public sealed class BatchRunner
     {
         string acc = e.Accession, d = Run(acc);
         var spectra = ProbeSpectra(Path.Combine(d, "02_fetch", "spectra"), probeQc);
-        IReadOnlyDictionary<string, Qc.RunMeasures> runs;
-        IReadOnlyDictionary<string, double>? offsets = null;
+        ProbeFileSearches searched;
         IReadOnlyDictionary<string, Qc.FragmentationCall>? fragmentation;
         try
         {
             fragmentation = Search.SearchStage.FragmentationFromQc(probeQc, spectra, profile);
             // v0.4.21: the machine's probe_search_minutes over the profile's (larger files take longer).
             var probeProfile = ProbeMinutes is { } pm ? profile with { ProbeSearchMinutes = pm } : profile;
-            string psms = await ProbeSearchRunner(probeProfile, _m, spectra, chemistry, fragmentation, Path.Combine(d, "02c_probe_search"), ct).ConfigureAwait(false);
-            runs = Qc.ProbeMeasures.FromAllPsms(psms, ProbePanelAccessions(profile, _m));
-            if (profile.PrecursorWindow == "probe") offsets = Qc.ProbeMeasures.PrecursorOffsets(psms);
+            searched = await SearchProbeFilesAsync(acc, probeProfile, spectra, chemistry, fragmentation, Path.Combine(d, "02c_probe_search"), ct).ConfigureAwait(false);
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
@@ -1461,6 +1529,21 @@ public sealed class BatchRunner
             Experiment(acc, xr, "probe_search_failed", ex.Message);
             return false;
         }
+        // A file that did not finish is named in the state, and cleared there by a probe whose every file finished.
+        Record(acc, (ProbeUnfinishedKey, searched.Unfinished.Count == 0 ? null
+            : new JsonArray(searched.Unfinished.Select(u => (JsonNode?)u).ToArray())));
+        if (searched.Finished.Count == 0)
+        {
+            string why = $"no probe file's search finished: {string.Join("; ", searched.Unfinished)}";
+            Log($"{acc} PROBE SEARCH FAILED: {why}");
+            Record(acc, ("status", "probe_search_failed"), ("detail", why));
+            Experiment(acc, xr, "probe_search_failed", why);
+            return false;
+        }
+        if (searched.Unfinished.Count > 0)
+            Log($"{acc} PROBE SEARCH judged on {searched.Finished.Count} of {spectra.Count} probe file(s); not finished: {string.Join("; ", searched.Unfinished)}");
+        IReadOnlyDictionary<string, Qc.RunMeasures> runs = searched.Runs;
+        IReadOnlyDictionary<string, double>? offsets = profile.PrecursorWindow == "probe" ? searched.Offsets : null;
         xr.ProbeSearch(runs);
         if (offsets is not null)
         {
@@ -1474,7 +1557,8 @@ public sealed class BatchRunner
         }
         // D95, D100: when the probe's cysteines are suspicious, the reagent probe names the reagent from the same files. A
         // reagent it names is the chemistry the judge and the full search use; a worker's travels in its package's state.
-        if (await Qc.ReagentProbe.RunAsync(ProbeSearchRunner, profile, _m, spectra, chemistry, fragmentation, runs,
+        // G143: it reads the files whose probe search finished, so a file too slow to search is not searched again here.
+        if (await Qc.ReagentProbe.RunAsync(ProbeSearchRunner, profile, _m, searched.Finished, chemistry, fragmentation, runs,
                 Path.Combine(d, "02d_reagent_probe"), ct).ConfigureAwait(false) is { } reagent)
         {
             Log($"{acc} REAGENT PROBE ({reagent.Verdict}): {reagent.Evidence}");
@@ -1490,9 +1574,9 @@ public sealed class BatchRunner
         }
         bool expectCarbamidomethyl = chemistry is null || chemistry.CysMods.Any(c => c.Name == "Carbamidomethyl" && c.Fixed);
         var verdict = Qc.ProbeJudge.Judge(runs, Qc.ProbeJudge.SpeciesName(e.Organism), expectCarbamidomethyl, acq.Enrichment != "none",
-            spectra.Select(s => Path.GetFileNameWithoutExtension(s)).ToList());
+            searched.Finished.Select(s => Path.GetFileNameWithoutExtension(s)).ToList());
         foreach (string note in verdict.Notes) Log($"{acc} PROBE SEARCH: {note}");
-        Log($"{acc} PROBE SEARCH " + (runs.Count == 0 ? $"no PSM at 1% FDR in any of its {spectra.Count} run(s)" : string.Join("; ", runs.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv =>
+        Log($"{acc} PROBE SEARCH " + (runs.Count == 0 ? $"no PSM at 1% FDR in any of its {searched.Finished.Count} run(s)" : string.Join("; ", runs.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv =>
             $"{kv.Key}: psms={kv.Value.Psms} species={string.Join("/", kv.Value.SpeciesPsms.OrderByDescending(s => s.Value).Select(s => $"{s.Key}:{s.Value}"))} panel={kv.Value.PanelPsms} cys={kv.Value.CysteineShare:P1}"))));
         if (verdict.MeasuredEnrichment is { } measured)
         {
