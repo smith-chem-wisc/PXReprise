@@ -220,6 +220,157 @@ public class BatchRunnerTests
         });
     }
 
+    // G143 (the user, 2026-11-27: "it could run three separate 1 file runs ... we don't need the three together
+    // necesseraily"): each probe file is searched on its own, so a file that fails or runs out of time loses only itself.
+    // PXD031710's three ion-trap probe files ran out of time together at 240 min on 2026-11-05.
+    private const string PerFileAcc = "PXD031710";
+
+    /// <summary>One probe file's PSMs: 45 peptides without C and 15 with one (25%, so the reagent probe stays out).</summary>
+    private static string FilePsms(string run) => ProbeSearchTests.Psms(
+        Enumerable.Range(0, 45).Select(i => ProbeSearchTests.Row(run, "PEPTIDEK" + new string('A', i)))
+            .Concat(Enumerable.Range(0, 15).Select(i => ProbeSearchTests.Row(run, "PEPCK" + new string('A', i)))));
+
+    /// <summary>The fake probe search of <see cref="PerFileRunner"/>: how it answers a file (by its name without extension),
+    /// and every call's spectra and output folder.</summary>
+    private sealed class FileSearch
+    {
+        public Func<string, string> Answer = FilePsms;
+        public readonly List<(string[] Spectra, string OutDir)> Calls = new();
+    }
+
+    /// <summary>A runner with three Orbitrap probe files, r1 to r3, of <see cref="PerFileAcc"/>, and a fake probe search.</summary>
+    private static (BatchRunner Runner, string Dir, FileSearch Search) PerFileRunner()
+    {
+        string dir = TestSupport.TempDir();
+        var question = QuestionLoader.Load(TestSupport.WriteFile(dir, "question.toml",
+            TestSupport.MinimalQuestion + "\n[batch]\nrun_root = \"runs\"\nstate_dir = \"state\"\nqueue = \"queue.json\"\n"));
+        var machine = Machine.Load(TestSupport.WriteFile(dir, "machine.toml", $"work_root = '{dir}'\nmin_free_gb = 0\n[metamorpheus]\n\"1.1.16\" = 'C:/nowhere/CMD.exe'\n"));
+        var search = new FileSearch();
+        var runner = new BatchRunner(question, Profiles, machine, new FakeFiles(), new FakeSearch(), "2026-11-27")
+        {
+            Sha1Source = NoSha1,
+            ProbePanelAccessions = (p, m) => new HashSet<string>(),
+            ProbeSearchRunner = (p, m, spectra, chem, fr, outDir, ct) =>
+            {
+                search.Calls.Add((spectra.Select(s => Path.GetFileName(s)).ToArray(), outDir));
+                return Task.FromResult(search.Answer(Path.GetFileNameWithoutExtension(spectra.Single())));
+            },
+        };
+        string spectraDir = Path.Combine(dir, "runs", PerFileAcc, "02_fetch", "spectra");
+        Directory.CreateDirectory(spectraDir);
+        foreach (string r in new[] { "r1", "r2", "r3" }) File.WriteAllText(Path.Combine(spectraDir, r + ".raw"), "raw");
+        return (runner, dir, search);
+    }
+
+    /// <summary>ProbeSearchAsync on <see cref="PerFileRunner"/>'s three files: whether the deposit went on, its state entry and
+    /// batch.log.</summary>
+    private static async Task<(bool Continued, JsonNode Entry, string Log)> ProbeThreeFiles(BatchRunner runner, string dir)
+    {
+        var qc = new JsonObject();
+        foreach (string r in new[] { "r1", "r2", "r3" })
+            qc[r + ".raw"] = new JsonObject { ["fragmentation"] = new JsonObject { ["dissociation_type"] = "HCD", ["low_res"] = false, ["evidence"] = "Orbitrap MS2" } };
+        var words = new DepositChemistry(new("trypsin", ChemistrySource.Default), null, new("Carbamidomethyl", ChemistrySource.Default),
+            [new CysMod("Carbamidomethyl", "UNIMOD:4", true)], new("label-free", ChemistrySource.Default), null);
+        var acq = new Acquisition(AcquisitionMode.Dda, Labelling.LabelFree, InstrumentClass.OrbitrapHcdOnly, "none", new Dictionary<string, int> { [".raw"] = 3 }, null);
+        bool continued = await runner.ProbeSearchAsync(new QueueEntry(PerFileAcc, "t", "mouse"), Profiles["label-free-dda@16"], acq, words, qc,
+            new ExperimentRecord(PerFileAcc), CancellationToken.None);
+        return (continued, runner.State()["datasets"]![PerFileAcc]!, File.ReadAllText(Path.Combine(dir, "state", "batch.log")));
+    }
+
+    [Test]
+    public async Task EachProbeFileIsSearchedOnItsOwn_AndTheRunsAreTheUnionOfTheirs()
+    {
+        var (runner, dir, search) = PerFileRunner();
+        var (continued, entry, log) = await ProbeThreeFiles(runner, dir);
+        Assert.Multiple(() =>
+        {
+            Assert.That(continued, Is.True, "60 PSMs a run, a quarter with C: nothing parks");
+            Assert.That(search.Calls.Select(c => c.Spectra), Is.EqualTo(new[] { new[] { "r1.raw" }, new[] { "r2.raw" }, new[] { "r3.raw" } }), "one search per file, in order");
+            Assert.That(search.Calls.Select(c => Path.GetFileName(c.OutDir)), Is.EqualTo(new[] { "r1", "r2", "r3" }), "each into its own folder");
+            Assert.That(search.Calls.Select(c => Path.GetFileName(Path.GetDirectoryName(c.OutDir))).Distinct(), Is.EqualTo(new[] { "02c_probe_search" }));
+            Assert.That(entry[BatchRunner.ProbeUnfinishedKey], Is.Null, "every file finished");
+            Assert.That(log, Does.Contain($"{PerFileAcc} PROBE SEARCH file 1 of 3 (r1.raw): 60 PSMs at 1% in "));
+            Assert.That(log, Does.Contain($"{PerFileAcc} PROBE SEARCH file 3 of 3 (r3.raw): 60 PSMs at 1% in "));
+            Assert.That(log, Does.Contain("r1: psms=60").And.Contain("r2: psms=60").And.Contain("r3: psms=60"), "the summary holds every file's run");
+            Assert.That(log, Does.Not.Contain("judged on"));
+        });
+    }
+
+    [Test]
+    public async Task AFileWhoseSearchFailsLosesOnlyItself_AndAFullProbeLaterClearsItsName()
+    {
+        var (runner, dir, search) = PerFileRunner();
+        search.Answer = run => run == "r2" ? throw new InvalidOperationException("the probe search did not finish (exit 1)") : FilePsms(run);
+        var (continued, entry, log) = await ProbeThreeFiles(runner, dir);
+        Assert.Multiple(() =>
+        {
+            Assert.That(continued, Is.True);
+            Assert.That(search.Calls.Select(c => c.Spectra.Single()), Is.EqualTo(new[] { "r1.raw", "r2.raw", "r3.raw" }), "a failure is not a timeout: r3 is still searched");
+            Assert.That(entry[BatchRunner.ProbeUnfinishedKey]!.AsArray().Select(n => n!.GetValue<string>()).Single(),
+                Does.StartWith("r2.raw: failed after ").And.Contain("InvalidOperationException: the probe search did not finish (exit 1)"));
+            Assert.That(log, Does.Contain($"{PerFileAcc} PROBE SEARCH file 2 of 3 (r2.raw) FAILED after "));
+            Assert.That(log, Does.Contain($"{PerFileAcc} PROBE SEARCH judged on 2 of 3 probe file(s); not finished: r2.raw: failed"));
+            Assert.That(log, Does.Contain("r1: psms=60").And.Contain("r3: psms=60").And.Not.Contain("r2: psms="));
+        });
+
+        search.Answer = FilePsms;
+        var (again, entryAgain, _) = await ProbeThreeFiles(runner, dir);
+        Assert.That(again, Is.True);
+        Assert.That(entryAgain[BatchRunner.ProbeUnfinishedKey], Is.Null, "a re-probe whose every file finished clears the name");
+    }
+
+    [Test]
+    public async Task AFileThatRunsOutOfTimeEndsTheSearching_AndTheProbeIsJudgedOnWhatFinished()
+    {
+        var (runner, dir, search) = PerFileRunner();
+        search.Answer = run => run == "r2" ? throw new TimeoutException("the probe search did not finish (exit -1, timed out)") : FilePsms(run);
+        var (continued, entry, log) = await ProbeThreeFiles(runner, dir);
+        var unfinished = entry[BatchRunner.ProbeUnfinishedKey]!.AsArray().Select(n => n!.GetValue<string>()).ToList();
+        Assert.Multiple(() =>
+        {
+            Assert.That(continued, Is.True, "r1 finished, with 60 PSMs");
+            Assert.That(search.Calls.Select(c => c.Spectra.Single()), Is.EqualTo(new[] { "r1.raw", "r2.raw" }), "r3 is alike, so it would run out of time too");
+            Assert.That(unfinished[0], Does.StartWith("r2.raw: ran out of time after "));
+            Assert.That(unfinished[1], Is.EqualTo("r3.raw: not searched, since an earlier file's search ran out of time"));
+            Assert.That(log, Does.Contain($"{PerFileAcc} PROBE SEARCH file 2 of 3 (r2.raw) RAN OUT OF TIME after ").And.Contain("judged on 1 of 3 probe file(s)"));
+            Assert.That(entry["status"]?.GetValue<string>(), Is.Not.EqualTo("probe_search_failed"));
+        });
+    }
+
+    [Test]
+    public async Task AProbeNoneOfWhoseFilesFinishedFailsAsBefore_NamingEachFile()
+    {
+        var (runner, dir, search) = PerFileRunner();
+        search.Answer = _ => throw new TimeoutException("the probe search did not finish (exit -1, timed out)");
+        var (continued, entry, _) = await ProbeThreeFiles(runner, dir);
+        Assert.Multiple(() =>
+        {
+            Assert.That(continued, Is.False);
+            Assert.That(search.Calls, Has.Count.EqualTo(1), "the first file ran out of time, so no other was searched");
+            Assert.That(entry["status"]!.GetValue<string>(), Is.EqualTo("probe_search_failed"));
+            Assert.That(entry["detail"]!.GetValue<string>(), Does.StartWith("no probe file's search finished: r1.raw: ran out of time after ")
+                .And.Contain("r2.raw: not searched").And.Contain("r3.raw: not searched"));
+        });
+    }
+
+    // G143: only a search that used its whole time limit is a timeout. One killed for using no CPU hung, and the next file
+    // may well run.
+    [Test]
+    public void OnlyASearchThatUsedItsWholeTimeLimitIsATimeout()
+    {
+        static Search.RunResult Run(int exit, bool timedOut, bool stalled = false) => new(exit, timedOut, 60, 60, 1, [], stalled);
+        Assert.Multiple(() =>
+        {
+            Assert.That(Search.ProbeSearch.NotFinished(Run(-1, true), true, "log"), Is.TypeOf<TimeoutException>()
+                .And.Message.EqualTo("the probe search did not finish (exit -1, timed out); see log"));
+            Assert.That(Search.ProbeSearch.NotFinished(Run(-1, true, stalled: true), true, "log"), Is.TypeOf<InvalidOperationException>()
+                .And.Message.Contains("stalled"));
+            Assert.That(Search.ProbeSearch.NotFinished(Run(1, false), true, "log"), Is.TypeOf<InvalidOperationException>());
+            Assert.That(Search.ProbeSearch.NotFinished(Run(0, false), false, "log"), Is.TypeOf<InvalidOperationException>(), "no AllPSMs.psmtsv");
+            Assert.That(Search.ProbeSearch.NotFinished(Run(0, false), true, "log"), Is.Null);
+        });
+    }
+
     // v0.4.15's question exception is a person's word, and outranks the spectra as it outranks every source the words give.
     [Test]
     public async Task TheQuestionsNoAlkylationExceptionStillOutranksTheReagentProbe()

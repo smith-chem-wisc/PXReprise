@@ -85,8 +85,13 @@ public static class ProbeSearch
 
     /// <summary>
     /// Runs the probe search over <paramref name="spectra"/> into <paramref name="outDir"/> and returns its
-    /// <c>AllPSMs.psmtsv</c>. Throws <see cref="SearchSetupException"/> when it cannot be set up and
-    /// <see cref="InvalidOperationException"/> when MetaMorpheus fails: a probe that did not run says nothing.
+    /// <c>AllPSMs.psmtsv</c>. A probe that did not run says nothing, so it throws:
+    /// <list type="bullet">
+    /// <item><see cref="SearchSetupException"/> when it cannot be set up;</item>
+    /// <item><see cref="TimeoutException"/> when MetaMorpheus runs past the profile's <c>probe_search_minutes</c> (G143: the
+    /// per-file probe stops searching more files then);</item>
+    /// <item><see cref="InvalidOperationException"/> when MetaMorpheus fails otherwise, a stall (a hung search) included.</item>
+    /// </list>
     /// </summary>
     public static async Task<string> RunAsync(Profile p, Machine m, IReadOnlyList<string> spectra, DepositChemistry? chem,
         IReadOnlyDictionary<string, FragmentationCall>? fragmentation, string outDir, CancellationToken ct)
@@ -130,9 +135,24 @@ public static class ProbeSearch
         var run = await runner.RunAsync(args, Path.Combine(outDir, "metamorpheus.log"), TimeSpan.FromMinutes(p.ProbeSearchMinutes), ct,
             TimeSpan.FromMinutes(m.SearchStallMinutes)).ConfigureAwait(false);
         string psms = Path.Combine(outDir, "mm", "Task1SearchTask", "AllPSMs.psmtsv");
-        if (run.ExitCode != 0 || run.TimedOut || !File.Exists(psms))
-            throw new InvalidOperationException($"the probe search did not finish (exit {run.ExitCode}{(run.TimedOut ? ", timed out" : "")}); see {Path.Combine(outDir, "metamorpheus.log")}");
+        if (NotFinished(run, File.Exists(psms), Path.Combine(outDir, "metamorpheus.log")) is { } failure) throw failure;
         return psms;
+    }
+
+    /// <summary>
+    /// The failure a probe search's run ends in, or null when it finished with its PSMs written.
+    /// <list type="bullet">
+    /// <item>A run that used its whole time limit is a <see cref="TimeoutException"/>.</item>
+    /// <item>A run killed for using no CPU hung; it was not slow, so it is an <see cref="InvalidOperationException"/>, like
+    /// any other failure.</item>
+    /// </list>
+    /// </summary>
+    internal static Exception? NotFinished(RunResult run, bool psmsWritten, string log)
+    {
+        string message = $"the probe search did not finish (exit {run.ExitCode}{(run.Stalled ? ", stalled" : run.TimedOut ? ", timed out" : "")}); see {log}";
+        if (run.TimedOut && !run.Stalled) return new TimeoutException(message);
+        if (run.TimedOut || run.ExitCode != 0 || !psmsWritten) return new InvalidOperationException(message);
+        return null;
     }
 
     /// <summary>

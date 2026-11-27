@@ -16,8 +16,22 @@ A new version of the engine never changes a finished result. Methods live in ver
 ## Unreleased
 
 **Adopting:** a swap only, for a batch: a deposit PRIDE has no record of, hosted at another repository, now settles
-as `waiting_other_repository` instead of being tried every pass. Nothing for a store. `datarepo-host` is a separate
-program, and the release archives do not carry it yet.
+as `waiting_other_repository` instead of being tried every pass, and a probe searches each of its files on its own, so a
+slow file no longer loses the other two. Nothing for a store. `datarepo-host` is a separate program, and the release
+archives do not carry it yet.
+
+- **Each probe file is searched on its own** (G143; the user, 2026-11-27: "it could run three separate 1 file runs").
+  - **Before:** a profile with a probe search searched its three probe files in one MetaMorpheus run. A run that ran
+    out of time lost all three: PXD031710's ion-trap files did so at 240 min.
+  - **Now:** each file has its own run, into `02c_probe_search\<file>`, one after another, each under the probe's time
+    limit. The measures and the judge were already per run.
+  - **A file whose search fails loses only itself.** The deposit is judged on the files that finished, and the state
+    names the others (`probe_search_unfinished`). A later probe whose every file finishes clears it.
+  - **A file that runs out of time ends the searching,** since the probe files are alike. A search killed for using no
+    CPU (hung) is a failure, not a timeout.
+  - **Only a probe in which no file finished is `probe_search_failed`.**
+  - **The reagent probe reads the files whose search finished.**
+  - **Each file's FDR is now its own,** not the three files' together.
 
 - **A deposit hosted at another repository settles by name.** When PRIDE has no record of a deposit, the screen asks
   ProteomeXchange which repository hosts it (`hostingRepository`).
