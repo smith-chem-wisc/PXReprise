@@ -17,7 +17,7 @@ A new version of the engine never changes a finished result. Methods live in ver
 
 **Adopting:** a swap only, for a batch: a deposit PRIDE has no record of, hosted at another repository, now settles
 as `waiting_other_repository` instead of being tried every pass, and a probe searches each of its files on its own, so a
-slow file no longer loses the other two. Nothing for a store. `datarepo-host` is a separate program, and the release
+slow file no longer loses the other two, starting each while the next file downloads. Nothing for a store. `datarepo-host` is a separate program, and the release
 archives do not carry it yet.
 
 - **Each probe file is searched on its own** (G143; the user, 2026-11-27: "it could run three separate 1 file runs").
@@ -32,6 +32,14 @@ archives do not carry it yet.
   - **Only a probe in which no file finished is `probe_search_failed`.**
   - **The reagent probe reads the files whose search finished.**
   - **Each file's FDR is now its own,** not the three files' together.
+  - **A file is searched while the next one downloads** ("the runs could begin as each file finishes its own
+    download").
+    - Once a probe file is verified, its own QC checks it, and it is searched under the profile and chemistry the probe
+      had before the download. Searches run one at a time.
+    - Every decision is still taken after the download, on all the probe files.
+    - An early result is used only when the probe then searches under the same profile, chemistry and fragmentation.
+      Otherwise it is set aside, and the file is searched again.
+    - batch.log names these lines `PROBE SEARCH head start`. Its QC writes to `02b_qc_probe_early`.
 
 - **A deposit hosted at another repository settles by name.** When PRIDE has no record of a deposit, the screen asks
   ProteomeXchange which repository hosts it (`hostingRepository`).

@@ -80,7 +80,8 @@ public sealed record FetchRequest(string Accession, string OutDir, Pick Pick, in
     [property: System.Text.Json.Serialization.JsonIgnore] DiskFloor? Floor = null,
     IReadOnlyDictionary<string, PXReprise.Config.FileReplacement>? Replace = null,
     [property: System.Text.Json.Serialization.JsonIgnore] Func<string, CancellationToken, Task<IReadOnlyDictionary<string, string>>>? PrideSha1Source = null,
-    [property: System.Text.Json.Serialization.JsonIgnore] IReadOnlyDictionary<string, JsonObject>? Calibrated = null);
+    [property: System.Text.Json.Serialization.JsonIgnore] IReadOnlyDictionary<string, JsonObject>? Calibrated = null,
+    [property: System.Text.Json.Serialization.JsonIgnore] Action<string>? OnFileReady = null);
 
 /// <summary>Which raw files of a deposit a question searches, and why (<c>[exceptions]</c>).</summary>
 public sealed record FileSelection([property: System.Text.Json.Serialization.JsonIgnore] Func<string, bool> Keeps, string Reason);
@@ -196,6 +197,11 @@ public static class FetchStage
     }
 
     /// <param name="log">Progress lines (each file done, each retry with its exception type); null for none.</param>
+    /// <remarks>
+    /// <see cref="FetchRequest.OnFileReady"/> is called with a raw file's path once that file is downloaded and verified, or
+    /// placed as the question's replacement. The other files may still be downloading then (G143). A calibrated stand-in
+    /// is not a file on disk, so it is never named.
+    /// </remarks>
     public static async Task<JsonObject> RunAsync(FetchRequest r, IPrideFiles pride, CancellationToken ct, Action<string>? log = null)
     {
         string outDir = Path.GetFullPath(r.OutDir);
@@ -293,10 +299,13 @@ public static class FetchStage
                     {
                         results[i] = PlaceReplacement(f, rep, spectraDir, prideSha1.GetValueOrDefault(f.FileName), log);
                         log?.Invoke($"{Interlocked.Increment(ref done)} of {chosen.Count} done: {f.FileName} is the question's replacement (not downloaded)");
+                        r.OnFileReady?.Invoke(results[i].Path);
                         return;
                     }
                     results[i] = await DownloadWithRetry(pride, f, spectraDir, r.MaxAttempts, r.Backoff, ct, r.StallAfter, log,
                         expectedChecksum: sha1.GetValueOrDefault(f.FileName), verify: true, aspera: r.Aspera, https: r.Https).ConfigureAwait(false);
+                    // G143: a file is ready once it is verified, so the probe can search it while the next one downloads.
+                    r.OnFileReady?.Invoke(results[i].Path);
                     var (_, s, a) = results[i];
                     log?.Invoke($"{Interlocked.Increment(ref done)} of {chosen.Count} done: {f.FileName} {f.FileSizeBytes / 1e6:0} MB in {s:0} s"
                                 + (a > 1 ? $", attempt {a}" : ""));

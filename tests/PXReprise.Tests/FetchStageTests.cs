@@ -87,6 +87,33 @@ public class FetchStageTests
         Assert.That(prov, Does.Contain("subset_of_deposit: 3 of 4 raw files").And.Contain("aging-provenance/3"));
     }
 
+    // G143: the probe searches a file while the next one downloads, so the fetch names each raw file as it is verified,
+    // before the fetch ends and writes its manifest.
+    [Test]
+    public async Task EachRawFileIsNamedReadyOnceVerified_BeforeTheFetchEnds()
+    {
+        string dir = TestSupport.TempDir();
+        var pride = new FlakyPride { Files = { F("s1.raw", 10), F("s2.raw", 20), F("s3.raw", 30) }, Ftp = { "s1.raw", "s2.raw", "s3.raw" } };
+        var ready = new System.Collections.Concurrent.ConcurrentBag<(string Name, bool OnDisk, bool ManifestWritten)>();
+        string manifestFile = Path.Combine(dir, "02_fetch", "fetch_manifest.json");
+        var r = new FetchRequest("PXD000001", Path.Combine(dir, "02_fetch"), Pick.All, 60, 5000, ".raw", 2, 3, TimeSpan.Zero, TimeSpan.Zero, dir,
+            OnFileReady: p => ready.Add((Path.GetFileName(p), File.Exists(p), File.Exists(manifestFile))));
+        await FetchStage.RunAsync(r, pride, CancellationToken.None);
+        Assert.That(ready.OrderBy(x => x.Name), Is.EqualTo(new[] { ("s1.raw", true, false), ("s2.raw", true, false), ("s3.raw", true, false) }));
+    }
+
+    [Test]
+    public async Task AQuestionsReplacementIsNamedReadyToo()
+    {
+        string sha1 = new string('a', 40);
+        var (dir, _, rep, _) = Repair(sha1);
+        var pride = new FlakyPride { Files = { F("a.raw", 100), F("b.raw", 100) }, Ftp = { "a.raw", "b.raw" } };
+        var ready = new System.Collections.Concurrent.ConcurrentBag<string>();
+        var r = WithReplacement(dir, rep, new Dictionary<string, string> { ["b.raw"] = sha1 }) with { OnFileReady = p => ready.Add(Path.GetFileName(p)) };
+        await FetchStage.RunAsync(r, pride, CancellationToken.None);
+        Assert.That(ready.Order(StringComparer.Ordinal), Is.EqualTo(new[] { "a.raw", "b.raw" }));
+    }
+
     [Test]
     public void MzLib594sEmptyFtpRootThrowIsReadAsAnEmptyListing()   // pride 005, PXR-S1: the S52 / PXD058248 case
     {
