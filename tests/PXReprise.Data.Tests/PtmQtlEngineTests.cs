@@ -525,6 +525,48 @@ public class PtmQtlEngineTests
         });
     }
 
+    /// <summary>ptmQtl D92 (S5, Pooled): a site one dataset keys by its name and another by its UNIMOD accession (PXD032202
+    /// and PXD027318's P46783 R158, 2026-11-27) no longer refuses the pool. It is left out in every dataset, with every
+    /// pair holding it, and counted under its own reason, not again under D35; every other pair pools as before.</summary>
+    [Test]
+    public void ASiteKeyedTwoWaysIsLeftOutAndCountedAndThePoolIsWritten()
+    {
+        var all = Datasets().SelectMany(ds => PtmQtlCore.SitePairs(ds).Pairs.Select(p => (ds.DatasetId, p.Pair, p.A, p.B))).ToList();
+        var agreed = PtmQtlCore.Pool("mouse", all);
+        var key = (string)agreed.Rows[0]["feature_key_a"]!;
+        var holder = all.First(x => x.A.CanonicalKey == key || x.B.CanonicalKey == key);
+        var site = (holder.A.CanonicalKey == key ? holder.A : holder.B).ToSite();
+        const string byName = "keyed by its name";
+        PairSite Rekey(PairSite s) => s.ToSite().Equals(site) ? s with { CanonicalKey = byName } : s;
+        var twoWays = PtmQtlCore.Pool("mouse", all.Select(x => x.DatasetId == holder.DatasetId ? (x.DatasetId, x.Pair, Rekey(x.A), Rekey(x.B)) : x));
+        bool Holds(Row r) => (string)r["feature_key_a"]! == key || (string)r["feature_key_b"]! == key;
+        Assert.Multiple(() =>
+        {
+            Assert.That(agreed.LeftOut["S5 sites left out: two cross-dataset keys"], Is.Zero);
+            Assert.That(agreed.TwoKeySites, Is.Empty);
+            Assert.That(twoWays.Rows.Any(Holds), Is.False);
+            Assert.That(twoWays.Rows.Any(r => (string)r["feature_key_a"]! == byName || (string)r["feature_key_b"]! == byName), Is.False);
+            Assert.That(twoWays.Rows, Has.Count.EqualTo(agreed.Rows.Count(r => !Holds(r))).And.Count.GreaterThan(0));
+            Assert.That(twoWays.LeftOut["S5 sites left out: two cross-dataset keys"], Is.EqualTo(1));
+            Assert.That(twoWays.LeftOut["S5 dataset pairs left out: two cross-dataset keys"],
+                Is.EqualTo(all.Count(x => x.A.ToSite().Equals(site) || x.B.ToSite().Equals(site))));
+            Assert.That(twoWays.LeftOut.Where(kv => kv.Key.StartsWith("D35 sites", StringComparison.Ordinal)).Sum(kv => kv.Value), Is.Zero);
+            Assert.That(twoWays.LeftOut["D35 dataset pairs left out"], Is.Zero);
+            Assert.That(twoWays.TwoKeySites, Has.Count.EqualTo(1));
+            Assert.That(twoWays.TwoKeySites[0].Site, Is.EqualTo(site.Key));
+            Assert.That(twoWays.TwoKeySites[0].Keys, Is.EqualTo(new[] { key, byName }.Order(StringComparer.Ordinal)));
+        });
+        // The run record lists each such site with its keys, and an empty list when there is none.
+        var record = PtmQtlEngine.TwoKeySitesRecord(twoWays.TwoKeySites);
+        var entry = (Dictionary<string, object?>)record.Single()!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(PtmQtlEngine.TwoKeySitesRecord(agreed.TwoKeySites), Is.Empty);
+            Assert.That(entry["site"], Is.EqualTo(site.Key));
+            Assert.That((List<object?>)entry["keys"]!, Is.EqualTo(twoWays.TwoKeySites[0].Keys));
+        });
+    }
+
     [Test]
     public void FractionsOfOneSampleCombineAndAnythingElseIsRefused()
     {

@@ -73,8 +73,13 @@ public sealed record PairSite(string Protein, int Position, char Residue, string
     public ModificationSite ToSite() => new(Protein, Position, Residue, Modification);
 }
 
-/// <summary>One species' pooled rows, and the sites left out of them (D35), counted by reason.</summary>
-public sealed record PoolResult(List<Row> Rows, Dictionary<string, long> LeftOut);
+/// <summary>One species' pooled rows, and the sites left out of them (S5, D35), counted by reason.</summary>
+public sealed record PoolResult(List<Row> Rows, Dictionary<string, long> LeftOut)
+{
+    /// <summary>ptmQtl D92 (S5, Pooled): each site the datasets keyed two or more ways, with its keys in ordinal order. Each
+    /// is left out of the pool, with every pair holding it.</summary>
+    public IReadOnlyList<(string Site, IReadOnlyList<string> Keys)> TwoKeySites { get; init; } = [];
+}
 
 /// <summary>One dataset's pairs: the <c>ptm_pairs</c> rows, and the mzLib pairs behind them, for pooling.</summary>
 public sealed record SitePairsResult(List<Row> Rows, List<(PtmPair Pair, PairSite A, PairSite B)> Pairs, Dictionary<string, long> LeftOut)
@@ -553,21 +558,35 @@ public static class PtmQtlCore
     /// <param name="pairs">Each dataset's pairs, with their sites as the dataset's artefact stored them.</param>
     /// <remarks>D35: a site joins only where its sequence window agrees. When the datasets holding a site (by its
     /// cross-dataset key) disagree on its window, or any of them has none, the site is left out of the pooled rows and
-    /// counted, and so is every pair holding it. Datasets are never refused for their search databases.</remarks>
+    /// counted, and so is every pair holding it. Datasets are never refused for their search databases.
+    /// <para>ptmQtl D92 (S5, Pooled): a site the datasets key two ways (one by its UNIMOD accession, another by its name,
+    /// when that dataset's <c>ptm_sites</c> gives the name no accession) is left out in every dataset, with every pair
+    /// holding it, and counted under its own reason. It never refuses the pool. It is found before D35's window tally, so
+    /// it is not counted again there.</para></remarks>
     /// <param name="depthLike">D78: the datasets labelled depth-like; a pooled type A row with any of them behind it is
     /// flagged <c>depth_like</c>.</param>
     public static PoolResult Pool(string species, IEnumerable<(string Scope, PtmPair Pair, PairSite A, PairSite B)> pairs,
         IReadOnlySet<string>? depthLike = null)
     {
+        var all = pairs.ToList();
+        var keysOf = new Dictionary<ModificationSite, SortedSet<string>>();
+        foreach (var (_, _, a, b) in all)
+            foreach (var s in new[] { a, b })
+            {
+                if (!keysOf.TryGetValue(s.ToSite(), out var seenKeys)) keysOf[s.ToSite()] = seenKeys = new SortedSet<string>(StringComparer.Ordinal);
+                seenKeys.Add(s.CanonicalKey);
+            }
+        var twoKeys = keysOf.Where(kv => kv.Value.Count > 1).Select(kv => kv.Key).ToHashSet();
+
         var keys = new Dictionary<ModificationSite, string>();
         var windows = new Dictionary<string, HashSet<string?>>(StringComparer.Ordinal);
         var given = new List<(string, PtmPair, PairSite, PairSite)>();
-        foreach (var (scope, pair, a, b) in pairs)
+        long twoKeyPairs = 0;
+        foreach (var (scope, pair, a, b) in all)
         {
+            if (twoKeys.Contains(a.ToSite()) || twoKeys.Contains(b.ToSite())) { twoKeyPairs++; continue; }
             foreach (var s in new[] { a, b })
             {
-                if (keys.TryGetValue(s.ToSite(), out var known) && known != s.CanonicalKey)
-                    throw new RunnerException($"the site {s.ToSite().Key} has two cross-dataset keys ({known}, {s.CanonicalKey})");
                 keys[s.ToSite()] = s.CanonicalKey;
                 if (!windows.TryGetValue(s.CanonicalKey, out var seen)) windows[s.CanonicalKey] = seen = [];
                 seen.Add(s.Window);
@@ -576,6 +595,8 @@ public static class PtmQtlCore
         }
         var leftOut = new Dictionary<string, long>(StringComparer.Ordinal)
         {
+            ["S5 sites left out: two cross-dataset keys"] = twoKeys.Count,
+            ["S5 dataset pairs left out: two cross-dataset keys"] = twoKeyPairs,
             ["D35 sites left out: no window"] = windows.Count(w => w.Value.Contains(null)),
             ["D35 sites left out: windows disagree"] = windows.Count(w => !w.Value.Contains(null) && w.Value.Count > 1),
         };
@@ -590,7 +611,10 @@ public static class PtmQtlCore
                 isA ? g.CombinedZ : g.Statistic, null, isA ? g.PValue : double.NaN, isA ? g.Q : double.NaN,
                 g.Scopes, g.ScopesAgreeing, meta: true, depthLike: depthLike is not null && g.Scopes.Any(depthLike.Contains)));
         }
-        return new PoolResult(rows, leftOut);
+        return new PoolResult(rows, leftOut)
+        {
+            TwoKeySites = twoKeys.Select(s => (s.Key, (IReadOnlyList<string>)keysOf[s].ToList())).OrderBy(x => x.Key, StringComparer.Ordinal).ToList(),
+        };
     }
 
     /// <summary><c>ptmqtl.site_traits</c> on one dataset and one trait (<c>DEF-SITE-TRAIT v2</c>).</summary>
