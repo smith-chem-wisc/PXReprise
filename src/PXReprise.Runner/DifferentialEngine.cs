@@ -417,23 +417,45 @@ public static class DifferentialEngine
         };
     }
 
+    /// <summary>What an entry of <c>samples_left_out</c> may hold: a label-free sample names its files, an isobaric one its
+    /// channels (<c>DifferentialStage</c>).</summary>
+    private static readonly string[] LeftOutKeys = ["sample", "condition", "files", "channels"];
+
+    /// <summary>What an entry of <c>lost_transfer_files</c> may hold.</summary>
+    private static readonly string[] LostTransferKeys = ["file", "mbr_peaks", "min_pip_q_value"];
+
     /// <summary>One row per sample the stage left out and per file that lost every match-between-runs transfer.</summary>
+    /// <remarks>An entry holding a key not read here is refused, never stored without it.</remarks>
     private static List<IReadOnlyDictionary<string, object?>> ExclusionRows(IReadOnlyDictionary<string, object?> p)
     {
         var rows = new List<IReadOnlyDictionary<string, object?>>();
         foreach (var s in List(p.GetValueOrDefault("samples_left_out")).Select(Map))
+        {
+            OnlyKnownKeys(s, LeftOutKeys, "samples_left_out");
             rows.Add(new Dictionary<string, object?>(StringComparer.Ordinal)
             {
                 ["kind"] = "sample_left_out", ["sample"] = Str(s, "sample"), ["condition"] = Str(s, "condition"),
-                ["files"] = List(s.GetValueOrDefault("files")),
+                ["files"] = List(s.GetValueOrDefault("files")), ["channels"] = List(s.GetValueOrDefault("channels")),
             });
+        }
         foreach (var f in List(p.GetValueOrDefault("lost_transfer_files")).Select(Map))
+        {
+            OnlyKnownKeys(f, LostTransferKeys, "lost_transfer_files");
             rows.Add(new Dictionary<string, object?>(StringComparer.Ordinal)
             {
                 ["kind"] = "lost_transfer_file", ["file"] = Str(f, "file"), ["mbr_peaks"] = Long(f, "mbr_peaks"),
                 ["min_pip_q_value"] = f.GetValueOrDefault("min_pip_q_value") switch { double d => d, long l => (double)l, _ => null },
             });
+        }
         return rows;
+    }
+
+    private static void OnlyKnownKeys(IReadOnlyDictionary<string, object?> entry, string[] known, string field)
+    {
+        var other = entry.Keys.Where(k => !known.Contains(k, StringComparer.Ordinal)).Order(StringComparer.Ordinal).ToList();
+        if (other.Count > 0)
+            throw new RunnerException($"{ProvenanceFile}: an entry of {field} holds {string.Join(", ", other)}, which this register does not "
+                                      + "read. That is a new case to decide, not one to store without it.");
     }
 
     /// <summary>A stored file's row, its role read from its name and place.</summary>

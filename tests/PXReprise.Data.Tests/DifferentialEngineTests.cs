@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using NUnit.Framework;
 using PXReprise.Bundle;
 using PXReprise.Catalog;
+using PXReprise.DataCli;
 using PXReprise.Ingest;
 using PXReprise.Runner;
 
@@ -269,6 +270,126 @@ public class DifferentialEngineTests
         Assert.That(() => Register(bundle, later), Throws.TypeOf<RunnerException>().With.Message.Contains("reads pxreprise-differential/1 only"));
         Assert.That(() => DifferentialEngine.Run(Store, [bundle], new Dictionary<string, string> { ["stage"] = Stage(bundle), ["extra"] = "x" }, StandInInstall),
             Throws.TypeOf<RunnerException>().With.Message.Contains("not extra"));
+        Assert.That(() => DifferentialEngine.Run(Store, [bundle], new Dictionary<string, string>(), StandInInstall),
+            Throws.TypeOf<RunnerException>().With.Message.Contains("takes one input, --input stage="));
+        Assert.That(() => DifferentialEngine.Run(Store, [bundle, bundle], new Dictionary<string, string> { ["stage"] = Stage(bundle) }, StandInInstall),
+            Throws.TypeOf<RunnerException>().With.Message.Contains("one deposit's stage at a time"));
+    }
+
+    [Test]
+    public void ARecordOrRowThatDisagreesWithTheStageIsRefused()
+    {
+        var bundle = Ingest();
+        static string Record(string stage) => Path.Combine(stage, DifferentialEngine.ProvenanceFile);
+        void Refused(string stage, string message) =>
+            Assert.That(() => Register(bundle, stage), Throws.TypeOf<RunnerException>().With.Message.Contains(message), message);
+        string WithCell(string file, string column, string value) => Stage(bundle, edit: s =>
+        {
+            var path = Path.Combine(s, "mbr_kept", file);
+            var lines = File.ReadAllLines(path);
+            var cells = lines[1].Split('\t');
+            cells[Array.IndexOf(lines[0].Split('\t'), column)] = value;
+            lines[1] = string.Join('\t', cells);
+            File.WriteAllLines(path, lines);
+        });
+
+        Refused(Stage(bundle, edit: s => EditJson(Record(s), p => p["stage"] = "qc")), "says stage 'qc', not \"differential\"");
+        Refused(Stage(bundle, "one_condition", s => EditJson(Record(s), p => p["analysed"] = true)), "analysed is True with 0 analyses");
+        Refused(Stage(bundle, edit: s => EditJson(Record(s), p => p["tools"]!.AsObject().Remove("mzlib"))), "tools.mzlib is not recorded");
+        Refused(Stage(bundle, edit: s => EditJson(Record(s), p => p["analyses"]![0]!["name"] = "../mbr_kept")), "is not one folder of the stage");
+        Refused(Stage(bundle, edit: s => EditJson(Metadata(s), m => m["analysis_id"] = "0000000000000000")),
+            "analysis_id '0000000000000000', and the stage's record says");
+        Refused(WithCell(DifferentialEngine.ResultsFile, "analysis_id", "ffffffffffffffff"), "row 1 names analysis 'ffffffffffffffff'");
+        Refused(WithCell(DifferentialEngine.ResultsFile, "definition_id", "QuantProject:DEF-DIFF-ABUNDANCE v2"), "row 1 is under 'QuantProject:DEF-DIFF-ABUNDANCE v2'");
+        Refused(WithCell(DifferentialEngine.DecisionsFile, "analysis_id", "ffffffffffffffff"), "has a row of analysis 'ffffffffffffffff'");
+        Refused(Stage(bundle, edit: s =>
+        {
+            var lines = File.ReadAllLines(Results(s));
+            lines[1] = lines[1][..lines[1].LastIndexOf('\t')];
+            File.WriteAllLines(Results(s), lines);
+        }), "line 2: 56 cells, and the header has 57");
+        Assert.That(PXReprise.Catalog.Runner.DiscoverArtefacts(Store, DifferentialEngine.Engine), Is.Empty, "nothing written");
+    }
+
+    /// <summary>A label-free sample the stage left out names its files, and an isobaric one its channels, as the stage writes
+    /// them (<c>DifferentialStage.cs</c>, the two <c>LeftOut.Add</c>). A file that lost its transfers keeps its MBR peaks
+    /// and smallest PIP q-value, which is null when no peak had one; the first file is PXD031782's real entry.</summary>
+    [Test]
+    public void WhatTheStageLeftOutIsOneRowInTheShapeItWasRecorded()
+    {
+        var bundle = Ingest();
+        var lfq = Stage(bundle, edit: s => EditJson(Path.Combine(s, DifferentialEngine.ProvenanceFile), p =>
+        {
+            p["samples_left_out"] = new JsonArray(new JsonObject
+            {
+                ["sample"] = "not available_1", ["condition"] = "not available", ["files"] = new JsonArray("run_07.raw", "run_08.raw"),
+            });
+            p["lost_transfer_files"] = new JsonArray(
+                new JsonObject { ["file"] = "20160523_LSantambrogio_S10-calib", ["mbr_peaks"] = 2773, ["min_pip_q_value"] = 0.038961 },
+                new JsonObject { ["file"] = "run_09", ["mbr_peaks"] = 0, ["min_pip_q_value"] = null });
+        }));
+        var artefact = Register(bundle, lfq).Written.Single();
+        var rows = ArrowTables.ReadParquet(artefact.TablePath("differential_exclusions")!).Rows.ToList();
+        Assert.That(rows.Select(r => r["kind"]), Is.EqualTo(new[] { "sample_left_out", "lost_transfer_file", "lost_transfer_file" }));
+        Assert.That((rows[0]["sample"], rows[0]["condition"], rows[0]["channels"]),
+            Is.EqualTo(((object?)"not available_1", (object?)"not available", (object?)null)), "a label-free sample has no channels");
+        Assert.That((IEnumerable<object?>)rows[0]["files"]!, Is.EqualTo(new[] { "run_07.raw", "run_08.raw" }));
+        Assert.That((rows[1]["file"], rows[1]["mbr_peaks"], rows[1]["min_pip_q_value"]),
+            Is.EqualTo(((object?)"20160523_LSantambrogio_S10-calib", (object?)2773L, (object?)0.038961)));
+        Assert.That((rows[2]["mbr_peaks"], rows[2]["min_pip_q_value"]), Is.EqualTo(((object?)0L, (object?)null)), "no peak had a PIP q-value");
+        var stageRow = ArrowTables.ReadParquet(artefact.TablePath("differential_stages")!).Rows.Single();
+        Assert.That((stageRow["n_samples_left_out"], stageRow["n_lost_transfer_files"]), Is.EqualTo(((object?)1L, (object?)2L)));
+
+        var tmt = Stage(bundle, "one_condition", s => EditJson(Path.Combine(s, DifferentialEngine.ProvenanceFile), p =>
+            p["samples_left_out"] = new JsonArray(new JsonObject
+            {
+                ["sample"] = "not available_1", ["condition"] = "not available", ["channels"] = new JsonArray("fraction_01 126", "fraction_02 126"),
+            })));
+        var isobaric = ArrowTables.ReadParquet(Register(bundle, tmt).Written.Single().TablePath("differential_exclusions")!).Rows.Single();
+        Assert.That((IEnumerable<object?>)isobaric["channels"]!, Is.EqualTo(new[] { "fraction_01 126", "fraction_02 126" }));
+        Assert.That(isobaric["files"], Is.Null, "an isobaric sample is recorded by channel");
+
+        var other = Stage(bundle, edit: s => EditJson(Path.Combine(s, DifferentialEngine.ProvenanceFile), p =>
+            p["samples_left_out"] = new JsonArray(new JsonObject { ["sample"] = "x_1", ["condition"] = "not available", ["reason"] = "outlier" })));
+        Assert.That(() => Register(bundle, other), Throws.TypeOf<RunnerException>().With.Message.Contains("an entry of samples_left_out holds reason"));
+        var lost = Stage(bundle, edit: s => EditJson(Path.Combine(s, DifferentialEngine.ProvenanceFile), p =>
+            p["lost_transfer_files"] = new JsonArray(new JsonObject { ["file"] = "run_09", ["mbr_peaks"] = 1, ["msms_peaks"] = 4 })));
+        Assert.That(() => Register(bundle, lost), Throws.TypeOf<RunnerException>().With.Message.Contains("an entry of lost_transfer_files holds msms_peaks"));
+    }
+
+    [Test]
+    public void TheCommandLinePrintsWhatWasRegistered()
+    {
+        var bundle = Ingest();
+        var stage = Stage(bundle);
+        var nothing = Stage(bundle, "one_condition");
+        // This tree is a development build, which the runner refuses before writing anything (aging 063, by design).
+        Assert.That(() => RunCommand.Run(["differential.register", "PXD999999", "--store", Store, "--input", $"stage={stage}"]),
+            Throws.TypeOf<RunnerException>().With.Message.Contains("development build"));
+
+        var printed = new StringWriter();
+        var registered = Register(bundle, stage);
+        RunCommand.ReportRegistered(registered, printed);
+        RunCommand.ReportRegistered(Register(bundle, nothing), printed);
+        var aid = registered.Written.Single().ArtefactId;
+        Assert.That(printed.ToString(), Does.Contain($"written  differential.register artefact {aid}")
+            .And.Contain($"  bound    PXD999999 bundle {bundle.BundleId}")
+            .And.Contain("'differential_results': 12")
+            .And.Contain("  analysed none: ['one_condition']"));
+
+        // Registered already: the command answers from the store, without asking what build it is.
+        var stdout = new StringWriter();
+        var before = Console.Out;
+        Console.SetOut(stdout);
+        try
+        {
+            Assert.That(RunCommand.Run(["differential.register", "PXD999999", "--store", Store, "--input", $"stage={stage}"]), Is.EqualTo(0));
+        }
+        finally
+        {
+            Console.SetOut(before);
+        }
+        Assert.That(stdout.ToString(), Does.Contain($"done     differential.register artefact {aid} already exists; nothing re-run"));
     }
 
     // --- the catalog ------------------------------------------------------------------------------------------

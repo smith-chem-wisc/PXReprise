@@ -29,6 +29,23 @@ internal static class RunCommand
         return chosen;
     }
 
+    /// <summary>What <c>differential.register</c> prints: each artefact written, the bundle it binds, its rows and, for a
+    /// stage that analysed nothing, its findings' kinds; then each that was already done.</summary>
+    internal static void ReportRegistered(RunResult registered, TextWriter output)
+    {
+        foreach (var reference in registered.Written)
+        {
+            var summary = reference.Record.GetValueOrDefault("engine_summary") as IReadOnlyDictionary<string, object?>;
+            output.WriteLine($"written  {reference.Engine} artefact {reference.ArtefactId}  {reference.Path}");
+            output.WriteLine($"  bound    {summary?.GetValueOrDefault("dataset_id")} bundle {summary?.GetValueOrDefault("bundle_id")}");
+            output.WriteLine($"  rows     {PyFormat.Repr(reference.RowCounts.ToDictionary(kv => kv.Key, kv => (object?)kv.Value))}");
+            if (summary?.GetValueOrDefault("analysed") is false)
+                output.WriteLine($"  analysed none: {PyFormat.Repr(summary.GetValueOrDefault("finding_kinds"))}");
+        }
+        foreach (var reference in registered.AlreadyDone)
+            output.WriteLine($"done     {reference.Engine} artefact {reference.ArtefactId} already exists; nothing re-run");
+    }
+
     public static int Run(string[] argv)
     {
         var a = new Args.Spec("datarepo run", Cli.Summaries["run"])
@@ -111,18 +128,7 @@ internal static class RunCommand
         var bundles = PickBundles(store, accessions, pins, a.Flag("--latest"));
         if (engine == DifferentialEngine.Engine)
         {
-            var registered = DifferentialEngine.Run(store, bundles, inputs);
-            foreach (var reference in registered.Written)
-            {
-                var summary = reference.Record.GetValueOrDefault("engine_summary") as IReadOnlyDictionary<string, object?>;
-                Console.WriteLine($"written  {reference.Engine} artefact {reference.ArtefactId}  {reference.Path}");
-                Console.WriteLine($"  bound    {summary?.GetValueOrDefault("dataset_id")} bundle {summary?.GetValueOrDefault("bundle_id")}");
-                Console.WriteLine($"  rows     {PyFormat.Repr(reference.RowCounts.ToDictionary(kv => kv.Key, kv => (object?)kv.Value))}");
-                if (summary?.GetValueOrDefault("analysed") is false)
-                    Console.WriteLine($"  analysed none: {PyFormat.Repr(summary.GetValueOrDefault("finding_kinds"))}");
-            }
-            foreach (var reference in registered.AlreadyDone)
-                Console.WriteLine($"done     {reference.Engine} artefact {reference.ArtefactId} already exists; nothing re-run");
+            ReportRegistered(DifferentialEngine.Run(store, bundles, inputs), Console.Out);
             return 0;
         }
         if (engine.StartsWith("ptmqtl.", StringComparison.Ordinal))

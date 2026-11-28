@@ -98,8 +98,8 @@ public static partial class CatalogBuilder
             [DifferentialDecisionsTable] = DifferentialDecisionColumns,
             [DifferentialExclusionsTable] =
             [
-                Text("kind", false), Text("sample"), Text("condition"), Text("file"), Texts("files"), Long("mbr_peaks"),
-                Real("min_pip_q_value"),
+                Text("kind", false), Text("sample"), Text("condition"), Text("file"), Texts("files"), Texts("channels"),
+                Long("mbr_peaks"), Real("min_pip_q_value"),
             ],
             [DifferentialFindingsTable] = [Text("kind", false), Text("detail")],
             [DifferentialFilesTable] =
@@ -280,7 +280,9 @@ public static partial class CatalogBuilder
                     ["sample"] = "The sample left out.",
                     ["condition"] = "Its condition.",
                     ["file"] = "The file that lost its transfers.",
-                    ["files"] = "The left-out sample's files.",
+                    ["files"] = "A label-free sample's files, by name; NULL for an isobaric sample, which the stage records by channel.",
+                    ["channels"] = "An isobaric sample's channels, each `<file> <channel label>` (the file's name without its "
+                                   + "folder, extension, `-calib` or `-averaged`); NULL for a label-free sample.",
                     ["mbr_peaks"] = "The file's match-between-runs peaks in the search.",
                     ["min_pip_q_value"] = "The smallest PIP q-value among them, or NULL when none had one.",
                 })),
