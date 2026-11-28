@@ -457,10 +457,11 @@ public sealed class BatchRunner
     {
         var listed = queue.Select(e => e.Accession).ToHashSet(StringComparer.Ordinal);
         var requeued = State()["datasets"]!.AsObject()
-            .Where(kv => !listed.Contains(kv.Key) && kv.Value is JsonObject o && o["status"]?.GetValue<string>() == "requeued_user"
-                         && _q.SplitKeysOf(kv.Key) is not null && o["organism"]?.GetValue<string>() is not null)
-            .OrderBy(kv => kv.Value!["updated_utc"]?.GetValue<string>() ?? "", StringComparer.Ordinal).ThenBy(kv => kv.Key, StringComparer.Ordinal)
-            .Select(kv => new QueueEntry(kv.Key, kv.Value!["title"]?.GetValue<string>() ?? "", kv.Value!["organism"]!.GetValue<string>()))
+            .Where(kv => !listed.Contains(kv.Key) && _q.SplitKeysOf(kv.Key) is not null)
+            .Select(kv => (Acc: kv.Key, O: kv.Value!.AsObject()))
+            .Where(x => x.O["status"]?.GetValue<string>() == "requeued_user" && x.O["organism"]?.GetValue<string>() is not null)
+            .OrderBy(x => x.O["updated_utc"]?.GetValue<string>() ?? "", StringComparer.Ordinal).ThenBy(x => x.Acc, StringComparer.Ordinal)
+            .Select(x => new QueueEntry(x.Acc, x.O["title"]?.GetValue<string>() ?? "", x.O["organism"]!.GetValue<string>()))
             .ToList();
         foreach (var e in requeued) Log($"{e.Accession} queued as its split groups: a person put it back (batch retry or research), and no queue lists it");
         queue = requeued.Concat(queue).ToList();
