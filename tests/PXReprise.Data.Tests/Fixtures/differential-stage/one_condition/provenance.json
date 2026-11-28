@@ -1,0 +1,73 @@
+{
+  "schema": "pxreprise-differential/1",
+  "stage": "differential",
+  "started_utc": "2026-11-28T00:31:47Z",
+  "host": "MOZZLE",
+  "tools": {
+    "pxreprise": "1.0.2+2e6339d9aa1840496275de4cd2cf69c025bf1af8",
+    "mzlib": "1.0.601+2e8c583d8240b037201fe80f3ad802669b587efa",
+    "dotnet": "10.0.15"
+  },
+  "definition": "QuantProject:DEF-DIFF-ABUNDANCE v1",
+  "method_version": "diff-1.0",
+  "search": {
+    "dir": "F:\\aging_data\\run_2026-09-21\\PXD003111\\04_search",
+    "task_folder": "Task2SearchTask",
+    "pipeline": "0.4.42+4a1d636eded635db6c3e9a42b4339555a1cf1ff3",
+    "metamorpheus": "1.1.14",
+    "identification_filter": {
+      "counts": [
+        {
+          "of": "PSMs",
+          "filter": "q-value",
+          "threshold": 0.01
+        },
+        {
+          "of": "peptides",
+          "filter": "q-value",
+          "threshold": 0.01
+        },
+        {
+          "of": "protein groups",
+          "filter": "q-value",
+          "threshold": 0.01
+        }
+      ],
+      "notes": []
+    }
+  },
+  "quant_style": "tmt",
+  "match_between_runs": null,
+  "design": {
+    "file": "F:\\aging_data\\run_2026-09-21\\PXD003111\\04_search\\mm\\Task2SearchTask\\TmtDesign.txt",
+    "sha256": "8071636a9a812264e9a7a472c7b346071414c112a4f2d78bffb82259fe4c5d55",
+    "samples": 89,
+    "conditions": [
+      "all"
+    ]
+  },
+  "corrected_sdrf": null,
+  "individuals": {
+    "source": null,
+    "reason": "the SDRF has no characteristics[individual]"
+  },
+  "samples_left_out": [],
+  "lost_transfer_files": [],
+  "analysed": false,
+  "analyses": [],
+  "findings": [
+    {
+      "kind": "one_condition",
+      "detail": "89 sample(s) in 1 condition(s) after 0 left out: there is nothing to compare"
+    }
+  ],
+  "assumptions": null,
+  "inputs": [
+    {
+      "path": "F:\\aging_data\\run_2026-09-21\\PXD003111\\04_search\\provenance.json",
+      "size_bytes": 25950,
+      "sha256": "{{sha:provenance:04_search}}"
+    }
+  ],
+  "finished_utc": "2026-11-28T00:31:48Z"
+}

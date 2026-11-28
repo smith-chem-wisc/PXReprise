@@ -36,6 +36,7 @@ public static class EngineRunner
         LogsEngine.Engine, GoReferenceEngines.AnnotateDatabases, GoReferenceEngines.CategorizeTerms, GoReferenceEngines.ResolveMembers,
         OrthologyEngine.Engine,
         PtmQtlEngine.SitePairsEngine, PtmQtlEngine.PoolPairsEngine, PtmQtlEngine.SiteTraitsEngine,
+        DifferentialEngine.Engine,
     ];
 
     /// <summary>Which datarepo build is running, or a refusal.</summary>

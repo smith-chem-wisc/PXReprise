@@ -292,6 +292,29 @@ In a one-file catalog, point-lookup indexes are built on the columns those quest
 `peptidoforms.base_sequence`, `quant_values.feature_id`, `proteins.gene` and the rest. List-valued
 columns such as `protein_accessions` cannot carry a DuckDB index; the derived tables cover them.
 
+### The differential layer
+
+From catalog format 18, `build` serves each differential stage registered for a served bundle
+(`datarepo run differential.register`, [operating.md](operating.md#4-optional-engines-and-study-results)): PXReprise's
+differential abundance of one delivered search, under QuantProject's `DEF-DIFF-ABUNDANCE`, computed by mzLib. It sits
+beside the bundle, never in it, so re-running the stage costs a registration and a rebuild, never a re-ingest.
+
+| table | one row is | from |
+|---|---|---|
+| `differential_stages` | 1/registered stage | the stage's `provenance.json`: method, quant style, the design it read, the search's filter, `analysed`, the kinds of its findings |
+| `differential_analyses` | 1/analysis | each analysis folder (`mbr_kept`, `msms_only`) and its `DifferentialResults.metadata.json`: counts, design warnings, `settings_json` verbatim, the inputs bound to the bundle |
+| `differential_results` | 1/feature/contrast | `DifferentialResults.tsv`, row for row, mzLib's 57 columns typed; a row with no number says why in `status` |
+| `differential_decisions` | 1/ruling | `DifferentialDecisions.tsv`, row for row |
+| `differential_exclusions` | 1/sample or file left out | the record's `samples_left_out` and `lost_transfer_files` |
+| `differential_findings` | 1/stage finding | the record's `findings`, e.g. `one_condition` for a stage that analysed nothing |
+| `differential_files` | 1/file of the stage | every file, kept verbatim in the artefact under `files/<path>`, with its role and sha256 |
+
+Every row carries `dataset_id`, `bundle_id` and `artefact_id`. A results row joins its search's protein group on
+`protein_groups.bundle_id = bundle_id AND protein_groups.protein_group_id = dataset_id || ':' || feature_accessions`.
+The tables are in every catalog of format 18, empty when no stage is registered; `catalog_tables.kind` is
+`engine:differential.register`, and the `engine-coverage` check names the datasets with no stage. Two stages for one
+bundle are refused, never one picked. The layer needs no core schema change, so no bundle id moves.
+
 ### The catalog's account of itself
 
 | Table | Holds |

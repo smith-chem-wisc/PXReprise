@@ -267,8 +267,10 @@ public static partial class CatalogBuilder
     /// reference engines are copied into <c>go_accession_terms</c>, <c>go_terms</c>, <c>go_closure</c>,
     /// <c>go_term_categories</c> and <c>go_group_members</c>, and <c>protein_localizations</c>,
     /// <c>organelle_term_categories</c>, <c>annotation_sources</c> and the new <c>go_group_status</c> are derived from them
-    /// (kind <c>derived</c>), with the same rows go's definition gives.</remarks>
-    public static string CatalogVersion => SchemaContract.IsPython0320 ? "8" : "17";
+    /// (kind <c>derived</c>), with the same rows go's definition gives. "17" was released in PXReprise 1.0.0. "18" adds the
+    /// differential layer (<c>CatalogDifferential.cs</c>; our 145, PXR-R85): seven tables filled from
+    /// <c>differential.register</c>'s artefacts, in every catalog, empty when no stage is registered for a served bundle.</remarks>
+    public static string CatalogVersion => SchemaContract.IsPython0320 ? "8" : "18";
 
     /// <summary>Bundle tables a catalog does not hold. PSMs are archived per deposit, never in a catalog (PXReprise's
     /// public-data contract, rule 3; D48 step 2): they are 82% of a store's bytes, and nothing served from a catalog
@@ -1006,6 +1008,14 @@ public static partial class CatalogBuilder
                 ["go_release"] = "The GO release.",
                 ["source_id"] = "The search's `annotation_sources` row.",
             }),
+        // The differential layer (format 18): CatalogDifferential.cs.
+        [DifferentialStagesTable] = DifferentialDoc(DifferentialStagesTable),
+        [DifferentialAnalysesTable] = DifferentialDoc(DifferentialAnalysesTable),
+        [DifferentialResultsTable] = DifferentialDoc(DifferentialResultsTable),
+        [DifferentialDecisionsTable] = DifferentialDoc(DifferentialDecisionsTable),
+        [DifferentialExclusionsTable] = DifferentialDoc(DifferentialExclusionsTable),
+        [DifferentialFindingsTable] = DifferentialDoc(DifferentialFindingsTable),
+        [DifferentialFilesTable] = DifferentialDoc(DifferentialFilesTable),
         [AnnotationsTable] = new(
             "One row per dataset: what the producer's manifest says ABOUT it that is not identity -- its "
             + "notes, flags, status and reason. Taken from the manifest `datarepo build` was given, NOT from "
@@ -1651,6 +1661,7 @@ public static partial class CatalogBuilder
             SelectGo(store, bundles, chosen, checks);
             SelectOrthology(store, chosen, checks);
             SelectPtmQtl(store, bundles, chosen, checks);
+            SelectDifferential(store, bundles, chosen, checks);
         }
         return (chosen, checks);
     }
@@ -1878,6 +1889,7 @@ public static partial class CatalogBuilder
                 studyCounts = CreateStudyTables(con, study);
                 foreach (var (k, v) in CreateEngineTables(con, engines, views)) rowCounts[k] = v;
                 foreach (var (k, v) in LoadPtmQtlRows(con, bundles, engines, views)) rowCounts[k] = v;
+                LoadDifferentialRows(con, bundles, engines, views);
                 BuildEngineDerived(con, bundles);
                 Lap("study and engines");
                 foreach (var (k, v) in BuildOrthology(con, engines)) rowCounts[k] = v;
@@ -2387,6 +2399,7 @@ public static partial class CatalogBuilder
         taken.UnionWith(RunViews.Select(kv => kv.Key));
         taken.UnionWith(OrthologyTables);
         taken.UnionWith(GoReferenceTables);
+        taken.UnionWith(DifferentialTables);
         foreach (var (layer, tables) in SchemaContract.StudyLayers)
         {
             var r = byLayer.GetValueOrDefault(layer);
@@ -3210,6 +3223,10 @@ public static partial class CatalogBuilder
         if (GoActive)
             foreach (var name in GoReferenceTables)
                 Exec(con, "INSERT INTO catalog_tables VALUES (?, ?, ?)", name, Count(con, $"SELECT count(*) FROM \"{name}\""), GoTableKind(name));
+        // The differential layer's seven tables (format 18), likewise in every catalog of the current rules.
+        if (GoActive)
+            foreach (var name in DifferentialTables)
+                Exec(con, "INSERT INTO catalog_tables VALUES (?, ?, ?)", name, Count(con, $"SELECT count(*) FROM \"{name}\""), DifferentialTableKind);
         foreach (var (layer, tables) in SchemaContract.StudyLayers)
             foreach (var spec in tables)
                 Exec(con, "INSERT INTO catalog_tables VALUES (?, ?, ?)", spec.Name, studyCounts.GetValueOrDefault(spec.Name, 0), $"study:{layer}");

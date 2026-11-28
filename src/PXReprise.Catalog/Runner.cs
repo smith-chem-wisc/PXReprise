@@ -99,6 +99,11 @@ public static class Runner
     /// <summary>logs' orthology registration: one verified snapshot, read in place, no rows.</summary>
     public const string OrthologyEngine = "logs.register_orthology";
 
+    /// <summary>The differential layer's registration: one of PXReprise's <c>differential</c> stage folders, bound to the
+    /// bundle of the search it read, copied whole (<c>CatalogDifferential.cs</c>). One artefact per stage; it computes
+    /// nothing.</summary>
+    public const string DifferentialEngine = "differential.register";
+
     /// <summary>The input role of go's protein-group file, and the prefix of each annotation database's role.</summary>
     public const string GoProteinGroupsRole = "protein_groups";
 
