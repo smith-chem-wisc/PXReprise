@@ -578,20 +578,20 @@ public static class PtmQtlCore
             }
         var twoKeys = keysOf.Where(kv => kv.Value.Count > 1).Select(kv => kv.Key).ToHashSet();
 
+        // One materialised copy of the input (pair_sites.tsv is streamed): the two-key pairs are skipped in place, not copied.
+        bool HoldsTwoKeys((string Scope, PtmPair Pair, PairSite A, PairSite B) g) => twoKeys.Contains(g.A.ToSite()) || twoKeys.Contains(g.B.ToSite());
         var keys = new Dictionary<ModificationSite, string>();
         var windows = new Dictionary<string, HashSet<string?>>(StringComparer.Ordinal);
-        var given = new List<(string, PtmPair, PairSite, PairSite)>();
         long twoKeyPairs = 0;
-        foreach (var (scope, pair, a, b) in all)
+        foreach (var g in all)
         {
-            if (twoKeys.Contains(a.ToSite()) || twoKeys.Contains(b.ToSite())) { twoKeyPairs++; continue; }
-            foreach (var s in new[] { a, b })
+            if (HoldsTwoKeys(g)) { twoKeyPairs++; continue; }
+            foreach (var s in new[] { g.A, g.B })
             {
                 keys[s.ToSite()] = s.CanonicalKey;
                 if (!windows.TryGetValue(s.CanonicalKey, out var seen)) windows[s.CanonicalKey] = seen = [];
                 seen.Add(s.Window);
             }
-            given.Add((scope, pair, a, b));
         }
         var leftOut = new Dictionary<string, long>(StringComparer.Ordinal)
         {
@@ -601,8 +601,8 @@ public static class PtmQtlCore
             ["D35 sites left out: windows disagree"] = windows.Count(w => !w.Value.Contains(null) && w.Value.Count > 1),
         };
         bool Joins(PairSite s) => windows[s.CanonicalKey] is { Count: 1 } w && !w.Contains(null);
-        var input = given.Where(g => Joins(g.Item3) && Joins(g.Item4)).Select(g => (g.Item1, g.Item2)).ToList();
-        leftOut["D35 dataset pairs left out"] = given.Count - input.Count;
+        var input = all.Where(g => !HoldsTwoKeys(g) && Joins(g.A) && Joins(g.B)).Select(g => (g.Scope, g.Pair)).ToList();
+        leftOut["D35 dataset pairs left out"] = all.Count - twoKeyPairs - input.Count;
         var rows = new List<Row>();
         foreach (var g in GlobalPairEngine.Combine(input, s => keys[s], minScopes: 2))
         {

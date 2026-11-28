@@ -540,8 +540,11 @@ public class PtmQtlEngineTests
         PairSite Rekey(PairSite s) => s.ToSite().Equals(site) ? s with { CanonicalKey = byName } : s;
         var twoWays = PtmQtlCore.Pool("mouse", all.Select(x => x.DatasetId == holder.DatasetId ? (x.DatasetId, x.Pair, Rekey(x.A), Rekey(x.B)) : x));
         bool Holds(Row r) => (string)r["feature_key_a"]! == key || (string)r["feature_key_b"]! == key;
+        static (string, string) Keys(Row r) => ((string)r["feature_key_a"]!, (string)r["feature_key_b"]!);
         Assert.Multiple(() =>
         {
+            // Exactly the pairs without the site survive (their q values are recomputed over the smaller family).
+            Assert.That(twoWays.Rows.Select(Keys), Is.EquivalentTo(agreed.Rows.Where(r => !Holds(r)).Select(Keys)));
             Assert.That(agreed.LeftOut["S5 sites left out: two cross-dataset keys"], Is.Zero);
             Assert.That(agreed.TwoKeySites, Is.Empty);
             Assert.That(twoWays.Rows.Any(Holds), Is.False);
