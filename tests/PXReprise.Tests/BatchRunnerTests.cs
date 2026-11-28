@@ -1136,6 +1136,27 @@ public class BatchRunnerTests
     public void ASearchKeyNamesItsDepositAndGroup(string key, string accession, string? group) =>
         Assert.That((SearchKey.Accession(key), SearchKey.Group(key)), Is.EqualTo((accession, group)));
 
+    /// <summary>G150: PXD022694, split by species and retried on 2026-11-21, waited a week because no queue listed it.</summary>
+    [Test]
+    public void ARequeuedSplitDepositThatNoQueueListsIsQueuedFirstAsItsGroups()
+    {
+        var (runner, _, _, dir) = SplitRunner(Pxd076192Split);
+        runner.Record("PXD076192", ("status", "requeued_user"), ("organism", "human"), ("title", "t"));
+        runner.Record("PXD000702", ("status", "requeued_user"), ("organism", "human"), ("title", "c"));   // not split: RequestedFirst takes it
+        runner.Record("PXD000703", ("status", "searched"), ("organism", "human"), ("title", "d"));        // settled: not queued again
+
+        var queue = runner.Expand(new[] { new QueueEntry("PXD000700", "a", "human") }).Select(runner.WithQuestionSpecies).ToList();
+
+        Assert.That(queue.Select(e => (e.Accession, e.Organism)), Is.EqualTo(new[] { ("PXD076192-mouse", "mouse"), ("PXD076192-human", "human"), ("PXD000700", "human") }),
+            "ahead of the queue, as its groups, each its group's species");
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")),
+            Does.Contain("PXD076192 queued as its split groups: a person put it back (batch retry or research), and no queue lists it"));
+
+        // A queue that lists it already expands it in its own place, once.
+        var listed = runner.Expand(new[] { new QueueEntry("PXD000700", "a", "human"), new QueueEntry("PXD076192", "t", "human") });
+        Assert.That(listed.Select(e => e.Accession), Is.EqualTo(new[] { "PXD000700", "PXD076192-mouse", "PXD076192-human" }));
+    }
+
     [Test]
     public async Task ASplitDepositIsSearchedAsItsGroupsAndPrideIsAskedForTheDeposit()
     {
