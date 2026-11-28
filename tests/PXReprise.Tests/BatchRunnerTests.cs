@@ -2966,6 +2966,141 @@ public class BatchRunnerTests
         Assert.That(File.Exists(args), Is.False, "nothing reached datarepo");
     }
 
+    // ------------------------------------------------------------------ the differential stage in the store (catalog format 18)
+
+    /// <summary>
+    /// A stand-in datarepo for the registration: each call's arguments appended as one line to args.txt. An ingest given
+    /// <c>--json</c> prints a real 1.0.0 envelope (the IngestEnvelopeTests fixture: PXD034059, bundle 24e3acd215f6ceb5). A run
+    /// prints the line datarepo prints for a written artefact, or fails when fail.txt exists.
+    /// </summary>
+    private static (string Machine, string Args, string Fail) DifferentialDatarepo()
+    {
+        string tools = TestSupport.TempDir();
+        string args = Path.Combine(tools, "args.txt"), fail = Path.Combine(tools, "fail.txt"), envelope = Path.Combine(tools, "envelope.json");
+        File.Copy(Path.Combine(TestContext.CurrentContext.TestDirectory, "Fixtures", "datarepo", "ingest-1.0.0-ingested.json"), envelope);
+        string datarepo;
+        if (OperatingSystem.IsWindows())
+        {
+            datarepo = TestSupport.WriteFile(tools, "datarepo.cmd",
+                $"@echo off\r\necho %*>> \"{args}\"\r\nif not \"%1\"==\"ingest\" goto run\r\nif \"%4\"==\"--json\" type \"{envelope}\"\r\nexit /b 0\r\n"
+                + $":run\r\nif not exist \"{fail}\" goto written\r\necho stage refused 1>&2\r\nexit /b 1\r\n"
+                + ":written\r\necho written  %2 artefact fedcba9876543210  store\r\nexit /b 0\r\n");
+        }
+        else
+        {
+            datarepo = TestSupport.WriteFile(tools, "datarepo",
+                $"#!/bin/sh\necho \"$*\" >> '{args}'\nif [ \"$1\" = ingest ]; then [ \"$4\" = --json ] && cat '{envelope}'; exit 0; fi\n"
+                + $"if [ -f '{fail}' ]; then echo 'stage refused' >&2; exit 1; fi\n"
+                + "echo \"written  $2 artefact fedcba9876543210  store\"\nexit 0\n");
+            File.SetUnixFileMode(datarepo, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+        return ($"datarepo = '{datarepo}'\n", args, fail);
+    }
+
+    /// <summary>A deposit's differential stage on disk (its record only: the batch reads nothing else of it).</summary>
+    private static string StageOnDisk(string dir, string acc)
+    {
+        string stage = Path.Combine(dir, "runs", acc, "06_differential");
+        Directory.CreateDirectory(stage);
+        File.WriteAllText(Path.Combine(stage, "provenance.json"), "{\"stage\": \"differential\"}");
+        return stage;
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task ADeliveryRegistersItsDifferentialStageAgainstTheBundleItsIngestWrote(bool json)
+    {
+        const string acc = "PXD034059";   // the envelope fixture's deposit
+        var (machine, args, _) = DifferentialDatarepo();
+        var (runner, _, _, dir) = Runner("[publish]\nmanifest = \"q/manifest.yaml\"\n", machine);
+        runner.IngestJsonForTest = json;
+        SearchedRun(dir, acc);
+        string stage = StageOnDisk(dir, acc);
+
+        await runner.DeliverAsync(new QueueEntry(acc, "t", "human"), Profiles["label-free-dda@1"], CancellationToken.None);
+
+        var calls = File.ReadAllLines(args).Select(l => l.Trim()).ToList();
+        Assert.That(calls, Has.Count.EqualTo(2), "the ingest, then the registration");
+        Assert.That(calls[1], Does.StartWith($"run differential.register {acc} --store ").And.Contain(Path.Combine(dir, "q", "store"))
+            .And.EndWith($"--input stage={stage}"), "the store the question's manifest names, and the deposit's own stage");
+        Assert.That(calls[1], json ? Does.Contain($"--bundle {acc}=24e3acd215f6ceb5").And.Not.Contain("--latest")
+                                   : Does.Contain("--latest").And.Not.Contain("--bundle"),
+            "pinned to the bundle the ingest wrote when its reply names it; the newest otherwise");
+        var entry = runner.State()["datasets"]![acc]!;
+        Assert.That(entry["differential_register_rc"]!.GetValue<int>(), Is.Zero);
+        Assert.That(entry["differential_register_artefact"]!.GetValue<string>(), Is.EqualTo("fedcba9876543210"));
+        Assert.That(entry["differential_register_bundle"]?.GetValue<string>(), json ? Is.EqualTo("24e3acd215f6ceb5") : Is.Null);
+        Assert.That(File.Exists(entry["differential_register_log"]!.GetValue<string>()), "the whole output is kept, as an ingest's is (G38)");
+    }
+
+    [Test]
+    public async Task ARefusedRegistrationIsRecordedAndTheDeliveryStands()
+    {
+        const string acc = "PXD034059";
+        var (machine, _, fail) = DifferentialDatarepo();
+        File.WriteAllText(fail, "");
+        var (runner, _, _, dir) = Runner("[publish]\nmanifest = \"q/manifest.yaml\"\n", machine);
+        runner.IngestJsonForTest = true;
+        SearchedRun(dir, acc);
+        StageOnDisk(dir, acc);
+
+        await runner.DeliverAsync(new QueueEntry(acc, "t", "human"), Profiles["label-free-dda@1"], CancellationToken.None);
+
+        var entry = runner.State()["datasets"]![acc]!;
+        Assert.That(entry["ingest_rc"]!.GetValue<int>(), Is.Zero, "delivered all the same");
+        Assert.That(entry["differential_register_rc"]!.GetValue<int>(), Is.EqualTo(1));
+        Assert.That(entry["differential_register_out"]!.GetValue<string>(), Does.Contain("stage refused"));
+        Assert.That(entry["differential_register_artefact"], Is.Null);
+    }
+
+    [Test]
+    public async Task BeforeAPublishTheCatchUpRegistersEachDeliveredStageNotYetRegisteredAgainstItsNewestBundle()
+    {
+        var (machine, args, _) = DifferentialDatarepo();
+        // A temp path, with no spaces. Double quotes on Linux: the command sits in a single-quoted TOML string.
+        string hook = OperatingSystem.IsWindows() ? $"echo hook>> {args}" : $"echo hook >> \"{args}\"";
+        var (runner, _, _, dir) = Runner($"[publish]\nmanifest = \"manifest.yaml\"\ncommand = {ShellToml(hook)}\nevery_h = 6\ntimeout_h = 1\n", machine);
+        File.WriteAllText(Path.Combine(dir, "manifest.yaml"), "manifest_version: 1\nstore: store\n");
+        string stage = StageOnDisk(dir, "PXD000001");
+        foreach (var acc in new[] { "PXD000002", "PXD000003", "PXD000004" }) StageOnDisk(dir, acc);
+        runner.Record("PXD000001", ("ingest_rc", 0), ("profile", "tmt-dda@1"), ("bundle_id", "aaaa"));            // a stage written outside the batch
+        runner.Record("PXD000002", ("ingest_rc", 0), ("profile", "label-free-dda@1"), ("differential_register_rc", 0));  // registered
+        runner.Record("PXD000003", ("ingest_rc", 0), ("profile", "label-free-dda@1"), ("differential_register_rc", 1));  // refused: not retried
+        runner.Record("PXD000004", ("ingest_rc", 1), ("profile", "label-free-dda@1"));                                 // not delivered
+        runner.Record("PXD000005", ("ingest_rc", 0), ("profile", "label-free-dda@1"));                                 // no stage
+
+        Assert.That(await runner.PublishIfDueAsync(true, CancellationToken.None), Is.Zero);
+
+        var calls = File.ReadAllLines(args).Select(l => l.Trim()).ToList();
+        Assert.That(calls, Has.Count.EqualTo(2));
+        Assert.That(calls[0], Does.StartWith("run differential.register PXD000001 --store " + Path.Combine(dir, "store"))
+            .And.Contain("--latest").And.Not.Contain("--bundle").And.EndWith($"--input stage={stage}"),
+            "an isobaric stage too, against the newest bundle: the one the catalog serves");
+        Assert.That(calls[1], Is.EqualTo("hook"), "the catalog is built after the registration");
+        var st = runner.State();
+        Assert.That(st["datasets"]!["PXD000001"]!["differential_register_rc"]!.GetValue<int>(), Is.Zero);
+        Assert.That(st["datasets"]!["PXD000003"]!["differential_register_rc"]!.GetValue<int>(), Is.EqualTo(1), "left as it was");
+        Assert.That(st["datasets"]!["PXD000005"]!["differential_register_rc"], Is.Null);
+    }
+
+    [Test]
+    public async Task ARegistrationThatCannotRunIsRecordedAndThePublishGoesOn()
+    {
+        // A manifest that names no store: the registration cannot be run, and says so in the state.
+        var (machine, args, _) = DifferentialDatarepo();
+        var (runner, _, _, dir) = Runner($"[publish]\nmanifest = \"manifest.yaml\"\ncommand = {ShellToml("exit 0")}\nevery_h = 6\ntimeout_h = 1\n", machine);
+        File.WriteAllText(Path.Combine(dir, "manifest.yaml"), "manifest_version: 1\n");
+        StageOnDisk(dir, "PXD000001");
+        runner.Record("PXD000001", ("ingest_rc", 0), ("profile", "label-free-dda@1"));
+
+        Assert.That(await runner.PublishIfDueAsync(true, CancellationToken.None), Is.Zero, "the publish goes on");
+
+        var entry = runner.State()["datasets"]!["PXD000001"]!;
+        Assert.That(entry["differential_register_rc"]!.GetValue<int>(), Is.EqualTo(-1));
+        Assert.That(entry["differential_register_out"]!.GetValue<string>(), Does.Contain("names no store"));
+        Assert.That(File.Exists(args), Is.False, "nothing reached datarepo");
+    }
+
     [Test]
     public async Task WithSiteTraitsOnAPublishWritesEachDepositsTraitsFileAndRunsSiteTraitsOneDepositAtATime()
     {
