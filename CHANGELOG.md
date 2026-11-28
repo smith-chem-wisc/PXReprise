@@ -13,6 +13,36 @@ One release holds the engine (`pxreprise`) and `datarepo`, under one version, fo
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## Unreleased
+
+datarepo's differential layer: `datarepo run differential.register` registers a deposit's `06_differential` stage
+beside the bundle of the search it read, and `build` serves it in seven `differential_*` tables (catalog format 18).
+
+**MetaMorpheus:** unchanged.
+
+**Machine file:** no new key.
+
+**Safe mid-batch?** Yes. No search, ingest or bundle changes.
+
+**Adopting:** a swap and a catalog rebuild, plus one `differential.register` per deposit whose run folder has a
+`06_differential/` stage. There is no re-ingest. No bundle id moves, and the ingest path stays `cs-1.5.0`. The catalog
+format moves from 17 to 18, so every catalog id moves at the rebuild. Each registration copies its stage into the store
+(`_engine/differential.register/`), at about the stage folder's size. On real stages that was 1 MB for a stage that
+analysed nothing, up to 342 MB for PXD011741-cortex's isobaric stage, most of it its 258 MB `isobaric/IsobaricPsms.tsv`.
+
+### datarepo
+
+- **`differential.register`** (new engine). It takes `--input stage=<run>/<PXD>/06_differential` and one accession. It
+  computes nothing. It refuses a stage unless every input the stage recorded is a source of the bundle, by sha256, or a
+  file the bundle's own copy of its search record lists by sha256 (MetaMorpheus's written `experiment.sdrf.tsv`). Each
+  input an analysis's metadata names by file must be the bundle's source of the same role. `observation_table`, which
+  names no file, is recorded and not bound (PXR-R85, option A). Both tables must have exactly mzLib's `diff-1.0`
+  header, and every cell must read as its column's type. The stage's counts must agree with its files. Every file of the
+  stage is kept in the artefact. A stage that analysed nothing (`one_condition`) is registered too.
+- **Catalog format 18:** `differential_stages`, `differential_analyses`, `differential_results`,
+  `differential_decisions`, `differential_exclusions`, `differential_findings` and `differential_files`, in every
+  catalog, empty when no stage is registered. Two stages for one bundle are refused.
+
 ## 1.0.2 (2026-11-27)
 
 Three changes to the batch: a requeued deposit is delivered from its new search (G144), each probe file is searched on

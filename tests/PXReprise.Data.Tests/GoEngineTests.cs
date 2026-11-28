@@ -431,7 +431,7 @@ public class GoEngineTests
                     Is.EquivalentTo(new[] { "go.annotate_databases go.obo", "go.resolve_members members", "go.resolve_members entries" }));
                 Assert.That(built.Checks.Count(c => c.Kind == "row_count" && c.Name.StartsWith("go.", StringComparison.Ordinal)), Is.EqualTo(5),
                     "go_terms, go_closure, go_term_categories, go_accession_terms and go_group_members, each whole");
-                Assert.That(Rows(built.Path, "SELECT catalog_version FROM catalog_meta").Single(), Is.EqualTo("17"));
+                Assert.That(Rows(built.Path, "SELECT catalog_version FROM catalog_meta").Single(), Is.EqualTo("18"));
                 // The join a consumer makes: a protein's compartment to the map's category, within one dataset and release.
                 Assert.That(Rows(built.Path,
                     "SELECT DISTINCT c.organelle_category FROM protein_localizations l JOIN organelle_term_categories c "

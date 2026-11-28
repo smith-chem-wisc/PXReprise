@@ -391,6 +391,25 @@ ORDER BY g.gene_symbol NULLS FIRST, a.accession;
 A NULL `outcome` means logs has not resolved that file (`catalog_checks` of kind `engine-coverage`), not that the
 accession has no gene.
 
+### What changed between conditions (catalog format 18)
+
+`differential_results` holds mzLib's differential abundance of each search whose stage is registered, one row per
+protein group and contrast, in each analysis (`mbr_kept` keeps values transferred between runs, `msms_only` does not).
+A row with no number is kept and says why in `status`, so filter on it:
+
+```sql
+SELECT r.dataset_id, r.contrast_label, r.feature_id, r.log2_effect, r.p_adjusted, pg.q_value
+FROM differential_results r
+JOIN differential_analyses a ON a.analysis_id = r.analysis_id AND a.bundle_id = r.bundle_id
+LEFT JOIN protein_groups pg
+  ON pg.bundle_id = r.bundle_id AND pg.protein_group_id = r.dataset_id || ':' || r.feature_accessions
+WHERE a.name = 'msms_only' AND r.status IN ('fitted', 'fitted_single_peptide') AND r.p_adjusted <= 0.05
+ORDER BY r.p_adjusted;
+```
+
+A dataset with no `differential_stages` row has no stage registered (`catalog_checks` of kind `engine-coverage`). One
+with `analysed = false` ran and had nothing to compare: `differential_findings` says why.
+
 ---
 
 ## 3 · Trust: what the bundle itself says is wrong

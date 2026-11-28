@@ -1,0 +1,102 @@
+{
+  "schema": "pxreprise-differential/1",
+  "stage": "differential",
+  "started_utc": "2026-11-27T20:01:10Z",
+  "host": "MOZZLE",
+  "tools": {
+    "pxreprise": "1.0.1+e8923acf094ce4ca25c1b329b2c33a6463ed6d1d",
+    "mzlib": "1.0.601+2e8c583d8240b037201fe80f3ad802669b587efa",
+    "dotnet": "10.0.15"
+  },
+  "definition": "QuantProject:DEF-DIFF-ABUNDANCE v1",
+  "method_version": "diff-1.0",
+  "search": {
+    "dir": "F:\\aging_data\\run_2026-09-21\\PXD036557\\04_search",
+    "task_folder": "Task3SearchTask",
+    "pipeline": "1.0.1+e8923acf094ce4ca25c1b329b2c33a6463ed6d1d",
+    "metamorpheus": "1.1.16",
+    "identification_filter": {
+      "counts": [
+        {
+          "of": "PSMs",
+          "filter": "pep q-value",
+          "threshold": 0.01
+        },
+        {
+          "of": "peptides",
+          "filter": "pep q-value",
+          "threshold": 0.01
+        },
+        {
+          "of": "protein groups",
+          "filter": "pep q-value",
+          "threshold": 0.01
+        }
+      ],
+      "notes": [],
+      "pep_trained": true
+    }
+  },
+  "quant_style": "lfq",
+  "match_between_runs": true,
+  "design": {
+    "file": "F:\\aging_data\\run_2026-09-21\\PXD036557\\04_search\\mm\\Task3SearchTask\\ExperimentalDesign.tsv",
+    "sha256": "0b4bc363aa1557867272012c930741ef82eeb65d441032d569de8e094a3aa2f9",
+    "samples": 18,
+    "conditions": [
+      "control",
+      "progeria"
+    ]
+  },
+  "corrected_sdrf": null,
+  "individuals": {
+    "source": null,
+    "reason": "the SDRF has no characteristics[individual]"
+  },
+  "samples_left_out": [],
+  "lost_transfer_files": [],
+  "analysed": true,
+  "analyses": [
+    {
+      "name": "mbr_kept",
+      "quant_basis": "mbr_kept",
+      "dir": "F:\\aging_data\\run_2026-09-21\\PXD036557\\06_differential\\mbr_kept",
+      "analysis_id": "40e56c2e0cfeed5c",
+      "samples": 18,
+      "rows": 12,
+      "by_status": {
+        "absent_in_denominator": 2,
+        "absent_in_numerator": 2,
+        "below_support:min_2_per_side": 2,
+        "below_support:no_unique_peptides": 2,
+        "fitted": 2,
+        "fitted_single_peptide": 2
+      },
+      "contrasts": 1,
+      "decisions": 6,
+      "design_warnings": [
+        "No reference level was declared for factor 'condition', so every pair of its levels is compared (GR-14). Levels: control, progeria."
+      ]
+    }
+  ],
+  "findings": [],
+  "assumptions": "DifferentialAssumptions.md",
+  "inputs": [
+    {
+      "path": "F:\\aging_data\\run_2026-09-21\\PXD036557\\04_search\\provenance.json",
+      "size_bytes": 31224,
+      "sha256": "{{sha:provenance:04_search}}"
+    },
+    {
+      "path": "F:\\aging_data\\run_2026-09-21\\PXD036557\\04_search\\mm\\Task3SearchTask\\AllQuantifiedPeptides.tsv",
+      "size_bytes": 3613513,
+      "sha256": "{{sha:peptide_quant}}"
+    },
+    {
+      "path": "F:\\aging_data\\run_2026-09-21\\PXD036557\\04_search\\mm\\Task3SearchTask\\AllQuantifiedProteinGroups.tsv",
+      "size_bytes": 7486504,
+      "sha256": "{{sha:protein_group_quant}}"
+    }
+  ],
+  "finished_utc": "2026-11-27T20:01:48Z"
+}

@@ -332,6 +332,21 @@ and any dataset the census does not include, in `catalog_checks` (kind `census`)
     From 1.5.0, `build` copies its rows, through its own `views.sql`, into five orthology tables, `protein_orthologs`
     among them ([build.md](build.md#cross-dataset-tables)). A catalog serves one snapshot, and `build` fails if the gene
     resolutions it loads used other gene sets than the snapshot's.
+  - `differential.register <PXD> --input stage=<run>/<PXD>/06_differential` (from catalog format 18): registers one
+    deposit's differential stage, the analysis PXReprise's batch writes after a search (QuantProject's
+    `DEF-DIFF-ABUNDANCE`, computed by mzLib). It computes nothing. It takes the stage only when every input the stage
+    recorded is a source of the dataset's bundle, by sha256, or a file that bundle's search record lists by sha256 (the
+    written `experiment.sdrf.tsv`). A stage computed from another search is refused, and the refusal names the bundle it
+    does belong to when the store holds one: pin that one with `--bundle`. A stage that analysed nothing (one condition,
+    for example) is registered too, so a catalog says why there is no analysis. The artefact keeps every file of the
+    stage, so it outlives a superseded run folder. `build` serves it in seven `differential_*` tables
+    ([build.md](build.md#the-differential-layer)). One stage per bundle: after re-running the stage over the same search,
+    move the old artefact out of `<store>/_engine/differential.register/`, or `build` refuses both. No re-ingest is ever
+    needed: a re-ingest that writes a new bundle needs the stage registered again for it. For example:
+
+    ```bash
+    datarepo run differential.register PXD032202 --store store --latest --input stage=F:/aging_data/run_2026-09-21/PXD032202/06_differential
+    ```
 - **`datarepo study`** delivers a study layer's rows, such as age effects, sample ages, or curated
   tissue and cell type. They go into a separately hashed study bundle, so delivering a model result
   never re-identifies a search bundle. See [study.md](study.md).

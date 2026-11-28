@@ -179,7 +179,7 @@ datarepo publish manifest.yaml --site site --title "Example repository" --purpos
 
 ```
 catalog  …/example-instance/catalog.duckdb
-  id       1493799624723b57
+  id       89069f14ad1b2d61
   dataset  PXD999999    bundle 65f1a260e95b20e1
   pride    0 of 1 deposit(s) have a fetched PRIDE record; `datarepo pride --store …/example-instance/store` fetches the rest
   note     logs.resolve_genes coverage (databases with an artefact): 0 of 1; no artefact for 89fb8c7a1140 (PXD999999)
@@ -188,12 +188,13 @@ catalog  …/example-instance/catalog.duckdb
   note     go.resolve_members coverage (bundles served GO): 0 of 1; not served: PXD999999 (65f1a260e95b20e1): no go.resolve_members artefact
   note     logs.register_orthology (snapshots registered): 0 of 1; no snapshot registered
   note     ptmqtl.site_pairs coverage (bundles with an artefact): 0 of 1; no artefact for PXD999999
+  note     differential.register coverage (bundles with a registered stage): 0 of 1; no stage registered for PXD999999
   tables   assays 2, datasets 1, definitions 14, findings 7, gene_resolutions 0, …
   indexes  23
-  checks   66 run, all passed
+  checks   67 run, all passed
   timing   tables 0.4 s, derived: sample names 0.0 s, …
 site     site
-  catalog  1493799624723b57
+  catalog  89069f14ad1b2d61
   wrote    36 files, 1 dataset page
   skipped  croissant.json: no --data-url: a Croissant file describes downloadable files, …
   skipped  robots.txt: no --base-url: both need the site's absolute address
@@ -281,16 +282,16 @@ datarepo mcp --catalog catalog.duckdb --check
 
 ```
 catalog  catalog.duckdb
-  id       1493799624723b57
+  id       89069f14ad1b2d61
   built    … by datarepo 1.0.2
   dataset  PXD999999           58 PSMs at 1%
   tools    datarepo_describe, datarepo_search, datarepo_sql
-  empty    48 table(s) present with no rows
+  empty    55 table(s) present with no rows
 ```
 
-`48 table(s) present with no rows` is expected here. The schema has tables for data this small
+`55 table(s) present with no rows` is expected here. The schema has tables for data this small
 example does not have (glycopeptides, age effects, GO annotation, orthology, PRIDE records, TMT channels, runs
-excluded from analysis). They exist and are empty, and an agent is told so. An empty table is never a negative answer.
+excluded from analysis, differential abundance). They exist and are empty, and an agent is told so. An empty table is never a negative answer.
 
 To register the catalog with [Claude Code](https://claude.com/claude-code):
 

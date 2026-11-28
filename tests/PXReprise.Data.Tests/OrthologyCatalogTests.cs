@@ -195,7 +195,7 @@ public class OrthologyCatalogTests
                 Assert.That(built.Checks.Where(c => c.Kind == "engine-consistency"), Is.Empty, "nothing to check without a snapshot");
                 Assert.That(built.Checks.Single(c => c.Name.StartsWith("logs.register_orthology", StringComparison.Ordinal)).Detail,
                     Is.EqualTo("no snapshot registered"));
-                Assert.That(Rows(built.Path, "SELECT catalog_version FROM catalog_meta").Single(), Is.EqualTo("17"));
+                Assert.That(Rows(built.Path, "SELECT catalog_version FROM catalog_meta").Single(), Is.EqualTo("18"));
             });
         }
     }
@@ -349,7 +349,7 @@ public class OrthologyCatalogTests
                     Is.EqualTo(new[] { "true|9" }), "manifest.json and the eight files it lists");
                 Assert.That(Scalar(at, "SELECT count(*) FROM duckdb_functions() "
                     + "WHERE function_name IN ('orthologs', 'pair_status', 'species_set3', 'orthology_pair_file')"), Is.EqualTo(0));
-                Assert.That(Rows(at, "SELECT catalog_version FROM catalog_meta").Single(), Is.EqualTo("17"));
+                Assert.That(Rows(at, "SELECT catalog_version FROM catalog_meta").Single(), Is.EqualTo("18"));
             });
         }
         Assert.That(file.RowCounts[CatalogBuilder.ProteinOrthologsTable], Is.EqualTo(answers.Length));

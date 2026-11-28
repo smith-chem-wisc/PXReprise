@@ -29,11 +29,28 @@ internal static class RunCommand
         return chosen;
     }
 
+    /// <summary>What <c>differential.register</c> prints: each artefact written, the bundle it binds, its rows and, for a
+    /// stage that analysed nothing, its findings' kinds; then each that was already done.</summary>
+    internal static void ReportRegistered(RunResult registered, TextWriter output)
+    {
+        foreach (var reference in registered.Written)
+        {
+            var summary = reference.Record.GetValueOrDefault("engine_summary") as IReadOnlyDictionary<string, object?>;
+            output.WriteLine($"written  {reference.Engine} artefact {reference.ArtefactId}  {reference.Path}");
+            output.WriteLine($"  bound    {summary?.GetValueOrDefault("dataset_id")} bundle {summary?.GetValueOrDefault("bundle_id")}");
+            output.WriteLine($"  rows     {PyFormat.Repr(reference.RowCounts.ToDictionary(kv => kv.Key, kv => (object?)kv.Value))}");
+            if (summary?.GetValueOrDefault("analysed") is false)
+                output.WriteLine($"  analysed none: {PyFormat.Repr(summary.GetValueOrDefault("finding_kinds"))}");
+        }
+        foreach (var reference in registered.AlreadyDone)
+            output.WriteLine($"done     {reference.Engine} artefact {reference.ArtefactId} already exists; nothing re-run");
+    }
+
     public static int Run(string[] argv)
     {
         var a = new Args.Spec("datarepo run", Cli.Summaries["run"])
             .Positional("engine", $"the engine to run: {string.Join(", ", EngineRunner.Engines)}")
-            .Positional("accession", "datasets to run on (logs, go.annotate_databases: their searched databases; go.resolve_members, ptmqtl: their searches; none for logs.register_orthology or go.categorize_terms)", "*")
+            .Positional("accession", "datasets to run on (logs, go.annotate_databases: their searched databases; go.resolve_members, ptmqtl: their searches; differential.register: the one deposit whose stage it is; none for logs.register_orthology or go.categorize_terms)", "*")
             .Option("--store", Args.Kind.Value, "the instance's bundle store", required: true)
             .Option("--input", Args.Kind.Append, "an input file by role; repeatable", metavar: "ROLE=PATH")
             .Option("--bundle", Args.Kind.Append, "pin a dataset to one bundle id", metavar: "PXD=ID")
@@ -109,6 +126,11 @@ internal static class RunCommand
             throw new Args.UsageException("usage: datarepo run [-h] --store STORE [--input ROLE=PATH] [--bundle PXD=ID] [--latest] engine [accession ...]",
                 $"{engine} needs at least one accession");
         var bundles = PickBundles(store, accessions, pins, a.Flag("--latest"));
+        if (engine == DifferentialEngine.Engine)
+        {
+            ReportRegistered(DifferentialEngine.Run(store, bundles, inputs), Console.Out);
+            return 0;
+        }
         if (engine.StartsWith("ptmqtl.", StringComparison.Ordinal))
         {
             var ran = engine switch
