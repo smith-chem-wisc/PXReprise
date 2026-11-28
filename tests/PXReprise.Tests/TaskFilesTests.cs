@@ -212,6 +212,9 @@ public class TaskFilesTests
     /// task files (<c>CMD -g</c> output) edited by this code must equal, byte for byte, the files that search actually
     /// ran with. Needs the aging work disk; skipped elsewhere.
     /// </summary>
+    /// <remarks>G149 (2026-11-28): only the batch's run roots (<c>run_*</c>) are read. A search elsewhere on the disk, such as
+    /// a MetaMorpheus pilot on the workers' share (<c>incoming\status\pilots\mm-next-trial</c>, whose provenance names no
+    /// release), is not the batch's and runs other task files by design; it failed this test on master.</remarks>
     [Test, Category("LocalCorpus")]
     public void EveryAgingSearchsTaskFilesAreReproducedByteForByte()
     {
@@ -221,7 +224,8 @@ public class TaskFilesTests
 
         int datasets = 0, files = 0;
         var mismatches = new List<string>();
-        foreach (string tasks in Directory.EnumerateDirectories(root, "tasks", SearchOption.AllDirectories)
+        foreach (string tasks in Directory.EnumerateDirectories(root, "run_*")
+                     .SelectMany(runRoot => Directory.EnumerateDirectories(runRoot, "tasks", SearchOption.AllDirectories))
                      .Where(d => Path.GetFileName(Path.GetDirectoryName(d)) == "04_search").OrderBy(d => d))
         {
             string provFile = Path.Combine(Path.GetDirectoryName(tasks)!, "provenance.json");
