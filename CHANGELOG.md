@@ -13,6 +13,32 @@ One release holds the engine (`pxreprise`) and `datarepo`, under one version, fo
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
+## Unreleased
+
+The batch registers each deposit's differential stage in the store itself, so the catalog serves it with no operator's
+step.
+
+**MetaMorpheus:** unchanged.
+
+**Machine file:** no new key.
+
+**Safe mid-batch?** Yes: swap the pin and its datarepo together, as usual. No search, ingest or bundle changes.
+
+**Adopting:** a swap only. The publishes after the swap register every delivered deposit's stage not yet registered,
+50 a publish, so no one-time `differential.register` pass is needed. No bundle id moves.
+
+- **The batch registers each differential stage** (`datarepo run differential.register`, from 1.0.3's catalog format 18).
+  - After a deposit's ingest succeeds, it registers the deposit's `06_differential` against the bundle that ingest wrote
+    (`--bundle <PXD>=<id>`). A re-searched deposit has several bundles, and a stage binds only to the search it read.
+    Where the ingest's reply names no bundle, it takes the newest one (`--latest`).
+  - Before each publish builds the catalog, it registers up to 50 delivered deposits that have a stage on disk and no
+    registration recorded, each against its newest bundle. These are the deposits delivered before this release, and
+    stages written outside the batch. Registering a stage already in the store is "already done" and writes nothing.
+  - A deposit with no stage (the machine turns the stage off, or it failed) has nothing to register.
+  - The result is kept in `state.json` (`differential_register_rc`, `_artefact`, `_bundle`, `_out`, `_log`) and in
+    batch.log (`DIFFERENTIAL registered`). A failure never fails a delivery or a publish, and a recorded result is not
+    retried: a refusal says why, for an operator to decide.
+
 ## 1.0.3 (2026-11-28)
 
 datarepo's differential layer: `datarepo run differential.register` registers a deposit's `06_differential` stage

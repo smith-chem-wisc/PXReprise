@@ -2005,6 +2005,82 @@ public sealed class BatchRunner
         }
     }
 
+    /// <summary>How long one registration may take. It copies the stage into the store: on aging's, 1 MB for a stage that
+    /// analysed nothing, up to 342 MB for an isobaric one.</summary>
+    internal static readonly TimeSpan DifferentialRegisterTimeout = TimeSpan.FromHours(1);
+
+    /// <summary>At most this many deposits a publish registers that were delivered with a stage and no registration
+    /// recorded. That covers deposits delivered before the batch registered stages, and stages written outside it.</summary>
+    internal const int DifferentialCatchUpPerPublish = 50;
+
+    /// <summary>datarepo's engine that registers a stage (<c>PXReprise.Catalog.Runner.DifferentialEngine</c>, from catalog
+    /// format 18).</summary>
+    internal const string DifferentialRegisterEngine = "differential.register";
+
+    /// <summary>
+    /// <c>datarepo run differential.register &lt;acc&gt; --store &lt;store&gt; (--bundle &lt;acc&gt;=&lt;id&gt; | --latest)
+    /// --input stage=&lt;stage&gt;</c>. The bundle is pinned to the one the delivery's ingest wrote, because a re-searched
+    /// deposit has several and the stage binds only to the search it read. With no bundle id known, the newest one, which
+    /// the catalog serves.
+    /// </summary>
+    internal static List<string> DifferentialRegisterArgv(string datarepo, string acc, string store, string stage, string? bundleId)
+    {
+        var argv = new List<string> { datarepo, "run", DifferentialRegisterEngine, acc, "--store", store };
+        argv.AddRange(bundleId is null ? ["--latest"] : ["--bundle", $"{acc}={bundleId}"]);
+        argv.AddRange(["--input", $"stage={stage}"]);
+        return argv;
+    }
+
+    /// <summary>
+    /// After a delivery, and in the publish's catch-up: registers the deposit's differential stage (06_differential)
+    /// beside its bundle in the store, so the catalog serves it (datarepo's differential layer, catalog format 18). It
+    /// runs under the delivery lock, as the ingest does. A deposit with no stage (the machine turns the stage off, or it
+    /// failed) has nothing to register. A failure is logged and recorded, never a failed delivery, and a recorded result
+    /// is not retried: a datarepo that refuses a stage says why, and an operator decides.
+    /// </summary>
+    private async Task DifferentialRegisterAsync(string acc, string manifest, string? bundleId, CancellationToken ct)
+    {
+        string stage = Path.Combine(Run(acc), "06_differential");
+        if (_m.DataRepo is null || !File.Exists(Path.Combine(stage, "provenance.json"))) return;
+        try
+        {
+            var argv = DifferentialRegisterArgv(_m.DataRepo, acc, PtmQtlBatch.StoreOf(manifest), stage, bundleId);
+            var (exit, stdout, stderr) = await RunProcessFullAsync(argv, DifferentialRegisterTimeout, ct).ConfigureAwait(false);
+            string full = KeepOutput(OutputDir, acc, "differential_register", argv, exit, stdout, stderr, DateTime.UtcNow);
+            var (written, done) = PtmQtlBatch.ReadOutput(stdout);
+            string? artefact = written.Concat(done).FirstOrDefault();
+            string tail = Tail((stdout + stderr).Trim());
+            Log($"{acc} DIFFERENTIAL registered rc={exit} {(bundleId is null ? "newest bundle" : $"bundle={bundleId}")}"
+                + (artefact is null ? "" : $" artefact={artefact}{(written.Count == 0 ? " (already registered)" : "")}") + $" (full output {full})"
+                + (exit == 0 ? "" : $"\n{tail}"));
+            Record(acc, ("differential_register_rc", exit), ("differential_register_artefact", artefact), ("differential_register_bundle", bundleId),
+                ("differential_register_out", tail), ("differential_register_log", full));
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            Log($"{acc} DIFFERENTIAL could not be registered ({ex.GetType().Name}: {ex.Message}); the delivery stands");
+            Record(acc, ("differential_register_rc", -1), ("differential_register_out", ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// Before the question's publish builds the catalog, under the delivery lock: registers the stage of at most
+    /// <see cref="DifferentialCatchUpPerPublish"/> delivered deposits that have one on disk and no registration recorded,
+    /// each against its newest bundle. Registering a stage already in the store is "already done", and writes nothing.
+    /// </summary>
+    private async Task DifferentialCatchUpAsync(string manifest, CancellationToken ct)
+    {
+        if (_m.DataRepo is null) return;
+        var behind = State()["datasets"]!.AsObject()
+            .Where(kv => kv.Value is JsonObject o && Delivered(o) && o["differential_register_rc"] is null
+                         && File.Exists(Path.Combine(Run(kv.Key), "06_differential", "provenance.json")))
+            .Select(kv => kv.Key).Order(StringComparer.Ordinal).ToList();
+        if (behind.Count == 0) return;
+        Log($"DIFFERENTIAL catch-up: registering {Math.Min(behind.Count, DifferentialCatchUpPerPublish)} of {behind.Count} delivered deposit(s) with a stage and no registration recorded");
+        foreach (var acc in behind.Take(DifferentialCatchUpPerPublish))
+            await DifferentialRegisterAsync(acc, manifest, null, ct).ConfigureAwait(false);
+    }
+
     private void Cleanup(string acc)
     {
         try
@@ -2168,6 +2244,7 @@ public sealed class BatchRunner
         // ingest as begun, so a driver that dies inside it leaves the deposit undelivered and the next start re-ingests.
         Record(e.Accession, ("ingest_rc", -1), ("ingest_out", $"ingest started {DateTime.UtcNow:yyyy-MM-dd'T'HH:mm:ss'Z'} and has not finished"));
         int rc;
+        string? bundleId = null;   // this ingest's bundle, when datarepo's reply names it
         if (_ingestJson)
         {
             // datarepo 1.0+: one JSON envelope on stdout, the human report on stderr.
@@ -2176,6 +2253,7 @@ public sealed class BatchRunner
             string full = KeepOutput(OutputDir, e.Accession, "ingest", argv, exit, stdout, stderr, DateTime.UtcNow);
             var o = IngestEnvelope.Read(stdout, e.Accession, exit);
             rc = o.Rc;
+            bundleId = o.BundleId;
             string report = Tail(stderr);
             Log($"{e.Accession} INGEST rc={rc} status={o.Status ?? "?"}{(o.BundleId is null ? "" : $" bundle={o.BundleId}")}{(o.Mismatches is > 0 ? $" mismatches={o.Mismatches}" : "")}"
                 + (o.Reasons.Count > 0 ? $" reasons: {string.Join(" | ", o.Reasons)}" : "") + $" (full output {full})\n{report}");
@@ -2207,6 +2285,7 @@ public sealed class BatchRunner
             }
             Prune(e.Accession);
             await PtmQtlSitePairsAsync(e.Accession, profile, manifest, ct).ConfigureAwait(false);
+            await DifferentialRegisterAsync(e.Accession, manifest, bundleId, ct).ConfigureAwait(false);
         }
         if (rc != 0 || _q.Publish.Command.Count == 0) return;
         // D41 rule 6: publishing is scheduled (PublishLoopAsync), no longer run after each ingest. A new delivery waits for
@@ -2291,6 +2370,7 @@ public sealed class BatchRunner
             DateTime started = DateTime.UtcNow;
             RecordPublish(("last_started_utc", started.ToString("o")), ("waiting", Names(waiting)));
             Log($"PUBLISH start: {waiting.Count} deposit(s) delivered since the last successful publish ({Brief(waiting)}); limit {pub.TimeoutHours:0.#} h, free {FreeGb():0} GB");
+            await DifferentialCatchUpAsync(pub.Manifest!, ct).ConfigureAwait(false);
             await PtmQtlBeforePublishAsync(pub.Manifest!, ct).ConfigureAwait(false);
             // G38 (promised to dataRepo): the whole output goes to a file; batch.log and state keep only the tail.
             var argv = PublishArgv(pub.Command, pub.Manifest!, _m.DataRepo!);
