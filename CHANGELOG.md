@@ -26,7 +26,9 @@ beside the bundle of the search it read, and `build` serves it in seven `differe
 
 **Adopting:** a swap and a catalog rebuild, plus one `differential.register` per deposit whose run folder has a
 `06_differential/` stage. There is no re-ingest. No bundle id moves, and the ingest path stays `cs-1.5.0`. The catalog
-format moves from 17 to 18, so every catalog id moves at the rebuild.
+format moves from 17 to 18, so every catalog id moves at the rebuild. Each registration copies its stage into the store
+(`_engine/differential.register/`), at about the stage folder's size. On real stages that was 1 MB for a stage that
+analysed nothing, up to 342 MB for PXD011741-cortex's isobaric stage, most of it its 258 MB `isobaric/IsobaricPsms.tsv`.
 
 ### datarepo
 
