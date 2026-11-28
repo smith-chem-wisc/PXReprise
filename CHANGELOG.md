@@ -13,22 +13,37 @@ One release holds the engine (`pxreprise`) and `datarepo`, under one version, fo
 A new version of the engine never changes a finished result. Methods live in versioned profiles
 (`label-free-dda@2`), and every result's `provenance.json` records the PXReprise version that made it.
 
-## Unreleased
+## 1.0.3 (2026-11-28)
 
 datarepo's differential layer: `datarepo run differential.register` registers a deposit's `06_differential` stage
 beside the bundle of the search it read, and `build` serves it in seven `differential_*` tables (catalog format 18).
+Also, ptmQtl's pooling no longer refuses a whole species because one site is keyed two ways across deposits: it leaves
+that site out and counts it.
 
-**MetaMorpheus:** unchanged.
+**MetaMorpheus:** unchanged. The profiles and MetaMorpheus versions are 1.0.0's.
 
-**Machine file:** no new key.
+**Machine file:** no new key. `datarepo` must name this release's datarepo (the `datarepo` folder of its archive), as
+for every release: a batch refuses any other at its start.
 
-**Safe mid-batch?** Yes. No search, ingest or bundle changes.
+**Safe mid-batch?** Yes: swap the pin and its datarepo together, as usual. No search, ingest or bundle changes. The
+pooling change applies from the next `ptmqtl.pool_pairs` run, at the next publish.
 
 **Adopting:** a swap and a catalog rebuild, plus one `differential.register` per deposit whose run folder has a
 `06_differential/` stage. There is no re-ingest. No bundle id moves, and the ingest path stays `cs-1.5.0`. The catalog
 format moves from 17 to 18, so every catalog id moves at the rebuild. Each registration copies its stage into the store
 (`_engine/differential.register/`), at about the stage folder's size. On real stages that was 1 MB for a stage that
 analysed nothing, up to 342 MB for PXD011741-cortex's isobaric stage, most of it its 258 MB `isobaric/IsobaricPsms.tsv`.
+No pooled ptmQtl artefact already written changes: a pool that held a site keyed two ways refused, so none exists.
+
+- **`ptmqtl.pool_pairs` leaves out a site keyed two ways, and counts it** (ptmQtl's decision D92). Each deposit keys a
+  modified site by the UNIMOD id its own `ptm_sites` gives the modification, or by the modification's name where it gives
+  none. A site keyed both ways across the deposits being pooled (on aging: P46783 R158, symmetric dimethylarginine,
+  `UNIMOD:36` in PXD027318 and by name in PXD032202) made the pool refuse, so nothing was written for the species.
+  - Such a site is now left out in every deposit, with every pair that holds it.
+  - It is counted as `S5 sites left out: two cross-dataset keys` and `S5 dataset pairs left out: two cross-dataset keys`,
+    apart from `D35 dataset pairs left out`. Its windows no longer enter D35's tally, so it is not counted twice.
+  - The run record's `engine_summary.two_key_sites` lists each such site with its keys.
+  - Every other pair pools as before. `ptmQtl:DEF-PTM-PAIR` stays v3.
 
 ### datarepo
 
