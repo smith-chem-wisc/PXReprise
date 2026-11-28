@@ -217,6 +217,15 @@ public static class PtmQtlEngine
         return path;
     }
 
+    /// <summary>ptmQtl D92 in a <c>pool_pairs</c> run record: each site left out for two cross-dataset keys, with its
+    /// keys; empty when there are none.</summary>
+    internal static List<object?> TwoKeySitesRecord(IReadOnlyList<(string Site, IReadOnlyList<string> Keys)> sites) =>
+        sites.Select(t => (object?)new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["site"] = t.Site,
+            ["keys"] = t.Keys.Select(k => (object?)k).ToList(),
+        }).ToList();
+
     /// <summary>D78's null in a <c>site_pairs</c> run record, or null where type A was not computed.</summary>
     internal static Dictionary<string, object?>? DepthNullRecord(DepthNullResult? n) => n is null ? null : new Dictionary<string, object?>
     {
@@ -441,6 +450,7 @@ public static class PtmQtlEngine
                     ["rows_p"] = (long)rows.Count(r => (string)r["result_type"]! == "P"),
                     ["rows_a"] = (long)rows.Count(r => (string)r["result_type"]! == "A"),
                     ["left_out"] = Counts(pooled.LeftOut),
+                    ["two_key_sites"] = TwoKeySitesRecord(pooled.TwoKeySites),
                     ["not_pooled_s3b"] = notPooled,
                     ["depth_like_datasets"] = depthLike.Order(StringComparer.Ordinal).Select(d => (object?)d).ToList(),
                     ["bundles"] = members.Select(m => (object?)BundleRecord(m.Bundle)).ToList(),
