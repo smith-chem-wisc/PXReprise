@@ -1136,6 +1136,40 @@ public class BatchRunnerTests
     public void ASearchKeyNamesItsDepositAndGroup(string key, string accession, string? group) =>
         Assert.That((SearchKey.Accession(key), SearchKey.Group(key)), Is.EqualTo((accession, group)));
 
+    /// <summary>G150: PXD022694, split by species and retried on 2026-11-21, waited a week because no queue listed it.</summary>
+    [Test]
+    public void ARequeuedSplitDepositThatNoQueueListsIsQueuedFirstAsItsGroups()
+    {
+        static string SplitOf(string acc) => Pxd076192Split.Replace("PXD076192", acc);
+        var (runner, _, _, dir) = SplitRunner(Pxd076192Split + string.Concat(new[] { "PXD000800", "PXD000801", "PXD000802", "PXD000803" }.Select(SplitOf)));
+        runner.Record("PXD000800", ("status", "requeued_user"), ("organism", "human"));                   // no title; no time (below): first
+        runner.Record("PXD076192", ("status", "requeued_user"), ("organism", "human"), ("title", "t"));
+        runner.Record("PXD000801", ("status", "requeued_user"), ("title", "f"));                          // no organism: not taken
+        runner.Record("PXD000802", ("title", "g"));                                                       // no status: not taken
+        runner.Record("PXD000803", ("status", "searched"), ("organism", "human"), ("title", "h"));        // a split deposit settled: not taken
+        runner.Record("PXD000702", ("status", "requeued_user"), ("organism", "human"), ("title", "c"));   // not split: RequestedFirst takes it
+        runner.Record("PXD000703", ("status", "searched"), ("organism", "human"), ("title", "d"));        // settled: not queued again
+        // An entry written before requeues stamped a time sorts first.
+        string stateFile = Path.Combine(dir, "state", "state.json");
+        var state = JsonNode.Parse(File.ReadAllText(stateFile))!;
+        state["datasets"]!["PXD000800"]!.AsObject().Remove("updated_utc");
+        File.WriteAllText(stateFile, state.ToJsonString());
+
+        var queue = runner.Expand(new[] { new QueueEntry("PXD000700", "a", "human") }).Select(runner.WithQuestionSpecies).ToList();
+
+        Assert.That(queue.Select(e => (e.Accession, e.Organism)), Is.EqualTo(new[]
+            {
+                ("PXD000800-mouse", "mouse"), ("PXD000800-human", "human"), ("PXD076192-mouse", "mouse"), ("PXD076192-human", "human"), ("PXD000700", "human"),
+            }),
+            "ahead of the queue, oldest request first, as its groups, each its group's species");
+        Assert.That(File.ReadAllText(Path.Combine(dir, "state", "batch.log")),
+            Does.Contain("PXD076192 queued as its split groups: a person put it back (batch retry or research), and no queue lists it"));
+
+        // A queue that lists one already expands it in its own place, once; the other still goes first.
+        var listed = runner.Expand(new[] { new QueueEntry("PXD000700", "a", "human"), new QueueEntry("PXD076192", "t", "human") });
+        Assert.That(listed.Select(e => e.Accession), Is.EqualTo(new[] { "PXD000800-mouse", "PXD000800-human", "PXD000700", "PXD076192-mouse", "PXD076192-human" }));
+    }
+
     [Test]
     public async Task ASplitDepositIsSearchedAsItsGroupsAndPrideIsAskedForTheDeposit()
     {

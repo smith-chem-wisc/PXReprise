@@ -449,8 +449,22 @@ public sealed class BatchRunner
     /// then gives each its group's species. The deposit's own key is no longer queued, so it is neither searched whole nor
     /// caught up again; its earlier search stays on disk, and its manifest entry is retired when the first group is delivered.
     /// </summary>
+    /// <remarks>G150 (2026-11-28): a split deposit a person put back with <c>batch retry</c> or <c>batch research</c> (status
+    /// <c>requeued_user</c>) that the queue does not list is queued too, ahead of the queue, as its groups.
+    /// <see cref="RequestedFirst"/> skips a split deposit, so before this nothing searched it: PXD022694, split by species
+    /// (aging D219) and retried on 2026-11-21, waited a week through three driver starts.</remarks>
     internal IReadOnlyList<QueueEntry> Expand(IReadOnlyList<QueueEntry> queue)
     {
+        var listed = queue.Select(e => e.Accession).ToHashSet(StringComparer.Ordinal);
+        var requeued = State()["datasets"]!.AsObject()
+            .Where(kv => !listed.Contains(kv.Key) && _q.SplitKeysOf(kv.Key) is not null)
+            .Select(kv => (Acc: kv.Key, O: kv.Value!.AsObject()))
+            .Where(x => x.O["status"]?.GetValue<string>() == "requeued_user" && x.O["organism"]?.GetValue<string>() is not null)
+            .OrderBy(x => x.O["updated_utc"]?.GetValue<string>() ?? "", StringComparer.Ordinal).ThenBy(x => x.Acc, StringComparer.Ordinal)
+            .Select(x => new QueueEntry(x.Acc, x.O["title"]?.GetValue<string>() ?? "", x.O["organism"]!.GetValue<string>()))
+            .ToList();
+        foreach (var e in requeued) Log($"{e.Accession} queued as its split groups: a person put it back (batch retry or research), and no queue lists it");
+        queue = requeued.Concat(queue).ToList();
         var seen = new HashSet<string>(queue.Select(e => e.Accession), StringComparer.Ordinal);
         return queue.SelectMany(e => _q.SplitKeysOf(e.Accession) is { } keys
             ? keys.Where(k => !seen.Contains(k)).Select(k => new QueueEntry(k, e.Title, e.Organism))
