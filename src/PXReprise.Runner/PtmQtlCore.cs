@@ -92,17 +92,32 @@ public sealed record SitePairsResult(List<Row> Rows, List<(PtmPair Pair, PairSit
 public sealed record DepthNullResult(long RealCalls, IReadOnlyList<long> NullCalls, double Share, bool DepthLike);
 
 /// <summary>One dataset's site-trait fits: the <c>trait_effects</c> rows and the side fields.</summary>
-public sealed record SiteTraitsResult(List<Row> Rows, List<Row> Fits, Dictionary<string, long> LeftOut);
+public sealed record SiteTraitsResult(List<Row> Rows, List<Row> Fits, Dictionary<string, long> LeftOut)
+{
+    /// <summary>The covariate terms fitted, in the order of each fit's <c>covariate_effects</c>.</summary>
+    public IReadOnlyList<string> Covariates { get; init; } = [];
+
+    /// <summary>The covariates given with one level among the samples fitted, so not fitted.</summary>
+    public IReadOnlyList<string> CovariatesNotFitted { get; init; } = [];
+
+    /// <summary>The trait's Spearman correlation with depth over the samples fitted: evidence, never a filter
+    /// (DEF-SITE-TRAIT v3).</summary>
+    public StatisticalModels.SpearmanResult? TraitDepth { get; init; }
+
+    /// <summary>Why no site was fitted, when the covariates cannot be told apart from the trait (every site's status is
+    /// <see cref="PtmQtlCore.CovariateConfounded"/>); null otherwise.</summary>
+    public string? Confounded { get; init; }
+}
 
 /// <summary>ptmQtl's definitions, applied through mzLib only: <c>ptmQtl:DEF-PTM-PAIR v3</c> and
-/// <c>ptmQtl:DEF-SITE-TRAIT v2</c> (<c>ptmQtl/design/DEFINITIONS.md</c>).</summary>
+/// <c>ptmQtl:DEF-SITE-TRAIT v3</c> (<c>ptmQtl/design/DEFINITIONS.md</c>).</summary>
 /// <remarks>
 /// <para>This computes nothing the definitions do not say. Every number comes from mzLib's
 /// <see cref="SiteOccupancyCalculator"/>, <see cref="PtmPairEngine"/>, <see cref="GlobalPairEngine"/> and
 /// <see cref="SiteTraitEffects"/>. What is here is the shared rules: which modifications (S2), which deposits (S3),
 /// runs and samples (S4), and site keys (S5). It also shapes the rows to the column contract.</para>
 /// <para>It follows ptmQtl's reference program (<c>tools/ptmqtl-reference</c>) step for step, and its output must match
-/// <c>tests/PXReprise.Data.Tests/Fixtures/ptmqtl-reference-v3/expected</c> (G37).</para>
+/// <c>tests/PXReprise.Data.Tests/Fixtures/ptmqtl-reference-v4/expected</c> (G37, G64).</para>
 /// </remarks>
 public static class PtmQtlCore
 {
@@ -117,7 +132,11 @@ public static class PtmQtlCore
     /// <summary>D78: a deposit is depth-like when the null's calls per replicate reach this share of its real calls.
     /// ptmQtl's threshold, stated as such; not a rule from data.</summary>
     public const double DepthLikeShare = 0.10;
-    public const string TraitDefinition = "ptmQtl:DEF-SITE-TRAIT v2";
+    public const string TraitDefinition = "ptmQtl:DEF-SITE-TRAIT v3";
+
+    /// <summary>DEF-SITE-TRAIT v3: a site's status when the deposit's covariates cannot be told apart from the trait
+    /// (aging's <c>not_estimable:confounded</c>). Its values are null.</summary>
+    public const string CovariateConfounded = "CovariateConfounded";
 
     /// <summary>S2: the mzLib categories whose modifications are biological (D26, D27).</summary>
     public static readonly IReadOnlyList<string> BiologicalCategories = ["Common Biological", "UniProt", "Trypsin Digested", "AspN Digested"];
@@ -230,10 +249,10 @@ public static class PtmQtlCore
 
     /// <summary>S1 + S2 (with S2c, S2d) + S3b + S4: the stored cells as mzLib cells, biological and not left out by an
     /// artefact rule, of whole-proteome runs only, combined per sample.</summary>
-    /// <param name="bounds">Type A's reading (DEF-PTM-PAIR v3, D37, D40, D44): a cell seen in one form is a bound. A
-    /// stored covered-zero enters (MetaMorpheus 1.1.13 on), and so do the engine's own (up to 1.1.12) and each
-    /// count-only cell's peptidoform counts (<see cref="WithEngineBounds"/>). Without it, as site-trait fits read the
-    /// cells, a stored covered-zero is left out and counted.</param>
+    /// <param name="bounds">Type A's and site-trait fits' reading (DEF-PTM-PAIR v3, DEF-SITE-TRAIT v3; D37, D40, D44): a
+    /// cell seen in one form is a bound. A stored covered-zero enters (MetaMorpheus 1.1.13 on), and so do the engine's
+    /// own (up to 1.1.12) and each count-only cell's peptidoform counts (<see cref="WithEngineBounds"/>). Without it, a
+    /// stored covered-zero is left out and counted.</param>
     public static List<SiteRunOccupancy> Occupancy(PtmQtlDataset dataset, Dictionary<string, string> categories, Dictionary<string, long> leftOut,
         bool bounds = false)
     {
@@ -264,7 +283,7 @@ public static class PtmQtlCore
             }
             if (c.State == "covered_zero" && !bounds)
             {
-                Count(leftOut, "S1 covered_zero: a bound, read by type A only");
+                Count(leftOut, "S1 covered_zero: a bound, read only with bounds");
                 continue;
             }
             if (!categories.TryGetValue(c.Modification, out var category))
@@ -304,6 +323,9 @@ public static class PtmQtlCore
     /// two are never mixed: a search up to 1.1.12 that stores covered-zeros is refused.</item>
     /// <item><b>Count-only cells, every release:</b> each takes the engine's distinct covering and modified peptidoforms
     /// for its run, by which type A ranks it: all modified, a bound above; both forms, no rank.</item>
+    /// <item><b>Every other stored cell</b> takes them too, for DEF-SITE-TRAIT v3: a one-form cell enters the fit as its
+    /// count, and the detection link is fitted on every cell's counts. Type A never reads them. A one-form cell the
+    /// engine does not see has no count, and is counted.</item>
     /// <item>An engine cell that saw the modified form where nothing is stored is counted, never added.</item>
     /// </list>
     /// </remarks>
@@ -331,23 +353,33 @@ public static class PtmQtlCore
         var siteOf = byName.Where(g => g.Count() == 1).ToDictionary(g => g.Key, g => g.Single());
         var seen = cells.Select(c => (c.Site, c.Run)).ToHashSet();
         var countsOf = new Dictionary<(ModificationSite, string), (int? Covering, int? Modified)>();
+        var everyCount = new Dictionary<(ModificationSite, string), (int? Covering, int? Modified)>();
         var added = new List<SiteRunOccupancy>();
         long modifiedNotStored = 0;
         foreach (var e in engine)
         {
             var name = (e.Site.ProteinAccession, e.Site.Position, IdWithMotif(e.Site.Modification));
             if (!siteOf.TryGetValue(name, out var site)) continue;
+            everyCount[(site, e.Run)] = (e.CoveringPeptidoforms, e.ModifiedPeptidoforms);
             if (e.State != OccupancyState.NotDetected) countsOf[(site, e.Run)] = (e.CoveringPeptidoforms, e.ModifiedPeptidoforms);
             if (seen.Contains((site, e.Run)) || unassigned.Contains((name.ProteinAccession, name.Position, name.Item3, e.Run))) continue;
             if (e.State != OccupancyState.NotDetected) modifiedNotStored++;
             else if (engineCoveredZeros) added.Add(e with { Site = site });
         }
-        var result = cells.Select(c => c.State == OccupancyState.CountOnly && countsOf.TryGetValue((c.Site, c.Run), out var k)
+        // A count-only cell takes the counts by which type A ranks it. Every other stored cell takes the engine's counts
+        // too, which type A never reads: under DEF-SITE-TRAIT v3 a one-form cell enters as its count, and the detection
+        // link is fitted on the counts of every cell, measured ones included.
+        var result = cells.Select(c => (c.State == OccupancyState.CountOnly ? countsOf : everyCount).TryGetValue((c.Site, c.Run), out var k)
             ? c with { CoveringPeptidoforms = k.Covering, ModifiedPeptidoforms = k.Modified } : c).ToList();
         result.AddRange(added);
         leftOut["v3 bounds: covered-zero cells from MetaMorpheus"] = cells.LongCount(c => c.State == OccupancyState.NotDetected);
         leftOut["v3 bounds: covered-zero cells added from the engine's coverage"] = added.Count;
         leftOut["v3 bounds: count-only cells given peptidoform counts"] = cells.LongCount(c => c.State == OccupancyState.CountOnly && countsOf.ContainsKey((c.Site, c.Run)));
+        leftOut["v3 bounds: other stored cells given peptidoform counts (site-trait fits)"] =
+            cells.LongCount(c => c.State != OccupancyState.CountOnly && everyCount.ContainsKey((c.Site, c.Run)));
+        leftOut["v3 bounds: one-form stored cells with no peptidoform counts (left out of site-trait fits)"] =
+            cells.LongCount(c => !(c.State == OccupancyState.Quantified && c.UnmodifiedQuantified)
+                && !(c.State == OccupancyState.CountOnly ? countsOf : everyCount).ContainsKey((c.Site, c.Run)));
         leftOut["v3 bounds: engine saw the modified form, nothing stored (not added)"] = modifiedNotStored;
         leftOut["v3 bounds: site names two stored sites share (gain nothing)"] = byName.Count(g => g.Count() > 1);
         return result;
@@ -593,15 +625,68 @@ public static class PtmQtlCore
         return new PoolResult(rows, leftOut);
     }
 
-    /// <summary><c>ptmqtl.site_traits</c> on one dataset and one trait (<c>DEF-SITE-TRAIT v2</c>).</summary>
-    /// <remarks>v2 (ptmQtl D33) fits the log2 odds of occupancy, so every effect and standard error is v1's natural-log
-    /// value divided by ln 2, on QuantProject's <c>DEF-DIFF</c> base; df, p and q are v1's. <c>response</c> is
-    /// <c>log2_odds_occupancy</c>, so a v1 row (<c>logit_occupancy</c>) is never read as v2.</remarks>
+    /// <summary>DEF-SITE-TRAIT v3's covariates as mzLib takes them: each one categorical, coded as indicator columns
+    /// against the level that sorts first (ordinal), each term named <c>&lt;covariate&gt;=&lt;level&gt;</c>, covariates
+    /// in ordinal order of their names. A covariate with one level among the samples is not fitted.</summary>
+    /// <param name="covariates">Each covariate's level per sample.</param>
+    /// <param name="samples">The samples fitted; each needs a level of every covariate.</param>
+    /// <exception cref="RunnerException">A sample has no level for a covariate.</exception>
+    public static (Dictionary<string, double[]> Values, List<string> Terms, List<string> NotFitted) CovariateDesign(
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> covariates, IReadOnlyCollection<string> samples)
+    {
+        var terms = new List<string>();
+        var notFitted = new List<string>();
+        var columns = new List<(IReadOnlyDictionary<string, string> LevelOf, string Level)>();
+        foreach (var (name, levelOf) in covariates.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+        {
+            var levels = samples.Select(s => levelOf.TryGetValue(s, out var l) && l.Length > 0 ? l
+                    : throw new RunnerException($"sample {s} has no value of the covariate {name} (ptmQtl DEF-SITE-TRAIT v3)"))
+                .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
+            if (levels.Count < 2)
+            {
+                notFitted.Add(name);
+                continue;
+            }
+            foreach (var level in levels.Skip(1))
+            {
+                terms.Add($"{name}={level}");
+                columns.Add((levelOf, level));
+            }
+        }
+        var values = samples.ToDictionary(s => s, s => columns.Select(c => c.LevelOf[s] == c.Level ? 1.0 : 0.0).ToArray(), StringComparer.Ordinal);
+        return (values, terms, notFitted);
+    }
+
+    /// <summary>Whether the intercept, the trait and the given covariate terms can be told apart over the samples: the
+    /// design has full column rank.</summary>
+    private static bool Separable(IReadOnlyList<string> samples, IReadOnlyDictionary<string, double> trait,
+        IReadOnlyDictionary<string, double[]> values, IReadOnlyList<int> terms)
+    {
+        var x = MathNet.Numerics.LinearAlgebra.Matrix<double>.Build.Dense(samples.Count, 2 + terms.Count,
+            (i, j) => j == 0 ? 1 : j == 1 ? trait[samples[i]] : values[samples[i]][terms[j - 2]]);
+        return x.Rank() == x.ColumnCount;
+    }
+
+    /// <summary><c>ptmqtl.site_traits</c> on one dataset and one trait (<c>DEF-SITE-TRAIT v3</c>).</summary>
+    /// <remarks>
+    /// <para>v3 (ptmQtl G64, D37, D90) reads the cells as type A does (<see cref="Occupancy"/> with bounds): a run seen in
+    /// one form, a floor, a count-only cell or a covered zero enters, never dropped. mzLib fits it as a count
+    /// (<see cref="BoundCellModel.Sampling"/>), with each sample's depth (<see cref="Depth"/>) in the detection link, so a
+    /// sample with no depth is left out of the fit and counted. The covariates are categorical
+    /// (<see cref="CovariateDesign"/>). When they cannot be told apart from the trait, no site is fitted and no term is
+    /// dropped: every site's row has the status <see cref="CovariateConfounded"/> and no value
+    /// (<see cref="SiteTraitsResult.Confounded"/> says why).
+    /// Depth is never a covariate (aging's DEF-AGE-EFFECT §3.4); the trait's rank correlation with depth over the samples
+    /// fitted is recorded as evidence (<see cref="SiteTraitsResult.TraitDepth"/>), never a filter.</para>
+    /// <para>As v2 (D33), the response is the log2 odds of occupancy, <c>response</c> = <c>log2_odds_occupancy</c>.</para>
+    /// </remarks>
     /// <param name="trait">The trait per sample (after S4).</param>
     /// <param name="replicate">The biological replicate per sample: the animal, never the injection.</param>
-    /// <exception cref="RunnerException">The deposit is enriched (S3): no site-trait fit is computed on it.</exception>
+    /// <param name="covariates">Each covariate's level per sample; none when null.</param>
+    /// <exception cref="RunnerException">The deposit is enriched (S3) or has no whole-proteome run (S3b): no site-trait fit
+    /// is computed on it.</exception>
     public static SiteTraitsResult SiteTraits(PtmQtlDataset dataset, string traitId, IReadOnlyDictionary<string, double> trait,
-        IReadOnlyDictionary<string, string> replicate)
+        IReadOnlyDictionary<string, string> replicate, IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? covariates = null)
     {
         if (dataset.Enriched)
             throw new RunnerException($"{dataset.DatasetId} captures a modified form (ptmQtl S3): no site-trait fit is computed on it.");
@@ -609,11 +694,31 @@ public static class PtmQtlCore
             throw new RunnerException($"{dataset.DatasetId} has no whole-proteome run (ptmQtl S3b): no site-trait fit is computed on it.");
         var leftOut = new Dictionary<string, long>(StringComparer.Ordinal);
         var nterms = ProteinNTerms(dataset);
-        var occupancy = Occupancy(dataset, dataset.Categories(), leftOut);
+        var occupancy = Occupancy(dataset, dataset.Categories(), leftOut, bounds: true);
+        var depth = Depth(dataset);
+        var samples = trait.Keys.Where(depth.ContainsKey).Order(StringComparer.Ordinal).ToList();
+        leftOut["D40 samples with the trait and no depth (left out of the fit)"] = trait.Count - samples.Count;
+        leftOut["samples with occupancy and no trait value (left out of the fit)"] = occupancy.Select(c => c.Run).Distinct().LongCount(s => !trait.ContainsKey(s));
+        var fitted = samples.ToDictionary(s => s, s => trait[s], StringComparer.Ordinal);
+        var (values, terms, notFitted) = CovariateDesign(covariates ?? new Dictionary<string, IReadOnlyDictionary<string, string>>(), samples);
+        string? confounded = null;
+        if (terms.Count > 0 && !Separable(samples, fitted, values, Enumerable.Range(0, terms.Count).ToList()))
+        {
+            var named = terms.Select((t, j) => (Covariate: t[..t.IndexOf('=')], j)).GroupBy(t => t.Covariate)
+                .Where(g => !Separable(samples, fitted, values, g.Select(t => t.j).ToList())).Select(g => g.Key).ToList();
+            confounded = $"the covariate(s) {string.Join(", ", named.Count > 0 ? named : terms.Select(t => t[..t.IndexOf('=')]).Distinct())} "
+                + $"cannot be told apart from {traitId} over the {samples.Count} samples fitted";
+        }
+        var traitDepth = StatisticalModels.SpearmanCorrelation.Correlate(samples.Select(s => fitted[s]).ToList(), samples.Select(s => depth[s]).ToList());
         var rows = new List<Row>();
         var fits = new List<Row>();
-        foreach (var e in SiteTraitEffects.Fit(occupancy, trait, replicate, options: new SiteTraitOptions { Scale = OccupancyScale.Log2Odds }))
+        // Confounded: no site is fitted, and no term is dropped to get a fit (aging's rule). Every site still gets its row,
+        // with mzLib's own counts and no value, as a site below support does: support is set out of reach, so nothing is fitted.
+        var options = new SiteTraitOptions { Scale = OccupancyScale.Log2Odds, BoundCells = BoundCellModel.Sampling, RunDepth = depth,
+            MinRuns = confounded is null ? new SiteTraitOptions().MinRuns : int.MaxValue };
+        foreach (var fit in SiteTraitEffects.Fit(occupancy, fitted, replicate, values, terms, options))
         {
+            var e = confounded is null ? fit : fit with { Status = CovariateConfounded };
             var key = Key(e.Site, false, nterms, dataset.Unimod);
             rows.Add(new Row
             {
@@ -648,11 +753,14 @@ public static class PtmQtlCore
                 ["df"] = Num(e.DegreesOfFreedom),
                 ["replicates"] = (long)e.Replicates,
                 ["median_fraction"] = Num(e.MedianFraction),
+                ["covariates"] = string.Join(";", terms),
                 ["covariate_effects"] = e.CovariateEffects.Select(v => (object?)Num(v)).ToList(),
                 ["replicate_variance"] = Num(e.ReplicateVariance),
                 ["residual_variance"] = Num(e.ResidualVariance),
+                ["residual_variance_borrowed"] = e.ResidualVarianceBorrowed,
+                ["counted_runs"] = (long)e.CountedRuns,
             });
         }
-        return new SiteTraitsResult(rows, fits, leftOut);
+        return new SiteTraitsResult(rows, fits, leftOut) { Covariates = terms, CovariatesNotFitted = notFitted, TraitDepth = traitDepth, Confounded = confounded };
     }
 }

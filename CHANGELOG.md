@@ -203,9 +203,10 @@ that deposit's probe takes longer: about 2.4 times on Orbitrap.
   run. **datarepo's catalog:** a pooled artefact whose members all sit in a larger pool of the same species is that
   pool's earlier version, and gives way to it. Before, the second pool of a species stopped the catalog build.
 
-- **The batch can run ptmQtl's per-site trait fit (`site_traits`), and writes its traits files** (decision 0096). It
-  is off by default (`[ptmqtl] site_traits = true` and `catalog`, the catalogs folder). It needs ptmQtl's engine change
-  and the mzLib release it comes with, so leave it off until the pin carries both.
+- **The batch runs ptmQtl's per-site trait fit (`site_traits`), and writes its traits files** (decision 0096). It is
+  on by default, with this release's DEF-SITE-TRAIT v3: it runs before each publish wherever `[ptmqtl]` names a
+  `catalog` (the catalogs folder), and `site_traits = false` turns it off. With no catalog named, the log says it was
+  not run.
   - **A question says where each trait comes from** in a new `[traits.<id>]` table, using its curated tables' names,
     never code:
     - `design_factor` and/or `sample_value` (`table.column`); the sample's value wins, and any disagreement is said;
@@ -303,6 +304,37 @@ that deposit's probe takes longer: about 2.4 times on Orbitrap.
   back to the spectrum its name held before, or is left out when the name held none. A spectrum a later search replaced
   stays. Spectra are compared by name, retention time and peaks, not by precursor lines or peak annotations (whose
   spelling changed between MetaMorpheus versions). The new version records what was removed and restored.
+
+- **ptmQtl's site-trait fits are `ptmQtl:DEF-SITE-TRAIT v3`: runs seen in one form are kept, and the fit takes
+  covariates** (ptmQtl G64's second half, D37, D90; PXR-P30, PXR-P31).
+  - **One-form runs enter as counts.** `datarepo run ptmqtl.site_traits` read only runs with both forms quantified. It
+    now reads the cells as type A does (bounds), and mzLib fits a ceiling, a floor, a count-only cell or a covered zero
+    as "k of N covering peptidoforms carried the modification" (`BoundCellModel.Sampling`), with each sample's depth
+    (log2 target PSMs, as type A's) in its detection link. A sample with no depth, or with no trait value, is left out
+    of the fit, and counted.
+  - **Peptidoform counts on every cell.** Every stored cell now takes the engine's covering and modified peptidoform
+    counts for its run, not only count-only cells: a one-form cell enters as its count, and the detection link is fitted
+    on every cell's counts. Type A reads them only on count-only cells, so its rows do not change. A one-form cell the
+    engine does not see has no count, and is counted in `left_out`.
+  - **Covariates.** Every column of `--input traits` past `dataset`, `run`, `replicate`, `trait_id` and `value` is a
+    categorical covariate named by its header (for example `sex`, `acquisition_batch`). The engine codes it as
+    indicators against the level that sorts first, and names each term `<column>=<level>`. Every run needs a value, and
+    a sample's runs must agree. A covariate with one level is not fitted. When the covariates cannot be told apart from
+    the trait, no site is fitted and no term is dropped. Every site's row has the status `CovariateConfounded` and no
+    value (aging's `not_estimable:confounded`). Which covariates to give is the consumer's rule (aging's DEF-AGE-EFFECT
+    §3.3). Run depth is never one (§3.4).
+  - **`site_trait_fits.tsv` gains three columns:** `covariates` (the terms fitted, in the order of `covariate_effects`),
+    `residual_variance_borrowed` and `counted_runs`. The run record's `engine_summary` gains `covariates`,
+    `covariates_not_fitted`, `covariate_confounded` (which covariates, when they cannot be told apart from the trait)
+    and `trait_depth`: the trait's Spearman correlation with depth over the samples fitted, shown as evidence and never
+    used as a filter.
+  - `trait_effects` keeps its columns. `definition_id` is `ptmQtl:DEF-SITE-TRAIT v3`, and so a new artefact id.
+  - **Tests.** ptmQtl's reference case v4 (`Fixtures/ptmqtl-reference-v4`) replaces v3. It adds D4, a deposit built for
+    the fit (12 animals, 4 of them injected twice, 10 sites with one-form runs of every kind, age and sex crossed), and
+    sex as a covariate of D1's and D4's fits. Its pair rows are v3's, unchanged.
+  - **Cost:** with bounds the fit costs far more than without. On ptmQtl's timings (64 cores) the median deposit takes
+    tens of seconds and their largest timed about 16 minutes per trait once mzLib carries ptmQtl's #1629.
+  - No ptmQtl row is stored yet, so nothing stored changes.
 
 - **ptmQtl's site-trait fits are `ptmQtl:DEF-SITE-TRAIT v2`: effects in log2 odds** (ptmQtl D33, G64).
   - `datarepo run ptmqtl.site_traits` fitted the natural-log odds of occupancy (v1). It now fits the log2 odds, as

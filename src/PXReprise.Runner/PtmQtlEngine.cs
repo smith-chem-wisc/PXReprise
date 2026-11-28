@@ -9,7 +9,7 @@ namespace PXReprise.Runner;
 /// <summary>The <c>ptmqtl.*</c> engines: site pairs per search, pooled pairs per species,
 /// and site-trait fits per search and trait.</summary>
 /// <remarks>
-/// <para>The method is ptmQtl's (<c>ptmQtl:DEF-PTM-PAIR v3</c>, <c>ptmQtl:DEF-SITE-TRAIT v2</c>), applied by
+/// <para>The method is ptmQtl's (<c>ptmQtl:DEF-PTM-PAIR v3</c>, <c>ptmQtl:DEF-SITE-TRAIT v3</c>), applied by
 /// <see cref="PtmQtlCore"/> through mzLib only. The inputs are read from the bundle by <see cref="PtmQtlBundle"/>.
 /// This class decides what to run on, keys each artefact on its inputs, and writes it.</para>
 /// <para><b>Inputs by role.</b></para>
@@ -17,7 +17,8 @@ namespace PXReprise.Runner;
 /// <item><c>enrichment</c>: the operator's list of PTM-enriched deposits (S3), a TSV with columns <c>dataset</c> and
 /// <c>enriched_ptm</c>. It is hashed into every artefact (P23), so a changed list gives new artefacts.</item>
 /// <item><c>traits</c> (<c>site_traits</c> only): a TSV with columns <c>dataset</c>, <c>run</c>, <c>replicate</c>,
-/// <c>trait_id</c> and <c>value</c>, one trait per file.</item>
+/// <c>trait_id</c> and <c>value</c>, one trait per file; every further column is a categorical covariate named by its
+/// header (<see cref="Traits"/>).</item>
 /// <item>The bundle, by its id: a bundle id is a hash of everything it holds.</item>
 /// </list>
 /// <para><b>Artefacts.</b> <c>site_pairs</c> writes <c>ptm_pairs</c> and <see cref="PairSitesFile"/>, each pair's two
@@ -229,6 +230,15 @@ public static class PtmQtlEngine
         ["share"] = double.IsFinite(n.Share) ? n.Share : null,
         ["threshold"] = PtmQtlCore.DepthLikeShare,
         ["depth_like"] = n.DepthLike,
+    };
+
+    /// <summary>DEF-SITE-TRAIT v3's evidence for the run record: the trait's Spearman correlation with depth over the
+    /// samples fitted. Shown, never a filter. A value that cannot be computed is null.</summary>
+    internal static Dictionary<string, object?>? TraitDepthRecord(StatisticalModels.SpearmanResult? r) => r is null ? null : new Dictionary<string, object?>
+    {
+        ["rho"] = double.IsFinite(r.Rho) ? r.Rho : null,
+        ["p"] = double.IsFinite(r.PValue) ? r.PValue : null,
+        ["n"] = (long)r.N,
     };
 
     /// <summary>Whether a <c>site_pairs</c> artefact's dataset is depth-like (D78), as its run record says.</summary>
@@ -453,16 +463,23 @@ public static class PtmQtlEngine
         return result;
     }
 
-    /// <summary>The operator's trait table for one dataset, per sample (after S4).</summary>
-    /// <exception cref="RunnerException">Two traits in one file, a run of the dataset missing, or runs of one sample that disagree.</exception>
-    public static (string TraitId, Dictionary<string, double> Trait, Dictionary<string, string> Replicate) Traits(
+    private static readonly string[] TraitColumns = ["dataset", "run", "replicate", "trait_id", "value"];
+
+    /// <summary>The operator's trait table for one dataset, per sample (after S4). Every column past
+    /// <see cref="TraitColumns"/> is a categorical covariate named by its header (DEF-SITE-TRAIT v3).</summary>
+    /// <exception cref="RunnerException">Two traits in one file, a run of the dataset missing, an empty covariate value,
+    /// or runs of one sample that disagree.</exception>
+    public static (string TraitId, Dictionary<string, double> Trait, Dictionary<string, string> Replicate,
+        Dictionary<string, IReadOnlyDictionary<string, string>> Covariates) Traits(
         string path, string datasetId, IReadOnlyDictionary<string, string> runToSample)
     {
-        var rows = ReadTsv(path, ["dataset", "run", "replicate", "trait_id", "value"], "traits").Where(r => r["dataset"] == datasetId).ToList();
+        var rows = ReadTsv(path, TraitColumns, "traits").Where(r => r["dataset"] == datasetId).ToList();
         var ids = rows.Select(r => r["trait_id"]).Distinct().ToList();
         if (ids.Count != 1) throw new RunnerException($"--input traits: {datasetId} has {ids.Count} trait ids; one trait per file");
         var trait = new Dictionary<string, double>(StringComparer.Ordinal);
         var replicate = new Dictionary<string, string>(StringComparer.Ordinal);
+        var covariates = rows[0].Keys.Where(c => !TraitColumns.Contains(c))
+            .ToDictionary(c => c, _ => new Dictionary<string, string>(StringComparer.Ordinal), StringComparer.Ordinal);
         foreach (var r in rows)
         {
             if (!runToSample.TryGetValue(r["run"], out var sample))
@@ -472,12 +489,20 @@ public static class PtmQtlEngine
                 throw new RunnerException($"--input traits: {datasetId} sample {sample}'s runs disagree on trait or replicate");
             trait[sample] = value;
             replicate[sample] = r["replicate"];
+            foreach (var (name, levels) in covariates)
+            {
+                if (r[name].Length == 0)
+                    throw new RunnerException($"--input traits: {datasetId} run {r["run"]} has no value of the covariate {name}");
+                if (levels.TryGetValue(sample, out var level) && level != r[name])
+                    throw new RunnerException($"--input traits: {datasetId} sample {sample}'s runs disagree on the covariate {name}");
+                levels[sample] = r[name];
+            }
         }
-        return (ids[0], trait, replicate);
+        return (ids[0], trait, replicate, covariates.ToDictionary(kv => kv.Key, kv => (IReadOnlyDictionary<string, string>)kv.Value, StringComparer.Ordinal));
     }
 
     private static readonly string[] FitColumns = ["scope", "trait_id", "feature_key", "status", "df", "replicates", "median_fraction",
-        "covariate_effects", "replicate_variance", "residual_variance"];
+        "covariates", "covariate_effects", "replicate_variance", "residual_variance", "residual_variance_borrowed", "counted_runs"];
 
     private static string WriteFits(IEnumerable<Row> fits, string path)
     {
@@ -488,6 +513,7 @@ public static class PtmQtlEngine
                 null => "",
                 double d => R(d),
                 long l => l.ToString(Inv),
+                bool b => b ? "true" : "false",
                 IEnumerable<object?> list => string.Join(";", list.Select(x => x is double d ? R(d) : "")),
                 var v => v.ToString(),
             }))).Append('\n');
@@ -518,8 +544,8 @@ public static class PtmQtlEngine
             }
             install ??= EngineRunner.InstallIdentity();
             var (dataset, read, rules) = PtmQtlBundle.Read(bundle, DepositOf(deposits, bundle.DatasetId));
-            var (traitId, trait, replicate) = Traits(inputs["traits"], bundle.DatasetId, dataset.RunToSample);
-            var fit = PtmQtlCore.SiteTraits(dataset, traitId, trait, replicate);
+            var (traitId, trait, replicate, covariates) = Traits(inputs["traits"], bundle.DatasetId, dataset.RunToSample);
+            var fit = PtmQtlCore.SiteTraits(dataset, traitId, trait, replicate, covariates);
             var scratch = Path.Combine(Path.GetTempPath(), $"datarepo-ptmqtl-{Guid.NewGuid():N}.tsv");
             var excludedScratch = Path.Combine(Path.GetTempPath(), $"datarepo-ptmqtl-{Guid.NewGuid():N}.tsv");
             try
@@ -543,6 +569,10 @@ public static class PtmQtlEngine
                         ["rules"] = rules,
                         ["sites"] = (long)fit.Rows.Count,
                         ["fitted"] = (long)fit.Rows.Count(r => r["estimable_int"] is true),
+                        ["covariates"] = fit.Covariates.Select(c => (object?)c).ToList(),
+                        ["covariates_not_fitted"] = fit.CovariatesNotFitted.Select(c => (object?)c).ToList(),
+                        ["covariate_confounded"] = fit.Confounded,
+                        ["trait_depth"] = TraitDepthRecord(fit.TraitDepth),
                         ["search_gate"] = Gate(bundle),
                         ["identification_filter"] = dataset.IdentificationFilter,
                         ["databases"] = Databases(bundle),

@@ -7,14 +7,14 @@ using Quantification.PtmQtl;
 namespace PXReprise.Data.Tests;
 
 /// <summary>The ptmqtl.* engines (ptmQtl 025-030; our 026, 031): ptmQtl's reference case, reproduced.</summary>
-/// <remarks>Fixtures/ptmqtl-reference-v3 is ptmQtl's own `results/reference_case_v3` (DEF-PTM-PAIR v3: bounds, depth,
-/// D78's null; DEF-SITE-TRAIT v2: log2 odds; see its PROVENANCE.md). The inputs are parsed as `tools/ptmqtl-reference`
+/// <remarks>Fixtures/ptmqtl-reference-v4 is ptmQtl's own `results/reference_case_v4` (DEF-PTM-PAIR v3: bounds, depth,
+/// D78's null; DEF-SITE-TRAIT v3: log2 odds, bounds as counts, covariates; see its PROVENANCE.md). The inputs are parsed as `tools/ptmqtl-reference`
 /// reads them; the engine core then has to give `expected/`: numbers to 1e-12 relative, text exactly.</remarks>
 public class PtmQtlEngineTests
 {
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
-    private static string Dir => Path.Combine(TestContext.CurrentContext.TestDirectory, "Fixtures", "ptmqtl-reference-v3");
+    private static string Dir => Path.Combine(TestContext.CurrentContext.TestDirectory, "Fixtures", "ptmqtl-reference-v4");
 
     private sealed record Pool(string Id, IReadOnlySet<string> Members);
 
@@ -109,9 +109,10 @@ public class PtmQtlEngineTests
         _ => throw new ArgumentException($"unexpected cell {value.GetType()}"),
     };
 
-    /// <summary>The engine's row against the expected one: every expected column, numbers to 1e-12 relative.</summary>
+    /// <summary>The engine's row against the expected one: every expected column, numbers to <paramref name="tolerance"/>
+    /// relative (1e-12 by default).</summary>
     private static void AssertRow(IReadOnlyDictionary<string, string> expected, IReadOnlyDictionary<string, object?> actual, string where,
-        IReadOnlyDictionary<string, Func<object?, string>>? overrides = null)
+        IReadOnlyDictionary<string, Func<object?, string>>? overrides = null, double tolerance = 1e-12)
     {
         foreach (var (column, want) in expected)
         {
@@ -121,7 +122,7 @@ public class PtmQtlEngineTests
             if (raw is double && want.Length > 0 && got.Length > 0)
             {
                 var (w, g) = (double.Parse(want, Inv), double.Parse(got, Inv));
-                Assert.That(Math.Abs(g - w), Is.LessThanOrEqualTo(1e-12 * Math.Max(1, Math.Abs(w))), $"{where}: {column} {got} vs {want}");
+                Assert.That(Math.Abs(g - w), Is.LessThanOrEqualTo(tolerance * Math.Max(1, Math.Abs(w))), $"{where}: {column} {got} vs {want}");
             }
             else Assert.That(got, Is.EqualTo(want), $"{where}: {column}");
         }
@@ -242,7 +243,7 @@ public class PtmQtlEngineTests
             Assert.That(baseline["v3 bounds: engine saw the modified form, nothing stored (not added)"], Is.EqualTo(0));
             Assert.That(Counts(dropped)["v3 bounds: engine saw the modified form, nothing stored (not added)"], Is.EqualTo(1));
             Assert.That(pooledCells.Select(c => c.Run), Has.Some.EqualTo("S14").And.None.StartsWith("S14_").And.None.EqualTo("S2"));
-            Assert.That(Counts(all["D2"], bounds: false)["S1 covered_zero: a bound, read by type A only"], Is.GreaterThan(0));
+            Assert.That(Counts(all["D2"], bounds: false)["S1 covered_zero: a bound, read only with bounds"], Is.GreaterThan(0));
             Assert.That((none.RealCalls, none.NullCalls, double.IsNaN(none.Share), none.DepthLike), Is.EqualTo((0L, new long[] { 0, 0, 0 }, true, false)));
         });
     }
@@ -269,28 +270,72 @@ public class PtmQtlEngineTests
         finally { Remove(store); }
     }
 
+    /// <summary>DEF-SITE-TRAIT v3 on D1 and D4, sex as a covariate: one-form runs enter as counts with each sample's
+    /// depth, and a sample with no depth is left out (D1's S14_2).</summary>
     [Test]
     public void TheSiteTraitRowsAreTheReferenceCasesRows()
     {
-        var d1 = Datasets().Single(d => d.DatasetId == "D1");
-        var runs = Tsv("inputs/runs.tsv").Where(r => r["dataset"] == "D1").ToList();
-        var trait = runs.GroupBy(r => r["combine_to"]).ToDictionary(g => g.Key, g => D(g.First()["age_months"]), StringComparer.Ordinal);
-        var replicate = runs.GroupBy(r => r["combine_to"]).ToDictionary(g => g.Key, g => g.First()["replicate"], StringComparer.Ordinal);
-        var result = PtmQtlCore.SiteTraits(d1, "age_months", trait, replicate);
-
         var expected = Tsv("expected/trait_effects.tsv");
-        Assert.That(expected, Is.Not.Empty);
+        Assert.That(expected.Select(e => e["scope"]).Distinct(), Is.EqualTo(new[] { "D1", "D4" }));
         Assert.That(expected.Select(e => e["response"]).Distinct(), Is.EqualTo(new[] { "log2_odds_occupancy" }));
-        Assert.That(result.Rows.Select(r => (string)r["feature_key"]!), Is.EquivalentTo(expected.Select(e => e["feature_key"])));
-        string[] side = ["status", "df", "replicates", "median_fraction", "replicate_variance", "residual_variance"];
-        foreach (var e in expected)
+        Assert.That(expected.Any(e => e["status"] == "Fitted" && int.Parse(e["counted_runs"], Inv) > 0), "the case fits a site with counted runs");
+        string[] side = ["status", "df", "replicates", "median_fraction", "replicate_variance", "residual_variance", "covariates",
+            "residual_variance_borrowed", "counted_runs"];
+        foreach (var ds in Datasets().Where(d => d.DatasetId is "D1" or "D4"))
         {
-            var row = result.Rows.Single(r => (string)r["feature_key"]! == e["feature_key"]);
-            var fit = result.Fits.Single(r => (string)r["feature_key"]! == e["feature_key"]);
-            AssertRow(e.Where(kv => !side.Contains(kv.Key)).ToDictionary(), row, e["feature_key"],
-                new Dictionary<string, Func<object?, string>> { ["protein_accessions"] = v => (string)((List<object?>)v!).Single()! });
-            AssertRow(e.Where(kv => side.Contains(kv.Key)).ToDictionary(), fit, e["feature_key"] + " (side file)");
+            var samples = Tsv("inputs/runs.tsv").Where(r => r["dataset"] == ds.DatasetId).GroupBy(r => r["combine_to"]).ToList();
+            var trait = samples.ToDictionary(g => g.Key, g => D(g.First()["age_months"]), StringComparer.Ordinal);
+            var replicate = samples.ToDictionary(g => g.Key, g => g.First()["replicate"], StringComparer.Ordinal);
+            var covariates = new Dictionary<string, IReadOnlyDictionary<string, string>>
+            {
+                ["sex"] = samples.ToDictionary(g => g.Key, g => g.First()["sex"], StringComparer.Ordinal),
+            };
+            var result = PtmQtlCore.SiteTraits(ds, "age_months", trait, replicate, covariates);
+            var mine = expected.Where(e => e["scope"] == ds.DatasetId).ToList();
+            Assert.That(result.Rows.Select(r => (string)r["feature_key"]!), Is.EquivalentTo(mine.Select(e => e["feature_key"])), ds.DatasetId);
+            Assert.That((result.Covariates, result.TraitDepth!.N), Is.EqualTo((new[] { "sex=M" }, trait.Count - (ds.DatasetId == "D1" ? 1 : 0))), ds.DatasetId);
+            // Every row's every mismatch is reported, not only the first.
+            Assert.Multiple(() =>
+            {
+                foreach (var e in mine)
+                {
+                    var row = result.Rows.Single(r => (string)r["feature_key"]! == e["feature_key"]);
+                    var fit = result.Fits.Single(r => (string)r["feature_key"]! == e["feature_key"]);
+                    // A site with counted runs is fitted by the logit-normal model's optimizer, whose result differs across
+                    // platforms near the 10th digit (Linux CI against this Windows build: 1.4e-10 relative on a replicate
+                    // variance). Every other number is compared to 1e-12.
+                    var tolerance = e["counted_runs"] != "0" ? 1e-8 : 1e-12;
+                    AssertRow(e.Where(kv => !side.Contains(kv.Key) && kv.Key != "covariate_effects").ToDictionary(), row, e["feature_key"],
+                        new Dictionary<string, Func<object?, string>> { ["protein_accessions"] = v => (string)((List<object?>)v!).Single()! }, tolerance);
+                    AssertRow(e.Where(kv => side.Contains(kv.Key)).ToDictionary(), fit, e["feature_key"] + " (side file)", tolerance: tolerance);
+                    // Each covariate's effect, as numbers, like every other number (its last digits differ by platform).
+                    var want = e["covariate_effects"].Split(';').Select(D).ToArray();
+                    var got = ((List<object?>)fit["covariate_effects"]!).Select(v => v is double d ? d : double.NaN).ToArray();
+                    Assert.That(got, Has.Length.EqualTo(want.Length), e["feature_key"]);
+                    for (var j = 0; j < want.Length; j++)
+                        Assert.That(double.IsNaN(want[j]) ? double.IsNaN(got[j]) : Math.Abs(got[j] - want[j]) <= tolerance * Math.Max(1, Math.Abs(want[j])),
+                            $"{e["feature_key"]}: covariate effect {j} {got[j]} vs {want[j]}");
+                }
+            });
         }
+        // A sample with no trait value (a run the consumer gave no age) is left out, and counted.
+        var d1 = Datasets().Single(d => d.DatasetId == "D1");
+        var ages = Tsv("inputs/runs.tsv").Where(r => r["dataset"] == "D1" && r["combine_to"] != "S2").GroupBy(r => r["combine_to"])
+            .ToDictionary(g => g.Key, g => D(g.First()["age_months"]));
+        var left = PtmQtlCore.SiteTraits(d1, "t", ages, d1.RunToSample.Values.Distinct().ToDictionary(s => s, s => s)).LeftOut;
+        Assert.That(left["D40 samples with the trait and no depth (left out of the fit)"], Is.EqualTo(1));
+        Assert.That(left["samples with occupancy and no trait value (left out of the fit)"], Is.EqualTo(1));
+    }
+
+    /// <summary>DEF-SITE-TRAIT v3's depth evidence in the run record: shown, null where it cannot be computed.</summary>
+    [Test]
+    public void TheTraitDepthCorrelationIsRecordedAndNullWhereNotComputable()
+    {
+        Assert.That(PtmQtlEngine.TraitDepthRecord(null), Is.Null);
+        var rec = PtmQtlEngine.TraitDepthRecord(StatisticalModels.SpearmanCorrelation.Correlate([1.0, 2, 3, 4, 5], [2.0, 1, 4, 3, 5]))!;
+        Assert.That((rec["rho"], rec["n"]), Is.EqualTo(((object?)0.8, (object?)5L)));
+        var flat = PtmQtlEngine.TraitDepthRecord(StatisticalModels.SpearmanCorrelation.Correlate([1.0, 1, 1], [2.0, 1, 4]))!;
+        Assert.That((flat["rho"], flat["p"]), Is.EqualTo(((object?)null, (object?)null)));
     }
 
     [TestCase("Common Biological:Phosphorylation on S", true)]
@@ -558,8 +603,8 @@ public class PtmQtlEngineTests
                 File.WriteAllText(path, "dataset\trun\treplicate\ttrait_id\tvalue\n" + body);
                 return path;
             }
-            var (id, trait, replicate) = PtmQtlEngine.Traits(Write("D\tf1\tA\tage\t3\nD\tf2\tA\tage\t3\nD\tr3\tB\tage\t12\n"), "D", runToSample);
-            Assert.That((id, trait["S1"], replicate["r3"]), Is.EqualTo(("age", 3.0, "B")));
+            var (id, trait, replicate, covariates) = PtmQtlEngine.Traits(Write("D\tf1\tA\tage\t3\nD\tf2\tA\tage\t3\nD\tr3\tB\tage\t12\n"), "D", runToSample);
+            Assert.That((id, trait["S1"], replicate["r3"], covariates.Count), Is.EqualTo(("age", 3.0, "B", 0)));
             Assert.That(() => PtmQtlEngine.Traits(Write("D\tf1\tA\tage\t3\nD\tf2\tA\tage\t4\n"), "D", runToSample),
                 Throws.TypeOf<RunnerException>().With.Message.Contains("disagree"));
             Assert.That(() => PtmQtlEngine.Traits(Write("D\tf1\tA\tage\t3\nD\tr3\tB\tweight\t9\n"), "D", runToSample),
@@ -568,6 +613,87 @@ public class PtmQtlEngineTests
                 Throws.TypeOf<RunnerException>().With.Message.Contains("not a run of the bundle"));
         }
         finally { Remove(dir); }
+    }
+
+    /// <summary>DEF-SITE-TRAIT v3: every column past the five is a categorical covariate, per sample; an empty value, or
+    /// two runs of one sample that disagree, are refused.</summary>
+    [Test]
+    public void ATraitTablesFurtherColumnsAreCovariatesPerSample()
+    {
+        var dir = Scratch();
+        try
+        {
+            var runToSample = new Dictionary<string, string> { ["f1"] = "S1", ["f2"] = "S1", ["r3"] = "r3" };
+            string Write(string body)
+            {
+                var path = Path.Combine(dir, "t.tsv");
+                File.WriteAllText(path, "dataset\trun\treplicate\ttrait_id\tvalue\tsex\tacquisition_batch\n" + body);
+                return path;
+            }
+            var (_, _, _, covariates) = PtmQtlEngine.Traits(
+                Write("D\tf1\tA\tage\t3\tF\t20160523\nD\tf2\tA\tage\t3\tF\t20160523\nD\tr3\tB\tage\t12\tM\t20160601\n"), "D", runToSample);
+            Assert.That(covariates.Keys, Is.EqualTo(new[] { "sex", "acquisition_batch" }));
+            Assert.That((covariates["sex"]["S1"], covariates["acquisition_batch"]["r3"]), Is.EqualTo(("F", "20160601")));
+            Assert.That(() => PtmQtlEngine.Traits(Write("D\tf1\tA\tage\t3\tF\t1\nD\tf2\tA\tage\t3\tM\t1\n"), "D", runToSample),
+                Throws.TypeOf<RunnerException>().With.Message.Contains("disagree on the covariate sex"));
+            Assert.That(() => PtmQtlEngine.Traits(Write("D\tf1\tA\tage\t3\t\t1\n"), "D", runToSample),
+                Throws.TypeOf<RunnerException>().With.Message.Contains("no value of the covariate sex"));
+        }
+        finally { Remove(dir); }
+    }
+
+    /// <summary>DEF-SITE-TRAIT v3's covariate coding: indicators against the level that sorts first, a one-level
+    /// covariate not fitted, a sample with no level refused; and when a covariate cannot be told apart from the trait,
+    /// no site is fitted and no term dropped, and every site's row says so (aging's not_estimable:confounded).</summary>
+    [Test]
+    public void CovariatesAreIndicatorsAndOneConfoundedWithTheTraitFitsNoSite()
+    {
+        var levels = new Dictionary<string, IReadOnlyDictionary<string, string>>
+        {
+            ["sex"] = new Dictionary<string, string> { ["a"] = "M", ["b"] = "F", ["c"] = "M" },
+            ["tissue"] = new Dictionary<string, string> { ["a"] = "liver", ["b"] = "liver", ["c"] = "liver" },
+        };
+        var (values, terms, notFitted) = PtmQtlCore.CovariateDesign(levels, ["a", "b", "c"]);
+        Assert.Multiple(() =>
+        {
+            Assert.That(terms, Is.EqualTo(new[] { "sex=M" }));
+            Assert.That(notFitted, Is.EqualTo(new[] { "tissue" }));
+            Assert.That((values["a"].Single(), values["b"].Single()), Is.EqualTo((1.0, 0.0)));
+        });
+        Assert.That(() => PtmQtlCore.CovariateDesign(levels, ["a", "z"]), Throws.TypeOf<RunnerException>().With.Message.Contains("no value of the covariate sex"));
+
+        var d4 = Datasets().Single(d => d.DatasetId == "D4");
+        var runs = Tsv("inputs/runs.tsv").Where(r => r["dataset"] == "D4").ToList();
+        var trait = runs.ToDictionary(r => r["combine_to"], r => D(r["age_months"]), StringComparer.Ordinal);
+        var replicate = runs.ToDictionary(r => r["combine_to"], r => r["replicate"], StringComparer.Ordinal);
+        var batch = new Dictionary<string, IReadOnlyDictionary<string, string>>
+        {
+            // One batch per age: the batches span every function of the three ages, so age cannot be told apart from them.
+            ["acquisition_batch"] = runs.ToDictionary(r => r["combine_to"], r => "b" + r["age_months"], StringComparer.Ordinal),
+            ["sex"] = runs.ToDictionary(r => r["combine_to"], r => r["sex"], StringComparer.Ordinal),
+        };
+        var confounded = PtmQtlCore.SiteTraits(d4, "age_months", trait, replicate, batch);
+        var fine = PtmQtlCore.SiteTraits(d4, "age_months", trait, replicate,
+            new Dictionary<string, IReadOnlyDictionary<string, string>> { ["sex"] = batch["sex"] });
+        Assert.Multiple(() =>
+        {
+            Assert.That(confounded.Confounded, Does.StartWith("the covariate(s) acquisition_batch cannot be told apart from age_months"));
+            Assert.That(confounded.Fits.Select(f => f["status"]).Distinct(), Is.EqualTo(new[] { PtmQtlCore.CovariateConfounded }));
+            Assert.That(confounded.Rows.Select(r => (r["beta_int"], r["p_int"], r["q"], r["estimable_int"])).Distinct(),
+                Is.EqualTo(new[] { ((object?)null, (object?)null, (object?)null, (object?)false) }));
+            // Every site the fit would see keeps its row and mzLib's counts of its runs and replicates.
+            Assert.That(confounded.Rows.Select(r => r["feature_key"]), Is.EquivalentTo(fine.Rows.Select(r => r["feature_key"])));
+            Assert.That(confounded.Rows.Select(r => r["n_detected"]), Is.EqualTo(fine.Rows.Select(r => r["n_detected"])));
+            Assert.That(confounded.Fits.Select(f => f["covariates"]).Distinct(), Is.EqualTo(new[] { "acquisition_batch=b24;acquisition_batch=b3;sex=M" }));
+            Assert.That(fine.Confounded, Is.Null);
+        });
+        var together = new Dictionary<string, IReadOnlyDictionary<string, string>>
+        {
+            ["sex"] = batch["sex"],
+            ["sex_again"] = batch["sex"],
+        };
+        Assert.That(PtmQtlCore.SiteTraits(d4, "age_months", trait, replicate, together).Confounded,
+            Does.StartWith("the covariate(s) sex, sex_again cannot be told apart"));
     }
 
     /// <summary>site_pairs on two real mouse bundles, then pool_pairs over their artefacts (scratch store; the
